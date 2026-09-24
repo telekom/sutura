@@ -141,6 +141,15 @@ pub enum CompileFailure {
         dimension: sutura_domain::model::DimensionName,
         hop: usize,
     },
+    /// The relationship carrying a federated link reached the plan stage with more than one key or
+    /// a truncated one.
+    ///
+    /// The bundle should not have assembled: `sutura_domain::catalog` refuses a cross-source
+    /// relationship that does not resolve to exactly one `equal` key, for
+    /// [`ChainLeavesItsSource`](Self::ChainLeavesItsSource)'s own reason. `crate::plan::PlanError::FederatedLinkNotSingleEqualKey`
+    /// carries the report.
+    #[error("the relationship carrying the federated link for metric {metric} declares more than one key or a truncated one")]
+    FederatedLinkNotSingleEqualKey { metric: MetricName },
 }
 
 /// Resolves and plans. It does not render.
@@ -205,5 +214,6 @@ pub fn compile(
         Err(PlanError::ChainLeavesItsSource { metric, dimension, hop }) => {
             Err(CompileFailure::ChainLeavesItsSource { metric, dimension, hop })
         }
+        Err(PlanError::FederatedLinkNotSingleEqualKey { metric }) => Err(CompileFailure::FederatedLinkNotSingleEqualKey { metric }),
     }
 }

@@ -17,7 +17,8 @@ use super::{
 };
 use crate::calendar::{Date, TimeRange};
 use crate::catalog::{
-    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship, ViaChain,
+    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, JoinKeys, Metric, Model, Relationship,
+    ViaChain,
 };
 use crate::knowledge::{Capability, GlossaryEntry, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, Phrase, Referent};
 use crate::measure::{AggregatedColumn, Measure, RequiredFilter, Term};
@@ -112,9 +113,8 @@ fn definitions(carrying: Carrying<'_>) -> Definitions {
         vec![Relationship::new(
             relationship_name("orders_customer"),
             model_name("orders"),
-            column("customer_id"),
             model_name("customers"),
-            column("id"),
+            JoinKeys::single_equal(column("customer_id"), column("id")),
             // Many-to-one, which is the cardinality that licenses a join: `assemble` refuses a
             // dimension reached through one that may duplicate rows, so the `Cardinality` case
             // could not be built any other way.

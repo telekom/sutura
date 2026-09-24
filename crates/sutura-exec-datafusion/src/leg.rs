@@ -38,7 +38,7 @@
 use datafusion::common::JoinType as EngineJoin;
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
 use sutura_domain::model::JoinType;
-use sutura_domain::plan::{LegPlan, PlanJoin};
+use sutura_domain::plan::{LegPlan, PlanJoin, PlanJoinKey};
 
 use crate::DataFusionError;
 use crate::collect::outputs;
@@ -90,11 +90,21 @@ pub(crate) fn dimension_join(
     right: LogicalPlan,
     join: &PlanJoin,
 ) -> Result<LogicalPlanBuilder, DataFusionError> {
-    let on = column(join.origin()).eq(column(join.target()));
+    let on = join.keys().iter().map(join_key_equality);
     match join.join_type() {
         JoinType::OneToOne | JoinType::ManyToOne | JoinType::OneToMany => builder
-            .join_on(right, EngineJoin::Left, [on])
+            .join_on(right, EngineJoin::Left, on)
             .map_err(|cause| DataFusionError::Build { cause }),
+    }
+}
+
+/// One [`PlanJoinKey`] term, as an equality - the origin side truncated first for
+/// [`PlanJoinKey::TruncatedEqual`]. `join_on` takes every term of the list and `AND`s them, so this
+/// hands over one term per key rather than folding them here.
+fn join_key_equality(key: &PlanJoinKey) -> Expr {
+    match key {
+        PlanJoinKey::Equal { origin, target } => column(origin).eq(column(target)),
+        PlanJoinKey::TruncatedEqual { origin, grain, target } => bucket_expression(*grain, origin).eq(column(target)),
     }
 }
 

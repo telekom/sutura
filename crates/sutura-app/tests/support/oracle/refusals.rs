@@ -22,7 +22,7 @@
 use std::collections::BTreeSet;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Audience, Definitions, Description, Metric, Model, Relationship};
+use sutura_domain::catalog::{Audience, Definitions, Description, JoinKeys, Metric, Model, Relationship};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{
@@ -116,9 +116,8 @@ impl SemanticCatalog for TwoSourceCatalog {
         let joins = vec![Relationship::new(
             RelationshipName::parse("subscription_customer").expect("a name"),
             ModelName::parse("subscriptions").expect("a name"),
-            column("customer_key"),
             ModelName::parse("customers").expect("a name"),
-            column("customer_key"),
+            JoinKeys::single_equal(column("customer_key"), column("customer_key")),
             JoinType::ManyToOne,
         )];
         let recurring_revenue = Metric::new(
@@ -227,9 +226,8 @@ impl SemanticCatalog for SameNameTablesCatalog {
         let joins = vec![Relationship::new(
             RelationshipName::parse("order_crm").expect("a name"),
             ModelName::parse("sales_orders").expect("a name"),
-            column("customer_id"),
             ModelName::parse("crm_orders").expect("a name"),
-            column("customer_id"),
+            JoinKeys::single_equal(column("customer_id"), column("customer_id")),
             JoinType::ManyToOne,
         )];
         let revenue = Metric::new(
@@ -342,17 +340,15 @@ impl SemanticCatalog for FederatedSameNameTablesCatalog {
             Relationship::new(
                 RelationshipName::parse("order_crm").expect("a name"),
                 ModelName::parse("sales_orders").expect("a name"),
-                column("customer_id"),
                 ModelName::parse("crm_orders").expect("a name"),
-                column("customer_id"),
+                JoinKeys::single_equal(column("customer_id"), column("customer_id")),
                 JoinType::ManyToOne,
             ),
             Relationship::new(
                 RelationshipName::parse("order_geo").expect("a name"),
                 ModelName::parse("sales_orders").expect("a name"),
-                column("customer_id"),
                 ModelName::parse("geo").expect("a name"),
-                column("customer_id"),
+                JoinKeys::single_equal(column("customer_id"), column("customer_id")),
                 JoinType::ManyToOne,
             ),
         ];

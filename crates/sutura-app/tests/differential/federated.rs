@@ -846,7 +846,11 @@ fn a_violated_cardinality_declaration_is_refused_by_both_topologies() {
             panic!("{topology}: a violated declaration is refused as one, not as {refused:?}");
         };
         assert_eq!(violation.relationship().as_str(), "subscription_customer", "{topology}");
-        assert_eq!(violation.column().as_str(), "customer_key", "{topology}");
+        assert_eq!(
+            violation.columns().iter().map(ToString::to_string).collect::<Vec<_>>(),
+            vec![String::from("customer_key")],
+            "{topology}"
+        );
         // Forty customers and one of them twice, which is the corpus this derivation makes.
         assert_eq!(violation.counts().rows(), 41, "{topology}");
         assert_eq!(violation.counts().distinct(), 40, "{topology}");

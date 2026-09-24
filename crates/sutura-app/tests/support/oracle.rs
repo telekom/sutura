@@ -56,7 +56,8 @@ use std::collections::BTreeSet;
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship, ViaChain,
+    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, JoinKey, JoinKeys, Metric, Model,
+    Relationship, ViaChain,
 };
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
@@ -161,6 +162,19 @@ fn product_family() -> Dimension {
         "product_family",
         "product_family",
         Some(&["subscription_product"]),
+        Some(&["convergent", "fixed_internet", "mobile", "tv"]),
+    )
+}
+
+/// The kind of product, reached from the daily fact through the COMPOUND join to the snapshot and
+/// then to the product dimension - the chain `data_per_subscription` declares rather than
+/// `product_family`'s own single hop, because the fact model here is `daily_usage`, not
+/// `subscriptions`.
+fn product_family_via_usage() -> Dimension {
+    dimension(
+        "product_family",
+        "product_family",
+        Some(&["daily_usage_subscription", "subscription_product"]),
         Some(&["convergent", "fixed_internet", "mobile", "tv"]),
     )
 }
@@ -282,17 +296,15 @@ fn tables() -> ModelsAndJoins {
         Relationship::new(
             RelationshipName::parse("subscription_customer").expect("a name"),
             ModelName::parse("subscriptions").expect("a name"),
-            column("customer_key"),
             ModelName::parse("customers").expect("a name"),
-            column("customer_key"),
+            JoinKeys::single_equal(column("customer_key"), column("customer_key")),
             JoinType::ManyToOne,
         ),
         Relationship::new(
             RelationshipName::parse("subscription_product").expect("a name"),
             ModelName::parse("subscriptions").expect("a name"),
-            column("product_key"),
             ModelName::parse("products").expect("a name"),
-            column("product_key"),
+            JoinKeys::single_equal(column("product_key"), column("product_key")),
             JoinType::ManyToOne,
         ),
         // Hop 2 of the one chained dimension, and the only relationship here whose origin is NOT
@@ -301,9 +313,30 @@ fn tables() -> ModelsAndJoins {
         Relationship::new(
             RelationshipName::parse("customer_region").expect("a name"),
             ModelName::parse("customers").expect("a name"),
-            column("region"),
             ModelName::parse("regions").expect("a name"),
-            column("region"),
+            JoinKeys::single_equal(column("region"), column("region")),
+            JoinType::ManyToOne,
+        ),
+        // The compound join: many daily usage rows to one subscription-month snapshot, matched on
+        // the subscription key AND on the usage date truncated to the snapshot's month - a single
+        // column pair would match every month the subscription existed and multiply each day's
+        // usage by that count.
+        Relationship::new(
+            RelationshipName::parse("daily_usage_subscription").expect("a name"),
+            ModelName::parse("daily_usage").expect("a name"),
+            ModelName::parse("subscriptions").expect("a name"),
+            JoinKeys::of(vec![
+                JoinKey::Equal {
+                    origin: column("subscription_key"),
+                    target: column("subscription_key"),
+                },
+                JoinKey::TruncatedEqual {
+                    origin: column("usage_date"),
+                    grain: Grain::Month,
+                    target: column("month"),
+                },
+            ])
+            .expect("two keys are a non-empty list"),
             JoinType::ManyToOne,
         ),
     ];
@@ -553,9 +586,10 @@ fn the_ratios() -> Vec<Metric> {
     // other half of what `required_filters` is for: this one means what it measures over every row in
     // range and there is no predicate a reader has to be warned about. The denominator counts the
     // subscriptions that APPEAR in the range rather than every subscription that existed during it,
-    // so it is volume per subscription that used the network. No dimensions at all, because
-    // `daily_usage` reaches the snapshot through no relationship. No anchor: a sum of decimal
-    // gigabytes over a count is a float.
+    // so it is volume per subscription that used the network. `product_family` is the one dimension,
+    // reached through `daily_usage_subscription`'s compound join and then `subscription_product` -
+    // every OTHER dimension the snapshot carries is still unreached from here. No anchor: a sum of
+    // decimal gigabytes over a count is a float.
     let data_per_subscription = Metric::new(
         MetricName::parse("data_per_subscription").expect("a name"),
         ModelName::parse("daily_usage").expect("a name"),
@@ -567,7 +601,7 @@ fn the_ratios() -> Vec<Metric> {
         Vec::new(),
         column("usage_date"),
         BTreeSet::from([Grain::Day, Grain::Week, Grain::Month]),
-        Vec::new(),
+        vec![product_family_via_usage()],
         None,
         Description::default(),
         Audience::Open,

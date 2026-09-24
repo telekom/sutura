@@ -28,6 +28,7 @@
 
 use std::collections::BTreeSet;
 
+use sutura_domain::catalog::JoinKey;
 use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::measure::Measure;
 use sutura_domain::model::{DimensionName, MetricName, SourceName, TableName};
@@ -141,6 +142,17 @@ pub(crate) enum PlanError {
         dimension: DimensionName,
         hop: usize,
     },
+    /// The relationship carrying a federated link declares more than one key, or a truncated one.
+    ///
+    /// **Unreachable through a loaded bundle, for [`ChainLeavesItsSource`](Self::ChainLeavesItsSource)'s
+    /// own reason.** `sutura_domain::catalog::Definitions::assemble` refuses a relationship whose two
+    /// models sit on different sources unless it resolves to exactly one `equal` key
+    /// (`InconsistentDefinitions::CrossSourceRelationshipNotSingleEqualKey`) - the combiner above the
+    /// legs matches them on ONE carried value today, so a link with more than one key or a truncated
+    /// one is a shape this splitter has no way to render. This is the plan-time half that holds if a
+    /// bundle ever reaches here without having been through the load check.
+    #[error("the relationship carrying the federated link for metric {metric} declares more than one key or a truncated one")]
+    FederatedLinkNotSingleEqualKey { metric: MetricName },
 }
 
 impl From<RefusalReason> for PlanError {
@@ -301,6 +313,17 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
     let remote_path = first_join.model.table();
     let remote_table = first_join.model.table_name();
     let remote_source = first_join.model.source();
+    // The combiner matches the two legs on one carried value, so a link must resolve to exactly
+    // one `equal` key - see `PlanError::FederatedLinkNotSingleEqualKey`'s own note.
+    let [JoinKey::Equal {
+        origin: link_origin,
+        target: link_target,
+    }] = relationship.keys()
+    else {
+        return Err(PlanError::FederatedLinkNotSingleEqualKey {
+            metric: metric.name().clone(),
+        });
+    };
     for dim in every_remote_dimension(resolution) {
         let Some(join) = dim.join.as_ref().and_then(|hops| hops.first()) else {
             continue;
@@ -330,14 +353,14 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
     }
     fact_keys.push(PlanKey::new(
         link_label.clone(),
-        PlanColumn::new(own_table.clone(), relationship.origin_column().clone()),
+        PlanColumn::new(own_table.clone(), link_origin.clone()),
     ));
 
     // The lookup leg projects the join target plus the remote dimension keys.
     let mut lookup_keys: Vec<PlanKey> = Vec::new();
     lookup_keys.push(PlanKey::new(
         link_label,
-        PlanColumn::new(remote_table.clone(), relationship.target_column().clone()),
+        PlanColumn::new(remote_table.clone(), link_target.clone()),
     ));
     for key in resolution.keys.iter().filter(|key| is_remote(key, model.source())) {
         lookup_keys.push(PlanKey::new(
@@ -577,7 +600,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     use sutura_domain::calendar::{Date, TimeRange};
-    use sutura_domain::catalog::{Audience, Description, Dimension, Metric, Model, Relationship, ViaChain};
+    use sutura_domain::catalog::{Audience, Description, Dimension, JoinKeys, Metric, Model, Relationship, ViaChain};
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{
         Aggregate, ColumnName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
@@ -611,9 +634,8 @@ mod tests {
         Relationship::new(
             RelationshipName::parse(name).expect("a test relationship is a relationship"),
             ModelName::parse(from.0).expect("a test model is a model"),
-            column(from.1),
             ModelName::parse(to.0).expect("a test model is a model"),
-            column(to.1),
+            JoinKeys::single_equal(column(from.1), column(to.1)),
             JoinType::ManyToOne,
         )
     }
@@ -752,7 +774,10 @@ mod tests {
         let clauses: Vec<(String, String)> = planned
             .joins()
             .iter()
-            .map(|join| (join.origin().table().to_string(), join.target().table().to_string()))
+            .map(|join| {
+                let key = join.keys().first().expect("a relationship's keys are non-empty");
+                (key.origin().table().to_string(), key.target().table().to_string())
+            })
             .collect();
         assert_eq!(
             clauses,

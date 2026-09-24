@@ -99,7 +99,7 @@ use std::collections::BTreeMap;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Audience, Definitions, Description, InconsistentDefinitions, InvalidDescription, Metric, Model, Relationship,
+    Audience, Definitions, Description, InconsistentDefinitions, InvalidDescription, JoinKeys, Metric, Model, Relationship,
 };
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::KnowledgeCapabilities;
@@ -360,9 +360,8 @@ impl<R: AspectReader> DataHubCatalog<R> {
         Ok(Relationship::new(
             name,
             origin_model,
-            origin_column,
             target_model,
-            target_column,
+            JoinKeys::single_equal(origin_column, target_column),
             join_type,
         ))
     }

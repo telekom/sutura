@@ -60,7 +60,7 @@ use polyglot_sql::builder::{self, Expr, SelectBuilder};
 use polyglot_sql::expressions::{Expression, Ordered, Parameter, ParameterStyle, Placeholder, Raw};
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, ColumnName, Grain, JoinType, Qualification, QualifiedTable, TableName};
-use sutura_domain::plan::{LegPlan, PlanBucket, PlanColumn, PlanJoin, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan};
+use sutura_domain::plan::{LegPlan, PlanBucket, PlanColumn, PlanJoin, PlanJoinKey, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan};
 use sutura_domain::warehouse::cardinality::{DISTINCT_LABEL, DeclaredKey, ROWS_LABEL};
 
 use crate::GeneratedQuery;
@@ -427,27 +427,32 @@ fn predicate(dialect: Dialect, plan_predicate: &PlanPredicate) -> Expr {
 /// the arguments for that arm, and `DateTruncShape::DateFirstAsQuotedFormat`'s own doc says why
 /// reusing either of the first two shapes would still be wrong.
 fn bucket_expression(bucket: &PlanBucket, dialect: Dialect) -> Expr {
+    truncated(bucket.column(), bucket.grain(), dialect)
+}
+
+/// A column truncated to a grain, cast to a date - the whole of what [`bucket_expression`] renders,
+/// generalised to any column rather than only the bucket's own.
+///
+/// **Shared with a [`JoinKey::TruncatedEqual`](sutura_domain::catalog::JoinKey::TruncatedEqual)
+/// term's origin side**, because a fact truncated to `month` for a join's `ON` clause and a fact
+/// truncated to `month` for the result's own time bucket must agree on what `month` means - one
+/// function, so a fifth dialect that gets the bucket right cannot still get a join wrong.
+fn truncated(column_ref: &PlanColumn, grain: Grain, dialect: Dialect) -> Expr {
     let (function, arguments) = match dialect.date_trunc_shape() {
-        DateTruncShape::GrainFirstAsLiteral => (
-            "DATE_TRUNC",
-            vec![builder::lit(unit(bucket.grain())), column(bucket.column())],
-        ),
+        DateTruncShape::GrainFirstAsLiteral => ("DATE_TRUNC", vec![builder::lit(unit(grain)), column(column_ref)]),
         // The grain as a bare keyword. `grain_keyword` carries why a `Raw` node here is not a hole.
         DateTruncShape::DateFirstAsKeyword => (
             "DATE_TRUNC",
             vec![
-                column(bucket.column()),
+                column(column_ref),
                 Expr(Expression::Raw(Raw {
-                    sql: String::from(grain_keyword(bucket.grain())),
+                    sql: String::from(grain_keyword(grain)),
                 })),
             ],
         ),
         // `TRUNC`, not `DATE_TRUNC` - see `DateTruncShape::DateFirstAsQuotedFormat`'s own doc for
         // why this arm builds the call directly instead of reshaping the other two's function.
-        DateTruncShape::DateFirstAsQuotedFormat => (
-            "TRUNC",
-            vec![column(bucket.column()), builder::lit(oracle_format(bucket.grain()))],
-        ),
+        DateTruncShape::DateFirstAsQuotedFormat => ("TRUNC", vec![column(column_ref), builder::lit(oracle_format(grain))]),
     };
     builder::func(function, arguments).cast("DATE")
 }
@@ -482,12 +487,32 @@ fn joined(statement: SelectBuilder, joins: &[PlanJoin], dialect: Dialect) -> Res
         // A joined table carries its own path, which is what makes a cross-dataset join one native
         // statement rather than two legs and a combiner.
         let path = table_path(join.table(), dialect)?;
-        let on = column(join.origin()).eq(column(join.target()));
+        let on = join_condition(join.keys(), dialect);
         statement = match join.join_type() {
             JoinType::OneToOne | JoinType::ManyToOne | JoinType::OneToMany => statement.left_join(&path, on),
         };
     }
     Ok(statement)
+}
+
+/// A join's whole `ON` clause: one key term's equality, `AND`ed with the rest in declared order.
+///
+/// **Never empty** - `keys` is built from
+/// [`Relationship::keys`](sutura_domain::catalog::Relationship::keys), which
+/// [`JoinKeys`](sutura_domain::catalog::JoinKeys) already refuses to be.
+fn join_condition(keys: &[PlanJoinKey], dialect: Dialect) -> Expr {
+    let mut terms = keys.iter().map(|key| join_key_equality(key, dialect));
+    let first = terms.next().expect("a relationship's keys are non-empty");
+    terms.fold(first, Expr::and)
+}
+
+/// One [`PlanJoinKey`] term, as an equality - the origin side truncated first for
+/// [`PlanJoinKey::TruncatedEqual`].
+fn join_key_equality(key: &PlanJoinKey, dialect: Dialect) -> Expr {
+    match key {
+        PlanJoinKey::Equal { origin, target } => column(origin).eq(column(target)),
+        PlanJoinKey::TruncatedEqual { origin, grain, target } => truncated(origin, *grain, dialect).eq(column(target)),
+    }
 }
 
 /// The dotted path a `FROM` or a `JOIN` names, or a refusal if this target cannot resolve it.
@@ -733,11 +758,28 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
 
 /// Renders one declared join key's uniqueness probe as one statement.
 ///
-/// **Two counts over one column of one table, and nothing else.** `COUNT(col)` beside
-/// `COUNT(DISTINCT col)` is the whole question a `many_to_one` declaration can be contradicted by,
-/// and the pair is equal exactly when the declaration holds. There is no `WHERE`, no `GROUP BY`, no
-/// `HAVING` and no `LIMIT`: the declaration is unconditional, so a probe carrying a filter would
-/// answer a narrower question than the one the join path spends.
+/// **Two counts over the WHOLE key - every column of one table together, and nothing else.**
+/// `COUNT(*)` over the rows every key column is non-null on, beside the count of DISTINCT
+/// combinations those same columns take, is the whole question a `many_to_one` declaration can be
+/// contradicted by: the pair is equal exactly when the declaration holds. For one column this is
+/// the single-column question the pair always asked; for more than one it is the fan-out question a
+/// single `COUNT(DISTINCT col)` cannot ask, because no `COUNT(DISTINCT …)` form is common to every
+/// dialect this crate renders for over more than one column. There is no filter beyond the
+/// non-null guard, no `HAVING` and no `LIMIT`: the declaration is unconditional over what it
+/// promises, so a probe narrowing it further would answer a different question than the one the
+/// join path spends.
+///
+/// **A null in any key column excludes the row from both counts**, the same decision a single
+/// column's `COUNT(col)` made for free before this counted more than one - a key with a null part
+/// matches nothing on either side of any join, so counting it would report a violation that could
+/// never change an answer. Made explicit here because `COUNT(*)` does not exclude nulls the way
+/// `COUNT(col)` did.
+///
+/// **The distinct count is a nested `COUNT(*)` over a `SELECT DISTINCT`, not `COUNT(DISTINCT …)` on
+/// the key columns directly** - portable by construction rather than by dialect-specific tuple or
+/// multi-argument `DISTINCT` syntax, which this crate's five targets do not agree on. Measured
+/// (`a_key_probe_renders_and_parses_for_every_dialect_it_declares`) rather than declared, the same
+/// discipline `crate::dialect::DateTruncShape`'s own header asks for.
 ///
 /// **No parameter, and nothing from a question.** A [`DeclaredKey`] is built out of a pinned
 /// bundle's own parsed names, so the statement has nowhere for a caller's value to arrive; the
@@ -753,15 +795,28 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
 /// literals, so the label an adapter reads the count back under is the label the statement asked
 /// for.
 pub fn generate_key_probe(key: &DeclaredKey<'_>, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
+    let path = table_path(key.table(), dialect)?;
     // The path goes in the `FROM` and the qualifier is the table's own NAME, so a two-part or
     // three-part table still renders a two-part column reference - `qualified` is the one place that
     // is decided.
-    let over = qualified(key.table().name(), key.column());
-    let projection = vec![
-        aliased(builder::count(over.clone()), ROWS_LABEL)?,
-        aliased(builder::count_distinct(over), DISTINCT_LABEL)?,
-    ];
-    let ast = builder::select(projection).from(&table_path(key.table(), dialect)?).build();
+    let columns: Vec<Expr> = key.columns().iter().copied().map(|column| qualified(key.table().name(), column)).collect();
+    let non_null = || -> Expr {
+        let mut clauses = columns.iter().cloned().map(Expr::is_not_null);
+        let first = clauses.next().expect("a declared key carries at least one column");
+        clauses.fold(first, Expr::and)
+    };
+
+    // `COUNT(*) FROM (SELECT DISTINCT <columns> FROM <table> WHERE <non-null>)`: the fan-out
+    // question over the whole key, asked without a single `DISTINCT` form every target agrees on.
+    let distinct_rows = builder::select(columns.clone())
+        .from(&path)
+        .distinct()
+        .where_(non_null());
+    let distinct_count = builder::select([builder::count_star()]).from_expr(builder::subquery(distinct_rows, "distinct_keys"));
+    let distinct_scalar = builder::subquery(distinct_count, DISTINCT_LABEL);
+
+    let projection = vec![aliased(builder::count_star(), ROWS_LABEL)?, distinct_scalar];
+    let ast = builder::select(projection).from(&path).where_(non_null()).build();
     Ok(GeneratedQuery::new(key.source().clone(), render(&ast, dialect)?, Vec::new()))
 }
 

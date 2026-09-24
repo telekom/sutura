@@ -407,15 +407,22 @@ where
             reason = "this cell is one of the two permitted callers of a port method that executes with no \
                       credential; it exists to measure that the method still does what the boot path needs"
         )]
+        let key_columns = || {
+            key.columns()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
         let answered = warehouse
-            .declared_key(key)
-            .unwrap_or_else(|e| panic!("{} could not count {} on {}: {e}", W::NAME, key.column(), key.table()));
+            .declared_key(key.clone())
+            .unwrap_or_else(|e| panic!("{} could not count {} on {}: {e}", W::NAME, key_columns(), key.table()));
         let KeyUniqueness::Counted(counts) = answered else {
             panic!(
                 "{} did not count {}, so every cardinality declaration on it is unchecked and nothing \
                  else in this suite would have said so",
                 W::NAME,
-                key.column()
+                key_columns()
             );
         };
         let rows = rows_in_fixture(&key);
@@ -425,13 +432,13 @@ where
             "{} counted {} values of {} where the fixture holds {rows}",
             W::NAME,
             counts.rows(),
-            key.column()
+            key_columns()
         );
         assert!(
             counts.is_unique(),
             "{} says {} is not unique in {}, which would make the example corpus unservable: {counts:?}",
             W::NAME,
-            key.column(),
+            key_columns(),
             key.table()
         );
     }

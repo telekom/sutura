@@ -6,7 +6,7 @@ use super::{
     CountsNotRead, DISTINCT_LABEL, DeclaredKey, ImpossibleCounts, KeyCounts, KeyNotUnique, KeyUniqueness, NoDeclaredKey,
     ROWS_LABEL,
 };
-use crate::catalog::{Definitions, Description, Model, Relationship};
+use crate::catalog::{Definitions, Description, JoinKeys, Model, Relationship};
 use crate::model::{ColumnName, JoinType, ModelName, RelationshipName, SourceName, TableName};
 use crate::warehouse::{RowSet, Value};
 
@@ -32,9 +32,8 @@ fn joined(target_model: &str, target_column: &str, join_type: JoinType) -> Relat
     Relationship::new(
         RelationshipName::parse("orders_customer").expect("a test relationship is a relationship"),
         model_name("orders"),
-        column("customer_key"),
         model_name(target_model),
-        column(target_column),
+        JoinKeys::single_equal(column("customer_key"), column(target_column)),
         join_type,
     )
 }
@@ -68,7 +67,7 @@ fn both_join_types_that_promise_a_unique_target_yield_a_probe() {
         let relationship = joined("customers", "customer_key", join_type);
         let key = DeclaredKey::promised_by(&relationship, &definitions).expect("this join type promises a unique target");
         assert_eq!(key.model().as_str(), "customers");
-        assert_eq!(key.column().as_str(), "customer_key");
+        assert_eq!(key.columns(), &[&column("customer_key")]);
         assert_eq!(key.source().as_str(), "local");
         assert_eq!(key.table().to_string(), "customers");
         assert_eq!(key.relationship().as_str(), "orders_customer");
@@ -164,7 +163,7 @@ fn a_violation_is_found_only_where_the_counts_show_one() {
     let found = KeyNotUnique::found(&key, violated).expect("forty-one rows under forty keys is a violation");
     assert_eq!(found.relationship().as_str(), "orders_customer");
     assert_eq!(found.model().as_str(), "customers");
-    assert_eq!(found.column().as_str(), "customer_key");
+    assert_eq!(found.columns(), [column("customer_key")]);
     assert_eq!(found.counts(), violated);
 
     // **What the refusal says, asserted on the rendering rather than on the fields**, because the

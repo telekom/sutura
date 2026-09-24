@@ -19,7 +19,7 @@
 //! cannot be contradicted inside one answer's statement - which is exactly why the two topologies
 //! could disagree without either being wrong about its own plan. Refused here, both topologies agree
 //! again: a bundle whose declaration the data contradicts is not [`Validated`](crate::Validated), so
-//! neither of them serves, and the refusal names the model, the table and the column.
+//! neither of them serves, and the refusal names the model, the table and every column of the key.
 //!
 //! **So a CALLER never sees this refusal, and that is the shape rather than a gap in it.** The
 //! deployment does not start, so there is no question for a wrong number to come back to. **The
@@ -65,7 +65,7 @@
 //!
 //! | Outcome | What happens |
 //! | --- | --- |
-//! | Counted, and the data contradicts the declaration | [`NotValidated::DeclaredKeyNotUnique`](sutura_domain::pinned::NotValidated::DeclaredKeyNotUnique), naming the model, the table, the column and the two counts |
+//! | Counted, and the data contradicts the declaration | [`NotValidated::DeclaredKeyNotUnique`](sutura_domain::pinned::NotValidated::DeclaredKeyNotUnique), naming the model, the table, every column of the key and the two counts |
 //! | The adapter answered `Err` | [`NotValidated::DeclaredKeyNotCounted`](sutura_domain::pinned::NotValidated::DeclaredKeyNotCounted), carrying the adapter's own message and every cause beneath it |
 //! | The adapter took the port's default | Passes. [`KeyUniqueness::NotAsked`](sutura_domain::warehouse::cardinality::KeyUniqueness::NotAsked) means *nobody counted*, and refusing on it would stop every deployment whose data system has no cheap way to ask - it is a fact about what was LINKED, not about a run |
 //! | No data system is configured under the target model's source | Passes. Nothing can execute a question over that model either, so refusing here would refuse a bundle for a reason the query path already covers |
@@ -163,7 +163,7 @@ where
             reason = "the boot path is one of the two permitted callers of a port method that executes with no \
                       credential; the ban exists so that this and the registry cell are the only places it is called"
         )]
-        let answered = warehouse.declared_key(key);
+        let answered = warehouse.declared_key(key.clone());
         // **The adapter's error is carried, not dropped.** It was discarded here, at the one point
         // it was still typed, which left *this identity may not read the dimension table* looking
         // exactly like a clean check. `flatten` walks it to text because `W::Error` cannot cross

@@ -26,7 +26,7 @@ use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, Grain, TableName};
 use sutura_domain::plan::{PlanColumn, PlanMeasure, PlanPredicate, PlanTerm};
 use sutura_domain::warehouse::ParamValue;
-use sutura_domain::warehouse::cardinality::{DISTINCT_LABEL, DeclaredKey, ROWS_LABEL};
+use sutura_domain::warehouse::cardinality::DeclaredKey;
 
 use crate::DataFusionError;
 
@@ -43,20 +43,27 @@ pub(crate) fn column(plan_column: &PlanColumn) -> Expr {
     ))
 }
 
-/// The two aggregates a declared key probe projects, under the domain's own labels.
+/// The columns a declared key probe reasons over, qualified by the table it counts.
 ///
-/// **Aliased with `sutura-domain`'s constants rather than this crate's literals**, so the field name
-/// the engine puts on the batch is the name
-/// [`KeyUniqueness::read`](sutura_domain::warehouse::cardinality::KeyUniqueness::read) looks for -
-/// the same one-definition argument the SQL renderer makes for the same pair. Nulls are excluded by
-/// `COUNT` on both halves, which is the arithmetic the probe's own module argues for: a null key
-/// matches nothing, so two null rows duplicate nothing.
-pub(crate) fn key_counts(key: &DeclaredKey<'_>) -> Vec<Expr> {
-    let over = Expr::Column(Column::new(Some(table_reference(key.table().name())), key.column().as_str()));
-    vec![
-        count(over.clone()).alias(ROWS_LABEL),
-        count_distinct(over).alias(DISTINCT_LABEL),
-    ]
+/// **The whole key, in declared order** - `crate::lib`'s `key_uniqueness` groups by these to find
+/// the distinct combinations, the fan-out question a compound relationship's declaration is about.
+/// For one column this is the same single column the probe always grouped by.
+pub(crate) fn key_columns(key: &DeclaredKey<'_>) -> Vec<Expr> {
+    key.columns()
+        .iter()
+        .map(|column| Expr::Column(Column::new(Some(table_reference(key.table().name())), column.as_str())))
+        .collect()
+}
+
+/// Every key column non-null, `AND`ed together.
+///
+/// A key with a null part matches nothing on either side of any join, so a row failing this guard
+/// would report a violation that could never change an answer - the same arithmetic the probe's own
+/// module argues for a single column, generalised to the whole key.
+pub(crate) fn key_non_null(key: &DeclaredKey<'_>) -> Expr {
+    let mut clauses = key_columns(key).into_iter().map(Expr::is_not_null);
+    let first = clauses.next().expect("a declared key carries at least one column");
+    clauses.fold(first, Expr::and)
 }
 
 /// A table name, as the engine's reference type, without normalisation.

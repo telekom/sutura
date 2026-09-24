@@ -19,8 +19,8 @@ use std::collections::BTreeSet;
 
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::catalog::{
-    Anchor, AnchorValue, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidDimensionValue, InvalidViaChain,
-    Metric, Model, Relationship, ViaChain,
+    Anchor, AnchorValue, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidDimensionValue, InvalidJoinKeys,
+    InvalidViaChain, JoinKey, JoinKeys, Metric, Model, Relationship, ViaChain,
 };
 use sutura_domain::expression::{AuthoredSql, Computation, InvalidComputation};
 use sutura_domain::measure::{Measure, RequiredFilter};
@@ -180,12 +180,53 @@ impl ModelDoc {
     }
 }
 
-/// One end of a relationship.
+/// One term of a relationship's join condition, as the document spells it.
+///
+/// Externally tagged - `equal:` or `truncated_equal:`, each with `deny_unknown_fields` - so a
+/// misspelled key inside a term refuses by name rather than being silently dropped. This is
+/// `sutura_domain::catalog::JoinKey`'s own vocabulary and nothing wider: no condition string, no
+/// `OR`, no third shape.
+///
+/// **Read through `singleton_map` one element at a time, [`MetricDoc::measure`]'s own reason.** An
+/// externally tagged enum is a YAML *tag* to `serde_norway` - `!equal {...}` - and nobody writing a
+/// catalog file spells a term that way. [`SingletonMapped`] is the per-element adapter
+/// [`RelationshipDoc::keys`]'s `deserialize_with` drives over the whole list, because
+/// `serde_norway::with::singleton_map` reads one field and this one is a `Vec`.
 #[derive(Debug, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct EndpointDoc {
-    model: ModelName,
-    column: ColumnName,
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum JoinKeyDoc {
+    Equal { origin: ColumnName, target: ColumnName },
+    TruncatedEqual { origin: ColumnName, grain: Grain, target: ColumnName },
+}
+
+impl JoinKeyDoc {
+    fn into_domain(self) -> JoinKey {
+        match self {
+            Self::Equal { origin, target } => JoinKey::Equal { origin, target },
+            Self::TruncatedEqual { origin, grain, target } => JoinKey::TruncatedEqual { origin, grain, target },
+        }
+    }
+}
+
+/// One [`JoinKeyDoc`], read through `singleton_map` - see that type's own note.
+struct SingletonMapped(JoinKeyDoc);
+
+impl<'de> serde::Deserialize<'de> for SingletonMapped {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        serde_norway::with::singleton_map::deserialize(deserializer).map(Self)
+    }
+}
+
+/// A list of key terms, each read through [`SingletonMapped`].
+fn deserialize_join_keys<'de, D>(deserializer: D) -> Result<Vec<JoinKeyDoc>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let wrapped: Vec<SingletonMapped> = serde::Deserialize::deserialize(deserializer)?;
+    Ok(wrapped.into_iter().map(|SingletonMapped(key)| key).collect())
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -198,21 +239,20 @@ pub struct RelationshipDoc {
     )]
     kind: DocumentKind,
     name: RelationshipName,
-    origin: EndpointDoc,
-    target: EndpointDoc,
+    origin_model: ModelName,
+    target_model: ModelName,
+    /// The ordered list of typed key terms - see [`JoinKeyDoc`]. `keys: [{equal: {...}}]` is the
+    /// single-pair case every relationship declared before this field existed; a compound join adds
+    /// a second entry rather than widening the first.
+    #[serde(deserialize_with = "deserialize_join_keys")]
+    keys: Vec<JoinKeyDoc>,
     join_type: JoinType,
 }
 
 impl RelationshipDoc {
-    pub fn into_domain(self) -> Relationship {
-        Relationship::new(
-            self.name,
-            self.origin.model,
-            self.origin.column,
-            self.target.model,
-            self.target.column,
-            self.join_type,
-        )
+    pub fn into_domain(self) -> Result<Relationship, InvalidJoinKeys> {
+        let keys = JoinKeys::of(self.keys.into_iter().map(JoinKeyDoc::into_domain).collect())?;
+        Ok(Relationship::new(self.name, self.origin_model, self.target_model, keys, self.join_type))
     }
 }
 

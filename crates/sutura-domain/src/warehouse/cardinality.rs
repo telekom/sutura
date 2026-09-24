@@ -61,23 +61,32 @@ pub const ROWS_LABEL: &str = "0_key_rows";
 /// The label the distinct count is projected under. See [`ROWS_LABEL`].
 pub const DISTINCT_LABEL: &str = "0_key_distinct";
 
-/// One declared join key, resolved to the table and column a data system can be asked about.
+/// One declared join key, resolved to the table and the ordered, non-empty set of target columns a
+/// data system can be asked about.
 ///
 /// **A newtype that parses, and what it parses away is asking the wrong question.** It is
-/// constructible only from a [`Relationship`] whose [`JoinType`] promises that the TARGET column is
+/// constructible only from a [`Relationship`] whose [`JoinType`] promises that the TARGET side is
 /// unique, resolved against the [`Definitions`] that carry the target model - so a probe over a
 /// `one_to_many` target, or over a column the model does not declare, is unrepresentable rather than
 /// refused later. An adapter that holds one of these knows the question is worth asking.
 ///
+/// **The whole key set, not one column.** A compound relationship's declaration is about the
+/// COMBINATION of its target columns being unique - `(subscription_key, month)` can identify at
+/// most one row even where neither column alone does - so a probe that checked one of them would
+/// answer a narrower question than the one the join path spends. Only the target side matters here:
+/// [`crate::catalog::JoinKey::TruncatedEqual`]'s grain truncates the ORIGIN column before the
+/// comparison, and the target column it compares against is untouched, so this reasons over plain
+/// columns whichever kind of term declared them.
+///
 /// It borrows, because every part of it is already owned by the pinned bundle the boot path is
 /// holding, and a probe outlives nothing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeclaredKey<'a> {
     relationship: &'a RelationshipName,
     model: &'a ModelName,
     source: &'a SourceName,
     table: &'a QualifiedTable,
-    column: &'a ColumnName,
+    columns: Vec<&'a ColumnName>,
 }
 
 /// Why a declared relationship yields no key to probe.
@@ -124,19 +133,23 @@ impl<'a> DeclaredKey<'a> {
         let target = definitions
             .model(model)
             .ok_or_else(|| NoDeclaredKey::ModelUndefined { model: model.clone() })?;
-        let column = relationship.target_column();
-        if !target.has_column(column) {
-            return Err(NoDeclaredKey::ColumnNotOnModel {
-                model: model.clone(),
-                column: column.clone(),
-            });
+        let mut columns = Vec::with_capacity(relationship.keys().len());
+        for key in relationship.keys() {
+            let column = key.target();
+            if !target.has_column(column) {
+                return Err(NoDeclaredKey::ColumnNotOnModel {
+                    model: model.clone(),
+                    column: column.clone(),
+                });
+            }
+            columns.push(column);
         }
         Ok(Self {
             relationship: relationship.name(),
             model,
             source: target.source(),
             table: target.table(),
-            column,
+            columns,
         })
     }
 
@@ -168,11 +181,11 @@ impl<'a> DeclaredKey<'a> {
         self.table
     }
 
-    /// The column whose values are meant to be distinct.
+    /// The columns whose combined values are meant to be distinct, in declared order. Never empty.
     #[inline]
     #[must_use]
-    pub const fn column(&self) -> &'a ColumnName {
-        self.column
+    pub fn columns(&self) -> &[&'a ColumnName] {
+        &self.columns
     }
 }
 
@@ -279,7 +292,7 @@ pub struct KeyNotUnique {
     relationship: RelationshipName,
     model: ModelName,
     table: QualifiedTable,
-    column: ColumnName,
+    columns: Vec<ColumnName>,
     counts: KeyCounts,
 }
 
@@ -291,7 +304,7 @@ impl KeyNotUnique {
             relationship: key.relationship().clone(),
             model: key.model().clone(),
             table: key.table().clone(),
-            column: key.column().clone(),
+            columns: key.columns().iter().map(|column| (*column).clone()).collect(),
             counts,
         })
     }
@@ -317,11 +330,11 @@ impl KeyNotUnique {
         &self.table
     }
 
-    /// The column that was meant to identify at most one row.
+    /// The columns whose combination was meant to identify at most one row. Never empty.
     #[inline]
     #[must_use]
-    pub const fn column(&self) -> &ColumnName {
-        &self.column
+    pub fn columns(&self) -> &[ColumnName] {
+        &self.columns
     }
 
     /// What the data system counted.
@@ -334,12 +347,17 @@ impl KeyNotUnique {
 
 impl core::fmt::Display for KeyNotUnique {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "relationship {} declares that (", self.relationship)?;
+        for (index, column) in self.columns.iter().enumerate() {
+            if index > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{column}")?;
+        }
         write!(
             f,
-            "relationship {} declares that {} identifies at most one row of {}, and {} holds {} \
-             non-null values under {} distinct ones",
-            self.relationship,
-            self.column,
+            ") identifies at most one row of {}, and {} holds {} non-null combinations under {} \
+             distinct ones",
             self.model,
             self.table,
             self.counts.rows(),

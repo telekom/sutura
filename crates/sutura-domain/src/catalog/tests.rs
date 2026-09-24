@@ -8,9 +8,9 @@
 use std::collections::BTreeSet;
 
 use super::{
-    Audience, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidViaChain,
-    MAX_DEFINITIONS_BYTES, MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL,
-    ViaChain,
+    Audience, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidJoinKeys, InvalidViaChain,
+    JoinKey, JoinKeys, MAX_DEFINITIONS_BYTES, MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship,
+    TIME_BUCKET_LABEL, ViaChain,
 };
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{
@@ -36,6 +36,17 @@ fn dimension_name(raw: &str) -> DimensionName {
 
 fn relationship_name(raw: &str) -> RelationshipName {
     RelationshipName::parse(raw).expect("a test relationship is a relationship")
+}
+
+/// A single-`equal`-key relationship, the shape every test here but the compound-key ones wants.
+fn relationship(name: &str, from_model: &str, from_column: &str, to_model: &str, to_column: &str, join_type: JoinType) -> Relationship {
+    Relationship::new(
+        relationship_name(name),
+        model_name(from_model),
+        model_name(to_model),
+        JoinKeys::single_equal(column(from_column), column(to_column)),
+        join_type,
+    )
 }
 
 fn value(raw: &str) -> DimensionValue {
@@ -82,12 +93,12 @@ fn two_models() -> ModelsAndJoins {
             model("orders", "local", &["amount_cents", "order_date", "customer_id"]),
             model("customers", "local", &["id", "region_code"]),
         ],
-        vec![Relationship::new(
-            relationship_name("orders_customer"),
-            model_name("orders"),
-            column("customer_id"),
-            model_name("customers"),
-            column("id"),
+        vec![relationship(
+            "orders_customer",
+            "orders",
+            "customer_id",
+            "customers",
+            "id",
             JoinType::ManyToOne,
         )],
     )
@@ -239,12 +250,12 @@ fn a_join_that_could_duplicate_rows_is_refused_rather_than_optimised() {
     // number with no error anywhere. Refusing at load is the only place this is visible before
     // somebody acts on the number.
     let (models, _) = two_models();
-    let fanning = vec![Relationship::new(
-        relationship_name("orders_customer"),
-        model_name("orders"),
-        column("customer_id"),
-        model_name("customers"),
-        column("id"),
+    let fanning = vec![relationship(
+        "orders_customer",
+        "orders",
+        "customer_id",
+        "customers",
+        "id",
         JoinType::OneToMany,
     )];
     let m = metric(
@@ -267,12 +278,12 @@ fn a_dimension_reached_through_a_relationship_that_starts_elsewhere_is_refused()
     // A relationship from `customers` cannot be used to reach a column from a metric on
     // `orders`: the join would have no column in common with the FROM clause.
     let (models, _) = two_models();
-    let backwards = vec![Relationship::new(
-        relationship_name("customer_orders"),
-        model_name("customers"),
-        column("id"),
-        model_name("orders"),
-        column("customer_id"),
+    let backwards = vec![relationship(
+        "customer_orders",
+        "customers",
+        "id",
+        "orders",
+        "customer_id",
         JoinType::ManyToOne,
     )];
     let m = metric(
@@ -459,12 +470,12 @@ fn a_label_may_not_be_spelled_the_same_as_a_table_the_statement_reads() {
     assert_eq!(
         Definitions::assemble(
             joined,
-            vec![Relationship::new(
-                relationship_name("orders_customer"),
-                model_name("orders"),
-                column("customer_id"),
-                model_name("customers"),
-                column("id"),
+            vec![relationship(
+                "orders_customer",
+                "orders",
+                "customer_id",
+                "customers",
+                "id",
                 JoinType::ManyToOne,
             )],
             vec![metric(
@@ -651,12 +662,12 @@ fn a_model_may_name_a_table_in_another_dataset_and_the_label_check_reads_the_las
 #[test]
 fn a_relationship_naming_a_column_that_does_not_exist_is_refused() {
     let (models, _) = two_models();
-    let broken = vec![Relationship::new(
-        relationship_name("orders_customer"),
-        model_name("orders"),
-        column("nope"),
-        model_name("customers"),
-        column("id"),
+    let broken = vec![relationship(
+        "orders_customer",
+        "orders",
+        "nope",
+        "customers",
+        "id",
         JoinType::ManyToOne,
     )];
     assert_eq!(
@@ -703,6 +714,7 @@ fn a_dimension_naming_a_column_the_joined_model_does_not_have_is_refused() {
 }
 
 mod chain;
+mod compound_join;
 
 #[test]
 fn a_dimension_with_an_allowlist_permits_only_what_it_lists() {

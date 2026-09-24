@@ -218,11 +218,10 @@ fn caveats() -> Vec<Caveat> {
             "churn_is_subscription_level",
             vec![about("churn_rate"), about("subscriptions_churned")],
         ),
-        // "Neither of these can be broken down at all" - the two metrics on the usage model.
-        caveat(
-            "usage_reaches_no_snapshot",
-            vec![about("data_per_subscription"), about("voice_minutes")],
-        ),
+        // "This one cannot be broken down at all" - `data_per_subscription` now reaches
+        // `product_family` through `daily_usage_subscription`'s compound join, so only
+        // `voice_minutes` - kept deliberately unadorned - is still in scope.
+        caveat("usage_reaches_no_snapshot", vec![about("voice_minutes")]),
         // "These two both sound like 'average revenue' and they average different things."
         caveat(
             "two_averages_of_the_same_revenue",

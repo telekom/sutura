@@ -76,7 +76,7 @@ pub mod fixture;
 use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Definitions, Description, Model, Relationship as DomainRelationship};
+use sutura_domain::catalog::{Definitions, Description, JoinKeys, Model, Relationship as DomainRelationship};
 use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
 use sutura_domain::model::{
     ColumnName, DatasetName, InvalidIdentifier, JoinType, ModelName, ProjectName, QualifiedTable, RelationshipName, SourceName,
@@ -379,9 +379,8 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
         Ok(DomainRelationship::new(
             name,
             origin_model,
-            origin_column,
             target_model,
-            target_column,
+            JoinKeys::single_equal(origin_column, target_column),
             JoinType::ManyToOne,
         ))
     }

@@ -11,8 +11,9 @@
 //! the dependency runs inward only - it reads `crate::resolve` and `sutura_domain`, and neither
 //! reads it.
 
+use sutura_domain::catalog::JoinKey;
 use sutura_domain::model::{DimensionName, SourceName, TableName};
-use sutura_domain::plan::{PlanColumn, PlanJoin};
+use sutura_domain::plan::{PlanColumn, PlanJoin, PlanJoinKey};
 
 use crate::resolve::{Resolution, ResolvedDimension};
 
@@ -97,6 +98,12 @@ pub(super) fn chain_joins(resolution: &Resolution<'_>, own_table: &TableName, ow
                 break;
             }
             let target = hop.model.table_name();
+            let keys = hop
+                .relationship
+                .keys()
+                .iter()
+                .map(|key| plan_join_key(key, origin, target))
+                .collect();
             chain.push(PlanJoin::new(
                 hop.relationship.name().clone(),
                 // The joined model's own path: a dimension table in another dataset is still one
@@ -104,8 +111,7 @@ pub(super) fn chain_joins(resolution: &Resolution<'_>, own_table: &TableName, ow
                 // `mono_plan`'s `own_table` gives.
                 hop.model.table().clone(),
                 hop.relationship.join_type(),
-                PlanColumn::new(origin.clone(), hop.relationship.origin_column().clone()),
-                PlanColumn::new(target.clone(), hop.relationship.target_column().clone()),
+                keys,
             ));
             origin = target;
         }
@@ -135,6 +141,22 @@ pub(super) fn every_dimension<'a, 'r>(resolution: &'r Resolution<'a>) -> impl It
         .keys
         .iter()
         .chain(resolution.filters.iter().map(|filter| &filter.dimension))
+}
+
+/// One [`JoinKey`] term, qualified by the tables the two ends of a hop read from.
+fn plan_join_key(key: &JoinKey, origin_table: &TableName, target_table: &TableName) -> PlanJoinKey {
+    let target = PlanColumn::new(target_table.clone(), key.target().clone());
+    match key {
+        JoinKey::Equal { origin, .. } => PlanJoinKey::Equal {
+            origin: PlanColumn::new(origin_table.clone(), origin.clone()),
+            target,
+        },
+        JoinKey::TruncatedEqual { origin, grain, .. } => PlanJoinKey::TruncatedEqual {
+            origin: PlanColumn::new(origin_table.clone(), origin.clone()),
+            grain: *grain,
+            target,
+        },
+    }
 }
 
 /// Which table a dimension's column is read from: the last hop's when there is a chain, the metric's

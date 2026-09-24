@@ -1,12 +1,10 @@
 ---
 kind: relationship
 name: customer_region
-origin:
-  model: customers
-  column: region
-target:
-  model: regions
-  column: region
+origin_model: customers
+target_model: regions
+keys:
+  - equal: { origin: region, target: region }
 join_type: many_to_one
 ---
 Many customers to one region. The second hop of the only chained dimension here.

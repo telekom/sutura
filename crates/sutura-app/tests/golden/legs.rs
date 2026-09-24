@@ -50,8 +50,8 @@ use sutura_domain::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName,
 };
 use sutura_domain::plan::{
-    InternalLabel, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate,
-    PlanTerm, PredicateOrigin, ResultLabel, StatementTables,
+    InternalLabel, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanJoinKey, PlanKey,
+    PlanPredicate, PlanTerm, PredicateOrigin, ResultLabel, StatementTables,
 };
 use sutura_domain::warehouse::ParamValue;
 use sutura_sql::{Dialect, generate_leg};
@@ -204,8 +204,10 @@ fn fact_sum_over_a_local_join() -> LegPlan {
                 RelationshipName::parse("subscription_product").expect("a fixture relationship is a relationship"),
                 table(LOCAL_DIMENSION_TABLE),
                 JoinType::ManyToOne,
-                column(FACT_TABLE, "product_key"),
-                column(LOCAL_DIMENSION_TABLE, "product_key"),
+                vec![PlanJoinKey::Equal {
+                    origin: column(FACT_TABLE, "product_key"),
+                    target: column(LOCAL_DIMENSION_TABLE, "product_key"),
+                }],
             )],
         )
         .expect("two differently named fixture tables are distinguishable"),

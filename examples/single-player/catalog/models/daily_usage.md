@@ -7,14 +7,11 @@ columns: [usage_date, subscription_key, data_gb, voice_min]
 ---
 One row per subscription per day on which it used anything.
 
-It carries `subscription_key` and no relationship reaches from here to the subscription
-snapshot, which looks like an omission and is not. The snapshot has one row per
-subscription per MONTH, so a join on `subscription_key` alone matches every month that
-subscription existed and multiplies each day of usage by that count. The sum over those
-rows is a wrong number that raises no error anywhere.
-
-The join that would be correct also constrains the snapshot month to the usage month,
-and a relationship here declares one column on each side. So the relationship is absent
-rather than declared wrongly, and every metric on this model groups by time and by
-nothing else. Usage per product family is a definition this catalog cannot yet express,
-and saying so is better than shipping a number that is quietly several times too large.
+It carries `subscription_key`, and a join on that column alone matches every month the
+subscription existed and multiplies each day of usage by that count against the
+subscription snapshot, which has one row per subscription per MONTH. `data_per_subscription`
+reaches `product_family` through `daily_usage_subscription`, whose second key term
+constrains the snapshot month to the usage month rather than joining on the subscription
+key alone - two typed terms, not a wider relationship. Every OTHER dimension here still
+comes from grouping by time and by nothing else: the compound join reaches one dimension
+one metric declares, not every column of the snapshot.

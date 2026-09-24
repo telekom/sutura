@@ -178,18 +178,23 @@ impl Model {
     }
 }
 
-/// A declared join between two models: two columns and a cardinality.
+/// A declared join between two models: an ordered, non-empty set of typed key terms and a
+/// cardinality.
 ///
-/// A pair of columns rather than a condition string. The condition form is what the reference
+/// **Typed terms rather than a condition string.** The condition form is what the reference
 /// modelling languages use, and it is an escape hatch: `a.x = b.y OR 1 = 1` is a valid condition.
-/// Equality on one column each is the whole of what a model needs to say here.
+/// [`JoinKey`] is the whole vocabulary a term may take - an equality on one column each, or that
+/// same equality with the origin side truncated to a [`Grain`] first - so a relationship still
+/// cannot spell an `OR`, a free expression, or a predicate that is not one of those two shapes. A
+/// daily fact joined to a monthly snapshot needs more than one column pair -
+/// `subscription_key = subscription_key AND month = month_of(usage_date)` - and [`JoinKeys`] is
+/// the ordered list that says so without widening what one term can be.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Relationship {
     name: RelationshipName,
     origin_model: ModelName,
-    origin_column: ColumnName,
     target_model: ModelName,
-    target_column: ColumnName,
+    keys: JoinKeys,
     join_type: JoinType,
 }
 
@@ -197,17 +202,15 @@ impl Relationship {
     pub const fn new(
         name: RelationshipName,
         origin_model: ModelName,
-        origin_column: ColumnName,
         target_model: ModelName,
-        target_column: ColumnName,
+        keys: JoinKeys,
         join_type: JoinType,
     ) -> Self {
         Self {
             name,
             origin_model,
-            origin_column,
             target_model,
-            target_column,
+            keys,
             join_type,
         }
     }
@@ -223,23 +226,96 @@ impl Relationship {
     }
 
     #[inline]
-    pub const fn origin_column(&self) -> &ColumnName {
-        &self.origin_column
-    }
-
-    #[inline]
     pub const fn target_model(&self) -> &ModelName {
         &self.target_model
     }
 
+    /// The key terms this relationship joins on, in declared order. Never empty.
     #[inline]
-    pub const fn target_column(&self) -> &ColumnName {
-        &self.target_column
+    pub fn keys(&self) -> &[JoinKey] {
+        self.keys.as_slice()
     }
 
     #[inline]
     pub const fn join_type(&self) -> JoinType {
         self.join_type
+    }
+}
+
+/// One term of a relationship's join condition.
+///
+/// **The whole vocabulary, and nothing that would widen it.** [`Self::Equal`] is `origin =
+/// target`; [`Self::TruncatedEqual`] is `origin` truncated to `grain`, compared to `target`. The
+/// truncation is always on the ORIGIN side, never the target: this exists for a fact at a finer
+/// grain (a day) joined to a snapshot at a coarser one (a month), and a snapshot table already
+/// holds its own grain as a plain column, so only the fact's side ever needs truncating before the
+/// comparison.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub enum JoinKey {
+    /// `origin = target`, unconditionally.
+    Equal { origin: ColumnName, target: ColumnName },
+    /// `TRUNC(origin, grain) = target`. Rendered through the same per-dialect time-bucket code a
+    /// metric's own grain uses, so a fifth dialect answers this the way it answers every other
+    /// truncation rather than through a second, unchecked rendering path.
+    TruncatedEqual {
+        origin: ColumnName,
+        grain: Grain,
+        target: ColumnName,
+    },
+}
+
+impl JoinKey {
+    /// The column read on the relationship's origin model, before any truncation.
+    #[inline]
+    pub const fn origin(&self) -> &ColumnName {
+        match self {
+            Self::Equal { origin, .. } | Self::TruncatedEqual { origin, .. } => origin,
+        }
+    }
+
+    /// The column read on the relationship's target model.
+    #[inline]
+    pub const fn target(&self) -> &ColumnName {
+        match self {
+            Self::Equal { target, .. } | Self::TruncatedEqual { target, .. } => target,
+        }
+    }
+}
+
+/// The ordered, non-empty list of [`JoinKey`]s a [`Relationship`] joins on.
+///
+/// **Non-empty by construction, [`ViaChain`]'s own reason:** a relationship joining on zero keys
+/// joins nothing, which is not a narrower relationship - it is not one. Ordered, because each term
+/// is rendered as one clause of an `AND` in declaration order, the same contract [`ViaChain`] holds
+/// for a chain of hops.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct JoinKeys(Vec<JoinKey>);
+
+/// Why a list of [`JoinKey`]s could not become a [`JoinKeys`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidJoinKeys {
+    #[error("a relationship must declare at least one join key")]
+    Empty,
+}
+
+impl JoinKeys {
+    /// A key list in the order given, refusing the empty list.
+    pub fn of(keys: Vec<JoinKey>) -> Result<Self, InvalidJoinKeys> {
+        if keys.is_empty() {
+            return Err(InvalidJoinKeys::Empty);
+        }
+        Ok(Self(keys))
+    }
+
+    /// One `origin = target` key - the common case, named so most callers never build a
+    /// single-element `Vec` by hand.
+    pub fn single_equal(origin: ColumnName, target: ColumnName) -> Self {
+        Self(vec![JoinKey::Equal { origin, target }])
+    }
+
+    /// The keys, in declared order.
+    pub fn as_slice(&self) -> &[JoinKey] {
+        &self.0
     }
 }
 

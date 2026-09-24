@@ -3,7 +3,7 @@
 use crate::model::{
     ColumnName, DatasetName, IdentifierCase, JoinType, ProjectName, QualifiedTable, RelationshipName, TableName, TableQualifier,
 };
-use crate::plan::{PlanColumn, PlanJoin};
+use crate::plan::{PlanColumn, PlanJoin, PlanJoinKey};
 
 use super::{AmbiguousTables, StatementTables};
 
@@ -38,8 +38,10 @@ fn join_to(relationship: &str, joined: QualifiedTable) -> PlanJoin {
         RelationshipName::parse(relationship).expect("a test relationship is one"),
         joined,
         JoinType::ManyToOne,
-        column("orders", "customer_id"),
-        column("customers", "id"),
+        vec![PlanJoinKey::Equal {
+            origin: column("orders", "customer_id"),
+            target: column("customers", "id"),
+        }],
     )
 }
 

@@ -38,13 +38,14 @@
 //! **No production gauge reads the `DataFusion` pool.** Measurement-only children can opt into a
 //! separate recorder; ordinary adapter construction exports no live reservation reading. The
 //! `check-guidance` absence rule rejects a production `.memory_pool()` call.
-use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
+use datafusion::functions_aggregate::expr_fn::count;
+use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, lit};
 use datafusion::prelude::{SessionConfig, SessionContext};
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::{AnchorPlan, Executable, LegPlan, QueryPlan};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
-use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
+use sutura_domain::warehouse::cardinality::{CountsNotRead, DISTINCT_LABEL, DeclaredKey, KeyUniqueness, ROWS_LABEL};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, ResultBatches, UnannouncedBatch, Warehouse};
 
@@ -274,7 +275,7 @@ pub mod pool;
 pub use crate::pool::WorkingSet;
 
 use crate::collect::outputs;
-use crate::translate::{bucket_expression, column, key_counts, measure_expression, predicate, table_reference};
+use crate::translate::{bucket_expression, column, key_columns, key_non_null, measure_expression, predicate, table_reference};
 
 /// An in-process engine, behind the [`Warehouse`] port.
 pub struct DataFusionWarehouse {
@@ -599,16 +600,36 @@ impl DataFusionWarehouse {
         collect::collected(frame, self.working_set).await
     }
 
-    /// Counts a declared join key's values and its distinct values, in one aggregate.
+    /// Counts a declared join key's rows and its distinct combinations, over the WHOLE key.
     ///
-    /// No filter, no group and no ordering: what a `many_to_one` promises is unconditional, so a
-    /// probe that narrowed itself would answer a different question than the one the join path
-    /// spends. The two aggregates carry the domain's own labels - `translate::key_counts` is where -
-    /// so the field names on the batch are the ones the counts are read back under.
+    /// **Ordering and no `WHERE` beyond the non-null guard: what a `many_to_one` promises is
+    /// unconditional**, so a probe that narrowed itself would answer a different question than the
+    /// one the join path spends. For one column this reduces to the same `count` beside
+    /// `count_distinct` this always ran; for more than one, `count_distinct` is a single-column
+    /// aggregate, so the distinct combinations are counted by grouping on every key column first -
+    /// the fan-out question a compound relationship's declaration is about - and counting the rows
+    /// that grouping left. `cross_join` puts the two one-row aggregates beside each other rather
+    /// than running two round trips: neither depends on the other's answer.
     async fn key_uniqueness(&self, key: &DeclaredKey<'_>) -> Result<KeyUniqueness, DataFusionError> {
         let scan = self.scan(key.table()).await?;
-        let logical = LogicalPlanBuilder::from(scan)
-            .aggregate(Vec::<Expr>::new(), key_counts(key))
+        let filtered = LogicalPlanBuilder::from(scan)
+            .filter(key_non_null(key))
+            .and_then(LogicalPlanBuilder::build)
+            .map_err(|cause| DataFusionError::Build { cause })?;
+        let rows_plan = LogicalPlanBuilder::from(filtered.clone())
+            .aggregate(Vec::<Expr>::new(), vec![count(lit(1)).alias(ROWS_LABEL)])
+            .and_then(LogicalPlanBuilder::build)
+            .map_err(|cause| DataFusionError::Build { cause })?;
+        let distinct_combinations = LogicalPlanBuilder::from(filtered)
+            .aggregate(key_columns(key), Vec::<Expr>::new())
+            .and_then(LogicalPlanBuilder::build)
+            .map_err(|cause| DataFusionError::Build { cause })?;
+        let distinct_plan = LogicalPlanBuilder::from(distinct_combinations)
+            .aggregate(Vec::<Expr>::new(), vec![count(lit(1)).alias(DISTINCT_LABEL)])
+            .and_then(LogicalPlanBuilder::build)
+            .map_err(|cause| DataFusionError::Build { cause })?;
+        let logical = LogicalPlanBuilder::from(rows_plan)
+            .cross_join(distinct_plan)
             .and_then(LogicalPlanBuilder::build)
             .map_err(|cause| DataFusionError::Build { cause })?;
         let frame = self

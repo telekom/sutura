@@ -439,7 +439,7 @@ mod tests {
 
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-    use sutura_domain::catalog::{Audience, Definitions, Description, Metric, Model, Relationship};
+    use sutura_domain::catalog::{Audience, Definitions, Description, JoinKeys, Metric, Model, Relationship};
     use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
     use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
@@ -773,9 +773,8 @@ mod tests {
             let relationship = Relationship::new(
                 RelationshipName::parse("fulfillment").expect("a test relationship is a name"),
                 ModelName::parse(format!("orders_{suffix}")).expect("a test model is a model"),
-                column("customer_id"),
                 ModelName::parse(format!("customers_{suffix}")).expect("a test model is a model"),
-                column("id"),
+                JoinKeys::single_equal(column("customer_id"), column("id")),
                 JoinType::ManyToOne,
             );
             let definitions =

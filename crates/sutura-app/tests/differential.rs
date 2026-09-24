@@ -55,6 +55,11 @@ mod adapters;
 #[path = "differential/federated.rs"]
 mod federated;
 
+// Same reason as `federated` above: a submodule of THIS target, not a target of its own.
+#[cfg(test)]
+#[path = "differential/compound_join.rs"]
+mod compound_join;
+
 #[cfg(test)]
 mod tests {
     use sutura_app::{answer, verify_anchors};

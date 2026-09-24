@@ -1,12 +1,10 @@
 ---
 kind: relationship
 name: subscription_product
-origin:
-  model: subscriptions
-  column: product_key
-target:
-  model: products
-  column: product_key
+origin_model: subscriptions
+target_model: products
+keys:
+  - equal: { origin: product_key, target: product_key }
 join_type: many_to_one
 ---
 Many subscription-months to one product.

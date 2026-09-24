@@ -1,4 +1,4 @@
-use sutura_domain::catalog::{Definitions, Description, Model, Relationship};
+use sutura_domain::catalog::{Definitions, Description, JoinKeys, Model, Relationship};
 use sutura_domain::model::{ColumnName, Grain, JoinType, ModelName, RelationshipName, SourceName, TableName};
 use sutura_domain::plan::{PlanBucket, PlanColumn, ResultLabel};
 
@@ -250,9 +250,11 @@ fn a_key_probe_renders_and_parses_for_every_dialect_it_declares() {
     let relationship = Relationship::new(
         RelationshipName::parse("orders_customer").expect("a test relationship is a relationship"),
         ModelName::parse("orders").expect("a test model is a model"),
-        ColumnName::parse("customer_key").expect("a test column is a column"),
         ModelName::parse("customers").expect("a test model is a model"),
-        ColumnName::parse("customer_key").expect("a test column is a column"),
+        JoinKeys::single_equal(
+            ColumnName::parse("customer_key").expect("a test column is a column"),
+            ColumnName::parse("customer_key").expect("a test column is a column"),
+        ),
         JoinType::ManyToOne,
     );
     let definitions = Definitions::assemble(
@@ -293,11 +295,17 @@ fn a_key_probe_renders_and_parses_for_every_dialect_it_declares() {
             "{dialect} did not alias the distinct count: {sql}"
         );
         assert!(sql.contains("DISTINCT"), "{dialect} counted every value twice: {sql}");
-        // The declaration is unconditional, so a probe that narrowed itself would answer a
-        // different question than the one the join path spends.
-        for absent in ["WHERE", "GROUP BY", "HAVING", "LIMIT"] {
+        // The declaration is unconditional beyond the non-null guard every key column carries, so a
+        // probe that narrowed itself further would answer a different question than the one the
+        // join path spends. `WHERE` itself is not in this list: it carries the null guard now that
+        // `COUNT(*)` replaces the single-column `COUNT(col)` which excluded a null for free.
+        for absent in ["GROUP BY", "HAVING", "LIMIT"] {
             assert!(!sql.contains(absent), "{dialect} narrowed the probe with {absent}: {sql}");
         }
+        assert!(
+            sql.contains("IS NOT NULL") || sql.contains("IS NULL"),
+            "{dialect} dropped the null guard: {sql}"
+        );
         let parsed = polyglot_sql::parse(sql, super::dialect_type(dialect));
         assert!(
             parsed.is_ok(),

@@ -628,3 +628,86 @@ fn an_unknown_kind_is_refused() {
     let err = serde_norway::from_str::<KindProbe>("kind: dashboard\n").expect_err("a dashboard is not a catalog document");
     assert!(err.to_string().contains("dashboard"), "{err}");
 }
+
+// ------------------------------------------------------------------------ relationship keys ---
+
+fn relationship_doc(yaml: &str) -> Result<super::RelationshipDoc, serde_norway::Error> {
+    serde_norway::from_str(yaml)
+}
+
+const SINGLE_KEY_RELATIONSHIP: &str = "
+kind: relationship
+name: order_customer
+origin_model: orders
+target_model: customers
+join_type: many_to_one
+";
+
+/// The single-`equal`-key shape every relationship document declared before this field carried a
+/// list - `{tag: content}`, not `!tag`, which is [`super::SingletonMapped`]'s own reason.
+#[test]
+fn a_single_equal_key_reads_as_a_one_element_list() {
+    let yaml = format!("{SINGLE_KEY_RELATIONSHIP}keys:\n  - equal: {{ origin: customer_id, target: id }}\n");
+    let doc = relationship_doc(&yaml).expect("one map-style key term is a term");
+    let relationship = doc.into_domain().expect("one key is a non-empty list");
+    assert_eq!(
+        relationship.keys(),
+        [sutura_domain::catalog::JoinKey::Equal {
+            origin: column("customer_id"),
+            target: column("id"),
+        }]
+    );
+}
+
+/// The compound shape: an ordered list of two typed terms, the second one truncated.
+#[test]
+fn a_compound_key_reads_both_terms_in_order() {
+    let yaml = format!(
+        "{SINGLE_KEY_RELATIONSHIP}keys:\n  - equal: {{ origin: subscription_key, target: subscription_key }}\n  - truncated_equal: {{ origin: usage_date, grain: month, target: month }}\n"
+    );
+    let doc = relationship_doc(&yaml).expect("two map-style key terms are two terms");
+    let relationship = doc.into_domain().expect("two keys are a non-empty list");
+    assert_eq!(
+        relationship.keys(),
+        [
+            sutura_domain::catalog::JoinKey::Equal {
+                origin: column("subscription_key"),
+                target: column("subscription_key"),
+            },
+            sutura_domain::catalog::JoinKey::TruncatedEqual {
+                origin: column("usage_date"),
+                grain: Grain::Month,
+                target: column("month"),
+            },
+        ]
+    );
+}
+
+/// An empty `keys:` list is refused rather than silently joining nothing.
+#[test]
+fn an_empty_key_list_is_refused() {
+    let yaml = format!("{SINGLE_KEY_RELATIONSHIP}keys: []\n");
+    let doc = relationship_doc(&yaml).expect("an empty list still parses as a document");
+    assert_eq!(
+        doc.into_domain().unwrap_err(),
+        sutura_domain::catalog::InvalidJoinKeys::Empty
+    );
+}
+
+/// A term naming a shape this vocabulary does not have - the refusal names the word, not a type
+/// mismatch, because `SingletonMapped` reads the tag before anything else.
+#[test]
+fn an_unknown_key_shape_is_refused_naming_it() {
+    let yaml = format!("{SINGLE_KEY_RELATIONSHIP}keys:\n  - between: {{ origin: a, target: b }}\n");
+    let err = relationship_doc(&yaml).expect_err("`between` is not a term this vocabulary has");
+    assert!(err.to_string().contains("between"), "{err}");
+}
+
+/// A misspelled field inside a term is refused naming it, not silently dropped - `deny_unknown_fields`
+/// surviving the `singleton_map` adapter.
+#[test]
+fn a_misspelled_field_inside_a_key_term_is_refused() {
+    let yaml = format!("{SINGLE_KEY_RELATIONSHIP}keys:\n  - equal: {{ origin: a, taget: b }}\n");
+    let err = relationship_doc(&yaml).expect_err("`taget` is not a field this term has");
+    assert!(err.to_string().contains("taget"), "{err}");
+}

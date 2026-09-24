@@ -16,7 +16,8 @@ use std::time::{Duration, Instant};
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::MetadataCapabilities;
 use sutura_domain::catalog::{
-    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship, ViaChain,
+    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, JoinKeys, Metric, Model, Relationship,
+    ViaChain,
 };
 use sutura_domain::identity::{
     CredentialBroker, CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Minted, Presented, RequestContext, SourceSet,
@@ -789,9 +790,8 @@ pub(crate) fn two_source_bundle() -> PinnedDefinitions {
     let joined = Relationship::new(
         RelationshipName::parse("order_customer").expect("a test relationship is a relationship"),
         ModelName::parse("orders").expect("a test model is a model"),
-        column("customer_id"),
         ModelName::parse("customers").expect("a test model is a model"),
-        column("customer_id"),
+        JoinKeys::single_equal(column("customer_id"), column("customer_id")),
         JoinType::ManyToOne,
     );
     let region = Dimension::new(

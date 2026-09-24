@@ -19,7 +19,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Dimension, MAX_DEFINITIONS_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL};
+use super::{Dimension, JoinKey, MAX_DEFINITIONS_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL};
 use crate::model::{ColumnName, DimensionName, IdentifierCase, MetricName, ModelName, RelationshipName, SourceName, TableName};
 
 /// Everything a catalog said, with its cross-references checked.
@@ -104,6 +104,26 @@ pub enum InconsistentDefinitions {
         relationship: RelationshipName,
         model: ModelName,
         column: ColumnName,
+    },
+    /// A relationship whose two models sit on different data systems, declaring more than one key
+    /// or a truncated one.
+    ///
+    /// Crossing a source boundary is legal only at a dimension chain's first hop, where the plan
+    /// layer splits the question into a fact leg and a lookup leg and matches the two on ONE
+    /// carried value (`sutura_semantic::plan`'s link). That match is a single value today, so a
+    /// relationship whose two ends sit on different sources must resolve to exactly one `equal`
+    /// key - refusing it here, once, at load, is earlier and clearer than a metric reaching a hop
+    /// the plan layer has no way to render. **The limit, next to the claim:** a same-source
+    /// relationship carries no such restriction; only a link that would cross data systems does.
+    #[error(
+        "relationship {relationship} joins model {origin} on {origin_source} to model {target} on {target_source}, crossing a data system boundary, and only a single `equal` key may do that"
+    )]
+    CrossSourceRelationshipNotSingleEqualKey {
+        relationship: RelationshipName,
+        origin: ModelName,
+        origin_source: SourceName,
+        target: ModelName,
+        target_source: SourceName,
     },
     #[error("dimension {dimension} of metric {metric} names column {column}, which model {model} does not declare")]
     UnknownDimensionColumn {
@@ -333,12 +353,29 @@ impl Definitions {
                 relationship: relationship.name.clone(),
                 model: relationship.target_model.clone(),
             })?;
-        for (model, column) in [(from, &relationship.origin_column), (to, &relationship.target_column)] {
-            if !model.has_column(column) {
-                return Err(InconsistentDefinitions::RelationshipUnknownColumn {
+        for key in relationship.keys.as_slice() {
+            for (model, column) in [(from, key.origin()), (to, key.target())] {
+                if !model.has_column(column) {
+                    return Err(InconsistentDefinitions::RelationshipUnknownColumn {
+                        relationship: relationship.name.clone(),
+                        model: model.name.clone(),
+                        column: column.clone(),
+                    });
+                }
+            }
+        }
+        // Crossing a source boundary is only ever legal at a chain's first hop, and the plan
+        // layer's splitter matches that hop's fact leg to its lookup leg on one carried value - see
+        // the variant's own note. A same-source relationship has no such limit.
+        if from.source() != to.source() {
+            let is_single_equal = matches!(relationship.keys.as_slice(), [JoinKey::Equal { .. }]);
+            if !is_single_equal {
+                return Err(InconsistentDefinitions::CrossSourceRelationshipNotSingleEqualKey {
                     relationship: relationship.name.clone(),
-                    model: model.name.clone(),
-                    column: column.clone(),
+                    origin: from.name.clone(),
+                    origin_source: from.source().clone(),
+                    target: to.name.clone(),
+                    target_source: to.source().clone(),
                 });
             }
         }
@@ -616,13 +653,14 @@ fn model_bytes(model: &Model) -> usize {
     sum_bytes(model.columns().iter().map(|column| column.as_str().len())).saturating_add(model.description().len())
 }
 
-/// The authored bytes behind one relationship beyond its own name: the two columns it joins on.
+/// The authored bytes behind one relationship beyond its own name: every column every key joins on.
 fn relationship_bytes(relationship: &Relationship) -> usize {
-    relationship
-        .origin_column()
-        .as_str()
-        .len()
-        .saturating_add(relationship.target_column().as_str().len())
+    sum_bytes(
+        relationship
+            .keys()
+            .iter()
+            .map(|key| key.origin().as_str().len().saturating_add(key.target().as_str().len())),
+    )
 }
 
 /// The authored bytes behind one metric beyond its own name: every required filter as it would

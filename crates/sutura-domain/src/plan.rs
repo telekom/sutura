@@ -155,14 +155,42 @@ impl PlanColumn {
     }
 }
 
+/// One term of a [`PlanJoin`]'s condition, [`crate::catalog::JoinKey`]'s own vocabulary with both
+/// sides qualified by the table the plan reads them from.
+///
+/// **The same two shapes, and no third one.** [`Self::Equal`] renders `origin = target`;
+/// [`Self::TruncatedEqual`] renders the origin side truncated to `grain` first. Nothing here can
+/// spell an `OR` or a free predicate - a renderer matches this enum exhaustively rather than
+/// interpolating a string.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub enum PlanJoinKey {
+    Equal { origin: PlanColumn, target: PlanColumn },
+    TruncatedEqual { origin: PlanColumn, grain: Grain, target: PlanColumn },
+}
+
+impl PlanJoinKey {
+    #[inline]
+    pub const fn origin(&self) -> &PlanColumn {
+        match self {
+            Self::Equal { origin, .. } | Self::TruncatedEqual { origin, .. } => origin,
+        }
+    }
+
+    #[inline]
+    pub const fn target(&self) -> &PlanColumn {
+        match self {
+            Self::Equal { target, .. } | Self::TruncatedEqual { target, .. } => target,
+        }
+    }
+}
+
 /// One join, as the plan will make it.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PlanJoin {
     relationship: RelationshipName,
     table: QualifiedTable,
     join_type: JoinType,
-    origin: PlanColumn,
-    target: PlanColumn,
+    keys: Vec<PlanJoinKey>,
 }
 
 impl PlanJoin {
@@ -176,20 +204,18 @@ impl PlanJoin {
     /// `PlanSpansTooManySources`.
     ///
     /// `impl Into<QualifiedTable>` for the reason `Model::new` gives.
+    ///
+    /// **`keys` is never empty in practice**, because the only producer builds it from
+    /// [`crate::catalog::Relationship::keys`], which [`crate::catalog::JoinKeys`] already refuses to
+    /// be empty - this type does not re-enforce it, the same trade `chains: Vec<Vec<PlanJoin>>`
+    /// makes one level up in `sutura_semantic::plan::chain`.
     #[inline]
-    pub fn new(
-        relationship: RelationshipName,
-        table: impl Into<QualifiedTable>,
-        join_type: JoinType,
-        origin: PlanColumn,
-        target: PlanColumn,
-    ) -> Self {
+    pub fn new(relationship: RelationshipName, table: impl Into<QualifiedTable>, join_type: JoinType, keys: Vec<PlanJoinKey>) -> Self {
         Self {
             relationship,
             table: table.into(),
             join_type,
-            origin,
-            target,
+            keys,
         }
     }
 
@@ -215,14 +241,10 @@ impl PlanJoin {
         self.join_type
     }
 
+    /// The key terms this join's `ON` clause is the conjunction of, in declared order.
     #[inline]
-    pub const fn origin(&self) -> &PlanColumn {
-        &self.origin
-    }
-
-    #[inline]
-    pub const fn target(&self) -> &PlanColumn {
-        &self.target
+    pub fn keys(&self) -> &[PlanJoinKey] {
+        &self.keys
     }
 }
 

@@ -1,12 +1,10 @@
 ---
 kind: relationship
 name: subscription_customer
-origin:
-  model: subscriptions
-  column: customer_key
-target:
-  model: customers
-  column: customer_key
+origin_model: subscriptions
+target_model: customers
+keys:
+  - equal: { origin: customer_key, target: customer_key }
 join_type: many_to_one
 ---
 Many subscription-months to one customer.

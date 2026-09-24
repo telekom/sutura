@@ -58,7 +58,7 @@ pub mod document;
 pub mod fixture;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Definitions, Description, InconsistentDefinitions, InvalidDescription, Model, Relationship};
+use sutura_domain::catalog::{Definitions, Description, InconsistentDefinitions, InvalidDescription, JoinKeys, Model, Relationship};
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use sutura_domain::model::{ColumnName, JoinType, ModelName, RelationshipName, SourceName, TableName};
@@ -274,9 +274,8 @@ impl<R: SnapshotReader> OpenMetadataCatalog<R> {
         Ok(Relationship::new(
             name,
             origin_model,
-            origin_column,
             target_model,
-            target_column,
+            JoinKeys::single_equal(origin_column, target_column),
             join_type,
         ))
     }
