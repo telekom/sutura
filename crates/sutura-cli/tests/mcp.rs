@@ -85,12 +85,15 @@ mod tests {
     /// contract and worth a failing test rather than a silent fallback.
     const PROTOCOL: &str = "2025-06-18";
 
-    /// The version the CLI stamps a bundle with: `crate::commands::DEFAULT_VERSION`.
+    /// The version the embedded defaults stamp a catalog with, since issue #970: `mcp` opens
+    /// `catalogs:` the way `serve` does, and `catalogs[0].version` in
+    /// `sutura_config::defaults.yaml` is `"unversioned"` - a placeholder meant to be replaced by a
+    /// commit id or a build number, per that file's own comment.
     ///
     /// Spelled out rather than imported, because an integration test links the BINARY's crate as a
     /// library it has no access to. A drift here is a provenance change, which is exactly what an
     /// assertion on it should catch.
-    const VERSION: &str = "local-working-tree";
+    const VERSION: &str = "unversioned";
 
     /// The source name the CLI opens a catalog under: `crate::commands::CATALOG_SOURCE`.
     const SOURCE: &str = "local";
@@ -183,8 +186,12 @@ mod tests {
         let mut command = Command::new(env!("CARGO_BIN_EXE_sutura"));
         command
             .arg("mcp")
-            .arg(example.join("catalog"))
             .arg(example.join("data"))
+            // No catalog-directory argument since issue #970: `mcp` reads `catalogs:` the way
+            // `serve` does, and the embedded default names `dir: "catalog"` relative to the
+            // process's own working directory - so the child runs FROM the example directory,
+            // the same place `docs/serving.md`'s own invocation does.
+            .current_dir(&example)
             // **REMOVED, not merely unset by convention**, and `SUTURA_CONFIG_DIR` below for the same
             // reason. This command reads the deployment's settings tree since #121, so a developer's
             // exported `SUTURA_CONFIG_DIR` - the one an operator running `sutura serve` on the same

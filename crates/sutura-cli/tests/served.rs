@@ -80,6 +80,14 @@ mod keycloak_test;
 #[path = "served/datahub.rs"]
 mod datahub;
 
+// `catalog.kind: okf`, served: its own file for `datahub`'s reason, and no feature cfg on the
+// declaration - `sutura-catalog-okf` is a normal (non-optional) dependency of this crate, openable
+// in every build.
+#[cfg(unix)]
+#[cfg(test)]
+#[path = "served/okf.rs"]
+mod okf;
+
 // The agent-surface cells (`/mcp` hidden behind leg 1, the boot refusal, two callers), split into
 // their own file for the same `max-lines` reason; `#[path]` keeps them next to the harness they
 // share. `cfg(feature = "agent")` as its own attribute so the default build has no `/mcp` at all,

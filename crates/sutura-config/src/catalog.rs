@@ -20,25 +20,45 @@ use sutura_domain::pinned::DefinitionVersion;
 /// operator could write to say *read the model from somewhere else* - so a second catalog kind
 /// could merge complete and silently remain unreachable from any binary.
 ///
-/// Two variants today. [`Self::Datahub`] says which and why, the way `SourceKind::BigQuery` does for
+/// Five variants. [`Self::Datahub`] says which and why, the way `SourceKind::BigQuery` does for
 /// data systems: the vocabulary is the vocabulary of adapters this repository has, and an adapter
 /// that exists in a record rather than in a linked crate is still a word an operator might write.
+/// `github.com/telekom/sutura#970` added the three declaring adapters that had a crate and no
+/// composition root: [`Self::Okf`], [`Self::Openmetadata`] and [`Self::Rdbms`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CatalogKind {
     /// A directory of markdown documents with YAML frontmatter, read by `sutura-catalog-local`.
     ///
-    /// The only kind either composition root can OPEN in this build: the markdown adapter is
-    /// linked by `sutura serve` and is what `sutura query`/`sutura mcp` put behind its directory
-    /// argument.
+    /// The only kind every composition root can OPEN in every build: the markdown adapter is
+    /// non-optional and is what `sutura query`/`sutura mcp` put behind their directory argument
+    /// (`mcp`'s directory argument is gone since #970 - both read `catalogs:` the same way now).
     Markdown,
     /// A metadata service, read through the adapter `docs/adr/0016` specifies and #114 builds.
     ///
-    /// **A declarable kind that no binary this repository ships can open yet, and that is
-    /// deliberate.** The vocabulary of kinds is the vocabulary of adapters *this repository has*
-    /// in its records, and the composition root refuses this kind by name for exactly the reason
-    /// `SourceKind::BigQuery` is refused: an operator who writes the word must be told the truth
-    /// (the adapter is not linked) rather than sent looking for a typo.
+    /// Openable behind `sutura-cli`'s default-off `datahub` feature; a build without it refuses
+    /// this kind by name, for exactly the reason `SourceKind::BigQuery` is refused: an operator who
+    /// writes the word must be told the truth (the adapter is not linked) rather than sent looking
+    /// for a typo.
     Datahub,
+    /// A directory of OKF Frictionless Table Schema descriptors, read by `sutura-catalog-okf` - the
+    /// narrowest of the three declaring adapters `#970` names, and the only one of the three with a
+    /// reader that needs no service: one YAML document per table, on disk, like [`Self::Markdown`].
+    ///
+    /// Openable behind `sutura-cli`'s default-off `okf` feature.
+    Okf,
+    /// An `OpenMetadata` deployment, decided by `sutura-catalog-openmetadata` over its own
+    /// `SnapshotReader` port - **a declarable kind no binary this repository ships can open yet,
+    /// and that is deliberate.** The crate decides a whole metric against a fake reader; the
+    /// `REST` reader over a real deployment is `#970`'s own stated follow-up (`#152`'s), so the
+    /// composition root refuses this kind by name until one exists, rather than opening the
+    /// recorded fixture against a real deployment's name.
+    Openmetadata,
+    /// An RDBMS dictionary, decided by `sutura-catalog-rdbms` over a
+    /// `sutura_catalog_rdbms::DictionaryReader` - **a declarable kind no binary this repository
+    /// ships can open yet, for the identical reason [`Self::Openmetadata`] states.** The crate
+    /// decides the conversion against a recorded dictionary; a reader over a real socket lands with
+    /// `#972`.
+    Rdbms,
 }
 
 /// The configured word did not name a kind of catalog this build has.
@@ -50,13 +70,16 @@ pub struct UnknownCatalogKind {
 
 impl CatalogKind {
     /// Every accepted spelling, so a message and the parser cannot disagree.
-    pub const NAMES: &'static [&'static str] = &["markdown", "datahub"];
+    pub const NAMES: &'static [&'static str] = &["markdown", "datahub", "okf", "openmetadata", "rdbms"];
 
     /// Reads the configured word.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownCatalogKind> {
         match raw.as_ref().trim() {
             "markdown" => Ok(Self::Markdown),
             "datahub" => Ok(Self::Datahub),
+            "okf" => Ok(Self::Okf),
+            "openmetadata" => Ok(Self::Openmetadata),
+            "rdbms" => Ok(Self::Rdbms),
             other => Err(UnknownCatalogKind {
                 found: String::from(other),
             }),
@@ -70,6 +93,9 @@ impl CatalogKind {
         match self {
             Self::Markdown => "markdown",
             Self::Datahub => "datahub",
+            Self::Okf => "okf",
+            Self::Openmetadata => "openmetadata",
+            Self::Rdbms => "rdbms",
         }
     }
 }
@@ -100,6 +126,10 @@ pub struct CatalogSettings {
     /// `catalog.kind: datahub` only - the response-size cap in bytes. `None` means the reader's
     /// own recommended default.
     max_response_bytes: Option<u64>,
+    /// `github.com/telekom/sutura#975` - every kind, not `datahub` alone: how often a composition
+    /// root that DRIVES a refresh re-reads this catalog and re-pins it. `None` means never - the
+    /// state every catalog declared before this key existed is already in.
+    refresh_seconds: Option<u64>,
 }
 
 /// Why a catalog configuration is not usable.
@@ -118,6 +148,11 @@ pub enum InvalidCatalogSettings {
     /// A `catalog.kind: datahub` entry did not declare a field only that kind needs.
     #[error("catalog.{field} is required when catalog.kind is datahub, and is empty or absent")]
     MissingForDatahub { field: &'static str },
+    /// `catalogs[].refresh_seconds: 0` - `github.com/telekom/sutura#975`. Zero re-reads on every
+    /// tick of whatever drives it, which is not a refresh interval; absent is how "never refresh"
+    /// is written.
+    #[error("catalogs.{name}.refresh_seconds is 0 - remove the key for never, or write a positive interval")]
+    ZeroRefresh { name: SourceName },
 }
 
 impl CatalogSettings {
@@ -154,7 +189,26 @@ impl CatalogSettings {
             metric_property: None,
             deadline_seconds: None,
             max_response_bytes: None,
+            refresh_seconds: None,
         })
+    }
+
+    /// Declares how often this catalog is re-read and re-pinned - `#975`. `None` (the default
+    /// every entry written before this key existed is already at) means never; `Some(0)` is
+    /// refused rather than read as "never" or "as fast as possible", so an operator who wrote a
+    /// literal `0` is told rather than silently ignored.
+    pub fn with_refresh_seconds(mut self, refresh_seconds: Option<u64>) -> Result<Self, InvalidCatalogSettings> {
+        if refresh_seconds == Some(0) {
+            return Err(InvalidCatalogSettings::ZeroRefresh { name: self.name });
+        }
+        self.refresh_seconds = refresh_seconds;
+        Ok(self)
+    }
+
+    /// The declared refresh interval, or `None` for never.
+    #[inline]
+    pub const fn refresh_seconds(&self) -> Option<u64> {
+        self.refresh_seconds
     }
 
     /// Adds the three `catalog.kind: datahub`-only fields to an already-parsed entry.
@@ -358,6 +412,27 @@ mod tests {
         );
     }
 
+    /// `#970`: every kind this build has a crate for round-trips through `parse`/`as_str`, and
+    /// `NAMES` is the same set - the message and the parser cannot disagree about what is spellable.
+    #[test]
+    fn every_declared_kind_round_trips_and_is_named() {
+        for (word, kind) in [
+            ("markdown", CatalogKind::Markdown),
+            ("datahub", CatalogKind::Datahub),
+            ("okf", CatalogKind::Okf),
+            ("openmetadata", CatalogKind::Openmetadata),
+            ("rdbms", CatalogKind::Rdbms),
+        ] {
+            assert_eq!(
+                CatalogKind::parse(word).unwrap_or_else(|e| panic!("{word} is a kind: {e}")),
+                kind
+            );
+            assert_eq!(kind.as_str(), word);
+            assert!(CatalogKind::NAMES.contains(&word));
+        }
+        assert_eq!(CatalogKind::NAMES.len(), 5);
+    }
+
     #[test]
     fn an_empty_directory_is_refused_rather_than_resolving_to_the_working_directory() {
         // The bug this catches: an unset value deserializes to an empty string, an empty path
@@ -483,5 +558,34 @@ mod tests {
                 field: "metric_property"
             }
         );
+    }
+
+    /// `#975`: absent means never, a positive value round-trips, and every kind takes it - not
+    /// only `datahub`, unlike the three fields above.
+    #[test]
+    fn a_refresh_interval_defaults_to_never_and_round_trips_on_every_kind() {
+        for kind in [CatalogKind::Markdown, CatalogKind::Datahub, CatalogKind::Okf] {
+            let base = CatalogSettings::parse(
+                name("catalog"),
+                kind,
+                PathBuf::from("/nowhere/catalog"),
+                PathBuf::from("/nowhere/data"),
+                version(),
+            )
+            .expect("a directory and a version are a settings");
+            assert_eq!(base.refresh_seconds(), None, "{kind:?}");
+            let declared = base.with_refresh_seconds(Some(300)).expect("a positive interval is usable");
+            assert_eq!(declared.refresh_seconds(), Some(300), "{kind:?}");
+        }
+    }
+
+    /// A declared `0` is refused rather than read as "never" or "as fast as possible" - the same
+    /// reasoning `ReadBounds::parse` (in `sutura-catalog-datahub`) applies to a zero deadline.
+    #[test]
+    fn a_zero_refresh_interval_is_refused_naming_the_catalog() {
+        let error = settings("catalog")
+            .with_refresh_seconds(Some(0))
+            .expect_err("a zero interval is not an interval");
+        assert_eq!(error, InvalidCatalogSettings::ZeroRefresh { name: name("catalog") });
     }
 }

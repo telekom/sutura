@@ -1,6 +1,6 @@
 //! What goes into the agent-facing system prompt that this deployment hands out.
 //!
-//! Two keys, and each one is read by something: `sutura_app::prompt::render` is the consumer, and
+//! Three keys, and each one is read by something: `sutura_app::prompt::render` is the consumer, and
 //! `sutura prompt` is the command that reaches it. That is a requirement rather than a remark - this
 //! crate has shipped a group of keys that were parsed, range-checked, refused on a bad value and
 //! consumed by nothing, and it was a finding. A key nobody reads reads as a control that is in
@@ -132,6 +132,89 @@ impl core::fmt::Display for CatalogProse {
     }
 }
 
+/// Whether a zero-metric bundle's model and column NAMES also reach the prompt.
+///
+/// `github.com/telekom/sutura#971`,
+/// `docs/adr/20260924090917-listing-a-physical-schema-with-no-certified-metric.md`.
+///
+/// **Names only, never descriptions or types.** A column's type and description are `#966`'s own
+/// deliverable to `Model`, not this crate's to carry early; listing a name a reviewer already
+/// wrote into the catalog is not new disclosure, and this key exists so an operator who reviewed
+/// their own physical schema can say so. The trigger stays `sutura_app::prompt`'s own - a bundle
+/// with ANY certified metric never reaches this ramp, so this key never widens what a caller with
+/// audience-scoped access to a metric sees; it only says more about a bundle that has none to scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhysicalSchema {
+    /// Every model's name and its column names are listed. Requires the operator to have reviewed
+    /// the physical schema itself as fit for an agent's context - the same explicitness
+    /// [`CatalogProse::Quoted`] asks of a catalog's prose, in the other direction: there the
+    /// dangerous default would be silence, here it is disclosure.
+    Listed,
+    /// Not listed. The default: the ramp names that structure and prose exist, and names none of
+    /// them - the state every deployment written before this key existed is already in.
+    Omitted,
+}
+
+/// The word was neither spelling.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("`{found}` is not a physical-schema setting - use one of: {}", PhysicalSchema::NAMES.join(", "))]
+pub struct UnknownPhysicalSchema {
+    found: String,
+}
+
+impl PhysicalSchema {
+    /// Every accepted spelling.
+    pub const NAMES: &'static [&'static str] = &["listed", "omitted"];
+
+    /// Reads the word.
+    pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownPhysicalSchema> {
+        let raw = raw.as_ref().trim();
+        match raw.to_ascii_lowercase().as_str() {
+            "listed" | "included" => Ok(Self::Listed),
+            "omitted" | "excluded" | "none" => Ok(Self::Omitted),
+            _ => Err(UnknownPhysicalSchema {
+                found: String::from(raw),
+            }),
+        }
+    }
+
+    #[inline]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Listed => "listed",
+            Self::Omitted => "omitted",
+        }
+    }
+
+    #[inline]
+    pub const fn is_listed(self) -> bool {
+        matches!(self, Self::Listed)
+    }
+}
+
+impl Default for PhysicalSchema {
+    /// Omitted. A schema an operator has not reviewed for an agent's context must not reach one by
+    /// default.
+    #[inline]
+    fn default() -> Self {
+        Self::Omitted
+    }
+}
+
+impl TryFrom<String> for PhysicalSchema {
+    type Error = UnknownPhysicalSchema;
+
+    fn try_from(raw: String) -> Result<Self, Self::Error> {
+        Self::parse(raw)
+    }
+}
+
+impl core::fmt::Display for PhysicalSchema {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Where the operator's own prompt text lives.
 ///
 /// A newtype rather than a `PathBuf` so the one thing that can be wrong about it is wrong in one
@@ -183,6 +266,7 @@ impl core::fmt::Display for InstructionsFile {
 pub struct PromptSettings {
     instructions_file: Option<InstructionsFile>,
     catalog_prose: CatalogProse,
+    physical_schema: PhysicalSchema,
 }
 
 impl PromptSettings {
@@ -192,10 +276,15 @@ impl PromptSettings {
     /// prose with no operator text is a coherent deployment - it says the metric names and the rules
     /// and nothing about meaning - so it is a choice rather than a refusal.
     #[inline]
-    pub const fn new(instructions_file: Option<InstructionsFile>, catalog_prose: CatalogProse) -> Self {
+    pub const fn new(
+        instructions_file: Option<InstructionsFile>,
+        catalog_prose: CatalogProse,
+        physical_schema: PhysicalSchema,
+    ) -> Self {
         Self {
             instructions_file,
             catalog_prose,
+            physical_schema,
         }
     }
 
@@ -209,13 +298,19 @@ impl PromptSettings {
     pub const fn catalog_prose(&self) -> CatalogProse {
         self.catalog_prose
     }
+
+    #[inline]
+    pub const fn physical_schema(&self) -> PhysicalSchema {
+        self.physical_schema
+    }
 }
 
 impl Default for PromptSettings {
-    /// No operator text, prose quoted. What a deployment that configured nothing gets.
+    /// No operator text, prose quoted, physical schema omitted. What a deployment that configured
+    /// nothing gets.
     #[inline]
     fn default() -> Self {
-        Self::new(None, CatalogProse::Quoted)
+        Self::new(None, CatalogProse::Quoted, PhysicalSchema::Omitted)
     }
 }
 

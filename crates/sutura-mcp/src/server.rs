@@ -426,7 +426,7 @@ where
                 // one included - to every verified caller. So issue #148's disclosure is closed at
                 // this door and REMAINS OPEN at the prompt door on the same surface; scoping that
                 // prompt per-caller through the same `ScopedView` is the follow-up.
-                describe(&self.service, asked.context(), self.prose)
+                describe(&self.service, asked.context(), self.prose, self.instructions.as_ref())
             }
             Capability::AskMetric => {
                 let query = question(request)?;
@@ -675,9 +675,16 @@ fn invalid(error: &MalformedQuestion) -> ErrorData {
 /// surface also carries an `initialize.instructions` prompt, rendered once over the WHOLE bundle in
 /// `crates/sutura-cli/src/serve/agent.rs` (`sutura_app::prompt::render`) - its metrics section names
 /// every metric, an audience-restricted one included, to every verified caller. So `docs/adr/0028`'s
-/// invisible-at-both-doors holds of `describe_catalog` and `answer` here, and NOT of the served
-/// prompt; `docs/adr/0028`'s own "the prompt renderer has no served endpoint" is the sentence this
-/// transport makes stale. Scoping that prompt through the same `ScopedView` is the follow-up.
+/// invisible-at-both-doors holds of `describe_catalog`'s OWN `metrics` field and of `answer` here,
+/// and NOT of that prompt; `docs/adr/0028`'s own "the prompt renderer has no served endpoint" is the
+/// sentence this transport makes stale. Scoping that prompt through the same `ScopedView` is still
+/// the follow-up, unchanged by `#971`.
+///
+/// **`#971` gives this door a SECOND field carrying that exact unscoped prompt** -
+/// `CatalogContent::agent_instructions`, the same `Arc<str>` `get_info` hands `initialize` - so a
+/// gateway that surfaces tools and drops `initialize.instructions` still lets a caller reach the
+/// glossary and the operator's own text through `tools/call`. It does not widen the gap above: the
+/// content is identical either way, one more door onto the same unscoped document.
 ///
 /// **No audit record either, and that is deliberate rather than an omission.**
 /// `sutura_domain::audit::CallRecord` records the outcome of a *question*, and this is not one - there
@@ -690,6 +697,7 @@ fn describe<S>(
     service: &Arc<S>,
     context: &sutura_domain::identity::RequestContext,
     prose: sutura_app::prompt::CatalogProse,
+    agent_instructions: &str,
 ) -> CallToolResult
 where
     S: Surface,
@@ -702,7 +710,7 @@ where
     // And the view is built here, from the caller this request's own verification resolved - see the
     // doc above for why `scoped_for` maps an absent or process-owner caller to the whole bundle.
     let view = sutura_app::scoped_for(service.definitions(), context);
-    let listing = CatalogContent::of(&view, prose);
+    let listing = CatalogContent::of(&view, prose, agent_instructions);
     let mut result = CallToolResult::success(vec![ContentBlock::text(listing.as_text())]);
     // `ok()` rather than a propagated error, for the reason `produced` gives: the content is strings,
     // numbers and vectors, so serializing it cannot fail, and there is no `unwrap` in this workspace

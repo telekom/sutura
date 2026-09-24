@@ -654,6 +654,76 @@ fn catalogs_of_more_than_one_kind_in_one_deployment_are_refused() {
     assert!(err.contains("datahub"), "{err}");
 }
 
+/// `#970`: `okf` opens over a real directory of Table Schema descriptors, unconditionally - no
+/// feature to link, unlike `datahub`, because `sutura-catalog-okf` carries no native or
+/// outbound-TLS dependency.
+#[test]
+fn an_okf_catalog_opens_and_loads_over_a_real_directory() {
+    use sutura_config::{CatalogKind, CatalogSettings, Catalogs};
+    use sutura_domain::model::SourceName;
+    use sutura_domain::pinned::DefinitionVersion;
+    let root = std::env::temp_dir().join(format!("sutura-cli-catalog-okf-{}", std::process::id()));
+    drop(std::fs::remove_dir_all(&root));
+    std::fs::create_dir_all(&root).expect("a scratch directory is creatable");
+    std::fs::write(
+        root.join("orders.yaml"),
+        "description: Orders, one row per order.\nfields:\n  - name: order_id\n  - name: amount_cents\n",
+    )
+    .expect("a descriptor is writable");
+    let version = DefinitionVersion::parse("test-1").expect("a test version is a version");
+    let name = SourceName::parse("physical").expect("a test name is a name");
+    let entry = CatalogSettings::parse(name, CatalogKind::Okf, root.clone(), root.clone(), version)
+        .expect("a directory and a version are a settings");
+    let catalogs = Catalogs::parse(vec![entry]).expect("one declared catalog is a registry");
+    let opened = super::catalog::open_catalog(&catalogs, None).expect("okf is a kind every build links");
+    let super::catalog::OpenedCatalogs::Okf(catalogs) = opened else {
+        panic!("an okf-only deployment opens the okf vector");
+    };
+    assert_eq!(catalogs.len(), 1);
+    let pinned = super::catalog::load(&super::catalog::OpenedCatalogs::Okf(catalogs)).expect("the descriptor loads");
+    drop(std::fs::remove_dir_all(&root));
+    assert_eq!(pinned.definitions().metrics().len(), 0, "OKF declares no measure");
+    assert!(
+        pinned
+            .definitions()
+            .models()
+            .values()
+            .any(|model| model.table_name().as_str() == "orders"),
+        "the descriptor's own table must reach the pinned bundle"
+    );
+}
+
+/// `#970`: `openmetadata` and `rdbms` are declarable words - `CatalogKind::parse` accepts both -
+/// and refused by name UNCONDITIONALLY, because neither adapter crate has a reader over anything
+/// but a recorded fixture. Unlike `datahub`'s pre-#202 refusal or `okf`'s absent one, there is no
+/// `--features` remedy to name: no build could ever open either kind today.
+#[test]
+fn openmetadata_and_rdbms_are_declarable_and_refused_by_name_unconditionally() {
+    use sutura_config::{CatalogKind, CatalogSettings, Catalogs};
+    use sutura_domain::model::SourceName;
+    use sutura_domain::pinned::DefinitionVersion;
+    let version = DefinitionVersion::parse("test-1").expect("a test version is a version");
+    for (kind, word, follow_up) in [
+        (CatalogKind::Openmetadata, "openmetadata", "152"),
+        (CatalogKind::Rdbms, "rdbms", "972"),
+    ] {
+        let name = SourceName::parse("model").expect("a test name is a name");
+        let entry = CatalogSettings::parse(
+            name,
+            kind,
+            PathBuf::from("/nowhere/catalog"),
+            PathBuf::from("/nowhere/data"),
+            version.clone(),
+        )
+        .expect("a directory and a version are a settings");
+        let catalogs = Catalogs::parse(vec![entry]).expect("one declared catalog is a registry");
+        let err = super::catalog::open_catalog(&catalogs, None).expect_err("no build can open this kind yet");
+        assert!(err.contains(&format!("catalog.kind: {word}")), "{err}");
+        assert!(err.contains(follow_up), "{err}");
+        assert!(!err.contains("--features"), "no feature would make this openable: {err}");
+    }
+}
+
 #[cfg(feature = "datahub")]
 mod datahub_served;
 

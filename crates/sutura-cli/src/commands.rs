@@ -303,19 +303,20 @@ fn agent_tools(settings: &sutura_config::Settings) -> Vec<Tool> {
 /// resolving one document separately is how a later change to either stops matching what this
 /// command prints for the same settings.
 pub(crate) fn agent_instructions(pinned: &PinnedDefinitions, settings: &sutura_config::Settings) -> Result<String, String> {
-    let (prose, instructions) = prompt_inputs(settings.prompt())?;
+    let (prose, schema, instructions) = prompt_inputs(settings.prompt())?;
     let tools = agent_tools(settings);
-    let inputs = PromptInputs::new(&tools, prose, instructions.as_deref());
+    let inputs = PromptInputs::new(&tools, prose, schema, instructions.as_deref());
     Ok(sutura_app::prompt::render(pinned, &inputs))
 }
 
-/// How the catalog's prose is treated, and the operator's own text if a path was configured.
+/// How the catalog's prose and the physical schema are each treated, and the operator's own text
+/// if a path was configured.
 ///
 /// A named alias because the inline tuple is over the complexity threshold in `clippy.toml`, and
-/// naming it is the better half of that trade: the pair is what the settings resolve to.
-type ResolvedPromptText = (CatalogProse, Option<String>);
+/// naming it is the better half of that trade: the triple is what the settings resolve to.
+type ResolvedPromptText = (CatalogProse, sutura_app::prompt::PhysicalSchema, Option<String>);
 
-/// The prompt's two non-catalog inputs, resolved from the settings.
+/// The prompt's three non-catalog-content inputs, resolved from the settings.
 ///
 /// **A configured instructions file that cannot be read is an error, not an omitted section.** The
 /// implementation this prompt is modelled on omits its `instructions.md` silently when the file is
@@ -324,6 +325,7 @@ type ResolvedPromptText = (CatalogProse, Option<String>);
 /// carries them, and serving that quietly is the failure this repository refuses everywhere else.
 fn prompt_inputs(settings: &sutura_config::PromptSettings) -> Result<ResolvedPromptText, String> {
     let prose = catalog_prose(settings.catalog_prose());
+    let schema = physical_schema(settings.physical_schema());
     let instructions = match settings.instructions_file() {
         None => None,
         Some(configured) => {
@@ -337,7 +339,7 @@ fn prompt_inputs(settings: &sutura_config::PromptSettings) -> Result<ResolvedPro
             })?)
         }
     };
-    Ok((prose, instructions))
+    Ok((prose, schema, instructions))
 }
 
 /// The word an operator wrote, as the type that acts on it.
@@ -355,6 +357,15 @@ pub(crate) const fn catalog_prose(setting: sutura_config::CatalogProse) -> Catal
     match setting {
         sutura_config::CatalogProse::Quoted => CatalogProse::Quoted,
         sutura_config::CatalogProse::Omitted => CatalogProse::Omitted,
+    }
+}
+
+/// The identical conversion, for `prompt.physical_schema` (`#971`) - `catalog_prose`'s own doc
+/// comment states why this is a function with two callers rather than an inline match at each.
+pub(crate) const fn physical_schema(setting: sutura_config::PhysicalSchema) -> sutura_app::prompt::PhysicalSchema {
+    match setting {
+        sutura_config::PhysicalSchema::Listed => sutura_app::prompt::PhysicalSchema::Listed,
+        sutura_config::PhysicalSchema::Omitted => sutura_app::prompt::PhysicalSchema::Omitted,
     }
 }
 
@@ -681,7 +692,7 @@ mod tests {
     use sutura_domain::model::{DimensionName, MetricName};
     use sutura_domain::query::{MAX_RANGE_DAYS, RefusalReason};
 
-    use super::{catalog_prose, prompt_inputs, render_refusal};
+    use super::{catalog_prose, physical_schema, prompt_inputs, render_refusal};
 
     /// The two spellings of one decision agree, and this crate is the only place that can say so.
     ///
@@ -704,22 +715,39 @@ mod tests {
         }
     }
 
+    /// `#971`'s own pairing, matching `the_two_spellings_of_the_prose_setting_are_one_vocabulary`.
+    #[test]
+    fn the_two_spellings_of_the_physical_schema_setting_are_one_vocabulary() {
+        for name in sutura_config::PhysicalSchema::NAMES {
+            let configured = sutura_config::PhysicalSchema::parse(name).expect("an accepted spelling parses");
+            assert_eq!(physical_schema(configured).as_str(), configured.as_str(), "{name}");
+        }
+    }
+
     #[test]
     fn the_prompt_settings_reach_the_renderer() {
         // The point of the whole configuration group: what an operator wrote down is what the
-        // rendered prompt is built from. Both keys, both directions, and no process environment
-        // involved - `PromptSettings` is constructed directly so this stays hermetic.
-        let (prose, instructions) = prompt_inputs(&sutura_config::PromptSettings::new(None, sutura_config::CatalogProse::Quoted))
-            .expect("no operator file is not an error");
+        // rendered prompt is built from. Both `catalog_prose` and `physical_schema`, both
+        // directions, and no process environment involved - `PromptSettings` is constructed
+        // directly so this stays hermetic.
+        let (prose, schema, instructions) = prompt_inputs(&sutura_config::PromptSettings::new(
+            None,
+            sutura_config::CatalogProse::Quoted,
+            sutura_config::PhysicalSchema::Omitted,
+        ))
+        .expect("no operator file is not an error");
         assert_eq!(prose, sutura_app::prompt::CatalogProse::Quoted);
+        assert_eq!(schema, sutura_app::prompt::PhysicalSchema::Omitted);
         assert!(instructions.is_none());
 
-        let (prose, _) = prompt_inputs(&sutura_config::PromptSettings::new(
+        let (prose, schema, _) = prompt_inputs(&sutura_config::PromptSettings::new(
             None,
             sutura_config::CatalogProse::Omitted,
+            sutura_config::PhysicalSchema::Listed,
         ))
         .expect("no operator file is not an error");
         assert_eq!(prose, sutura_app::prompt::CatalogProse::Omitted);
+        assert_eq!(schema, sutura_app::prompt::PhysicalSchema::Listed);
     }
 
     #[test]
@@ -732,6 +760,7 @@ mod tests {
         let error = prompt_inputs(&sutura_config::PromptSettings::new(
             Some(configured),
             sutura_config::CatalogProse::Quoted,
+            sutura_config::PhysicalSchema::Omitted,
         ))
         .expect_err("a configured file that cannot be read is an error");
         assert!(error.contains("/nowhere/house-rules.md"), "{error}");
@@ -750,9 +779,10 @@ mod tests {
         let path = dir.join("house-rules.md");
         std::fs::write(&path, "Prefer the month grain.\n").expect("a scratch file is writable");
         let configured = sutura_config::InstructionsFile::parse(path.to_string_lossy().as_ref()).expect("a path is a path");
-        let (_, instructions) = prompt_inputs(&sutura_config::PromptSettings::new(
+        let (_, _, instructions) = prompt_inputs(&sutura_config::PromptSettings::new(
             Some(configured),
             sutura_config::CatalogProse::Quoted,
+            sutura_config::PhysicalSchema::Omitted,
         ))
         .expect("a readable file is read");
         assert_eq!(instructions.as_deref(), Some("Prefer the month grain.\n"));

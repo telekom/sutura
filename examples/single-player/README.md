@@ -289,14 +289,18 @@ speaks the Model Context Protocol on its pipes - the same two tools the HTTP sur
 player session over this same directory.
 
 ```bash
-sutura mcp examples/single-player/catalog examples/single-player/data
+cd examples/single-player
+sutura mcp data
 ```
 
-Point the client at `sutura mcp <catalog-dir> [data-dir]` - the directory is optional, because a
-deployment that declares its data system has already said where the data is - and it lists the
-catalog and answers certified questions exactly as `query` would. The process prints, on standard error, that it
-grants every capability to whoever can reach it: a pipe has no header a token could arrive in,
-so the limit is stated beside the mode rather than left as a default.
+Since issue #970, `mcp` reads `catalogs:` the way `serve` does rather than taking a catalog
+directory argument - the settings default (`catalog.dir: catalog`) is what resolves to this
+directory when the current directory is `examples/single-player`. `sutura mcp [data-dir]` - the
+data directory stays optional, because a deployment that declares its data system in `sources:`
+has already said where the data is - and it lists the catalog and answers certified questions
+exactly as `query` would. The process prints, on standard error, that it grants every capability
+to whoever can reach it: a pipe has no header a token could arrive in, so the limit is stated
+beside the mode rather than left as a default.
 
 ## The data
 

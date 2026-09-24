@@ -138,9 +138,11 @@ until this type existed the settings tree carried a directory and a version and 
 operator could write to say *read the model from somewhere else* - so a second catalog kind
 could merge complete and silently remain unreachable from any binary.
 
-Two variants today. `Self::Datahub` says which and why, the way `SourceKind::BigQuery` does for
+Five variants. `Self::Datahub` says which and why, the way `SourceKind::BigQuery` does for
 data systems: the vocabulary is the vocabulary of adapters this repository has, and an adapter
 that exists in a record rather than in a linked crate is still a word an operator might write.
+`github.com/telekom/sutura#970` added the three declaring adapters that had a crate and no
+composition root: `Self::Okf`, `Self::Openmetadata` and `Self::Rdbms`.
 
 ## `use CatalogSettings`
 
@@ -464,11 +466,28 @@ place. The field is private and `Self::parse` is the only way in.
 
 Why the prompt configuration is not usable.
 
+## `use PhysicalSchema`
+
+Whether a bundle carrying physical structure and zero certified metrics also lists its models'
+and columns' NAMES in the prompt's onboarding ramp - `github.com/telekom/sutura#971`,
+`docs/adr/20260924090917-listing-a-physical-schema-with-no-certified-metric.md`.
+
+**Names only, never descriptions or types.** A column's type and description are `#966`'s own
+deliverable to `Model`, not this crate's to carry early; listing a name a reviewer already
+wrote into the catalog is not new disclosure, and this key exists so an operator who reviewed
+their own physical schema can say so. The trigger stays `sutura_app::prompt`'s own - a bundle
+with ANY certified metric never reaches this ramp, so this key never widens what a caller with
+audience-scoped access to a metric sees; it only says more about a bundle that has none to scope.
+
 ## `use PromptSettings`
 
 Everything that goes into the prompt beyond the pinned bundle and the tool list.
 
 ## `use UnknownCatalogProse`
+
+The word was neither spelling.
+
+## `use UnknownPhysicalSchema`
 
 The word was neither spelling.
 
@@ -1385,24 +1404,30 @@ until this type existed the settings tree carried a directory and a version and 
 operator could write to say *read the model from somewhere else* - so a second catalog kind
 could merge complete and silently remain unreachable from any binary.
 
-Two variants today. `Self::Datahub` says which and why, the way `SourceKind::BigQuery` does for
+Five variants. `Self::Datahub` says which and why, the way `SourceKind::BigQuery` does for
 data systems: the vocabulary is the vocabulary of adapters this repository has, and an adapter
 that exists in a record rather than in a linked crate is still a word an operator might write.
+`github.com/telekom/sutura#970` added the three declaring adapters that had a crate and no
+composition root: `Self::Okf`, `Self::Openmetadata` and `Self::Rdbms`.
 
 #### Variants
 
 - `Markdown` - A directory of markdown documents with YAML frontmatter, read by `sutura-catalog-local`.
 
-  The only kind either composition root can OPEN in this build: the markdown adapter is
-  linked by `sutura serve` and is what `sutura query`/`sutura mcp` put behind its directory
-  argument.
+  The only kind every composition root can OPEN in every build: the markdown adapter is
+  non-optional and is what `sutura query`/`sutura mcp` put behind their directory argument
+  (`mcp`'s directory argument is gone since #970 - both read `catalogs:` the same way now).
 - `Datahub` - A metadata service, read through the adapter `docs/adr/0016` specifies and #114 builds.
 
-  **A declarable kind that no binary this repository ships can open yet, and that is
-  deliberate.** The vocabulary of kinds is the vocabulary of adapters *this repository has*
-  in its records, and the composition root refuses this kind by name for exactly the reason
-  `SourceKind::BigQuery` is refused: an operator who writes the word must be told the truth
-  (the adapter is not linked) rather than sent looking for a typo.
+  Openable behind `sutura-cli`'s default-off `datahub` feature; a build without it refuses
+  this kind by name, for exactly the reason `SourceKind::BigQuery` is refused: an operator who
+  writes the word must be told the truth (the adapter is not linked) rather than sent looking
+  for a typo.
+- `Okf` - A directory of OKF Frictionless Table Schema descriptors, read by `sutura-catalog-okf` - the narrowest of the three declaring adapters `#970` names, and the only one of the three with a reader that needs no service: one YAML document per table, on disk, like `Self::Markdown`.
+
+  Openable behind `sutura-cli`'s default-off `okf` feature.
+- `Openmetadata` - An `OpenMetadata` deployment, decided by `sutura-catalog-openmetadata` over its own `SnapshotReader` port - **a declarable kind no binary this repository ships can open yet, and that is deliberate.** The crate decides a whole metric against a fake reader; the `REST` reader over a real deployment is `#970`'s own stated follow-up (`#152`'s), so the composition root refuses this kind by name until one exists, rather than opening the recorded fixture against a real deployment's name.
+- `Rdbms` - An RDBMS dictionary, decided by `sutura-catalog-rdbms` over a `sutura_catalog_rdbms::DictionaryReader` - **a declarable kind no binary this repository ships can open yet, for the identical reason `Self::Openmetadata` states.** The crate decides the conversion against a recorded dictionary; a reader over a real socket lands with `#972`.
 
 #### Methods
 
@@ -1507,6 +1532,12 @@ disappears between reading the configuration and loading the catalog would make 
 existence check here a claim that goes stale immediately. The load is what fails.
 
 ```rust
+pub const fn refresh_seconds(&self) -> Option<u64>
+```
+
+The declared refresh interval, or `None` for never.
+
+```rust
 pub fn token_file(&self) -> Option<&Path>
 ```
 
@@ -1542,6 +1573,15 @@ caller - every markdown entry, every test that builds one - is unaffected by a k
 binary in this repository could open until issue #202's reader arrived. `parse_catalogs`
 calls this only when `kind` parsed as `CatalogKind::Datahub`.
 
+```rust
+pub fn with_refresh_seconds(self, refresh_seconds: Option<u64>) -> Result<Self, InvalidCatalogSettings>
+```
+
+Declares how often this catalog is re-read and re-pinned - `#975`. `None` (the default
+every entry written before this key existed is already at) means never; `Some(0)` is
+refused rather than read as "never" or "as fast as possible", so an operator who wrote a
+literal `0` is told rather than silently ignored.
+
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
@@ -1560,6 +1600,7 @@ Why a catalog configuration is not usable.
 - `EmptyCatalog` - No catalog was declared, so there is nothing to serve.
 - `DuplicateName` - Two catalogs share one declared name, so the contribution manifest could not tell them apart.
 - `MissingForDatahub` - A `catalog.kind: datahub` entry did not declare a field only that kind needs.
+- `ZeroRefresh` - `catalogs[].refresh_seconds: 0` - `github.com/telekom/sutura#975`. Zero re-reads on every tick of whatever drives it, which is not a refresh interval; absent is how "never refresh" is written.
 
 #### Implements
 
@@ -2680,7 +2721,7 @@ The hops whose forwarded header is believed.
 
 What goes into the agent-facing system prompt that this deployment hands out.
 
-Two keys, and each one is read by something: `sutura_app::prompt::render` is the consumer, and
+Three keys, and each one is read by something: `sutura_app::prompt::render` is the consumer, and
 `sutura prompt` is the command that reaches it. That is a requirement rather than a remark - this
 crate has shipped a group of keys that were parsed, range-checked, refused on a bad value and
 consumed by nothing, and it was a finding. A key nobody reads reads as a control that is in
@@ -2784,6 +2825,60 @@ The word was neither spelling.
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+### `enum PhysicalSchema`
+
+```rust
+pub enum PhysicalSchema
+```
+
+Whether a bundle carrying physical structure and zero certified metrics also lists its models'
+and columns' NAMES in the prompt's onboarding ramp - `github.com/telekom/sutura#971`,
+`docs/adr/20260924090917-listing-a-physical-schema-with-no-certified-metric.md`.
+
+**Names only, never descriptions or types.** A column's type and description are `#966`'s own
+deliverable to `Model`, not this crate's to carry early; listing a name a reviewer already
+wrote into the catalog is not new disclosure, and this key exists so an operator who reviewed
+their own physical schema can say so. The trigger stays `sutura_app::prompt`'s own - a bundle
+with ANY certified metric never reaches this ramp, so this key never widens what a caller with
+audience-scoped access to a metric sees; it only says more about a bundle that has none to scope.
+
+#### Variants
+
+- `Listed` - Every model's name and its column names are listed. Requires the operator to have reviewed the physical schema itself as fit for an agent's context - the same explicitness `CatalogProse::Quoted` asks of a catalog's prose, in the other direction: there the dangerous default would be silence, here it is disclosure.
+- `Omitted` - Not listed. The default: the ramp names that structure and prose exist, and names none of them - the state every deployment written before this key existed is already in.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+```rust
+pub const fn is_listed(self) -> bool
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownPhysicalSchema>
+```
+
+Reads the word.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Default`, `Display`, `Eq`, `PartialEq`
+
+### `struct UnknownPhysicalSchema`
+
+```rust
+pub struct UnknownPhysicalSchema
+```
+
+The word was neither spelling.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 ### `struct InstructionsFile`
 
 ```rust
@@ -2857,7 +2952,7 @@ pub const fn instructions_file(&self) -> Option<&InstructionsFile>
 The operator's own text, if a path was configured.
 
 ```rust
-pub const fn new(instructions_file: Option<InstructionsFile>, catalog_prose: CatalogProse) -> Self
+pub const fn new(instructions_file: Option<InstructionsFile>, catalog_prose: CatalogProse, physical_schema: PhysicalSchema) -> Self
 ```
 
 Assembles the group from parts that have each already been parsed.
@@ -2865,6 +2960,10 @@ Assembles the group from parts that have each already been parsed.
 Infallible, like the other groups here: there is no cross-field rule inside it. `omitted`
 prose with no operator text is a coherent deployment - it says the metric names and the rules
 and nothing about meaning - so it is a choice rather than a refusal.
+
+```rust
+pub const fn physical_schema(&self) -> PhysicalSchema
+```
 
 #### Implements
 

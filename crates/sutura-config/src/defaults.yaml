@@ -275,6 +275,18 @@ prompt:
   # NOT environment-derived, unlike `telemetry.format` and `api.docs`. Whether a catalog's authors
   # are trusted is a fact about who writes the catalog, not about whether this is a laptop.
   catalog_prose: "quoted"
+  # Whether a bundle with physical structure and ZERO certified metrics also lists every model's
+  # and column's NAME (never a description or a type - `#966`'s own deliverable) in the prompt's
+  # onboarding ramp: `listed` or `omitted`. `docs/adr/20260924090917-listing-a-physical-schema-
+  # with-no-certified-metric.md`.
+  #
+  # `omitted` is the default: naming a table an operator has not reviewed for an agent's context
+  # is disclosure the same direction `catalog_prose: omitted` guards, and the ramp already says the
+  # structure exists without naming it. `listed` requires the operator to have decided their
+  # physical schema's names are fit to leave in an agent's context - and only ever applies to a
+  # bundle with no certified metric at all, so it never widens what a caller with audience-scoped
+  # access to a metric sees.
+  physical_schema: "omitted"
   # `instructions_file` is deliberately absent, and absent means there is no operator section at all.
   # A path here is layered ON TOP of the derived text as its last section; there is no key that
   # replaces the derived part, because the derived part carries the refusal guidance and a key whose

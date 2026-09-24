@@ -70,7 +70,9 @@ pub(crate) const fn description(capability: Capability) -> &'static str {
              the dimensions it can be grouped by or filtered on, and the exact values a filter may use. \
              Read this before asking a question - it is the only way to know what a valid question is, \
              and every answer carries the same definition version and digest this listing does. It \
-             returns definitions, never data rows."
+             also carries this deployment's own glossary and operating instructions, reachable this \
+             way even where a gateway does not surface `initialize`'s own copy of them. It returns \
+             definitions, never data rows."
         }
         Capability::AskMetric => {
             "Answer one governed question about a certified metric. \

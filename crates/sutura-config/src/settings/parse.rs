@@ -12,7 +12,7 @@ use super::SettingsError;
 use crate::environment::Environment;
 use crate::governance::SpendBudget;
 use crate::limits::{Quota, RateLimitSettings};
-use crate::prompt::{CatalogProse, InstructionsFile, PromptSettings};
+use crate::prompt::{CatalogProse, InstructionsFile, PhysicalSchema, PromptSettings};
 use crate::proxy::{ClientAddressSource, TrustedProxies};
 use crate::raw::RawSettings;
 use crate::runtime::{AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace, WorkingSetCeiling};
@@ -240,5 +240,9 @@ pub(super) fn parse_prompt(raw: &RawSettings) -> Result<PromptSettings, Settings
         None => CatalogProse::default(),
         Some(value) => CatalogProse::parse(value).map_err(|cause| SettingsError::CatalogProse { cause })?,
     };
-    Ok(PromptSettings::new(instructions, prose))
+    let physical_schema = match raw.prompt.physical_schema.as_deref() {
+        None => PhysicalSchema::default(),
+        Some(value) => PhysicalSchema::parse(value).map_err(|cause| SettingsError::PhysicalSchema { cause })?,
+    };
+    Ok(PromptSettings::new(instructions, prose, physical_schema))
 }

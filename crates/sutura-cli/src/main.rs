@@ -218,7 +218,11 @@ const COMMANDS: &[Cmd] = &[
     },
     Cmd {
         name: "mcp",
-        args: "<catalog-dir> [data-dir]",
+        // No `<catalog-dir>` since issue #970: this root reads `catalogs:` the way `serve` does,
+        // rather than a directory argument only it took - `data-dir` stays, for the reason
+        // `query`'s does: a deployment that declared its data system in `sources:` has already
+        // said where the data is.
+        args: "[data-dir]",
         description: "serve the agent surface over stdin/stdout",
         run: mcp::mcp,
     },
@@ -636,7 +640,7 @@ mod tests {
             .iter()
             .find(|c| c.name == "mcp")
             .expect("mcp is listed in every build");
-        assert_eq!(mcp.args, "<catalog-dir> [data-dir]");
+        assert_eq!(mcp.args, "[data-dir]");
     }
 
     /// The allocator this crate LINKS on Linux is the major series `doctor` REPORTS. `ALLOCATOR`

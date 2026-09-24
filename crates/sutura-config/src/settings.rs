@@ -27,7 +27,7 @@ use crate::environment::{Environment, UnknownEnvironment};
 use crate::governance::SpendBudget;
 use crate::inbound::{InboundIdentity, InvalidAlgorithms, InvalidInboundValue};
 use crate::limits::{InvalidQuota, RateLimitSettings};
-use crate::prompt::{InvalidPromptSettings, PromptSettings, UnknownCatalogProse};
+use crate::prompt::{InvalidPromptSettings, PromptSettings, UnknownCatalogProse, UnknownPhysicalSchema};
 use crate::proxy::{InvalidTrustedProxy, UnknownClientAddressSource};
 use crate::raw::RawSettings;
 use crate::runtime::RuntimeSettings;
@@ -333,6 +333,11 @@ pub enum SettingsError {
     CatalogProse {
         #[source]
         cause: UnknownCatalogProse,
+    },
+    #[error("`prompt.physical_schema` does not say whether a zero-metric bundle lists its models and columns")]
+    PhysicalSchema {
+        #[source]
+        cause: UnknownPhysicalSchema,
     },
     #[error("the prompt configuration is not usable")]
     Prompt {

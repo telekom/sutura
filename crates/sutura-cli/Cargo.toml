@@ -149,6 +149,12 @@ agent = ["sutura-mcp/http", "sutura-http/agent"]
 [dependencies]
 sutura-app = { workspace = true }
 sutura-catalog-local = { workspace = true }
+# `catalog.kind: okf` - github.com/telekom/sutura#970. Not optional and behind no feature: the
+# crate is a directory read over `sutura-domain + serde + serde_norway + thiserror`, the same
+# closure `sutura-catalog-local` already is, so `.agents/skills/sutura/crate-map/SKILL.md`'s
+# reason for a default-off feature (the ARTEFACT a native or outbound-TLS dependency would add)
+# does not apply - this build links it unconditionally, the way it links markdown.
+sutura-catalog-okf = { workspace = true }
 # The settings tree, for `sutura prompt` alone. It is here so the prompt an operator pipes into an
 # agent's configuration is rendered from the SAME layered configuration the service would read -
 # `prompt.instructions_file` and `prompt.catalog_prose`, defaults then files then one variable per

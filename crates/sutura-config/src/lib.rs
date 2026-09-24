@@ -135,7 +135,10 @@ pub use crate::inbound::{
     TransitProof,
 };
 pub use crate::limits::{InvalidQuota, Quota, RateLimitSettings};
-pub use crate::prompt::{CatalogProse, InstructionsFile, InvalidPromptSettings, PromptSettings, UnknownCatalogProse};
+pub use crate::prompt::{
+    CatalogProse, InstructionsFile, InvalidPromptSettings, PhysicalSchema, PromptSettings, UnknownCatalogProse,
+    UnknownPhysicalSchema,
+};
 pub use crate::proxy::{Cidr, ClientAddressSource, InvalidTrustedProxy, TrustedProxies, UnknownClientAddressSource};
 pub use crate::runtime::{
     AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace, WorkingSetCeiling, available_memory_bytes,

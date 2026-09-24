@@ -88,6 +88,28 @@ pub struct CatalogContent {
     #[serde(skip)]
     notice: &'static str,
     metrics: Vec<MetricContent>,
+    // `github.com/telekom/sutura#971`: the same document `initialize.instructions` carries,
+    // reachable through a TOOL rather than only through the handshake result - a gateway that
+    // surfaces tools and drops everything else in `initialize` still lets a caller read the
+    // knowledge sections (glossary, recorded absences, worked examples) and the operator's own
+    // instructions, in `as_text` below. `skip`, matching `notice` above and for the identical
+    // reason: this is prose for the TEXT content block a reader looks at, and putting it in the
+    // structured half too would put the word "description" into `structured_content` even under
+    // `catalog_prose: omitted` (its own OWN omission notice says the word "descriptions") - which
+    // is exactly the leak shape `#266`'s H1 regression tests hold `structured_content` to having
+    // none of. Descriptive prose only - no data row has ever been in this document - bounded the
+    // same way it always was (`sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES` at load) and quoted
+    // under `catalog_prose` already, because it is `render`'s own output and `render` already
+    // applies that setting to every description it touches.
+    //
+    // **The limit stated where the claim is, not smoothed over:** this is the SAME text every
+    // verified caller's `initialize.instructions` already carries, rendered once over the WHOLE
+    // bundle rather than through THIS door's `ScopedView` - `describe`'s own doc comment names
+    // that gap already (an audience-restricted metric's name can appear in it), and reaching it
+    // through a tool call does not widen or narrow that gap; it is the same content, one more way
+    // to read it.
+    #[serde(skip)]
+    agent_instructions: String,
 }
 
 /// One metric, as much of it as a caller needs to ask a valid question.
@@ -137,8 +159,13 @@ impl CatalogContent {
     /// crate's only two readers of it, so this builder cannot fill a `description` or pick a notice
     /// without the operator's decision, and a third `CatalogProse` spelling is a compile error in
     /// both rather than an `else` arm here.
+    ///
+    /// `agent_instructions` is already-rendered text - the same document `initialize.instructions`
+    /// carries - rather than something this builder derives: `sutura-mcp` never reads settings, so
+    /// the operator's own section could not be assembled here even given the bundle, and the
+    /// composition root is where the one rendering happens for both surfaces.
     #[must_use]
-    pub fn of(view: &ScopedView<'_>, prose: CatalogProse) -> Self {
+    pub fn of(view: &ScopedView<'_>, prose: CatalogProse, agent_instructions: &str) -> Self {
         let metrics = view
             .metrics()
             .map(|metric| MetricContent {
@@ -170,6 +197,7 @@ impl CatalogContent {
             catalog_prose: prose.as_str(),
             notice: prose::notice(prose),
             metrics,
+            agent_instructions: String::from(agent_instructions),
         }
     }
 
@@ -222,6 +250,10 @@ impl CatalogContent {
         out.push_str(" (digest ");
         out.push_str(&self.provenance.definition_digest);
         out.push(')');
+        if !self.agent_instructions.is_empty() {
+            out.push_str("\n\n");
+            out.push_str(&self.agent_instructions);
+        }
         out
     }
 }

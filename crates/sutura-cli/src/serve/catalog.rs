@@ -12,12 +12,25 @@
 //! SAME `Warehouse` trait's instance methods), there is no single Rust type that is faithfully "a
 //! markdown catalog OR a datahub catalog": an enum wrapping both could not answer its own `KIND` or
 //! `capabilities()` without an instance to match on, which the trait's shape does not allow. What
-//! this module does instead is decide, from the declared catalogs' SHARED kind, which of two
-//! monomorphic vectors to open - [`crate::serve::catalog::OpenedCatalogs`] carries that choice and refuses a mix by name
-//! rather than picking one silently.
+//! this module does instead is decide, from the declared catalogs' SHARED kind, which monomorphic
+//! vector to open - [`crate::serve::catalog::OpenedCatalogs`] carries that choice and refuses a mix
+//! by name rather than picking one silently.
 //!
-//! **State the limit next to the claim: a heterogeneous catalog set - one deployment serving BOTH a
-//! markdown and a datahub catalog at once - is an architecture decision not taken here.** Wave one
+//! **`#970` widened `CatalogKind` to five words and this module to three OPENABLE vectors**
+//! (`Markdown`, `Datahub`, `Okf`). `Markdown` and `Okf` are unconditional - neither crate carries a
+//! native or outbound-TLS dependency, so neither needs the ARTEFACT-driven default-off feature
+//! `Datahub` has. `Openmetadata` and `Rdbms` are declarable and refused by name unconditionally,
+//! because neither adapter crate has a reader over anything but a recorded fixture yet, so
+//! [`crate::serve::catalog::OpenedCatalogs`] carries no variant for either: a build cannot open a kind it has no vector
+//! for, which is the same reasoning that used to keep `Datahub` out of this enum before #202's
+//! reader existed.
+//!
+//! **This module is now shared with `crate::mcp`**, not `crate::serve`'s alone: `open_catalog` and
+//! `load` are `pub(crate)` so the stdio composition root reads `catalogs:` through the identical
+//! pair rather than a directory argument and a second, `LocalCatalog`-only path.
+//!
+//! **State the limit next to the claim: a heterogeneous catalog set - one deployment serving more
+//! than one OPENABLE kind at once - is an architecture decision not taken here.** Wave one
 //! is one catalog kind per deployment; `.agents/skills/sutura/crate-map/SKILL.md` and
 //! `docs/adr/0016` both carry this same sentence, so it is read from one place rather than pieced
 //! together from a mixed-kind refusal's wording.
@@ -35,6 +48,13 @@ pub(crate) enum OpenedCatalogs {
     Markdown(Vec<LocalCatalog>),
     #[cfg(feature = "datahub")]
     Datahub(Vec<sutura_catalog_datahub::DataHubCatalog<sutura_catalog_datahub::http::HttpAspectReader>>),
+    /// A directory of OKF Frictionless Table Schema descriptors - `#970`. **Not feature-gated**,
+    /// unlike `Datahub`: `sutura-catalog-okf` carries no native or outbound-TLS dependency (a
+    /// directory read, the same shape `LocalCatalog` already is), so
+    /// `.agents/skills/sutura/crate-map/SKILL.md`'s reason for a default-off feature - the
+    /// ARTEFACT a networked or native adapter would add - does not apply, and this build links it
+    /// the way it links `LocalCatalog`.
+    Okf(Vec<sutura_catalog_okf::OkfCatalog>),
 }
 
 /// Opens every catalog the settings declare.
@@ -71,6 +91,18 @@ pub(crate) fn open_catalog(
             catalogs.each().map(open_one_markdown_catalog).collect(),
         )),
         sutura_config::CatalogKind::Datahub => open_datahub_catalogs(catalogs, outbound),
+        sutura_config::CatalogKind::Okf => Ok(OpenedCatalogs::Okf(catalogs.each().map(open_one_okf_catalog).collect())),
+        // Declarable, and refused by name unconditionally: neither crate has a reader over
+        // anything but a recorded fixture, so no feature could make either kind honestly openable
+        // yet - `sutura_config::CatalogKind`'s own doc comment names the follow-up for each.
+        sutura_config::CatalogKind::Openmetadata => Err(String::from(
+            "catalog.kind: openmetadata names a metadata adapter with no reader over a real \
+             deployment yet - see github.com/telekom/sutura#152's follow-up",
+        )),
+        sutura_config::CatalogKind::Rdbms => Err(String::from(
+            "catalog.kind: rdbms names a metadata adapter with no reader over a real dictionary \
+             yet - see github.com/telekom/sutura#972",
+        )),
     }
 }
 
@@ -84,12 +116,16 @@ pub(crate) fn load(catalogs: &OpenedCatalogs) -> Result<PinnedDefinitions, Strin
         OpenedCatalogs::Markdown(catalogs) => load_each(catalogs),
         #[cfg(feature = "datahub")]
         OpenedCatalogs::Datahub(catalogs) => load_each(catalogs),
+        OpenedCatalogs::Okf(catalogs) => load_each(catalogs),
     }
 }
 
 /// One kind's worth of catalogs, loaded and composed - the body `load` used to be, generic now
 /// because it runs over either monomorphic vector [`OpenedCatalogs`] carries.
-fn load_each<C>(catalogs: &[C]) -> Result<PinnedDefinitions, String>
+///
+/// `pub(super)` since `#975`: `serve::refresh::Refresher` re-runs exactly this over a declared
+/// `refresh_seconds` interval, so a re-read composes the SAME way the boot-time one does.
+pub(super) fn load_each<C>(catalogs: &[C]) -> Result<PinnedDefinitions, String>
 where
     C: SemanticCatalog,
 {
@@ -138,6 +174,19 @@ fn open_datahub_catalogs(
         "catalog.kind: datahub names a metadata adapter this binary was not built to link - build \
          sutura-cli with --features datahub, or declare markdown catalogs",
     ))
+}
+
+/// Opens one declared `okf` catalog: a directory of Table Schema descriptors, read exactly the way
+/// `open_one_markdown_catalog` reads a directory of markdown documents. No reader to build and no
+/// bound to resolve, unlike `datahub`: opening one is a constructor call over a directory, never a
+/// network client and a credential, so - unlike `Datahub` - there is no "not linked" refusal twin
+/// for this kind.
+fn open_one_okf_catalog(settings: &sutura_config::CatalogSettings) -> sutura_catalog_okf::OkfCatalog {
+    sutura_catalog_okf::OkfCatalog::new(
+        settings.name().clone(),
+        PathBuf::from(settings.dir()),
+        settings.version().clone(),
+    )
 }
 
 /// Reads a `catalog.kind: datahub` entry's declared token file into a `Secret`, at boot rather than

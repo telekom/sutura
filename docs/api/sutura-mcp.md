@@ -1083,7 +1083,7 @@ from. Invisible means absent, and it is the transport's job to build the view, n
 ##### Methods
 
 ```rust
-pub fn of(view: &ScopedView<'_>, prose: CatalogProse) -> Self
+pub fn of(view: &ScopedView<'_>, prose: CatalogProse, agent_instructions: &str) -> Self
 ```
 
 The reader's view of one pinned bundle, under the prose setting this deployment was started
@@ -1105,6 +1105,11 @@ It also asks nothing of the setting itself: `Carried::under` and `prose::notice`
 crate's only two readers of it, so this builder cannot fill a `description` or pick a notice
 without the operator's decision, and a third `CatalogProse` spelling is a compile error in
 both rather than an `else` arm here.
+
+`agent_instructions` is already-rendered text - the same document `initialize.instructions`
+carries - rather than something this builder derives: `sutura-mcp` never reads settings, so
+the operator's own section could not be assembled here even given the bundle, and the
+composition root is where the one rendering happens for both surfaces.
 
 ##### Implements
 

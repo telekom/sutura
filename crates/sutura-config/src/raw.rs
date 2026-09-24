@@ -537,6 +537,11 @@ pub(crate) struct RawCatalog {
     /// for the same reason `deadline_seconds` above does not name it here.
     #[serde(default)]
     pub(crate) max_response_bytes: Option<u64>,
+    /// Every kind, not `datahub` alone - `github.com/telekom/sutura#975`. Absent means never
+    /// re-read; a declared `0` is refused by `CatalogSettings::with_refresh_seconds` rather than
+    /// read as either "never" or "every tick".
+    #[serde(default)]
+    pub(crate) refresh_seconds: Option<u64>,
 }
 
 /// The default spelling of [`crate::catalog::CatalogKind::Markdown`], for `#[serde(default)]`.
@@ -583,4 +588,9 @@ pub(crate) struct RawPrompt {
     pub(crate) instructions_file: Option<String>,
     #[serde(default)]
     pub(crate) catalog_prose: Option<String>,
+    /// `#970`/`#971`: absent means `omitted`, matching `defaults.yaml` - a zero-metric bundle's
+    /// physical schema reaches an agent's context only where an operator reviewed it as fit for
+    /// one and said so.
+    #[serde(default)]
+    pub(crate) physical_schema: Option<String>,
 }

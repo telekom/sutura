@@ -50,7 +50,12 @@ use sutura_http::{LocalService, ServiceState};
 use sutura_runtime::{Admission, Shutdown, TracingAuditSink, banner, shutdown, telemetry};
 
 /// How a declared `catalogs:` becomes the catalog this build serves.
-mod catalog;
+///
+/// `pub(crate)` since issue #970: `crate::mcp` opens `catalogs:` through the exact same
+/// [`catalog::open_catalog`]/[`catalog::load`] pair rather than a directory argument and a second,
+/// `LocalCatalog`-only composition - one function decides what a declared catalog kind means for
+/// this build, for both binaries that ever start one.
+pub(crate) mod catalog;
 
 /// The refusals this root makes by reading the bundle. `main.rs` keeps the ORDER they run in.
 mod boot;
@@ -93,6 +98,11 @@ mod agent;
 
 /// `security.outbound`, resolved once at boot - `github.com/telekom/sutura#125`/`#911`.
 mod outbound;
+
+/// Re-reading a declared catalog on `catalogs[].refresh_seconds` and re-pinning it - `#975`.
+/// Built and unit-tested against a fake reader; **not wired** into this root's own boot - see the
+/// module's own header for the limit stated in full.
+mod refresh;
 
 /// The alias the example deployment and this crate's tests use for their one source.
 ///
@@ -184,6 +194,10 @@ pub(crate) fn run() -> Result<(), String> {
     // of the bundle (`outbound::resolve` resolved it once, above).
     let catalogs = catalog::open_catalog(settings.catalogs(), outbound.as_ref())?;
     let pinned = catalog::load(&catalogs)?;
+    // Cloned here, before `settings` moves into the state below: `refresh::drive` needs to read
+    // every entry's own `refresh_seconds` from inside `serve_until_stopped`, where a runtime is
+    // already running - `#975`.
+    let declared_catalogs = settings.catalogs().clone();
     // The `sources:` tree rather than `catalog.data_dir`: a deployment declares each data system, its
     // location and which identity a query reaches it as, and the engine is opened per declaration.
     // `catalog.data_dir` stays what it always was - the catalog's own directory - and is no longer
@@ -390,7 +404,16 @@ pub(crate) fn run() -> Result<(), String> {
     // returns needs to know how much of the grace period the drain spent. `tokio::sync` needs no
     // runtime entered, so this is safe on this side of `block_on`.
     let stopping = Shutdown::with_grace(grace);
-    let served = runtime.block_on(serve_until_stopped(router, address, material, watching, stopping.clone()));
+    let served = runtime.block_on(serve_until_stopped(
+        router,
+        address,
+        material,
+        watching,
+        stopping.clone(),
+        catalogs,
+        pinned,
+        declared_catalogs,
+    ));
     stop(runtime, &stopping);
     served
 }
@@ -494,13 +517,22 @@ fn stop(runtime: tokio::runtime::Runtime, stopping: &Shutdown) {
 }
 
 /// Spawns the signal listener and serves until it fires.
+///
+/// `catalogs`/`pinned`/`declared_catalogs` are here rather than read from `serve.rs`'s own boot
+/// section for `#975`'s reason: `refresh::drive` starts a `tokio::spawn` poll, which needs the
+/// runtime `run` has not yet built at that point in the sync boot code - this function is the
+/// first place one is running.
 async fn serve_until_stopped(
     router: axum::Router,
     address: std::net::SocketAddr,
     material: Option<TlsMaterial>,
     inbound: Option<Arc<sutura_http::InboundGate>>,
     stopping: Shutdown,
+    catalogs: catalog::OpenedCatalogs,
+    pinned: PinnedDefinitions,
+    declared_catalogs: sutura_config::Catalogs,
 ) -> Result<(), String> {
+    refresh::drive(&catalogs, &pinned, &declared_catalogs);
     // Detached on purpose: the task's only job is to translate the first signal into the shared
     // flag, and `serve` below is what waits on it. Joining it would mean waiting for a signal that
     // may never arrive.
@@ -660,12 +692,17 @@ type Serving = Arc<dyn Surface>;
 /// was - the transport takes a trait object, so the monomorphisation ends here rather than through
 /// the router.
 ///
-/// **Also generic over which of the two monomorphic catalog vectors `catalog::OpenedCatalogs`
-/// carries**, matched once here rather than at each of this function's call sites: every arm below
-/// builds the exact same `LocalService<W, TracingAuditSink, B>`, because `start_composed`'s catalog
-/// type parameter is consumed while loading and never stored - see `catalog.rs`'s module header for
-/// why `OpenedCatalogs` is an enum of two vectors rather than one vector of a shared type.
-fn started<W, B>(
+/// **Also generic over which of `catalog::OpenedCatalogs`' monomorphic catalog vectors is in
+/// play** (three since `#970` added `Okf`), matched once here rather than at each of this
+/// function's call sites: every arm delegates to [`start_composed`], because
+/// `LocalService::start_composed`'s catalog type parameter is consumed while loading and never
+/// stored - see `catalog.rs`'s module header for why `OpenedCatalogs` is an enum of vectors rather
+/// than one vector of a shared type.
+///
+/// `pub(crate)` since issue #970: `crate::mcp` builds no `LocalService` of its own any more - it
+/// matches its own adapter kind, then calls this with the `StaticCredentialBroker` its composition
+/// already resolved, and gets back the same erased `Surface` this root serves over HTTP.
+pub(crate) fn started<W, B>(
     catalogs: &catalog::OpenedCatalogs,
     engines: sutura_app::Warehouses<W>,
     broker: B,
@@ -689,40 +726,75 @@ where
     let combiner = sutura_exec_datafusion::DataFusionCombiner::new()
         .map_err(|cause| format!("{cause}\ncould not build the federation combiner"))?;
     match catalogs {
-        catalog::OpenedCatalogs::Markdown(catalogs) => LocalService::start_composed(
+        catalog::OpenedCatalogs::Markdown(catalogs) => start_composed(
             catalogs,
             engines,
-            TracingAuditSink::new(),
             broker,
             combiner,
             working_set_bytes,
-        )
-        .map(|service| {
-            Arc::new(
-                service
-                    .with_spend_ledger(spend_ledger(spend_budget))
-                    .with_row_ceiling(row_ceiling),
-            ) as Serving
-        })
-        .map_err(flatten),
+            spend_budget,
+            row_ceiling,
+        ),
         #[cfg(feature = "datahub")]
-        catalog::OpenedCatalogs::Datahub(catalogs) => LocalService::start_composed(
+        catalog::OpenedCatalogs::Datahub(catalogs) => start_composed(
             catalogs,
             engines,
-            TracingAuditSink::new(),
             broker,
             combiner,
             working_set_bytes,
-        )
-        .map(|service| {
-            Arc::new(
-                service
-                    .with_spend_ledger(spend_ledger(spend_budget))
-                    .with_row_ceiling(row_ceiling),
-            ) as Serving
-        })
-        .map_err(flatten),
+            spend_budget,
+            row_ceiling,
+        ),
+        catalog::OpenedCatalogs::Okf(catalogs) => start_composed(
+            catalogs,
+            engines,
+            broker,
+            combiner,
+            working_set_bytes,
+            spend_budget,
+            row_ceiling,
+        ),
     }
+}
+
+/// One arm's worth of [`started`]: builds a [`LocalService`] over whichever monomorphic catalog
+/// slice matched, erased to [`Serving`]. Factored out because `OpenedCatalogs` grew a third
+/// variant (`#970`) and every arm did the same five lines over a different `K`.
+fn start_composed<K, W, B, C>(
+    catalogs: &[K],
+    engines: sutura_app::Warehouses<W>,
+    broker: B,
+    combiner: C,
+    working_set_bytes: u64,
+    spend_budget: Option<sutura_config::SpendBudget>,
+    row_ceiling: sutura_domain::plan::RowCeiling,
+) -> Result<Serving, String>
+where
+    K: sutura_domain::pinned::SemanticCatalog,
+    K::Error: Send + Sync,
+    W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
+    W::Error: Send + Sync,
+    B: sutura_domain::identity::CredentialBroker + Send + Sync + 'static,
+    B::Error: Send + Sync,
+    C: sutura_domain::plan::FederationCombiner + Send + Sync + 'static,
+    C::Error: Send + Sync,
+{
+    LocalService::start_composed(
+        catalogs,
+        engines,
+        TracingAuditSink::new(),
+        broker,
+        combiner,
+        working_set_bytes,
+    )
+    .map(|service| {
+        Arc::new(
+            service
+                .with_spend_ledger(spend_ledger(spend_budget))
+                .with_row_ceiling(row_ceiling),
+        ) as Serving
+    })
+    .map_err(flatten)
 }
 
 /// The service for every shape whose adapter cannot carry a per-subject credential at all.

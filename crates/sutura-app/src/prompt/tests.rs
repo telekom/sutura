@@ -35,7 +35,7 @@ use sutura_domain::query::{Filter, MAX_DIMENSIONS, MAX_RANGE_DAYS, Query};
 // its guidance. The guide constants came with it, which is why they are no longer named here; the
 // count is `GUIDES.len()` and the assertion below reads it rather than a number written down.
 use super::refusal::{GUIDES, guide_for};
-use super::{CatalogProse, PromptInputs, Tool, WIDTH, quote, render, wrap};
+use super::{CatalogProse, PhysicalSchema, PromptInputs, Tool, WIDTH, quote, render, wrap};
 use refusal_corpus::every_refusal;
 
 /// The structured names that must never reach the output.
@@ -194,7 +194,13 @@ fn definitions() -> Definitions {
 }
 
 fn rendered(tools: &[Tool], prose: CatalogProse, instructions: Option<&str>) -> String {
-    render(&bundle(), &PromptInputs::new(tools, prose, instructions))
+    // `PhysicalSchema::Omitted`: `bundle()` always carries a metric, so `physical_schema_guidance`
+    // never fires over it either way - `tests/physical_schema.rs` is where that setting is
+    // exercised, over a bundle that actually has none.
+    render(
+        &bundle(),
+        &PromptInputs::new(tools, prose, PhysicalSchema::Omitted, instructions),
+    )
 }
 
 // ------------------------------------------------------------------ the knowledge fixture ---
@@ -304,7 +310,10 @@ fn bundle_with(declares: KnowledgeCapabilities) -> PinnedDefinitions {
 }
 
 fn rendered_with(declares: KnowledgeCapabilities, prose: CatalogProse) -> String {
-    render(&bundle_with(declares), &PromptInputs::new(Tool::ALL, prose, None))
+    render(
+        &bundle_with(declares),
+        &PromptInputs::new(Tool::ALL, prose, PhysicalSchema::Omitted, None),
+    )
 }
 
 /// Everything declared, everything populated: the reference-adapter case.
@@ -763,7 +772,7 @@ fn a_declared_and_empty_absence_list_is_not_the_same_document_as_an_undeclared_o
             .expect("an empty absence list is consistent with any definitions");
             pin(definitions, empty)
         },
-        &PromptInputs::new(Tool::ALL, CatalogProse::Quoted, None),
+        &PromptInputs::new(Tool::ALL, CatalogProse::Quoted, PhysicalSchema::Omitted, None),
     );
     assert!(declared.contains("## Terms this deployment records as NOT defined"));
     assert!(
@@ -909,7 +918,7 @@ fn a_note_carries_its_author_s_prose_while_the_structured_lines_carry_only_decla
     let knowledge = notes_carrying(&definitions, TABLE, &prose);
     let text = render(
         &pin(definitions, knowledge),
-        &PromptInputs::new(Tool::ALL, CatalogProse::Quoted, None),
+        &PromptInputs::new(Tool::ALL, CatalogProse::Quoted, PhysicalSchema::Omitted, None),
     );
 
     // The prose reaches the reader verbatim, quoted. This is the honest half.
@@ -948,7 +957,7 @@ fn a_declared_and_empty_kind_says_so_rather_than_pointing_at_a_missing_section()
     .expect("an empty bundle of every kind is consistent with any definitions");
     let text = render(
         &pin(definitions, empty),
-        &PromptInputs::new(Tool::ALL, CatalogProse::Quoted, None),
+        &PromptInputs::new(Tool::ALL, CatalogProse::Quoted, PhysicalSchema::Omitted, None),
     );
     // Absences already do this, and it is what the other three are being held to.
     assert!(

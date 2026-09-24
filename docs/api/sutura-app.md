@@ -1066,6 +1066,40 @@ pub const fn is_quoted(self) -> bool
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
 
+### `enum PhysicalSchema`
+
+```rust
+pub enum PhysicalSchema
+```
+
+Whether a zero-metric bundle's model and column NAMES are listed in the onboarding ramp -
+`#971`, `docs/adr/20260924090917-listing-a-physical-schema-with-no-certified-metric.md`.
+
+The same split as `CatalogProse`, for the same reason: `sutura_config::prompt::PhysicalSchema`
+parses the operator's word, this type is what the renderer acts on.
+
+#### Variants
+
+- `Listed` - Every model's name and its column names are listed, name only - never a description or a type. Only ever consulted where the bundle has zero certified metrics, so this never widens what a caller with audience-scoped access to a metric sees.
+- `Omitted` - Not listed. The ramp says the structure and the prose exist and names neither - unchanged from before this setting existed.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+The operator's own spelling. Equal to `sutura_config::prompt::PhysicalSchema::as_str` and
+held equal by a test in the composition root, the same pairing `CatalogProse::as_str` has.
+
+```rust
+pub const fn is_listed(self) -> bool
+```
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
 ### `struct PromptInputs`
 
 ```rust
@@ -1074,7 +1108,7 @@ pub struct PromptInputs<'a>
 
 Everything the prompt is derived from that is not the bundle.
 
-A value rather than four arguments, so a caller that gains a fifth input does not silently get
+A value rather than five arguments, so a caller that gains a sixth input does not silently get
 the wrong one in the third position.
 
 #### Methods
@@ -1084,15 +1118,20 @@ pub const fn instructions(&self) -> Option<&'a str>
 ```
 
 ```rust
-pub const fn new(tools: &'a [Tool], prose: CatalogProse, instructions: Option<&'a str>) -> Self
+pub const fn new(tools: &'a [Tool], prose: CatalogProse, physical_schema: PhysicalSchema, instructions: Option<&'a str>) -> Self
 ```
 
-The operations exposed, how catalog prose is treated, and the operator's own text.
+The operations exposed, how catalog prose and the physical schema are each treated, and the
+operator's own text.
 
 `instructions` is already-read text rather than a path, deliberately: this crate performs no
 I/O and the composition root is where a configured file that cannot be read has to become a
 loud failure. A configured-and-missing file silently omitted would be exactly the failure
 `AGENTS.md` warns about in another place - a control that reads as being in place.
+
+```rust
+pub const fn physical_schema(&self) -> PhysicalSchema
+```
 
 ```rust
 pub const fn prose(&self) -> CatalogProse
