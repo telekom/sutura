@@ -314,14 +314,18 @@ that registered it.
 **Only `SpendHeadroomPush::of` can make one, which is the whole point of the type existing.**
 A `Gauge` cannot be constructed outside `sutura_runtime`'s registry, but any caller holding a
 `RegistryBuilder` can mint an unrelated one - and a declaration carrying that would typecheck
-while pushing onto a series no scrape of this deployment renders. A private field closes it. The
-fence names the error code (`E0423`, a tuple struct with private fields) rather than a bare
+while pushing onto a series no scrape of this deployment renders. A private field closes it.
+It carries the gauge and this replica's `sutura_spend_bytes_total` counter together: the two
+series are registered under one condition by `ServiceState::new`, so one declaration carries
+both handles and the agent surface pushes both through the one `SpendHeadroomPush`.
+
+The fence names the error code (`E0423`, a tuple struct with private fields) rather than a bare
 `compile_fail`, so a change that made this fail for the WRONG reason - a rename, an unrelated
 syntax error - would itself fail to compile:
 
 ```compile_fail,E0423
 fn _unrelated(gauge: sutura_runtime::Gauge) -> sutura_http::ReplicaSpendGauge {
-    sutura_http::ReplicaSpendGauge(gauge)
+    sutura_http::ReplicaSpendGauge(gauge, gauge)
 }
 ```
 
@@ -3633,6 +3637,21 @@ This state's own declaration, whichever of the two it is.
 The only route to `Self::ThisReplicasGauge`. `Gauge` shares its storage by `Arc`, so the
 state and every holder of the returned declaration observe one series.
 
+```rust
+pub fn push_spend_total(&self, total: u64)
+```
+
+Raises this replica's `sutura_spend_bytes_total` counter to `total`, where the deployment
+registered one.
+
+For the same push site as `Self::gauge`, after the same answered call: `/mcp` answers
+through the same `crate::surface::Surface` and charges the same ledger as `POST /v1/query`,
+so the counter the HTTP route writes has to move from here too or it freezes at its boot
+reading while the agent surface drains the ledger - the exact stale-series lie
+`AgentMount::new`'s required declaration exists to close for the gauge. `None` (no ceiling
+configured) is not a fabrication site: the unconfigured total is absent rather than zero,
+the same discipline the gauge's own push follows.
+
 #### Implements
 
 `Clone`, `Debug`
@@ -3649,14 +3668,18 @@ that registered it.
 **Only `SpendHeadroomPush::of` can make one, which is the whole point of the type existing.**
 A `Gauge` cannot be constructed outside `sutura_runtime`'s registry, but any caller holding a
 `RegistryBuilder` can mint an unrelated one - and a declaration carrying that would typecheck
-while pushing onto a series no scrape of this deployment renders. A private field closes it. The
-fence names the error code (`E0423`, a tuple struct with private fields) rather than a bare
+while pushing onto a series no scrape of this deployment renders. A private field closes it.
+It carries the gauge and this replica's `sutura_spend_bytes_total` counter together: the two
+series are registered under one condition by `ServiceState::new`, so one declaration carries
+both handles and the agent surface pushes both through the one `SpendHeadroomPush`.
+
+The fence names the error code (`E0423`, a tuple struct with private fields) rather than a bare
 `compile_fail`, so a change that made this fail for the WRONG reason - a rename, an unrelated
 syntax error - would itself fail to compile:
 
 ```compile_fail,E0423
 fn _unrelated(gauge: sutura_runtime::Gauge) -> sutura_http::ReplicaSpendGauge {
-    sutura_http::ReplicaSpendGauge(gauge)
+    sutura_http::ReplicaSpendGauge(gauge, gauge)
 }
 ```
 

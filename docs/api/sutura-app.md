@@ -2298,8 +2298,10 @@ system's counter-reset handling) and across a changing replica count - `docs/adr
 owner decision, 2026-09-18: aggregation belongs to the monitoring system, never to
 enforcement, which stays per-replica either way.
 
-**Not yet exported as a metric.** No `Surface`/`ServiceState` accessor reaches this method
-today - `sutura_spend_bytes_total`'s registration and push are sequenced behind
-`github.com/telekom/sutura#921`, which is already touching the same `ServiceState` fields
-this counter's gauge sibling lives beside. This method is the mechanism the wiring will
-call; it is proven directly, against the ledger, until that lands.
+**Exported as `sutura_spend_bytes_total` by both transports.** `sutura_http::ServiceState::new`
+(`sutura-http`) registers the counter beside the `sutura_spend_headroom_bytes` gauge,
+`POST /v1/query`'s post-answer push and the agent surface's `Serving` wrapper raise it to
+this reading through one `SpendHeadroomPush` handle, and the `/metrics` scrape renders it.
+**Registered only where a ceiling is configured:** `Some` here is the registration
+condition, so an unconfigured deployment exports neither series - absent rather than zero,
+the same discipline the gauge applies.

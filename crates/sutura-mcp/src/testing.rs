@@ -433,6 +433,11 @@ impl Surface for FailingSurface {
         // This fixture carries no `SpendLedger` at all.
         None
     }
+
+    fn spent_bytes_total(&self) -> Option<u64> {
+        // This fixture carries no `SpendLedger` at all.
+        None
+    }
 }
 
 /// A surface over [`bundle_with_a_restricted_metric`] that answers nothing else.
@@ -481,6 +486,11 @@ impl Surface for RestrictedSurface {
     }
 
     fn spend_headroom_bytes(&self) -> Option<u64> {
+        // This fixture proves a caller's catalog scoping, not spend - it carries no `SpendLedger`.
+        None
+    }
+
+    fn spent_bytes_total(&self) -> Option<u64> {
         // This fixture proves a caller's catalog scoping, not spend - it carries no `SpendLedger`.
         None
     }
@@ -555,6 +565,11 @@ impl Surface for RecordingSurface {
     }
 
     fn spend_headroom_bytes(&self) -> Option<u64> {
+        // This fixture carries no `SpendLedger` either - it exists to record subjects, not spend.
+        None
+    }
+
+    fn spent_bytes_total(&self) -> Option<u64> {
         // This fixture carries no `SpendLedger` either - it exists to record subjects, not spend.
         None
     }
@@ -662,6 +677,11 @@ impl Surface for HoldingSurface {
     }
 
     fn spend_headroom_bytes(&self) -> Option<u64> {
+        // The admission bound is this fixture's own concern; it carries no `SpendLedger`.
+        None
+    }
+
+    fn spent_bytes_total(&self) -> Option<u64> {
         // The admission bound is this fixture's own concern; it carries no `SpendLedger`.
         None
     }

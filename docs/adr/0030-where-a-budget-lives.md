@@ -266,3 +266,19 @@ except the one call site with a real number to put there
   refusal are built.)* A number that nothing refuses against is a metric, not a budget.
   `feat/preflight-estimate-carries-a-number` shipped the number; the counter and the refusal shipped
   the shape this bullet named.
+
+## First amendment, 2026-09-24: the running total is exported as `sutura_spend_bytes_total`
+
+`SpendLedger::spent_bytes_total` is now exported as the metric this record's owner decision
+anticipated when it argued `sum(rate(...))` over a monotonic total is the deployment-wide number a
+per-replica headroom gauge cannot be. `ServiceState::new` (`sutura-http`) registers the counter
+beside `sutura_spend_headroom_bytes`, under the same condition: **only where a ceiling is
+configured** - `spent_bytes_total` returning `Some` is the registration condition, so an
+unconfigured deployment exports neither series. Both transports push it: `POST /v1/query`'s
+post-answer poll raises the counter to the ledger's fresh reading, and the agent surface pushes it
+through the same `SpendHeadroomPush` handle that carries the gauge, so an agent-only deployment
+cannot freeze the total while the ledger drains. Pushed with `raise_to` rather than `add`, because
+the reading already carries every byte admitted so far and an additive push would double-count.
+**Enforcement stays per-replica, unchanged:** this series is an observability surface for the
+monitoring system to aggregate across, never a control - the ceiling is still checked against one
+replica's own windowed map, and no replica reads another's counter.

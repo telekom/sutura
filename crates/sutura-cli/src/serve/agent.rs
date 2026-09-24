@@ -61,15 +61,24 @@ impl Surface for Serving {
     fn spend_headroom_bytes(&self) -> Option<u64> {
         self.surface.spend_headroom_bytes()
     }
+
+    fn spent_bytes_total(&self) -> Option<u64> {
+        self.surface.spent_bytes_total()
+    }
 }
 
 impl Serving {
-    /// Pushes this replica's current spend headroom onto the gauge, if this deployment has a spend
-    /// ceiling at all. Mirrors `ServiceState::record_spend_headroom`: a `None` reading leaves the
-    /// gauge untouched rather than fabricating zero.
+    /// Pushes this replica's current spend headroom and running spend total, if this deployment has
+    /// a spend ceiling at all. Mirrors `ServiceState::record_spend_headroom`: a `None` reading
+    /// leaves the gauge and the counter untouched rather than fabricating zero. The counter is
+    /// raised to the cumulative total - `add` would double-count a reading that already carries
+    /// every byte admitted so far.
     fn push_headroom(&self) {
         if let (Some(gauge), Some(bytes)) = (self.spend_headroom.gauge(), self.spend_headroom_bytes()) {
             gauge.set(bytes);
+        }
+        if let Some(total) = self.spent_bytes_total() {
+            self.spend_headroom.push_spend_total(total);
         }
     }
 }

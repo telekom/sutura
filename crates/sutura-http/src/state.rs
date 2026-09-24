@@ -40,7 +40,7 @@
 use std::sync::Arc;
 
 use sutura_config::Settings;
-use sutura_runtime::{Admission, Gauge, Registry, RegistryBuilder};
+use sutura_runtime::{Admission, Counter, Gauge, Registry, RegistryBuilder};
 
 #[cfg(feature = "agent")]
 use crate::router::Ungoverned;
@@ -86,7 +86,20 @@ pub struct ServiceState {
     /// wrote [`SpendHeadroomPush::NoCeilingConfigured`] on purpose, and
     /// `crate::router::agent_subtree` refuses to assemble that against a state which registered
     /// the series.
-    spend_headroom: Option<Gauge>,
+    ///
+    /// The pair is the gauge and the `sutura_spend_bytes_total` counter, registered under the SAME
+    /// condition - only when `governance.per_replica_spend_ceiling` is configured, and for the
+    /// same "absent rather than zero" reason: a deployment that configured no ceiling is
+    /// unlimited, and a spend total forever pinned at zero would read as a budget that had been
+    /// spent to its own ceiling and never moved again. A **counter, not a second gauge**, and that
+    /// is the whole point of it existing beside the headroom gauge: the gauge returns to its full
+    /// value on every window reset and every restart, so `sum()` over N replicas is
+    /// `N × ceiling − total_spend` and moves whenever the replica count does - a restart is
+    /// indistinguishable from spend being refunded. The counter only ever grows, so
+    /// `sum(rate(...))` is correct across restarts and across a changing replica count -
+    /// `docs/adr/0030`'s 2026-09-18 decision: the global view is aggregation in the monitoring
+    /// system, never enforcement - enforcement stays per-replica, unchanged by this series.
+    spend_headroom: Option<(Gauge, Counter)>,
     ///
     /// **Attached by a builder rather than taken by [`ServiceState::new`]**, and the reason is that
     /// building it reads a file: a `new` that could not fail would have to swallow an unreadable key
@@ -163,14 +176,18 @@ pub enum SpendHeadroomPush {
 /// **Only [`SpendHeadroomPush::of`] can make one, which is the whole point of the type existing.**
 /// A [`Gauge`] cannot be constructed outside `sutura_runtime`'s registry, but any caller holding a
 /// `RegistryBuilder` can mint an unrelated one - and a declaration carrying that would typecheck
-/// while pushing onto a series no scrape of this deployment renders. A private field closes it. The
-/// fence names the error code (`E0423`, a tuple struct with private fields) rather than a bare
+/// while pushing onto a series no scrape of this deployment renders. A private field closes it.
+/// It carries the gauge and this replica's `sutura_spend_bytes_total` counter together: the two
+/// series are registered under one condition by [`ServiceState::new`], so one declaration carries
+/// both handles and the agent surface pushes both through the one `SpendHeadroomPush`.
+///
+/// The fence names the error code (`E0423`, a tuple struct with private fields) rather than a bare
 /// `compile_fail`, so a change that made this fail for the WRONG reason - a rename, an unrelated
 /// syntax error - would itself fail to compile:
 ///
 /// ```compile_fail,E0423
 /// fn _unrelated(gauge: sutura_runtime::Gauge) -> sutura_http::ReplicaSpendGauge {
-///     sutura_http::ReplicaSpendGauge(gauge)
+///     sutura_http::ReplicaSpendGauge(gauge, gauge)
 /// }
 /// ```
 ///
@@ -187,7 +204,7 @@ pub enum SpendHeadroomPush {
 /// disagrees with the attaching state's own registration - a presence check, not gauge identity.
 #[cfg(feature = "agent")]
 #[derive(Debug, Clone)]
-pub struct ReplicaSpendGauge(Gauge);
+pub struct ReplicaSpendGauge(Gauge, Counter);
 
 #[cfg(feature = "agent")]
 impl SpendHeadroomPush {
@@ -197,9 +214,12 @@ impl SpendHeadroomPush {
     /// state and every holder of the returned declaration observe one series.
     #[must_use]
     pub fn of(state: &ServiceState) -> Self {
-        state.spend_headroom.as_ref().map_or(Self::NoCeilingConfigured, |gauge| {
-            Self::ThisReplicasGauge(ReplicaSpendGauge(gauge.clone()))
-        })
+        state
+            .spend_headroom
+            .as_ref()
+            .map_or(Self::NoCeilingConfigured, |(gauge, counter)| {
+                Self::ThisReplicasGauge(ReplicaSpendGauge(gauge.clone(), counter.clone()))
+            })
     }
 
     /// The gauge to push onto, or `None` where this deployment has no ceiling at all.
@@ -210,8 +230,24 @@ impl SpendHeadroomPush {
     #[must_use]
     pub const fn gauge(&self) -> Option<&Gauge> {
         match self {
-            Self::ThisReplicasGauge(ReplicaSpendGauge(gauge)) => Some(gauge),
+            Self::ThisReplicasGauge(ReplicaSpendGauge(gauge, _)) => Some(gauge),
             Self::NoCeilingConfigured => None,
+        }
+    }
+
+    /// Raises this replica's `sutura_spend_bytes_total` counter to `total`, where the deployment
+    /// registered one.
+    ///
+    /// For the same push site as [`Self::gauge`], after the same answered call: `/mcp` answers
+    /// through the same [`crate::surface::Surface`] and charges the same ledger as `POST /v1/query`,
+    /// so the counter the HTTP route writes has to move from here too or it freezes at its boot
+    /// reading while the agent surface drains the ledger - the exact stale-series lie
+    /// `AgentMount::new`'s required declaration exists to close for the gauge. `None` (no ceiling
+    /// configured) is not a fabrication site: the unconfigured total is absent rather than zero,
+    /// the same discipline the gauge's own push follows.
+    pub fn push_spend_total(&self, total: u64) {
+        if let Self::ThisReplicasGauge(ReplicaSpendGauge(_, counter)) = self {
+            counter.raise_to(total);
         }
     }
 }
@@ -328,6 +364,18 @@ impl ServiceState {
             gauge.set(initial);
             gauge
         });
+        // Same condition, same first-sample discipline as the gauge above: registered only where a
+        // ceiling is configured, and `0` is the correct initial reading here - the untouched
+        // total genuinely is zero, unlike the untouched headroom. Kept as one `Option` pair with
+        // the gauge rather than a second field: the two series exist under one condition, so a
+        // state that has one always has both, and `SpendHeadroomPush::of` hands the pair out as
+        // one declaration the agent surface pushes through.
+        let spend_bytes_total = surface.spent_bytes_total().map(|initial| {
+            let counter = builder.counter("sutura_spend_bytes_total");
+            counter.raise_to(initial);
+            counter
+        });
+        let spend_headroom = spend_headroom.zip(spend_bytes_total);
         let registry = Arc::new(builder.build());
         Self {
             surface,
@@ -456,8 +504,16 @@ impl ServiceState {
     /// configured, or this deployment's own composition never attached one - leaves the gauge
     /// untouched rather than fabricating zero.
     pub(crate) fn record_spend_headroom(&self, headroom_bytes: Option<u64>) {
-        if let (Some(gauge), Some(bytes)) = (&self.spend_headroom, headroom_bytes) {
+        if let (Some((gauge, counter)), Some(bytes)) = (&self.spend_headroom, headroom_bytes) {
             gauge.set(bytes);
+            // `raise_to`, not `add`: the running total is read fresh off the surface - the same
+            // post-answer poll this headroom reading came from - and `add` would double-count a
+            // number that already carries every byte admitted so far. `fetch_max` keeps the
+            // counter monotonic across concurrent pushes; a counter's reset handling remains the
+            // monitoring system's job.
+            if let Some(total) = self.surface.spent_bytes_total() {
+                counter.raise_to(total);
+            }
         }
     }
 }
