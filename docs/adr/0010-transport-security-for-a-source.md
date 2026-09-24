@@ -5,8 +5,9 @@ description: Optional mutual TLS to a metadata source and to a data source, conf
 
 # Transport security for a source, and the certificate that already rotates
 
-Status: **accepted. The configuration half and the Postgres channel are built; rotation and the HTTP
-adapters are not.**
+Status: **accepted. The configuration half, the Postgres channel, the HTTP adapters' declared anchors
+and client identity, and rotation are built** - see the amendments, which also record what the
+ADBC adoption removed. The one deferred item is a `server_name` distinct from the host dialled.
 
 Two separate things share this record because they are constantly confused for each other, and the
 confusion is the dangerous part: **mutual TLS authenticates the SERVICE to a source. It does not

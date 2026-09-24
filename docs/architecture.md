@@ -269,8 +269,8 @@ which of its four bullets the run answered and which it did not.
 a qualified path naming a dataset that is not there is refused - which is the control that makes the
 first half a measurement rather than an inference. So *qualification resolves*, not merely renders.
 `docs/adr/0019-a-table-outside-the-connections-dataset.md` is that record and says what the run
-does not cover: no second dataset and no second project, because the acceptance credential's IAM
-refuses `datasets.create`.
+does not cover: a cross-project read is not executed, and by owner decision is held by qualification
+(hermetic goldens and `resolve`'s cells) rather than by a second project.
 
 0017 also records how much narrower parse-checking is than acceptance - measured, not assumed: within
 one target the parse check cannot see a function's argument order.

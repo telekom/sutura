@@ -8,7 +8,8 @@ description: How a metadata document names a table in another dataset or another
 Status: **accepted.** Built, gated and pinned by goldens across four dialects, and a **qualified
 read** is proved against a real project - a `project.dataset.table` path is resolved by the service
 and a wrong dataset in one is refused. **A cross-PROJECT read is not proved**, because the acceptance
-credential's IAM refuses `datasets.create` and there was no second project to read across; *What is
+credential's IAM refuses `datasets.create` and there was no second project to read across - and, by
+the owner's decision recorded in the second amendment, there will not be one; *What is
 claimed, and what is not* at the end is the section to read before taking that green for more than it
 is.
 
@@ -300,8 +301,8 @@ record's own opening failure, one layer further out.
   is worth stating exactly:** the three-part path is proved to *resolve* - the qualifier is read,
   and a wrong dataset in it is refused - and what is unproved is a read whose leading part is a
   project the credential does not already bill to. That is an IAM grant rather than a code change;
-  the statement is identical in shape either way. It is the one thing to re-run when a second
-  project exists.
+  the statement is identical in shape either way. By the second amendment's decision it stays
+  unproved on purpose rather than waiting on a project.
 - **A cross-project JOIN was not executed.** A cross-DATASET join within one billing project now
   is - recorded on 2026-09-16 by run
   https://github.com/telekom/sutura/actions/runs/35066825062, positive and negative control, PASS -
@@ -357,5 +358,5 @@ platform capability this record has never needed to claim, not close a hole in w
 decides. The `#[ignore]`d cross-project cell that was waiting on this decision - `cross_resource.rs`
 in this adapter's own integration tests - no longer exists: it went with the HTTP wire transport
 (`github.com/telekom/sutura#913`), so the gap is now carried by this paragraph and by nothing
-executable. It waits on the same infrastructure this record already named, and nothing about
-`resolve` changes that.
+executable - and it waits on nothing: qualification is held hermetically (`resolve`'s own cells and
+the `qualified-cross-project-join` golden), and a second project is not coming.
