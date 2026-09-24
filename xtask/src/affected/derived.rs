@@ -11,9 +11,11 @@ const API_DOC_PATH: &str = "docs/api/";
 /// The per-dialect golden snapshots, one file per adapter: `crates/sutura-app/tests/snapshots/`.
 const SNAPSHOT_PATH: &str = "crates/sutura-app/tests/snapshots/";
 
-/// The category a generated API page selects: the category the crate the page derives from
-/// names, reusing the same mapping a crate path would use, so `docs/api/<crate>.md` selects
-/// exactly what `crates/<crate>/src/lib.rs` selects - and nothing for a crate on neither axis.
+/// The category a generated API page selects: the data-source or catalog category the crate the
+/// page derives from names, reusing the same mapping a crate path would use. A page for a crate
+/// on neither axis - or for one whose crate path would select another category, like the
+/// identity transport `sutura-http` - falls open to core. The page errs toward running more:
+/// the page never selects `identity`, but the crate path does.
 pub(super) fn api_doc_category(path: &str) -> Option<String> {
     api_doc_crate(path).and_then(category_from_crate)
 }
@@ -57,7 +59,111 @@ fn snapshot_system(path: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::super::tests::selected;
+    use super::{SNAPSHOT_CATALOG_SYSTEMS, SNAPSHOT_DATA_SYSTEMS, SNAPSHOT_PATH, snapshot_category};
+    #[test]
+    fn an_unlisted_snapshot_suffix_selects_core() {
+        // The no-suffix half of the markdown cell never reaches the unlisted-suffix arm:
+        // `snapshot_system` refuses it first. A suffix that is spelled but that no list holds
+        // is the arm's own case, and it must fall open to core.
+        let cats = selected(&["crates/sutura-app/tests/snapshots/x__sql@snowflake.snap"]);
+        assert!(cats.core, "a suffix no list names must run every category, not a made-up one");
+        for cat in [
+            "data_source_datafusion",
+            "data_source_duckdb",
+            "data_source_postgres",
+            "data_source_bigquery",
+            "catalog_local",
+            "catalog_datahub",
+            "identity",
+        ] {
+            assert!(cats.needs(cat), "{cat} must run when core runs");
+        }
+    }
+
+    #[test]
+    fn a_nested_path_under_the_api_docs_is_not_a_page() {
+        // `docs/api/<crate>.md` is one level deep; a path that is deeper names no crate.
+        let cats = selected(&["docs/api/sutura-exec-bigquery/x.md"]);
+        assert!(cats.core, "a nested docs/api path must run every category, not a made-up one");
+        for cat in [
+            "data_source_datafusion",
+            "data_source_duckdb",
+            "data_source_postgres",
+            "data_source_bigquery",
+            "catalog_local",
+            "catalog_datahub",
+            "identity",
+        ] {
+            assert!(cats.needs(cat), "{cat} must run when core runs");
+        }
+    }
+
+    #[test]
+    fn the_snapshot_suffix_lists_name_exactly_what_the_registry_names() {
+        fn names(dense: &[String], arm: &str) -> BTreeSet<String> {
+            super::super::arm_raw(dense, arm)
+                .expect("the registry holds the arm")
+                .iter()
+                .map(|args| args.first().expect("a cell has a name").clone())
+                .collect()
+        }
+        // The two lists are the only names the snapshot arm reads. They must be the registry's
+        // own names, split by axis, and every suffix on disk must resolve to a category.
+        let root = crate::repo::root().expect("the repo root");
+        let text = std::fs::read_to_string(root.join(super::super::REGISTRY)).expect("the registry is in the repo");
+        let (_, dense) = crate::conformance::scan::lexed(&text);
+
+        let data = names(&dense, crate::conformance::scan::REGISTRY_ARM);
+        let catalogs = names(&dense, crate::conformance::scan::CATALOGS_ARM);
+        assert!(
+            !data.is_empty(),
+            "no data-system arm read - the oracle would pass over any list"
+        );
+        assert!(
+            !catalogs.is_empty(),
+            "no catalogs arm read - the oracle would pass over any list"
+        );
+        let dir = root.join("crates/sutura-app/tests/snapshots");
+
+        assert_eq!(
+            SNAPSHOT_DATA_SYSTEMS
+                .iter()
+                .copied()
+                .map(String::from)
+                .collect::<BTreeSet<_>>(),
+            data,
+            "the data-system list and the registry's data-systems arm must name the same systems"
+        );
+        assert_eq!(
+            SNAPSHOT_CATALOG_SYSTEMS
+                .iter()
+                .copied()
+                .map(String::from)
+                .collect::<BTreeSet<_>>(),
+            catalogs,
+            "the catalog list and the registry's catalogs arm must name the same systems"
+        );
+
+        let entries = std::fs::read_dir(&dir).expect("the snapshot directory is in the repo");
+        for entry in entries {
+            let Ok(entry) = entry else { continue };
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(system) = name
+                .strip_suffix(".snap")
+                .and_then(|stem| stem.rsplit_once('@').map(|(_, s)| s))
+            else {
+                continue;
+            };
+            let path = format!("{SNAPSHOT_PATH}{name}");
+            assert!(
+                snapshot_category(&path).is_some(),
+                "{path}: its suffix {system} names no category, so it would fall open to core"
+            );
+        }
+    }
 
     #[test]
     fn an_adapter_s_own_api_page_selects_its_category_not_core() {

@@ -188,8 +188,10 @@ fn select(paths: &[String]) -> Selection {
         } else if let Some(tail) = crate_tail(path, CATALOG_PATH) {
             selected.insert(format!("catalog_{tail}"));
         } else if let Some(category) = derived::api_doc_category(path) {
-            // The page derives from the crate, so it selects exactly what the crate's own
-            // `src/lib.rs` would select; a page for a crate on neither axis still falls open.
+            // The page derives from the crate, so it selects the data-source or catalog
+            // category the crate names - never `identity`, which the crate's own path
+            // would select, so the page errs toward running more; a page for a crate on
+            // neither axis still falls open.
             selected.insert(category);
         } else if let Some(category) = derived::snapshot_category(path) {
             // The snapshot derives from the adapter, so it selects exactly what the adapter's own
