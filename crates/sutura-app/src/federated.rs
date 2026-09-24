@@ -246,18 +246,34 @@ where
         }
     }
 
-    // **The legs' results never become rows, and that is `docs/adr/0039` step 2's whole point
-    // meeting step 3's.** Each `LegResult` is tagged with the side its own `LegPlan` names, so the
-    // pair the combiner receives cannot have the two legs swapped - which would group the fact
-    // leg's measure by the lookup leg's keys and answer a wrong number under a certified name.
-    let fact = match run_leg::<_, B, C>(fact_warehouse, &credentials, plan.fact(), deadline) {
+    // **One admission permit covers both legs, and both round trips happen at once.** Everything
+    // above - pinning, preflight, charging - stays sequential; only the two `run_leg` executions
+    // are concurrent. A fact-leg execute refusal can now arrive only after the lookup leg has
+    // already run.
+    let span = tracing::Span::current();
+    let (fact, lookup) = std::thread::scope(|scope| {
+        let lookup = {
+            let lookup_warehouse = &*lookup_warehouse;
+            let credentials = &credentials;
+            let lookup_plan = plan.lookup();
+            scope
+                .spawn(move || span.in_scope(|| run_leg::<_, B, C>(lookup_warehouse, credentials, lookup_plan, deadline)))
+        };
+        let fact = run_leg::<_, B, C>(fact_warehouse, &credentials, plan.fact(), deadline);
+        let lookup = match lookup.join() {
+            Ok(result) => result,
+            Err(panic) => std::panic::resume_unwind(panic),
+        };
+        (fact, lookup)
+    });
+    let fact = match fact {
         Ok(batches) => LegResult::of(plan.fact(), batches),
         Err(LegError::Refusal(reason)) => {
             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
         }
         Err(LegError::Failure(error)) => return Err(error),
     };
-    let lookup = match run_leg::<_, B, C>(lookup_warehouse, &credentials, plan.lookup(), deadline) {
+    let lookup = match lookup {
         Ok(batches) => LegResult::of(plan.lookup(), batches),
         Err(LegError::Refusal(reason)) => {
             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
