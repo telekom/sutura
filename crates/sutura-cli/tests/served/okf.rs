@@ -102,6 +102,11 @@ mod tests {
             "an OKF catalog declares no measure, so a served listing must carry none: {}",
             reply.body
         );
+        assert_eq!(
+            body["provenance"]["definition_version"], VERSION,
+            "the served bundle must be stamped with the declared version: {}",
+            reply.body
+        );
         assert!(
             body["provenance"]["definition_digest"]
                 .as_str()

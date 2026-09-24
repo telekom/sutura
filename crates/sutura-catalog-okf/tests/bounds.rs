@@ -71,18 +71,22 @@ mod tests {
 
     /// The aggregate is a SUM, not a per-file limit, and the bound is a startup refusal naming
     /// bytes - the same two properties `sutura-catalog-local`'s own bound test pins for that
-    /// crate. One small descriptor plus one padded to cross the cap: neither document is refused
-    /// for content (both are complete and valid), only the aggregate size stops the load.
+    /// crate. Two documents, each well under the cap on its own, whose total is over it by one:
+    /// a mutation that checked each file's own size against the cap (rather than a running total)
+    /// would never refuse this directory - neither file is individually oversized - so this is the
+    /// cell that catches exactly that weakening, and it costs `MAX_CATALOG_BYTES + 1` bytes on disk
+    /// rather than a 20 MiB file.
     #[test]
     fn a_directory_whose_documents_sum_past_the_byte_bound_is_refused() {
-        // Comfortably over the production aggregate cap (16 MiB as of this writing): the padding
-        // is a YAML comment, so it contributes to the file's size without being a value this
-        // adapter reads, and two documents is far under the document-count bound - so this is
-        // exactly the aggregate-byte bound and nothing else.
-        const OVERSIZED_LEN: usize = 20 * 1024 * 1024;
+        const CAP: usize = 16 * 1024 * 1024;
+        // Each file is almost but not quite the whole cap; their sum is CAP + 1, one byte over. The
+        // `a` descriptor at the start is the tiny, valid one; `b_oversized` (no hyphen: the file
+        // stem is the table name, and a hyphen is not a name) carries the bulk.
+        const A_LEN: usize = 1024;
+        const B_LEN: usize = CAP + 1 - A_LEN;
         let root = scratch("too-large-aggregate");
-        std::fs::write(root.join("a.yaml"), descriptor("a")).expect("a descriptor is writable");
-        std::fs::write(root.join("b-oversized.yaml"), padded_descriptor("b", OVERSIZED_LEN)).expect("a descriptor is writable");
+        std::fs::write(root.join("a.yaml"), padded_descriptor("a", A_LEN)).expect("a descriptor is writable");
+        std::fs::write(root.join("b_oversized.yaml"), padded_descriptor("b", B_LEN)).expect("a descriptor is writable");
 
         let catalog = OkfCatalog::new(test_name(), root.clone(), version());
         let err = catalog.load().expect_err(
@@ -91,8 +95,12 @@ mod tests {
         );
         let message = err.to_string();
         assert!(
-            message.contains("bytes"),
-            "the refusal should name what was measured in bytes: {message}"
+            message.contains(&CAP.to_string()),
+            "the refusal should name the byte limit itself ({CAP}), not just the word 'bytes': {message}"
+        );
+        assert!(
+            message.contains("b_oversized"),
+            "the refusal should name the document whose read stopped it, not only the catalog root: {message}"
         );
 
         drop(std::fs::remove_dir_all(&root));

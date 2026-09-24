@@ -112,13 +112,20 @@ sends a reader to read all of them.
 - `UncheckableKnowledge`
 - `Empty`
 - `TooManyDocuments`
-- `TooLarge` - The documents read so far sum to more bytes than `MAX_CATALOG_BYTES` permits.
+- `TooLarge` - The read of this document would push the running total over `MAX_CATALOG_BYTES`.
 
   `path` is the catalog root, matching `TooManyDocuments` and `Empty` above - the rendered
   text names "the catalog", so the path in it has to be the catalog's, not one file's.
-  `document` is the one whose metadata pushed the running total over `limit` - checked from
-  its own size and INCLUDING it, before it is read into memory, not after. `found` is that
-  running total.
+  `document` is the one whose bytes pushed the running total past `limit`. `found` is that
+  running total. The bound is enforced on the read itself (`OkfCatalog::read_all`): the
+  refusing total comes from the handle's own `metadata()` before the read, or from what the
+  capped read actually delivered if a file grew in between.
+- `NotARegularFile` - The document the walk named is not a regular file when it comes to be read.
+
+  The walk refuses nothing on kind besides skipping links, devices and other non-files, but
+  this is the handle actually about to be read: a document swapped for a symlink to a device
+  after the walk would otherwise be followed - a zero-length device reporting `len 0` and
+  reading forever. Refusing it here closes that path with no second, path-based open.
 - `Digest`
 
 ### Implements
