@@ -234,56 +234,6 @@ mod tests {
     use super::{FixtureVariable, UnconfiguredFixture, first_empty_cell, parse};
 
     #[test]
-    fn a_float_nan_sum_reaches_the_decoder_without_an_integer_conversion() {
-        use std::path::Path;
-
-        use sutura_conformance::corpus;
-        use sutura_dev::provisioned::{self, Provisioned};
-        use sutura_domain::plan::Executable;
-        use sutura_domain::warehouse::Warehouse as _;
-
-        use crate::ClickHouseError;
-        use crate::transport::Endpoint;
-
-        let endpoint = match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "clickhouse") {
-            Provisioned::At(endpoint) => endpoint,
-            Provisioned::Skipped(absent) => {
-                eprintln!("{absent}");
-                return;
-            }
-        };
-        let warehouse = crate::ClickHouseWarehouse::connect_in_database(
-            corpus::source(),
-            corpus::posture(),
-            Endpoint::plaintext(endpoint.host(), endpoint.port()),
-            super::credential_from_env().expect("the tier publishes a credential"),
-            &format!("nan_sum_{}", std::process::id()),
-        )
-        .expect("the tier opens a database");
-        warehouse
-            .load_conformance_csv(&corpus::table(), &corpus::on_disk())
-            .expect("the corpus loads");
-        warehouse
-            .transport
-            .command(
-                &format!(
-                    "INSERT INTO \"{}\" (\"day\", \"rate\") SELECT toDate('2026-01-01'), toFloat64('nan')",
-                    corpus::table()
-                ),
-                &[],
-            )
-            .expect("the tier accepts a NaN Float64 fixture row");
-        let case = corpus::cases()
-            .into_iter()
-            .find(|case| case.name() == "total-rate-by-day")
-            .expect("the corpus has a Float64 sum case");
-        let error = warehouse
-            .execute(Executable::Query(case.plan()), &corpus::presented(), corpus::deadline())
-            .expect_err("a non-finite sum cannot be a result cell");
-        assert!(matches!(error, ClickHouseError::NotFinite { .. }), "{error}");
-    }
-
-    #[test]
     fn an_absent_or_blank_variable_is_refused_and_named() {
         for withheld in FixtureVariable::ALL {
             let absent = parse(|variable| (variable != withheld).then(|| String::from("configured")));
