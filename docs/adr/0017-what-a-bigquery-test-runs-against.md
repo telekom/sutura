@@ -1279,10 +1279,15 @@ run suffix.
 ### Not in scope
 
 Cross-dataset fixtures within one billing project (#118) are landed in a separate PR (a disposable
-venue beside the acceptance dataset, refusing the absent owned name); the conformance packs (#116)
-are still future work. The cross-PROJECT half of #118 is not: by owner decision it is held by
-qualification rather than a second project (`docs/adr/0019`, second amendment). This change made the first safe to add
+venue beside the acceptance dataset, refusing the absent owned name); the cross-PROJECT half of
+#118 and the conformance packs (#116) are still future work. This change made the first safe to add
 rather than doing it.
+
+**Corrected, 2026-09-24:** neither half is future work as written. The conformance packs landed
+(`crates/sutura-conformance`, `github.com/telekom/sutura#352`; `execute_packs!` is bound in four
+adapters' conformance tests) - what #116 still asks for is their two-warehouse extension. The
+cross-PROJECT half of #118 is held by qualification by owner decision (`docs/adr/0019`, second
+amendment), not by a second project.
 
 ## Tenth amendment, 2026-09-04: the two-principal cell exists, and what it is *not*
 

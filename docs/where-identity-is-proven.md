@@ -486,8 +486,9 @@ of either has been observed.** `.github/workflows/bigquery-declared-principal.ym
 are `each_subject_executes_as_its_own_principal_at_the_declared_pool` and its control
 `the_deployments_own_identity_is_neither_subjects_principal`, both `#[ignore]`d and both panicking
 with the name of any environment value they lack rather than skipping. Until a run is observed and
-reported here this venue may not be cited, and the ADBC adoption's own merge precondition is that
-somebody dispatches it.
+reported here this venue may not be cited. A run of it is outstanding evidence, **not** a merge
+precondition: the owner accepted the ADBC adoption (`telekom/sutura#929`) with it unrun, on
+2026-09-24.
 
 **What only this venue can answer.** Whether two distinct verified subjects resolve to two distinct
 `BigQuery` principals at the data system - **and whether Google accepts the assertion at all**,
@@ -513,9 +514,9 @@ identity happened to be one of the two principals.
 3. **Which ROWS each principal sees.** Both cells read one identity and no data. Two accounts with
    two different dataset grants reading two different row sets is the claim an end-to-end venue
    would add, and nothing here approaches it.
-4. **That the driver ships.** It builds one for the runner's own triple. No release artefact carries
-   a driver and a static musl binary cannot load one at all -
-   `just bigquery-driver-check` is what holds both halves of that, and it is a different venue
+4. **That the driver ships.** Every release artefact carries it as a linked `c-archive`, the static
+   musl ones included - `just bigquery-driver-check` holds that (on the `ci` profile per pull
+   request, and against the published build in `release.yml`), and it is a different venue
    answering a different question.
 
 ## A real enterprise identity provider

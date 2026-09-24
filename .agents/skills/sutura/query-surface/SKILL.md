@@ -15,7 +15,7 @@ tied to one is unproven: say so, and adding the missing check beats adding a sen
 | A new failure mode | A `RefusalReason` variant inside `ToolOutcome`, never an `Err` | Two exhaustive matches with no wildcard arm, one per transport, so it fails to compile in both. The crates cannot see each other, so their vocabularies are kept equal by a *derivation* - the code is the variant name in snake_case, read off the domain type's own `Serialize` - not by a comparison an adapter may not make |
 | A new tool, route or operation | It names a `Capability`, that capability names a scope, and both transports describe the same set | Five exhaustive matches plus `RouteNotGoverned`. `both_transports_describe_the_same_tools` runs **once per transport against the one declaration** - two tests over one source, not a comparison between adapters. Adding a capability changes the DEPLOYED contract: an authorization server is configured with the scope by hand, which is why ids and scopes are pinned by value and are separate literals, so a tool rename cannot rename a scope |
 | Reading from the catalog at request time | Descriptive content only - nothing that selects, widens or parameterizes what executes | `load()` has no `RequestContext` to pass it; dimension validation reads the definitions the process pinned at boot, and there is no per-request view over them to read instead |
-| A second execution leg | One answer has one asker, and no leg runs as a third identity: each runs as the asker **or** under that source's acknowledged shared identity, and the answer records which - and **every leg decides identity the SAME way, or the question is refused** as `LegsDecideIdentityDifferently`. *"Every leg runs as the same subject"* was the wording here and was overstated - a source serving everyone as one identity does not run as the asker, and making the labels agree would not have made the identities agree | Recording, credentials and the refusal are all built; see `../identity/SKILL.md`. On a PUBLISHED build the recording is two entries of the same shared posture, because both leg-executing adapters a release links are `NoPlaceForASubject` - the same posture, which for two Postgres sources may still be two database roles. **Not the promise:** no test asserts two subjects get different ROWS - that needs a live dataset with row-level security and two real grants |
+| A second execution leg | One answer has one asker, and no leg runs as a third identity: each runs as the asker **or** under that source's acknowledged shared identity, and **the answer records which, per leg, even where the two disagree** (`docs/adr/0040`). *"Every leg runs as the same subject"* was the wording here and was overstated - a source serving everyone as one identity does not run as the asker, and making the labels agree would not have made the identities agree. *"Every leg decides identity the SAME way, or the question is refused"* replaced it and is also gone: BigQuery is the only impersonating adapter, so that refused every BigQuery federation with a shared-posture adapter | Recording and credentials are built and the refusal is deleted; see `../identity/SKILL.md`. A PUBLISHED build can record two different postures on one answer: the release links `bigquery`, wired to execute its leg as the asker, beside leg-executing adapters that are `NoPlaceForASubject` (`postgres`, and `oracle` where linked) - which answer, per leg, the shared identity the operator acknowledged for that source. No served cross-posture run has been observed. **The record is a disclosure, not a control** - it leaves in the same body as the rows; the control is the boot acknowledgement on each source's own entry. **Not the promise:** no test asserts two subjects get different ROWS - that needs a live dataset with row-level security and two real grants |
 | A new knowledge kind | The prompt stays the only consumer | Three exhaustive matches plus a `const` assertion on the walk's seed |
 | A **second consumer** of a knowledge kind | Same | **Nothing mechanical.** `Query` having no field a phrase fits in is what makes the glossary descriptive, so reading a note elsewhere is an architecture decision - flag it in the handoff |
 | Anything that stores or forwards rows | - | **Nothing mechanical.** A human review question, not an agent's to certify: flag it in the handoff |
@@ -85,19 +85,14 @@ passes - two `DuckDB` databases and two instances of the shipped engine - over n
 join keys, remote filters, the whole reduction table above the legs, a zero denominator in one
 subgroup, and the `MeasureDoesNotFederate` refusal.
 **Four limits, and the first two are the ones that get overstated:**
-(1) **not two identities** - every adapter a release links is `NoPlaceForASubject` and
-`deliverable_by` refuses `impersonation-at-source` against it in every composition root, so every
-`files` source is `shared-service-user` and both legs of a shipped answer run under one
-operating-system identity. **Which is also why the mixed-posture refusal fires for nothing on a PUBLISHED build:**
-`ExecutedAs::uniform` refuses an answer whose legs decide identity two different ways, and no
-published build can reach a source of each kind, because no published artefact links the only
-`PerSubjectCredential` adapter. **What changed with `telekom/sutura#929` is the reason, and the
-old reason is now wrong:** `sutura-exec-bigquery` used to leave `EXECUTES_LEGS` at its default and
-be refused as `FederationNotExecutable` before the postures were ever compared. It declares the
-constant now and renders a leg through `sutura_sql::generate_leg`, so a `--features bigquery`
-build DOES reach the posture comparison - a `files` leg beside a `bigquery` impersonating leg is
-refused as `LegsDecideIdentityDifferently` rather than as not-executable, and two impersonating
-`bigquery` legs pass it and federate with a per-subject credential at each
+(1) **not two identities on every answer** - `files` and Postgres sources still use
+`NoPlaceForASubject`; two such legs can run under different deployment identities even though both
+record `shared-service-user`. A published build now also links BigQuery, the one
+`PerSubjectCredential` adapter, so a BigQuery leg beside a leg-executing shared-posture leg can
+produce a mixed-posture answer. **The refusal that compared the two postures is DELETED**
+(`docs/adr/0040`): the answer carries one `executed_as` entry per source. No served cross-posture
+run has been observed, and the record names a posture, not which shared account executed. Two
+impersonating `bigquery` legs federate with a per-subject credential at each
 (`one_subject_federating_two_sources_is_minted_each_sources_own_declared_account` holds that the
 one mint over both sources resolves each source's own declared account). **What no green run here
 says:** no federated answer has been produced against a real dataset - the dialect axis declares
@@ -113,8 +108,8 @@ rendered and gate-checked, never executed - and `sutura-exec-bigquery`'s leg is 
 Postgres's is (`execute_packs!` tagged `executes_legs`) but against a fixed lookup table rather than
 a provisioned tier or a live dataset. All three declarations, and what each one's evidence is, live
 in `crates/sutura-app/tests/differential/federated/leg_evidence.rs` as a typed `LegEvidence` rather
-than a bare name; (3) **one deployment still cannot get two genuinely different POSTURES onto one
-federated answer, but it can now hold two KINDS** - `#112`'s `crate::serve::kind::AnyWarehouse` is
+than a bare name; (3) **two genuinely different POSTURES on one federated answer are answered and
+disclosed per leg since `docs/adr/0040`, and a deployment can hold two KINDS** - `#112`'s `crate::serve::kind::AnyWarehouse` is
 a closed enum over the adapters a build LINKED, erasing a heterogeneous `Warehouses<AnyWarehouse>`
 the way `sutura_app::warehouses`'s own header named as the remedy; `one_kind` is retired, and
 `crate::serve::kind::group_by_kind`/`open_mixed` open each declared kind through the SAME per-kind
@@ -236,16 +231,17 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   rather than off a manifest. The `data_systems:` golden axis therefore gains no entry - that
   registry's rule is that a cell which cannot execute reads as coverage. The DIALECT axis does have
   one.
-- **The ClickHouse adapter executes the golden corpus, and no release links it.** The golden matrix
-  registers it and runs the example corpus against the server `nix/clickhouse-tier.nix` starts - in
+- **The ClickHouse adapter executes the golden corpus and conformance packs, and no release links
+  it.** The golden matrix registers it and runs the example corpus against the server
+  `nix/clickhouse-tier.nix` starts - in
   `checks.nextest` and under `just test`, like Postgres - so its `rows`/`refused`/`error`/
   `anchor_report` families are EXECUTED goldens and `dialects.rs` declares `Evidence::Executed`
-  (`github.com/telekom/sutura#920`). **What that does not reach:** one server version, the one the
-  pinned nixpkgs carries; the conformance packs, declared unbound in `xtask/src/conformance/
-  reconcile.rs` because their corpus measured an `Int64` sum that wraps silently and a decimal that
-  loses its trailing zero - wrong answers the golden corpus's small integers and doubles never
-  provoke; and any release, because `sutura-cli`'s `clickhouse` feature is default-off and absent
-  from `nix/shipped.nix`. Both venues - this tier and `compose.services.yaml`'s docker service -
+  (`github.com/telekom/sutura#920`). The conformance packs bind through
+  `crates/sutura-exec-clickhouse/tests/conformance.rs` after `#979` measured signed 64-bit overflow
+  and preserved decimal scale. **What that does not reach:** unsigned overflow in the live corpus,
+  other server versions, sums beyond the widened type, or any release, because `sutura-cli`'s
+  `clickhouse` feature is default-off and absent from `nix/shipped.nix`. Both venues - this tier and
+  `compose.services.yaml`'s docker service -
   publish one `clickhouse` discovery entry, so the last one started owns it.
 - **What both acceptance legs say nothing about is identity.** A service-account key is one identity
   for everybody who asks, so what they establish is *accepted, and correct for that identity*.

@@ -1,10 +1,10 @@
 //! The ADBC transport: opens the self-built `BigQuery` driver
 //! (`nix/bigquery-adbc.nix`) through `adbc_core` + `adbc_driver_manager` and
-//! decodes its Arrow result sets.
+//! hands its Arrow result sets on unconverted.
 //!
 //! ```text
 //! adbc_core + adbc_driver_manager → C ABI → the `BigQuery` ADBC driver
-//!   → `BigQuery` → Arrow RecordBatchReader → decode::Decoding → RowSet
+//!   → `BigQuery` → Arrow RecordBatchReader → ResultBatches
 //! ```
 //!
 //! **Two routes to that driver and one type deciding between them** - [`DriverLocation`], resolved
@@ -769,8 +769,10 @@ impl JobTransport for AdbcBigQuery {
     }
 
     #[cfg(feature = "fixtures")]
-    fn apply(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
-        Err(AdbcError::Uncovered("bulk-load fixtures"))
+    fn apply(&self, request: &JobRequest<'_>) -> Result<(), Self::Error> {
+        let (_driver, mut statement, _source) = self.connect(request)?;
+        statement.execute_update().map_err(AdbcError::Adbc)?;
+        Ok(())
     }
 }
 

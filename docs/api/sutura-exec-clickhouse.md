@@ -15,12 +15,9 @@ half, like `sutura_exec_postgres`: no OAuth, no impersonation.
 # Why `ureq` and not an async driver
 
 **The port carries no `async fn`, and `ureq` is natively blocking - so this adapter needs no
-`tokio` runtime and no `block_on` at all.** That is not a simplification made for this crate
-alone: `sutura-exec-bigquery`'s own `Cargo.toml` states the reasoning for its `ureq`-based wire
-at length, and it transfers unchanged - `Warehouse::execute` reaches this adapter through
-`sutura_runtime::spawn_carrying_span`, on a blocking-pool thread, and starting a runtime
-*there* (which an async driver wrapped the way `sutura_exec_postgres` wraps `tokio-postgres`
-would need) is exactly the `reqwest::blocking` shape that entry warns against. `ClickHouse`'s
+`tokio` runtime and no `block_on` at all.** `Warehouse::execute` reaches this adapter through
+`sutura_runtime::spawn_carrying_span` on a blocking-pool thread. An async driver would need a
+runtime there, while `ureq` can execute the request directly. `ClickHouse`'s
 own HTTP interface asks for nothing more than one request/response per statement, which is
 `ureq`'s whole job. **A pure-Rust driver either way**: `ureq` with the `rustls` feature links
 no C TLS library, and this crate's own `tls` module (over `sutura-tls`) is what most of
@@ -139,6 +136,12 @@ Opens the adapter over `endpoint`, resolving every unqualified table name in `da
 The database is created here if absent, so several opens can share one server without
 clobbering each other's tables. `sutura_exec_postgres::PostgresWarehouse::connect_in_schema`'s
 shape, over a database because that is `ClickHouse`'s namespace for a table.
+
+```rust
+pub fn load_conformance_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError>
+```
+
+The conformance corpus keeps exact Decimal columns and its empty cells as NULL.
 
 ```rust
 pub fn load_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError>

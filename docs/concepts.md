@@ -226,17 +226,20 @@ question reaching two data systems, not two data systems each applying that aske
 Nothing here tests that two subjects get different rows, and nothing can until a source can execute
 as the asker.
 
-**And a combined answer may not be made of two different kinds of identity.** Where one leg would run
-under a source's acknowledged shared identity and the other as the asking subject, the question is
-refused as `LegsDecideIdentityDifferently` - before a credential is minted and before either leg
-runs - because a total made of rows one identity was permitted to see plus rows another identity was
-permitted to see is a number neither of them is entitled to, and it would carry a certified metric
-name with valid provenance attached. Labelling it instead is not the alternative it sounds like: an
-answer's execution record and its rows arrive in one body on both transports, so a caller who is told
-would already have the rows. What is *not* decidable is whether two legs under the same shared
-posture are the same identity - nothing here names which shared identity a source is read as - so
-that case is answered. On any published build the refusal fires for nothing, because every linked
-adapter is shared-service-user; it exists so a deployment that later holds both cannot combine them.
+**A combined answer MAY be made of two different kinds of identity, and it says which leg was which.**
+Where one leg runs under a source's acknowledged shared identity and the other as the asking subject,
+the answer carries one `executed_as` entry per source naming that leg's own posture. `docs/adr/0040`
+is the record; the reason it had to be is that only one adapter can carry a per-subject credential, so
+every federation across two *different* data systems is cross-posture by construction.
+
+**What that does and does not answer for.** A total made of rows one identity was permitted to see
+plus rows another identity was permitted to see is a number neither of them is entitled to - that
+arithmetic is unchanged, and the disclosure is not what answers for it: an answer's execution record
+and its rows arrive in one body on both transports, so a caller who is told already has the rows.
+What answers for it is that an operator declared each source's posture in writing on its own entry
+before the process started, and a deployment with a shared source and no acknowledgement does not
+boot at all. What is *not* decidable either way is whether two legs under the same shared posture are
+the same identity - nothing here names which shared identity a source is read as.
 
 **A deployment still holds one KIND of data system.** Two `files` sources are a two-source
 deployment; a `files` source beside a warehouse is refused at startup, naming both entries. And a

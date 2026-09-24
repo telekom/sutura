@@ -162,15 +162,34 @@ impl ClickHouseWarehouse<Http> {
     /// departure), the table is recreated, then the file is sent as the body of an
     /// `INSERT ... FORMAT CSVWithNames` the SERVER parses against those types.
     pub fn load_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError> {
+        self.load_csv_with_types(table, path, false)
+    }
+
+    /// The conformance corpus keeps exact Decimal columns and its empty cells as NULL.
+    pub fn load_conformance_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError> {
+        self.load_csv_with_types(table, path, true)
+    }
+
+    fn load_csv_with_types(&self, table: &TableName, path: &Path, conformance: bool) -> Result<(), FixtureError> {
         let shown = || path.display().to_string();
         let text = std::fs::read_to_string(path).map_err(|cause| FixtureError::Read { path: shown(), cause })?;
-        if let Some(line) = first_empty_cell(&text) {
+        if !conformance && let Some(line) = first_empty_cell(&text) {
             return Err(FixtureError::EmptyCell { path: shown(), line });
         }
         let columns = csv::infer(&text).map_err(|cause| FixtureError::Schema { path: shown(), cause })?;
         let declared: Vec<String> = columns
             .iter()
-            .map(|column| format!("\"{}\" {}", column.name().as_str(), clickhouse_type(column.kind())))
+            .map(|column| {
+                let kind = if conformance {
+                    match column.kind() {
+                        FixtureType::Decimal { scale } => format!("Nullable(Decimal(38,{scale}))"),
+                        other => format!("Nullable({})", clickhouse_type(other)),
+                    }
+                } else {
+                    String::from(clickhouse_type(column.kind()))
+                };
+                format!("\"{}\" {kind}", column.name().as_str())
+            })
             .collect();
         let server = |cause| FixtureError::Server {
             subject: format!("table {table}"),

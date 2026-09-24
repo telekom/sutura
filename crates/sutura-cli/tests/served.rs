@@ -99,6 +99,13 @@ mod agent;
 #[path = "served/bigquery.rs"]
 mod bigquery;
 
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "bigquery")]
+#[cfg(feature = "datahub")]
+#[path = "served/e2e_adbc.rs"]
+mod e2e_adbc;
+
 // The four startup refusals (`github.com/telekom/sutura#302`), split out of `mod tests` below by
 // the same 1000-line cap - a pure relocation, no `#[cfg(unix)]`/`#[cfg(feature)]` of its own
 // because none of the four needs one.
@@ -304,8 +311,7 @@ mod tests {
             "an answer arrived with no definition digest: {}",
             reply.body
         );
-        // And which identity produced the one leg. `shared-service-user` is the truth for this
-        // deployment: no source a shipped binary serves executes as the asking subject.
+        // This deployment's local source executes under its declared shared identity.
         assert_eq!(
             body["executed_as"],
             serde_json::json!([{ "source": "local", "posture": "shared-service-user" }])

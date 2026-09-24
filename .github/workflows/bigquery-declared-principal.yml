@@ -8,8 +8,8 @@
 # `roles/iam.serviceAccountTokenCreator` - an earlier round of this header asked for that, which is
 # the grant the withdrawn principal switch needed and the one that stopped applying.
 # `docs/where-identity-is-proven.md` moves this venue from `wired` to `yes` only after a run is
-# observed and reported there, never before - and the merge precondition for the ADBC adoption
-# (telekom/sutura#929) is that somebody dispatches this.
+# observed and reported there, never before. A run is outstanding evidence, not a merge
+# precondition: the owner accepted the ADBC adoption (telekom/sutura#929) with it unrun.
 #
 # `cargo xtask check-venues` reads the `nix run .#bigquery-declared-principal` line below as this
 # venue's anchor, whatever the trigger type. That is what takes the venue off `unrun`; `wired` is

@@ -8,8 +8,8 @@
 use sutura_config::Settings;
 
 /// **`None` is not a gap.** A deployment with no `security.outbound` block is every deployment before
-/// this change: the `BigQuery` wire and the STS exchange verify against `ureq`'s own compiled-in
-/// roots and present no client certificate, exactly as they always have - see
+/// this change: the `DataHub` reader verifies against `ureq`'s compiled-in roots and presents no
+/// client certificate - see
 /// `sutura_config::security::OutboundAnchors`'s own doc. `Some` is loaded here, through
 /// `sutura_tls::load_anchors`/`load_identity`, before the listener opens - the same argument
 /// `super::inbound_gate` makes for leg 1's key set: an unreadable or empty declaration has to stop the
@@ -49,7 +49,7 @@ pub(super) fn resolve(settings: &Settings) -> Result<Option<sutura_tls::Declared
             sutura_config::OutboundAnchors::Bundle(_) => "bundle",
         },
         identity = identity.is_some(),
-        "security.outbound: declared trust material was read for the BigQuery wire, the STS exchange and the datahub reader"
+        "security.outbound: declared trust material was read for the datahub reader"
     );
     Ok(Some(sutura_tls::Declared::new(anchors, identity)))
 }

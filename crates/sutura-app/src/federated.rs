@@ -18,25 +18,24 @@
 //! CONCRETE adapter rather than the enum wrapping it - and a leg-capable kind sitting beside a
 //! leg-declining one refuses only the leg that cannot run, never the whole answer.
 //!
-//! **This path is reachable from a published artefact now**, because `sutura-exec-datafusion`
-//! declares the constant and is non-optional in the shipped binary, and `sutura-exec-postgres`
-//! declares it behind a feature the shipped binary enables. What that does NOT make it is
-//! per-subject: both leg-executing kinds a release links declare
-//! `ImpersonationCapability::NoPlaceForASubject`, so
-//! [`ExecutedAs::and`](sutura_domain::source::ExecutedAs::and) records the same shared posture
-//! twice - but the same posture is not the same identity, since each Postgres leg runs as its own
-//! source entry's database role. Single-player federation.
+//! **This path is reachable from a published artefact.** `DataFusion` and `Postgres` execute legs
+//! under `ImpersonationCapability::NoPlaceForASubject`, so a federation between them records the
+//! shared posture twice. Each source may still hold a different deployment identity. `BigQuery` also
+//! ships and is the one adapter that can execute a leg as the asking subject.
 //!
-//! **Two legs CAN now each run as the asking subject, and only on a `bigquery` build.**
+//! **Two legs CAN each run as the asking subject when both sources are `bigquery`.**
 //! `sutura-exec-bigquery` declares the constant since `telekom/sutura#929` and is the one adapter
 //! declaring `PerSubjectCredential`, so `sutura serve --features bigquery` over two `bigquery`
-//! sources reaches this path with `ExecutedAs::uniform` satisfied by two IMPERSONATING legs rather
-//! than two shared ones. The single mint below does not collapse them: that adapter's
+//! sources reaches this path with two IMPERSONATING legs rather than two shared ones - and a
+//! `bigquery` leg beside a leg-executing shared-posture adapter is a CROSS-POSTURE answer,
+//! disclosed per leg rather than refused (`docs/adr/0040`). `BigQuery` being the only impersonating adapter is why that had to
+//! be: every `BigQuery` federation with a shared-posture adapter is cross-posture by construction.
+//! The single mint below does not collapse them: that adapter's
 //! `DeclaredPrincipalBroker::mint` walks the `SourceSet` and resolves each source's OWN declared
 //! account for the asking subject out of that source's own map, so one mint over two sources yields
 //! one credential per leg
 //! (`one_subject_federating_two_sources_is_minted_each_sources_own_declared_account`). **The limits,
-//! beside the claim:** no published artefact links that adapter, and no federated answer has been
+//! beside the claim:** the published artefact links that adapter, but no federated answer has been
 //! produced against a real dataset - what is held is that each leg renders for the dialect and is
 //! submitted with that subject's own credential and that source's configured byte ceiling.
 
@@ -47,7 +46,7 @@ use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::{FederatedPlan, FederationCombiner, LegResult, Legs, RowCeiling};
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
-use sutura_domain::source::{ExecutedAs, UniformlyExecuted};
+use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{PreFlight, ResultBatches, RowSet, Warehouse};
 
@@ -150,7 +149,7 @@ where
     // belong to distinct sources and `and` cannot collide; the Err arm of `and` is kept (rather than
     // an expect) because the compile cannot know that, and nothing can answer for a splitter
     // invariant that changed.
-    let record = match ExecutedAs::of(plan.fact().source().clone(), fact_warehouse.posture().clone())
+    let executed_as = match ExecutedAs::of(plan.fact().source().clone(), fact_warehouse.posture().clone())
         .and(plan.lookup().source().clone(), lookup_warehouse.posture().clone())
     {
         Ok(record) => record,
@@ -169,27 +168,26 @@ where
             });
         }
     };
-    // **The one verdict only a two-leg answer needs, and it is HERE - above the mint and above
-    // either leg - on purpose.** One answer is one asker: rows a shared identity was permitted to
-    // see, added to rows the asking subject was permitted to see, make a total no identity is
-    // entitled to, carrying a certified metric name and valid provenance. Refused before a
-    // credential exists, so nothing is minted and nothing is read; the `UniformlyExecuted` this
-    // returns is then the only thing `pinned.provenance` accepts, which is what stops the rows
-    // reaching a caller if this line is ever moved below execution.
+    // **No verdict over the two postures, and `docs/adr/0040` is why the one that stood here is
+    // gone.** It refused an answer whose legs decided identity differently - and BigQuery is the
+    // only impersonating adapter, so that prevented BigQuery from federating with any
+    // shared-posture adapter. The reasoning it carried stays TRUE: rows a shared identity was
+    // permitted to see, added to rows the asking subject was permitted to see,
+    // make a total no identity is entitled to, under a certified metric name and valid provenance.
     //
-    // The refusal carries the posture LABELS. It must never carry a `SourcePosture`: the shared
-    // variant holds the operator's acknowledgement prose and both types are `Serialize`.
-    let executed_as = match record.uniform() {
-        Ok(uniform) => uniform,
-        Err(differently) => {
-            return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
-                reason: RefusalReason::LegsDecideIdentityDifferently {
-                    postures: differently.into_postures(),
-                },
-            }));
-        }
-    };
-
+    // What answers for it is not `executed_as`, which reaches a caller in the SAME body as the rows
+    // and is therefore a disclosure rather than a control. It is the boot-time acknowledgement: a mixed
+    // answer does span two authorization domains, an operator declared each one in writing on its
+    // own entry before this process started, and the answer names which leg came from which. Held
+    // three ways, each ahead of this line - `sutura_config::Settings::refusals` refuses the
+    // deployment before a listener binds; the settings parse produces no shared `SourcePosture` at
+    // all without a witness; and every adapter constructor refuses a source with no identity, which
+    // arrives here as the `source_unavailable` above.
+    //
+    // **And one budget over two authorization domains.** `charge_subject` below sums both legs'
+    // estimates against ONE subject key (`docs/adr/0030`, all-or-nothing) regardless of which leg
+    // ran as whom.
+    //
     // One mint over the whole set, exactly like the mono path: the broker answers for every source
     // this answer reads, and `agreeing_with` compares that answer against this request.
     let requested = SourceSet::of(plan.fact().source().clone()).and(plan.lookup().source().clone());
@@ -355,7 +353,7 @@ fn ranked_answer<W, B, C>(
     top: sutura_domain::query::Top,
     credentials: &BoundToTheRequest,
     pinned: &PinnedDefinitions,
-    executed_as: UniformlyExecuted,
+    executed_as: ExecutedAs,
 ) -> Answering<W, B, C>
 where
     W: Warehouse,

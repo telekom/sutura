@@ -19,8 +19,9 @@
 //! **What this does NOT deliver, and it must not be read as delivered:** leg 1 proves who is asking.
 //! It does *not* make a data source execute as that person - that is leg 2, and it needs a credential
 //! per leg plus a source that declares it can impersonate. A deployment with leg 1 and no leg 2 knows
-//! who is asking and still reads every row as one identity. [`InboundIdentity::what_it_does_not_do`]
-//! is that sentence as a value, printed at startup, for the same reason
+//! who is asking while a shared-identity source still reads rows as one identity. `BigQuery`'s
+//! per-subject path is built, but no observed served run proves source acceptance.
+//! [`InboundIdentity::what_it_does_not_do`] states that limit at startup, for the same reason
 //! [`TlsTermination::cleartext_hop`](crate::security::TlsTermination::cleartext_hop) is one: a log
 //! line and this documentation read the same string, so neither can drift into claiming per-user
 //! access because there is authentication.
@@ -381,12 +382,12 @@ impl InboundIdentity {
     #[inline]
     #[must_use]
     pub const fn what_it_does_not_do() -> &'static str {
-        "this establishes WHO is asking. It does not make a data source execute as that person: \
-         that is leg 2, and the half of it that is built is the credential port - a question cannot \
-         execute without a credential minted for the source it reads, and a subject with no \
-         credential there is refused rather than answered as this process. What no adapter in this \
-         build can do is CARRY a per-subject credential, so every question is still answered with \
-         whatever access this process already had"
+        "this establishes WHO is asking; it does not prove that a data source executes as that \
+         person. BigQuery can carry the caller's verified assertion through its declared \
+         per-subject account map, but no served run has yet shown the source accepting that \
+         identity. Other sources execute under their declared shared identity. A question cannot \
+         execute without a credential for its source, and an undeclared BigQuery subject is refused \
+         rather than answered as this process"
     }
 
     /// The one validation this deployment performs, whichever mode it is in.
