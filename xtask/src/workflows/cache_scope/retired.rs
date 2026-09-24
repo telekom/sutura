@@ -25,6 +25,9 @@
 //!   a cachix write is an environment secret, so a job that names no environment cannot hold one -
 //!   and the refusal was pinned on the PR writer alone, which left the three writers in
 //!   `cachix-push.yml` free to drop theirs with the gate green. Measured by mutation, below.
+//! * **A PR publisher names only the PR cache; a main publisher names a shared cache.**
+//!   [`publisher_stores`] reads the action's `with.name`, so changing only that input cannot
+//!   redirect an otherwise permitted write. Credential scope remains a forge setting.
 //! * **The publish workflow's trigger is pinned, on its own terms.** [`PUBLISH_TRIGGER`]. Widening
 //!   `cachix-push.yml` to `pull_request` used to redden only the required-contexts accounting, so
 //!   the same widening plus three advisory rows there was green.
@@ -56,7 +59,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use super::{key_of, steps};
+use super::{Step, key_of, steps};
 
 // Which stores a line may NAME, and whether an installer names any - one subject, two directions,
 // and the pair that pushed this file past the 1000-line cap `crates/` and `xtask/` cannot exempt.
@@ -72,7 +75,7 @@ mod stores;
 /// the other is refused everywhere.
 const HOSTED: [&str; 2] = ["cachix/cachix-action", "DeterminateSystems/flakehub-cache-action"];
 
-/// The one publisher this repository runs, and the ONE file it may appear in.
+/// The one publisher this repository runs, and its main-push workflow.
 ///
 /// `docs/adr/0027` supersedes `0026`: a binary cache is provisioned now, so this publisher is no
 /// longer refused outright. **Naming the FILE and not merely the action is what keeps the permission
@@ -80,8 +83,8 @@ const HOSTED: [&str; 2] = ["cachix/cachix-action", "DeterminateSystems/flakehub-
 /// and takes its credential from a named environment ([`write_environment`]); whether that
 /// environment also carries a branch policy is a forge setting no gate reads, and for
 /// `cachix-push-mixed` it does not - so the trigger is the binding half there. The same step added to
-/// `ci.yml` or `cross-link.yml` runs on the pull-request path, where a same-repository pull request
-/// can read secrets - so it stays refused there, which is the whole point of the pairing.
+/// `cross-link.yml` runs on the pull-request path, where a same-repository pull request can read
+/// secrets - so it stays refused there. `ci.yml` permits only its declared PR writer below.
 ///
 /// The other entry in [`HOSTED`] has no permitted file and is refused wherever it appears.
 const PUBLISH: (&str, &str) = ("cachix/cachix-action", ".github/workflows/cachix-push.yml");
@@ -104,6 +107,8 @@ const PUBLISH: (&str, &str) = ("cachix/cachix-action", ".github/workflows/cachix
 /// the half that is in text: the default branch never lists the pull-request store's key, which is
 /// what keeps a pull-request author's paths out of a merged-main resolve.
 const PUBLISH_PRS: &str = "cachix-push-pr";
+const PR_STORE: &str = "sutura-prs";
+const SHARED_STORES: [&str; 3] = ["sutura", "sutura-cross-build", "sutura-connectors"];
 
 /// Whether a cachix-action step's JOB in `ci.yml` is the PR publish write-half: it declares
 /// `environment: cachix-push-pr` and its job-level `if:` is PR-only. The job block owns the step;
@@ -276,6 +281,34 @@ fn read_github(root: &Path) -> Vec<(String, String)> {
     out.into_iter().collect()
 }
 
+/// The direct `with:` blocks and cache stores named by a publisher step.
+fn publisher_stores<'a>(step: &'a Step<'_>) -> (usize, Vec<&'a str>) {
+    let step_depth = step
+        .lines
+        .first()
+        .map_or(0, |line| line.len().saturating_sub(line.trim_start().len()));
+    let mut with_depth = None;
+    let mut with_count = 0;
+    let mut stores = Vec::new();
+    for line in &step.lines {
+        let depth = line.len().saturating_sub(line.trim_start().len());
+        let Some(key) = key_of(line) else { continue };
+        if key == "with:" && depth == step_depth + 2 {
+            with_depth = Some(depth);
+            with_count += 1;
+        } else if let Some(parent) = with_depth {
+            if depth <= parent {
+                with_depth = None;
+            } else if depth == parent + 2
+                && let Some(store) = key.strip_prefix("name:")
+            {
+                stores.push(store.trim());
+            }
+        }
+    }
+    (with_count, stores)
+}
+
 /// The retired hosted cache, held as an absence: no publisher, and no unobservable gate.
 ///
 /// Over labelled text so a fixture can exercise both arms - the live tree can only ever show them
@@ -294,8 +327,28 @@ pub(super) fn retired(files: &[(String, String)]) -> Vec<String> {
                 // pull-request job that declares environment `cachix-push-pr` - the PR write half.
                 // The main workflow's credential policy is owner-held; the PR credential scope is
                 // unverified here. The other HOSTED entries stay refused everywhere.
-                let here = publisher == PUBLISH.0 && (label.ends_with(PUBLISH.1) || in_pr_publish_job(text, step.line));
-                if !here {
+                let main_writer = label.ends_with(PUBLISH.1);
+                let pr_writer = label.ends_with(".github/workflows/ci.yml") && in_pr_publish_job(text, step.line);
+                let here = publisher == PUBLISH.0 && (main_writer || pr_writer);
+                if here {
+                    let (with_count, stores) = publisher_stores(&step);
+                    let allowed = with_count == 1
+                        && stores.len() == 1
+                        && stores.first().is_some_and(|store| {
+                            if main_writer {
+                                SHARED_STORES.contains(store)
+                            } else {
+                                *store == PR_STORE
+                            }
+                        });
+                    if !allowed {
+                        let job = job_of(text, step.line).unwrap_or_else(|| String::from("<unknown>"));
+                        out.push(format!(
+                            "{label}:{}  job `{job}`: {publisher} names {stores:?} in {with_count} with block(s); the pull_request writer must name only `{PR_STORE}`, and main-push writers must name one of {SHARED_STORES:?}",
+                            step.line
+                        ));
+                    }
+                } else {
                     out.push(format!(
                         "{label}:{}  {publisher} publishes to a store outside this repository. Only `{}` may, and only in `{}` (or a pull_request ci.yml job declaring environment `{PUBLISH_PRS}`); credential scope is owner-held and not repository-verifiable - see docs/adr/0027",
                         step.line, PUBLISH.0, PUBLISH.1
@@ -441,6 +494,8 @@ pub(super) mod tests {
             "    environment: cachix-push\n",
             "    steps:\n",
             "      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n",
+            "        with:\n",
+            "          name: sutura\n",
             "      - name: Realise and publish the shared closure\n",
             "        run: nix build .#checks.x86_64-linux.hygiene\n",
         );
@@ -491,6 +546,67 @@ pub(super) mod tests {
             super::retired(&owned(".github/workflows/ci.yml", pr_job)).is_empty(),
             "the PR write job is the one ci.yml context cachix-action may run in"
         );
+
+        for (name, expected) in [
+            ("sutura", "sutura"),
+            ("sutura-cross-build", "sutura-cross-build"),
+            ("sutura-connectors", "sutura-connectors"),
+            ("", "[]"),
+        ] {
+            let changed = if name.is_empty() {
+                pr_job.replace("          name: sutura-prs\n", "")
+            } else {
+                pr_job.replace("          name: sutura-prs", &format!("          name: {name}"))
+            };
+            let found = super::retired(&owned(".github/workflows/ci.yml", &changed));
+            assert!(
+                found.iter().any(|problem| problem.contains("ci.yml:")
+                    && problem.contains("job `pr-cache`")
+                    && problem.contains(expected)),
+                "PR publisher target {name:?} must be refused by name: {found:#?}"
+            );
+        }
+        let duplicate = pr_job.replace(
+            "          name: sutura-prs\n",
+            "          name: sutura-prs\n          name: sutura\n",
+        );
+        let found = super::retired(&owned(".github/workflows/ci.yml", &duplicate));
+        assert!(
+            found.iter().any(|problem| problem.contains("[\"sutura-prs\", \"sutura\"]")),
+            "{found:#?}"
+        );
+        let duplicate_with = pr_job.replace(
+            "          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}\n",
+            "          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}\n        with:\n          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}\n",
+        );
+        let found = super::retired(&owned(".github/workflows/ci.yml", &duplicate_with));
+        assert!(found.iter().any(|problem| problem.contains("2 with block(s)")), "{found:#?}");
+
+        let main_writer = concat!(
+            "jobs:\n",
+            "  push:\n",
+            "    environment: cachix-push\n",
+            "    steps:\n",
+            "      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n",
+            "        with:\n",
+            "          name: sutura\n",
+            "      - name: Realise and publish the shared closure\n",
+            "        run: nix build .#checks.x86_64-linux.hygiene\n",
+        );
+        for name in ["sutura-prs", ""] {
+            let changed = if name.is_empty() {
+                main_writer.replace("          name: sutura\n", "")
+            } else {
+                main_writer.replace("          name: sutura", &format!("          name: {name}"))
+            };
+            let found = super::retired(&owned(".github/workflows/cachix-push.yml", &changed));
+            assert!(
+                found
+                    .iter()
+                    .any(|problem| problem.contains("cachix-push.yml:") && problem.contains("names")),
+                "main publisher target {name:?} must be refused: {found:#?}"
+            );
+        }
 
         // The SAME cachix-action step in the ungated main `ci` job stays refused.
         let main_job = concat!(
