@@ -1052,7 +1052,7 @@ two entry points of one binary rather than between two binaries.
   invisible to `is_amendment` in `xtask/src/guidance/pages.rs`, so it is body text, not a dated
   historical record.** It says
   "`sutura-serve`'s composition reads every declared catalog's kind, refuses a mix by name, and
-  opens one of two monomorphic vectors." The actor is `crates/sutura-cli/src/serve/catalog.rs` now,
+  opens one of two monomorphic vectors." The actor is `crates/sutura-cli/src/catalog.rs` now,
   by the same fold this amendment names above; `cargo tree -p sutura-cli --no-default-features -e
   normal` and `find crates/sutura-cli/src -iname '*serve*'` show no `sutura-serve` crate left to be
   the subject of that sentence.

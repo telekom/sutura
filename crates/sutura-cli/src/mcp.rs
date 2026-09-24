@@ -5,27 +5,30 @@
 //! surface used to be reachable only from its own crate's tests. An agent client launches this
 //! process and speaks the Model Context Protocol on its pipes.
 //!
-//! It shares the `query` command's composition, in [`crate::sources`]: one catalog, one data system
-//! opened from whichever of the two declarations names it, and the identity that declaration
-//! carries. The difference is the driving port - the service answers questions for a peer on the
-//! other end of a pipe instead of one taken from a path on the command line.
+//! **Since issue #970 it reads `catalogs:` (and `sources:`) the way `crate::serve` does, over the
+//! SAME opener - `crate::catalog::open_catalog`/`load`/`start_composed`** - instead of opening
+//! only a directory argument. That is the point of #970: a shared-service-user deployment can now
+//! switch its catalog by configuration on the stdio agent surface. The directory arguments are
+//! gone, because `Settings::load` always yields a declared markdown catalog from `defaults.yaml`,
+//! so there is no settings-less invocation left for them to name - a parallel argument to the
+//! declared catalog is the legacy shim #970 removes, not a path that survives. `catalog.kind: okf`
+//! is an unconditional dependency of this build, so it always opens; `openmetadata` and `rdbms` are
+//! refused by name with the same message `sutura serve` gives, because both roots dispatch the
+//! same `crate::catalog::open_catalog`.
 //!
 //! Kept in its own module rather than inlined into `commands.rs` because it is a composition of its
 //! own - the driving port over a pipe, with an async runtime the other commands do not want - and
 //! because inlining it would push `commands.rs` over the 1000-line gate. `main.rs`'s command table
 //! names it directly.
 
-use std::path::Path;
 use std::process::ExitCode;
 
 use sutura_app::prompt::CatalogProse;
 use sutura_app::surface::Surface as _;
-use sutura_catalog_local::LocalCatalog;
 use sutura_config::RequestTimeout;
-use sutura_domain::pinned::SemanticCatalog as _;
 use sutura_runtime::Admission;
 
-use crate::commands::{Composed, agent_instructions, arg, catalog_prose, catalog_reader, render, report, started};
+use crate::commands::{Composed, agent_instructions, catalog_prose, render, report};
 use crate::sources::{Opened, OpenedWith, configured, open_engine};
 // The `BigQuery` arm's half of the same question, and reached only from that arm - so the import is
 // gated for the reason `sources::bigquery`'s are: `dead_code` is `deny` here, and this crate's
@@ -49,32 +52,46 @@ type Served<W> = (
     Option<std::sync::Arc<str>>,
 );
 
-/// `mcp <catalog-dir> [data-dir]`: serve the agent surface over standard input and output.
+/// `mcp`: serve the agent surface over standard input and output, reading `catalogs:`/`sources:`
+/// the way [`crate::serve`] does.
+/// # Errors
 ///
-/// The data directory is optional for the reason [`crate::commands::query`] states: a deployment that
-/// declares its data system in the `sources:` tree has already said where the data is.
-pub(crate) fn mcp(args: &[String]) -> ExitCode {
+/// Whatever [`crate::catalog::open_catalog`] refuses for the declared catalog kind a build did not
+/// link (the same message `sutura serve` gives, since both dispatch it), whatever
+/// [`crate::catalog::load`] refuses while reading the declared directories, and whatever
+/// [`crate::sources::open_engine`] refuses for the declared `sources:` tree. Serving never begins
+/// before all three have succeeded, so a refusal is a message on standard error and a non-zero
+/// exit, never a surface a peer has been told it can ask questions through.
+pub(crate) fn mcp(_args: &[String]) -> ExitCode {
     report((|| {
-        let usage = "mcp <catalog-dir> [data-dir]";
-        let root = arg(args, 0, "catalog-dir", usage)?;
-        let data = args.get(1).map(std::path::PathBuf::from);
-        let catalog = catalog_reader(Path::new(&root))?;
-        let pinned = catalog.load().map_err(|e| render(&e))?;
         let settings = configured()?;
         // Read ONCE - `security.outbound`, `github.com/telekom/sutura#125` - and shared with every
         // `WireAgent` this surface's `bigquery` arm builds.
         let outbound = crate::sources::resolve_outbound_anchors(&settings)?;
+        // **The declared catalog, through the ONE opener `sutura serve` uses.** A deployment that
+        // names `catalog.kind: okf` on a build that did not link the `okf` feature is refused here
+        // with the same operator-facing message `serve` gives - both roots call
+        // `crate::catalog::open_catalog`, so the refusal cannot drift.
+        let catalogs = crate::catalog::open_catalog(settings.catalogs(), outbound.as_ref())?;
+        // The bundle the engine must attach for. `crate::catalog::load` composes the opened
+        // catalogs; `open_engine` then reads the `sources:` tree. A no-source deployment has no
+        // declared data system, which `open_engine` refuses by name.
+        let pinned = crate::catalog::load(&catalogs)?;
         // The exhaustive match is here for the reason `crate::commands::query`'s is: the service is
         // monomorphised per adapter, so a third linked adapter is a compile error at this line.
+        //
+        // `data` is gone as an argument: this command reads `catalogs:`/`sources:`, so there is no
+        // directory for a settings-less invocation to name the way `query` must. The engine is
+        // opened from the declared sources alone, exactly as `sutura serve` opens it.
         match open_engine(
             &pinned,
             settings.sources(),
             settings.runtime(),
             settings.server().request_timeout(),
-            data.as_deref(),
+            None,
             outbound.as_ref(),
         )? {
-            Opened::Files(opened) => serve(&catalog, opened, &settings),
+            Opened::Files(opened) => serve(&catalogs, opened, &settings),
             #[cfg(feature = "bigquery")]
             Opened::BigQuery(opened) => {
                 // **The pre-flight, and this line is where its ORDER is decided** - the same order
@@ -90,50 +107,55 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
                 // `mcp_service`, is that arm's version of this check and compares the two sets it has.
                 //
                 // **The parity is one-sided, and saying so is the point.** `refuse_unattached` closes
-                // the window between this root's TWO loads: `catalog.load()` above is the first, this
-                // pre-flight reads that bundle, and `LocalService::start` inside `mcp_service` loads a
-                // second time. So a model added to the catalog directory between the two is caught on
-                // a `files` source and caught by nothing on a `bigquery` one - the same gap
+                // the window between this root's TWO loads: `crate::catalog::load` above is the
+                // first, this pre-flight reads that bundle, and the second load inside
+                // `crate::catalog::start_composed` (via `LocalService::start_composed`) is the
+                // second. So a model added to the catalog directory between the two is caught on a
+                // `files` source and caught by nothing on a `bigquery` one - the same gap
                 // `crate::serve`'s root states at its own call site, open here for the same reason.
                 // Closing it is an architecture decision rather than a call-site move:
                 // `LocalService` exposes no accessor for the engines it was handed, so there is
                 // nothing to re-ask once the second load has happened.
                 refuse_absent_tables(&pinned, &opened.engines)?;
-                serve(&catalog, opened, &settings)
+                serve(&catalogs, opened, &settings)
             }
             #[cfg(feature = "postgres")]
             Opened::Postgres(opened) => {
                 // A `postgres` source attaches nothing and reports no table inventory, so
                 // `refuse_absent_tables` has nothing to add - the same reasoning `crate::serve`'s own
                 // arm carries. A mistyped `table:` is caught on the first question against it.
-                serve(&catalog, opened, &settings)
+                serve(&catalogs, opened, &settings)
             }
             #[cfg(feature = "clickhouse")]
             Opened::ClickHouse(opened) => {
                 // A `clickhouse` source attaches nothing and reports no table inventory, for the
                 // `postgres` arm's reason exactly - `ClickHouseWarehouse` takes the port's default
                 // `preflight`, so `refuse_absent_tables` would have nothing to add.
-                serve(&catalog, opened, &settings)
+                serve(&catalogs, opened, &settings)
             }
             #[cfg(feature = "oracle")]
             Opened::Oracle(opened) => {
                 // The `clickhouse` arm's reason: `OracleWarehouse` takes the port's default `preflight`.
-                serve(&catalog, opened, &settings)
+                serve(&catalogs, opened, &settings)
             }
         }
     })())
 }
 
-/// Starts the service over one adapter and serves the agent surface on this process's pipes.
-///
-/// Generic in the adapter, so the two arms above share every line after them - including the runtime,
-/// the startup notice and the bounded teardown, none of which is a per-adapter decision.
-fn serve<W>(catalog: &LocalCatalog, opened: OpenedWith<W>, settings: &sutura_config::Settings) -> Result<(), String>
+/// Starts the service over one configured catalog and serves the agent surface on this process's
+/// pipes.
+/// Generic in the adapter, so the match arms above share every line after them - including the
+/// runtime, the startup notice and the bounded teardown, none of which is a per-adapter decision.
+fn serve<W>(
+    catalogs: &crate::catalog::OpenedCatalogs,
+    opened: OpenedWith<W>,
+    settings: &sutura_config::Settings,
+) -> Result<(), String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
 {
-    let (service, prose, admission, reply, instructions, operator_instructions) = mcp_service(catalog, opened, settings)?;
+    let (service, prose, admission, reply, instructions, operator_instructions) = mcp_service(catalogs, opened, settings)?;
     // The limit printed beside the mode, the way `banner::announce_token_class` prints the token
     // class: a pipe has no header a token could arrive in, so this surface grants every
     // capability to whoever can reach the process. Stated at startup, not left as a default
@@ -191,11 +213,11 @@ where
 
 /// The agent surface this command serves: the `query` composition behind the driving port.
 ///
-/// **Literally the same composition, not a parallel one.** [`started`] is the single place this
-/// binary builds a service - the constructor that takes an audit sink and re-runs every anchor, plus
-/// the unattached-table check that closes the gap its second catalog load leaves. That used to be
-/// the one difference between the two commands: `query` called the answer function directly and
-/// wrote no record at all, which is issue #266's A1, and it now goes through here too.
+/// **Literally the same composition, not a parallel one.** [`crate::catalog::start_composed`] is
+/// the place this binary builds a service from the declared catalogs - the constructor that takes
+/// an audit sink and re-runs every anchor, plus the unattached-table check that closes the gap its
+/// second catalog load leaves. Issue #970 is what moved that one constructor to the crate root so
+/// `sutura mcp` uses it the way `sutura serve` and `sutura query` (`commands::started`) do.
 ///
 /// A locally launched process installs no subscriber either way, so those records go nowhere for the
 /// whole session - the honest default rather than a claim that a record was kept when none was, and
@@ -208,7 +230,11 @@ where
 /// for one of them, and the rendered prompt a peer's `initialize` result carries. **It takes the
 /// whole `Settings` rather than the values it needs**, so all four are READ here and not handed
 /// in; `#266`'s `H1` is what a caller-supplied setting costs.
-fn mcp_service<W>(catalog: &LocalCatalog, opened: OpenedWith<W>, settings: &sutura_config::Settings) -> Result<Served<W>, String>
+fn mcp_service<W>(
+    catalogs: &crate::catalog::OpenedCatalogs,
+    opened: OpenedWith<W>,
+    settings: &sutura_config::Settings,
+) -> Result<Served<W>, String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
@@ -226,13 +252,22 @@ where
     // nothing counting them, while the HTTP surface took a slot from `runtime.max_concurrent_queries`
     // for every one of its own. `Admission::from_settings` is what stops the two keys being read
     // from different places.
-    let service = started(
-        catalog,
-        opened,
-        settings.runtime(),
-        settings.spend_budget(),
-        settings.row_ceiling(),
-    )?;
+    //
+    // **The service is built by [`crate::catalog::start_composed`], the ONE
+    // `LocalService::start_composed` match `sutura serve` shares** (issue #970 moved it to the
+    // crate root). It takes the declared catalogs, the engines this root opened and the broker the
+    // declaration minted, and re-loads every catalog and re-runs every anchor - the same contract
+    // `commands::started` stated. The unattached-table check is what closes the gap its second
+    // catalog load leaves, exactly as it does there and in `crate::serve`.
+    let service = crate::catalog::start_composed(catalogs, opened.engines, opened.broker, settings)?;
+    if let Some(attached) = opened.attached {
+        sutura_app::preflight::refuse_unattached(&sutura_app::preflight::served_tables(service.definitions()), &attached)
+            .map_err(|changed| changed.to_string())?;
+    }
+    // Read off the SERVICE rather than a second catalog load: `service.definitions()` is the exact
+    // bundle `Surface::answer` computes against, so what this composes the prompt over cannot drift
+    // from what it certifies over - `telekom/sutura#776`.
+    //
     // One read, two uses: `agent_instructions` both renders the prompt and returns the operator's
     // raw text it read to do so, so the surface gets the SAME text the prompt folded in - never a
     // second read of the same path that could disagree with the first.
@@ -314,39 +349,68 @@ mod tests {
         client.expect("the client initializes")
     }
 
-    /// The documented example, opened over the in-process engine, under a settings DOCUMENT.
+    /// The documented example, openable as a deployment declares it: `catalogs:` and `sources:`
+    /// in a settings DOCUMENT, opened through the SAME `crate::catalog` opener `sutura mcp` and
+    /// `sutura serve` share.
     ///
-    /// The overlay occupies the position a deployment's own file does, which is the whole point: the
-    /// setting has to arrive the way an operator writes it, or the read under test is the test's own
-    /// argument. The same construction `sutura_http::harness::settings` uses, for the same reason.
+    /// The settings arrive as a document the way an operator writes them, which is the whole point:
+    /// a test that handed `mcp_service` the catalog values it wanted to see would pass with the read
+    /// back to a constant one frame up. The same construction `sutura_http::harness::settings` uses,
+    /// for the same reason.
     ///
-    /// Extracted because two tests compose it and the composition is the thing under test in both:
-    /// a second copy would be a second answer to *what does this command build*.
+    /// Extracted because several tests compose it and the composition is the thing under test in
+    /// each: a second copy would be a second answer to *what does this command build*.
+    ///
+    /// `overlay` is appended after the catalog and source declarations, so a test that varies a
+    /// bound (`runtime:`, `server:`, `prompt:`) layers it on top.
     fn example_composition(
         overlay: &str,
     ) -> (
-        super::LocalCatalog,
+        crate::catalog::OpenedCatalogs,
         crate::sources::OpenedWith<sutura_exec_datafusion::DataFusionWarehouse>,
         sutura_config::Settings,
     ) {
-        let catalog = crate::commands::catalog_reader(&example().join("catalog")).expect("the example catalog is readable");
-        let pinned = sutura_domain::pinned::SemanticCatalog::load(&catalog).expect("the example catalog loads");
+        let example = example();
         let settings = sutura_config::Settings::load(
-            &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+            &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(format!(
+                "security:\n  identity: \"single-user\"\n  single_user_because: \"a unit test reads its \
+                 own fixture files as one identity\"\n\
+                 catalogs:\n  \
+                   - name: \"model\"\n    \
+                     kind: \"markdown\"\n    \
+                     dir: \"{}\"\n    \
+                     data_dir: \"{}\"\n    \
+                     version: \"local-working-tree\"\n\
+                 sources:\n  \
+                   local:\n    \
+                     kind: \"files\"\n    \
+                     data_dir: \"{}\"\n    \
+                     posture: \"shared-service-user\"\n\
+                 {overlay}",
+                example.join("catalog").display(),
+                example.join("data").display(),
+                example.join("data").display(),
+            )),
         )
         .expect("the test settings load");
+        // **Open the declared catalog the way the command does** - `crate::catalog::open_catalog`,
+        // which is what a `markdown`-kind deployment of every feature combination opens here. The
+        // load composes the bundle the engine must attach for.
+        let catalogs = crate::catalog::open_catalog(settings.catalogs(), None).expect("the example markdown catalog opens");
+        let pinned = crate::catalog::load(&catalogs).expect("the example catalog loads");
         // An exhaustive match into an `Option` rather than a refutable `let`: `clippy::unreachable`
         // is denied here, and a match is also what makes a third linked adapter a compile error in
-        // this test the way it is in the command itself.
+        // this test the way it is in the command itself. The engine is opened from the declared
+        // `sources:` alone - no `data` directory, which is the point of #970.
         let opened = match crate::sources::open_engine(
             &pinned,
-            &sutura_config::SourceRegistry::default(),
+            settings.sources(),
             settings.runtime(),
             settings.server().request_timeout(),
-            Some(&example().join("data")),
+            None,
             None,
         )
-        .expect("the example catalog opens with nothing declared")
+        .expect("the example catalog opens its declared source")
         {
             crate::sources::Opened::Files(opened) => Some(opened),
             #[cfg(feature = "bigquery")]
@@ -359,7 +423,7 @@ mod tests {
             crate::sources::Opened::Oracle(_) => None,
         }
         .expect("the example declares a files source");
-        (catalog, opened, settings)
+        (catalogs, opened, settings)
     }
 
     /// THE claim of issue #110, end to end: the `mcp` command's own composition serves the two tools
@@ -601,5 +665,113 @@ mod tests {
             mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
         assert_eq!(reply.seconds(), 7, "the configured reply deadline did not reach the surface");
         drop(service);
+    }
+
+    /// An `okf`-kind deployment, composed the way this command does: `crate::catalog::open_catalog`
+    /// over a directory of Table Schema descriptors, `crate::sources::open_engine` over the
+    /// `files` source it names - issue #970's own acceptance for this kind. `dir` is a scratch
+    /// directory the CALLER owns and clears - the same split `crate::catalog::tests::scratch` and
+    /// `served/okf.rs`'s `CatalogDir` use - so this fn's return stays the three-tuple
+    /// `example_composition`'s own is, rather than a fourth element only to hand the path back.
+    fn okf_composition(
+        dir: &Path,
+    ) -> (
+        crate::catalog::OpenedCatalogs,
+        crate::sources::OpenedWith<sutura_exec_datafusion::DataFusionWarehouse>,
+        sutura_config::Settings,
+    ) {
+        std::fs::write(
+            dir.join("subscriptions.yaml"),
+            "description: Subscriptions, one row per active plan.\nfields:\n  - name: subscription_id\n  \
+             - name: amount_cents\n",
+        )
+        .expect("the descriptor is writable");
+        std::fs::write(dir.join("subscriptions.csv"), "subscription_id,amount_cents\nS1,1999\n").expect("the CSV is writable");
+        let settings = sutura_config::Settings::load(
+            &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(format!(
+                "security:\n  identity: \"single-user\"\n  single_user_because: \"a unit test reads its \
+                 own fixture files as one identity\"\n\
+                 catalogs:\n  \
+                   - name: \"physical\"\n    \
+                     kind: \"okf\"\n    \
+                     dir: \"{d}\"\n    \
+                     data_dir: \"{d}\"\n    \
+                     version: \"local-working-tree\"\n\
+                 sources:\n  \
+                   physical:\n    \
+                     kind: \"files\"\n    \
+                     data_dir: \"{d}\"\n    \
+                     posture: \"shared-service-user\"\n",
+                d = dir.display(),
+            )),
+        )
+        .expect("the okf test settings load");
+        let catalogs = crate::catalog::open_catalog(settings.catalogs(), None).expect("the okf catalog opens");
+        let pinned = crate::catalog::load(&catalogs).expect("the okf catalog loads");
+        let opened = match crate::sources::open_engine(
+            &pinned,
+            settings.sources(),
+            settings.runtime(),
+            settings.server().request_timeout(),
+            None,
+            None,
+        )
+        .expect("the okf deployment opens its declared source")
+        {
+            crate::sources::Opened::Files(opened) => Some(opened),
+            #[cfg(feature = "bigquery")]
+            crate::sources::Opened::BigQuery(_) => None,
+            #[cfg(feature = "postgres")]
+            crate::sources::Opened::Postgres(_) => None,
+            #[cfg(feature = "clickhouse")]
+            crate::sources::Opened::ClickHouse(_) => None,
+            #[cfg(feature = "oracle")]
+            crate::sources::Opened::Oracle(_) => None,
+        }
+        .expect("the okf deployment declares a files source");
+        (catalogs, opened, settings)
+    }
+
+    /// `sutura mcp` opens a declared `catalog.kind: okf` the same way `sutura serve` does, and
+    /// serves its tools over the protocol - the acceptance issue #970 states for this kind. `okf`
+    /// declares no measure (its own module header), so this asserts `tools/list` carries every
+    /// capability and `describe_catalog` answers with zero metrics rather than a refusal.
+    #[test]
+    fn the_mcp_composition_opens_a_declared_okf_catalog_and_serves_its_tools() {
+        let dir = std::env::temp_dir().join(format!("sutura-cli-mcp-okf-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        std::fs::create_dir_all(&dir).expect("the okf scratch directory is creatable");
+        let (catalog, opened, settings) = okf_composition(&dir);
+        let (service, prose, admission, reply, instructions) =
+            mcp_service(&catalog, opened, &settings).expect("the okf bundle is fit to serve");
+        let service = std::sync::Arc::new(service);
+        let runtime = tokio::runtime::Runtime::new().expect("a runtime starts");
+
+        runtime.block_on(async {
+            let client = connected(std::sync::Arc::clone(&service), prose, admission, reply, instructions).await;
+            let tools = client.list_all_tools().await.expect("tools/list answers");
+            let advertised: Vec<&str> = tools.iter().map(|tool| tool.name.as_ref()).collect();
+            let expected: Vec<&str> = sutura_app::Capability::every().map(sutura_app::Capability::id).collect();
+            assert_eq!(advertised, expected, "{advertised:?}");
+
+            let result = client
+                .call_tool(rmcp::model::CallToolRequestParams::new(
+                    sutura_app::Capability::DescribeCatalog.id(),
+                ))
+                .await
+                .expect("describe_catalog is not a protocol error");
+            assert_ne!(result.is_error, Some(true), "{result:?}");
+            let structured = result
+                .structured_content
+                .as_ref()
+                .expect("an okf listing carries structured content");
+            assert_eq!(
+                structured["metrics"].as_array().map(Vec::len),
+                Some(0),
+                "an okf catalog declares no measure, so a served listing must carry none: {structured}"
+            );
+            drop(client.cancel().await);
+        });
+        drop(std::fs::remove_dir_all(&dir));
     }
 }

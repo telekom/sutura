@@ -89,6 +89,10 @@ mod audit;
 /// `dead_code = "deny"` would say so.
 #[cfg(feature = "bigquery")]
 mod bigquery_driver;
+/// The ONE catalog opener, shared by `crate::serve` and `crate::mcp` - moved to the crate root
+/// in issue #970 so both composition roots open the declared `catalogs:` the same way. Its own
+/// module header states why it cannot live in `sutura-config`.
+mod catalog;
 /// The ONE `ClickHouse` composition, reached by both composition roots below. Gated whole, like
 /// `serve::broker`: a build that links no `sutura-exec-clickhouse` has no adapter type to name.
 #[cfg(feature = "clickhouse")]
