@@ -140,8 +140,9 @@ jobs:
       # dependency closure), `.#xtask` (#562 - the binary several `ci` steps `nix run`, built afresh
       # in 5/5 observed runs because it sat in no push list before), `.#jscpd` (the copy/paste
       # detector's own dependency closure, rebuilt 35-59 s wherever the Actions cache does not carry
-      # it), and the two tier helpers `checks.nextest`'s sandbox and `just keycloak-served-test`
-      # depend on. None of these is keyed on this commit's own source the way `nextest`/`clippy`
+      # it), and the three tier helpers: the Postgres and ClickHouse tiers `checks.nextest`'s
+      # sandbox starts (its `nativeCheckInputs`), and the Keycloak tier `just keycloak-served-test`
+      # depends on. None of these is keyed on this commit's own source the way `nextest`/`clippy`
       # output is, so every one of them is exactly what a LATER commit's PR run can substitute.
       #
       # WHAT THIS GIVES UP, STATED RATHER THAN OMITTED: the race with `docs.yml`'s `publish` leg for
@@ -157,7 +158,8 @@ jobs:
             .#xtask \
             .#jscpd \
             .#checks.x86_64-linux.keycloak-tier \
-            .#checks.x86_64-linux.postgres-tier
+            .#checks.x86_64-linux.postgres-tier \
+            .#checks.x86_64-linux.clickhouse-tier
 
   # PER-CONSUMER PUBLISH. Each consumer's closure goes to its OWN cache
   # (`sutura-cross-build` / `sutura-connectors`), each with its own 5 GB bucket, so one consumer's
