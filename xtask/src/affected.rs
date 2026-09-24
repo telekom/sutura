@@ -39,6 +39,14 @@ use std::path::Path;
 
 use crate::conformance::scan;
 
+// A DERIVED FILE ANSWERS FOR THE CRATE IT DERIVES FROM: the generated API pages and the golden
+// snapshots select the category of the crate or adapter they derive from, not the path itself.
+// Its own file for the unexemptable 1000-line cap; the child carries the argument. `#[path]`
+// because this module is itself loaded by `#[path]` from `changes.rs`, so a bare `mod` would
+// resolve the child as a flat sibling of this file rather than under `affected/`.
+#[path = "affected/derived.rs"]
+mod derived;
+
 /// The registry, read as data. **Read-only** - it is the input, never a target of this change.
 const REGISTRY: &str = "crates/sutura-app/tests/adapters/adapters.rs";
 
@@ -179,6 +187,14 @@ fn select(paths: &[String]) -> Selection {
             selected.insert(format!("data_source_{tail}"));
         } else if let Some(tail) = crate_tail(path, CATALOG_PATH) {
             selected.insert(format!("catalog_{tail}"));
+        } else if let Some(category) = derived::api_doc_category(path) {
+            // The page derives from the crate, so it selects exactly what the crate's own
+            // `src/lib.rs` would select; a page for a crate on neither axis still falls open.
+            selected.insert(category);
+        } else if let Some(category) = derived::snapshot_category(path) {
+            // The snapshot derives from the adapter, so it selects exactly what the adapter's own
+            // `src/lib.rs` would select; a snapshot no adapter names still falls open.
+            selected.insert(category);
         } else {
             core = true;
             reasons.push(format!("{path} matches no category - running every category"));
@@ -292,7 +308,7 @@ fn crate_from_type(adapter: &str) -> String {
 
 /// The category a crate names: a data-source or catalog crate, or nothing for a crate on neither
 /// axis (a dialect's own `sutura_sql`, for example).
-fn category_from_crate(crate_name: &str) -> Option<String> {
+pub(super) fn category_from_crate(crate_name: &str) -> Option<String> {
     crate_name
         .strip_prefix(DATA_SOURCE_PREFIX)
         .map(|tail| format!("data_source_{tail}"))
@@ -378,7 +394,7 @@ mod tests {
 
     /// A `Categories` built from a path set against a fixed declared set, so the selection
     /// properties are tested without a filesystem read.
-    fn selected(paths: &[&str]) -> Categories {
+    pub(super) fn selected(paths: &[&str]) -> Categories {
         let owned: Vec<String> = paths.iter().map(|p| (*p).to_owned()).collect();
         let (core, selected, reasons) = select(&owned);
         let declared = BTreeSet::from(
