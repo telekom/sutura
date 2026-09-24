@@ -128,42 +128,36 @@ jobs:
           # which would upload every substituted upstream path back to a cache that does not need it.
           pushFilter: "(-source$|nixpkgs)"
 
-      # Realise the closure the cache is FOR: the dependency artifacts every check shares. Naming the
-      # checks rather than the whole flake keeps the publish to what a later run actually restores.
-      # Publish `.#xtask` too (#562): it is the binary several ci steps `nix run` (classify,
-      # check-attribution, crap-delta) and is BUILT afresh in 5/5 observed runs (~25 s) because it
-      # sits in no nitro push list. Realising it into the shared `sutura` cache lets those steps
-      # substitute instead of rebuild. It is a package output, not a release binary - the reference
-      # gate ignores non-`checks` packages by design.
+      # #981: PUBLISH THE DEPENDENCY AND TOOL CLOSURES EXPLICITLY, NOT THE FIRST-PARTY CHECKS.
+      # Measured over 102 cachix-push runs: PR logs substitute only dependency closures and tool
+      # helpers from the main caches - never a first-party check OUTPUT, which is keyed on the
+      # commit that built it and is consumed (if at all) only by that same commit's own `push` run
+      # racing this one. Realising `nextest`/`clippy`/`hygiene` here bought a shared cache nothing a
+      # pull request could read, at real cost: 13 of 102 runs were cancelled mid-publish, and this
+      # job carried the closures that DO cross to a PR anyway as a side effect of building them.
       #
-      # **`hygiene` IS REALISED FIRST AND ALONE, AND THAT IS A RACE, NOT A TIDYING (#600).** The
-      # daemon's post-build hook publishes each path AS IT IS BUILT, so what decides whether a
-      # consumer substitutes this derivation or builds its own copy is the wall-clock moment it
-      # lands. `docs.yml` has two `publish` legs that realise the same `hygiene` derivation, and at
-      # v0.5.1 the main leg started building its own copy at 08:39:02 - 18 s BEFORE this hook
-      # published it at 08:39:20 - which is why those two legs measured 246 s and 70 s for one
-      # identical derivation. In a merged graph nix decides when `hygiene` finishes; in its own
-      # invocation it finishes as early as it can. The tag leg is out of reach either way (it
-      # evaluated at 08:34:03, 34 s before this step started), so the prize is three realises of
-      # that derivation per release becoming two, not one.
+      # So this now names them directly instead: `.#deps` (`ciArtifacts`, every check's shared
+      # dependency closure), `.#xtask` (#562 - the binary several `ci` steps `nix run`, built afresh
+      # in 5/5 observed runs because it sat in no push list before), `.#jscpd` (the copy/paste
+      # detector's own dependency closure, rebuilt 35-59 s wherever the Actions cache does not carry
+      # it), and the two tier helpers `checks.nextest`'s sandbox and `just keycloak-served-test`
+      # depend on. None of these is keyed on this commit's own source the way `nextest`/`clippy`
+      # output is, so every one of them is exactly what a LATER commit's PR run can substitute.
       #
-      # The cost is real and is paid in the right place: `hygiene` no longer overlaps the other
-      # roots, so this step's own wall clock can rise by most of that derivation. This workflow
-      # reports no status-check context and can gate no merge (see the job comment above), so
-      # runner time here is the cheapest kind in the repository.
-      #
-      # A CACHE HIT ON THIS OUTPUT IS PROOF THE GATE PASSED ON THAT TREE, which is why publishing it
-      # earlier needs no `if:`, no extra permission and no soundness argument: the derivation IS the
-      # check. Whether it changes any wall clock is a HYPOTHESIS until a release shows it - the two
-      # docs legs share one concurrency group, so they are serialized and no figure is promised.
-      - name: Realise and publish the shared closure
+      # WHAT THIS GIVES UP, STATED RATHER THAN OMITTED: the race with `docs.yml`'s `publish` leg for
+      # the SAME `hygiene` derivation (#600) is gone along with the derivation itself, so that leg no
+      # longer has a chance to substitute a copy this job built moments earlier. It has to build its
+      # own now. This workflow reports no status-check context (see the job comment above), so the
+      # cost sits entirely off the merge path.
+      - name: Realise and publish the dependency and tool closures
         run: |
           set -eu
-          nix build --print-build-logs .#checks.x86_64-linux.hygiene
           nix build --print-build-logs \
-            .#checks.x86_64-linux.nextest \
-            .#checks.x86_64-linux.clippy \
-            .#xtask
+            .#deps \
+            .#xtask \
+            .#jscpd \
+            .#checks.x86_64-linux.keycloak-tier \
+            .#checks.x86_64-linux.postgres-tier
 
   # PER-CONSUMER PUBLISH. Each consumer's closure goes to its OWN cache
   # (`sutura-cross-build` / `sutura-connectors`), each with its own 5 GB bucket, so one consumer's
