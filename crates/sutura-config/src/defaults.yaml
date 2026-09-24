@@ -215,8 +215,9 @@ telemetry:
 
 # Metadata sourceS the deployment reads, in declaration order. Each entry names itself (the key
 # the contribution manifest is keyed on), declares its kind, and says where its model and its own
-# data live. `kind: markdown` is the only kind any build here can open; an absent kind also means
-# `markdown`.
+# data live. `kind: markdown` is the only kind every build here can open; `datahub` and `okf`
+# open behind their default-off `sutura-cli` features, and `openmetadata`/`rdbms` are declarable
+# and refused by name (no reader over a real deployment yet). An absent kind also means `markdown`.
 catalogs:
   - name: "model"
     kind: "markdown"

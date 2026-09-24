@@ -722,6 +722,23 @@ where
             ) as Serving
         })
         .map_err(flatten),
+        #[cfg(feature = "okf")]
+        catalog::OpenedCatalogs::Okf(catalogs) => LocalService::start_composed(
+            catalogs,
+            engines,
+            TracingAuditSink::new(),
+            broker,
+            combiner,
+            working_set_bytes,
+        )
+        .map(|service| {
+            Arc::new(
+                service
+                    .with_spend_ledger(spend_ledger(spend_budget))
+                    .with_row_ceiling(row_ceiling),
+            ) as Serving
+        })
+        .map_err(flatten),
     }
 }
 

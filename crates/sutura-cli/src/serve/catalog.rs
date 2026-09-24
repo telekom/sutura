@@ -12,7 +12,7 @@
 //! SAME `Warehouse` trait's instance methods), there is no single Rust type that is faithfully "a
 //! markdown catalog OR a datahub catalog": an enum wrapping both could not answer its own `KIND` or
 //! `capabilities()` without an instance to match on, which the trait's shape does not allow. What
-//! this module does instead is decide, from the declared catalogs' SHARED kind, which of two
+//! this module does instead is decide, from the declared catalogs' SHARED kind, which of several
 //! monomorphic vectors to open - [`crate::serve::catalog::OpenedCatalogs`] carries that choice and refuses a mix by name
 //! rather than picking one silently.
 //!
@@ -35,6 +35,11 @@ pub(crate) enum OpenedCatalogs {
     Markdown(Vec<LocalCatalog>),
     #[cfg(feature = "datahub")]
     Datahub(Vec<sutura_catalog_datahub::DataHubCatalog<sutura_catalog_datahub::http::HttpAspectReader>>),
+    /// A directory of OKF Table Schema descriptors - `#970`. **Behind this crate's default-off
+    /// `okf` feature**, for the same ARTEFACT reason `Datahub` is: a build that did not ask to
+    /// link `sutura-catalog-okf` must refuse `catalog.kind: okf` by name rather than open it.
+    #[cfg(feature = "okf")]
+    Okf(Vec<sutura_catalog_okf::OkfCatalog>),
 }
 
 /// Opens every catalog the settings declare.
@@ -71,6 +76,28 @@ pub(crate) fn open_catalog(
             catalogs.each().map(open_one_markdown_catalog).collect(),
         )),
         sutura_config::CatalogKind::Datahub => open_datahub_catalogs(catalogs, outbound),
+        // `Okf`'s opener is INFALLIBLE (`OkfCatalog::new` cannot fail - the reads are at `load`),
+        // so unlike `datahub` there is no shared fallible helper to fork: the `cfg` lives in the
+        // match arm itself, one per build. The `not` arm's message names the FEATURE, the same
+        // reason `open_datahub_catalogs`'s does: an operator can act on "--features okf".
+        #[cfg(feature = "okf")]
+        sutura_config::CatalogKind::Okf => Ok(OpenedCatalogs::Okf(catalogs.each().map(open_one_okf_catalog).collect())),
+        #[cfg(not(feature = "okf"))]
+        sutura_config::CatalogKind::Okf => Err(String::from(
+            "catalog.kind: okf names a metadata adapter this binary was not built to link - build \
+             sutura-cli with --features okf, or declare markdown catalogs",
+        )),
+        // Declarable, and refused by name unconditionally: neither crate has a reader over
+        // anything but a recorded fixture, so no feature could make either kind honestly openable
+        // yet - `sutura_config::CatalogKind`'s own doc comment names each follow-up.
+        sutura_config::CatalogKind::Openmetadata => Err(String::from(
+            "catalog.kind: openmetadata names a metadata adapter with no reader over a real \
+             deployment yet - see the follow-up to github.com/telekom/sutura#152",
+        )),
+        sutura_config::CatalogKind::Rdbms => Err(String::from(
+            "catalog.kind: rdbms names a metadata adapter with no reader over a real dictionary \
+             yet - see github.com/telekom/sutura#972",
+        )),
     }
 }
 
@@ -84,6 +111,8 @@ pub(crate) fn load(catalogs: &OpenedCatalogs) -> Result<PinnedDefinitions, Strin
         OpenedCatalogs::Markdown(catalogs) => load_each(catalogs),
         #[cfg(feature = "datahub")]
         OpenedCatalogs::Datahub(catalogs) => load_each(catalogs),
+        #[cfg(feature = "okf")]
+        OpenedCatalogs::Okf(catalogs) => load_each(catalogs),
     }
 }
 
@@ -103,6 +132,21 @@ where
 /// Opens one declared markdown catalog.
 fn open_one_markdown_catalog(settings: &sutura_config::CatalogSettings) -> LocalCatalog {
     LocalCatalog::new(
+        settings.name().clone(),
+        PathBuf::from(settings.dir()),
+        settings.version().clone(),
+    )
+}
+
+/// Opens one declared `okf` catalog: a directory of Table Schema descriptors, wrapped in
+/// `sutura_catalog_okf::OkfCatalog`.
+///
+/// **Infallible - `OkfCatalog::new` cannot fail** (the name and folder reads that can fail happen
+/// at `load`, not at open), so unlike its `datahub` sibling this takes no `Result`: the `Okf` arm
+/// of `open_catalog` is the one place open never refuses once the feature is linked.
+#[cfg(feature = "okf")]
+fn open_one_okf_catalog(settings: &sutura_config::CatalogSettings) -> sutura_catalog_okf::OkfCatalog {
+    sutura_catalog_okf::OkfCatalog::new(
         settings.name().clone(),
         PathBuf::from(settings.dir()),
         settings.version().clone(),

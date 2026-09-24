@@ -612,6 +612,42 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
     super::catalog::open_catalog(&catalogs, None).expect("markdown is the kind every build links");
 }
 
+/// Every kind a default build of `sutura serve` refuses, by name: `okf` (behind this crate's
+/// default-off `okf` feature), and `openmetadata`/`rdbms` on EVERY build (no reader over a real
+/// deployment yet). The `okf` guard here is the `cfg(not(feature = "okf"))` of
+/// `open_okf_catalogs`'s refusal arm - the same shape `a_declared_catalog_kind_this_build_cannot_
+/// open_is_a_boot_refusal_naming_it` holds for `datahub`; the two unconditional ones need no guard.
+#[test]
+fn a_declared_catalog_kind_without_a_linked_reader_is_refused_naming_the_feature_or_the_follow_up() {
+    use sutura_config::{CatalogKind, CatalogSettings, Catalogs};
+    use sutura_domain::model::SourceName;
+    use sutura_domain::pinned::DefinitionVersion;
+    let version = DefinitionVersion::parse("test-1").expect("a test version is a version");
+    let catalog = |raw: &str, kind: CatalogKind| {
+        CatalogSettings::parse(
+            SourceName::parse(raw).expect("a test name is a name"),
+            kind,
+            PathBuf::from("/nowhere/catalog"),
+            PathBuf::from("/nowhere/data"),
+            version.clone(),
+        )
+        .expect("a directory and a version are a settings")
+    };
+    // `okf` refuses by name only when this build did not link the feature.
+    #[cfg(not(feature = "okf"))]
+    {
+        let catalogs = Catalogs::parse(vec![catalog("physical", CatalogKind::Okf)]).expect("one declared catalog is a registry");
+        let err = super::catalog::open_catalog(&catalogs, None).expect_err("this build does not link the okf feature");
+        assert!(err.contains("catalog.kind: okf"), "{err}");
+        assert!(err.contains("--features okf"), "{err}");
+    }
+    for (kind, word) in [(CatalogKind::Openmetadata, "openmetadata"), (CatalogKind::Rdbms, "rdbms")] {
+        let catalogs = Catalogs::parse(vec![catalog(word, kind)]).expect("one declared catalog is a registry");
+        let err = super::catalog::open_catalog(&catalogs, None).expect_err("a kind with no reader is refused by name");
+        assert!(err.contains(&format!("catalog.kind: {word}")), "{err}");
+    }
+}
+
 // `the_datahub_refusal_offers_no_rebuild_this_binary_has_no_feature_for`
 // (`github.com/telekom/sutura#366`) is RETIRED rather than kept: it asserted the refusal must not
 // name a feature, because the served binary declared none that provided `datahub` at the time.

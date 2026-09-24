@@ -136,9 +136,10 @@ until this type existed the settings tree carried a directory and a version and 
 operator could write to say *read the model from somewhere else* - so a second catalog kind
 could merge complete and silently remain unreachable from any binary.
 
-Two variants today. `Self::Datahub` says which and why, the way `SourceKind::BigQuery` does for
+Five variants. `Self::Datahub` says which and why, the way `SourceKind::BigQuery` does for
 data systems: the vocabulary is the vocabulary of adapters this repository has, and an adapter
 that exists in a record rather than in a linked crate is still a word an operator might write.
+`#970` added the three declaring adapters that had a crate and no composition root:
 
 ## `use CatalogSettings`
 
@@ -1383,9 +1384,10 @@ until this type existed the settings tree carried a directory and a version and 
 operator could write to say *read the model from somewhere else* - so a second catalog kind
 could merge complete and silently remain unreachable from any binary.
 
-Two variants today. `Self::Datahub` says which and why, the way `SourceKind::BigQuery` does for
+Five variants. `Self::Datahub` says which and why, the way `SourceKind::BigQuery` does for
 data systems: the vocabulary is the vocabulary of adapters this repository has, and an adapter
 that exists in a record rather than in a linked crate is still a word an operator might write.
+`#970` added the three declaring adapters that had a crate and no composition root:
 
 #### Variants
 
@@ -1396,11 +1398,26 @@ that exists in a record rather than in a linked crate is still a word an operato
   argument.
 - `Datahub` - A metadata service, read through the adapter `docs/adr/0016` specifies and #114 builds.
 
-  **A declarable kind that no binary this repository ships can open yet, and that is
-  deliberate.** The vocabulary of kinds is the vocabulary of adapters *this repository has*
-  in its records, and the composition root refuses this kind by name for exactly the reason
-  `SourceKind::BigQuery` is refused: an operator who writes the word must be told the truth
-  (the adapter is not linked) rather than sent looking for a typo.
+  **Openable behind `sutura-cli`'s default-off `datahub` feature; a build without it refuses
+  this kind by name**, for exactly the reason `SourceKind::BigQuery` is refused: an operator
+  who writes the word must be told the truth (the adapter is not linked) rather than sent
+  looking for a typo.
+- `Okf` - A directory of OKF Frictionless Table Schema descriptors, read by `sutura-catalog-okf`.
+
+  The narrowest of the three declaring adapters `#970` names, and the only one whose reader
+  needs no service: one YAML document per table, on disk, like `Self::Markdown`. Openable
+  behind `sutura-cli`'s default-off `okf` feature.
+- `Openmetadata` - An `OpenMetadata` deployment, decided by `sutura-catalog-openmetadata` over its own `SnapshotReader` port.
+
+  **A declarable kind no binary this repository ships can open yet, and that is deliberate.**
+  The crate decides a whole metric against a fake reader; a reader over a real deployment is
+  the follow-up `#152` names, so the composition root refuses this kind by name until one
+  exists rather than opening the recorded fixture against a real deployment's name.
+- `Rdbms` - An RDBMS dictionary, decided by `sutura-catalog-rdbms` over a `DictionaryReader` port.
+
+  **A declarable kind no binary this repository ships can open yet, for the identical reason
+  `Self::Openmetadata` states.** The crate decides the conversion against a recorded
+  dictionary; a reader over a real socket lands with `#972`.
 
 #### Methods
 

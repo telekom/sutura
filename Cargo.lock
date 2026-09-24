@@ -4345,6 +4345,7 @@ dependencies = [
  "sutura-app",
  "sutura-catalog-datahub",
  "sutura-catalog-local",
+ "sutura-catalog-okf",
  "sutura-config",
  "sutura-dev",
  "sutura-domain",

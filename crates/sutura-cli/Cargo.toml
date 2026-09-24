@@ -103,6 +103,15 @@ oracle = ["dep:sutura-exec-oracle"]
 # feature is what an operator building `sutura` types.
 datahub = ["dep:sutura-catalog-datahub", "sutura-catalog-datahub/http"]
 
+# **Default-off for the same ARTEFACT reason `datahub` above is**, and the mirror holds too:
+# `sutura-catalog-okf` carries no optional sub-feature, so this is a bare `dep:` edge like
+# `clickhouse`/`oracle` rather than a nested `sutura-catalog-datahub/http` one. `nix/shipped.nix`
+# ships it in the published feature list (one binary, every adapter) the same way it ships
+# `datahub`, so a published binary opens `catalog.kind: okf`; a plain `cargo build` without
+# `--features okf` refuses it by name with the same operator-facing message `datahub`'s
+# no-feature build gives.
+okf = ["dep:sutura-catalog-okf"]
+
 # The agent surface: `sutura-mcp`'s streamable-HTTP transport, mounted by the composition root at
 # `sutura serve`'s `/mcp`.
 #
@@ -163,7 +172,6 @@ sutura-exec-postgres = { workspace = true, optional = true }
 # dev-dependency because Cargo cannot make a dev-dependency optional - see `sutura-serve`'s
 # former manifest, folded in at `github.com/telekom/sutura#685` step 2.
 tokio-postgres = { workspace = true, optional = true }
-# The ClickHouse adapter, behind the `clickhouse` feature above. Optional for the same reason
 # `sutura-exec-bigquery` is: absent, not merely unused, from a build that did not ask for it. The
 # adapter owns its own endpoint, credential and TLS types, so this root names no HTTP client itself.
 sutura-exec-clickhouse = { workspace = true, optional = true }
@@ -173,6 +181,11 @@ sutura-exec-oracle = { workspace = true, optional = true }
 # The DataHub metadata adapter, behind the `datahub` feature above. Optional for the same reason
 # `sutura-exec-bigquery` is: absent, not merely unused, from a build that did not ask for it.
 sutura-catalog-datahub = { workspace = true, optional = true }
+# The OKF metadata adapter, behind the `okf` feature above - optional for the same reason
+# `sutura-catalog-datahub` is: ABSENT, not merely unused, from a build that did not ask for it. A
+# pure directory read with no native or outbound-TLS dependency, so it cross-compiles to musl like
+# the adapter it most resembles (`sutura-catalog-local`).
+sutura-catalog-okf = { workspace = true, optional = true }
 # the single-player composition. An agent client launches the process and speaks MCP on its pipes,
 # matching `examples/single-player` - which is exactly the shape roadmap wanted. The dependency is
 # pure Rust (`rmcp`, `schemars`), so it cross-compiles to musl like the engine it drives.

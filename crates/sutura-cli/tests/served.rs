@@ -80,6 +80,16 @@ mod keycloak_test;
 #[path = "served/datahub.rs"]
 mod datahub;
 
+// `catalog.kind: okf`, served: `#970`'s served-binary "boots and lists" cell - see
+// `served/okf.rs`'s module header. `#[cfg(test)]` for the same `allow-expect-in-tests` reason
+// `datahub` above carries one; `#[cfg(feature = "okf")]` is on the DECLARATION so a build
+// without the feature does not even parse a file that names a crate it did not link.
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "okf")]
+#[path = "served/okf.rs"]
+mod okf;
+
 // The agent-surface cells (`/mcp` hidden behind leg 1, the boot refusal, two callers), split into
 // their own file for the same `max-lines` reason; `#[path]` keeps them next to the harness they
 // share. `cfg(feature = "agent")` as its own attribute so the default build has no `/mcp` at all,
