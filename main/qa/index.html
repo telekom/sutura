@@ -507,10 +507,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#why-can-a-question-not-span-two-data-systems" class="md-nav__link">
+  <a href="#can-a-question-span-two-data-systems" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why can a question not span two data systems?
+        Can a question span two data systems?
       
     </span>
   </a>
@@ -1963,10 +1963,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#why-can-a-question-not-span-two-data-systems" class="md-nav__link">
+  <a href="#can-a-question-span-two-data-systems" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why can a question not span two data systems?
+        Can a question span two data systems?
       
     </span>
   </a>
@@ -2058,16 +2058,14 @@ is how a row-level security policy becomes decorative.</p>
 <p>sutura fixes the first by construction today: definitions arrive certified and pinned, the tool
 surface has no field an invented query could arrive in, and every value a question carries binds
 as a parameter rather than reaching the statement as text.</p>
-<p>The second is <strong>half built, and the missing half is the one that matters.</strong> "Every query runs as
-the caller" needs a credential minted per request. That now exists: a request context reaches the
+<p>The second is <strong>built and unproven</strong>. "Every query runs as the caller" needs a credential minted
+per request. A request context reaches the
 query path, a credential broker mints once per answer for every source a plan reads, and the
 execution port has no signature that runs without the result - so a subject with no credential at
-a source is refused rather than answered as this process. What is absent is a data system that
-evaluates the asking subject: no published adapter can carry a per-subject credential - <code>bigquery</code> is a default-off feature and the adapter behind it does. Against
-a local file the property is trivially true and worth nothing, because a file has no login.
-Against a warehouse it is still a target - what changed is that no <em>question</em> has a code path for
-a warehouse to be read as this process through. The boot path does, by design: it re-executes
-every anchor before a listener is bound, there is no caller then, and <code>Warehouse::verify_anchor</code>
+a source is refused rather than answered as this process. The published BigQuery adapter is wired
+to carry the verified caller's assertion through a declared per-subject map, but no served run has
+proven source execution as that caller. Shared sources still use their declared identity. The boot
+path re-executes every anchor before a listener is bound, there is no caller then, and <code>Warehouse::verify_anchor</code>
 takes no credential.</p>
 <p><strong>What bounds that path is placement made checkable, not its input type - a correction a second
 review forced.</strong> <code>verify_anchor</code> takes an <code>AnchorPlan</code>, a plan the pinned bundle itself agrees is
@@ -2093,16 +2091,17 @@ sutura <strong>retains nothing</strong> - what a record is worth is what the dep
 the subject in the chain is only as strong as what established it: behind the shared bearer token
 alone the record names the <em>deployment</em>, because that is who asked as far as anything can tell; a
 deployment that declares <code>security.inbound</code> names the caller, from a signature. Still a design
-target is a refusal attributable to a subject whose own <strong>access</strong> decided it - the record can say
-which identity each leg ran under, and on this build that is never the asking subject.</p>
+target is a refusal attributable to a subject whose own <strong>access</strong> decided it. BigQuery can carry
+the asking subject's assertion, but the source's acceptance is unproven; shared legs still read
+under their source's declared identity (<a href="../where-identity-is-proven/">identity venues</a>).</p>
 <h2 id="why-does-the-tool-surface-take-no-table-name">Why does the tool surface take no table name?<a class="headerlink" href="#why-does-the-tool-surface-take-no-table-name" title="Permanent link">&para;</a></h2>
 <p>Because a refusal can be retried, reworded and eventually satisfied, and an absent field cannot.
 <code>Query</code> carries no SQL, no table, no filter expression and no row ids, so an uncertified question
 does not compile. That is enforced today, and <code>deny_unknown_fields</code> means a question carrying
 <code>sql:</code> is an error naming the field rather than one silently dropped.</p>
-<p>The intended backstop - widening the surface changes a dumped schema, so the widening lands in the
-diff of the review that did it - is a <strong>design target</strong>. The schema dump is not written yet, so
-today the only thing catching a widened surface is review.</p>
+<p>The MCP wire type generates a committed schema snapshot, so widening its input changes a
+byte-compare a reviewer must accept. There is no equivalent OpenAPI dump for HTTP, and a snapshot
+cannot decide whether a new field should exist; review still owns that decision.</p>
 <h2 id="why-is-there-no-result-cache">Why is there no result cache?<a class="headerlink" href="#why-is-there-no-result-cache" title="Permanent link">&para;</a></h2>
 <p>Under row-level security, two callers asking the same question are entitled to different rows. A
 cache keyed on the query text serves the first caller's rows to the second: a cross-user leak with
@@ -2110,18 +2109,16 @@ a hit rate. The same reasoning rules out a materialised copy refreshed on a sche
 read under whoever refreshed it.</p>
 <p>No mechanism can prove an absence, so this one is written down as a decision. Adding any cache of
 rows is an architecture change, keyed on subject first or not at all.</p>
-<h2 id="why-can-a-question-not-span-two-data-systems">Why can a question not span two data systems?<a class="headerlink" href="#why-can-a-question-not-span-two-data-systems" title="Permanent link">&para;</a></h2>
-<p>A second data system is a second identity to satisfy, not a bigger version of the same query. The
-one-source rule is enforced today: the plan stage collects every source the plan reaches into a
-set and refuses unless exactly one name is in it, and a golden builds a two-source catalogue to
-provoke the refusal.</p>
-<p>The <em>identity</em> half of that reasoning is a design target. There is no per-leg credential, so
-nothing asserts that two subjects get different rows, and nothing can until one exists.</p>
-<p>Federation is wanted, in this order: per-leg identity first, then federation. A predicate pushed
-into ClickHouse or Postgres is evaluated there, under the caller's own grants, so excluded rows
-never enter this process.
-<a href="../architecture/#where-the-parts-come-from">Where the parts come from</a> names the projects that
-already do that part well.</p>
+<h2 id="can-a-question-span-two-data-systems">Can a question span two data systems?<a class="headerlink" href="#can-a-question-span-two-data-systems" title="Permanent link">&para;</a></h2>
+<p>Yes. A supported federated question splits into fact and lookup legs, executes each at its source,
+then joins the results. Each leg is presented either the asking subject's credential or that
+source's acknowledged shared identity. The answer records the posture of each leg, even when they
+differ. That record reaches the caller with the rows; it is a
+disclosure, not an authorization check (see
+<code>docs/adr/0040-a-cross-posture-federated-answer-is-disclosed-per-leg.md</code>).</p>
+<p>BigQuery can carry a per-subject credential, but its real two-subject venue is wired with no
+observed run. The other adapters still execute under a shared identity, and no live test has shown
+two subjects receiving different rows (<a href="../where-identity-is-proven/">identity venues</a>).</p>
 <h2 id="why-are-definitions-not-editable-here">Why are definitions not editable here?<a class="headerlink" href="#why-are-definitions-not-editable-here" title="Permanent link">&para;</a></h2>
 <p>Editing a certified statement forks the definition from the number it certifies, which was the
 only thing certifying it bought. Definitions are authored in the semantic layer that renders them
@@ -2132,13 +2129,15 @@ is the expected case rather than the disaster case, and the defence is not detec
 an attacker can make the agent emit is a different certified question over the same pinned
 definitions - that much is enforced today by the shape of <code>Query</code>. The blast radius of a fully
 manipulated agent is the set of questions its caller could already ask.</p>
-<p>The clause "asked as the same caller, against the same authorization" is <strong>half built.</strong> The
-credential broker exists and <code>Warehouse::execute</code> has no signature that runs without what it
+<p>The clause "asked as the same caller, against the same authorization" is <strong>not a guarantee for every
+source.</strong> The credential broker exists and <code>Warehouse::execute</code> has no signature that runs without what it
 minted, so there is no code path a question reaches a data system through as an unnamed identity.
-What is still absent is an adapter that can carry a per-subject credential, so nothing today makes
-a statement about <strong>whose rows</strong> come back: the bound on a manipulated agent is the tool surface
-plus, where a deployment declares <code>security.inbound</code>, the scopes that caller was granted - which
-decide which operations it may invoke and not which rows an answer contains.</p>
+The BigQuery adapter can carry the verified caller's assertion to a declared account for that
+subject, but no hosted run has shown the source accepting either identity hop. Other adapters still
+execute under their source's shared identity. The bound demonstrated today is the tool surface
+plus, where a deployment declares <code>security.inbound</code>, the scopes that caller was granted. Those
+scopes decide which operations the caller may invoke, not which rows an answer contains; per-subject
+rows through BigQuery remain unproven (<a href="../where-identity-is-proven/">identity venues</a>).</p>
 <h2 id="why-do-the-musl-builds-swap-the-allocator">Why do the musl builds swap the allocator?<a class="headerlink" href="#why-do-the-musl-builds-swap-the-allocator" title="Permanent link">&para;</a></h2>
 <p>musl's <code>mallocng</code> serialises the whole process on one lock word. With one binary and only
 threading toggled, a 48-core run takes 4.45s on glibc and 92.16s on musl, slower than musl's own
@@ -2147,21 +2146,17 @@ single-core run; linking mimalloc brings it to 3.83s.
 <h2 id="can-i-use-it-today">Can I use it today?<a class="headerlink" href="#can-i-use-it-today" title="Permanent link">&para;</a></h2>
 <p>For single-player work over local files, yes. <code>sutura compile</code> renders the statement for a
 question and <code>sutura query</code> answers it, over a catalogue of documents in git and the CSV or
-Parquet files in a directory you name. That is the honest description: <strong>a governed single-player
-semantic compiler and executor over local files</strong>, served either from the command line or
+Parquet files in a directory you name. That is one supported path, served from the command line or
 <a href="../serving/">over HTTP</a>.</p>
-<p>Not yet as the identity-aware runtime this site describes, and the gap is narrower and more
-specific than it used to be. There <strong>is</strong> a request context, a credential broker port with a
-static-credential implementor, an audit sink, an MCP surface, and - where a deployment declares
-<code>security.inbound</code> - a verified caller identity from a signature, with OAuth scopes deciding which
-operations that caller may invoke. What there is <strong>not</strong> is leg 2: no published adapter has
-anywhere for a per-subject credential to arrive, both published adapters declare so, and the broker that ships mints
-what an operator configured. So a deployment can know exactly who is asking, record it, refuse a
-subject it holds no credential for - and still read every row as one identity. There is no Arrow
-result envelope. The one data system the shipped binary opens is the in-process engine over those
-files - <code>sutura-exec-duckdb</code> renders and pushes down, and is a development dependency rather than
-something the binary links. So the governance that decides <strong>which rows</strong> is still the narrow tool
-surface and the pinned bundle, not identity.
+<p>The identity-aware BigQuery path is shipped, but no served run has proven that the source executes
+as the caller. There <strong>is</strong> a request context, a credential broker port, an audit sink, an MCP
+surface, and - where a deployment declares <code>security.inbound</code> - a verified caller identity from a
+signature, with OAuth scopes deciding which operations that caller may invoke. Other sources use an
+acknowledged shared identity, so a deployment can know who is asking and still read rows under its
+own source identity. The Arrow result envelope is not built. The published build opens the
+in-process engine, Postgres and BigQuery;
+other adapters require their own features. The pinned bundle and source grants govern which rows
+can be read.
 <a href="../architecture/#what-exists-today">What exists today</a> is the inventory.</p>
 <p>The environment, the gates and the release pipeline do work, because a mechanism is cheaper to
 build before there is code to retrofit it onto.</p>

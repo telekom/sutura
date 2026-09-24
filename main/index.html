@@ -1844,14 +1844,14 @@ read rather than the ones the <em>caller</em> may read, which is how a row-level
 becomes decorative.</p>
 <div class="admonition warning">
 <p class="admonition-title">What is built, and what is a design target</p>
-<p>sutura today is <strong>a governed single-player semantic compiler and executor over local files.</strong>
-The half of the design that fixes the <em>second</em> failure above is <strong>half built, and the missing
-half is the one that matters.</strong> A request context, a credential broker port, an audit sink and
+<p>sutura serves governed questions over local files and declared data sources. The path that
+executes as a verified caller is <strong>built and unproven</strong>. A request context, a credential broker
+port, an audit sink and
 an MCP surface all exist, and a deployment that declares <code>security.inbound</code> verifies a caller's
 own token - so who is asking can be known, no question can execute without a credential minted
-for the source it reads, and every outcome is recorded. What is absent is <strong>a data system that
-evaluates the asking subject</strong>: no published adapter can carry a per-subject credential, so
-every question still reads as one identity. No Arrow result envelope either. Every claim on this
+for the source it reads, and every outcome is recorded. A published build links BigQuery's
+per-subject credential path, but no served run has proven source execution as the asker. Shared
+sources still read under their declared identity. No Arrow result envelope either. Every claim on this
 site is marked <em>enforced today</em> or <em>design target</em> at the point it is made.</p>
 </div>
 <h2 id="the-four-properties">The four properties<a class="headerlink" href="#the-four-properties" title="Permanent link">&para;</a></h2>
@@ -1955,17 +1955,14 @@ while <code>kind: clickhouse</code> and <code>kind: oracle</code> still need bui
 features. A build without one refuses that kind by name rather than silently falling back.
 <a href="architecture/#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses">What can be plugged in today</a>
 is the table, and it is the section to read before assuming otherwise.</p>
-<p>What is not built is the part that makes the first sentence of this page true of a warehouse, and it
-is now one specific thing rather than four. There <em>is</em> a request context, a credential broker port
+<p>What remains unproven is whether a served BigQuery leg executes as the verified caller. There is a request context, a credential broker port
 with a static-credential implementor, an audit sink, an MCP surface, and - where a deployment
 declares <code>security.inbound</code> - a caller identity verified from a signature, with scopes deciding which
-operations that caller may invoke. What is absent is <strong>leg 2</strong>: no published adapter has anywhere
-for a per-subject credential to arrive, both published adapters declare so, and the broker mints what an operator
-configured. So "as the person or agent asking" holds here only because a file has nobody else to be -
-a deployment can know exactly who is asking, record it, refuse a subject it holds no credential for,
-and still read every row as one identity. Arrow results are also still ahead. Federation is not:
-the splitter, two executions and the combiner all run in a published build, because the engine
-declares <code>Warehouse::EXECUTES_LEGS</code>. <a href="serving/">The HTTP surface</a> is not, and its bearer token authenticates the deployment rather than the caller.
+operations that caller may invoke. Leg 2 is built and unproven: the published BigQuery adapter can
+carry a verified caller's assertion through its declared per-subject map, but no served run has
+shown source execution as that caller. Shared sources still read under their declared identity.
+Arrow results are also still ahead. Federation and <a href="serving/">the HTTP surface</a> are built. In
+static access-token mode, the token authenticates the deployment rather than the caller.
 <a href="architecture/#what-exists-today">What exists today</a> is the honest inventory.</p>
 <h2 id="feedback-and-reporting">Feedback and reporting<a class="headerlink" href="#feedback-and-reporting" title="Permanent link">&para;</a></h2>
 <p>For questions, feature ideas and bug reports, open an issue in the

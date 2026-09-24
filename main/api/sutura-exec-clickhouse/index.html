@@ -1797,12 +1797,9 @@
 half, like <code>sutura_exec_postgres</code>: no OAuth, no impersonation.</p>
 <h1 id="why-ureq-and-not-an-async-driver">Why <code>ureq</code> and not an async driver<a class="headerlink" href="#why-ureq-and-not-an-async-driver" title="Permanent link">&para;</a></h1>
 <p><strong>The port carries no <code>async fn</code>, and <code>ureq</code> is natively blocking - so this adapter needs no
-<code>tokio</code> runtime and no <code>block_on</code> at all.</strong> That is not a simplification made for this crate
-alone: <code>sutura-exec-bigquery</code>'s own <code>Cargo.toml</code> states the reasoning for its <code>ureq</code>-based wire
-at length, and it transfers unchanged - <code>Warehouse::execute</code> reaches this adapter through
-<code>sutura_runtime::spawn_carrying_span</code>, on a blocking-pool thread, and starting a runtime
-<em>there</em> (which an async driver wrapped the way <code>sutura_exec_postgres</code> wraps <code>tokio-postgres</code>
-would need) is exactly the <code>reqwest::blocking</code> shape that entry warns against. <code>ClickHouse</code>'s
+<code>tokio</code> runtime and no <code>block_on</code> at all.</strong> <code>Warehouse::execute</code> reaches this adapter through
+<code>sutura_runtime::spawn_carrying_span</code> on a blocking-pool thread. An async driver would need a
+runtime there, while <code>ureq</code> can execute the request directly. <code>ClickHouse</code>'s
 own HTTP interface asks for nothing more than one request/response per statement, which is
 <code>ureq</code>'s whole job. <strong>A pure-Rust driver either way</strong>: <code>ureq</code> with the <code>rustls</code> feature links
 no C TLS library, and this crate's own <code>tls</code> module (over <code>sutura-tls</code>) is what most of

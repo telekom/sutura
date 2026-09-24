@@ -985,10 +985,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#where-the-engine-sits-and-where-it-is-going" class="md-nav__link">
+  <a href="#where-the-engine-sits-today" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where the engine sits, and where it is going
+        Where the engine sits today
       
     </span>
   </a>
@@ -2020,10 +2020,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#where-the-engine-sits-and-where-it-is-going" class="md-nav__link">
+  <a href="#where-the-engine-sits-today" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where the engine sits, and where it is going
+        Where the engine sits today
       
     </span>
   </a>
@@ -2189,14 +2189,13 @@ short. <code>AGENTS.md</code> in the repository root holds the crate table and t
 says why they look the way they do.</p>
 <div class="admonition warning">
 <p class="admonition-title">Read every section here as a design, not as a control</p>
-<p>Most of this page describes a system that is not built. What exists is a governed single-player
-semantic compiler and executor over local files, served over HTTP - behind a token that
-authenticates the DEPLOYMENT, unless the deployment declares <code>security.inbound</code> and verifies a
-caller's own token. A request context, a credential broker, an audit sink and an MCP surface all
-exist now; a published build now links an adapter that CAN carry a per-subject credential -
-<code>sutura-exec-bigquery</code>, behind its default-off <code>bigquery</code> feature - but no served binary has
-executed a leg as the calling subject yet (<code>docs/where-identity-is-proven.md</code>), so every
-question there still reads as one identity. No Arrow result envelope. Sections that describe something enforced
+<p>Design targets and built mechanisms appear together here. The compiler, file engine, HTTP and
+MCP surfaces, request context, credential broker and audit sink are built. A deployment can use
+a shared token or declare <code>security.inbound</code> to verify a caller. The shipped binary links an
+adapter that can carry a per-subject credential -
+<code>sutura-exec-bigquery</code>, enabled in the shipped binary - but its served source-acceptance
+venue has no observed run (<code>docs/where-identity-is-proven.md</code>). Other sources use declared
+shared identities. No Arrow result envelope. Sections that describe something enforced
 today say so inside the section, and <a href="#what-exists-today">What exists today</a> is the inventory.
 <strong>Do not deep-link a section of this page as evidence that a control is in place.</strong></p>
 </div>
@@ -2278,167 +2277,42 @@ logical plan over Arrow and never sees a string. So the plan is the contract and
 adapter's private business, which is what makes an adapter possible that cannot have a dialect bug,
 because it emits no dialect. <code>docs/adr/0003-datafusion-for-local-execution.md</code>
 is the record.</p>
-<h3 id="where-the-engine-sits-and-where-it-is-going">Where the engine sits, and where it is going<a class="headerlink" href="#where-the-engine-sits-and-where-it-is-going" title="Permanent link">&para;</a></h3>
-<p>Today the engine is <em>behind</em> the port, as one adapter among the others, executing local files. Call
-that a stepping stone: an engine belongs <strong>above</strong> the port, deciding which subplan each data system
-runs and executing the remainder itself. That is what federation means here, and it is the shape the
-surveyed projects converge on. Today's arrangement is the engine with zero remote sources.</p>
+<h3 id="where-the-engine-sits-today">Where the engine sits today<a class="headerlink" href="#where-the-engine-sits-today" title="Permanent link">&para;</a></h3>
+<p>DataFusion is an adapter behind <code>Warehouse</code> for local files and can execute a leg of a federated
+answer. The splitter and combiner are built; each selected adapter declares whether it can execute
+a leg, and an unsupported leg is refused. A federated answer may mix source identity postures and
+reports each one. That report is not a uniform authorization guarantee.</p>
 <h3 id="connectors-arrow-flight-not-a-driver-per-data-system">Connectors: Arrow Flight, not a driver per data system<a class="headerlink" href="#connectors-arrow-flight-not-a-driver-per-data-system" title="Permanent link">&para;</a></h3>
-<p>The intended transport to a data system is <strong>Arrow Flight SQL</strong>, uniformly - DuckDB, Postgres and
-BigQuery alike - rather than a linked native driver each.</p>
-<p>Three reasons, and the third is the one that shows up as code today. Arrow is already the result
-format, so a Flight response needs no row-by-row conversion. A Flight endpoint is reachable without
-compiling a C library, which is what makes a statically linked artifact possible at all. And a driver
-per data system means a <em>type mapping</em> per data system: the two adapters that exist already had to
-decide independently what a boolean and an exact decimal become, and they agreed only because one was
-written while reading the other. One wire format decides that once.</p>
-<p>Taken seriously, that reaches back into the port. Results leave sutura as Arrow with provenance in
-the schema metadata, and a Flight response arrives as Arrow, so a row-oriented type in the middle is
-a conversion in and a conversion out for no benefit. The <code>RowSet</code> and <code>Value</code> the port returns today
-are exactly that middle, and the cost is already visible: two adapters had to decide independently
-what a boolean and an exact decimal become.</p>
-<p>The obstacle is the one the layout exists to enforce - the domain may not name a framework, and
-<code>arrow</code> is one. The way through is that <strong>Arrow IPC is a serialization format, not a library type</strong>: a
-port can return encoded bytes plus the provenance that must travel with them, which is lossless,
-names no framework, and makes Arrow the format end to end. <code>sutura-arrow</code> then owns encode and decode,
-and anything wanting typed values - the table a CLI prints - becomes a consumer of it rather than of a
-bespoke row type.</p>
-<p>Not built. <code>RowSet</code> is what exists, and it is honest about being a row type. Recorded here because the
-direction decides whether it grows a <code>Boolean</code> variant and an exact decimal, or is replaced.</p>
-<p>Until then a data system's driver is a <strong>development dependency</strong> - present to prove that the SQL we
-render actually runs, which is a real job and the reason a data-system adapter exists at all today.
-It is not in the shipped binary, and the shipped binary is not poorer for it: the engine reads CSV and
-Parquet itself.</p>
-<p>A plan resolves to exactly one data system. Federation across two is not a smaller version of the
-same problem, it is a second identity to satisfy, and a plan that cannot run as one subject in both
-places is refused rather than run partly as somebody else. <strong>The one-source rule is enforced
-today</strong>, by the plan stage and a golden that builds a two-source catalogue to provoke the refusal;
-the identity reasoning behind it is a design target, because there is no per-leg credential to test
-against.</p>
+<p>That heading records an earlier direction; the implemented boundary is the plan passed to
+<code>Warehouse</code>, leaving each adapter to choose its own transport and rendering. BigQuery uses ADBC;
+Postgres and ClickHouse use their own drivers. The domain still returns
+<code>RowSet</code> rather than an Arrow result envelope. DuckDB is a development dependency used to prove
+rendered SQL, while the shipped BigQuery and Postgres adapters are runtime dependencies.</p>
 <h3 id="what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses">What can be plugged in today, and what the shipped binary actually uses<a class="headerlink" href="#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses" title="Permanent link">&para;</a></h3>
-<p>The adapters below exist. Which ones a binary can open is chosen at compile time in its composition
-root; within that set, a deployment selects a data system by writing <code>sources.&lt;alias&gt;.kind</code>.</p>
-<table>
-<thead>
-<tr>
-<th>Port</th>
-<th>Adapter</th>
-<th>What it is</th>
-<th>In the shipped binary?</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>SemanticCatalog</code></td>
-<td><code>sutura-catalog-local</code></td>
-<td>A directory of markdown documents with YAML frontmatter, read off disk</td>
-<td><strong>Yes.</strong> The only catalogue adapter there is</td>
-</tr>
-<tr>
-<td><code>Warehouse</code></td>
-<td><code>sutura-exec-datafusion</code></td>
-<td>THE ENGINE. Reads the Parquet, CSV and NDJSON files itself - text plain or compressed - and executes the plan over Arrow. Generates no SQL</td>
-<td><strong>Yes</strong>, and it is what <code>sutura query</code> runs</td>
-</tr>
-<tr>
-<td><code>Warehouse</code></td>
-<td><code>sutura-exec-duckdb</code></td>
-<td>A DATA SOURCE. Renders the plan into <code>DuckDB</code> SQL and pushes the statement down</td>
-<td><strong>No.</strong> A development dependency of <code>sutura-app</code></td>
-</tr>
-<tr>
-<td><code>Warehouse</code></td>
-<td><code>sutura-exec-postgres</code></td>
-<td>A DATA SOURCE. Renders the plan into the Postgres dialect and pushes it down, over a per-source channel it can verify</td>
-<td><strong>No.</strong> A default-off <code>postgres</code> feature on the shipped binary</td>
-</tr>
-</tbody>
-</table>
-<p>So the combination a PUBLISHED binary supports is <strong>local markdown with YAML frontmatter for the
-metadata, and the in-process engine over the Parquet, CSV or NDJSON files in a directory</strong> - each
-text format plain or compressed, per <code>docs/adr/0039</code>. <code>sutura query
-&lt;catalog-dir&gt; &lt;question.yaml&gt; [data-dir]</code> is the whole of it there, and <code>sutura doctor</code> says the same
-thing in one line: <code>data systems : none - this build reads files, and pushes down to nothing</code>. A
-source build carrying <code>--features bigquery</code> supports one more, and the paragraph below says what that
-is and what has never been run.</p>
-<p><strong>The directory is optional because that command reads the same <code>sources:</code> tree the server does.</strong> A
-catalog whose models name <code>warehouse</code> is answered when <code>sources.warehouse</code> declares a <code>files</code>
-directory beside it, so the name a catalog uses is no longer required to be <code>local</code>; a caller with no
-configuration at all passes the directory instead, and that is the built-in declaration - a <code>files</code>
-source called <code>local</code>, over the directory given, read as whoever ran the command. Both, for one
-source, is refused as two answers to one question.</p>
-<p><strong>And <code>kind: bigquery</code> is openable from that binary too, behind a default-off <code>bigquery</code> feature.</strong>
-<code>sutura query</code> then renders the plan into <code>GoogleSQL</code> and submits it to the dataset - <strong>which no
-automated test in this repository has ever watched answer.</strong> The furthest any of them reaches is
-reading the credential file, because the transport's host is a compile-time constant with no loopback
-to point at; what a real dataset HAS accepted is the corpus, on the adapter's own suite, through
-<code>bigquery-acceptance</code>. So this is a composition that is tested and a path that is not - which is
-what makes "pushes down to nothing" above a statement about the DEFAULT build rather than about the
-code. No published artefact carries the feature: <code>nix/shipped.nix</code> builds the shipped binary with cargo's
-default features, because <code>--features bigquery</code> compiles <code>ring</code> from C and assembly and two of the
-four release triples are musl. On a build without it, a <code>kind: bigquery</code> source is a refusal naming
-the feature; <code>sutura doctor</code> prints which of the two builds you are holding.</p>
-<p><strong>Two things are easy to read as more than they are, and both are worth being exact about.</strong></p>
-<p><em><code>DuckDB</code> is a test dependency, not the runtime data source.</em> An earlier example did run through it,
-and the description outlived the code. The <code>DuckDB</code> adapter is still compiled and still executes on
-every run of the test suite - it is what proves the SQL we render actually runs somewhere, and the
-differential test runs one plan both ways and compares the rows - but the binary does not link it and
-an operator needs no <code>libduckdb</code> to run <code>sutura query</code>. That is also what keeps the musl artifacts
-building: nixpkgs has no musl <code>libduckdb</code>, and the binary never asks for one.</p>
-<p><em>Five dialects are five rendering targets, not five data systems.</em> <code>sutura compile</code> will render a
-statement for <code>DuckDB</code>, Postgres, <code>ClickHouse</code>, <code>BigQuery</code> or Oracle, and the goldens parse-check
-each one. Rendering Oracle SQL is not a claim that an Oracle answered it: <code>kind: oracle</code> is
-declarable behind its own default-off <code>oracle</code> feature and does not yet answer a whole-plan question
-(see <a href="../integrations/#data-sources">Data sources</a>), and the port takes a plan - rendering is one
-adapter's private business. <code>ClickHouse</code> used to be named beside it here and no longer belongs there - <code>sutura-exec-clickhouse</code> executes, and <code>kind: clickhouse</code> is openable behind
-its own default-off <code>clickhouse</code> feature. What is still true of it is narrower and is in
-<a href="../integrations/#data-sources">Data sources</a>: no venue runs a corpus question against a real
-ClickHouse, and it executes no federated leg.</p>
-<p><strong><code>kind: postgres</code> is openable behind its own default-off <code>postgres</code> feature, and the CHANNEL is the
-part that is new.</strong> A Postgres source declares <code>plaintext</code>, <code>verified</code> or <code>mutual</code>; a TLS mode must
-name its trust store, because there is no default to inherit, and a source with no transport security
-and a host that is not a loopback literal is a startup refusal naming the key rather than a
-connection. <code>sutura-exec-postgres</code> connects over <code>rustls</code> with the declared anchors and the handshake
-mandatory. The tier proves a chain is verified, an untrusted issuer is refused, and a
-certificate-authenticated role rejects a client with no certificate. Its served cell loads the
-single-player corpus into the tier, starts the composed binary over verified loopback TLS and pins
-the certified answer and shared-identity provenance. That is a local real-server deployment; it is
-not evidence about a particular external Postgres installation or per-subject execution.</p>
-<p><strong><code>BigQuery</code> is the one where that distinction has a nearer edge, so it is worth stating - and the
-edge moved once, without the distinction moving with it.</strong> A <code>BigQuery</code> adapter <em>does</em> exist,
-<code>sutura-exec-bigquery</code>, and since <code>docs/adr/0018-what-the-bigquery-wire-is-built-from.md</code> it
-also has a transport that speaks to the endpoint: <code>jobs.query</code> over a blocking HTTP client, behind a
-default-off <code>wire</code> feature, with a second narrow port for the credential.</p>
-<p><strong>A statement generated here has now been accepted by a real dataset</strong>, on 2026-08-30, under a
-service-account key -
-<code>docs/adr/0017-what-a-bigquery-test-runs-against.md</code>'s amendment records it and puts the repeat
-in CI. <strong>Whether a build can REACH it is now a build's question rather than the repository's</strong>, and
-that is the fact this paragraph used to state the other way round: <code>sutura-cli</code> registers the
-adapter behind a default-off <code>bigquery</code> feature, so a build that carries it opens <code>kind: bigquery</code>
-and a build without it - every published artefact - refuses that entry by name, naming the feature.
-The <code>data_systems:</code> axis of the golden matrix still gains no entry: one live statement, and a
-composition no automated test has watched answer, is not a registered data system.</p>
-<p><strong>And that leg is a SMOKE test rather than the acceptance leg 0017 specifies</strong>, which is worth knowing
-before reading its green as closing the gap: one hand-built <code>SUM</code> over a two-column table, exercising
-none of the constructs the parse check was measured to be blind about. The wider leg is #78's importer
-shape pointed at a dataset, and <strong>it is built</strong> - <code>corpus.rs</code>, run
-green against a real dataset, which is where those constructs are covered and where the one divergence
-it found is recorded. <strong>The limit next to that: the three legs in it that reach a real dataset are
-<code>#[ignore]</code>d and outside <code>just validate</code></strong>, because a nix check has no network - they run by binary
-selection in the acceptance tier, on a push that touches this data source, so a green <code>just validate</code>
-says nothing about those three. The file's other eight tests do run in <code>checks.nextest</code>; it is 11
-<code>#[test]</code> of which 3 are <code>#[ignore]</code>d. This sentence said <em>it is not built</em> after that landed;
-<code>docs/adr/0017-what-a-bigquery-test-runs-against.md</code>'s third amendment is the record and says
-which of its four bullets the run answered and which it did not.</p>
-<p><strong>One thing that leg now does prove, and it is the reason it grew:</strong> the same table read by its
-<strong>fully qualified</strong> <code>project.dataset.table</code> name answers the same numbers as the unqualified read, and
-a qualified path naming a dataset that is not there is refused - which is the control that makes the
-first half a measurement rather than an inference. So <em>qualification resolves</em>, not merely renders.
-<code>docs/adr/0019-a-table-outside-the-connections-dataset.md</code> is that record and says what the run
-does not cover: no second dataset and no second project, because the acceptance credential's IAM
-refuses <code>datasets.create</code>.</p>
-<p>0017 also records how much narrower parse-checking is than acceptance - measured, not assumed: within
-one target the parse check cannot see a function's argument order.</p>
+<p>The composition root chooses adapters at build time, then <code>sources.&lt;alias&gt;.kind</code> selects among
+those linked by the binary. <code>nix/shipped.nix</code> is the release feature list: it enables <code>bigquery</code>,
+<code>postgres</code>, <code>datahub</code>, <code>agent</code> and <code>tls</code> for the shipped binary. A local Cargo build without those
+features has a narrower set; <code>sutura doctor</code> reports the adapters it links. ClickHouse and Oracle
+remain default-off and absent from the shipped binary. <a href="../integrations/">Integrations</a> records each
+adapter's capability and identity posture.</p>
+<p><code>sutura query</code> can answer a local file question or open a configured source whose adapter is linked.
+It does not establish a remote caller's identity: its request context is the command-line caller's
+local context. <code>sutura serve</code> accepts HTTP and MCP calls, can verify a caller's token, and composes
+sources according to each entry's declared posture. The engine can execute a leg of a federated
+question; an adapter without leg support refuses one. A mixed answer reports the posture of each
+leg, which is disclosure rather than a uniform authorization guarantee.</p>
+<p>BigQuery uses the ADBC driver, not the former HTTP <code>wire</code> transport. Its adapter declares
+<code>PerSubjectCredential</code>: the served path can carry the verified caller's assertion through the
+source's declared per-subject account map to the driver. An undeclared subject is refused. This is
+built, but the real served identity venue is <code>wired</code> with no observed run, so source acceptance of
+that identity is not proven. The real-dataset corpus exercises statement acceptance under its own
+credential; it does not prove the served per-subject hop. <a href="../where-identity-is-proven/">Where identity is proven</a>
+keeps those venues separate. Postgres, DataFusion and the other shared adapters execute under a
+source identity declared by the deployment.</p>
+<p>DuckDB remains a test dependency rather than a shipped runtime adapter. Rendering a dialect is
+also separate from executing it: <code>sutura compile</code> can produce SQL for a system whose adapter the
+binary cannot open. The real-server and conformance limits for each adapter belong in
+<a href="../integrations/">Integrations</a>, not in a claim about every shipped source.</p>
 <p><strong>A catalogue may name its data system anything, and an UNDECLARED name is still refused - both
 halves matter, and this paragraph said the opposite of each until #121.</strong> A declared source is opened
 under its own name and its own posture; a source no <code>sources:</code> entry names falls back to the
@@ -2472,13 +2346,11 @@ quietly stopped being true.</p>
 <h2 id="security-is-the-reason-for-the-shape">Security is the reason for the shape<a class="headerlink" href="#security-is-the-reason-for-the-shape" title="Permanent link">&para;</a></h2>
 <p>The three sections above are not features arranged around a core. They are what falls out of one
 requirement: an agent may be handed a database only if the database can still tell who is asking.</p>
-<p>Of the four properties below, two are enforced today, one is half built and one is not built. Each
-says which, because a reader who lands on this section from a search result gets no other warning.</p>
-<p><strong>The caller's identity reaches the data system. Half built, and the missing half is the point.</strong> Not
-a service account holding the union of everyone's access. A credential is minted per request, and a
-request that cannot run as the subject is refused rather than downgraded to the service's own
-identity: that downgrade turns "you may not see these rows" into "here are the rows". A row-level
-security policy that holds only for human callers is decorative.</p>
+<p>The identity mechanism below is built for BigQuery and unproven at its real served venue. The
+other properties name their own mechanisms and limits.</p>
+<p><strong>The caller's identity can reach BigQuery; source acceptance is unproven.</strong> A credential is minted
+per request. An undeclared BigQuery subject is refused rather than downgraded to the deployment's
+identity; shared-identity sources intentionally execute with their declared credential.</p>
 <p><em>Built:</em> the mechanism that removes the downgrade. A request context reaches the query path, a
 credential broker mints once per answer for every source the plan reads, and <code>Warehouse::execute</code> has
 no signature that omits the result - so <strong>no question executes as this process</strong>, and a subject with
@@ -2518,9 +2390,9 @@ a file has no login. <code>bigquery</code>'s own mechanism resolves per source
 (<code>docs/where-identity-is-proven.md</code>), but no served binary has executed a leg as the calling
 subject yet - so what the port buys for every OTHER source stands unchanged: the day one arrives
 with grants, there is no path for it to be read as this process through.</p>
-<p>What is enforced beside that, and worth stating as such: nothing on the query path can <strong>choose</strong> an
-identity, because <code>SemanticCatalog::load</code> takes no request context and a plan resolves to exactly one
-named source.</p>
+<p>What is enforced beside that: <code>SemanticCatalog::load</code> takes no request context, so a catalog cannot
+choose an identity. A federated plan can contain more than one source, each with its own credential
+and reported posture.</p>
 <p><strong>Authorization stays in the data system. Enforced by absence, today.</strong> sutura keeps no copy of who
 may see what, because a copy can disagree with the original. Grants, row-level policies and masking
 already exist in ClickHouse and Postgres, administered and audited by the people who own the data; a
@@ -2691,17 +2563,10 @@ none of them covers.</p>
     Q --&gt; SL --&gt; PL --&gt; FD --&gt; DI --&gt; EX --&gt; A
     SL -.-&gt;|bytes| ST
     ST -.-&gt; DI</code></pre>
-<p>Three of those nodes are design targets rather than descriptions of this repository. Federation is
-<strong>built, and a published build answers a two-source question end to end</strong> - the splitter, two
-executions and the combiner, with the engine declaring <code>Warehouse::EXECUTES_LEGS</code> and a differential
-over both. That constant still defaults to <code>false</code>, which is what refuses an adapter with no leg
-venue rather than half-answering. Execution
-<em>as the calling principal</em> is not built, and no longer because nothing carries a principal: a
-verified subject reaches the request path, and what is missing is an adapter with anywhere for a
-per-subject credential to arrive. The spliced statement is not built, because a metric has no
-statement field; and the Arrow envelope is not built, because the port returns a row type. What runs
-today is the question, the semantic layer, the plan, the dialect, and execution against a local file
-as whoever started the process.</p>
+<p>The question, semantic layer, plan, dialects and execution are built. Federation can answer a
+two-source question when both selected adapters execute legs. BigQuery has a per-subject credential
+path, but its served source-acceptance venue has no observed run. The spliced statement and Arrow
+result envelope remain design targets.</p>
 <p><strong>The semantic layer decides what a question means.</strong> <a href="https://github.com/Canner/WrenAI">Wren</a> is
 the reference for that shape: a modelling language, an engine that plans against it, and MCP as the
 way an agent asks. Wren derives a metric's SQL from a model of the tables; we take the statement as
@@ -2716,28 +2581,14 @@ DataFusion's. What earned DataFusion its place is the execution stage rather tha
 the SQL frontend either way: over a local file it executes a plan and emits no SQL, which is a whole
 class of dialect bug that cannot occur there.
 <code>docs/adr/0003-datafusion-for-local-execution.md</code> is the record.</p>
-<p><strong>Push-down already happens, and completely - federation is not what buys it.</strong> Worth stating plainly,
-because "federation pushes the query down" invites the assumption that without it we pull rows up and
-filter locally. We do not. A plan is rendered as one statement carrying the join, the bounded
-predicate, the grouping, the ordering and the row cap, and the data system returns the finished
-aggregate. Nothing comes back that was not asked for, and there is nothing left here to re-authorize -
-which is the security property, not a performance one: the predicate is evaluated under the caller's
-own grants, row-level policies and column masking, by the system that owns them.</p>
-<p><strong>What federation adds is a SECOND source, and that is a security question rather than a capability
-one.</strong> <a href="https://github.com/datafusion-contrib/datafusion-federation">datafusion-federation</a> registers
-an optimizer rule that finds the largest subplan a single remote source can execute, hands it there,
-and combines the results. That is exactly what a plan spanning two data systems needs - and a plan
-spanning two data systems is refused today
-(<a href="#the-engine-and-the-data-systems-behind-a-port">one data system per plan</a>) because it is a second
-identity to satisfy, not because we cannot compute it. Pull the rows up and join them here and the
-filtering becomes ours, which is the second policy implementation this design declines to keep. So
-federation arrives after a credential exists per leg. The blocker is identity, not the optimizer.</p>
-<p>Two practical notes for when it does arrive. Its push-down renders the remote SQL with DataFusion's
-own unparser, which is the path
-<a href="#what-holds-the-generated-statement-up">the splice section</a> deliberately avoids - adopting it means
-either accepting that renderer for the pushed-down half or supplying one that uses <code>polyglot-sql</code>.
-And there is real version skew between the crate and current DataFusion, which is a second and much
-smaller reason it is later rather than now.</p>
+<p><strong>Push-down applies to a source's executable share of a plan.</strong> The adapter renders its share for
+the system that owns the data, where that system applies the grants of the credential presented for
+the leg. On BigQuery that credential can come from the declared per-subject map; on other sources it
+is shared. The served BigQuery identity hop remains unproven at a real source.</p>
+<p><strong>Federation adds a second source and a second identity decision.</strong> The built splitter and combiner
+can answer a question spanning two sources when both adapters execute legs. Each leg obtains a
+credential for its own source. A mixed-posture result names each leg's execution posture; that
+disclosure does not make the combined rows subject to one uniform grant.</p>
 <p><strong>The dialect stage is one plan and many adapters.</strong>
 <a href="https://github.com/tobilg/polyglot">polyglot</a> is a Rust transpiler between more than thirty SQL
 dialects, MIT-licensed, ClickHouse, Postgres and DuckDB among them. The wrapper is exactly its shape
@@ -2773,7 +2624,7 @@ leak with a refresh schedule. Spice's front door is also SQL, where ours has no 
 <tr>
 <td>Federation</td>
 <td>which subplan its owner runs</td>
-<td>Adopt for a SECOND source, once a credential exists per leg. Not needed for the first: a single-source plan is already pushed down whole</td>
+<td>Built for adapters that execute legs; each leg obtains a source credential, and a mixed-posture answer reports both</td>
 </tr>
 <tr>
 <td>Dialect</td>
@@ -2869,77 +2720,22 @@ double-free detection. That costs 23-43% against plain mimalloc, far more than u
 claims. mimalloc-secure still lands ahead of glibc and well ahead of mallocng, and the latency
 budget here is a warehouse round trip.</p>
 <h2 id="what-exists-today">What exists today<a class="headerlink" href="#what-exists-today" title="Permanent link">&para;</a></h2>
-<p>The query path is built: one shape of catalog, an engine that executes it, and one data system it
-knows how to push down to but does not ship.
-<a href="#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses">What can be plugged in today</a>
-is the table, and it is the section to read before assuming which of the three is on the runtime path.</p>
-<p><code>sutura-domain</code> holds the domain types, the query plan and two port traits, <code>SemanticCatalog</code> and
-<code>Warehouse</code>; <code>sutura-catalog-local</code> reads a directory of markdown documents with YAML frontmatter;
-<code>sutura-semantic</code> resolves and plans, and renders nothing; <code>sutura-sql</code> renders a plan into one
-dialect's SQL for whoever asks, and is the only crate that names the dialect layer;
-<code>sutura-exec-datafusion</code> is the engine, executing a plan over Arrow and rendering no SQL at all;
-<code>sutura-exec-duckdb</code> is a data source, rendering the plan into DuckDB SQL through <code>sutura-sql</code> and
-pushing it down; <code>sutura-app</code> is the service, generic over both ports, and holds the <code>Surface</code>
-driving port a transport consumes; <code>sutura-cli</code> composes them, and links the engine only. <code>xtask</code>
-holds the repo gates and <code>sutura-dev</code> the local development CLI.</p>
-<p>What that adds up to: a question naming a metric, a grain, a bounded range, up to four dimensions and
-a filter compiles to a plan; the plan renders as one statement in <code>DuckDB</code>, Postgres or <code>ClickHouse</code>
-dialect when somebody asks for SQL, and it <strong>executes through the engine, over the Parquet, CSV or
-NDJSON files in the directory the caller named</strong>, each text format plain or compressed. A measure is a single term or a ratio of two, where a term
-is an aggregate over a column or a conditional count - so a conditional count can be either a whole
-measure or half of a ratio - and a metric may carry required filters that every question about
-it is answered under. Every metric that declares a certified number re-executes and reproduces it
-before the bundle can be served, and a bundle whose anchors were not checked cannot reach the query
-path because there is no constructor that produces one.</p>
-<p><strong><code>CredentialBroker</code> is here now, and what it changed is narrower than the name suggests.</strong> The port
-mints once per answer for every source a plan reads, <code>Warehouse::execute</code> takes the result and has no
-signature that omits it, and a subject with no credential at a source is refused rather than answered
-under this process's identity. So the <em>fallback</em> is gone: not forbidden by a rule, absent from every
-signature.</p>
-<p><strong>A data system with grants to run under has now arrived, behind a feature: <code>sutura-exec-bigquery</code>,
-whose <code>IMPERSONATION</code> is <code>PerSubjectCredential</code></strong> - this bullet used to say no such adapter existed
-in a published build, and that changed with <code>telekom/sutura#929</code>. A CSV is still a file with no
-login, so "every query runs as the calling principal" is satisfied there by there being nobody else
-to be, and <code>sutura-exec-datafusion</code>/<code>sutura-exec-postgres</code> still declare <code>NoPlaceForASubject</code> - the
-broker that ships mints from configuration for those and performs no token exchange. <code>bigquery</code>'s
-own exchange resolves per source (<code>docs/where-identity-is-proven.md</code>), but no served binary has
-executed a leg as the calling subject yet: what the port bought for every OTHER source is
-unchanged, and it is that the day one of THOSE arrives with grants, there is no code path for it to
-be read as the process through.</p>
-<p><strong>The HTTP transport is here</strong>: an axum surface with a
-versioned <code>v1</code> tree, a liveness probe, direct-mode protected-resource metadata, a generated interface
-description, rate limiting, a bearer gate and optional in-process TLS. A deployment token authenticates
-the deployment; <code>security.inbound</code> instead establishes the caller in <code>direct</code> or <code>behind-gateway</code>
-mode. Neither, on its own, makes a data system execute as that caller: <code>sutura-exec-bigquery</code>'s own
-exchange resolves per source (<code>docs/where-identity-is-proven.md</code>), but no served binary has executed
-leg 2 as the calling subject yet.</p>
-<p>Still absent: Arrow results with provenance in the schema metadata, and a per-caller budget beyond
-the row cap and the ten-year span. The spliced-statement path is designed, documented above, and
-unimplemented. <strong>This bullet used to list the MCP transport, federation, a second catalog adapter
-and the audit sink</strong>, all four of which arrived - <code>sutura-mcp</code>, the splitter and combiner,
-<code>sutura-catalog-datahub</code> and <code>sutura_runtime::audit</code> - while the same page said so twenty lines
-above its own diagram. <strong>A fifth, <em>execution of a federated leg by a shipped adapter</em>, was written
-into this bullet on this branch and spent before it merged</strong>: the engine declares
-<code>Warehouse::EXECUTES_LEGS</code> now. The list is the shape this page goes stale in, which is why the
-history is kept beside it.</p>
-<p>And one thing that was absent here and is now half present, because the two ports are what the layout
-is <em>for</em>: <strong>runtime selection of a data system.</strong> <code>sutura serve</code> reads a <code>sources:</code> tree, opens one
-adapter per source the catalog names, and hands each the posture its entry declared - so a <code>SourceName</code>
-now <em>selects</em> a warehouse out of a registry rather than being compared for equality against the one
-adapter that was linked, and a source with no entry is a startup refusal naming it. <code>sutura-cli</code> reads
-the same tree now: a declared source is opened under its own name and its own posture, an undeclared
-one falls back to that binary's own built-in <code>files</code> declaration, and a declared kind it linked no
-adapter for is refused by name. What it still will not do is answer a question spanning two data
-systems - it answers one question against one, and federation is the HTTP surface's.</p>
-<p><strong>Half, and the honest half is the one that is missing:</strong> which <em>kind</em> of data system a source may be
-is still decided at compile time, because <code>files</code> is the only kind an adapter ships for. So a
-deployment chooses how many sources it has, where each one is and which identity reaches it, and cannot
-choose to point one at a database. <code>feat/bigquery-adapter</code> is the step that changes that, and it also
-decides the shape a heterogeneous set needs - <code>Warehouses&lt;W&gt;</code> is generic in one adapter type today.
-Which <em>catalogue</em> is read is still a compile-time decision with no configuration at all.</p>
-<p>The mechanisms came first on purpose, and that has not changed: every claim on this page is meant to
-be held up by a type, a lint, a hook or a gate rather than by intent, and a mechanism is cheaper to
-build before there is code to retrofit it onto.</p>
+<p>The shipped binary serves HTTP and MCP, compiles governed questions, executes local files through
+DataFusion, and links the BigQuery and Postgres data-source adapters. It can load local and DataHub
+metadata. <code>nix/shipped.nix</code> holds the exact release feature set; <a href="../integrations/">Integrations</a>
+records what each adapter executes and what identity posture it declares.</p>
+<p><code>security.inbound</code> can verify a caller, and every executed question obtains a source credential. The
+BigQuery path can use that verified caller's assertion through a declared per-subject account map.
+Its real served identity venue has no observed run, so the source's acceptance of that identity is
+unproven. Shared-identity sources use the credential declared for the source. The HTTP and MCP
+surfaces report the posture of each leg of a federated answer; the record does not itself authorize
+access. <a href="../where-identity-is-proven/">Where identity is proven</a> states which tests can support each
+claim.</p>
+<p>A deployment selects linked adapters through its <code>sources:</code> registry. <code>sutura query</code> has a local
+caller context and can open a configured source; <code>sutura serve</code> establishes callers through its
+inbound mode and can answer a federated question where each selected adapter supports leg execution.
+An unsupported source kind or leg is refused. Arrow results with provenance in schema metadata and
+the spliced-statement path described above remain design targets.</p>
 
 
 

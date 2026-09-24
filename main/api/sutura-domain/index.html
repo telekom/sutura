@@ -1885,9 +1885,10 @@ settings crate because the identity provider it reads <em>is</em> the settings t
 <p><strong>What the credential port did and did not buy, said here because the count above invites the
 wrong reading.</strong> There is no longer a signature that reaches a data system with a question and no
 credential, and a subject with no credential at a source is refused rather than answered as the
-process. What is absent is the other end: no PUBLISHED adapter has anywhere for a per-subject
-credential to arrive, so a leg runs under the identity an operator declared for that source and
-<code>pinned::Provenance</code> records which. The one method that still executes with no credential is
+process. A published build now links <code>BigQuery</code>, which is wired to carry a verified caller's
+assertion to a declared per-subject principal; no served run has proven that hop. Other sources
+run under an operator-declared shared identity, and <code>pinned::Provenance</code> records each leg's
+posture. The one method that still executes with no credential is
 <code>warehouse::Warehouse::verify_anchor</code>, the boot path's; <code>clippy.toml</code> bans it everywhere else and
 <code>plan::AnchorPlan</code> says plainly that it is a self-check on that path rather than a barrier.</p>
 <p>The modules are grouped by concept rather than named after traits, so a port sits next to the
@@ -5395,9 +5396,9 @@ make unrepresentable.</p>
 <h1 id="a-mixed-execution-record-is-accepted-and-names-both-postures">A MIXED execution record is accepted, and names both postures<a class="headerlink" href="#a-mixed-execution-record-is-accepted-and-names-both-postures" title="Permanent link">&para;</a></h1>
 <p>The argument is <code>ExecutedAs</code>, so an answer whose legs decided identity differently is
 answered with one entry per source rather than refused - <code>docs/adr/0040</code>, taken because
-<code>BigQuery</code> is the only impersonating adapter and every heterogeneous federation is therefore
-cross-posture. <strong>The record is not the control:</strong> it travels in the same body as the rows, so
-a caller who reads it already has them. What is load-bearing is the boot acknowledgement each
+<code>BigQuery</code> is the only impersonating adapter, so a <code>BigQuery</code> leg paired with a
+shared-posture leg is cross-posture. <strong>The record is not the control:</strong> it travels in the
+same body as the rows, so a caller who reads it already has them. What is load-bearing is the boot acknowledgement each
 source's own entry carries, refused by <code>sutura_config::Settings::refusals</code> before a listener
 binds.</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-264-1"><a id="__codelineno-264-1" name="__codelineno-264-1" href="#__codelineno-264-1"></a>use sutura_domain::pinned::{PinnedDefinitions, Provenance};
@@ -9292,8 +9293,8 @@ both of which happen before a listener is bound.</p>
 <p>An answer whose legs decide identity differently is <strong>answered</strong>, and <code>ExecutedAs</code> is what says
 so: one entry per source, each carrying that leg's own posture, so a mixed answer names which leg
 came from which. <code>docs/adr/0040</code> is the record, and <code>BigQuery</code> being the only impersonating adapter
-is why it had to be: every heterogeneous federation is cross-posture by construction, so refusing
-the mix refused federation itself.</p>
+is why it had to be: every <code>BigQuery</code> federation with a shared-posture adapter is cross-posture
+by construction, so refusing the mix prevented that pairing.</p>
 <p><strong>The reasoning that used to refuse it stays true, and is not what changed.</strong> Rows a shared
 identity was permitted to see, added to rows the asking subject was permitted to see, make a total
 no identity is entitled to. What changed is where that is answered for: an operator declared each

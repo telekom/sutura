@@ -2972,16 +2972,11 @@ scope string in the detail. A scope this surface does not know is ignored rather
 token minted for other resources too is fine.</p>
 <p><strong>What it does not grant, and this is the sentence to keep.</strong> A scope decides which <em>operations</em> a
 caller may invoke. It decides nothing about which rows an answer contains. Both operations read the
-same pinned bundle and every question executes with whatever access the service process already had -
-still true for <code>files</code> and <code>postgres</code>, whose adapters declare <code>NoPlaceForASubject</code>, so a source of
-either kind executes as the service's own identity whatever the caller's scope says. <strong>The
-qualifier that used to make this a blanket claim is spent, and it went the other way from "not
-built":</strong> <code>sutura-exec-bigquery</code> DOES carry a per-subject credential and IS in the release -
-<code>nix/shipped.nix</code>'s <code>features</code> list is what the shipped artefact links, not merely what a per-triple
-probe compiles, and <code>bigquery</code> is on it (<code>docs/adr/0017</code>'s Fifteenth amendment: one binary, every
-adapter compiled in). What is still true is that <code>bigquery</code>'s exchange resolves per source
-(<code>docs/where-identity-is-proven.md</code>) and no served binary has executed a leg as the calling subject
-yet. A caller granted <code>sutura:metrics.ask</code> gets exactly the numbers any other caller would.</p>
+same pinned bundle. <code>files</code> and <code>postgres</code> execute under their declared shared identity regardless
+of the caller's scope. The shipped BigQuery adapter can carry a verified caller's assertion through
+its declared per-subject account map, but no served run has proven source acceptance of that path.
+The scope grants permission to ask; the source's declared posture determines whose access governs
+the rows.</p>
 <p>The agent surface offers the same two capabilities under the names <code>describe_catalog</code> and <code>ask_metric</code>,
 from the same declaration, so the two transports cannot describe different tool sets. It speaks over
 standard input and output, where there is no header a token could arrive in, so nothing narrows the set
@@ -4124,8 +4119,8 @@ and that is a judgement rather than a gap - see below.</p>
 item 3, <code>docs/adr/0010</code>'s rule 3): the declared anchor bundle (or host store) and an optional client
 identity are re-read on the same interval, the bytes compared, and a replacement validated before it
 is adopted - the old material kept, with exactly one loud line naming the source class, when a new
-one does not load. A per-request <code>ureq</code> agent (the BigQuery wire, the STS exchange, <code>iamcredentials</code>
-and the DataHub reader) adopts the new bundle on the NEXT request - there is no drain question, because
+one does not load. The DataHub reader's per-request <code>ureq</code> agent adopts the new bundle on the NEXT
+request - there is no drain question, because
 each request makes a fresh resolution. A Postgres source's connection keeps the client pair it was
 established under until it closes - <strong>left until closed, not drained</strong>, because there is no connection
 pool today and nothing to retire a live connection to. The interval is the same constant as the
