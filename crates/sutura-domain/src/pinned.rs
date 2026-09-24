@@ -391,9 +391,9 @@ impl PinnedDefinitions {
     ///
     /// The argument is [`ExecutedAs`], so an answer whose legs decided identity differently is
     /// answered with one entry per source rather than refused - `docs/adr/0040`, taken because
-    /// `BigQuery` is the only impersonating adapter and every heterogeneous federation is therefore
-    /// cross-posture. **The record is not the control:** it travels in the same body as the rows, so
-    /// a caller who reads it already has them. What is load-bearing is the boot acknowledgement each
+    /// `BigQuery` is the only impersonating adapter, so a `BigQuery` leg paired with a
+    /// shared-posture leg is cross-posture. **The record is not the control:** it travels in the
+    /// same body as the rows, so a caller who reads it already has them. What is load-bearing is the boot acknowledgement each
     /// source's own entry carries, refused by `sutura_config::Settings::refusals` before a listener
     /// binds.
     ///

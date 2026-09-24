@@ -1316,8 +1316,8 @@ identity and whose lookup leg runs as the asking subject is **answered**, with o
 per source naming that leg's own posture.
 
 **Why it had to be, in this record's own terms.** `sutura-exec-bigquery` is the only adapter declaring
-`PerSubjectCredential`, so *every heterogeneous federation is cross-posture by construction*. The
-refusal did not guard an edge case: it meant BigQuery federated only with another BigQuery, which is
+`PerSubjectCredential`, so a BigQuery leg paired with a leg-executing shared-posture adapter
+is cross-posture. The refusal prevented that pairing, which is
 the narrowest possible reading of the per-source-adapter shape this section argues for.
 
 **What does not change, and the last row of that table is the one to read.** *Every query runs as the

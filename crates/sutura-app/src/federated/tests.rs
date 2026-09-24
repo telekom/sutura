@@ -603,8 +603,8 @@ fn a_deterministic_combine_failure_is_a_refusal_not_a_service_error() {
 fn an_answer_whose_legs_run_under_two_postures_is_answered_and_records_both() {
     // **`docs/adr/0040`, at the orchestrator: this used to be a `409` above the mint.** Two
     // leg-executing adapters, one `shared-service-user` and one `impersonation-at-source`. BigQuery
-    // is the only impersonating adapter, so refusing this shape refused every heterogeneous
-    // federation rather than an edge case - which is why the disclosure replaced the refusal.
+    // is the only impersonating adapter, so refusing this shape prevented BigQuery from
+    // federating with a shared-posture adapter - which is why the disclosure replaced the refusal.
     //
     // **The reasoning the refusal carried is not softened.** Rows a shared identity was permitted to
     // see, added to rows the asking subject was permitted to see, make a total no identity is

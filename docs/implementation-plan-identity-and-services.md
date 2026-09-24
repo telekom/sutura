@@ -178,7 +178,7 @@ adapter. So the property is a `sutura-domain` type and the call site is
 added `ExecutedAs::uniform`, returning a `UniformlyExecuted` that `PinnedDefinitions::provenance` was
 narrowed to take, plus `RefusalReason::LegsDecideIdentityDifferently` carrying the posture LABELS and
 never a `SourcePosture`. `docs/adr/0040` deletes all four: only one adapter can carry a per-subject
-credential, so refusing a mixed answer refused every heterogeneous federation, and a cross-posture
+credential, so refusing a mixed answer refused every BigQuery federation with a shared-posture adapter, and a cross-posture
 answer is disclosed per leg instead. What survives from this step is `ExecutedAs` itself and the rule
 that only posture LABELS ever leave the process - an operator's acknowledgement prose derives
 `Serialize` and must not reach a caller, a log or an agent's context. And three things that MOVED with
