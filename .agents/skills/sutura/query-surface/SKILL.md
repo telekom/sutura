@@ -231,16 +231,17 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   rather than off a manifest. The `data_systems:` golden axis therefore gains no entry - that
   registry's rule is that a cell which cannot execute reads as coverage. The DIALECT axis does have
   one.
-- **The ClickHouse adapter executes the golden corpus, and no release links it.** The golden matrix
-  registers it and runs the example corpus against the server `nix/clickhouse-tier.nix` starts - in
+- **The ClickHouse adapter executes the golden corpus and conformance packs, and no release links
+  it.** The golden matrix registers it and runs the example corpus against the server
+  `nix/clickhouse-tier.nix` starts - in
   `checks.nextest` and under `just test`, like Postgres - so its `rows`/`refused`/`error`/
   `anchor_report` families are EXECUTED goldens and `dialects.rs` declares `Evidence::Executed`
-  (`github.com/telekom/sutura#920`). **What that does not reach:** one server version, the one the
-  pinned nixpkgs carries; the conformance packs, declared unbound in `xtask/src/conformance/
-  reconcile.rs` because their corpus measured an `Int64` sum that wraps silently and a decimal that
-  loses its trailing zero - wrong answers the golden corpus's small integers and doubles never
-  provoke; and any release, because `sutura-cli`'s `clickhouse` feature is default-off and absent
-  from `nix/shipped.nix`. Both venues - this tier and `compose.services.yaml`'s docker service -
+  (`github.com/telekom/sutura#920`). The conformance packs bind through
+  `crates/sutura-exec-clickhouse/tests/conformance.rs` after `#979` measured signed 64-bit overflow
+  and preserved decimal scale. **What that does not reach:** unsigned overflow in the live corpus,
+  other server versions, sums beyond the widened type, or any release, because `sutura-cli`'s
+  `clickhouse` feature is default-off and absent from `nix/shipped.nix`. Both venues - this tier and
+  `compose.services.yaml`'s docker service -
   publish one `clickhouse` discovery entry, so the last one started owns it.
 - **What both acceptance legs say nothing about is identity.** A service-account key is one identity
   for everybody who asks, so what they establish is *accepted, and correct for that identity*.
