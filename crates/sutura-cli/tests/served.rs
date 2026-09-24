@@ -99,6 +99,13 @@ mod agent;
 #[path = "served/bigquery.rs"]
 mod bigquery;
 
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "bigquery")]
+#[cfg(feature = "datahub")]
+#[path = "served/e2e_adbc.rs"]
+mod e2e_adbc;
+
 // The four startup refusals (`github.com/telekom/sutura#302`), split out of `mod tests` below by
 // the same 1000-line cap - a pure relocation, no `#[cfg(unix)]`/`#[cfg(feature)]` of its own
 // because none of the four needs one.

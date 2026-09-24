@@ -174,6 +174,11 @@ ci.yml:keycloak-served-test
 # passed over a driver that cannot initialise.
 ci.yml:bigquery-driver-check
 
+# The hosted DataHub/ADBC acceptance runs when a BigQuery, DataHub or identity change selects it
+# and the event can receive the bq-test credential. The required ci-aggregate job refuses a skip
+# on a selected same-repository pull request or push.
+ci.yml:e2e-datahub-adbc
+
 # #149 branch 5's smoke test, advisory on `ci.yml:demo-container`'s own reasoning one entry
 # down: it needs a container runtime and a real network namespace, which is what makes it
 # unsuited to a nix check, and a red kind cluster must not block unrelated work on a pull

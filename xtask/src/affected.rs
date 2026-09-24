@@ -759,6 +759,7 @@ macro_rules! registered {
             let script = aggregator_shell();
             let mut cmd = std::process::Command::new("bash");
             cmd.arg("-c").arg(&script);
+            cmd.env("E2E_RESULT", "skipped").env("E2E_REQUIRED", "false");
             for (k, v) in envs {
                 cmd.env(k, v);
             }
@@ -875,6 +876,42 @@ macro_rules! registered {
                 ("REPO", "telekom/sutura"),
             ]);
             assert!(ok, "a clean run must aggregate GREEN, got: {text}");
+        }
+
+        #[test]
+        fn a_required_but_skipped_datahub_adbc_leg_is_red() {
+            let (ok, text) = run_aggregator(&[
+                ("CI_RESULT", "success"),
+                ("KC_RESULT", "success"),
+                ("KC_SELECTED", "true"),
+                ("BQ_RESULT", "success"),
+                ("BQ_SELECTED", "true"),
+                ("E2E_RESULT", "skipped"),
+                ("E2E_REQUIRED", "true"),
+            ]);
+            assert!(!ok, "a required hosted leg cannot skip: {text}");
+            assert!(
+                text.contains("e2e-datahub-adbc must run"),
+                "the missing leg must be named: {text}"
+            );
+        }
+
+        #[test]
+        fn a_failed_unrequired_datahub_adbc_leg_is_red() {
+            let (ok, text) = run_aggregator(&[
+                ("CI_RESULT", "success"),
+                ("KC_RESULT", "success"),
+                ("KC_SELECTED", "true"),
+                ("BQ_RESULT", "success"),
+                ("BQ_SELECTED", "true"),
+                ("E2E_RESULT", "failure"),
+                ("E2E_REQUIRED", "false"),
+            ]);
+            assert!(!ok, "a failed hosted leg cannot be waived: {text}");
+            assert!(
+                text.contains("e2e-datahub-adbc reported"),
+                "the failed leg must be named: {text}"
+            );
         }
     }
 }
