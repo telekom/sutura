@@ -141,6 +141,12 @@ clobbering each other's tables. `sutura_exec_postgres::PostgresWarehouse::connec
 shape, over a database because that is `ClickHouse`'s namespace for a table.
 
 ```rust
+pub fn load_conformance_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError>
+```
+
+The conformance corpus keeps exact Decimal columns and its empty cells as NULL.
+
+```rust
 pub fn load_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError>
 ```
 
