@@ -55,8 +55,9 @@ sutura **retains nothing** - what a record is worth is what the deployment's sin
 the subject in the chain is only as strong as what established it: behind the shared bearer token
 alone the record names the *deployment*, because that is who asked as far as anything can tell; a
 deployment that declares `security.inbound` names the caller, from a signature. Still a design
-target is a refusal attributable to a subject whose own **access** decided it - the record can say
-which identity each leg ran under, and on this build that is never the asking subject.
+target is a refusal attributable to a subject whose own **access** decided it. BigQuery can carry
+the asking subject's assertion, but the source's acceptance is unproven; shared legs still read
+under their source's declared identity ([identity venues](where-identity-is-proven.md)).
 
 ## Why does the tool surface take no table name?
 
@@ -65,9 +66,9 @@ Because a refusal can be retried, reworded and eventually satisfied, and an abse
 does not compile. That is enforced today, and `deny_unknown_fields` means a question carrying
 `sql:` is an error naming the field rather than one silently dropped.
 
-The intended backstop - widening the surface changes a dumped schema, so the widening lands in the
-diff of the review that did it - is a **design target**. The schema dump is not written yet, so
-today the only thing catching a widened surface is review.
+The MCP wire type generates a committed schema snapshot, so widening its input changes a
+byte-compare a reviewer must accept. There is no equivalent OpenAPI dump for HTTP, and a snapshot
+cannot decide whether a new field should exist; review still owns that decision.
 
 ## Why is there no result cache?
 
@@ -79,21 +80,18 @@ read under whoever refreshed it.
 No mechanism can prove an absence, so this one is written down as a decision. Adding any cache of
 rows is an architecture change, keyed on subject first or not at all.
 
-## Why can a question not span two data systems?
+## Can a question span two data systems?
 
-A second data system is a second identity to satisfy, not a bigger version of the same query. The
-one-source rule is enforced today: the plan stage collects every source the plan reaches into a
-set and refuses unless exactly one name is in it, and a golden builds a two-source catalogue to
-provoke the refusal.
+Yes. A supported federated question splits into fact and lookup legs, executes each at its source,
+then joins the results. Each leg is presented either the asking subject's credential or that
+source's acknowledged shared identity. The answer records the posture of each leg, even when they
+differ. That record reaches the caller with the rows; it is a
+disclosure, not an authorization check (see
+`docs/adr/0040-a-cross-posture-federated-answer-is-disclosed-per-leg.md`).
 
-The *identity* half of that reasoning is a design target. There is no per-leg credential, so
-nothing asserts that two subjects get different rows, and nothing can until one exists.
-
-Federation is wanted, in this order: per-leg identity first, then federation. A predicate pushed
-into ClickHouse or Postgres is evaluated there, under the caller's own grants, so excluded rows
-never enter this process.
-[Where the parts come from](architecture.md#where-the-parts-come-from) names the projects that
-already do that part well.
+BigQuery can carry a per-subject credential, but its real two-subject venue is wired with no
+observed run. The other adapters still execute under a shared identity, and no live test has shown
+two subjects receiving different rows ([identity venues](where-identity-is-proven.md)).
 
 ## Why are definitions not editable here?
 
