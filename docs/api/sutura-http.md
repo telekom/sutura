@@ -4130,7 +4130,7 @@ dates - `telekom/sutura#778`.
 pub struct FilterBody
 ```
 
-One equality filter.
+One filter: a dimension, which way it compares, and the values it compares against.
 
 #### Implements
 

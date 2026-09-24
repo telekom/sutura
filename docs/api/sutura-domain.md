@@ -6111,6 +6111,16 @@ renderer and no executor. `crate::plan::bindings` carries the argument and the l
 - `Before` - `column < param`, the exclusive end.
 - `Equals`
 - `NotEquals`
+- `In` - `column IN (param, param, ..)`, over at least one parameter.
+
+  **A `Vec`, and not one `PlanBindings` refuses to hold empty**:
+  `sutura_domain::query::FilterValues` is non-empty by construction, and every producer of
+  this predicate reads its length from there - so an empty list here is a producer bug rather
+  than something a caller's `filters:` could ever cause. It is still a plain `Vec` rather than
+  a second non-empty newtype: nothing downstream reads it before `PlanBindings::parse` has
+  already walked every index in it, and a newtype buys nothing a check that already runs does
+  not.
+- `NotIn` - `column NOT IN (param, param, ..)`. `Self::In`'s own note applies.
 - `IsTrue`
 - `IsNotNull`
 
@@ -6121,8 +6131,15 @@ pub const fn column(&self) -> &PlanColumn
 ```
 
 ```rust
-pub const fn param(&self) -> Option<usize>
+pub fn params(&self) -> Vec<usize>
 ```
+
+Every parameter index this predicate binds, in placeholder order.
+
+One index for the four comparisons, every index `Self::In` or `Self::NotIn` carries -
+in the order they were pushed, which `PlanBindings::parse`
+then holds to being consecutive placeholders - and none for the two predicates that bind
+nothing.
 
 #### Implements
 
@@ -9083,27 +9100,120 @@ cannot.
 
 Widening this is a governance change. `AGENTS.md` says which mechanism has to still hold.
 
+### `enum FilterOp`
+
+```rust
+pub enum FilterOp
+```
+
+Which way a `Filter` compares: every requested value must be one the dimension declares
+(`Self::In`), or none of them may be (`Self::NotIn`).
+
+**There is no `Eq`, and that is not an omission.** `In` with one value already says "equals this
+one declared value" - the shape every filter had before this type existed - so a third variant
+spelling the same comparison would be a second way to ask the same question, kept equal to the
+first only by review.
+
+#### Variants
+
+- `In` - The dimension's value must be one of `Filter::values`.
+- `NotIn` - The dimension's value must be none of `Filter::values`.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct FilterValues`
+
+```rust
+pub struct FilterValues
+```
+
+The values one `Filter` compares against: at least one, deduplicated, each already a
+`DimensionValue` a metric's allowlist could declare.
+
+A set rather than the `Vec` the wire carries, so a value repeated in the caller's own list -
+`["north", "north"]` - is one entry here rather than two, and two requests that list the same
+values in a different order compare equal. `BTreeSet` rather than a hash set for the same
+reason every other collection in this crate that reaches a digest or a golden is ordered: the
+iteration order is a function of the values and never of the order a caller happened to send
+them in.
+
+#### Methods
+
+```rust
+pub fn contains(&self, value: &DimensionValue) -> bool
+```
+
+```rust
+pub fn is_empty(&self) -> bool
+```
+
+```rust
+pub fn iter(&self) -> impl Iterator<Item>
+```
+
+```rust
+pub fn len(&self) -> usize
+```
+
+```rust
+pub fn one(value: DimensionValue) -> Self
+```
+
+One value, which can never be an empty set - the shape every filter had before
+`FilterOp` existed, kept infallible so the many call sites that still only ever compare
+against one declared value do not have to handle a refusal that cannot happen.
+
+```rust
+pub fn parse(values: Vec<DimensionValue>) -> Result<Self, EmptyFilterValues>
+```
+
+Parses a non-empty, deduplicated set of values, refusing an empty list.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct EmptyFilterValues`
+
+```rust
+pub struct EmptyFilterValues
+```
+
+A filter whose value list was empty.
+
+**Unrepresentable everywhere but the wire boundary itself.** Every production caller of
+`FilterValues::parse` already holds at least one parsed `DimensionValue` by construction -
+`sutura_domain::question::parse_query` refuses an empty `values` list before this is ever
+reached, naming the field - so this variant exists for the one caller that cannot make that
+promise: a `Filter` deserialized directly, which is what the example corpus's own fixtures are.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 ### `struct Filter`
 
 ```rust
 pub struct Filter
 ```
 
-One equality filter: a dimension, and a value the pinned bundle declares.
+One filter: a dimension, which way it compares, and the values the pinned bundle declares.
 
-The value is a `DimensionValue` here and a bind parameter by the time it reaches a statement. It
-is checked against the metric's allowlist first, so the parameterisation is the second line of
-defence rather than the only one.
+Each value is a `DimensionValue` here and a bind parameter by the time it reaches a statement.
+Every one is checked against the metric's allowlist first, so the parameterisation is the second
+line of defence rather than the only one.
 
 # Why a caller's value is parsed by the type a catalog author's value is parsed by
 
 It was a `String`, and the review that gave `DimensionValue` to the catalog side asked whether the
 request side wanted it too. It does, for four reasons, and the last one is the decisive one:
 
-* **It refuses nothing a request could have been answered.** The two are compared for equality
-  against the metric's allowlist, and every entry in that allowlist is a `DimensionValue`. Text
-  that cannot be one cannot be in there, so parsing here turns a `DimensionValueNotAllowed`
-  refusal into a `400` naming the field and loses no answerable question.
+* **It refuses nothing a request could have been answered.** Every value is compared against the
+  metric's allowlist, and every entry in that allowlist is a `DimensionValue`. Text that cannot be
+  one cannot be in there, so parsing here turns a `DimensionValueNotAllowed` refusal into a `400`
+  naming the field and loses no answerable question.
 * **The precedent is already here and is older than this type.** A caller's `metric` and
   `dimension` arrive as text and are parsed by `MetricName` and `DimensionName` - the same
   types the catalog loader uses, at the same boundary, by the same constructor. A value being the
@@ -9116,8 +9226,8 @@ request side wanted it too. It does, for four reasons, and the last one is the d
   with its own idea of what a value may hold would be that mistake, deliberately, in a place where
   one side of the comparison is content and the other is a caller.
 
-**What does NOT follow is that a refusal may name the text.** `sutura_http::wire` parses the value
-and reports `filters[i].value` without the parse error underneath it, because
+**What does NOT follow is that a refusal may name the text.** `sutura_http::wire` parses each
+value and reports `filters[i].values[j]` without the parse error underneath it, because
 `InvalidDimensionValue` carries the offending input and
 `RefusalReason`'s own rule is that caller-supplied text is never reflected into a message that
 reaches a log, a UI and an agent's context.
@@ -9129,11 +9239,22 @@ pub const fn dimension(&self) -> &DimensionName
 ```
 
 ```rust
-pub const fn new(dimension: DimensionName, value: DimensionValue) -> Self
+pub fn equals(dimension: DimensionName, value: DimensionValue) -> Self
+```
+
+`dimension` `FilterOp::In` one `value` - what every filter was before this type gained
+`FilterOp` and a set. Infallible: `FilterValues::one` can never be an empty set.
+
+```rust
+pub const fn new(dimension: DimensionName, op: FilterOp, values: FilterValues) -> Self
 ```
 
 ```rust
-pub const fn value(&self) -> &DimensionValue
+pub const fn op(&self) -> FilterOp
+```
+
+```rust
+pub const fn values(&self) -> &FilterValues
 ```
 
 #### Implements
@@ -9985,20 +10106,21 @@ and no framework.
 pub struct RawFilter<'a>
 ```
 
-One filter, before parsing: a caller's raw dimension name and value, borrowed out of whichever
-wire struct a transport deserialized.
+One filter, before parsing: a caller's raw dimension name, comparison and value list, borrowed
+out of whichever wire struct a transport deserialized.
 
 Fields are private - a `pub` field on a `pub struct` fails `cargo xtask check-boundaries` in
-this crate - even though nothing here is validated yet: the two strings are exactly what a
+this crate - even though nothing here is validated yet: the three fields are exactly what a
 transport extracted, unchanged, and `new` is the only way to pair them.
 
 #### Methods
 
 ```rust
-pub const fn new(dimension: &'a str, value: &'a str) -> Self
+pub const fn new(dimension: &'a str, op: &'a str, values: &'a [String]) -> Self
 ```
 
-Pairs a caller's raw dimension name and value, as a transport extracted them.
+Pairs a caller's raw dimension name, comparison and value list, as a transport extracted
+them.
 
 #### Implements
 
@@ -10064,6 +10186,14 @@ parser never carried.
 - `Range`
 - `Dimension`
 - `FilterDimension`
+- `FilterOp` - Carries no field, for `Self::Grain`'s own reason: the accepted set is fixed and finite.
+- `TooManyFilterValues` - More values than `crate::catalog::MAX_VALUES_PER_DIMENSION` declared on one filter.
+
+  Bounded before any of them is parsed, for the same reason a value's own length is: work
+  proportional to a caller-chosen count must not run before a caller-chosen count is checked
+  against something fixed. No filterable dimension can declare a larger allowlist than this,
+  so a caller's set can never be usefully bigger either - every value past the limit would be
+  refused as `crate::query::RefusalReason::DimensionValueNotAllowed` regardless.
 - `FilterValue` - The value is not one a catalog could have declared: nothing, more than one line, a control character, an invisible or direction-changing code point, spacing a reader cannot see, or longer than `crate::catalog::MAX_DIMENSION_VALUE_CHARS`.
 
   **The one variant with no `#[source]`, and the omission is the point.** Every other cause in
@@ -10075,6 +10205,11 @@ parser never carried.
   field and the index are reported and the cause is dropped rather than reported and trusted:
   the same answer `DimensionValueNotAllowed` gives, at the boundary that now catches it
   earlier.
+- `EmptyFilterValues` - `filters[{index}].values` deserialized to an empty list.
+
+  Unreachable from a wire body whose `values` field is present at all with at least one
+  entry, and reachable from an explicit `"values": []` - `serde`'s own array default is
+  empty, so this is the field's normal shape being empty rather than missing.
 - `TopN`
 - `TopBy` - Carries no field, for `Self::Grain`'s own reason: the accepted set is fixed and finite.
 - `TopDirection` - Carries no field, for `Self::Grain`'s own reason: the accepted set is fixed and finite.

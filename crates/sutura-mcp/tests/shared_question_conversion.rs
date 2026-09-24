@@ -65,7 +65,7 @@ mod tests {
             "grain": question.grain,
             "range": {"start": question.start, "end": question.end},
             "dimensions": [question.dimension],
-            "filters": [{"dimension": question.filter_dimension, "value": question.filter_value}],
+            "filters": [{"dimension": question.filter_dimension, "op": "in", "values": [question.filter_value]}],
         }))
         .expect("a well-formed HTTP question body deserializes")
     }
@@ -76,7 +76,7 @@ mod tests {
             "grain": question.grain,
             "range": {"start": question.start, "end": question.end},
             "dimensions": [question.dimension],
-            "filters": [{"dimension": question.filter_dimension, "value": question.filter_value}],
+            "filters": [{"dimension": question.filter_dimension, "op": "in", "values": [question.filter_value]}],
         }))
         .expect("a well-formed MCP arguments object deserializes")
     }
@@ -92,7 +92,10 @@ mod tests {
             SharedMalformedQuestion::Range { .. } => "range",
             SharedMalformedQuestion::Dimension { .. } => "dimension",
             SharedMalformedQuestion::FilterDimension { .. } => "filter_dimension",
+            SharedMalformedQuestion::FilterOp { .. } => "filter_op",
+            SharedMalformedQuestion::TooManyFilterValues { .. } => "too_many_filter_values",
             SharedMalformedQuestion::FilterValue { .. } => "filter_value",
+            SharedMalformedQuestion::EmptyFilterValues { .. } => "empty_filter_values",
             SharedMalformedQuestion::TopN { .. } => "top_n",
             SharedMalformedQuestion::TopBy => "top_by",
             SharedMalformedQuestion::TopDirection => "top_direction",

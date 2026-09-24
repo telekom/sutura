@@ -415,7 +415,12 @@ fn request(question: &Query) -> String {
         parts.push(format!("grouped by {}", names.join(", ")));
     }
     for filter in question.filters() {
-        parts.push(format!("`{}` = `{}`", filter.dimension(), filter.value()));
+        let values: Vec<String> = filter.values().iter().map(|value| format!("`{value}`")).collect();
+        let comparison = match filter.op() {
+            sutura_domain::query::FilterOp::In => "in",
+            sutura_domain::query::FilterOp::NotIn => "not in",
+        };
+        parts.push(format!("`{}` {comparison} ({})", filter.dimension(), values.join(", ")));
     }
     parts.join(", ")
 }

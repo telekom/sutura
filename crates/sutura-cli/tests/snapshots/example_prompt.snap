@@ -377,7 +377,7 @@ which phrase you resolved and what you resolved it to, so the person can correct
 ## The metrics this deployment defines
 
 - Definitions version: `example-single-player`
-- Definitions digest: `73e20e0dd80199d97431ec9ff9543afc520b334e39fe06b9b3b5cd1da3b81f76`
+- Definitions digest: `1d4cbfb7e0d433de545754f5be693c61d43729952a5d5842cb6f8b952d76506f`
 
 11 metrics, and they are the whole of what may be asked about.
 
@@ -929,8 +929,8 @@ below is one this deployment answers rather than one it would decline.
 
 - Asked as: "what are business customers in the north worth per month", "Umsatz der Firmenkunden im
   Norden"
-- Send: metric `recurring_revenue`, grain `month`, period `2026-06-01` to `2026-07-01`, `segment` =
-  `business`, `region` = `north`
+- Send: metric `recurring_revenue`, grain `month`, period `2026-06-01` to `2026-07-01`, `segment` in
+  (`business`), `region` in (`north`)
 > Two filters and nothing to group by: this asks for one number rather than a breakdown.
 >
 > Both values are spelled the way the definitions declare them - `business` rather than `B2B`,

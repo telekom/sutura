@@ -1,0 +1,10 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: stable(rows)
+---
+- - business
+  - 2026-06-01
+  - "22765"
+- - consumer
+  - 2026-06-01
+  - "40595"

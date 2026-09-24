@@ -747,16 +747,18 @@ impl Knowledge {
             }
         }
         for filter in question.filters() {
-            let permitted = metric
-                .dimension(filter.dimension())
-                .is_some_and(|declared| declared.permits(filter.value()));
-            if !permitted {
-                return Err(InconsistentKnowledge::ExampleValueNotAllowed {
-                    name,
-                    metric: metric_name,
-                    dimension: filter.dimension().clone(),
-                    value: filter.value().clone(),
-                });
+            for value in filter.values().iter() {
+                let permitted = metric
+                    .dimension(filter.dimension())
+                    .is_some_and(|declared| declared.permits(value));
+                if !permitted {
+                    return Err(InconsistentKnowledge::ExampleValueNotAllowed {
+                        name,
+                        metric: metric_name,
+                        dimension: filter.dimension().clone(),
+                        value: value.clone(),
+                    });
+                }
             }
         }
         Ok(())

@@ -37,7 +37,7 @@ use sutura_domain::plan::{
     PlanKey, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables, labels, plan_measure,
     plan_required_filter,
 };
-use sutura_domain::query::RefusalReason;
+use sutura_domain::query::{FilterOp, RefusalReason};
 use sutura_domain::warehouse::ParamValue;
 
 use crate::resolve::{Resolution, ResolvedFilter};
@@ -524,17 +524,40 @@ fn predicates_and_params(
     }
 
     for filter in requested {
-        let param = bind(&mut params, ParamValue::Text(filter.value.clone()));
-        filters.push(PlanFilter::new(
-            PredicateOrigin::Requested,
-            PlanPredicate::Equals {
-                column: column_of(&filter.dimension, own_table),
-                param,
-            },
-        ));
+        let column = column_of(&filter.dimension, own_table);
+        let predicate = requested_predicate(filter, column, &mut |value| bind(&mut params, value));
+        filters.push(PlanFilter::new(PredicateOrigin::Requested, predicate));
     }
 
     PlanBindings::parse(filters, params)
+}
+
+/// One requested filter, as a predicate over `column`, binding every one of its values through
+/// `bind` in order.
+///
+/// **A single value renders as [`PlanPredicate::Equals`]/[`PlanPredicate::NotEquals`] - the shape
+/// every filter had before [`FilterOp`] existed - so a metric with no multi-value filter renders
+/// byte-for-byte the statement it always did.** Only two or more values reach the general
+/// [`PlanPredicate::In`]/[`PlanPredicate::NotIn`] shape, which is what keeps every dialect golden
+/// pinned before this feature unchanged rather than churned for a set that happens to hold one
+/// value.
+fn requested_predicate(
+    filter: &ResolvedFilter<'_>,
+    column: PlanColumn,
+    bind: &mut impl FnMut(ParamValue) -> usize,
+) -> PlanPredicate {
+    let params: Vec<usize> = filter
+        .values
+        .iter()
+        .map(|value| bind(ParamValue::Text(value.clone())))
+        .collect();
+    let single = if let [only] = *params.as_slice() { Some(only) } else { None };
+    match (filter.op, single) {
+        (FilterOp::In, Some(param)) => PlanPredicate::Equals { column, param },
+        (FilterOp::NotIn, Some(param)) => PlanPredicate::NotEquals { column, param },
+        (FilterOp::In, None) => PlanPredicate::In { column, params },
+        (FilterOp::NotIn, None) => PlanPredicate::NotIn { column, params },
+    }
 }
 
 /// The predicates a lookup leg carries: only the caller's own remote filters, bound on the remote
@@ -543,15 +566,12 @@ fn requested_for(requested: &[&ResolvedFilter<'_>], remote_table: &TableName) ->
     let mut params: Vec<ParamValue> = Vec::new();
     let mut filters: Vec<PlanFilter> = Vec::new();
     for filter in requested {
-        let bind = params.len();
-        params.push(ParamValue::Text(filter.value.clone()));
-        filters.push(PlanFilter::new(
-            PredicateOrigin::Requested,
-            PlanPredicate::Equals {
-                column: PlanColumn::new(remote_table.clone(), filter.dimension.dimension.column().clone()),
-                param: bind,
-            },
-        ));
+        let column = PlanColumn::new(remote_table.clone(), filter.dimension.dimension.column().clone());
+        let predicate = requested_predicate(filter, column, &mut |value| {
+            params.push(value);
+            params.len().saturating_sub(1)
+        });
+        filters.push(PlanFilter::new(PredicateOrigin::Requested, predicate));
     }
     PlanBindings::parse(filters, params)
 }

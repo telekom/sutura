@@ -6,6 +6,8 @@ range:
 dimensions: [contract_term]
 filters:
   - dimension: contract_term
-    value: annual
+    op: in
+    values: [annual]
   - dimension: region
-    value: north
+    op: in
+    values: [north]

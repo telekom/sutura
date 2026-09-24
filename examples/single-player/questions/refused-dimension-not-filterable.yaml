@@ -5,4 +5,5 @@ range:
   end: 2026-07-01
 filters:
   - dimension: product_name
-    value: Mobile S
+    op: in
+    values: [Mobile S]

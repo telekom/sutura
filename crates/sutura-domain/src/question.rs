@@ -18,27 +18,29 @@
 //! and no framework.
 
 use crate::calendar::{Date, InvalidDate, InvalidTimeRange, TimeRange};
-use crate::catalog::DimensionValue;
+use crate::catalog::{DimensionValue, MAX_VALUES_PER_DIMENSION};
 use crate::model::{DimensionName, Grain, InvalidIdentifier, MetricName};
-use crate::query::{Filter, InvalidTopN, Query, Top, TopBy, TopDirection, TopN};
+use crate::query::{Filter, FilterOp, FilterValues, InvalidTopN, Query, Top, TopBy, TopDirection, TopN};
 
-/// One filter, before parsing: a caller's raw dimension name and value, borrowed out of whichever
-/// wire struct a transport deserialized.
+/// One filter, before parsing: a caller's raw dimension name, comparison and value list, borrowed
+/// out of whichever wire struct a transport deserialized.
 ///
 /// Fields are private - a `pub` field on a `pub struct` fails `cargo xtask check-boundaries` in
-/// this crate - even though nothing here is validated yet: the two strings are exactly what a
+/// this crate - even though nothing here is validated yet: the three fields are exactly what a
 /// transport extracted, unchanged, and [`new`](Self::new) is the only way to pair them.
 #[derive(Debug, Clone, Copy)]
 pub struct RawFilter<'a> {
     dimension: &'a str,
-    value: &'a str,
+    op: &'a str,
+    values: &'a [String],
 }
 
 impl<'a> RawFilter<'a> {
-    /// Pairs a caller's raw dimension name and value, as a transport extracted them.
+    /// Pairs a caller's raw dimension name, comparison and value list, as a transport extracted
+    /// them.
     #[inline]
-    pub const fn new(dimension: &'a str, value: &'a str) -> Self {
-        Self { dimension, value }
+    pub const fn new(dimension: &'a str, op: &'a str, values: &'a [String]) -> Self {
+        Self { dimension, op, values }
     }
 }
 
@@ -120,6 +122,18 @@ pub enum MalformedQuestion {
         #[source]
         cause: InvalidIdentifier,
     },
+    /// Carries no field, for [`Self::Grain`]'s own reason: the accepted set is fixed and finite.
+    #[error("`filters[{index}].op` is not one of: in, not_in")]
+    FilterOp { index: usize },
+    /// More values than [`crate::catalog::MAX_VALUES_PER_DIMENSION`] declared on one filter.
+    ///
+    /// Bounded before any of them is parsed, for the same reason a value's own length is: work
+    /// proportional to a caller-chosen count must not run before a caller-chosen count is checked
+    /// against something fixed. No filterable dimension can declare a larger allowlist than this,
+    /// so a caller's set can never be usefully bigger either - every value past the limit would be
+    /// refused as [`crate::query::RefusalReason::DimensionValueNotAllowed`] regardless.
+    #[error("`filters[{index}].values` names {requested} values, and a filter may carry at most {limit}")]
+    TooManyFilterValues { index: usize, requested: usize, limit: usize },
     /// The value is not one a catalog could have declared: nothing, more than one line, a control
     /// character, an invisible or direction-changing code point, spacing a reader cannot see, or
     /// longer than `crate::catalog::MAX_DIMENSION_VALUE_CHARS`.
@@ -133,8 +147,15 @@ pub enum MalformedQuestion {
     /// field and the index are reported and the cause is dropped rather than reported and trusted:
     /// the same answer `DimensionValueNotAllowed` gives, at the boundary that now catches it
     /// earlier.
-    #[error("`filters[{index}].value` is not a value this catalog could declare")]
-    FilterValue { index: usize },
+    #[error("`filters[{index}].values[{value_index}]` is not a value this catalog could declare")]
+    FilterValue { index: usize, value_index: usize },
+    /// `filters[{index}].values` deserialized to an empty list.
+    ///
+    /// Unreachable from a wire body whose `values` field is present at all with at least one
+    /// entry, and reachable from an explicit `"values": []` - `serde`'s own array default is
+    /// empty, so this is the field's normal shape being empty rather than missing.
+    #[error("`filters[{index}].values` must carry at least one value")]
+    EmptyFilterValues { index: usize },
     #[error("`top.n` is not a positive row count")]
     TopN {
         #[source]
@@ -175,18 +196,36 @@ pub fn parse_query(
     for (index, raw) in filters.iter().enumerate() {
         let dimension =
             DimensionName::parse(raw.dimension).map_err(|cause| MalformedQuestion::FilterDimension { index, cause })?;
-        // The discard IS the control, so it is spelled out rather than lint-silenced by accident:
-        // `DimensionValue`'s own parse error carries the offending text because it exists for the
-        // author of a catalog, and this error becomes a transport error that reaches a log, a UI
-        // and an agent's context. `RefusalReason` is explicit that a caller's own text must not
-        // arrive there.
-        #[expect(
-            clippy::map_err_ignore,
-            reason = "the parse error carries the caller's own text, and a transport error must not \
-                      reflect it back - see MalformedQuestion::FilterValue"
-        )]
-        let value = DimensionValue::parse(raw.value).map_err(|_| MalformedQuestion::FilterValue { index })?;
-        parsed_filters.push(Filter::new(dimension, value));
+        let op = match raw.op {
+            "in" => FilterOp::In,
+            "not_in" => FilterOp::NotIn,
+            _other => return Err(MalformedQuestion::FilterOp { index }),
+        };
+        // Bounded before any value is parsed - see the variant's own doc comment.
+        if raw.values.len() > MAX_VALUES_PER_DIMENSION {
+            return Err(MalformedQuestion::TooManyFilterValues {
+                index,
+                requested: raw.values.len(),
+                limit: MAX_VALUES_PER_DIMENSION,
+            });
+        }
+        let mut values = Vec::with_capacity(raw.values.len());
+        for (value_index, value) in raw.values.iter().enumerate() {
+            // The discard IS the control, so it is spelled out rather than lint-silenced by
+            // accident: `DimensionValue`'s own parse error carries the offending text because it
+            // exists for the author of a catalog, and this error becomes a transport error that
+            // reaches a log, a UI and an agent's context. `RefusalReason` is explicit that a
+            // caller's own text must not arrive there.
+            #[expect(
+                clippy::map_err_ignore,
+                reason = "the parse error carries the caller's own text, and a transport error must not \
+                          reflect it back - see MalformedQuestion::FilterValue"
+            )]
+            let value = DimensionValue::parse(value).map_err(|_| MalformedQuestion::FilterValue { index, value_index })?;
+            values.push(value);
+        }
+        let values = FilterValues::parse(values).map_err(|_| MalformedQuestion::EmptyFilterValues { index })?;
+        parsed_filters.push(Filter::new(dimension, op, values));
     }
     let query = Query::new(metric, grain, range, parsed_dimensions, parsed_filters);
     match top {
@@ -244,7 +283,7 @@ mod tests {
             "2026-06-01",
             "2026-07-01",
             &[String::from("region")],
-            &[RawFilter::new("region", "north")],
+            &[RawFilter::new("region", "in", &[String::from("north")])],
             None,
         )
         .expect("a well formed question is a query");
@@ -255,6 +294,81 @@ mod tests {
             [DimensionName::parse("region").expect("a test dimension")].as_slice()
         );
         assert_eq!(query.filters().len(), 1);
+    }
+
+    #[test]
+    fn a_not_in_filter_with_several_values_becomes_a_query() {
+        use crate::query::FilterOp;
+
+        let query = parse_query(
+            "revenue",
+            "month",
+            "2026-06-01",
+            "2026-07-01",
+            &[],
+            &[RawFilter::new(
+                "region",
+                "not_in",
+                &[String::from("north"), String::from("south")],
+            )],
+            None,
+        )
+        .expect("a well formed not_in filter is a query");
+        let filter = &query.filters()[0];
+        assert_eq!(filter.op(), FilterOp::NotIn);
+        assert_eq!(filter.values().len(), 2);
+    }
+
+    #[test]
+    fn an_unknown_filter_op_names_the_field_and_the_accepted_set() {
+        let error = parse_query(
+            "revenue",
+            "month",
+            "2026-06-01",
+            "2026-07-01",
+            &[],
+            &[RawFilter::new("region", "equals", &[String::from("north")])],
+            None,
+        )
+        .expect_err("`equals` is not `in` or `not_in`");
+        assert!(matches!(error, MalformedQuestion::FilterOp { index: 0 }), "{error:?}");
+    }
+
+    #[test]
+    fn an_empty_filter_value_list_names_the_field() {
+        let error = parse_query(
+            "revenue",
+            "month",
+            "2026-06-01",
+            "2026-07-01",
+            &[],
+            &[RawFilter::new("region", "in", &[])],
+            None,
+        )
+        .expect_err("an empty values list is not a filter");
+        assert!(
+            matches!(error, MalformedQuestion::EmptyFilterValues { index: 0 }),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn more_filter_values_than_the_limit_are_refused_before_any_is_parsed() {
+        let too_many: Vec<String> = (0..(super::MAX_VALUES_PER_DIMENSION + 1)).map(|n| n.to_string()).collect();
+        let error = parse_query(
+            "revenue",
+            "month",
+            "2026-06-01",
+            "2026-07-01",
+            &[],
+            &[RawFilter::new("region", "in", &too_many)],
+            None,
+        )
+        .expect_err("more values than the limit is not a filter");
+        assert!(
+            matches!(error, MalformedQuestion::TooManyFilterValues { index: 0, .. }),
+            "{error:?}"
+        );
     }
 
     #[test]
@@ -289,11 +403,20 @@ mod tests {
             "2026-06-01",
             "2026-07-01",
             &[],
-            &[RawFilter::new("region", "line one\nline two")],
+            &[RawFilter::new("region", "in", &[String::from("line one\nline two")])],
             None,
         )
         .expect_err("a multi-line value is not one this catalog could declare");
-        assert!(matches!(error, MalformedQuestion::FilterValue { index: 0 }), "{error:?}");
+        assert!(
+            matches!(
+                error,
+                MalformedQuestion::FilterValue {
+                    index: 0,
+                    value_index: 0
+                }
+            ),
+            "{error:?}"
+        );
         assert!(!error.to_string().contains("line one"), "{error}");
     }
 

@@ -169,9 +169,13 @@ examples:
       dimensions: []
       filters:
         - dimension: segment
-          value: business
+          op: in
+          values:
+            - business
         - dimension: region
-          value: north
+          op: in
+          values:
+            - north
       top: ~
     body: "Two filters and nothing to group by: this asks for one number rather than a breakdown.\n\nBoth values are spelled the way the definitions declare them - `business` rather than `B2B`,\n`north` rather than `North`. The glossary entries for those phrases exist for exactly this: a filter\nis compared against the declared list, and a near miss is declined without the value being repeated\nback for comparison.\n\nA filter does not have to appear in the group-by list. Filtering on `region` while grouping by\nnothing is a total for one region; filtering on it while grouping by `segment` would be a total per\nsegment inside that region."
   churn_rate_over_the_half_year:

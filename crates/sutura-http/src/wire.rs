@@ -72,7 +72,8 @@ pub struct QuestionBody {
     /// What to group by. At most four; a dimension the metric does not declare is a refusal.
     #[serde(default)]
     dimensions: Vec<String>,
-    /// Equality filters, each on a dimension the metric declares as filterable.
+    /// Filters, each on a dimension the metric declares as filterable: `in` a set of declared
+    /// values, or `not_in` it.
     #[serde(default)]
     filters: Vec<FilterBody>,
     /// An order and a caller-chosen row limit, bounding a wide group-by instead of asking for
@@ -132,14 +133,18 @@ pub struct LastBody {
     include_current: bool,
 }
 
-/// One equality filter.
+/// One filter: a dimension, which way it compares, and the values it compares against.
 #[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FilterBody {
     #[schema(example = "region")]
     dimension: String,
-    #[schema(example = "north")]
-    value: String,
+    /// `in` or `not_in`.
+    #[schema(example = "in")]
+    op: String,
+    /// The dimension's value must be one of these (`in`) or none of these (`not_in`). At least
+    /// one, each a value the metric declares.
+    values: Vec<String>,
 }
 
 impl TryFrom<QuestionBody> for Query {
@@ -159,7 +164,7 @@ fn query_of(body: QuestionBody, clock: &impl sutura_runtime::relative_range::Wal
     let filters: Vec<RawFilter<'_>> = body
         .filters
         .iter()
-        .map(|filter| RawFilter::new(&filter.dimension, &filter.value))
+        .map(|filter| RawFilter::new(&filter.dimension, &filter.op, &filter.values))
         .collect();
     let last = body
         .range
@@ -576,7 +581,7 @@ mod tests {
     fn a_well_formed_question_becomes_a_query() {
         let query = parse(
             r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},
-                "dimensions":["region"],"filters":[{"dimension":"region","value":"north"}]}"#,
+                "dimensions":["region"],"filters":[{"dimension":"region","op":"in","values":["north"]}]}"#,
         )
         .expect("a well formed question is a query");
         assert_eq!(query.metric(), &MetricName::parse("revenue").expect("a name"));
@@ -605,13 +610,13 @@ mod tests {
         ] {
             let raw = format!(
                 r#"{{"metric":"revenue","grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},
-                    "filters":[{{"dimension":"region","value":"{value}"}}]}}"#
+                    "filters":[{{"dimension":"region","op":"in","values":["{value}"]}}]}}"#
             );
             let error = parse(&raw).expect_err("a value a catalog could not declare is not a value");
             assert!(
                 matches!(
                     error,
-                    MalformedQuestion::Question(SharedMalformedQuestion::FilterValue { index: 0 })
+                    MalformedQuestion::Question(SharedMalformedQuestion::FilterValue { index: 0, .. })
                 ),
                 "{error:?}"
             );
@@ -624,13 +629,13 @@ mod tests {
         let long = "x".repeat(10_000);
         let error = parse(&format!(
             r#"{{"metric":"revenue","grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},
-                "filters":[{{"dimension":"region","value":"{long}"}}]}}"#
+                "filters":[{{"dimension":"region","op":"in","values":["{long}"]}}]}}"#
         ))
         .expect_err("a ten-kilobyte value is not a value");
         assert!(
             matches!(
                 error,
-                MalformedQuestion::Question(SharedMalformedQuestion::FilterValue { index: 0 })
+                MalformedQuestion::Question(SharedMalformedQuestion::FilterValue { index: 0, .. })
             ),
             "{error:?}"
         );

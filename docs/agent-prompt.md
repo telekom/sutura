@@ -58,7 +58,8 @@ rather than the first.
 design is modelled on spends most of its length teaching an agent to write SQL against semantic
 model names, to avoid raw database tables, and to dry-plan a complex statement before running it.
 None of that transfers to `query`: a question there names a metric, a grain, a bounded period, up to
-four dimensions and equality filters over declared values, and there is no field for anything else -
+four dimensions and filters over declared values (a value in a set, or none of them), and there is
+no field for anything else -
 so the guidance would teach an agent to attempt something that surface refuses by construction. What
 replaces it is one short section saying the field does not exist and that there is no way to widen
 it. A long section about what is absent would hand an agent a long list of things to try.

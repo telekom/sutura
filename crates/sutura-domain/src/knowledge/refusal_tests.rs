@@ -348,7 +348,7 @@ fn an_example_filtering_on_a_value_the_allowlist_does_not_carry_does_not_load() 
             question(
                 Grain::Month,
                 Vec::new(),
-                vec![Filter::new(dimension_name("segment"), declared_value("b2b"))],
+                vec![Filter::equals(dimension_name("segment"), declared_value("b2b"))],
             ),
         )])),
         InconsistentKnowledge::ExampleValueNotAllowed {
@@ -366,7 +366,7 @@ fn an_example_filtering_on_a_value_the_allowlist_does_not_carry_does_not_load() 
             question(
                 Grain::Month,
                 Vec::new(),
-                vec![Filter::new(dimension_name("product_name"), declared_value("Tariff L"))],
+                vec![Filter::equals(dimension_name("product_name"), declared_value("Tariff L"))],
             ),
         )])),
         InconsistentKnowledge::ExampleValueNotAllowed {
@@ -398,7 +398,7 @@ fn a_well_formed_example_loads_with_its_question_intact() {
         question(
             Grain::Month,
             vec![dimension_name("segment")],
-            vec![Filter::new(dimension_name("segment"), declared_value("business"))],
+            vec![Filter::equals(dimension_name("segment"), declared_value("business"))],
         ),
     )]));
     let note = knowledge

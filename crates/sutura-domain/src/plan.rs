@@ -394,6 +394,24 @@ pub enum PlanPredicate {
         column: PlanColumn,
         param: usize,
     },
+    /// `column IN (param, param, ..)`, over at least one parameter.
+    ///
+    /// **A `Vec`, and not one [`PlanBindings`](crate::plan::PlanBindings) refuses to hold empty**:
+    /// `sutura_domain::query::FilterValues` is non-empty by construction, and every producer of
+    /// this predicate reads its length from there - so an empty list here is a producer bug rather
+    /// than something a caller's `filters:` could ever cause. It is still a plain `Vec` rather than
+    /// a second non-empty newtype: nothing downstream reads it before `PlanBindings::parse` has
+    /// already walked every index in it, and a newtype buys nothing a check that already runs does
+    /// not.
+    In {
+        column: PlanColumn,
+        params: Vec<usize>,
+    },
+    /// `column NOT IN (param, param, ..)`. [`Self::In`]'s own note applies.
+    NotIn {
+        column: PlanColumn,
+        params: Vec<usize>,
+    },
     IsTrue {
         column: PlanColumn,
     },
@@ -410,19 +428,30 @@ impl PlanPredicate {
             | Self::Before { ref column, .. }
             | Self::Equals { ref column, .. }
             | Self::NotEquals { ref column, .. }
+            | Self::In { ref column, .. }
+            | Self::NotIn { ref column, .. }
             | Self::IsTrue { ref column }
             | Self::IsNotNull { ref column } => column,
         }
     }
 
-    #[inline]
-    pub const fn param(&self) -> Option<usize> {
+    /// Every parameter index this predicate binds, in placeholder order.
+    ///
+    /// One index for the four comparisons, every index [`Self::In`] or [`Self::NotIn`] carries -
+    /// in the order they were pushed, which [`PlanBindings::parse`](crate::plan::PlanBindings::parse)
+    /// then holds to being consecutive placeholders - and none for the two predicates that bind
+    /// nothing.
+    #[must_use]
+    pub fn params(&self) -> Vec<usize> {
         match *self {
             Self::AtOrAfter { param, .. }
             | Self::Before { param, .. }
             | Self::Equals { param, .. }
-            | Self::NotEquals { param, .. } => Some(param),
-            Self::IsTrue { .. } | Self::IsNotNull { .. } => None,
+            | Self::NotEquals { param, .. } => {
+                vec![param]
+            }
+            Self::In { ref params, .. } | Self::NotIn { ref params, .. } => params.clone(),
+            Self::IsTrue { .. } | Self::IsNotNull { .. } => Vec::new(),
         }
     }
 }
@@ -689,7 +718,7 @@ impl QueryPlan {
         self.filters
             .iter()
             .filter(|f| matches!(f.origin(), PredicateOrigin::Definition))
-            .filter_map(|f| f.predicate().param())
+            .flat_map(|f| f.predicate().params())
             // `get` rather than an index because `indexing_slicing` is denied, and it drops nothing:
             // every index a filter of this plan carries resolves, because the pair was parsed as
             // `PlanBindings` before the plan existed. It used to drop, and the golden that reads this

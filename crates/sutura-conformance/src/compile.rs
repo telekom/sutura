@@ -229,7 +229,7 @@ fn plan_question() -> Result<Query, FixtureError> {
         Grain::Month,
         june()?,
         vec![dimension_name("region")?],
-        vec![Filter::new(dimension_name("region")?, value("emea")?)],
+        vec![Filter::equals(dimension_name("region")?, value("emea")?)],
     ))
 }
 
@@ -290,7 +290,7 @@ fn refusal_agents() -> Result<Vec<RefusalAgent>, FixtureError> {
                 Grain::Month,
                 june()?,
                 vec![dimension_name("region")?],
-                vec![Filter::new(dimension_name("region")?, value("north_america")?)],
+                vec![Filter::equals(dimension_name("region")?, value("north_america")?)],
             ),
             "DimensionValueNotAllowed",
         ),

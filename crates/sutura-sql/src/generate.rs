@@ -398,6 +398,14 @@ fn measure_expression(measure: &PlanMeasure, dialect: Dialect) -> Expr {
 }
 
 /// One predicate, as an expression.
+///
+/// **`NotIn` renders as `NOT (col IN (..))` rather than through the dialect layer's own `not: true`
+/// flag on its `In` node** - the same measured caution `measure_expression`'s own note gives for
+/// `SafeDivide`: `.in_list()` is exercised by this crate's own suite for every target, and a second,
+/// unexercised flag on the same node is exactly the shape that rendered correctly in the builder's
+/// own tests and disagreed with a real target - `DateTruncShape`'s whole reason for existing. `NOT
+/// (x IN (..))` and `x NOT IN (..)` agree on every dialect this crate renders for: both are `NULL`
+/// when `x` is `NULL`, so wrapping costs nothing and needs no target-specific lowering to trust.
 fn predicate(dialect: Dialect, plan_predicate: &PlanPredicate) -> Expr {
     let col = column(plan_predicate.column());
     match *plan_predicate {
@@ -405,6 +413,8 @@ fn predicate(dialect: Dialect, plan_predicate: &PlanPredicate) -> Expr {
         PlanPredicate::Before { param, .. } => col.lt(placeholder(dialect, param)),
         PlanPredicate::Equals { param, .. } => col.eq(placeholder(dialect, param)),
         PlanPredicate::NotEquals { param, .. } => col.neq(placeholder(dialect, param)),
+        PlanPredicate::In { ref params, .. } => col.in_list(params.iter().map(|&param| placeholder(dialect, param))),
+        PlanPredicate::NotIn { ref params, .. } => col.in_list(params.iter().map(|&param| placeholder(dialect, param))).not(),
         PlanPredicate::IsTrue { .. } => col.is(builder::boolean(true)),
         PlanPredicate::IsNotNull { .. } => col.is_not_null(),
     }

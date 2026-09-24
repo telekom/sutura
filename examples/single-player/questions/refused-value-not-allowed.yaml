@@ -5,4 +5,5 @@ range:
   end: 2026-07-01
 filters:
   - dimension: region
-    value: offshore
+    op: in
+    values: [offshore]

@@ -316,11 +316,11 @@ fn examples() -> Vec<Example> {
                 june(),
                 Vec::new(),
                 vec![
-                    Filter::new(
+                    Filter::equals(
                         dimension("segment"),
                         DimensionValue::parse("business").expect("a corpus value is a value"),
                     ),
-                    Filter::new(
+                    Filter::equals(
                         dimension("region"),
                         DimensionValue::parse("north").expect("a corpus value is a value"),
                     ),

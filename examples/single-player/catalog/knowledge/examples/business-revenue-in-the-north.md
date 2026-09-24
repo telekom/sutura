@@ -9,8 +9,8 @@ question:
   grain: month
   range: { start: 2026-06-01, end: 2026-07-01 }
   filters:
-    - { dimension: segment, value: business }
-    - { dimension: region, value: north }
+    - { dimension: segment, op: in, values: [business] }
+    - { dimension: region, op: in, values: [north] }
 ---
 Two filters and nothing to group by: this asks for one number rather than a breakdown.
 

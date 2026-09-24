@@ -128,7 +128,7 @@ impl PlanBindings {
     pub fn parse(filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> Result<Self, IncoherentBindings> {
         let mut placeholder: usize = 0;
         for filter in &filters {
-            if let Some(index) = filter.predicate().param() {
+            for index in filter.predicate().params() {
                 if index >= params.len() {
                     return Err(IncoherentBindings::OutOfRange {
                         index,

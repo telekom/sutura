@@ -101,7 +101,8 @@ pub struct AskArgs {
     /// What to group the answer by. At most four, and each must be a dimension the metric declares.
     #[serde(default)]
     dimensions: Vec<String>,
-    /// Equality filters, each on a dimension the metric declares as filterable.
+    /// Filters, each on a dimension the metric declares as filterable: `in` a set of declared
+    /// values, or `not_in` it.
     #[serde(default)]
     filters: Vec<FilterArgs>,
     /// An order and a caller-chosen row limit, bounding a wide group-by instead of asking for
@@ -156,15 +157,17 @@ pub struct LastArgs {
     include_current: bool,
 }
 
-/// One equality filter.
+/// One filter: a dimension, which way it compares, and the values it compares against.
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FilterArgs {
     /// The dimension to filter on, by the name the metric declares it under.
     dimension: String,
-    /// The value it must equal. Where the catalog declares an allowlist, only a declared value is
-    /// accepted.
-    value: String,
+    /// `in` or `not_in`.
+    op: String,
+    /// The dimension's value must be one of these (`in`) or none of these (`not_in`). At least
+    /// one, each a value the metric declares.
+    values: Vec<String>,
 }
 
 /// Why an arguments object is not a question.
@@ -213,7 +216,7 @@ fn query_of(args: AskArgs, clock: &impl sutura_runtime::relative_range::WallCloc
     let filters: Vec<RawFilter<'_>> = args
         .filters
         .iter()
-        .map(|filter| RawFilter::new(&filter.dimension, &filter.value))
+        .map(|filter| RawFilter::new(&filter.dimension, &filter.op, &filter.values))
         .collect();
     let last = args
         .range
@@ -478,7 +481,7 @@ mod tests {
     fn a_well_formed_question_becomes_a_query() {
         let query = parse(
             r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},
-                "dimensions":["region"],"filters":[{"dimension":"region","value":"north"}]}"#,
+                "dimensions":["region"],"filters":[{"dimension":"region","op":"in","values":["north"]}]}"#,
         )
         .expect("a well formed question is a query");
         assert_eq!(query.metric(), &MetricName::parse("revenue").expect("a name"));
@@ -519,13 +522,13 @@ mod tests {
         // the JSON parser is what produces the code point.
         let error = parse(
             r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},
-                "filters":[{"dimension":"region","value":"nor\u200Bth"}]}"#,
+                "filters":[{"dimension":"region","op":"in","values":["nor\u200Bth"]}]}"#,
         )
         .expect_err("a value a catalog could not declare is not a value");
         assert!(
             matches!(
                 error,
-                MalformedQuestion::Question(SharedMalformedQuestion::FilterValue { index: 0 })
+                MalformedQuestion::Question(SharedMalformedQuestion::FilterValue { index: 0, .. })
             ),
             "{error:?}"
         );

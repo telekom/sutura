@@ -187,26 +187,30 @@ pub(crate) fn measure_expression(measure: &PlanMeasure) -> Result<Expr, DataFusi
 /// bind a different value on one path than on the other.
 pub(crate) fn predicate(params: &[ParamValue], plan_predicate: &PlanPredicate) -> Result<Expr, DataFusionError> {
     let subject = column(plan_predicate.column());
-    let bound = match plan_predicate.param() {
-        None => None,
-        Some(index) => Some(literal(params.get(index).ok_or(DataFusionError::MissingParam {
+    let bound_at = |index: usize| -> Result<Expr, DataFusionError> {
+        Ok(literal(params.get(index).ok_or(DataFusionError::MissingParam {
             index,
             count: params.len(),
-        })?)),
+        })?))
     };
-    match (plan_predicate, bound) {
-        (&PlanPredicate::AtOrAfter { .. }, Some(value)) => Ok(subject.gt_eq(value)),
-        (&PlanPredicate::Before { .. }, Some(value)) => Ok(subject.lt(value)),
-        (&PlanPredicate::Equals { .. }, Some(value)) => Ok(subject.eq(value)),
-        (&PlanPredicate::NotEquals { .. }, Some(value)) => Ok(subject.not_eq(value)),
-        (&PlanPredicate::IsTrue { .. }, _) => Ok(subject.is_true()),
-        (&PlanPredicate::IsNotNull { .. }, _) => Ok(subject.is_not_null()),
-        // A comparing predicate whose parameter did not resolve. `param()` returns `Some` for
-        // exactly the four arms above, so this is the shape a change to that method would produce,
-        // and it is an error rather than a silently dropped comparison.
-        (_, None) => Err(DataFusionError::MissingParam {
-            index: usize::MAX,
-            count: params.len(),
-        }),
+    match *plan_predicate {
+        PlanPredicate::AtOrAfter { param, .. } => Ok(subject.gt_eq(bound_at(param)?)),
+        PlanPredicate::Before { param, .. } => Ok(subject.lt(bound_at(param)?)),
+        PlanPredicate::Equals { param, .. } => Ok(subject.eq(bound_at(param)?)),
+        PlanPredicate::NotEquals { param, .. } => Ok(subject.not_eq(bound_at(param)?)),
+        // `Expr::in_list`'s own `negated` flag, unlike `sutura_sql::generate`'s reason for wrapping
+        // the positive form in `NOT` instead: there is no dialect layer here to trust a second,
+        // unexercised flag on - this engine's `InList` operator takes `negated` as its own field
+        // and both arms below reach it the same way `is_true`/`is_not_null` reach their own node.
+        PlanPredicate::In { ref params, .. } => {
+            let values: Vec<Expr> = params.iter().map(|&index| bound_at(index)).collect::<Result<_, _>>()?;
+            Ok(subject.in_list(values, false))
+        }
+        PlanPredicate::NotIn { ref params, .. } => {
+            let values: Vec<Expr> = params.iter().map(|&index| bound_at(index)).collect::<Result<_, _>>()?;
+            Ok(subject.in_list(values, true))
+        }
+        PlanPredicate::IsTrue { .. } => Ok(subject.is_true()),
+        PlanPredicate::IsNotNull { .. } => Ok(subject.is_not_null()),
     }
 }

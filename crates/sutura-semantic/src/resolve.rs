@@ -38,17 +38,20 @@ pub(crate) struct ResolvedJoin<'a> {
     pub(crate) model: &'a Model,
 }
 
-/// A filter whose value the bundle has already accepted.
+/// A filter whose values the bundle has already accepted.
 ///
 /// **The one place a [`DimensionValue`](sutura_domain::catalog::DimensionValue) becomes a `String`,
-/// and it is the binding site.** A value is parsed text from here back to the wire; from here on it
-/// is a bind parameter, and `sutura_domain::warehouse::ParamValue` is the shape a value takes on
+/// and it is the binding site.** Each value is parsed text from here back to the wire; from here on
+/// it is a bind parameter, and `sutura_domain::warehouse::ParamValue` is the shape a value takes on
 /// its way to a data system - by which point the parsing has already happened. Converting here
 /// rather than carrying the newtype into the plan keeps the parse boundary where the check is and
 /// leaves the execution port speaking in the two things a data system binds: text and a date.
 pub(crate) struct ResolvedFilter<'a> {
     pub(crate) dimension: ResolvedDimension<'a>,
-    pub(crate) value: String,
+    pub(crate) op: sutura_domain::query::FilterOp,
+    /// At least one - `sutura_domain::query::FilterValues` guarantees it - and never re-checked
+    /// here.
+    pub(crate) values: Vec<String>,
 }
 
 /// A question whose every name resolved.
@@ -201,16 +204,21 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
             }
             .into());
         }
-        if !resolved.dimension.permits(filter.value()) {
-            return Err(RefusalReason::DimensionValueNotAllowed {
-                metric: metric.name().clone(),
-                dimension: filter.dimension().clone(),
+        // Every value, not just the first: an `In`/`NotIn` set is one filter, and a value in it
+        // this bundle does not declare is the same refusal a single equality's value gets.
+        for value in filter.values().iter() {
+            if !resolved.dimension.permits(value) {
+                return Err(RefusalReason::DimensionValueNotAllowed {
+                    metric: metric.name().clone(),
+                    dimension: filter.dimension().clone(),
+                }
+                .into());
             }
-            .into());
         }
         filters.push(ResolvedFilter {
             dimension: resolved,
-            value: String::from(filter.value().as_str()),
+            op: filter.op(),
+            values: filter.values().iter().map(|value| String::from(value.as_str())).collect(),
         });
     }
 

@@ -282,7 +282,7 @@ fn notes(definitions: &Definitions, declares: KnowledgeCapabilities) -> Knowledg
                 Grain::Month,
                 range,
                 vec![dimension_name("region")],
-                vec![Filter::new(dimension_name("region"), declared_value("north"))],
+                vec![Filter::equals(dimension_name("region"), declared_value("north"))],
             ),
             note_body(EXAMPLE_BODY),
         )]
@@ -708,8 +708,8 @@ fn a_worked_question_renders_the_request_a_caller_would_send() {
     // rather than where it breaks.
     assert!(
         flatten(&text).contains(
-            "- Send: metric `revenue`, grain `month`, period `2026-06-01` to `2026-07-01`, grouped by `region`, `region` = \
-             `north`"
+            "- Send: metric `revenue`, grain `month`, period `2026-06-01` to `2026-07-01`, grouped by `region`, `region` in \
+             (`north`)"
         ),
         "the request is not rendered as the fields a caller sends: {text}"
     );

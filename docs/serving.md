@@ -537,7 +537,7 @@ three, so a caller is told the same thing whether it reads the status, the code 
   "outcome": "answer",
   "provenance": {
     "definition_version": "local-1",
-    "definition_digest": "73e20e0dd80199d97431ec9ff9543afc520b334e39fe06b9b3b5cd1da3b81f76"
+    "definition_digest": "1d4cbfb7e0d433de545754f5be693c61d43729952a5d5842cb6f8b952d76506f"
   },
   "columns": ["period", "recurring_revenue"],
   "rows": [

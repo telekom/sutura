@@ -165,7 +165,9 @@ async fn asking_outside_what_the_catalog_permits_is_a_403() {
 
     let (status, code, detail) = refusal(
         &app,
-        &format!(r#"{{"metric":"revenue","grain":"month",{range},"filters":[{{"dimension":"region","value":"east"}}]}}"#),
+        &format!(
+            r#"{{"metric":"revenue","grain":"month",{range},"filters":[{{"dimension":"region","op":"in","values":["east"]}}]}}"#
+        ),
     )
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);

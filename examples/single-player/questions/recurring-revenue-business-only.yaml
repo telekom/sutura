@@ -6,4 +6,5 @@ range:
 dimensions: [region]
 filters:
   - dimension: segment
-    value: business
+    op: in
+    values: [business]

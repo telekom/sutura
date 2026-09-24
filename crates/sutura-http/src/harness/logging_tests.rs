@@ -130,7 +130,7 @@ fn a_filter_value_never_reaches_the_log() {
     const SENTINEL: &str = "SENTINEL-MUST-NOT-BE-LOGGED";
     let app = app(settings(Environment::Development, ""));
     let question = format!(
-        r#"{{"metric":"revenue","grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},"filters":[{{"dimension":"region","value":"{SENTINEL}"}}]}}"#
+        r#"{{"metric":"revenue","grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},"filters":[{{"dimension":"region","op":"in","values":["{SENTINEL}"]}}]}}"#
     );
     for format in [sutura_config::LogFormat::Bunyan, sutura_config::LogFormat::Pretty] {
         let (status, body, rendered) = captured(format, &app, request("POST", "/v1/query", None, Body::from(question.clone())));
