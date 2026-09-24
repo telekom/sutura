@@ -61,6 +61,12 @@ const DOCUMENT_EXTENSIONS: &[&str] = &["yaml", "yml"];
 
 /// The most documents a catalog root may hold - a startup bound, walk refused as soon as it crosses.
 const MAX_CATALOG_DOCUMENTS: usize = 1_000;
+/// The most bytes a catalog root's documents may sum to - a startup bound, checked from each
+/// file's metadata before it is read into memory, so the document that crosses it is refused
+/// rather than allocated. Mirrors `sutura-catalog-local`'s `MAX_CATALOG_BYTES` for the same
+/// reason that crate has one: a served catalog directory is operator-mounted, and an unbounded
+/// aggregate read is a startup cost nobody asked to pay.
+const MAX_CATALOG_BYTES: u64 = 16 * 1024 * 1024;
 
 /// The two halves of a bundle's content, read and checked but not yet pinned.
 type Content = (Definitions, Knowledge);
@@ -216,7 +222,27 @@ impl OkfCatalog {
     /// Reads every descriptor and assembles the bundle.
     fn read_all(&self) -> Result<Content, OkfCatalogError> {
         let mut models = Vec::new();
+        // Checked from each file's own metadata, before it is read to a `String` - so the file
+        // that crosses the aggregate bound is refused rather than allocated. A `stat` is the cost
+        // of this check; reading the file whole to measure it first would be the cost this check
+        // exists to avoid. Same mechanism `sutura-catalog-local`'s `read_all` holds.
+        let mut total_bytes: u64 = 0;
         for path in self.documents()? {
+            let size = std::fs::metadata(&path)
+                .map_err(|cause| OkfCatalogError::Io {
+                    path: path.clone(),
+                    cause,
+                })?
+                .len();
+            total_bytes = total_bytes.saturating_add(size);
+            if total_bytes > MAX_CATALOG_BYTES {
+                return Err(OkfCatalogError::TooLarge {
+                    path: self.root.clone(),
+                    document: path,
+                    found: total_bytes,
+                    limit: MAX_CATALOG_BYTES,
+                });
+            }
             let text = std::fs::read_to_string(&path).map_err(|cause| OkfCatalogError::Io {
                 path: path.clone(),
                 cause,
@@ -291,6 +317,20 @@ pub enum OkfCatalogError {
     Empty { path: PathBuf },
     #[error("the catalog at {path} holds more than {limit} documents ({found} found before the walk stopped)")]
     TooManyDocuments { path: PathBuf, found: usize, limit: usize },
+    /// The documents read so far sum to more bytes than `MAX_CATALOG_BYTES` permits.
+    ///
+    /// `path` is the catalog root, matching `TooManyDocuments` and `Empty` above - the rendered
+    /// text names "the catalog", so the path in it has to be the catalog's, not one file's.
+    /// `document` is the one whose metadata pushed the running total over `limit` - checked from
+    /// its own size and INCLUDING it, before it is read into memory, not after. `found` is that
+    /// running total.
+    #[error("the catalog at {path} holds more than {limit} bytes of documents (the read stopped at {document}, {found} found)")]
+    TooLarge {
+        path: PathBuf,
+        document: PathBuf,
+        found: u64,
+        limit: u64,
+    },
     #[error("the definitions could not be hashed")]
     Digest {
         #[source]

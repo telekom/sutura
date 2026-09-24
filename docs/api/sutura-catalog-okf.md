@@ -112,6 +112,13 @@ sends a reader to read all of them.
 - `UncheckableKnowledge`
 - `Empty`
 - `TooManyDocuments`
+- `TooLarge` - The documents read so far sum to more bytes than `MAX_CATALOG_BYTES` permits.
+
+  `path` is the catalog root, matching `TooManyDocuments` and `Empty` above - the rendered
+  text names "the catalog", so the path in it has to be the catalog's, not one file's.
+  `document` is the one whose metadata pushed the running total over `limit` - checked from
+  its own size and INCLUDING it, before it is read into memory, not after. `found` is that
+  running total.
 - `Digest`
 
 ### Implements

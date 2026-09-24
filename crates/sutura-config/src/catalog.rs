@@ -23,7 +23,7 @@ use sutura_domain::pinned::DefinitionVersion;
 /// Five variants. [`Self::Datahub`] says which and why, the way `SourceKind::BigQuery` does for
 /// data systems: the vocabulary is the vocabulary of adapters this repository has, and an adapter
 /// that exists in a record rather than in a linked crate is still a word an operator might write.
-/// `#970` added the three declaring adapters that had a crate and no composition root:
+/// `#970` added the three declaring adapters that had a crate and no composition root.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CatalogKind {
     /// A directory of markdown documents with YAML frontmatter, read by `sutura-catalog-local`.
@@ -42,8 +42,9 @@ pub enum CatalogKind {
     /// A directory of OKF Frictionless Table Schema descriptors, read by `sutura-catalog-okf`.
     ///
     /// The narrowest of the three declaring adapters `#970` names, and the only one whose reader
-    /// needs no service: one YAML document per table, on disk, like [`Self::Markdown`]. Openable
-    /// behind `sutura-cli`'s default-off `okf` feature.
+    /// needs no service: one YAML document per table, on disk, like [`Self::Markdown`].
+    /// `sutura-catalog-okf` is an unconditional dependency of `sutura serve`, so this kind is
+    /// openable by every build of this binary.
     Okf,
     /// An `OpenMetadata` deployment, decided by `sutura-catalog-openmetadata` over its own
     /// `SnapshotReader` port.

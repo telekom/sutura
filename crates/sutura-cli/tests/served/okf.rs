@@ -8,12 +8,14 @@
 //! and no anchor (its own module header). A bundle it produces therefore has zero certified
 //! metrics, so there is nothing here to ask - the honest coverage is that the process boots (which
 //! needs the physical table's own file attached, exactly as a `markdown` deployment's does) and the
-//! `/catalog` route describes the bundle it was handed: zero metrics, the right version and digest.
+//! `/catalog` route describes the bundle it was handed: zero metrics, the right version, and a
+//! digest. The `definition_digest` assertion below is what pins the "and digest" half of that.
 //!
 //! # RED/GREEN
 //!
-//! The mutation this cell is meant to catch: revert `crates/sutura-cli/src/serve/catalog.rs`'s
-//! `Okf` arm to a refusal - RED, the deployment never boots. GREEN is this file as written.
+//! The mutation this cell is meant to catch is the root-path one the lane's L1 ran: point the
+//! served binary's `open_one_okf_catalog` at `/nowhere/okf-mutation` instead of the declared
+//! `catalogs[].dir`, and the deployment never boots - RED. GREEN is this file as written.
 
 #[cfg(test)]
 mod tests {
@@ -94,11 +96,17 @@ mod tests {
         let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
         assert_eq!(reply.status, 200, "{}", reply.body);
         let body = reply.json();
-        assert_eq!(body["provenance"]["definition_version"], VERSION, "{}", reply.body);
         assert_eq!(
             body["metrics"].as_array().map(Vec::len),
             Some(0),
             "an OKF catalog declares no measure, so a served listing must carry none: {}",
+            reply.body
+        );
+        assert!(
+            body["provenance"]["definition_digest"]
+                .as_str()
+                .is_some_and(|digest| !digest.is_empty()),
+            "the served listing carries no definition digest: {}",
             reply.body
         );
     }

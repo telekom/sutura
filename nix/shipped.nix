@@ -135,7 +135,7 @@ let
       # THE COMPLETE optional feature list, for `allFeaturesProbes` below - `github.com/telekom/
       # sutura#685` step 1's fat-LTO probe, one build with every feature on rather than one per
       # feature.
-      allFeatures = [ "bigquery" "postgres" "tls" "datahub" "okf" "agent" ];
+      allFeatures = [ "bigquery" "postgres" "tls" "datahub" "agent" ];
       # WHAT THE SHIPPED BUILD ACTUALLY LINKS - `github.com/telekom/sutura#685` step 5,
       # `docs/adr/0017`'s Fifteenth amendment implemented. Read by `nativeFor`/`crossFor` below for
       # every release and release-performance build of this binary, native and cross; the `-ci`
@@ -148,7 +148,7 @@ let
       # binaries). The two lists are meant to agree; a future feature added to one and not the
       # other is a diff a reviewer sees here, not a silent gap - same shape `probeFeatures` and
       # `allFeatures` already accept for the same reason.
-      features = [ "bigquery" "postgres" "tls" "datahub" "okf" "agent" ];
+      features = [ "bigquery" "postgres" "tls" "datahub" "agent" ];
       # This binary legitimately links `polyglot-sql`, for `compile` - `sutura-sql` is a normal
       # dependency of `sutura-cli` and the generator is what renders the statement that
       # subcommand prints. Nothing extra to forbid here beyond the shared list below.

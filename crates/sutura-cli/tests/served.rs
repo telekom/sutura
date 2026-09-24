@@ -82,11 +82,9 @@ mod datahub;
 
 // `catalog.kind: okf`, served: `#970`'s served-binary "boots and lists" cell - see
 // `served/okf.rs`'s module header. `#[cfg(test)]` for the same `allow-expect-in-tests` reason
-// `datahub` above carries one; `#[cfg(feature = "okf")]` is on the DECLARATION so a build
-// without the feature does not even parse a file that names a crate it did not link.
+// `datahub` above carries one.
 #[cfg(unix)]
 #[cfg(test)]
-#[cfg(feature = "okf")]
 #[path = "served/okf.rs"]
 mod okf;
 

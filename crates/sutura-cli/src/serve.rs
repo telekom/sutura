@@ -722,7 +722,6 @@ where
             ) as Serving
         })
         .map_err(flatten),
-        #[cfg(feature = "okf")]
         catalog::OpenedCatalogs::Okf(catalogs) => LocalService::start_composed(
             catalogs,
             engines,
