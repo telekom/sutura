@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Exercise the real API-doc gate with fake Cargo and renderer process boundaries.
 
 // The fixture tree is a [`scratch_tree::Tree`] - the sweep-before-create and the `Drop` sweep the

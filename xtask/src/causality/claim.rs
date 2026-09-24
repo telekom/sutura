@@ -69,23 +69,26 @@
 //! `Default::default()` - is held by review, not by the gate; the gate holds only that the chosen
 //! mutation kills by the cell's own assertion, which is what keeps an accepted arm from looking
 //! like coverage a reviewer did not read. The witness discipline is `super::base::PerTestResults`'s:
-//! [`classify_mutation`] is pure and under test, and the killed verdict is minted only from a
+//! [`kill::classify_mutation`] is pure and under test, and the killed verdict is minted only from a
 //! classified output that NAMES the cell, never from a subprocess's `Ok`.
 
 use std::collections::BTreeSet;
-use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::Verdict;
-use crate::causality::base;
 use crate::causality::diff::{self, ChangedFile};
 use crate::causality::names::Ident;
 use crate::causality::place::AddedTest;
-use crate::causality::regions::{PostImage, TestScope, cfg_test_regions as test_regions, item_end, scope as test_scope};
+use crate::causality::regions::{PostImage, TestScope, cfg_test_regions as test_regions, scope as test_scope};
 use crate::causality::runner::{Tree, cargo_test};
-use crate::causality::scoped::{Scoped, function_name};
+use crate::causality::scoped::Scoped;
 use crate::causality::worktree;
+
+mod kill;
+use kill::attest;
+#[cfg(test)]
+use kill::{MutationKill, classify_mutation};
 
 /// The repository-relative directory every committed mutation patch lives in.
 pub(super) const MUTATIONS_DIR: &str = "devco/claim-mutations";
@@ -247,161 +250,6 @@ impl Cause {
     }
 }
 
-/// Why a mutated run did or did not kill its cell.
-///
-/// The verdict's whole mechanism, reads the PANIC SITE, not the patched set. A patch whose only
-/// change is `panic!` / `unwrap()` on `None` at the top of a reached function kills ANY cell that
-/// reaches it - it proves reachability, not that the cell's assertion discriminates, which is the
-/// "looks like coverage" test AGENTS.md refuses. So a run is a KILL only when nextest's
-/// `panicked at <path>:<line>` lands in the cell's OWN file, inside the cell's OWN test fn
-/// ([`test_fn_region`], located by the fn's name on the post-image, never by a line number): a
-/// genuine assertion-fail panics at the assert's own line in the cell's test code, and every
-/// other death - `process::exit`/`abort`/signal (no site), a panic in a production file (a
-/// downstream `.expect()` in ordinary careless mutation), a panic inside ANOTHER file's test
-/// region (a shared `tests/common` helper) - carries no site in the cell's own fn and is refused.
-#[derive(Debug, PartialEq, Eq)]
-pub(super) enum MutationKill {
-    /// The run reported `cell` failing, and a `panicked at` site landed in the cell's own file,
-    /// inside the cell's own test fn - the assertion the cell carries discriminated.
-    Killed,
-    /// The run did not REPORT `cell` failing - a different test, a green run, or a failed compile.
-    NotAsserted,
-    /// The run reports `cell` failing but no `panicked at` site lands in the cell's own test fn -
-    /// the cell died some other way. `site` is the first `panicked at <path>:<line>` the run
-    /// carried, empty when there was none.
-    NotByAssertion { site: String },
-}
-
-/// Did the run REPORT `cell` failing by its own assertion?
-///
-/// Pure, and the verdict's whole mechanism: a mutation "kills" a cell exactly when a run of that
-/// cell, with the mutation applied, fails, names that cell, AND carries a `panicked at <path>:<line>`
-/// in the cell's OWN file inside the cell's OWN test fn ([`test_fn_region`]) - only an assertion
-/// fail panics there. A panic inside production (patched or not) proves reachability and not the
-/// assertion; a panic inside ANOTHER file's test region (a shared `tests/common` helper) proves
-/// nothing about this cell's assertion either; an exit/abort/signal death or a FAIL with no site
-/// proves nothing about the assertion either. The naming goes through the SAME key the base run
-/// uses ([`super::base::failures`] + [`super::base::is_scoped`] + [`AddedTest::claims`]), so a
-/// mutation that reddened a DIFFERENT test reads as *does not kill* rather than as evidence. A
-/// run that compiled and passed names no failure; a run that failed to compile names none either -
-/// neither kills.
-///
-/// `read` supplies each panic site's file ([`AddedTest::file`]) and its content so the cell's own
-/// test fn can be located on the POST-image - a parameter rather than a filesystem call, so the
-/// classifier is testable without a checkout, exactly as the region reader itself is.
-pub(super) fn classify_mutation(text: &str, cell: &AddedTest, read: &PostImage<'_>) -> MutationKill {
-    let named = base::failures(text)
-        .iter()
-        .any(|failure| base::is_scoped(failure, std::slice::from_ref(cell)));
-    if !named {
-        return MutationKill::NotAsserted;
-    }
-    let sites = panic_sites(text);
-    if sites
-        .iter()
-        .any(|(path, line)| is_cells_own_assertion(cell, path, *line, read))
-    {
-        MutationKill::Killed
-    } else {
-        MutationKill::NotByAssertion {
-            site: sites.first().map(|(path, line)| format!("{path}:{line}")).unwrap_or_default(),
-        }
-    }
-}
-
-/// Is `site` at `line` in `path` the cell's OWN assertion - `path` is the cell's OWN file and the
-/// line sits inside that file's own test fn, located by the fn's name on the post-image?
-///
-/// One comparison more than "any test region": the cell's `AddedTest` carries its file
-/// ([`AddedTest::file`]), so a panic inside a SHARED helper's test region in another file - or in
-/// a sibling test fn of the same module - is refused rather than read as this cell's kill.
-fn is_cells_own_assertion(cell: &AddedTest, path: &str, line: usize, read: &PostImage<'_>) -> bool {
-    if path != cell.file() {
-        return false;
-    }
-    let Some(text) = read(path) else {
-        return false;
-    };
-    let scope = test_scope(path, read);
-    test_fn_region(&text, cell.name(), &scope).is_some_and(|region| region.contains(&line))
-}
-
-/// The lines of every `#[cfg(test)]` region in `text`, concatenated in file order.
-///
-/// CONTENT-DERIVED: the regions are re-found on whatever image is handed here, so a line-shift
-/// above them (a deletion-only production hunk) does not change the answer, while a byte change
-/// inside one does. `""` for a file with no `#[cfg(test)]` region. This is the TEXT rule's
-/// comparison key: `claim` compares it for a touched file at HEAD and after the patch and refuses
-/// on any difference, which is how a deletion-only hunk above `#[cfg(test)]` stops being an
-/// exploit - the shifted post-image region is still found and compared by its bytes, never by a
-/// line number from the other image.
-fn test_region_text(text: &str) -> String {
-    let lines: Vec<&str> = text.lines().collect();
-    let mut out = String::new();
-    // `test_regions` yields 1-BASED, half-open ranges (`#[cfg(test)]` lines as a person numbers
-    // them); `lines` is 0-based, so each side is shifted down by one for the slice.
-    for region in test_regions(text) {
-        if let Some(slice) = lines.get(region.start.saturating_sub(1)..region.end.saturating_sub(1)) {
-            for &line in slice {
-                out.push_str(line);
-                out.push('\n');
-            }
-        }
-    }
-    out
-}
-
-/// The 1-based, half-open line span of the test item `fn <name>`, located by CONTENT, not by a
-/// line number carried from another image.
-///
-/// `scope` says what counts as test code for `text`: for a dedicated test target
-/// ([`TestScope::WholeFile`]) the whole file is searched; for a mixed file the search stays
-/// inside the `#[cfg(test)]` regions. The fn's own braces are walked from its `fn <name>` line,
-/// so a real assertion panic - which fires at a line inside its own fn - is covered, and anything
-/// outside that fn (a sibling test's line, a production caller) is not. This is what keeps the
-/// kill an assertion kill and immune to line-shifts in the same patch.
-fn test_fn_region(text: &str, name: &str, scope: &TestScope) -> Option<Range<usize>> {
-    let lines: Vec<&str> = text.lines().collect();
-    for (index, line) in lines.iter().enumerate() {
-        if !scope.covers(index + 1) {
-            continue;
-        }
-        if !fn_line_is(line, name) {
-            continue;
-        }
-        let last = item_end(&lines, index);
-        return Some(index + 1..last + 2);
-    }
-    None
-}
-
-/// Is `line` a `fn <name>(` declaration - `async fn`, `pub fn`, `pub(crate) async fn`, any
-/// visibility or `async` in front, included?
-///
-/// Reuses [`super::scoped::function_name`] rather than a second bare-`fn` parser: that extractor
-/// already carries the shapes a test's signature actually takes (#347), and a matcher here that
-/// only recognised bare `fn` never located `async fn`/`pub fn` cells - `test_fn_region` returned
-/// `None` for every one and a real assertion kill read `NotByAssertion` (both #761 cells are
-/// `#[tokio::test] async fn`). Fail-closed in the direction it broke: never a false `Killed`, only
-/// a real kill going unrecognised.
-fn fn_line_is(line: &str, name: &str) -> bool {
-    function_name(line).is_some_and(|ident| ident.as_str() == name)
-}
-
-/// The `(path, line)` of every `panicked at <path>:<line>:` site nextest printed, for panics inside
-/// a test's stack.
-fn panic_sites(text: &str) -> Vec<(String, usize)> {
-    text.lines()
-        .filter_map(|line| {
-            let rest = line.split_once(" panicked at ")?.1;
-            let mut parts = rest.split(':');
-            let path = parts.next()?.to_owned();
-            let line: usize = parts.next()?.trim().parse().ok()?;
-            Some((path, line))
-        })
-        .collect()
-}
-
 /// The patch file a declared cell's mutation lives at, under `dir` (the HEAD worktree the arm
 /// reads it from).
 fn mutation_path(dir: &Path, cell: &str) -> PathBuf {
@@ -507,9 +355,34 @@ fn created_paths(patch_text: &str) -> Vec<String> {
     out
 }
 
+/// The lines of every `#[cfg(test)]` region in `text`, concatenated in file order.
+///
+/// CONTENT-DERIVED: the regions are re-found on whatever image is handed here, so a line-shift
+/// above them (a deletion-only production hunk) does not change the answer, while a byte change
+/// inside one does. `""` for a file with no `#[cfg(test)]` region. This is the TEXT rule's
+/// comparison key: `claim` compares it for a touched file at HEAD and after the patch and refuses
+/// on any difference, which is how a deletion-only hunk above `#[cfg(test)]` stops being an
+/// exploit - the shifted post-image region is still found and compared by its bytes, never by a
+/// line number from the other image.
+fn test_region_text(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = String::new();
+    // `test_regions` yields 1-BASED, half-open ranges (`#[cfg(test)]` lines as a person numbers
+    // them); `lines` is 0-based, so each side is shifted down by one for the slice.
+    for region in test_regions(text) {
+        if let Some(slice) = lines.get(region.start.saturating_sub(1)..region.end.saturating_sub(1)) {
+            for &line in slice {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+    }
+    out
+}
+
 /// The test-region text of `path` as `read` sees it, or `None` when `read` has no such file.
 ///
-/// The regions are re-found by CONTENT on the image handed in ([[`test_region_text`]]), never by
+/// The regions are re-found by CONTENT on the image handed in ([`test_region_text`]), never by
 /// a line number carried from another image - that is what makes the TEXT rule shift-proof.
 fn region_text_of(path: &str, read: &PostImage<'_>) -> Option<String> {
     read(path).map(|text| test_region_text(&text))
@@ -753,36 +626,6 @@ fn kill_cell(wt: &Path, target: &Path, scoped: &Scoped, cell: &str) -> Result<()
         });
     }
     verdict
-}
-
-/// The claim arm's own verdict on a mutated run - [`classify_mutation`]'s answer, gated by
-/// whether the run ever reached a test at all.
-///
-/// `classify_mutation` cannot tell "the cell ran and stayed green" from "the tree never compiled
-/// enough to run it" - by design, both leave it naming no failure for the cell, and its own tests
-/// pin that (`a_run_that_names_no_failure_is_not_a_kill` covers a compile error explicitly).
-/// Folding a build failure into `Cause::NotKilled` there would report *the mutation does not kill
-/// it* about a build the gate never attested to at all - measured on `#855`, where the CI venue's
-/// own contention made this the leading hypothesis for a DIFFERENT wrong verdict that turned out
-/// to have a different cause; this guard is shipped regardless, because a nested build failing for
-/// an unrelated reason is a real, separate way to reach the same false verdict. `ok` and `text` are
-/// exactly what [`cargo_test`] returns, so this is pure over its result and testable without a
-/// subprocess.
-fn attest(ok: bool, text: &str, cell: &str, added: &AddedTest, read: &PostImage<'_>) -> Result<(), Cause> {
-    if !ok && let Some(why) = base::could_not_attest(text) {
-        return Err(Cause::BuildFailed {
-            cell: cell.to_owned(),
-            why: why.to_owned(),
-        });
-    }
-    match classify_mutation(text, added, read) {
-        MutationKill::Killed => Ok(()),
-        MutationKill::NotAsserted => Err(Cause::NotKilled { cell: cell.to_owned() }),
-        MutationKill::NotByAssertion { site } => Err(Cause::NotByAssertion {
-            cell: cell.to_owned(),
-            site,
-        }),
-    }
 }
 
 /// Restore the files a mutation patch touched back to HEAD.

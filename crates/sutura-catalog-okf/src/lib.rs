@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! A [`SemanticCatalog`] over a directory of OKF Frictionless Table Schema descriptors.
 //!
 //! One YAML file per physical table, each a [Table Schema](https://specs.frictionlessdata.io/table-schema/)

@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The chart gate is ONE check reached three ways, and the three have to name the same one.
 //!
 //! `github.com/telekom/sutura#149`'s remaining half. `checks.helm-chart` (`nix/helm-chart.nix`)

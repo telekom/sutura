@@ -48,8 +48,9 @@ use sutura_dev::provisioned::{self, Provisioned};
 use sutura_domain::model::TableName;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::query::Query;
+use sutura_domain::warehouse::ResultBatches;
 use sutura_domain::warehouse::Warehouse;
-use sutura_exec_bigquery::transport::{DatasetAddress, DryRunEstimate, HeldTables, JobRequest, JobRows, JobTransport};
+use sutura_exec_bigquery::transport::{DatasetAddress, DryRunEstimate, HeldTables, JobRequest, JobTransport};
 use sutura_exec_postgres::fixture::FixtureCredential;
 
 /// The version the goldens are pinned under.
@@ -465,7 +466,7 @@ pub(crate) struct NoLocalTier;
 impl JobTransport for NoLocalTier {
     type Error = NeverAsked;
 
-    fn run(&self, _request: &JobRequest<'_>) -> Result<JobRows, Self::Error> {
+    fn run(&self, _request: &JobRequest<'_>) -> Result<ResultBatches, Self::Error> {
         Err(NeverAsked)
     }
 

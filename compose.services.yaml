@@ -228,9 +228,12 @@ services:
   # `sutura_domain::identity::CredentialBroker` is a port with a static-credential implementor in
   # `sutura-config`, and `sutura_http::inbound` verifies a caller's own token against an issuer, an
   # audience and a pinned asymmetric algorithm. What that build still cannot do is the thing this tier
-  # would be for: **no adapter can carry a per-subject credential**, both declare so, and the broker
-  # mints what an operator configured - so there is no leg for two subjects to get different rows
-  # through, and a tier that issued two real tokens would prove nothing about rows. The refusal corpus
+  # would be for: **no adapter a published binary links can carry a per-subject credential**, both
+  # declare so, and the broker mints what an operator configured - so there is no leg for two
+  # subjects to get different rows through, and a tier that issued two real tokens would prove
+  # nothing about rows. The default-off `bigquery` feature builds an adapter that does carry one,
+  # and that does not change this decision: its row half needs a live pool and a live dataset, not
+  # a local issuer. The refusal corpus
   # already covers the port's shape with a fake, per the paragraphs above. It is also the slowest of the
   # three to become ready, and a tier that starts it on every pull request pays for it on every pull
   # request - the plan's own selective-service-CI section is DEFERRED precisely because this tier's

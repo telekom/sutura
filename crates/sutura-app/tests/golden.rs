@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The golden suite: one corpus of questions, expanded over every registered adapter.
 //!
 //! **The corpus is `examples/single-player`, outside this crate, and that is the arrangement rather

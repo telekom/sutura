@@ -2141,3 +2141,38 @@ two sentences naming it as a separate root are stale.
   `StaticCredentialBroker::from_registry` for a declared source; the "one declaration... in code" path
   survives only as the fallback for a source the tree does not declare. [0011's second amendment](0011-pluggable-by-declaration.md#second-amendment-the-second-composition-root-reads-the-tree-too)
   is the record of that change; this row is corrected to point there rather than restate it.
+
+## Second amendment, 2026-09-20: the caller's assertion arrives with its expiry, because a broker now presents it
+
+Part 2 sketched a `Caller { subject, assertion }` and the field that landed was
+`RequestContext::with_assertion(chain, assertion)` - material and nothing about its lifetime. That
+was honest for both brokers that existed: `WorkloadIdentityBroker` **exchanged** the assertion and
+minted the lifetime of what came back, and `DeclaredPrincipalBroker` presented a service account's
+NAME, which does not age. Neither presented the caller's own document.
+
+`docs/adr/0018`'s sixth amendment made one that does. The BigQuery transport federates the asker's
+own assertion, so the leg is valid for exactly as long as that assertion is - and the broker was
+minting `Expiry::NothingExpires`, which makes `BoundToTheRequest::still_usable_at` a check that always
+answers yes. A review found it; a check that cannot fail is worse than no check, because a reader
+counts it.
+
+**What changed, and the shape is the mechanism:**
+
+- `RequestContext` holds `Option<(Secret, Expiry)>` as ONE field. Two `Option`s could disagree, and
+  *material with no expiry* is the disagreement that matters.
+- `with_assertion` takes the instant in seconds, **not an `Expiry`**. `Expiry::NothingExpires` is
+  therefore unrepresentable for an assertion rather than merely discouraged - a caller has no way to
+  write it. `exp` is in leg 1's `required_spec_claims`, so a verified caller always has one.
+- `VerifiedCaller` retains that `exp` instead of discarding it at the gate, and
+  `sutura_http::principal::of_verified` carries it through.
+- `DeclaredPrincipalBroker` folds `Expiry::earliest` over ONE ENTRY PER SOURCE: the assertion's
+  instant for a federated leg, `NothingExpires` for a shared one. A shared leg runs on a credential
+  the broker did not mint and which does not age with the caller, so a shared-only plan does not
+  inherit the caller's deadline; a plan reading one of each is bounded by the assertion, which is the
+  leg that actually stops working.
+
+**What this still is not**, and part 6 asked for it: a FLOOR. There is no *is there enough life left
+for what this query may take* refusal. What exists is the bound `still_usable_at` compares against,
+checked once before anything reaches an adapter - so an assertion valid at the start of a long answer
+and expired at the end is refused by the data system, not here. `Presented` carries no validity at
+all, so an adapter cannot make the check either.

@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The sutura binary.
 //!
 //! The composition root, and nothing else. Every command lives in [`commands`] and every adapter is
@@ -44,11 +45,12 @@
 // `libmimalloc-sys`' build script already picks when the feature is off. Turning the feature
 // on here would buy a slower fast path to solve a problem this artifact cannot have.
 //
-// NO `unsafe`, AND NO LINT ESCAPE. `#[global_allocator]` on a static is a safe attribute - the
-// `unsafe impl GlobalAlloc` lives inside the mimalloc crate - so this compiles as-is under the
-// workspace's `unsafe_code = "forbid"`. There is deliberately no change to the lint table and
-// no `#[expect(unsafe_code)]`: narrowing a `forbid` is E0453, so needing one would mean this
-// was written wrong.
+// NO `unsafe`, AND NO LINT ESCAPE HERE. `#[global_allocator]` on a static is a safe attribute -
+// the `unsafe impl GlobalAlloc` lives inside the mimalloc crate - so this compiles as-is under
+// this file's own `#![forbid(unsafe_code)]`, and no `#[expect(unsafe_code)]` is needed: narrowing
+// a `forbid` is E0453, so needing one would mean this was written wrong. The workspace level is
+// `deny` since `telekom/sutura#929`'s sixth finding, which is why every root re-asserts the
+// `forbid` and `cargo xtask check-unsafe` holds that they do.
 #[cfg(target_os = "linux")]
 #[global_allocator]
 static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -81,6 +83,12 @@ const ALLOCATOR_NAME: &str = if cfg!(target_os = "linux") {
 // says why the causality gate needs the proof and the fix in two files.
 #[cfg(test)]
 mod audit;
+/// Which BigQuery ADBC driver this process opens - one decision, three callers.
+///
+/// Behind the feature, because a build with no BigQuery adapter has no driver to decide about and
+/// `dead_code = "deny"` would say so.
+#[cfg(feature = "bigquery")]
+mod bigquery_driver;
 /// The ONE `ClickHouse` composition, reached by both composition roots below. Gated whole, like
 /// `serve::broker`: a build that links no `sutura-exec-clickhouse` has no adapter type to name.
 #[cfg(feature = "clickhouse")]
@@ -97,9 +105,10 @@ mod password_file;
 /// rotating trust bundle, where `sutura-tls::Rotator::poll_once` meets the tokio runtime.
 ///
 /// Behind the same features as every caller: only an adapter that links an outbound TLS stack has
-/// any material to rotate, so a default-features build (no `bigquery`/`postgres`/`datahub`) must not
-/// compile a `drive_rotation` no composition root calls.
-#[cfg(any(feature = "bigquery", feature = "postgres", feature = "datahub"))]
+/// any material to rotate, so a default-features build (no `postgres`/`datahub`) must not compile a
+/// `drive_rotation` no composition root calls. The removed BigQuery `wire`'s STS rotation used to be
+/// a third caller; only the postgres TLS and datahub reader rotators remain.
+#[cfg(any(feature = "postgres", feature = "datahub"))]
 mod rotation;
 /// The HTTP surface's composition root - `sutura serve`. Its own module rather than flattened
 /// here: `github.com/telekom/sutura#685` step 2 folded the `sutura-serve` binary into this crate,
@@ -345,21 +354,78 @@ fn doctor() {
     // **A `cfg!` and not a probe, and it says what was LINKED rather than what is reachable.**
     // Since `github.com/telekom/sutura#685` step 5 the published artefact ships every optional
     // feature (`nix/shipped.nix`'s `features` field on the `sutura` entry), so this line reads
-    // `bigquery, over the wire` there too; a build with the feature off - most narrowly, a plain
+    // `bigquery, over ADBC` there too; a build with the feature off - most narrowly, a plain
     // `cargo build -p sutura-cli` with none passed - is the one that reads `none`. `sutura doctor`
     // is where somebody holding a binary finds out which they have. It is the command the release
     // workflow smoke-tests, which is why it is worth being exact here.
+    //
+    // **It said `over the wire` until this line changed, and that had stopped being true**: the HTTP
+    // transport was deleted and this string was not, so the one command a release smoke-tests named
+    // a transport the binary no longer contained. It still says nothing about whether the driver
+    // `.so` is present - `cfg!` cannot know - which is why the wording is the transport and not a
+    // readiness claim.
     println!(
         "  data systems : {}",
         if cfg!(feature = "bigquery") {
-            "bigquery, over the wire - declare `sources.<alias>.kind: bigquery`"
+            "bigquery, over ADBC - declare `sources.<alias>.kind: bigquery`"
         } else {
             "none - this build reads files, and pushes down to nothing"
         }
     );
+    // **THE LINE THAT EXECUTES SOMETHING, and it is the only verification of the native driver this
+    // repository can run without a project.** Every other statement above is a `cfg!` or a constant.
+    // This one loads `libadbc_driver_bigquery.so` through the driver manager, which runs the GO
+    // RUNTIME's initialisation inside this process - beside tokio, beside mimalloc, in the exact
+    // binary a release publishes. That coexistence is what the owner asked CI to verify by RUNNING
+    // rather than by linking, and it is why `just bigquery-driver-check` invokes this command.
+    //
+    // **It is the musl verification too, in the same line, and what that line now measures there is
+    // the opposite of what this comment used to claim.** It said `probe` CANNOT succeed on a static
+    // musl artefact, which was true while the only route was a mounted `.so`; `nix/shipped.nix`
+    // links the driver's `c-archive` into every published artefact, so such a binary reaches its
+    // driver through the link or not at all. Whether a Go runtime STARTS inside a statically linked
+    // binary is not something this command may assert either way - it is what
+    // `just bigquery-driver-check` executes it to find out, and a process that dies before reaching
+    // this line is that gate's report to make rather than a claim to leave here.
+    //
+    // Printed rather than exit-coded, because `doctor` reports and never refuses: the gate that
+    // decides is `just bigquery-driver-check`, which matches on this line. `cfg!` cannot know
+    // whether a driver is present, which is exactly the gap the previous version of this command
+    // left - it named a transport and said nothing about whether it could be reached.
+    println!("  bq driver    : {}", bigquery_driver_line());
     // Proves the redaction invariant holds in the shipped binary, not only under test.
     let probe = Secret::new("must-not-appear");
     println!("  redaction    : {probe:?}");
+}
+
+/// What `doctor` can find out about the ADBC driver, as one line.
+///
+/// Four outcomes and they mean four different things: the adapter is not linked at all; it is
+/// linked and this process found no driver to open; it found one and that driver either initialised
+/// or did not. The failure is rendered from the adapter's own typed error, so the line never invents
+/// wording for a condition the transport already names.
+///
+/// **It says WHICH driver, and `nix/bigquery-driver-check.sh` reads that half.** A release artefact
+/// carrying its own driver and a host mounting one are the same success sentence otherwise, and the
+/// claim that check exists to hold is about the artefact.
+#[cfg(feature = "bigquery")]
+fn bigquery_driver_line() -> String {
+    // A diagnostic names the COMMAND, not a declared source: nothing in a settings tree is wrong
+    // when `sutura doctor` finds no driver, and a refusal saying `sources.doctor` sent a reader to
+    // edit a key this command never reads.
+    match bigquery_driver::resolve("`sutura doctor`") {
+        Err(why) => format!("not configured - {why}"),
+        Ok(at) => match sutura_exec_bigquery::adbc::AdbcBigQuery::probe(&at) {
+            Ok(()) => format!("loaded and initialised, {at}"),
+            Err(cause) => format!("NOT usable: {at}: {cause}"),
+        },
+    }
+}
+
+/// The same line for a build that linked no adapter, so the release smoke test reads one shape.
+#[cfg(not(feature = "bigquery"))]
+fn bigquery_driver_line() -> String {
+    String::from("not linked - this build has no BigQuery adapter to load one for")
 }
 
 #[cfg(test)]

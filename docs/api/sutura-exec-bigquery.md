@@ -23,69 +23,83 @@ What it contains is everything this adapter DECIDES:
   declared;
 - the rendering, through `sutura-sql` in `Dialect::BigQuery`, so no second set of quoting and
   placeholder decisions exists here;
-- the refusal of a federated leg, because there is no combiner above it;
-- the value mapping, which is where a wrong number would come from;
+- one federated LEG, rendered through the same `sutura-sql` at the same dialect, which is what
+  makes two `BigQuery` sources federate with a per-subject credential at each
+  (`telekom/sutura#929`); the refusal this replaces is gone rather than relaxed - see
+  `BigQueryWarehouse::EXECUTES_LEGS`;
+- handing the driver's Arrow batches to the interior's own decode, which is where a wrong
+  number would come from and which is no longer this crate's code (`docs/adr/0039`);
 - the boot pre-flight, which asks each dataset once - not once per model - whether it holds the
   tables the bundle names, so a mistyped table name costs a boot refusal here as it already does
   on a `files` deployment rather than a failed answer for whoever asks first.
 
 **A limit of that mapping, stated because it decides what a time column on this source is:**
-`transport::FieldType` reads `DATE` and refuses `TIMESTAMP` and `DATETIME` - a timestamp arrives
-as epoch-seconds text the `Date` arm cannot parse, so either comes back `Unmapped` and fails the
-answer, which is the correct and loud outcome. A time column therefore has to be a `DATE` here.
+`sutura_domain::warehouse::arrow` maps `Date32` and refuses every timestamp type, so a
+`TIMESTAMP` or `DATETIME` column is refused NAMING its Arrow type and fails the answer - the
+correct and loud outcome. A time column therefore has to be a `DATE` here. The refusal moved
+there with the rest of the mapping (`docs/adr/0039`); it used to be this crate's own
+`FieldType::Unmapped` over a type NAME the deleted HTTP transport read out of a JSON schema.
 
-The **wire** - one `transport::JobTransport` that speaks to the endpoint - is `wire`, behind
-the default-off `wire` feature. `docs/adr/0018` is the decision that produced it and prices what
-it costs; the two reasons it was absent are answered rather than repealed:
+The **transport** - one `transport::JobTransport` that executes the statement - is `adbc`,
+behind the default-off `adbc` feature: it loads the self-built `libadbc_driver_bigquery.so`
+(`nix/bigquery-adbc.nix`), runs the query through the driver, and decodes the Arrow result. The
+driver owns the HTTP transport and its own authentication, so this crate ships no TLS stack and
+reads no credential file - the previous HTTP `wire` transport and its STS/credential machinery
+were removed when ADBC became this adapter's only mode.
 
-1. The dependency addition turned out to be **zero new packages in `Cargo.lock`**, measured:
-   `ureq` at the resolved version and features is already in the graph under `libduckdb-sys`. The
-   feature is default-off anyway, so which side of the build its TLS stack is compiled on stays a
-   decision a composition root makes in a manifest line.
-2. **Nothing in CI can verify it; a developer's own project now has.** On 2026-08-30 the three
-   `#[ignore]`d tests in `tests/acceptance.rs` passed against a real dataset under a
-   service-account key - the first statement this repository generated to be accepted by
-   `BigQuery`. **What that one is, exactly:** one hand-built `SUM` over a two-column
-   fixture, so it says nothing about a join, `COUNT(DISTINCT`, `CASE WHEN`, a `NULLIF` ratio or
-   `ISOWEEK` - and the last is one of the two constructs `docs/adr/0017` measured the parse check
-   to be blind about. **The corpus-wide leg is `tests/corpus.rs`**, behind the default-off
-   `fixtures` feature: it loads the example fixtures into four tables through
-   `BigQueryWarehouse::load_fixture`, runs the corpus questions, and compares its rows with the
-   engine's for the same plan. That is where the join, the ratio and `ISOWEEK` are reached.
-
-So nothing here may be cited as an invariant. `sutura serve` DOES link this adapter and dispatch
-`kind: bigquery` behind its default-off `bigquery` feature - `docs/adr/0017`'s second amendment
-records the day the last *not wired* was spent. A default build links none of it, and
-the `data_systems:` axis of the golden matrix gains no entry - because a cell in that registry
-runs inside `just test` and this one cannot: the nix sandbox has no network, so acceptance is a
-`nix run` app and not a `checks.*` output.
+So nothing here may be cited as a round-tripped invariant. `sutura serve` links this adapter and
+dispatches `kind: bigquery` behind its default-off `bigquery` feature, but the ADBC driver path is
+not yet a shipped artefact and no live acceptance leg against a real dataset is wired under it -
+the `wire`-era acceptance/corpus/differential legs went away with the transport. A default build
+links none of this.
 
 # Identity
 
-`BigQueryWarehouse::IMPERSONATION` is `PerSubjectCredential`, which is what makes a source
-executed as the asking subject representable here: the credential a broker mints for the asker is
-carried as a `Presented::SubjectToken` and sent as this job's bearer, so the dataset evaluates
-the statement under whoever that token is. The `wire`'s own credential source stays for the
-shared posture. Per-subject execution still needs a broker that mints a per-leg credential through
-a token exchange - this crate performs no exchange, it presents one - and that broker lives beside
-the composition root that links this adapter: `crates/sutura-cli/src/serve/broker.rs` composes
-`sts::WorkloadIdentityBroker` today - built, though the run that proved the exchange drove no
-served binary, so a served source has not executed as a caller yet
-(`docs/where-identity-is-proven.md`).
+`BigQueryWarehouse::IMPERSONATION` is `PerSubjectCredential`, and it is now true by
+construction rather than by this paragraph: the asking subject's **own verified assertion** is
+what the data system authenticates. `adbc` hands the driver a workload-identity credential
+document naming a loopback source for that assertion, so Google's token service verifies it
+against the pool the source declares and the question executes as whatever principal that pool
+resolves the subject to. `adbc`'s own `subject` module carries the mechanism and its exposure.
 
-**ONE of the two subject shapes, and the other is refused rather than degraded.** A
-`Presented::SubjectPrincipal` is a principal the data system switches to on a connection the
-DEPLOYMENT authenticated, and `BigQuery` has no such mechanism; it is the same POSTURE as a
-subject token, so `Presented::agrees_with` passes it
-and only this adapter can say it has nowhere to put it. `BigQueryError::NoPrincipalSwitch` is
-that refusal, and the reason it is a refusal is the reason the whole-shape `NoPlaceForASubject`
-it replaced existed: a leg accepted here would be submitted under the transport's own credential
-while provenance, read off this source's posture, reported the answer as impersonated.
+**Two modes, and they are XOR rather than a ladder.** A source declares one posture and gets one
+mechanism:
 
-**What no version of this is:** a deployment where a served source executes as its asker.
-`sutura serve` refuses an `impersonation-at-source` `bigquery` entry by name, because no broker
-that exchanges is attached to a served source yet - see `sutura-cli`'s
-`crates/sutura-cli/src/serve/bigquery.rs`, `build_bigquery`.
+| declared posture | mechanism | identity at the source |
+| --- | --- | --- |
+| `shared-service-user` | the deployment's own application default credentials, **mandatory** for this posture, impersonating nothing | the deployment |
+| `impersonation-at-source` | the subject's own assertion, federated against the declared pool | the asking subject |
+
+**What does not exist is a path from the second to the first**, and that is the whole point: an
+impersonating source whose subject cannot be federated is REFUSED
+(`adbc::identity::authenticate`'s third arm), never answered as the deployment. The reverse is
+refused one layer up, by `Presented::agrees_with`: a shared source handed a subject's
+credential is a posture disagreement before any transport sees it.
+
+**The mechanism this replaced is deleted rather than kept beside it.** For two rounds this
+adapter set the driver's `bigquery.impersonate.target_principal` from the DEPLOYMENT's own
+credentials - so the connection was the deployment's, the subject's credential was nowhere in
+the chain, and leg 1 was the only barrier. `docs/adr/0018`'s fifth amendment records it, and
+`JobIdentity` has no spelling for it: a principal switch is unrepresentable here, not refused at
+runtime.
+
+**So a `Presented::SubjectPrincipal` is refused.** It is the same POSTURE as an assertion to
+the domain, so `Presented::agrees_with` passes it and only this adapter can say it has no
+mechanism - `BigQueryError::NoPrincipalSwitch`. `GoogleSQL` has no proxy-user or `SET ROLE`
+equivalent either, so there is nothing to build it out of.
+
+**And because leg 1 still gates who may be federated at all, two of ITS limits bound this.**
+`sutura-http`'s inbound gate bounds a gateway assertion's replay *window* and binds nothing to a
+request (`within_the_lifetime_ceiling`'s own doc), so inside that window a captured assertion is
+replayable - and Google would accept it, because it is the caller's real document. And the
+signing-key age bound `KeySetCache::stale_for` measures excludes a failing refresh. Neither is
+this crate's to fix; both are cited here because *the limit belongs beside the claim*.
+
+**What is still unproven, and no green run here changes it:** nothing reachable from this
+repository shows Google ACCEPTING the assertion. The document is built and the loopback source
+is asserted against a real socket; the exchange needs a pool, a project and a hosted run.
+`docs/where-identity-is-proven.md` records that venue as `wired` and undispatched, so **leg 2 is
+not proven.**
 
 # Two things this adapter deliberately does not offer
 
@@ -121,66 +135,49 @@ an owned `#[source]`.
   **Unreachable in practice**: see `UnresolvableConnection`'s own documentation for why. A
   typed variant rather than a panic for the same reason every other "unreachable" case in
   this workspace is one - the input reaching it is not bounded by the type system alone.
-- `LegWithoutCombiner` - A federated leg arrived, and there is nothing above it to combine legs.
+- `NoPrincipalSwitch` - The leg presents a principal for the data system to switch to, and no transport here has a spelling for one.
 
-  **A refusal to execute rather than an execution**, worded as `sutura-exec-duckdb` words it: a
-  leg run with nothing above it returns rows at a finer grouping than the question asked for,
-  which is a wrong number under a certified name.
-- `NoPrincipalSwitch` - The leg presents a principal for the data system to switch to, and there is no such mechanism here.
+  **Reinstated, and the reason is the mechanism reversal rather than a revert.** For two rounds
+  this adapter delivered exactly that shape, through the driver's `target_principal` option and
+  the deployment's own application default credentials - so the connection was the
+  deployment's and the subject's credential was nowhere in the chain. The owner rejected it,
+  so `crate::transport::JobIdentity` carries one subject arm now and this refusal is what a
+  broker presenting the other one gets. Accepting it would submit the job under the
+  credential the transport already holds while provenance, read off this source's posture,
+  reported the answer as impersonated.
+- `NoImpersonationTarget` - A subject's own credential arrived with no account declared beside it.
 
-  **The narrow half of a refusal that used to be wholesale, and it has to stay refused.** This
-  adapter declares `PerSubjectCredential` and delivers exactly one of the two subject shapes: a
-  `SubjectToken` rides as this job's bearer, so the
-  dataset evaluates the statement under whoever the token is. `BigQuery` has no proxy-user or
-  `SET ROLE` equivalent for a `SubjectPrincipal`,
-  so a leg carrying one has no material to send - and
-  `agrees_with` passes it, because the two shapes are
-  the same POSTURE. Accepting
-  it would submit the job under the credential the transport already holds while provenance,
-  read off this source's posture, reported the answer as impersonated: every row as the
-  process, recorded as the asker.
+  **Refused rather than run as the pool principal, which is the half-configured state this
+  variant exists to keep off a dataset.** The credential document's
+  `service_account_impersonation_url` is what makes a declared account decide anything; with
+  no account there is nothing to name, and the alternative to refusing is a question that runs
+  as whatever principal the pool resolves the subject to while the deployment's `impersonate`
+  map says it runs as somebody specific. `telekom/sutura#929`'s review is explicit that a
+  security-critical setting must not be accepted and then ignored - and *silently widened* is
+  the same defect from the other side.
+
+  Reachable only from a broker that is not `DeclaredPrincipalBroker`: that one mints the
+  account off the map it parsed, so a served deployment refuses the declaration at boot
+  instead. `Presented` is a public port, so the refusal is typed rather than an
+  `unreachable!`.
 - `PresentedDisagreesWithPosture` - The leg's credential and this source's declared posture do not agree.
-- `UnmappedType` - A column came back as a type this adapter does not map.
+- `Unreadable` - A result column could not be read as a domain value.
 
-  It NAMES the type rather than answering null, which is the whole reason
-  `FieldType::Unmapped` carries the endpoint's own
-  spelling.
-- `NotAnInteger` - A cell declared `INT64` did not parse as one.
+  **This one variant replaces seven**, and `docs/adr/0039` is the record. The seven were an
+  unmapped type, an `INT64` that did not parse, a `FLOAT64` that did not parse, a `BOOL` that
+  was neither spelling, a non-finite double, a date that did not parse, and a row whose width
+  disagreed with the schema. Every one of them existed because the deleted HTTP wire transport
+  received each value as TEXT whatever its declared type was, so "declared an integer" and
+  "parses as an integer" were two separate facts this adapter had to check. The ADBC driver
+  hands back typed Arrow arrays, so there is no text to re-parse and no place for those four
+  parse failures to occur; what remains is the interior's own mapping and its errors.
 
-  **Two variants rather than one carrying a `&'static str`, because the CAUSE differs.** The
-  endpoint sends every value as text, so "declared an integer" and "parses as an integer" are
-  two facts, and the standard-library error that says why is worth keeping on the chain.
-- `NotADouble` - A cell declared `FLOAT64` did not parse as one.
-- `NotABool` - A cell declared `BOOL` was neither `true` nor `false`.
-
-  No `#[source]`: there is no parse behind it, because the check is a comparison against the two
-  spellings the endpoint documents. A variant with an invented cause would be worse than none.
-- `NotFinite` - A double came back non-finite.
-
-  **What this arm actually guards, on THIS target, is narrower than the two SQL adapters
-  agreeing.** In `GoogleSQL` the `/` operator raises on a zero divisor for every numeric type -
-  only `IEEE_DIVIDE` answers `inf`/`NaN` - so an unguarded zero-division ratio fails at the
-  service first, as `Self::Endpoint` with the same `503` as a dead data system. What reaches
-  this arm is a non-finite value STORED in a `FLOAT64` column, and the check keeps that stored
-  `Infinity` from answering a real under a certified metric name. It is `sutura-exec-duckdb`'s
-  same arm that gives `zero_denominator: fails` its meaning, because there the unguarded `/`
-  does answer `inf`; the sentence that credits this arm with the ratio case belongs to `DuckDB`.
-- `NotADate` - A cell declared as a date did not parse as one.
-- `RowWidth` - A row had more or fewer cells than the schema had columns.
-
-  Distinct from `Self::Shape`: this one is the ENDPOINT disagreeing with itself, caught before
-  a row is built, so the position of the offending row is reportable.
-- `Incomplete` - The endpoint delivered a page whose row count is not what it reported as total.
-
-  `jobs.query` answers one page at a time, and completeness is stated as `totalRows` beside the
-  rows - never by the rows alone. A first page, or an incomplete job's empty `rows`, would read
-  to `answer()` as *under the cap, not truncated*: a wrong number under a certified name, through
-  the exact row the row-cap invariant exists to hold. So a delivered count that does not equal the
-  reported total is refused here, at the seam, rather than certified.
+  The column is named one level down, on `UnreadableCell`, which is where every adapter now
+  names it.
 - `NoIdentityInTheAnswer` - The identity read came back as something other than one row of one text cell.
 
-  Its own variant rather than `Self::RowWidth` or `Self::Shape`, because what a caller does
-  about it is different: those two are a result set this adapter could not map, and this is
+  Its own variant rather than `Self::Unreadable`, because what a caller does about it is
+  different: that one is a result set this workspace could not map, and this is
   *the endpoint did not tell us who ran the job* - which for the one caller that asks
   (`BigQueryWarehouse::session_user`) is the whole
   answer rather than a cell of it.
@@ -188,7 +185,6 @@ an owned `#[source]`.
   **It carries the SHAPE and never the value**, deliberately. The one thing this answer can
   contain is an account identifier, and the venue that reads it writes to a public log - so a
   refusal that quoted what came back would be the disclosure the read exists to check for.
-- `Shape` - The result set could not be built.
 
 ### Implements
 
@@ -279,15 +275,38 @@ it is a path segment of the request that submits a job, and a federated identity
 of its own.
 
 ```rust
+pub const fn over_adbc(source: SourceName, posture: SourcePosture, billing_project: ProjectId, default_dataset: DatasetId, driver: adbc::DriverLocation, impersonation: adbc::Impersonation, max_bytes_billed: adbc::BytesBilledCeiling) -> Self
+```
+
+Opens a dataset over the ADBC transport.
+
+`driver` is where this process reaches the self-built driver: linked into a release
+artefact's own binary, or a `.so` a deployment mounted. `adbc::DriverLocation` carries why
+that is a parsed value and not a path, and `nix/bigquery-adbc.nix` builds both shapes from
+one pinned source.
+
+`impersonation` is whether this source impersonates and at what scope - the source's declared
+`workload_identity.scope`, or `adbc::Impersonation::Disabled` for a shared one. Taken here
+rather than read per request because it is a property of the source, and a declared scope the
+driver would refuse then fails before a listener is bound.
+
+`max_bytes_billed` is the source's own `sources.<alias>.max_bytes_billed`, already parsed:
+every job this transport submits carries it as `BigQuery`'s `maximumBytesBilled`, so the bound
+on bytes scanned is enforced by the service. `adbc::BytesBilledCeiling` states what it does
+NOT bound - it is per JOB, and `governance.per_replica_spend_ceiling` is a different key that
+this adapter still does not reach.
+
+```rust
 pub fn session_user(&self, presented: &Presented) -> Result<SessionUser, BigQueryError<<T as >::Error>>
 ```
 
 Who this data system says the leg presenting `presented` is executing AS.
 
 **The observable for the claim this adapter's `IMPERSONATION` constant makes.** A
-`Presented::SubjectToken` rides as this job's own bearer, so what the endpoint resolves
-that bearer to IS the identity the source executed under - and asking the source rather than
-asserting it is the difference between evidence and a comment. `docs/adr/0008` names
+`Presented::SubjectToken` becomes this job's own credential - the subject's assertion
+federated, then impersonating the account declared beside that subject - so what the
+endpoint resolves it to IS the identity the source executed under, and asking the source
+rather than asserting it is the difference between evidence and a comment. `docs/adr/0008` names
 `SESSION_USER()` as the primitive; `SESSION_USER` is the only statement this can issue.
 
 It goes through `Self::deliverable` like every other credential-taking method, so a leg
@@ -305,7 +324,7 @@ nothing that federates.
 # Errors
 
 `BigQueryError::Endpoint` where the endpoint did not answer,
-`BigQueryError::Incomplete` where the page and the reported total disagree, and
+`BigQueryError::Unreadable` where the one cell is not a text this workspace maps, and
 `BigQueryError::NoIdentityInTheAnswer` where the answer is not one row of one text cell.
 Nothing here quotes what came back: see that variant.
 
@@ -361,100 +380,364 @@ Named because `Result<usize, FixtureNotLoaded<T::Error>>` is over the `type_comp
 this workspace tightened, and for the reason `crate::Mapped` is named: the generic error is the
 point, and erasing it would lose which transport failed.
 
-## `use ImpersonateAsAccount`
+## `use DeclaredPrincipalBroker`
 
-The second hop, telekom/sutura#376's iamcredentials step: a federated access token in, a
-service-account access token out.
+Presents the asking subject's own verified assertion at a source that declares it, beside the
+account declared for that subject - and the operator's witness for a shared one.
 
-**A second port and not a second `StsExchange` method** - the two calls have different request
-and response shapes (RFC 8693 token exchange vs `{scope, lifetime}`) and different failure modes
-(STS `invalid_target` vs `iamcredentials`'s own `403` for "may not impersonate"). Everything this
-broker decides about WHEN to call it is exercised against a fake; the real HTTP call arrives at
-this port as `crate::wire::IamCredentialsOverHttp`, behind the same default-off `wire` feature
-`StsExchange`'s real implementor is.
+**The assertion AND the account, because either alone loses the property.** The assertion is
+what the caller possesses and what the pool verifies; the account is what a deployment declared
+this caller's questions should run as, and a broker that presented only the assertion ran every
+declared caller as one pool principal whatever the map said.
 
-## `use NoImpersonation`
+**Both maps, because one plan may read one of each and a broker is per answer rather than per
+source** - the reason `docs/adr/0008` part 4 gives for a broker being per answer at all.
 
-The impersonation port a broker holds when it was never wired to one.
+## `use DeclaredPrincipals`
 
-**The default for the same reason `SystemClock` is one for the clock parameter**: a composition
-root that never calls `WorkloadIdentityBroker::impersonating_via` gets a broker whose TYPE says
-the hop cannot run, rather than a value that happens never to be invoked. Every test and every
-existing call site that declares no `impersonate` entry at all never reaches
-`ImpersonateAsAccount::impersonate` - `WorkloadIdentity::target_for` answers `None` for every
-subject, so `mint` never calls it.
+The subjects one source may be asked as, and the account each of them resolves to.
 
-**A composition root can still reach it by mistake**, declaring a source's `impersonate` map
-without ever calling `WorkloadIdentityBroker::impersonating_via` - the type system does not
-forbid attaching an `I` and a per-source map independently, since `WorkloadIdentityBroker::impersonating`
-(the per-source declaration) takes no `I` at all. So this is a REFUSAL, not an
-invariant asserted with `unreachable!`: a caller whose subject resolves a target here is told the
-composition is wrong, the same way `ExchangeUnusable::Provider` tells it about any other
-provider defect, rather than the process panicking on a request nobody malformed.
+**A parsed type and not a bare map, because the empty map is the interesting value.** An
+impersonating source with no declared subject can serve nobody: every request would be refused,
+while the boot log said the source opened. That is the exact defect this whole change exists to
+remove, so the emptiness is refused at the boundary that can turn it into a startup failure
+rather than documented at the one that cannot.
 
-## `use StsCredential`
+## `use DeclaredPrincipalsUnusable`
 
-One exchanged credential: a Google access token and the instant it stops being usable.
+A defect in this broker itself, which no configuration reaches.
 
-The deadline is carried beside the token - the whole point of `docs/adr/0008`'s
-`Expiry` - so a broker can compute one deadline for the whole
-answer and nothing answers with a token that was already dead.
+Stated rather than unwrapped for `sutura_config::StaticCredentialsUnusable`'s reason: the one
+thing minting can fail on is a credential set that does not cover the sources it was asked
+about, and this broker builds its map from that same set. `unwrap_used` is denied and a panic
+here would be process death under `panic = "abort"` for a case a type already describes.
 
-**No `PartialEq`/`Eq`, because it holds a `Secret`** - a derived `==` on credential material is a
-timing oracle, the same reason the domain's `Secret` has no comparison.
+## `use NoDeclaredPrincipals`
 
-## `use StsExchange`
+Why a declared impersonation map is not one a source can be served under.
 
-Exchanges one subject's token for a credential to a `BigQuery` source.
+Two variants, and the second one is the reason the enum was one from the start: an empty
+declaration can serve nobody, and a declared ACCOUNT this transport cannot name in a request is
+the same class of defect one level down.
 
-**The narrow port that keeps `WorkloadIdentityBroker` testable without a network**, for the same
-reason `crate::transport::JobTransport` exists: everything the broker decides is exercised against
-a fake, and the HTTP exchange is one implementor behind the `wire` feature. Nothing here takes a
-`&Warehouse` or a deadline - it is as narrow as a broker's need.
+## Module `adbc`
 
-## `use SystemClock`
+The ADBC transport: opens the self-built `BigQuery` driver
+(`nix/bigquery-adbc.nix`) through `adbc_core` + `adbc_driver_manager` and
+decodes its Arrow result sets.
 
-The wall clock: the shipping `UnixClock`.
+```text
+adbc_core + adbc_driver_manager → C ABI → the `BigQuery` ADBC driver
+  → `BigQuery` → Arrow RecordBatchReader → decode::Decoding → RowSet
+```
 
-What `WorkloadIdentityBroker::empty` hands a composition root, so wiring a served deployment
-takes no clock argument and a test that wants a fixed instant says so through
-`WorkloadIdentityBroker::measured_against`.
+**Two routes to that driver and one type deciding between them** - `DriverLocation`, resolved
+once at composition. A release artefact carries the driver in its own link (the `c-archive`
+half of one nix derivation), which is the only route a STATIC musl binary has; a source build
+opens a `.so` a deployment mounted. `location` carries why that is a parsed value rather than
+the arbitrary path `telekom/sutura#929`'s sixth finding named.
 
-**Not the only ambient time read on this path, and the distinction is the control's limit.**
-`crate::wire::StsOverHttp::exchange` reads its own clock to turn the provider's `expires_in`
-into the deadline this floor then judges. So the floor's COMPARISON is deterministic; the path
-it judges still has two clock reads in it, milliseconds apart in production and not the same
-instant.
+Behind the crate's default-off `adbc` feature, like the `wire`: the native
+driver and its Arrow graph are a per-triple addition a lean build should not
+link. Off is not hidden - every gate passes `--all-features`.
 
-## `use UnixClock`
+# Who a job runs as
 
-Where this broker reads "now" for its expiry floor.
+Two declared postures, XOR, decided at composition and never per request: a `shared-service-user`
+source runs on the deployment's own application default credentials and impersonates nothing, and
+an `impersonation-at-source` source federates the asking subject's own assertion against the pool
+it declares. `identity` is where that decision lives and is asserted, and `subject` is where the
+federation's mechanism and its exposure are written down.
 
-**A port for the same reason `StsExchange` is one.** Everything this broker DECIDES is
-exercised against a fake, and the floor is one of the things it decides - so an ambient
-`SystemTime::now()` inside `WorkloadIdentityBroker::mint` would make the outcome of every
-broker-level test a function of the day it ran on. The instant is an input instead, and
-`A_FIXED_NOW` in this file's suite records what that bought.
+**A subject at a source with no pool is REFUSED** rather than answered as the deployment - the
+one thing this transport must never do, and the reason there is no third state. The mechanism
+this replaced - an impersonation target minted from the deployment's own credentials - has no
+spelling in `crate::transport::JobIdentity` any more, so it is unrepresentable rather than
+refused.
 
-**The narrower shape this is NOT.** Every other time-dependent API in this workspace takes the
-instant as a parameter - `Expiry::passed_by`, `LegCredentials::still_usable_at`,
-`Minted::agreeing_with`, `crate::wire::AccessTokens::bearer` - and that is the better shape. It
-is unavailable here because `CredentialBroker::mint` is a DOMAIN port signature carrying no
-instant, and widening it reaches ten implementors across eight crates. A held clock is what an
-adapter can do alone; the parameter is the follow-up.
+# The values
 
-## `use WorkloadIdentity`
+Bound as one Arrow batch of one row, per `bind` - which is where the driver's own per-row
+execution loop is read off the pinned source and why one row is the only correct count. The
+statement carries positional `?` and nothing is ever interpolated into it.
 
-The setup one impersonating source needs from the settings tree, minus the borrowing.
+**Nothing is shared between two jobs.** The driver handle, the database and the connection are
+locals of `AdbcBigQuery::connect`, built from one request's own options; the endpoint itself
+owns only a path and a declaration. That, and not a check, is what keeps two concurrent subjects apart
+here - stated with its limit in `AdbcBigQuery`'s own documentation.
 
-Carried here rather than as a reference into configuration because an adapter may not depend on
-the settings tree. The composition root constructs one of these per source from the parsed
-declaration, which has already refused a value that is not usable.
+### `enum AdbcError`
 
-## `use WorkloadIdentityBroker`
+```rust
+pub enum AdbcError
+```
 
-A broker that mints a per-subject credential for impersonating sources and a declared witness for
-shared ones.
+Why the ADBC transport could not answer.
+
+#### Variants
+
+- `Load` - The driver `.so` could not be loaded.
+- `Adbc` - An ADBC call (connect, prepare, execute) failed.
+- `Batch` - A result batch could not be read from the stream.
+- `Unannounced` - A batch did not carry the fields the driver's own announced schema said it would.
+
+  **The check is `sutura_domain::warehouse::Accumulating`'s and not this crate's**, which is
+  `docs/adr/0039`'s point: a foreign driver streaming over a C ABI is exactly the case to
+  refuse rather than trust, and the obligation is the same for every adapter that has one.
+  This variant also carries the row ceiling being reached - see `MOST_RESULT_ROWS`.
+- `Uncovered` - ADBC does not yet cover a port method this transport was asked for.
+- `NoDryRun` - There is no ADBC call that prices a statement without running it.
+
+  **Its own variant rather than an `Self::Uncovered`, because one caller has to be able to
+  tell it apart and a `&'static str` is not something to match on.**
+  `JobTransport::declined_to_dry_run` reads this variant and nothing else, which is what
+  lets the adapter answer `PreFlight::NotAsked` for a dry run nobody made while a dry run that
+  was made and failed stays a failure.
+- `DeadlineSpent` - The port's own deadline was already spent when the statement was prepared, so nothing was sent: a `jobTimeoutMs` of what is left would be `0`, which the driver reads as unbounded.
+- `DeadlineElapsed` - The port's own deadline elapsed while the statement was executing or its result was being drained - after the statement was sent, which is what tells this apart from `Self::DeadlineSpent`. `run_to_deadline` is what reaches it, and it is the client-side bound `telekom/sutura#929`'s first finding asked for: a stuck driver call or a slow stream can no longer outlive the caller.
+
+  **What this does and does not mean has happened by the time a caller sees it.** The call this
+  process was waiting on was asked to `adbc_core::Statement::cancel` - see `run_to_deadline`
+  for what that ask can and cannot pre-empt.
+- `Parameters` - The plan's values could not be assembled as the batch this driver binds them from.
+
+  Its own variant rather than an `Self::Adbc`, because the failure is on THIS side of the C
+  ABI: nothing has been sent, and what went wrong is an Arrow batch this transport built. The
+  cause is Arrow's own, kept as a `#[source]` so the chain still walks.
+- `SubjectSource` - The loopback source a subject's assertion is served over could not be opened.
+
+  Its own variant rather than an `Self::Adbc`, because nothing has been sent and the failure
+  is this process's own: a host with no usable loopback interface cannot serve an impersonated
+  question, and saying that is better than a driver failing to fetch a token for reasons of
+  its own.
+- `UnusableTarget` - A declared impersonation target is not one this transport will name in a request.
+
+  **Its own variant rather than an `Self::Uncovered`, because it is a refusal about a
+  VALUE and the string in that one is a missing capability.** The account rides into one path
+  segment of `service_account_impersonation_url`, which decides which account the question
+  runs as, and `cloud.google.com/go/auth`'s impersonation provider POSTs that URL verbatim
+  with no shape check at all. `sutura_domain::identity::PrincipalName`'s parser is the
+  domain's shared one and accepts `/`, so the narrowing is this crate's.
+
+  **It carries nothing**, deliberately: the shipped broker parses the same rule at boot and
+  names the value there, where an operator can act on it, and this arm is reachable only from
+  a broker that built a `Presented` by hand. A refusal at the send boundary that echoed the
+  value would put a caller-influenced string into an error that reaches a log.
+- `NoRandomness` - The operating system would not supply the randomness this request's two secrets need.
+
+  **A refusal and not a fallback**, and `subject::unguessable`'s own doc carries why: every
+  constant available here would be written into the same document the driver reads, so the
+  fetch would authenticate against a value any local process could guess.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `struct AdbcBigQuery`
+
+```rust
+pub struct AdbcBigQuery
+```
+
+A `BigQuery` endpoint over ADBC.
+
+**Three owned values and nothing else, which is load-bearing rather than tidy.** There is no
+connection here, no database handle and no token: `Self::connect` builds all three per job from
+that job's own request and drops them with it. That is what keeps one subject's principal off
+another subject's query - not a check, but the absence of anything two jobs could share.
+
+**The limit beside it:** nothing in the type system forbids a future field from holding a
+connection, and a pool keyed on anything but the identity would be exactly the cross-user leak
+this shape avoids. `identity::tests::one_subjects_principal_never_appears_in_the_next_subjects_options`
+is the cell that dies if the option list starts being memoised; a *connection* cache would need
+its own.
+
+#### Methods
+
+```rust
+pub const fn new(driver: DriverLocation, impersonation: Impersonation, max_bytes_billed: BytesBilledCeiling) -> Self
+```
+
+Takes the driver a composition root resolved, whether this source impersonates, and the
+money bound every job it submits is capped at.
+
+**A `DriverLocation` and not a path**, which is `telekom/sutura#929`'s sixth finding: the
+driver a release artefact carries has no path, and a mounted one has been parsed before it
+gets here.
+
+**`max_bytes_billed` has no default, and that is the same argument
+`crate::BigQueryWarehouse::new` makes about its own arguments**: a defaulted ceiling is
+money somebody else pays. It is also why the type is `BytesBilledCeiling` and not a
+number - `sources.<alias>.max_bytes_billed` is required at boot, and for the length of one
+review round it was required, unparsed and sent nowhere, so a declared `0` and a declared
+`u64::MAX` both booted green over a source with no bound on bytes scanned at all.
+
+```rust
+pub fn probe(driver: &DriverLocation) -> Result<(), AdbcError>
+```
+
+Does this artefact's driver load and initialise at all?
+
+**The one thing a boot path or a diagnostic can find out about the driver without a
+project**, and it is worth more than reading a manifest or an environment variable:
+initialising this driver runs the GO RUNTIME inside this process, beside tokio and beside
+the allocator a release build links. That is the coexistence nobody could assert while the
+only caller was a question - so a link-success check would have passed and been wrong, and
+this executes instead. `nix/bigquery-driver-check.sh` is the venue that runs it against the
+release artefacts, and it is the whole of what makes the driver *carried* rather than
+*built*.
+
+It opens a DATABASE and stops there, deliberately. `new_database_with_opts` is option-setting
+on the Go side and reaches no network; `new_connection` is where the driver builds its client
+and looks for application default credentials, which on a host with none is a metadata-server
+probe this has no business making. So what a success means is exactly *this driver is this ABI
+and its runtime started*, and nothing about whether a question could be answered.
+
+# Errors
+
+`AdbcError::Load` where a mounted `.so` is absent, is not this ABI, or cannot be loaded at
+all, and where a linked-in driver's own initialisation refused.
+`AdbcError::Adbc` where the driver loaded and refused the database.
+
+#### Implements
+
+`JobTransport`
+
+### `use BytesBilledCeiling`
+
+The most a single job this transport submits may be billed for scanning.
+
+**Sent as the pinned driver's `bigquery.query.max_bytes_billed` statement option, which that
+driver maps onto `BigQuery`'s own `maximumBytesBilled` job configuration - so the bound is
+enforced at the service and not by a check here.** A job that would exceed it fails and is not
+charged. That is what makes it worth more than a client-side estimate: nothing on this side has
+to be consulted, kept accurate, or trusted.
+
+**A newtype and not the `u64` the settings tree holds, because two values in that range are not
+ceilings.** Zero is `BigQuery`'s own spelling of *no ceiling* - the field is read as unset below
+one - so a deployment that wrote `0` asked for a bound and would have been given none; and a
+value above `Self::MAX_BYTES` is indistinguishable from no ceiling in practice. Both are
+refused by `Self::parse`, which is the only constructor, at the composition root, before a
+listener is bound.
+
+**The limit, and it is the whole of what this bound is not.** `maximumBytesBilled` bounds BYTES
+BILLED for one job. It is not a bound on a deployment's total spend, on one subject's spend, or
+on a window - `governance.per_replica_spend_ceiling` is that key and it charges only priced
+estimates, which this transport does not produce (see `super::AdbcError::NoDryRun`). It is
+also not a bound on a job billed for SLOT TIME rather than bytes scanned: on a
+capacity-priced reservation the bytes a job scans are not what it costs, and this ceiling then
+bounds the scan without bounding the bill. And it is per JOB, so N questions cost N times it.
+
+### `use UnusableCeiling`
+
+Why a configured bytes-billed ceiling is not one this transport will send.
+
+### `use Impersonation`
+
+Whether this source impersonates at all, and against which pool when it does.
+
+**A two-variant type rather than an `Option<WorkloadPool>`, because the absence is a
+DECLARATION.** A source is opened shared or impersonating - `sutura_config` refuses a
+`workload_identity` block on a shared entry and refuses its absence on an impersonating one - so
+which of these a transport holds is decided once, at composition, from a value an operator wrote.
+
+### `use DriverLocation`
+
+Where the driver is, once something has decided that it is reachable at all.
+
+**There is no third state and no `Option`.** A source cannot be opened without one of these,
+so a composition root either resolved a driver or refused to serve - the shape
+`crate::transport::JobIdentity` uses for the same reason.
+
+### `use UnusableDriverPath`
+
+Why a named driver path is not one this process will open.
+
+### `use UnusablePool`
+
+Why a declared pool is not one this transport can exchange against.
+
+### `use WorkloadPool`
+
+Everything about a source that does not change per request: the pool it exchanges against.
+
+**Parsed at composition, so an unusable declaration fails to start.** The audience is the pool
+provider resource the subject token is exchanged for - `externalaccount::Options::validate`
+refuses an empty one outright, so a deployment that declared nothing would fail on its first
+question instead of at boot.
+
+**One field, and the declared SCOPE is not it.** `sources.<alias>.workload_identity.scope` is
+parsed by `sutura_config` and reaches nothing here, because the pinned driver has nowhere to put
+it: `credsfile::ExternalAccountFile` (`cloud.google.com/go/auth@v0.23.2`) has no `scopes` member,
+so the document cannot carry one, and the driver's only scope option is
+`bigquery.impersonate.scopes`, which `connection.go`'s `hasImpersonationOptions` treats as a
+request for the DELETED mechanism - it then demands a target principal and replaces the
+federated credential with an impersonated token source. A screened value this transport cannot
+send would read as a control that is in place, so it is not held here at all and the operator is
+told where they declare it.
+
+### `constant MOST_RESULT_ROWS`
+
+How many rows this transport will materialise from one result stream before refusing.
+
+**A ceiling on ROWS and not on BYTES, which is the limit this sentence used to overstate.** It
+was called a ceiling on this process's memory; a row count times an unbounded row width is not a
+memory bound, and what decides the width is the plan's projection - a property of the plans a
+deployment can ask, not of this constant. So what it holds is that a stream is FINITE: an
+unending driver is refused, a million very wide rows are not.
+
+It is not a cap on an answer either, and that distinction decides the value.
+`sutura_domain::plan::MAX_ROWS` caps an answer and travels in the statement's own `LIMIT`; a
+federation LEG carries no `LIMIT` at all - `sutura_domain::plan::leg`'s header says so, because a
+leg is not an answer - so for a leg there is nothing in the statement bounding what the source
+may stream back, and the only thing between a driver that streams without end and this process is
+a number here. The refusal fires WHILE reading, in `Accumulating::push`, so it cannot be reached
+by first materialising the whole stream.
+
+Two orders of magnitude above `MAX_ROWS`, because it has to refuse only a stream no plan could
+have asked for: a leg legitimately returns more rows than the one answer re-aggregated above it
+keeps. **The VALUE is held rather than commented** - review measured that raising it to
+`usize::MAX` left the whole suite green, because `delivered + n > usize::MAX` is never true and
+the refusal test passes its own ceiling in. Both bounds of that sentence are asserted by
+`tests::both_of_the_transports_own_result_ceilings_are_pinned_to_what_they_were_derived_from` -
+which is where that sentence became true: it named a cell called
+`the_transports_own_ceiling_is_two_orders_of_magnitude_above_the_answer_cap` that no file in this
+tree ever defined, so for as long as the sentence stood the value was held by the sentence.
+
+**The engine passes `usize::MAX` deliberately**, and the contrast is the reason this is the
+caller's argument rather than the guard's default: `sutura-exec-datafusion` produces its own
+batches from its own plan and is bounded by its memory pool, which is where `docs/adr/0009`
+puts it. A foreign driver is what a row ceiling exists for.
+
+### `constant MOST_RESULT_BYTES`
+
+How many bytes this transport will spend holding and converting one result stream before
+refusing.
+
+**The bound `MOST_RESULT_ROWS` is not**, and round 7 of `telekom/sutura#929`'s review is the
+report: a row count cannot be a memory bound when the caller controls row WIDTH, so a million
+narrow rows and a few thousand very wide ones are the same number there and orders of magnitude
+apart here. Both apply - whichever is crossed first refuses - and the byte one is the one that
+protects the process.
+
+**A constant here and not a configured key, and the difference from the engine's own budget is
+worth stating.** `sutura-exec-datafusion` derives its budget from
+`runtime.working_set_max_bytes`, which the composition root has already checked at boot against
+the memory this process can reach. This crate depends on no settings crate - an adapter does not
+call another adapter, and nothing hands a transport that number - so the value is written here
+instead, and it is therefore **not checked against the memory available**: a container smaller
+than this ceiling can still be ended by a result under it.
+
+**The value, and why this one.** A quarter of `docs/adr/0009`'s provisional 1 GiB working set,
+so two federated legs plus the combine above them cannot each spend the whole of a query's
+provisional byte budget. It is provisional for exactly the reason that number is - 0009's
+amendment says the corpus it was measured on is too small to justify moving it, and it names
+driver buffering and row conversion as the paths its harness never observed. This is one of
+them.
+
+**The VALUE is held rather than commented**, because a ceiling nothing asserts can be raised to
+`usize::MAX` with a green suite - review measured exactly that happening to `MOST_RESULT_ROWS`.
+`tests::the_transports_byte_ceiling_is_a_quarter_of_the_provisional_working_set` is the cell.
 
 ## Module `transport`
 
@@ -469,8 +752,8 @@ adapter, and it buys two things that matter more than the indirection costs:
   against a fake that returns rows, which is what *ports get fakes, not mocked HTTP* asks for.
 - **The dependency decision is isolated to one implementor.** An outbound HTTP stack plus a
   credential source is a real addition to a workspace that cross-compiles to musl and gates
-  licences exactly, and it arrives in exactly one place: `crate::wire`, behind the crate's
-  default-off `wire` feature. `docs/adr/0018` prices it. The sentence that kept this seam empty for
+  licences exactly, and it arrives in exactly one place: `crate::adbc`, behind the crate's
+  default-off `adbc` feature. The HTTP `wire` it replaced was removed with this adoption. The sentence that kept this seam empty for
   a release - *nothing in this repository can verify a network client* - is now half spent: nothing
   in CI can, and a developer's own project has. Three tests passed against a real dataset on
   2026-08-30, over one hand-built `SUM` rather than the corpus.
@@ -520,12 +803,62 @@ reads as exactly the regression it would be.
 
 #### Variants
 
-- `Port` - A request-time call's own `Deadline`, opened by the transport at the answer's arrival. `Warehouse::dry_run`/`execute` build this arm, and only this arm - see `JobRequest::new`'s own doc.
-- `Boot` - The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and the identity read build this arm; `crate::wire::BigQueryWire::submit` opens a fresh window from this transport's own configured `crate::wire::JobBounds` instead.
+- `Port` - A request-time call's own `Deadline`. `Warehouse::dry_run`/`execute` build this arm, and only this arm - see `JobRequest::new`'s own doc, which carries the limit: the ADBC transport sends what is left of it as the job's `jobTimeoutMs`, a server-side stop.
+- `Boot` - The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and the identity read build this arm. This used to add *the ADBC driver opens a fresh window under its own configured bounds instead*, and this process configures no TIME bound at all: the database options it sets are `bigquery.project_id` and `bigquery.dataset_id`, plus the three an impersonating leg chains for the credential document (`adbc::identity`'s `credential_options`), and none of them is a window - so whatever window exists is the driver's own default and is not ours to state. **It is not the only bound, and the earlier *no bound at all* overstated that:** `bigquery.query.max_bytes_billed` is set on every statement this transport submits, which bounds what a job may SPEND and says nothing about how long it may take. It is an `OptionStatement` rather than an `OptionDatabase`, which is why it is not in the list above.
 
 #### Implements
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `enum JobIdentity`
+
+```rust
+pub enum JobIdentity<'job>
+```
+
+Which identity one job is to be executed as.
+
+**TWO variants, and the second one is the whole of leg 2.** A round of this type carried three -
+a bearer, and a PRINCIPAL the data system was asked to become on a connection the DEPLOYMENT
+authenticated. The owner rejected that mechanism, so the arm is gone rather than deprecated: a
+question answered under the deployment's identity while provenance reported it as the asker's has
+no spelling here, which is what makes `Warehouse::IMPERSONATION` a fact about the code.
+
+**The domain still presents three shapes** (`sutura_domain::identity::Presented`), so the
+mapping is 3 -> 2 and not one to one: `BigQueryWarehouse::job_identity` is where the third becomes
+a refusal (`BigQueryError::NoPrincipalSwitch`), because *can this be delivered* is a transport's
+fact and `Presented::agrees_with` passes both subject shapes - they are one POSTURE.
+
+`Copy`, because every arm is a borrow: it is read out of a request and matched on, never stored.
+
+#### Variants
+
+- `Transport` - Whatever identity the transport itself already holds.
+
+  The shared posture, and the boot path - see `JobDeadline::Boot` for the other half of what
+  "no caller" means to a request.
+- `AsSubject` - The asking subject's own verified assertion, and the account this deployment declared that subject's questions should execute as.
+
+  **The subject's own credential and not a stand-in for it**, which is the whole of leg 2:
+  `crate::adbc` puts the assertion behind a workload-identity credential document, so
+  Google's own token service verifies it and resolves the subject to the declared pool's
+  principal. Nothing on that path runs the question under the deployment's identity.
+
+  **`target` is the SECOND hop and is a field rather than a third arm**, because it is not a
+  second mechanism: the credential the driver ends up holding is still derived from the
+  caller's own assertion, and the pool principal impersonating a declared account is one chain
+  with two links. It is not the deleted principal switch, which ran from the deployment's own
+  application default credentials with the caller's credential nowhere in the chain - that has
+  no spelling here and a broker presenting it is refused by
+  `BigQueryError::NoPrincipalSwitch`.
+
+  **Both fields are read by `crate::adbc`**, and a transport that read only `assertion` would
+  run every declared caller as one pool principal while a deployment's `impersonate` map said
+  otherwise.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`
 
 ### `struct JobRequest`
 
@@ -551,7 +884,7 @@ pub const fn deadline(&self) -> JobDeadline
 ```
 
 Which clock this call answers to. See `JobDeadline` and the constructor's own doc for what
-each arm means to `crate::wire::BigQueryWire::submit`.
+each arm means to the transport's own submit.
 
 ```rust
 pub const fn default_dataset(&self) -> &DatasetId
@@ -563,6 +896,21 @@ The dataset the statement's unqualified table names resolve in.
 dialect changed nothing about how a table is rendered: the endpoint's request carries a default
 dataset beside the SQL, so a bare backticked table name resolves there. The generator emits the
 same shape it emits for every other dialect.
+
+```rust
+pub const fn identity(&self) -> JobIdentity<'_>
+```
+
+Who this job is to be executed as.
+
+**This is the half that decides who a `BigQuery` job is executed as**, and which of
+`JobIdentity`'s arms a leg carries is decided once, above, from what the broker presented -
+never re-derived here. A transport that cannot serve the arm it is handed refuses; one that
+ignored it would answer as itself while provenance reported the asker. It does not make the
+source execute as the asker on its own: `JobIdentity::AsSubject` carries the subject's
+assertion and the account declared for that subject, and the declared pool is what resolves
+the assertion to a principal able to impersonate it - unproven against a live pool, per
+`docs/where-identity-is-proven.md`.
 
 ```rust
 pub const fn params(&self) -> &[ParamValue]
@@ -578,19 +926,6 @@ pub const fn statement(&self) -> &str
 ```
 
 The statement, with its values still absent from it.
-
-```rust
-pub const fn subject_bearer(&self) -> Option<&Secret>
-```
-
-The asking subject's own credential, where the leg carried one.
-
-**This is the half that makes a `BigQuery` source execute as the asker.** A
-`Presented::SubjectToken` carries the
-credential a broker minted for the asking subject - an exchanged Google access token scoped
-to that subject - and the transport sends it as its bearer for THIS job, so the endpoint
-evaluates the statement under whoever the token says. `None` for the shared posture, whose
-leg runs under the identity the transport itself already holds.
 
 #### Implements
 
@@ -823,10 +1158,13 @@ entries and no readable id, which read `Self::Accounted` over no ids at all - th
 reporting every table absent while the cross-check read clean. An entry with no readable id is
 the shape signal; an id `usable_table_id` rejected is the legitimate drop, and it still counts.
 
-The same cross-check one document over is `crate::BigQueryError::Incomplete`, which compares
-`delivered` against `total` on a query answer and REFUSES. Two vocabularies for one shape, named
-here so a reader who greps one finds the other. This type carries the inventory evidence;
-preflight decides whether it leaves a requested table unaccounted for and refuses through a value.
+**This is the only reported-total cross-check left in this crate.** There used to be a second,
+`BigQueryError::Incomplete`, comparing a query answer's delivered count against the endpoint's
+own `totalRows`; `docs/adr/0039` records why an ADBC read's completeness is the full drain
+instead, and it went with the paging it described. A LISTING still carries a total, because a
+dataset listing is a metadata document and not a result stream. This type carries the inventory
+evidence; preflight decides whether it leaves a requested table unaccounted for and refuses
+through a value.
 
 #### Variants
 
@@ -993,150 +1331,6 @@ Why a resource name this adapter was handed is not usable.
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
-### `enum FieldType`
-
-```rust
-pub enum FieldType
-```
-
-What the endpoint said a column is.
-
-**A closed set plus one named escape**, rather than a passthrough of every type the endpoint can
-return. Each variant here is a claim that this adapter maps that type to a domain value and has a
-test saying so; `Self::Unmapped` carries the endpoint's own spelling so a type nobody mapped
-produces an error NAMING it rather than a null.
-
-#### Variants
-
-- `Int64` - A 64-bit integer.
-- `Float64` - A double. Mapped through `Real`, which refuses a non-finite value.
-- `Numeric` - An exact decimal - `NUMERIC` or `BIGNUMERIC`. Mapped to TEXT rather than to a double, so an exact total stays exact; `sutura-exec-duckdb` maps its own `Decimal` the same way and for the same sentence.
-- `Bool` - A boolean.
-- `String` - Text.
-- `Date` - A calendar date, as ISO text.
-- `Unmapped` - A type this adapter does not map, under the name the endpoint used for it.
-
-#### Methods
-
-```rust
-pub fn parse(name: &str) -> Self
-```
-
-Decodes a type name the endpoint sends, into the closed vocabulary this adapter maps.
-
-A query response spells the types the legacy way - `INTEGER`/`FLOAT`/`BOOLEAN` - while the
-variants here are named after their modern spellings. The transport that reads an answer's
-schema calls this, so which spellings become `Int64` is decided HERE, where the value mapping
-lives, and not in the unbuilt transport. A name nobody maps becomes `Self::Unmapped` under
-the endpoint's own spelling, so an answer is refused NAMING it rather than answered as null.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
-### `struct Field`
-
-```rust
-pub struct Field
-```
-
-One column, as the endpoint described it.
-
-#### Methods
-
-```rust
-pub const fn kind(&self) -> &FieldType
-```
-
-What the endpoint said this column is.
-
-```rust
-pub fn name(&self) -> &str
-```
-
-The label a result column carries.
-
-```rust
-pub const fn of(name: String, kind: FieldType) -> Self
-```
-
-Names one column.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
-### `enum Cell`
-
-```rust
-pub enum Cell
-```
-
-One cell, as the endpoint sent it.
-
-**Text or nothing, and that is the endpoint's shape rather than a simplification.** A value in a
-query response is a JSON string whatever its declared type is - an integer arrives as `"250"` - so
-the mapping from text to a typed domain value is this adapter's work, and `Field::kind` is what
-decides it. Modelling it as already-typed here would move that work into the transport, where the
-fake and the real implementor would each have to do it and could disagree.
-
-#### Variants
-
-- `Null` - JSON `null`.
-- `Text` - A value, as the endpoint spelled it.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
-### `struct JobRows`
-
-```rust
-pub struct JobRows
-```
-
-A job's result: what the columns are, the rows under them, and how many the job produced.
-
-**The count is part of the result, and that is what makes a partial answer not a result.** The
-endpoint's `jobs.query` answers one page - "as many results as can be contained within the
-maximum permitted reply size" - and `totalRows` "can be more than the number of rows in this
-single page". A first page, or an incomplete job's empty `rows`, is *under the cap, not
-truncated*, and this adapter's `rows` refuses a delivered count that does not equal what the
-endpoint reported as total - see `super::BigQueryError::Incomplete`.
-
-#### Methods
-
-```rust
-pub fn fields(&self) -> &[Field]
-```
-
-The columns, in the order the statement projected them.
-
-```rust
-pub const fn of(fields: Vec<Field>, rows: Vec<Vec<Cell>>, total_rows: usize) -> Self
-```
-
-Assembles a result.
-
-`total_rows` is what the endpoint reported as `totalRows`, which is present only when a job is
-complete - so an incomplete job has no value to fill it with, and the transport has to error.
-
-```rust
-pub fn rows(&self) -> &[Vec<Cell>]
-```
-
-The rows on this page.
-
-```rust
-pub const fn total_rows(&self) -> usize
-```
-
-What the endpoint said the job's total is, which a delivered page is compared against.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
 ### `trait JobTransport`
 
 ```rust
@@ -1151,12 +1345,15 @@ endpoint really does distinguish them - its request body carries a dry-run flag,
 uses no slots and is not charged - which is what makes `Warehouse::dry_run` able to answer
 `PreFlight::Accepted` honestly here rather than inheriting the port's `NotAsked` default.
 
-**Three more members are not that, and the count is spelled out because it has been wrong
-twice.** `result_did_not_fit` asks the implementor about a failure it already has and sends
-nothing; `list_tables` sends a metadata read rather than a statement, which is what makes it
-cheap enough for a boot check; and `apply`, behind the `fixtures` feature, is the second
+**The rest send nothing, and they are listed BY KIND rather than counted.** The count was wrong
+twice, and then a third time: the sentence said *three more members* while five predicates had
+been added under it, because a number in prose is a second thing to keep true and no gate reads
+this one. So: `list_tables` sends a metadata read rather than a statement, which is what makes
+it cheap enough for a boot check; `apply`, behind the `fixtures` feature, is the second
 statement-issuing method - present only in a build that loads fixtures, so no deployment can
-reach it.
+reach it; and every remaining member is a PREDICATE that sends nothing and asks the implementor
+about a failure it already holds, because `Self::Error` is the implementor's own type and the
+adapter above it cannot read one.
 
 ### `type_alias DryRunEstimate`
 
@@ -1169,1310 +1366,3 @@ every one of its implementors, fake and real; a name spares each of those sites 
 says what the value MEANS at the read site, which the bare composed type would not. It does not
 cross this workspace's `clippy::type-complexity` threshold - it is well under it - so the alias
 earns its place on readability alone, not on a lint that does not fire either way.
-
-## Module `wire`
-
-The WIRE: one `JobTransport` that speaks to a `BigQuery` endpoint over HTTP.
-
-**This is the seam `docs/adr/0017` left open, filled in by the decision `docs/adr/0018` records.**
-Behind the crate's default-off `wire` feature, because what arrives with it is an outbound TLS
-stack and two of the four release triples are musl; that manifest argument is on the `ureq` entry
-in the workspace root and is not repeated here.
-
-# What this module claims, and what it does not
-
-**This HAS now been run against a real project, and that is new.** On 2026-08-30 the three tests
-in `crates/sutura-exec-bigquery/tests/acceptance.rs` passed against a real dataset from a
-developer's machine, under a service-account key: the endpoint accepted a statement this repository
-generated, answered it as one complete page, and the numbers were the fixture's. **It is the first
-time anything here has had a statement accepted by `BigQuery`.**
-
-**What that does NOT establish, stated first because a green run invites the larger reading.** It
-is ONE hand-built `SUM` over a two-column fixture - no join, no `COUNT(DISTINCT`, no `CASE WHEN`,
-no `NULLIF` ratio, no `CAST(... AS FLOAT64)`, no `ISOWEEK` - and `ISOWEEK` plus `DATE_TRUNC`'s
-argument order are precisely the two things `docs/adr/0017` MEASURED the parse check to be blind
-about. The leg that record specifies is the corpus compared against the engine, and it is not
-built. So: *one statement accepted*, not *the corpus accepted*.
-
-What the suite beside this module proves is separate and unchanged: that *this code builds the
-request it says it builds and reads the answer it says it reads*, over documents that are not the
-service's.
-
-So: one live statement is not a registered data system, and the `data_systems:` axis of the
-golden matrix still gains no entry. `sutura` DOES link this adapter and dispatch
-`kind: bigquery` behind its default-off `bigquery` feature; the sentence that used to stand here
-said it linked none, which `docs/adr/0017`'s second amendment had already spent.
-
-# What this module decides, and every one of them is pinned by a TYPE or by a test
-
-- **A job is bounded in TIME and in MONEY, and neither bound is a constant here.** `JobBounds`
-  carries both, `WireAgent` carries the `JobBounds`, and `BigQueryWire` can only be built from
-  a `WireAgent`. `jobTimeoutMs` is what cancels a job (`timeoutMs` alone does NOT: it bounds the
-  client's own wait, and an expired one leaves the job running and billing); `maximumBytesBilled`
-  stops a question scanning a petabyte, which neither the row cap nor the one-page refusal does.
-- **The time bound is ONE ABSOLUTE DEADLINE PER ANSWER, opened by the port and not by this
-  adapter, and this bullet exists because the earlier two shapes were each the second thing while
-  claiming the first.** `timeout_global` on the agent once gave every HTTP operation a full budget
-  of its own, so a review measured one ANSWER at four independent budgets against a transport
-  whose own request timeout is thirty seconds. `CallDeadline`, opened once per CALL, fixed that
-  leak - and then could not fix the next one, because neither `Warehouse` nor `JobTransport`
-  took a deadline, so the two calls one answer makes still could not share one; a composition
-  root's own configured job bounds substituted an arithmetic that divided the request timeout by
-  how many calls one answer makes, checked by nothing outside this crate. **`docs/adr/0029` now
-  carries a `Deadline` across the port itself** - one absolute instant,
-  opened by the transport at the answer's arrival and shared by every leg. `submit` reads what it
-  says is left via `crate::transport::JobRequest::deadline` and opens a `CallDeadline` FROM
-  that via `CallDeadline::opened_at_for`, so a slow token exchange shortens the job that
-  follows it rather than being followed by one with a full budget of its own, and `timeoutMs`/
-  `jobTimeoutMs` are what is left of THAT rather than of this adapter's own configured job bounds.
-  A budget spent before the job is `WireError::DeadlineSpent` rather than a send - checked
-  BEFORE the credential exchange too, since a spent caller should not spend it on an exchange
-  nobody waits for. **The boot path has no port `Deadline` to read** (`verify_anchor`, a fixture
-  load or drop, the identity read) and opens a fresh window from this adapter's own configured
-  `JobBounds` instead, exactly as every call did before this record. Pinned at `call_body`;
-  that `submit` hands it the exchange's own `call` is READ, not measured (`HOST` is unreachable).
-- **One page or a refusal.** `jobs.query` answers one page, and completeness is stated as
-  `totalRows` beside the rows rather than by the rows alone. The wire refuses a `pageToken`
-  (`WireError::MoreThanOnePage`) and a job that did not finish (`WireError::NotComplete`); the
-  delivered count that is not the reported total is refused one port further out, in the adapter's
-  `BigQueryWarehouse::rows` as `BigQueryError::Incomplete` - `complete` here compares nothing, it
-  hands the rows and the total to the adapter - because to `answer()` a first page would read as
-  *under the cap, not truncated*, which is the exact row the row-cap invariant exists to hold.
-  **And a wide
-  result now leaves as a REFUSAL rather than as a `503`, which is a correction to what this header
-  used to say was the cost.** It used to reach a caller as `BigQueryError::Endpoint`, which both
-  transports answer as the status a dead endpoint produces - inviting a retry that returns the same
-  page. `ResultTooLarge` is what it means, and the port can now say it: `result_did_not_fit` on
-  `crate::transport::JobTransport` answers it for `WireError::MoreThanOnePage`, the adapter
-  passes it up through `Warehouse::result_did_not_fit`, and a caller gets `413 result_too_large`
-  carrying `ResultBound::Volume` - a bound with no number, because the reply cap is the service's
-  and it reports neither that nor the size of the reply that hit it. `NotComplete` deliberately
-  answers `false`: a job that ran out of time may finish on a retry.
-- **The service's own result cache is turned OFF.** Not for cost: an anchor that reproduces from a
-  cache has reproduced the cache, which is `differential.rs`'s own argument. And a cached answer
-  under a *shared* identity is shared across every asker, so leaving it on would put the
-  cross-user leak this crate refuses one layer below the code the per-subject step has to change.
-- **The bearer's DESTINATION is a compile-time constant; its ROUTE is not, and the difference is
-  worth stating precisely** because an earlier version of this header overstated it.
-  `HOST` cannot be configured, `https_only` is on and `max_redirects` is `0`, so nothing a
-  deployment writes can change *which service* receives the credential. What a deployment CAN
-  change is the path: `ureq`'s default config is `Proxy::try_from_env()`, so `HTTPS_PROXY` routes
-  these requests through an egress proxy. That is left ON deliberately - an egress proxy is a real
-  deployment shape here, `docs/enterprise-mirrors.md` is the generic form of it - and it is safe
-  because the tunnel is still TLS to `HOST`, so a proxy sees a hostname and no bytes. It is
-  written out in `WireAgent::pinned` rather than inherited, so it is a decision a reviewer can
-  disagree with.
-- **Which roots verify `HOST` is `ureq`'s compiled-in set by default, and a deployment MAY declare
-  its own instead - `github.com/telekom/sutura#125`.** `WireAgent::pinned` is unchanged: it
-  verifies against `ureq`'s own `RootCerts::WebPki`, exactly as before this change.
-  `WireAgent::secured` is the second constructor `security.outbound.transport_anchors` reaches: a
-  composition root resolves the declaration through `sutura_tls::load_anchors` once at boot and
-  hands the loaded certificates here, which replaces `RootCerts::WebPki` with `RootCerts::Specific`
-  built from exactly that bundle or host store - never both. `crate::wire::tls` is the one place
-  either constructor turns `sutura_tls`'s `CertificateDer` output into `ureq`'s own certificate
-  type, so the conversion is written once rather than at every call site. **A client identity is
-  optional and deployment-wide too** (`security.outbound.client_certificate`/`client_key`,
-  `github.com/telekom/sutura#911`): `WireAgent::rotating_agent` resolves it the same way and
-  folds it into `ureq`'s `ClientCert` over the same `crate::wire::tls` seam. **Presenting a
-  certificate is not a peer verifying it** - `HOST` still takes a bearer token, not a client
-  certificate, and no shipped source is configured to demand one, so this proves the deployment
-  PRESENTS what it declared, never that anything downstream checked it. Absent means nothing is
-  presented, unchanged from every release before this.
-- **Failure is derived from the RESULT SHAPE and never from `errors` being non-empty.** The
-  endpoint documents that array as *"the first errors or warnings encountered"* and says entries
-  *"do not necessarily mean that the job has completed or was unsuccessful"* - so refusing on it
-  would decline successful queries that merely warned. What refuses is `jobComplete`, a
-  `pageToken`, an absent `totalRows`, and a delivered count that is not the reported total - the
-  last of those in the adapter (`BigQueryWarehouse::rows`, `BigQueryError::Incomplete`), not here;
-  the reported
-  `reason` is folded into whichever of those fires, because it is the best diagnostic
-  available at that point. See `complete`, and the limit stated there.
-- **Refusal text is closed, not passed through.** `ReasonCode` maps the endpoint's reason to a
-  fixed local vocabulary and turns an unrecognized value into a static marker;
-  `EndpointMessage` retains the free-text `message` and redacts it under `Debug`. `Display` on
-  the refusal renders the status and the local reason code and never the message, so a cause-chain
-  walk cannot carry endpoint text either - see `WireError::Refused` for the limit.
-
-# What is deliberately absent
-
-- **Paging.** A result bigger than one page is refused rather than assembled. `getQueryResults`
-  needs the job's `location` for a dataset outside the two multi-regions, and
-  `SourcePlacement::BigQuery` declares no `location` - `docs/adr/0017` says why that field is not
-  in this repository yet and that the change adding the wire is the one that decides it. **This
-  change decides it by not needing it**, and the cost is the refusal above.
-- **A `location` on the request.** Same reason, one size smaller.
-- **Retries.** A refused job comes back as `WireError` and reaches a caller as
-  `BigQueryError::Endpoint`, whose transport-facing status is a `503`. Retrying inside an adapter
-  would spend a caller's request timeout on a decision the caller cannot see.
-- **Surfacing a warning on a result that IS complete.** There is nowhere to put it: `RowSet` has
-  no field for it and this crate has no logging dependency, so adding one for a line nobody has
-  ever seen is a dependency decision this change does not take. Stated because a dropped warning
-  is exactly the kind of absence that reads as "there were none".
-
-### `struct EndpointMessage`
-
-```rust
-pub struct EndpointMessage
-```
-
-The endpoint's own message on a refusal: free text, and the one field here that can name an
-account.
-
-**A type rather than a `String`, because the rule it carries is about RENDERING and a rule about
-rendering cannot be held at call sites.** `Display` on the whole refusal omits this field;
-`Debug` redacts it; only an explicit accessor produces the raw value. That is the whole
-mechanism, and it is here because the alternative was asking fourteen acceptance legs to
-remember which formatter they used.
-
-**Measured, which is why this exists.** A leg ending `.expect("the endpoint answered")` formats
-its error with `Debug`, and `Debug` walks the struct: on a real refusal that printed
-`Access Denied: ... permission: <an account>` into a public workflow log. Ten of the fourteen
-legs `nix run .#bigquery-acceptance` invokes were in exactly that shape, and the job's
-`::add-mask::` step covers the project, the dataset and the table - **not an account**.
-
-**The refusal's own `Display` used to interpolate this field, and that made the type's
-redaction narrower than it read.** A cause-chain walk that flattens every link with `Display` -
-which is what the transports' sinks do - carried the message into a deployment's own log. That
-no longer happens: `WireError::Refused`'s `Display` renders the status and the closed reason
-code and never this field. The limit, stated next to the claim: the endpoint's message
-remains a queryable string on the error TYPE, reached only by an explicit call - so a caller
-that deliberately opts in to rendering it can. The free text is bounded and stripped on the way
-in regardless - see `Self::bounded`.
-
-**Why a caller would never reach the raw value by accident, and the cost of that shape:** there
-is no `Display` and no `Debug` here that prints the sentence - the only door is `Self::as_str`,
-named on purpose - so any formatter that would have leaked it cannot be written without naming
-the field and calling that accessor. Keeping the raw sentence out of every ordinary rendering is
-the one control this type holds; it does not change what the endpoint itself records on its side.
-
-#### Methods
-
-```rust
-pub fn as_str(&self) -> &str
-```
-
-The message itself, for a caller that has decided it may render it.
-
-Named rather than reached through `Deref`, which `cargo xtask check-newtype-leaks` refuses:
-a wrapper you can forget you are holding is not a wrapper.
-
-```rust
-pub fn bounded(message: Option<String>) -> Self
-```
-
-The endpoint's message, capped and stripped of anything that could forge a log line.
-
-Infallible: an absent message is an empty one, which is honest - the status is what is
-guaranteed.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
-### `enum ReasonCode`
-
-```rust
-pub enum ReasonCode
-```
-
-The fixed reason vocabulary this adapter exposes from an endpoint response.
-
-Provider text is parsed into this type before it reaches an error. The endpoint may add a reason
-this adapter does not know; that value becomes `Self::Unrecognized` and its text is discarded.
-This keeps ordinary error rendering useful for known conditions without allowing provider-owned
-text to become a log line.
-
-#### Variants
-
-- `Absent` - No reason was present in the response.
-- `Unrecognized` - The endpoint returned a reason outside this adapter's vocabulary.
-- `AccessDenied` - The caller was not authorized.
-- `InvalidQuery` - The request was not valid for the service.
-- `NotFound` - The requested resource was not found.
-- `RateLimitExceeded` - The request exceeded a short-term service rate limit.
-- `QuotaExceeded` - The request exceeded a service quota.
-- `ResponseTooLarge` - The response exceeded the service's maximum response size.
-- `BackendError` - The service reported a temporary backend failure.
-
-#### Methods
-
-```rust
-pub const fn as_str(self) -> &'static str
-```
-
-The stable text this adapter renders for the code.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `PartialEq`
-
-### `enum WireError`
-
-```rust
-pub enum WireError<C>
-```
-
-Why the endpoint did not answer with rows.
-
-Generic in the credential source's own error, for the reason `crate::BigQueryError` is generic
-in this one: a caller that knows which credential source is installed can still tell a missing
-file from a refused refresh, and erasing it here would be the information this whole chain of
-generics exists to keep.
-
-**`ureq::Error` appears as a `#[source]` and never as a variant this type re-exports**, which is
-the shape *Structured Errors* asks for at a boundary: the variant is ours, the chain still walks,
-and a caller who knows the transport can downcast. It is boxed because it is much larger than
-every other variant and `clippy::result_large_err` is on.
-
-#### Variants
-
-- `Credential` - No token could be produced, so nothing was sent.
-- `Expired` - A token was produced and its deadline had already passed.
-
-  **Checked here rather than trusted, and it is the one check that would be pointless if
-  anything were cached.** A source that hands back an expired token is a source with a clock
-  problem, and presenting it turns that into a `401` from the data system - which reads to an
-  operator as a permissions fault.
-- `NoClock` - This process could not read a wall clock.
-
-  Reachable only on a machine whose clock is before the epoch. It is a variant rather than a
-  fallback because the alternative is presenting a token whose deadline nothing compared.
-- `DeadlineSpent` - This call's budget was gone before the job could be submitted.
-
-  **Refused rather than sent with whatever budget was left, because there was none. Reachable
-  two ways, and the first is new with `docs/adr/0029`:** the port's own `Deadline` was already
-  spent when `submit` was asked to do anything at all - the exchange included, so a
-  caller that ran out of time before this adapter was even reached does not spend it on an
-  exchange nobody is still waiting for - and the older way, a token exchange slow enough to spend
-  what was left of it before the job could be built. Submitting anyway would either mean an
-  unbounded wait or a job the service keeps running after the client has stopped waiting, which
-  is the pair of failures this whole shape exists to rule out. `budget_seconds` is the port's own
-  configured budget where a request carried a `Deadline`, and this adapter's own configured
-  `JobBounds` at the boot path, where there is no caller's budget to name.
-- `RequestNotSerializable` - The request could not be serialized.
-
-  **A defect-only path, and it is named rather than unwrapped.** Everything in the body is a
-  string, a bool or a number, so nothing here can fail the serializer; the variant exists
-  because `unwrap` is denied and a silent `unwrap_or_default` would send a different query.
-- `Unreachable` - The endpoint was not reached.
-- `Unreadable` - The endpoint answered and the answer could not be read.
-- `Refused` - The endpoint refused.
-
-  The status, the endpoint's reason mapped to `ReasonCode` in `named`, and its MESSAGE in
-  `detail`. An absent or unrecognized reason carries a static local marker rather than provider
-  text, which is honest: the status is what is guaranteed.
-
-  **This used to say the message was deliberately not carried, and the field beside it was
-  built from `error.message`.** The wrong half mattered: `detail` is free text the endpoint
-  writes, it quotes the resource and the principal it refused, and `Display` interpolated it -
-  so anything that rendered this variant into a public log leaked both. `ci.yml`'s masking step
-  exists because of exactly that, and `tests/exchanged_identity.rs` prints `status` and `named`
-  and never `detail` for the same reason.
-
-  **`Display` does NOT render `detail`.** It prints the status and the closed reason code, and
-  nothing else: a cause-chain walk that flattens every link with `Display` - which is what the
-  transports' sinks do - carries the same pair and never endpoint-owned text.
-  `detail` is an `EndpointMessage`, whose `Debug` is redacted and whose raw value is reached
-  only through an explicit accessor a caller has to opt into. Each of the three renderings
-  this error can meet is therefore one of those, and the one that leaks is the one a caller
-  cannot write by accident. `docs/adr/0018` carries this decision and its limit.
-- `NotADocument` - The answer was not the document a query response is.
-- `NotComplete` - The job had not finished when the endpoint answered.
-
-  **Refused rather than polled.** The alternative is `getQueryResults`, which needs a `location`
-  this deployment does not declare - see the module header - and a partial answer is a wrong
-  number under a certified name.
-
-  **It should now be reachable only through a defect or a cancellation**, because the request
-  carries `jobTimeoutMs` equal to the client's own wait: the service cancels the job at the same
-  instant the client stops waiting for it, so an incomplete answer is no longer a live job this
-  adapter walked away from. `named` carries the endpoint's reason as a closed `ReasonCode`,
-  which for a cancelled job is the useful half.
-
-  **This is the DOCUMENTED shape `crate::transport::JobTransport::deadline_exceeded` answers
-  `true` for, and it is stated as documented rather than measured because that is exactly what
-  it is.** `timeoutMs` and `jobTimeoutMs` travel as the same number by construction - see
-  `crate::wire::document::body` - so a synchronous `jobs.query` reply cannot say *the wait
-  expired* without also saying *the service was asked to cancel at the same instant*: the
-  endpoint's own documentation of `timeoutMs` is that an expired one answers `jobComplete:
-  false`, which is this variant.
-
-  **Not yet measured against a real endpoint, and that is stated here rather than implied.** An
-  acceptance cell that raced a statement against a real deadline to reach exactly this reply was
-  tried and reverted - the corpus fixture is a handful of rows, so the round trip reliably
-  finishes before any budget short enough to matter, and a budget picked to "usually" lose that
-  race flakes against a project that bills for it. `tests/tests/deadline.rs`'s cell proves the
-  narrower claim instead - a spent port deadline refuses through the REAL wire and credential
-  before a request is sent - and leaves this variant's own shape open, closed only by a
-  statement that reliably outruns a real budget without depending on fixture size or jitter.
-- `MoreThanOnePage` - The answer is one page of more than one.
-- `NoTotal` - A complete job that stated no total.
-
-  **Refused rather than read as zero**, because zero is what a complete empty result and a
-  missing field both look like, and only one of them is an answer this adapter may certify.
-
-  This is also where a FAILED job lands: the endpoint reports one as complete with no total, so
-  `named` carries the endpoint's reason as a closed `ReasonCode` and is the whole diagnostic.
-  That is why failure is derived from the shape here rather than from `errors` being non-empty -
-  see `reported`.
-- `NotATotal` - The total was not a number.
-
-  It arrives as text, because the endpoint writes 64-bit integers as JSON strings.
-- `NotAnEstimate` - `totalBytesProcessed` was present and not a number.
-
-  Same reason as `Self::NotATotal`: the endpoint writes this 64-bit count as a JSON string
-  too. Refused rather than read as `None` - which is reserved for the field being ABSENT -
-  because a value that arrived and did not parse is a shape this adapter does not understand,
-  not a dry run that declined to price.
-- `NoSchema` - A complete job with rows and no schema to read them against.
-- `NotAScalar` - A cell that is neither a string nor a null.
-
-  Every scalar the endpoint returns is JSON text whatever its declared type; an array or an
-  object is a `REPEATED` or `RECORD` column, which is outside `crate::transport::FieldType`'s closed
-  vocabulary. It names the position rather than the value, because the value is a row.
-- `NotAListing` - The answer to a table listing was not one. Distinct from `Self::NotADocument`, the same failure for a query answer: two documents, two shapes, and one message per request.
-- `UnusablePageToken` - The service handed back a page token this transport will not write into a URL. **Refused rather than filtered**, and `tables::usable_token` carries the argument; the token travels through `bounded`, which keeps a foreign string out of a log unbounded.
-- `ListingDidNotFinish` - A dataset that did not finish listing inside the page bound. **A failure rather than a short listing**: this feeds *these tables are absent*, so a cut-off listing reports a table that is there as missing.
-
-#### Implements
-
-`Debug`, `Display`, `Error`
-
-### `struct BigQueryWire`
-
-```rust
-pub struct BigQueryWire<C>
-```
-
-A `BigQuery` endpoint, reached over HTTP.
-
-Generic in its credential source rather than holding a boxed one, for the reason
-`crate::BigQueryWarehouse` is generic in its transport: there is one per process, it is chosen
-at composition, and a generic keeps the source's own error type visible in `WireError`.
-
-It holds a `WireAgent` and not a `ureq::Agent`, which is what makes the module header's claims
-properties of this type rather than of whichever function a composition root happened to call.
-
-#### Methods
-
-```rust
-pub const fn new(agent: WireAgent, credentials: C) -> Self
-```
-
-Opens a transport.
-
-The `WireAgent` is a parameter rather than something built here so it can be the same one
-the credential source refreshes through - one connection pool, one set of pins, and one
-`JobBounds` shared by the socket timeout and the request body.
-
-#### Implements
-
-`Debug`, `JobTransport`
-
-### `use WireAgent`
-
-The client every request in this crate goes through, with the four settings that matter PINNED BY
-THE TYPE rather than by a call site.
-
-**This newtype is the whole mechanism, and it exists because the previous shape was a convention.**
-The settings below used to live in a free function returning a bare `ureq::Agent`, and both
-`super::BigQueryWire::new` and `credential::ApplicationDefault::read` accepted any agent - so a
-composition root writing `ureq::Agent::new_with_defaults()` got redirects on, plaintext allowed
-and no timeout, while every test passed because the tests all called the right function. A private
-field with one constructor is what *a newtype parses rather than validates* asks for: if an
-instance of this exists, the pins hold.
-
-It also carries the `JobBounds`, so the deadline that shapes the socket timeout and the deadline
-that goes into the request body are **the same value**. Two arguments could have disagreed.
-
-### `use BytesBilledCeiling`
-
-The most a single job may be billed for scanning.
-
-**Sent as `maximumBytesBilled`, which is enforced at the service and is what makes it worth
-more than a client-side check.** A job that would exceed it FAILS and is not charged. Nothing else
-in this repository bounds bytes scanned: `LIMIT 10001` bounds rows RETURNED, the one-page refusal
-bounds a page, and `MAX_ANSWER_BYTES` bounds what is read into memory - a question can satisfy
-all three and still scan a partitioned table end to end.
-
-### `use CallDeadline`
-
-The instant one call into this transport has to be finished by.
-
-**One absolute deadline for the whole of one call, rather than a timeout per HTTP operation - and
-that distinction is the correction this type exists to carry.** The previous shape put
-`timeout_global` on the agent, so EVERY request through it got the full budget independently: a
-single `crate::transport::JobTransport::run` does a token exchange and then a job, and both were allowed
-`deadline + CONNECT_MARGIN` of their own. A review measured the consequence at the answer level -
-four HTTP operations, each with its own budget, against a transport whose own request timeout is
-thirty seconds - and the five-second overrun this module claimed was false.
-
-So the budget is opened once per call and every operation gets only what is LEFT of it: the token
-exchange, the socket the job waits on, and the `timeoutMs` and `jobTimeoutMs` the request carries -
-which is what keeps the service cancelling at the instant the client stops waiting even when the
-exchange spent half the budget first. When nothing is left, the refusal comes before the send.
-
-**A monotonic `std::time::Instant` and not a wall clock**, because a wall clock can step and a
-stepped deadline is either a job abandoned early or one that outlives its caller.
-
-**The limit this type used to carry is resolved by `docs/adr/0029`, and the record of it stays
-here rather than being deleted, because the fix is a fact about the type above it and not about
-this one.** One ANSWER calls the port twice - `Warehouse::dry_run` and then `Warehouse::execute` -
-and this type alone could never make the two share a budget: it is opened fresh by whoever calls
-`Self::opened`/`Self::opened_at`, and nothing HERE remembers what an earlier call spent. The
-port now carries a `sutura_domain::warehouse::deadline::Deadline` - one absolute instant per
-answer - and `crate::wire::BigQueryWire::submit` opens a `CallDeadline` from what THAT says is
-left via `Self::opened_at_for`, so the sharing lives one level up, where the two port calls
-actually are. The boot path (`verify_anchor`, a fixture load or drop) has no such `Deadline` to
-read and keeps opening fresh from this adapter's own configured `QueryDeadline`, exactly as
-every call did before this record.
-
-### `use JobBounds`
-
-What every job this adapter submits is bounded by.
-
-Two bounds in one value, because they are one decision: *how much of a deployment's time and money
-may one question spend*. A struct rather than two arguments so a call site cannot supply one and
-forget the other, and so `super::WireAgent` can carry them both.
-
-### `use QueryDeadline`
-
-How long a job may run when there is no port `Deadline` to read one from, and the ceiling this
-adapter's socket is pinned to for every call.
-
-**A newtype rather than a constant, because the value belongs to the deployment.** The setting
-that decides it is the one the transport in front of this service already uses -
-`server.request_timeout_seconds`, which ships as 30.
-
-**It used to be a SHARE of that setting rather than the setting itself, and `docs/adr/0029` is
-why it no longer is.** One answer made two calls through this transport - `Warehouse::dry_run`
-then `execute` - and neither took a deadline, so this type had to divide `30` by the two of them
-and their own connection overhead to keep an answer inside the caller's own wait -
-`within_request_timeout` was that arithmetic, checked by nothing outside this file. The port now
-carries ONE `Deadline` shared by every call one answer makes - `CallDeadline` opens FROM it at
-request time - so this type is left with a narrower job: the boot path, which has no `Deadline`
-to read (`verify_anchor`, a fixture load or drop, the identity read), and the socket ceiling every
-call is pinned to as a backstop regardless of what a request supplies. `Self::parse` is a
-composition root's one door in, and it takes the setting directly rather than a share of it.
-
-### `use UnusableBound`
-
-Why a bound this adapter was handed is not usable.
-
-### `use IamCredentialsOverHttp`
-
-An `ImpersonateAsAccount` that talks to Google's `iamcredentials` API over HTTP.
-
-### `use StsOverHttp`
-
-An `StsExchange` that talks to Google STS over HTTP.
-
-### Module `agent`
-
-`WireAgent` - the one `ureq::Agent` every request in this crate goes through.
-
-Its six pins are fixed by the type, and its `security.outbound` declaration (anchors, and
-since `github.com/telekom/sutura#911` an optional client identity) is folded into it.
-
-Split out of `wire.rs` for the file-length gate the way `bounds.rs`/`credential.rs`/`document.rs`
-already are: `wire.rs` sat at (and then over) `cargo xtask max-lines`'s 1000-line cap, and this
-type - one struct, one impl block - is a separable concept rather than a slice of prose.
-
-#### `struct WireAgent`
-
-```rust
-pub struct WireAgent
-```
-
-The client every request in this crate goes through, with the four settings that matter PINNED BY
-THE TYPE rather than by a call site.
-
-**This newtype is the whole mechanism, and it exists because the previous shape was a convention.**
-The settings below used to live in a free function returning a bare `ureq::Agent`, and both
-`super::BigQueryWire::new` and `credential::ApplicationDefault::read` accepted any agent - so a
-composition root writing `ureq::Agent::new_with_defaults()` got redirects on, plaintext allowed
-and no timeout, while every test passed because the tests all called the right function. A private
-field with one constructor is what *a newtype parses rather than validates* asks for: if an
-instance of this exists, the pins hold.
-
-It also carries the `JobBounds`, so the deadline that shapes the socket timeout and the deadline
-that goes into the request body are **the same value**. Two arguments could have disagreed.
-
-##### Methods
-
-```rust
-pub const fn bounds(&self) -> JobBounds
-```
-
-What every job through this client is bounded by.
-
-```rust
-pub fn pinned(bounds: JobBounds) -> Self
-```
-
-The compiled-in-roots constructor: `Self::secured` with no declared anchors.
-
-This is every deployment's behaviour before `github.com/telekom/sutura#125` and stays the
-default for one with no `security.outbound.transport_anchors` block - see `Self::secured`
-for the one setting that differs when a deployment declares one.
-
-```rust
-pub const fn rotating(bounds: JobBounds, agent: sutura_tls::Rotating<ureq::Agent>) -> Self
-```
-
-The rotation-lane constructor over a handle built by `Self::rotating_agent`.
-
-```rust
-pub fn rotating_agent(bounds: JobBounds, declared: Option<sutura_tls::Declared>) -> Result<(sutura_tls::Rotating<ureq::Agent>, Option<sutura_tls::Rotator<ureq::Agent>>), sutura_tls::LoadError>
-```
-
-Builds the wire's rotating agent handle for a declared `security.outbound` set (and, when one
-is declared, the poll handle the composition root drives on `sutura_tls::POLL_INTERVAL`).
-`None` returns a fixed handle over `ureq`'s compiled-in roots and no presented identity (the
-pre-`#125` behaviour, nothing to re-read); `Some` rebuilds `RootCerts::Specific` from each
-freshly loaded bundle and, when `sutura_tls::Declared::identity` is declared, presents the
-freshly loaded `sutura_tls::LoadedIdentity` too - both adopted by the next request.
-
-# Errors
-
-The declared bundle or client identity cannot be loaded at boot.
-
-```rust
-pub fn secured(bounds: JobBounds, anchors: Option<sutura_tls::LoadedAnchors>) -> Self
-```
-
-The one place every non-default setting is decided, and every one of them is a decision:
-
-- `http_status_as_error(false)`, because the client's default turns a `4xx` into an error and
-  discards the body - and the body is where the endpoint says *which* refusal this is. Status is
-  read explicitly instead, in `refusal`.
-- `https_only(true)`, so a bearer token cannot leave over plaintext even if a URL somewhere
-  loses its scheme. `HOST` is already `https`; this is the second lock.
-- `max_redirects(0)`, so the credential has no second host to reach. `ureq-proto` also strips
-  `authorization` on a redirect, which was verified rather than assumed - so this is belt and
-  braces, and the belt is ours.
-- `timeout_global`, at the job's deadline plus `CONNECT_MARGIN`, so the socket cannot outlive
-  the job it is waiting for by more than connection setup.
-- `max_response_header_size`, because headers are read before the body's own limit applies.
-- `proxy(Proxy::try_from_env())`, which is the client's own default WRITTEN OUT rather than
-  inherited. An egress proxy is a legitimate deployment shape and the tunnel is still TLS to
-  `HOST`, so what the environment chooses is the route and not the destination. The module
-  header states that distinction, because a previous version of it claimed the stronger thing.
-- `tls_config`, over `crate::wire::tls::config` - `RootCerts::WebPki` (`ureq`'s own default)
-  for `anchors: None`, which is every call `Self::pinned` makes and every deployment before
-  `#125`; `RootCerts::Specific` built from `anchors` for `Some`, which is what
-  `security.outbound.transport_anchors` resolves to. This constructor never presents a client
-  identity - `Self::rotating_agent` is the one that does, over the same declaration.
-
-The agent is wrapped in a never-rotating `sutura_tls::Rotating` - this constructor has no
-declaration to re-read. The rotation lane is `Self::rotating`, fed by
-`Self::rotating_agent`.
-
-##### Implements
-
-`Clone`, `Debug`
-
-### Module `bounds`
-
-What one job may spend: the TIME bound, the MONEY bound, and the per-call budget they are
-charged against.
-
-**Split out of `wire.rs` when that file reached the thousand-line limit `cargo xtask max-lines`
-enforces and cannot exempt**, at the cut `document.rs` already made once. The seam is the first
-bullet of `wire.rs`'s own header - *a job is bounded in TIME and in MONEY, and neither bound is a
-constant here* - and everything in this file is one of those two bounds, the arithmetic that
-keeps them inside the transport's own request timeout, or the refusal a deployment gets when the
-number it wrote cannot be used. Nothing here opens a socket, holds a credential or builds a
-document, which is what makes it the half a test reaches without a project.
-
-Why each bound is shaped the way it is stays with the type; `wire.rs`'s header is the one place
-they are argued together.
-
-#### `struct QueryDeadline`
-
-```rust
-pub struct QueryDeadline
-```
-
-How long a job may run when there is no port `Deadline` to read one from, and the ceiling this
-adapter's socket is pinned to for every call.
-
-**A newtype rather than a constant, because the value belongs to the deployment.** The setting
-that decides it is the one the transport in front of this service already uses -
-`server.request_timeout_seconds`, which ships as 30.
-
-**It used to be a SHARE of that setting rather than the setting itself, and `docs/adr/0029` is
-why it no longer is.** One answer made two calls through this transport - `Warehouse::dry_run`
-then `execute` - and neither took a deadline, so this type had to divide `30` by the two of them
-and their own connection overhead to keep an answer inside the caller's own wait -
-`within_request_timeout` was that arithmetic, checked by nothing outside this file. The port now
-carries ONE `Deadline` shared by every call one answer makes - `CallDeadline` opens FROM it at
-request time - so this type is left with a narrower job: the boot path, which has no `Deadline`
-to read (`verify_anchor`, a fixture load or drop, the identity read), and the socket ceiling every
-call is pinned to as a backstop regardless of what a request supplies. `Self::parse` is a
-composition root's one door in, and it takes the setting directly rather than a share of it.
-
-##### Methods
-
-```rust
-pub const fn budget(self) -> Duration
-```
-
-The whole budget, as a duration.
-
-```rust
-pub const fn milliseconds(self) -> u64
-```
-
-The deadline in milliseconds, which is the unit both request fields take.
-
-`saturating_mul` rather than `*`, and it cannot saturate: `Self::MAX_SECONDS` times a
-thousand is far inside `u64`. Written that way because a bound that could wrap is a bound that
-could become zero, and zero is the one value `Self::parse` refuses.
-
-```rust
-pub const fn parse(seconds: u64) -> Result<Self, UnusableBound>
-```
-
-Parses a deadline in whole seconds.
-
-**The one door in, since `docs/adr/0029` retired `within_request_timeout`'s arithmetic**
-(deleted, along with the `CALLS_PER_ANSWER` constant it depended on and the `NoBudget`
-refusal it alone produced): a composition root used to have to divide
-`server.request_timeout_seconds` by how many calls one answer makes before filling this in,
-because neither call carried a budget the other could see. The port now carries one
-`sutura_domain::warehouse::deadline::Deadline` shared by every call one answer makes, so what
-this type bounds is narrower and needs no division: the boot path, which has no such
-`Deadline` to read, and the socket ceiling every call is pinned to regardless. A composition
-root fills this from `server.request_timeout_seconds` directly.
-
-```rust
-pub const fn socket(self) -> Duration
-```
-
-How long a socket may stay open for a call that has spent none of its budget yet.
-
-**The backstop on the agent rather than the bound that holds.** What a single operation is
-really allowed is `CallDeadline::socket(left)` over what is LEFT of the call's budget - see
-`CallDeadline`, and see the module header for why a per-operation timeout was not enough. This
-value is what the agent is configured with, so an operation that somehow reached the client
-without an override is still bounded.
-
-##### Implements
-
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
-
-#### `struct BytesBilledCeiling`
-
-```rust
-pub struct BytesBilledCeiling
-```
-
-The most a single job may be billed for scanning.
-
-**Sent as `maximumBytesBilled`, which is enforced at the service and is what makes it worth
-more than a client-side check.** A job that would exceed it FAILS and is not charged. Nothing else
-in this repository bounds bytes scanned: `LIMIT 10001` bounds rows RETURNED, the one-page refusal
-bounds a page, and `MAX_ANSWER_BYTES` bounds what is read into memory - a question can satisfy
-all three and still scan a partitioned table end to end.
-
-##### Methods
-
-```rust
-pub fn as_text(self) -> String
-```
-
-The ceiling, as the request body writes it.
-
-**Text, because the endpoint writes and reads 64-bit integers as JSON strings.** A number here
-would be silently truncated to a double by a strict reader at the far end.
-
-```rust
-pub const fn parse(bytes: u64) -> Result<Self, UnusableBound>
-```
-
-Parses a ceiling in bytes.
-
-##### Implements
-
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
-
-#### `enum UnusableBound`
-
-```rust
-pub enum UnusableBound
-```
-
-Why a bound this adapter was handed is not usable.
-
-##### Variants
-
-- `Zero` - Zero, which would refuse every question rather than bounding one.
-- `TooLarge` - Above what the endpoint accepts, or above what a bound is for.
-
-##### Implements
-
-`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-#### `struct CallDeadline`
-
-```rust
-pub struct CallDeadline
-```
-
-The instant one call into this transport has to be finished by.
-
-**One absolute deadline for the whole of one call, rather than a timeout per HTTP operation - and
-that distinction is the correction this type exists to carry.** The previous shape put
-`timeout_global` on the agent, so EVERY request through it got the full budget independently: a
-single `crate::transport::JobTransport::run` does a token exchange and then a job, and both were allowed
-`deadline + CONNECT_MARGIN` of their own. A review measured the consequence at the answer level -
-four HTTP operations, each with its own budget, against a transport whose own request timeout is
-thirty seconds - and the five-second overrun this module claimed was false.
-
-So the budget is opened once per call and every operation gets only what is LEFT of it: the token
-exchange, the socket the job waits on, and the `timeoutMs` and `jobTimeoutMs` the request carries -
-which is what keeps the service cancelling at the instant the client stops waiting even when the
-exchange spent half the budget first. When nothing is left, the refusal comes before the send.
-
-**A monotonic `std::time::Instant` and not a wall clock**, because a wall clock can step and a
-stepped deadline is either a job abandoned early or one that outlives its caller.
-
-**The limit this type used to carry is resolved by `docs/adr/0029`, and the record of it stays
-here rather than being deleted, because the fix is a fact about the type above it and not about
-this one.** One ANSWER calls the port twice - `Warehouse::dry_run` and then `Warehouse::execute` -
-and this type alone could never make the two share a budget: it is opened fresh by whoever calls
-`Self::opened`/`Self::opened_at`, and nothing HERE remembers what an earlier call spent. The
-port now carries a `sutura_domain::warehouse::deadline::Deadline` - one absolute instant per
-answer - and `crate::wire::BigQueryWire::submit` opens a `CallDeadline` from what THAT says is
-left via `Self::opened_at_for`, so the sharing lives one level up, where the two port calls
-actually are. The boot path (`verify_anchor`, a fixture load or drop) has no such `Deadline` to
-read and keeps opening fresh from this adapter's own configured `QueryDeadline`, exactly as
-every call did before this record.
-
-##### Methods
-
-```rust
-pub fn opened(deadline: QueryDeadline) -> Self
-```
-
-Opens a budget now.
-
-```rust
-pub const fn opened_at(started: std::time::Instant, deadline: QueryDeadline) -> Self
-```
-
-Opens a budget that started at a named instant.
-
-**The canonical constructor, with `Self::opened` delegating to it**, and it is public for one
-reason: a caller cannot otherwise construct a budget that is already spent, so the refusal at
-the end of one could not be reached from a test without sleeping through a real one.
-
-```rust
-pub fn remaining(self) -> Option<Duration>
-```
-
-What is left of the budget, or `None` when it is spent.
-
-`None` rather than a zero duration, because zero means *no timeout* to the client underneath -
-so handing it on would turn a spent budget into an unbounded wait, which is the opposite of what
-this type is for.
-
-```rust
-pub const fn socket(left: Duration) -> Duration
-```
-
-How long a socket may stay open for an operation with `left` of the budget remaining: that,
-plus connection setup.
-
-##### Implements
-
-`Clone`, `Copy`, `Debug`
-
-#### `struct JobBounds`
-
-```rust
-pub struct JobBounds
-```
-
-What every job this adapter submits is bounded by.
-
-Two bounds in one value, because they are one decision: *how much of a deployment's time and money
-may one question spend*. A struct rather than two arguments so a call site cannot supply one and
-forget the other, and so `super::WireAgent` can carry them both.
-
-##### Methods
-
-```rust
-pub const fn deadline(self) -> QueryDeadline
-```
-
-How long a job may run.
-
-```rust
-pub const fn max_bytes_billed(self) -> BytesBilledCeiling
-```
-
-The most one job may be billed for scanning.
-
-```rust
-pub const fn of(deadline: QueryDeadline, max_bytes_billed: BytesBilledCeiling) -> Self
-```
-
-Names both bounds. Neither has a default, for the reason `BigQueryWarehouse::new` gives about
-its own arguments: a defaulted deadline is a promise nobody made, and a defaulted ceiling is
-money somebody else pays.
-
-##### Implements
-
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
-
-### Module `credential`
-
-Where the bearer token a job is submitted with comes from.
-
-**A second narrow port, for the reason `JobTransport` is one.**
-The wire needs two things from a credential - a token that is usable right now, and whether a
-request carrying it has to name a quota project - and everything else about how a deployment
-authenticates is somebody else's decision. So `AccessTokens` is those two things, and the
-transport is generic in it.
-
-It is a port on the first day rather than a `String` field, so *which* credential shape a
-deployment holds is a choice of implementor. `Bearer` carries the deadline because a minted token
-has one, and whether this adapter has anywhere for a subject's own credential to arrive is
-declared by `crate::BigQueryWarehouse`'s `IMPERSONATION` rather than by anything this port
-decides - and that declaration is deliberately the only copy of the value. This sentence used to
-carry a second copy and stated the OPPOSITE of it for three commits, on a published page;
-`check-guidance` refuses the shape now, so the correction is to stop encoding the value rather
-than to keep two copies in step.
-
-**What this is NOT, and the correction is review's rather than a hedge:** this port is not yet the
-seam at which per-subject execution arrives as *merely another implementor*. Three signatures say
-so - `Warehouse::execute` takes a `&Presented` and `BigQueryWarehouse` reads it only to call
-`deliverable`; `JobTransport::run` takes a `JobRequest` and nothing else; and `AccessTokens::bearer`
-takes a clock and a budget. So an implementation behind this port **cannot select a credential for
-the presented subject and cannot tell two concurrent subjects apart.** The step that builds
-per-subject execution has to carry the leg's subject or its credential context through one of those
-three interfaces, and which one is part of that change rather than something anticipated here.
-`docs/adr/0018` records it in the same words.
-
-# Two credential kinds, as one closed shape
-
-`Credential` reads either of the two files a deployment can actually have, and **which one it is
-is a closed two-variant shape rather than a struct of `Option`s.** That matters for a reason
-stronger than tidiness: a document carrying *both* a refresh token and a private key is
-unrepresentable here, so there is no state in which it is ambiguous which flow will run or which
-credential material was used.
-
-| Kind | Who holds it | The exchange |
-| --- | --- | --- |
-| `authorized_user` | a developer, from `just gcloud-login` | trade a refresh token |
-| `service_account` | CI, and a deployment | sign an assertion and trade that |
-
-**Both are `SharedServiceUser` and neither is a step towards per-subject execution.** One identity
-reaches the dataset for everybody who asks; on a laptop that identity is the developer and in CI it
-is a service account. `docs/adr/0017`'s amendment is where the decision to run the acceptance leg
-in CI on the second kind lives.
-
-**The signing costs no new dependency, which was verified rather than assumed.** `ring` is already
-in the graph - it is `ureq`'s and `tokio-rustls`'s crypto provider - and it carries
-`RsaKeyPair::from_pkcs8` plus `RSA_PKCS1_SHA256`, which is exactly the primitive and exactly the
-key encoding a service-account key uses. `base64` is already resolved too. So `docs/adr/0018`'s
-446-to-446 measurement survives this, and the alternative that would have cost a package -
-`jsonwebtoken`'s `use_pem`, which pulls `simple_asn1` because its DER path wants `PKCS#1` while a
-service-account key is `PKCS#8` - was priced and refused.
-
-**What IS first-party here is the JWT's text, and that boundary is deliberate.** `ring` computes the
-signature; this module base64url-encodes two JSON documents and joins them with dots.
-`docs/adr/0014` draws exactly that line when it argues for hand-writing a metrics exposition format
-and against hand-writing signature verification in the same breath: one is a text format, the other
-is cryptography. And this side SIGNS rather than verifies, which is where algorithm confusion does
-not live - the algorithm is a constant, not a field read off somebody else's document.
-
-# Two credential shapes exist and neither is built
-
-- the **metadata server**, which is how a deployment on the provider's own compute gets a token
-  with no key at all. It is a plain unauthenticated `GET` and would cost nothing in dependencies -
-  the cheapest option available. It is out because **nothing in this repository can verify it**: it
-  exists only inside that provider's network, so building it would add an unexercised code path to
-  a module whose whole point is that it does not claim more than it has.
-- **workload or workforce identity federation**, which is the per-subject step and an architecture
-  decision with an owner outside this repository.
-
-# Nothing is cached, and both the decision and its REASON were wrong once
-
-A token is minted for every call into the endpoint. **The decision stands; the paragraph that
-justified it did not, in two ways a review caught, and both are corrected here because the
-per-subject step will read this as the argument it inherits.**
-
-**The cost, counted properly.** `sutura_app::answer` calls `Warehouse::dry_run` and then
-`Warehouse::execute`; each goes through the wire's `submit`, and each calls
-`AccessTokens::bearer`. So one question is **two** token exchanges before its two job round
-trips, and **every anchor verified at boot is one more**. The earlier wording - *"one extra round
-trip per job"* - was half the real number and counted the wrong unit.
-
-**The reason, corrected.** The earlier version said a token cache keyed by nothing is the
-credential-shaped version of the result cache this crate refuses. That is true of a cache shared
-across SUBJECTS and false here: a `Credential` **is** one identity, so a token held until its
-`not_after` is keyed by exactly the thing that matters and leaks to nobody. The
-`std::sync::Mutex` ban in `clippy.toml` is not an argument either - `sutura-http`'s own key-set
-cache holds a lock.
-
-**So the honest reason is the small one: it is not needed until it is measured.** Minting is one
-`HTTPS` round trip against a query that costs seconds and money, and the shape with nothing to
-reuse is the shape that cannot get *a credential is not reused past its expiry* wrong - which is one
-of the assertions the per-subject step owes. **What that step must NOT inherit is a prohibition**,
-because caching per subject, keyed by subject, is a different question this paragraph does not
-answer.
-
-#### `struct Bearer`
-
-```rust
-pub struct Bearer
-```
-
-A token usable now, and when it stops being usable.
-
-**The deadline travels with the token rather than beside it**, so a caller cannot present one and
-forget the other. `Expiry` is the domain's own vocabulary for this, which matters because the
-per-subject step reports the same value through `sutura_domain::audit::CallRecord`.
-
-##### Methods
-
-```rust
-pub const fn not_after(&self) -> Expiry
-```
-
-When it stops being usable.
-
-```rust
-pub const fn of(token: Secret, not_after: Expiry) -> Self
-```
-
-Names a token and its deadline.
-
-```rust
-pub const fn token(&self) -> &Secret
-```
-
-The token, still opaque. A caller has to reach `Secret::expose_secret` to write it into a header, and
-that call is greppable.
-
-##### Implements
-
-`Clone`, `Debug`
-
-#### `enum QuotaProject`
-
-```rust
-pub enum QuotaProject
-```
-
-Whether a request has to name the project whose quota and billing it is attributed to.
-
-Two variants and no `Option`, because "the credential already says" is a real answer rather than a
-missing one - which is the same argument `Expiry` makes for having no `Option`.
-
-##### Variants
-
-- `Required` - State it on the request. An application-default credential is an END-USER credential, and the endpoint's own direct-REST guidance requires a quota project for one - without it a perfectly valid token is refused, with a message about user credentials not being supported that reads as an authentication fault and is not one.
-- `FromTheCredential` - The credential carries its own project, so stating one would add a permission requirement - `serviceusage.services.use` on that project - that a service account holding only dataset grants does not have. **So the header that MAKES the first kind work BREAKS the second**, which is why this is a two-variant answer and not a constant on the request.
-
-##### Implements
-
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
-
-#### `trait AccessTokens`
-
-```rust
-pub trait AccessTokens
-```
-
-Where the token a job is submitted with comes from.
-
-The clock is a parameter for the reason `Expiry::passed_by` takes one: an implementor that reads
-the wall clock itself cannot be tested against a deadline, and the expiry logic is the half of a
-credential source most likely to be wrong in the direction nobody notices. Who reads the real clock
-is the transport, once.
-
-#### `struct CredentialFile`
-
-```rust
-pub struct CredentialFile
-```
-
-The file a credential lives in.
-
-A newtype rather than a `PathBuf` argument, because `Self::well_known` and `Self::at` are two
-different claims - *wherever this machine keeps it* and *this exact file* - and a function taking a
-path cannot tell which one it was handed.
-
-##### Methods
-
-```rust
-pub fn at(path: impl Into<PathBuf>) -> Self
-```
-
-This exact file.
-
-```rust
-pub fn path(&self) -> &Path
-```
-
-The path, for reading it and for a message that says which file was wrong.
-
-```rust
-pub fn well_known() -> Result<Self, NoWellKnownLocation>
-```
-
-Wherever this machine keeps it.
-
-Three places, in the order the tooling itself uses: the explicit variable, then the relocated
-configuration directory, then the default under the user's home. **`HOME` is read and no
-fallback is invented** - a process with no home directory has no well-known location, and
-guessing one would be reading a credential from a path nobody chose.
-
-##### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
-#### `struct NoWellKnownLocation`
-
-```rust
-pub struct NoWellKnownLocation
-```
-
-Why the well-known location could not be worked out.
-
-One variant, and it carries no path: the refusal is that this machine named no home directory, and
-the fix is to say where the file is with `CredentialFile::at`.
-
-##### Implements
-
-`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-#### `enum UnusableCredential`
-
-```rust
-pub enum UnusableCredential
-```
-
-Why the file could not become a credential.
-
-**Every variant names what is wrong and none of them quotes a value from the file.** A path is
-carried where the fix is *which file*, a field NAME where the fix is *what is missing*, and the
-credential's own `type` only after `crate::wire::bounded` has cut it to a fixed character set -
-because a 16 KiB file can put 16 KiB of newlines there and this string reaches a log.
-
-##### Variants
-
-- `Unreadable` - The file could not be opened or read.
-- `TooLarge` - The file is larger than any credential document is.
-
-  Bounded before it is parsed, which is the ordering *secure by design* asks for: the cheap
-  check that stops work proportional to the input runs first. A credential file is a few
-  kilobytes at most.
-- `NotADocument` - The file is not the JSON document this expects.
-- `UnknownKind` - The file names a credential shape this build does not implement.
-
-  **It names the shape rather than saying "unsupported"**, because each named shape has a
-  different answer: the metadata server needs no file at all, and a federated credential is the
-  per-subject step. The module header lists both.
-- `Incomplete` - A document missing one of the fields its own kind needs.
-- `AnotherUniverse` - The credential was minted against a different service universe than the one this build talks to.
-
-  **Refused rather than tried.** The endpoints this crate reaches are compile-time constants in
-  the default universe, so a credential minted for another one would be presented to a service it
-  was not issued for - which is a credential sent to the wrong recipient, whatever the answer
-  turns out to be.
-- `UnreadableKey` - The private key is not a `PKCS#8` PEM block holding a key this build can sign with.
-
-  **Nothing from the key reaches the message.** The whole value is key material, so there is no
-  half of it that would be safe to quote - which is why the context is a typed `KeyUnusable`
-  naming the STAGE that refused rather than any part of the value.
-
-##### Implements
-
-`Debug`, `Display`, `Error`
-
-#### `enum KeyUnusable`
-
-```rust
-pub enum KeyUnusable
-```
-
-How far a private key got before it was refused.
-
-**Three stages rather than one boolean, because the fix for each is a different thing.** A missing
-delimiter is a truncated or wrongly-encoded file; a body that is not base64 is a corrupted one; a
-body that decodes and is not a key is a key of the wrong kind - a `PKCS#1` block whose delimiters
-somebody rewrote, an EC key, or a truncated DER. None of the three quotes anything.
-
-##### Variants
-
-- `NotAPemBlock` - The `PKCS#8` delimiters are absent, or there is nothing between them.
-- `NotBase64` - The body between the delimiters is not base64.
-- `NotAKey` - The body decodes and is not a `PKCS#8` RSA key this build can sign with.
-
-##### Implements
-
-`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-#### `enum TokenUnavailable`
-
-```rust
-pub enum TokenUnavailable
-```
-
-Why no token came back.
-
-##### Variants
-
-- `Unreachable` - The token endpoint did not answer.
-- `Unreadable` - The token endpoint answered, and the answer could not be read.
-- `Refused` - The token endpoint refused.
-
-  **The status and the provider's own short code, and not its description.** The two `OAuth`
-  fields are a fixed vocabulary - `invalid_grant`, `invalid_client` - which is what an operator
-  needs; the description is free text from another service, and this repository does not put
-  unbounded foreign text where a log will read it.
-- `NotADocument` - The answer was not the JSON document a token response is.
-- `NoToken` - The answer carried no token.
-- `AlreadyExpired` - The answer's own deadline had already passed when it arrived.
-
-  A token that is expired on delivery is a clock disagreeing with a clock, and presenting it
-  anyway would turn one clear failure into a `401` from the data system.
-- `DeadlineSpent` - The call's budget was gone before the exchange could be attempted.
-
-  **Reachable only where something before the exchange spent the whole call**, which today means a
-  clock read and a signature. It is a variant rather than a send with no timeout because a zero
-  budget handed to the client underneath means *no timeout at all* - see
-  `CallDeadline::remaining`.
-- `Unsigned` - The assertion could not be signed.
-
-  Only reachable for a `service_account`. The cause is kept: `ring`'s own error says whether the
-  key was rejected, and that is the difference between a bad key and a bad build.
-- `NotSigned` - The signature itself failed.
-
-  `ring` reports this opaquely on purpose, so there is nothing to carry beyond the fact.
-- `NotAServiceAccount` - `Credential::mint_id_token` was asked of an `authorized_user` credential.
-
-  Trading a refresh token for an ID token is a different grant this crate does not build - only
-  `mint_id_token`'s CI-only caller reaches this, never `AccessTokens::bearer`.
-
-##### Implements
-
-`Debug`, `Display`, `Error`
-
-#### `struct Credential`
-
-```rust
-pub struct Credential
-```
-
-A credential this build can present, read from a file.
-
-**One type for both kinds, so a caller does not have to know which file it has.** CI points
-`GOOGLE_APPLICATION_CREDENTIALS` at a service-account key and a laptop has an
-application-default login; both reach the endpoint through this.
-
-##### Methods
-
-```rust
-pub const fn kind(&self) -> &'static str
-```
-
-Which kind this is, for a banner or a test. A fixed word, never the file's own text.
-
-```rust
-pub fn mint_id_token(&self, target_audience: &str, now_unix_seconds: u64, within: CallDeadline) -> Result<Secret, TokenUnavailable>
-```
-
-Trades this service account's own key for a Google-issued OIDC ID token, for
-`examples/mint_subject_assertion.rs` to mint a subject assertion at job time -
-telekom/sutura#376. The one line `id_token` adds to this type's public surface; everything
-else lives in that submodule, which `clippy::multiple_inherent_impl` (denied
-workspace-wide) is why this stays one line here rather than a second `impl Credential`.
-
-```rust
-pub const fn project(&self) -> Option<&String>
-```
-
-Which project this credential names, where it names one.
-
-`Some` for a service-account key and `None` for an application-default login, which is the
-difference the two files actually have. **This is why CI configures no project variable:** the
-key carries it, so a second declaration would be a second answer to *who pays* that can
-disagree with the first.
-
-```rust
-pub fn read(file: &CredentialFile, agent: WireAgent) -> Result<Self, UnusableCredential>
-```
-
-Reads a credential file, whichever of the two kinds it holds.
-
-**The agent is a `WireAgent` and not a `ureq::Agent`, which is the point of that newtype:**
-the exchange and the job then share one connection pool and one set of pins by construction,
-rather than because two call sites happened to call the same builder. A previous version took
-any agent, so a composition root could have exchanged a credential over a client with redirects
-on and no timeout.
-
-**The two doctests below are the mechanism, not decoration.** The first is the mistake the
-newtype exists to make impossible; the second is its compiling twin, so the failure is the
-missing pin rather than a typo in the example.
-
-```compile_fail
-use sutura_exec_bigquery::wire::credential::{Credential, CredentialFile};
-
-// A client with redirects on, plaintext allowed and no timeout. There is no way to hand it in.
-let _ = Credential::read(&CredentialFile::at("/nonexistent"), ureq::Agent::new_with_defaults());
-```
-
-```
-use sutura_exec_bigquery::wire::credential::{Credential, CredentialFile};
-use sutura_exec_bigquery::wire::{BytesBilledCeiling, JobBounds, QueryDeadline, WireAgent};
-
-let bounds = JobBounds::of(
-    QueryDeadline::parse(30).expect("a deadline"),
-    BytesBilledCeiling::parse(1024 * 1024).expect("a ceiling"),
-);
-// Compiles, and refuses at run time because the path is not there - which is the point: what
-// the first example cannot get past is the TYPE, before any file is read.
-let refused = Credential::read(&CredentialFile::at("/nonexistent"), WireAgent::pinned(bounds));
-assert!(refused.is_err());
-```
-
-##### Implements
-
-`AccessTokens`, `Debug`
-
-### Module `document`
-
-The two documents this adapter exchanges with the endpoint, and the code that builds and reads
-them.
-
-**Split out of `wire.rs` when that file crossed 1000 lines**, and the cut is at a real seam rather
-than at a line count: everything here is about the SHAPE of a request and an answer, and nothing
-here opens a socket, holds a credential or reads a clock. That is also what makes it the half a
-test can exercise - `super::tests` asserts on the SERIALIZED body and over answer documents, which
-is the whole of what this repository can prove without a project.
-
-Every decision these types carry is argued in `wire.rs`'s own header, which is the one place to
-read them together; what is written here is why each field is the way it is.
-
-#### `fn decode_answer`
-
-```rust
-pub fn decode_answer(text: &str) -> Result<crate::transport::JobRows, crate::wire::WireError<core::convert::Infallible>>
-```
-
-Decode a `jobs.query` reply from its transport text - the pure half of
-`crate::wire::BigQueryWire::run_job`, reached without a socket or a credential.
-
-This is exactly what `submit` feeds the answer through once the HTTP round trip is done:
-`serde_json` into `QueryAnswer` (no `deny_unknown_fields`, because the document is the
-service's own and will grow fields) and then `complete` runs the shape checks that turn it
-into a typed `JobRows`. The seam exists so a harness can fuzz the foreign decode - the first
-untrusted document this adapter reads - without standing up the transport. `Infallible` is the
-frozen error the shape checks cannot produce; the real call sites substitute the credential
-source's own error via the same generic `complete`.

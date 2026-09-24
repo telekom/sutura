@@ -69,7 +69,7 @@ const DEFAULTS: &str = include_str!("defaults.yaml");
 ///
 /// A value rather than a set of arguments, for one reason: the process environment is global, and
 /// `std::env::set_var` is `unsafe` in this edition - so a test that wanted to exercise the variable
-/// layer by setting variables could not be written under `unsafe_code = "forbid"`. Supplying the
+/// layer by setting variables could not be written under this crate's root `forbid(unsafe_code)`. Supplying the
 /// variables as a map makes that layer a pure function of its input, and
 /// [`Sources::from_process_environment`] is the one place that reads the real environment.
 #[derive(Debug, Clone)]
@@ -480,6 +480,7 @@ impl Settings {
         refusals.extend(self.keying_refusals());
         refusals.extend(self.identity_refusals());
         refusals.extend(self.run_sql_refusals());
+        refusals.extend(self.spend_refusals());
         refusals.extend(self.credential_refusals(off_host));
         // Keyed exactly like `metrics_refusals` below it: an unbounded caller is an unbounded
         // aggregate over the same history whether the deployment is labelled `production` or is
@@ -579,6 +580,19 @@ impl Settings {
             return vec![NotFitToServe::RunSqlEnabledInMultiUserMode];
         }
         Vec::new()
+    }
+
+    /// Every `bigquery` source a declared spend ceiling would not bound - see
+    /// [`NotFitToServe::UnpricedSourceUnderSpendCeiling`].
+    fn spend_refusals(&self) -> Vec<NotFitToServe> {
+        if self.spend_budget.is_none() {
+            return Vec::new();
+        }
+        self.sources
+            .each()
+            .filter(|&(_, source)| source.kind() == crate::sources::SourceKind::BigQuery)
+            .map(|(alias, _)| NotFitToServe::UnpricedSourceUnderSpendCeiling { alias: alias.clone() })
+            .collect()
     }
 
     /// Everything wrong with what a request has to present, and with where it presents it.

@@ -28,30 +28,27 @@ use crate::commands::render;
 #[cfg(feature = "bigquery")]
 use crate::sources::OpenedWith;
 
-/// A `BigQuery` source as this binary composes it: the adapter, over the wire, over a credential file.
+/// A `BigQuery` source as this binary composes it: the adapter over the `ADBC` native driver.
 ///
-/// **The same three layers `crate::serve`'s own alias names, through the same public constructors**,
-/// which is what "one composition per adapter" amounts to across two composition roots that may not
-/// depend on each other: a fix to the credential path lands in `sutura-exec-bigquery` and both roots get it.
-/// `docs/adr/0018` is the record for the inner two.
+/// **What was here was the HTTP `wire` transport plus a service-account credential file; the same
+/// change that adopted ADBC as the normal `BigQuery` mode removed both.** The driver performs its own
+/// authentication (application-default credentials), so this composition root reads no credential
+/// file and drives no token rotation - the removed `wire` half.
 #[cfg(feature = "bigquery")]
-pub(crate) type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<
-    sutura_exec_bigquery::wire::BigQueryWire<sutura_exec_bigquery::wire::credential::Credential>,
->;
+pub(crate) type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery>;
 
-/// Opens one `BigQuery` dataset, over the wire, under the credential the deployment declared.
+/// Opens one `BigQuery` dataset over the `ADBC` native driver.
 ///
 /// **Nothing is attached and nothing is registered, which is the difference from the files arm that
 /// matters:** the tables live in the dataset, so [`OpenedWith::attached`] is `None` here. What this
-/// does instead is everything that can fail before a question is asked - the posture cross-check, the
-/// two bounds, and READING the credential file, which is the one step that would otherwise fail on the
-/// first question.
+/// does instead is everything that can fail before a question is asked - the posture cross-check and
+/// the on-disk driver path, which is the one step that would otherwise fail on the first question.
 ///
 /// **The composition is `crate::serve`'s `build_bigquery`, line for line, through the same public
 /// constructors** - which is what issue 121 asks for by "one composition per adapter, shared by both
 /// roots". It is a copy rather than a shared function because the two composition roots are separate
 /// binaries and neither may depend on the other; what is genuinely shared is
-/// `sutura-exec-bigquery`'s own constructors, so a fix to the credential path lands once.
+/// `sutura-exec-bigquery`'s own constructors, so a fix to the driver path lands once.
 /// `refuse_unattached` was cited here as carrying the same argument and no longer does: it held no
 /// word an operator reads, so it is shared in `sutura-app` now - this paragraph's counter-example
 /// rather than its precedent.
@@ -60,28 +57,28 @@ pub(crate) type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<
 ///
 /// A placement the dispatcher should have sent elsewhere; a source with no declared identity; a
 /// posture this adapter cannot deliver; the `impersonation-at-source` posture, which this binary
-/// attaches no exchanging broker for; either bound out of range; a credential file that cannot be
-/// read; and a project or dataset id the transport will not accept.
+/// attaches no broker for; a build carrying no driver with no usable mounted one named either; and
+/// a project or dataset id the transport will not accept.
 #[cfg(feature = "bigquery")]
 pub(super) fn open(
     source: &SourceName,
     configured: &sutura_config::ConfiguredSource,
     registry: &sutura_config::SourceRegistry,
-    request_timeout: sutura_config::RequestTimeout,
-    outbound: Option<&sutura_tls::Declared>,
+    _request_timeout: sutura_config::RequestTimeout,
+    _outbound: Option<&sutura_tls::Declared>,
 ) -> Result<Opened, String> {
-    use sutura_exec_bigquery::transport::{DatasetId as WireDataset, ProjectId as WireProject};
-    use sutura_exec_bigquery::wire::credential::{Credential, CredentialFile};
-    use sutura_exec_bigquery::wire::{BigQueryWire, BytesBilledCeiling, JobBounds, QueryDeadline, WireAgent};
+    use sutura_exec_bigquery::transport::{DatasetId, ProjectId};
 
     // Matched rather than read off accessors every kind would have to have, for the reason the files
     // arm gives at the same shape: the dispatcher has already decided which arm this is, and a second
-    // openable kind should arrive as a compile error at this line too.
+    // openable kind should arrive as a compile error at this line too. `credential_file` is the one
+    // key here the ADBC transport does not read - the driver authenticates itself - and the field
+    // stays for `sutura-catalog-datahub`.
     let sutura_config::SourcePlacement::BigQuery {
         ref billing_project,
         ref dataset,
-        ref credential_file,
         max_bytes_billed,
+        ..
     } = *configured.placement()
     else {
         return Err(format!(
@@ -92,91 +89,56 @@ pub(super) fn open(
     let identity = configured
         .identity()
         .ok_or_else(|| format!("`sources.{source}` declares no identity a query could run under"))?;
-    // Against a DIFFERENT adapter's constant, which is the point of the cross-check being per adapter
-    // rather than per deployment: this one declares `PerSubjectCredential`, so an
-    // `impersonation-at-source` entry passes the adapter's capability half. That is not the whole
-    // story, and the composition's half is below.
     identity
         .posture()
         .deliverable_by(<BigQuerySource as sutura_domain::warehouse::Warehouse>::IMPERSONATION, source)
         .map_err(|cause| render(&cause))?;
-    // **The adapter can carry a subject, and this command wires no broker that mints one.** The port,
-    // `WorkloadIdentityBroker` and the real `StsExchange` all exist and are tested; attaching one is
-    // the step that awaits a deployable project. Until then such an entry would be opened and answered
-    // under the credential the deployment declared - every row as this process while a reader believed
-    // a subject's authorization was evaluated. Refused before the credential file is read, so an
-    // operator fixes the posture rather than a file.
-    //
-    // **An exhaustive MATCH and not an `==`, which is a review correction rather than a rewrite.**
-    // `deliverable_by` above PASSES an impersonating entry - this adapter declares
-    // `PerSubjectCredential` - so this is the composition's whole refusal, and it was the one place in
-    // this file where *prefer unrepresentable to checked* was not applied. Two variants exist today,
-    // so the `==` was complete; a third would have fallen through it and been OPENED, where
-    // `deliverable_by`'s own two exhaustive matches force somebody to answer for it, and so does
-    // every other match on `SourcePosture` inside `sutura-domain` - `as_str`,
-    // `what_decides_what_a_caller_sees`, `anchors_run_as`. A third variant does not compile: adding
-    // one fails with `error[E0004]` five times, all inside `sutura-domain`, before either composition
-    // root can even link against it - verified, not assumed. **That guarantee lives in the domain
-    // type, not in this line**: `serve`'s own `bigquery.rs` runs no local match on posture at all, so
-    // it is `deliverable_by` alone - the same function this file also calls - standing between it and
-    // a silently-opened third variant.
-    //
-    // **And this guard is doing DOUBLE DUTY for a check this composition root does not have.**
-    // The `serve` composition root (`crate::serve`) runs `refuse_unverifiable_anchors` - a bundle
-    // declaring an anchor on a source with no identity to re-run it under does not boot - and this
-    // root has no equivalent. That is vacuous today only BECAUSE of the arm below:
-    // `AnchorIdentity::NoneDeclared` is reachable only for an `impersonation-at-source` source, and
-    // this refuses every one of those before an anchor is looked at. So the day a broker is attached
-    // here, that check has to arrive with it.
+    // **The adapter can carry a subject, and this composition root wires no broker that names one.**
+    // `sutura serve` attaches `DeclaredPrincipalBroker`; this command attaches only the static
+    // broker, so the driver would execute whatever it is configured to authenticate as. Refused here
+    // so an operator fixes the posture rather than believe a subject's authorization was evaluated.
     match *identity.posture() {
         sutura_domain::source::SourcePosture::SharedServiceUser { .. } => {}
         sutura_domain::source::SourcePosture::ImpersonationAtSource => {
             return Err(format!(
-                "`sources.{source}` is `impersonation-at-source`, and the `sutura` command does not \
-                 attach a broker that exchanges a subject's credential - refusing rather than reading \
-                 every row as this process; no fallback"
+                "`sources.{source}` is `impersonation-at-source`, and the `sutura` command attaches \
+                 no broker that names the principal a subject executes as - refusing rather than \
+                 reading every row as this process; no fallback. `sutura serve` is the root that \
+                 attaches one"
             ));
         }
     }
-    // **`parse` and NOT `within_request_timeout` - `docs/adr/0029` retired that arithmetic.** This
-    // command opens the port's own `Deadline` from `settings.server().request_timeout()` at the
-    // instant a question arrives (`commands.rs`), and `BigQueryWire::submit` derives `timeoutMs`/
-    // `jobTimeoutMs` from what THAT says is left - so this `JobBounds` no longer has to already fit
-    // inside the request timeout on its own; it is filled from the key directly. What it still
-    // bounds: the socket ceiling every call is pinned to as a backstop, and the boot path
-    // (`verify_anchor`), which has no `Deadline` to read. This command has no listener whose timeout
-    // a job could outlive, and it reads `server.request_timeout_seconds` anyway because that key is
-    // the one place a deployment says how long a question may take, and a second number invented
-    // here would be the duplicate a prior version of this comment refused for a different reason.
-    let deadline = QueryDeadline::parse(request_timeout.seconds())
-        .map_err(|cause| format!("`server.request_timeout_seconds` leaves no BigQuery job deadline: {cause}"))?;
-    let ceiling = BytesBilledCeiling::parse(max_bytes_billed)
-        .map_err(|cause| format!("`sources.{source}.max_bytes_billed` is not a usable ceiling: {cause}"))?;
-    let bounds = JobBounds::of(deadline, ceiling);
-    // ONE agent, cloned, which is what `Credential::read` taking an agent is for: the token exchange
-    // and the job share one connection pool and one set of pins by construction rather than because
-    // two call sites happened to pass the same bounds. `outbound` is `None` for the ordinary
-    // deployment, which is `WireAgent::secured`'s exact `pinned` behaviour - `github.com/telekom/sutura#125`.
-    // A declared bundle becomes a rotating handle, adopted by the next request.
-    let (agent, rotator) = WireAgent::rotating_agent(bounds, outbound.cloned())
-        .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
-    crate::rotation::drive_rotation("security.outbound.transport_anchors (BigQuery wire)", rotator);
-    let agent = WireAgent::rotating(bounds, agent);
-    let credentials = Credential::read(&CredentialFile::at(credential_file.clone()), agent.clone())
-        .map_err(|cause| format!("`sources.{source}.credential_file` could not be read: {}", render(&cause)))?;
-    // Parsed a SECOND time here, and that is not a redundant check: the settings tree's
-    // `BillingProject` and the transport's `ProjectId` are two types in two crates, and the one whose
-    // value is written into a request path is the transport's.
-    let project = WireProject::parse(billing_project.as_str())
+    // WHICH driver, decided by `crate::bigquery_driver` for this root, `serve::bigquery` and
+    // `doctor` alike: a published artefact carries its own, and a build from source names a mounted
+    // one. That module's header carries why the order is not a preference.
+    // **The money bound, parsed before the driver is resolved**, for `serve::bigquery`'s reason at
+    // the same line: the RANGE belongs to the transport that sends it, so a `0` - BigQuery's own
+    // spelling of *no ceiling* - and an absurd value stop the command here, ahead of anything that
+    // starts a Go runtime.
+    let max_bytes_billed = sutura_exec_bigquery::adbc::BytesBilledCeiling::parse(max_bytes_billed)
+        .map_err(|cause| format!("`sources.{source}.max_bytes_billed` is not a ceiling this transport will send: {cause}"))?;
+    let driver = crate::bigquery_driver::resolve(&format!("`sources.{source}`"))?;
+    // Loaded and initialised rather than merely resolved - `serve/bigquery.rs` carries the argument,
+    // and it applies identically here: a driver this process cannot open must stop this command
+    // rather than become a failure on the one question it was launched to answer.
+    sutura_exec_bigquery::adbc::AdbcBigQuery::probe(&driver)
+        .map_err(|cause| format!("the BigQuery ADBC driver ({driver}) did not initialise for {source}: {cause}"))?;
+    let project = ProjectId::parse(billing_project.as_str())
         .map_err(|cause| format!("`sources.{source}.billing_project` is not a usable project id: {cause}"))?;
-    let dataset = WireDataset::parse(dataset.as_str())
+    let dataset = DatasetId::parse(dataset.as_str())
         .map_err(|cause| format!("`sources.{source}.dataset` is not a usable dataset id: {cause}"))?;
-    let engine = sutura_exec_bigquery::BigQueryWarehouse::new(
+    let engine = sutura_exec_bigquery::BigQueryWarehouse::over_adbc(
         source.clone(),
         identity.posture().clone(),
         project,
         dataset,
-        BigQueryWire::new(agent, credentials),
+        driver,
+        // `Disabled`, and the match above is what makes that the whole truth here rather than a
+        // default: this command refuses `impersonation-at-source` by name, so the only posture that
+        // reaches this line is the shared one - the deployment's own application default
+        // credentials, which is mandatory for that posture and impersonates nothing.
+        sutura_exec_bigquery::adbc::Impersonation::Disabled,
+        max_bytes_billed,
     );
     Ok(Opened::BigQuery(OpenedWith {
         engines: sutura_app::Warehouses::of(engine),
@@ -430,17 +392,14 @@ mod tests {
 
     #[test]
     #[cfg(feature = "bigquery")]
-    fn a_declared_bigquery_source_reaches_the_credential_the_deployment_declared() {
-        // **What this proves, and it is deliberately the furthest a test with no project can reach:**
-        // the kind DISPATCHED to the BigQuery adapter, the shared posture was accepted against that
-        // adapter's OWN `IMPERSONATION`, both bounds parsed, and the composition asked for the
-        // credential file the settings tree named. A refusal about that path is the proof; a refusal
-        // about the feature, the kind or the posture would mean it stopped earlier.
-        //
-        // It cannot go further here by construction: `wire::BigQueryWire`'s host is a `const` and its
-        // agent is `https_only`, so there is no loopback to point it at - `docs/adr/0018` states that
-        // as a coverage hole paid for with a security property, and `just bigquery-acceptance` is the
-        // leg that closes it against a real dataset.
+    fn a_declared_bigquery_source_refuses_for_a_missing_driver_not_the_credential_file() {
+        // **What this proves, and it is the whole seam this command can reach with no driver:** the
+        // kind DISPATCHED to the BigQuery adapter, the shared posture was accepted against that
+        // adapter's OWN `IMPERSONATION`, both bounds parsed, and the composition then demanded the
+        // on-disk ADBC driver - refused here because no `SUTURA_BIGQUERY_ADBC_DRIVER` points at one.
+        // The driver authenticates ambiently, so the `credential_file` a `declaring_bigquery` entry
+        // declares is deliberately NOT read: matching the driver refusal is exactly how this proves
+        // the file never is.
         let error = open_engine(
             &bundle_naming("warehouse"),
             &declaring_bigquery("shared-service-user", ""),
@@ -450,22 +409,19 @@ mod tests {
             None,
         )
         .map(|_| ())
-        .expect_err("the declared credential file is not there, so this command does not answer");
+        .expect_err("the ADBC driver is not configured, so this command does not answer");
         assert!(
-            error.contains("credential_file"),
-            "the refusal must name the key that could not be read: {error}"
+            error.contains("SUTURA_BIGQUERY_ADBC_DRIVER"),
+            "the refusal must name the driver variable an operator has to set: {error}"
         );
         assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
-        // NOT the neighbouring arms, which is the half that stops this passing on the wrong branch: a
-        // build that linked no adapter, or a posture cross-check that fired, would both be green on
-        // the two assertions above if they only checked for a refusal.
+        assert!(
+            !error.contains("credential_file"),
+            "the driver authenticates ambiently - a credential file must not be read: {error}"
+        );
         assert!(
             !error.contains("--features bigquery"),
             "this build DID link the adapter: {error}"
-        );
-        assert!(
-            !error.contains("no fallback"),
-            "the shared posture is deliverable by this adapter: {error}"
         );
     }
 
@@ -476,8 +432,9 @@ mod tests {
         // the whole point of `deliverable_by` being called per adapter rather than per deployment.
         // `sutura-exec-bigquery` declares `PerSubjectCredential`, so the capability half PASSES for an
         // `impersonation-at-source` entry. What cannot happen is the COMPOSITION's half: this command
-        // attaches no broker that exchanges a subject's credential, so answering would read every row
-        // as this process while the declaration promised a subject's authorization was evaluated.
+        // attaches no broker that names the principal a subject executes as, so answering would read
+        // every row as this process while the declaration promised a subject's authorization was
+        // evaluated. `sutura serve` attaches one; this root is the other binary.
         //
         // **Refused BEFORE the credential file is read**, and the last assertion is what pins that
         // order: a posture the composition cannot honour is not worth a filesystem read, and an
@@ -494,10 +451,10 @@ mod tests {
             None,
         )
         .map(|_| ())
-        .expect_err("an impersonating posture with no exchanging broker must not answer");
+        .expect_err("an impersonating posture with no broker attached must not answer");
         assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
         assert!(
-            error.contains("does not attach a broker"),
+            error.contains("attaches no broker"),
             "the refusal must say the composition is the gap, not the adapter: {error}"
         );
         assert!(
@@ -532,17 +489,17 @@ mod tests {
         use sutura_domain::source::{ImpersonationCapability, SourcePosture};
         use sutura_domain::warehouse::deadline::Deadline;
         use sutura_domain::warehouse::preflight::{TablesPresent, UnaccountedTables};
-        use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
+        use sutura_domain::warehouse::{AnchorRows, ResultBatches, Warehouse};
 
         use crate::sources::bigquery::{absent_tables_notices, refuse_absent_tables};
 
         /// A data system that answers the pre-flight from what a test handed it, and records the asking.
         ///
         /// **A fake above the port rather than a fake transport**, which is what makes every outcome
-        /// reachable here: `sutura_exec_bigquery::wire::BigQueryWire`'s host is a `const` and its
-        /// agent is `https_only`, so no test in this repository can point a real one at a loopback.
-        /// What is under test is this composition root's DECISION about each answer, and a `Warehouse`
-        /// fake is exactly what exercises that.
+        /// reachable here: the real transport, `sutura_exec_bigquery::adbc::AdbcBigQuery`, opens a
+        /// native ADBC driver over the C ABI in `connect`, and no test in this repository can
+        /// substitute a loopback for that boundary. What is under test is this composition root's
+        /// DECISION about each answer, and a `Warehouse` fake is exactly what exercises that.
         struct Answers {
             source: SourceName,
             answer: Answering,
@@ -594,7 +551,7 @@ mod tests {
                 _executable: Executable<'_>,
                 _presented: &Presented,
                 _deadline: Deadline,
-            ) -> Result<RowSet, Self::Error> {
+            ) -> Result<ResultBatches, Self::Error> {
                 Err(CouldNotAsk)
             }
 

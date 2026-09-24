@@ -71,6 +71,20 @@ map" send a reader to three different places.
   Separate from `Self::Runtime`, which is the *tokio* runtime: one is a thread pool and one is
   the memory bound, and a deployment that cannot start needs to know which. Like `Runtime` it
   happens once at construction or not at all.
+- `UnknownCodec` - A path's outermost extension spells a compression codec this build cannot read.
+
+  **A parse rather than a fallback, and the failure it replaces is silent.** Handing a
+  compressed file to the engine as plain text does not fail: the schema is inferred from the
+  codec's own header bytes, and the table resolves to columns nobody declared. So an extension
+  that certainly names a codec and is not one this build compiled is refused by name.
+
+  `crate::attach`'s `NEAR_MISSES` carries why this is a closed list rather than "anything
+  unrecognised": `orders.txt` is a CSV and must keep reading.
+- `UnknownFormat` - A path's extension names no format this engine reads.
+
+  Raised by `attach_file`'s dispatch and by nothing else, so a composition root that offered a
+  candidate name outside `crate::attach::candidates` gets a refusal rather than a CSV read of
+  a file that is not one.
 - `Attach`
 - `QualifiedTableUnreachable` - A model names a table this engine has nowhere to look for.
 
@@ -91,26 +105,23 @@ map" send a reader to three different places.
   A bug here or upstream rather than a refusal: a caller cannot ask anything that causes one.
 - `Analyze` - The engine refused the plan: an unknown table, an unknown column, a type mismatch.
 - `Execute`
-- `UnsupportedType` - A column came back as a type this adapter does not map.
+- `Unreadable` - A result column could not be read as a domain value.
 
-  An error rather than a stringified fallback, for the reason the `DuckDB` adapter gives: a
-  nested type rendered with `Debug` would flow into an answer looking like data, and an anchor
-  comparison against it would pass or fail for reasons nobody could read.
-- `Downcast` - The schema said one Arrow type and the array was another.
+  **Wrapped rather than restated, and that is `docs/adr/0039`'s point.** The mapping from an
+  Arrow array to a `Value` is `sutura_domain::warehouse::arrow`'s, shared with every adapter
+  whose driver speaks Arrow, so the five variants this replaces - an unmapped type, a failed
+  downcast, a non-finite double, a day count that is not a date, a result that is not
+  rectangular - are one cause with one set of messages instead of one copy per adapter.
 
-  Unreachable through the engine, and reported rather than skipped anyway: the alternative is
-  substituting a null for a value that exists.
-- `NotFinite` - A floating-point column came back as a value that is not a number.
+  The `#[source]` chain is what keeps the detail reachable: `sutura-app`'s bounds suite matches
+  `UnreadableCell::NotFinite`'s own column through it, which is what
+  `zero_denominator: fails` actually produces.
+- `Unannounced` - A result batch did not carry the fields the schema it arrived under announced.
 
-  **What `zero_denominator: fails` actually produces.** A ratio measure choosing that word is
-  translated as an unguarded division with the numerator cast to `Float64`, so the division is
-  IEEE float division: dividing by zero answers `inf` here rather than failing, and zero divided
-  by zero answers `NaN`. `Real` refuses all three, which is what makes the word `fails` true of
-  the metric that chose it instead of the string `inf` arriving under a certified name.
-
-  The cause names which of the three it was; this variant names the column.
-- `NotADate` - A day number came back that is not a date this build can represent.
-- `Shape`
+  Unreachable through this engine - it produces its own batches from its own plan - and kept
+  because the check is the shared one: `Accumulating` is the same guard a foreign ADBC driver's
+  stream goes through, and one path through it is what stops the engine's own collection being
+  the lenient copy.
 - `SchemaMismatch` - The result schema is not the one the plan's labels describe.
 
   Checked rather than papered over. `QueryPlan::result_labels` is the one definition both
@@ -178,7 +189,22 @@ An in-process engine, behind the `Warehouse` port.
 pub fn attach_csv(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError>
 ```
 
-Exposes a CSV file as a table. `DataFusion` handles inference.
+Exposes a CSV file as a table, compressed or not. `DataFusion` handles inference.
+
+The codec comes from the path - see `Codec::of_path` - so `orders.csv` and `orders.csv.gz`
+are one call.
+
+```rust
+pub fn attach_file(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError>
+```
+
+Exposes whichever format a path's extensions name, compressed or not.
+
+The one entry point a composition root needs: it pairs with `candidates`, so the set of
+names a deployment looks for and the set this dispatch accepts are the same list. An
+extension naming no format this engine reads is `DataFusionError::UnknownFormat` rather
+than a guess at CSV - inferring a schema from a file of the wrong shape is how a table
+resolves to columns nobody declared.
 
 ```rust
 pub fn attach_fixture_csv(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError>
@@ -189,14 +215,27 @@ Exposes a deliberately simple conformance fixture CSV with exact shared types.
 Available only with the default-off `fixtures` feature.
 
 ```rust
+pub fn attach_json(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError>
+```
+
+Exposes a newline-delimited JSON file as a table, compressed or not.
+
+The CSV affordance's twin for the other plain-text format, and the second half of what
+`datafusion/compression` buys. NDJSON rather than a JSON array: the engine reads one record
+per line, which is what streams and what a schema can be inferred from without holding the
+document.
+
+```rust
 pub fn attach_parquet(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError>
 ```
 
 Exposes a Parquet file as a table.
 
-The CSV affordance's twin, and why the `parquet` feature is on. Neither `compression` nor
-`avro` is: each reintroduces a licence the supply-chain gate does not allow, and the
-manifest's comment records which.
+**No codec argument, and that is the point rather than an omission.** A Parquet file records
+its own compression per column chunk and the `parquet` feature's codecs read it, so there is
+nothing for `Codec` to decide - and an outer `.gz` around a Parquet file is
+`DataFusionError::UnknownCodec` through `Codec::of_path`, which is the honest answer to a
+file that should not have been written that way. The module header carries the distinction.
 
 ```rust
 pub fn new(source: SourceName, posture: SourcePosture, working_set: WorkingSet) -> Result<Self, DataFusionError>
@@ -259,6 +298,26 @@ The configured pool ceiling; `MemoryPool::memory_limit` can report `Unknown` ins
 
 `Debug`, `Drop`, `Warehouse`
 
+## `use Codec`
+
+The outer codec a text file is wrapped in.
+
+A closed enum over what `datafusion/compression` compiles rather than a re-export of
+`FileCompressionType`: that type also has variants for codecs this build does not have, so
+matching on it would mean an arm nothing can produce. Converted at the one call site.
+
+## `use candidates`
+
+Every file name one model's table could arrive under, in the order to prefer them.
+
+**The engine owns this list, not a composition root**, and that is what stops a deployment
+offering a candidate `DataFusionWarehouse::attach_file` then refuses - or missing one it
+reads. Parquet first, because it carries its own schema and its own codecs; then the two
+plain-text formats, each uncompressed and then once per codec.
+
+The names are relative: a caller joins each onto its data directory and takes the first that is
+a file. `sutura_cli`'s two file-source searches are the callers.
+
 ## `use WorkingSet`
 
 How many bytes the engine's operators may reserve at once.
@@ -273,6 +332,31 @@ It parses nothing beyond non-zero, which the inner type already carries - the ra
 parsed once, in `sutura_config::WorkingSetCeiling`, against the memory the process can actually
 reach. This crate does not depend on that one and must not: an adapter does not call another
 adapter, so the composition root converts.
+
+## `use CombineError`
+
+Why a combine could not be assembled.
+
+Split the way the port's two predicates read it: the four caller-facing arms are deterministic
+refusals about the DATA the legs returned, and the rest are this workspace's own wiring or the
+engine's. Every arm carries an Arrow type or a label where it carries anything at all - a
+driver's metadata and a label the splitter assigned - and never a cell.
+
+## `use DataFusionCombiner`
+
+The combiner: a tokio runtime, and a bounded session built per combine.
+
+**It holds no session, and that is the whole reason the ceiling is a real bound.** A
+`GreedyMemoryPool` is installed on a `RuntimeEnv` and a `RuntimeEnv` is installed on a
+`SessionContext`, so a combiner that kept one session would have to fix the ceiling at
+construction - and the ceiling is what a deployment configures per question. One session per
+combine also means a combine's registered tables cannot outlive it, which is what keeps one
+caller's leg results out of another's session.
+
+**What it does NOT hold is an identity, and that is not an omission.** `crate::pool`'s process
+is one operating-system identity, so a combine runs as the deployment. What the combiner carries
+per subject instead is a `ComputeContext` - see
+`Self::for_subject`.
 
 ## Module `measurement`
 
@@ -353,13 +437,24 @@ caller in flight. A bounded pool turns that into a reservation that fails, which
 # What the pool counts, and what it does not
 
 It counts what the engine's own operators reserve: a hash-join build side, aggregate state, a
-sort. **It counts nothing else.** Not what a driver buffers, not `collect()` materialising every
-batch into memory at once, not the `Vec<Vec<Value>>` built while a result is converted into domain
-rows - all three of which are on the path a question takes through this crate. So this is not a
-bound on the process's memory and must not be alerted on as one: a question large enough to end
-the process on one of those paths still ends it. `docs/adr/0009` puts the bound that reaches them
-- a byte budget applied as rows are converted - with the execution boundary rather than here, and
-says so rather than letting this one be read as wider than it is.
+sort. **It counts nothing else.** Not what a driver buffers, not the batches a result is held as,
+not the `Vec<Vec<Value>>` built while a result is converted into domain rows.
+
+**Two of those three are now bounded, by a different mechanism, and this is where the boundary
+between them is stated.** `docs/adr/0009` puts a byte budget at the execution boundary rather
+than here, and it is built: `WorkingSet::result_budget` converts this ceiling into a
+`ResultBudget` that
+`sutura_domain::warehouse::Accumulating::push` spends as each batch arrives, charging both the
+batches held and the row conversion to come. So a result wide enough to end the process is
+refused rather than materialised, and `collect()` is gone from this crate - the engine's own
+output is streamed into that guard.
+
+**What is still not bounded, so this pool is still not a bound on the process's memory:** a
+driver's own buffering, which is a foreign adapter's business rather than this engine's, and the
+per-batch peak - one batch arrives whole before it can be charged, so the budget is exceeded
+transiently by whatever the engine's largest single batch costs. And the two are separate
+budgets sized from one number, so the two together reach twice the configured ceiling rather
+than once. Neither is alertable as process memory.
 
 # Greedy, and never spilling
 
@@ -421,6 +516,23 @@ The ceiling, in bytes.
 
 The one constructor, named for the unit so a call site reads as bytes at the point of the call
 rather than at the declaration it came from.
+
+```rust
+pub const fn result_budget(self) -> sutura_domain::warehouse::ResultBudget
+```
+
+The same number, as the budget one result's materialisation is charged against.
+
+**The configured ceiling and not a second key**, which is the decision and it is sized by
+what a wrong value costs. `runtime.working_set_max_bytes` is already mandatory and already
+checked at boot against the memory this process can reach, so deriving from it cannot be
+unset, cannot default to unlimited, and cannot disagree with the number an operator tuned. A
+second key could be all three.
+
+**The limit, next to the claim:** two budgets sized from one number are still two budgets.
+The operators may reserve up to the ceiling and one result may cost up to the ceiling, so a
+query's worst case is twice it - not once, which is what a reader of one number would assume.
+`docs/adr/0009`'s amendment carries the arithmetic.
 
 #### Implements
 

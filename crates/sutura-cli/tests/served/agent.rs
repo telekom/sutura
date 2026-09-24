@@ -59,7 +59,7 @@ fn tool_names(reply: &crate::harness::Reply) -> Vec<String> {
 #[test]
 fn a_mounted_agent_surface_with_no_inbound_identity_stops_the_process() {
     let settings = crate::harness::deployment(&example_root(), crate::harness::AGENT_LOOPBACK, crate::harness::SINGLE_USER);
-    let said = refused_to_start(Environment::Development, written("agent-no-inbound", &settings));
+    let said = refused_to_start(Environment::Development, written("agent-no-inbound", &settings), &[]);
     let told = said.join("\n");
     assert!(
         told.contains("agent surface is mounted") && told.contains("security.inbound"),

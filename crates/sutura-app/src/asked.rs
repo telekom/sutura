@@ -99,8 +99,12 @@ mod tests {
         // `establish_asked` would substitute (ADR 0023's own named trap) is a chain with no
         // assertion for the deployment's own identity, which this fixture cannot be mistaken for.
         let subject = Subject::verified("someone@example.com").expect("a test subject is a subject");
-        let context =
-            RequestContext::with_assertion(PrincipalChain::of(subject), Secret::new("the-assertion-a-transport-verified"));
+        let context = RequestContext::with_assertion(
+            PrincipalChain::of(subject),
+            Secret::new("the-assertion-a-transport-verified"),
+            // Far future: this cell is about what reaches a broker, not about when it stops.
+            4_102_444_800,
+        );
         let permitted = Permitted::granted_by([Capability::DescribeCatalog.scope()]);
         let asked = Asked::established(context.clone(), permitted.clone());
         assert_eq!(asked.context().chain(), context.chain());

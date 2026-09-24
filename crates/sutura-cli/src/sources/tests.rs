@@ -221,6 +221,7 @@ fn a_question_is_answered_through_a_declared_source_under_the_witness_that_entry
         )),
         &opened.broker,
         &opened.engines,
+        &sutura_domain::plan::RefusingCombiner,
         1 << 30,
         sutura_domain::warehouse::deadline::Deadline::opened_at(std::time::Instant::now(), timeout().budget()),
         &sutura_app::SpendLedger::no_budget(),

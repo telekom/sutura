@@ -1,212 +1,89 @@
 //! Result mapping and refusal behavior under the fake transport.
+//!
+//! # MOST OF THIS FILE MOVED OR WENT WITH THE THING IT TESTED
+//!
+//! `docs/adr/0039` put the Arrow-to-`Value` mapping in
+//! `sutura_domain::warehouse::arrow`, and the transport port now hands back Arrow rather than this
+//! crate's own text cells. So:
+//!
+//! * The **value-mapping table** - every type this adapter maps, the whole-number decimal widening,
+//!   the non-finite refusal, the unmapped-type refusal and the zero-row/all-null hole beside it -
+//!   is `warehouse/arrow/tests.rs`, asserted once against the same `sutura-exec-duckdb` twin it was
+//!   asserted against here. Keeping a copy would be two implementations of one agreement, which is
+//!   what this change removes.
+//! * A **declared number that did not parse** cannot happen any more. Those cells existed because
+//!   the deleted HTTP transport received every value as a JSON string whatever its declared type
+//!   was, so "declared INT64" and "parses as an integer" were two separate facts. There is no text
+//!   to re-parse.
+//! * A **ragged row** cannot happen either: an Arrow batch is columnar, so a row of the wrong width
+//!   is not a value the type has.
+//! * The **delivered-versus-reported** pair went with `jobs.query`'s paging. An ADBC read streams
+//!   the whole result and `run` drains the reader, so completeness is the drain; the ADR records it.
+//!
+//! What is left here is what is still this adapter's own: the federated leg, the size-bound
+//! delegation, and the row ceiling that replaced the page bound.
 
 use super::{
-    BigQueryError, BigQueryWarehouse, Broken, Case, Cell, Executable, Field, FieldType, JobRows, Paged, Recording, Value,
-    Warehouse as _, leg_of, one_cell, open, plan, shared_posture, test_deadline,
+    Broken, Executable, Paged, Recording, Warehouse as _, impersonating_posture, leg_of, one_column, open, plan, shared_posture,
+    test_deadline,
 };
 
 #[test]
-fn every_type_this_adapter_maps_answers_what_the_other_sql_adapter_answers() {
-    // **The value mapping as a table, and the duplication with `sutura-exec-duckdb` is deliberate.**
-    // The two `cell` functions live in crates that may not depend on each other, so the agreement is
-    // asserted as the same expected column written out in both places. Three arms below are the ones
-    // where disagreeing would produce a wrong number rather than an error, and each says so.
-    let warehouse = open(Recording::empty(), shared_posture());
-    let cases: Vec<Case> = vec![
-        (FieldType::Int64, Cell::Text(String::from("250")), Value::Integer(250)),
-        (
-            FieldType::String,
-            Cell::Text(String::from("north")),
-            Value::Text(String::from("north")),
-        ),
-        // A boolean becomes an integer, because the domain has no boolean and the other adapter maps
-        // `BOOLEAN` to `Integer(i64::from(v))`. The example catalog counts a churn flag, so the two
-        // would otherwise disagree about a metric.
-        (FieldType::Bool, Cell::Text(String::from("true")), Value::Integer(1)),
-        (FieldType::Bool, Cell::Text(String::from("false")), Value::Integer(0)),
-        // A fractional decimal stays TEXT. Turning it into a double is how a total that was correct
-        // in the data system stops being correct in an answer. The whole-number/too-wide arms of
-        // this same `Numeric` mapping have their own contract, in
-        // `a_whole_number_decimal_widens_to_integer_and_anything_else_stays_text`, below.
-        (
-            FieldType::Numeric,
-            Cell::Text(String::from("12345.67")),
-            Value::Text(String::from("12345.67")),
-        ),
-        // A date is re-rendered from a parse, so a malformed one is an error rather than text that
-        // looks like a date downstream.
-        (
-            FieldType::Date,
-            Cell::Text(String::from("2026-06-01")),
-            Value::Text(String::from("2026-06-01")),
-        ),
-        (FieldType::Int64, Cell::Null, Value::Null),
-    ];
-    for (kind, cell, expected) in cases {
-        let rows = BigQueryWarehouse::<Recording>::rows(&one_cell(kind.clone(), cell.clone()))
-            .unwrap_or_else(|e| panic!("{kind:?} with {cell:?} should map: {e}"));
-        assert_eq!(rows.rows().first().and_then(|r| r.first()), Some(&expected), "{kind:?}");
-    }
-    // A double maps too, and is asserted separately because `Real` has no `Eq`.
-    let rows = BigQueryWarehouse::<Recording>::rows(&one_cell(FieldType::Float64, Cell::Text(String::from("1.5"))))
-        .expect("a finite double maps");
-    match rows.rows().first().and_then(|r| r.first()) {
-        Some(&Value::Real(real)) => assert!((real.get() - 1.5).abs() < f64::EPSILON),
-        other => panic!("expected a real, got {other:?}"),
-    }
-    drop(warehouse);
-}
-
-#[test]
-fn a_whole_number_decimal_widens_to_integer_and_anything_else_stays_text() {
-    // **This adapter's own contract for a `NUMERIC`/`BIGNUMERIC` cell, named on its own** rather
-    // than as a row of the table above: `sutura-exec-postgres`'s own `numeric_cell` makes the
-    // identical call for the identical reason (an `i64` parse fails on a fractional text or on one
-    // too wide for it), so a `NUMERIC` column whose `SUM` widens for one row and stays exact for
-    // another - `telekom/sutura#710`'s conformance binding is what measured this adapter
-    // disagreeing with that contract - answers `Integer` and `Text` from the SAME column type,
-    // never a double.
-    let mapped = |text: &str| {
-        BigQueryWarehouse::<Recording>::rows(&one_cell(FieldType::Numeric, Cell::Text(String::from(text))))
-            .unwrap_or_else(|e| panic!("{text} should map: {e}"))
-            .rows()
-            .first()
-            .and_then(|row| row.first())
-            .cloned()
-    };
-    // Fits an `i64` exactly: widens.
-    assert_eq!(mapped("42"), Some(Value::Integer(42)));
-    assert_eq!(mapped("0"), Some(Value::Integer(0)));
-    // Wider than an `i64`: stays exact text rather than losing precision.
-    assert_eq!(
-        mapped("9223372036854775808"),
-        Some(Value::Text(String::from("9223372036854775808")))
+fn a_federated_leg_is_submitted_as_the_asking_subject_at_this_sources_own_declared_account() {
+    // **THE CELL `telekom/sutura#929`'s federation half asks for.** This arm used to answer
+    // `LegWithoutCombiner` with the transport never touched, so `Warehouse::EXECUTES_LEGS` stayed at
+    // its default and `sutura_app::federated`'s capability gate refused every `BigQuery` federation
+    // before a credential existed. Three separate things have to hold for a leg to federate here,
+    // and each one is a way this could be green while delivering nothing:
+    //
+    //  1. the constant, pinned BY VALUE - the gate reads `Warehouse::executes_legs()`, so a `false`
+    //     here refuses the answer above this adapter and no assertion below would notice;
+    //  2. the leg's statement REACHES THE TRANSPORT, and is `sutura_sql::generate_leg`'s own text
+    //     for this dialect - the whole-plan renderer would have produced a grouped answer for the
+    //     wrong question, and a hand-built one would be a second set of quoting decisions. This is
+    //     also what puts a leg through `adbc::prepared`, the one funnel that sets
+    //     `bigquery.query.max_bytes_billed`: `AdbcBigQuery::run` is the only caller of `connect`
+    //     and `connect` the only caller of `prepared`, so a request that arrives here at all
+    //     carries this source's configured ceiling;
+    //  3. the leg carries BOTH halves of the subject's credential - the asker's own assertion AND
+    //     the account this source declared for that asker (`#929` F3). A leg presenting the
+    //     assertion with a dropped account runs every declared caller as the pool's own principal.
+    let warehouse = open(Recording::empty(), impersonating_posture());
+    // The INSTANCE method and not the constant, because that is what `answer_federated` reads -
+    // `Warehouse::executes_legs` defaults to `EXECUTES_LEGS`, and the gate asks each leg's own
+    // adapter instance so a closed enum over several kinds can answer per variant.
+    assert!(
+        warehouse.executes_legs(),
+        "the capability gate in sutura_app reads this, and refuses the whole answer where it is false"
     );
-    // Fractional: stays exact text rather than becoming a lossy double.
-    assert_eq!(mapped("12345.67"), Some(Value::Text(String::from("12345.67"))));
-}
-
-#[test]
-fn a_non_finite_double_is_refused_rather_than_answered() {
-    // **The arm that keeps a stored non-finite value from answering under a certified number.** A
-    // `FLOAT64` column holding a non-finite value is refused here - in GoogleSQL the unguarded `/`
-    // raises on a zero divisor, so this arm is not the ratio case that `zero_denominator: fails`
-    // carries on DuckDB; it is a STORED `Infinity`. The fixture spells the values the way the endpoint
-    // does - `Infinity`/`-Infinity`/`NaN` - rather than the standard library's `inf`, so the test
-    // keeps measuring the wire's shape.
-    for hostile in ["Infinity", "-Infinity", "NaN"] {
-        let error = BigQueryWarehouse::<Recording>::rows(&one_cell(FieldType::Float64, Cell::Text(String::from(hostile))))
-            .expect_err("a non-finite double is refused");
-        assert!(matches!(error, BigQueryError::NotFinite { .. }), "{hostile}: {error:?}");
-    }
-}
-
-#[test]
-fn a_type_this_adapter_does_not_map_names_itself_rather_than_answering_null() {
-    // The reason `FieldType::Unmapped` carries the endpoint's own spelling: a null here would be a
-    // wrong number, and a message that said "an unsupported type" would not say which column to fix.
-    let error = BigQueryWarehouse::<Recording>::rows(&one_cell(
-        FieldType::Unmapped(String::from("GEOGRAPHY")),
-        Cell::Text(String::from("POINT(0 0)")),
-    ))
-    .expect_err("an unmapped type is refused");
-    match error {
-        BigQueryError::UnmappedType { ref column, ref named } => {
-            assert_eq!(column, "value");
-            assert_eq!(named, "GEOGRAPHY");
-        }
-        other => panic!("expected an unmapped-type refusal, got {other:?}"),
-    }
-}
-
-#[test]
-fn a_declared_number_that_did_not_come_back_as_one_is_refused() {
-    // The endpoint sends every value as text, so "declared INT64" and "parses as an integer" are two
-    // different facts and this is where they are reconciled.
-    // Two variants rather than one, because the CAUSE differs and each keeps its own on the chain.
-    let integer = BigQueryWarehouse::<Recording>::rows(&one_cell(FieldType::Int64, Cell::Text(String::from("not a number"))))
-        .expect_err("a non-numeric value in an INT64 column is refused");
-    assert!(matches!(integer, BigQueryError::NotAnInteger { .. }), "{integer:?}");
-    let double = BigQueryWarehouse::<Recording>::rows(&one_cell(FieldType::Float64, Cell::Text(String::from("not a number"))))
-        .expect_err("a non-numeric value in a FLOAT64 column is refused");
-    assert!(matches!(double, BigQueryError::NotADouble { .. }), "{double:?}");
-    // The standard-library cause survives, because `#[source]` is not wired for you.
-    assert!(core::error::Error::source(&integer).is_some());
-    assert!(core::error::Error::source(&double).is_some());
-    // And a boolean that is neither spelling, which carries no cause because there is no parse
-    // behind it.
-    let boolean = BigQueryWarehouse::<Recording>::rows(&one_cell(FieldType::Bool, Cell::Text(String::from("yes"))))
-        .expect_err("a BOOL column holding `yes` is refused");
-    assert!(matches!(boolean, BigQueryError::NotABool { .. }), "{boolean:?}");
-    // And a malformed date, which is the same argument on a different type.
-    let error = BigQueryWarehouse::<Recording>::rows(&one_cell(FieldType::Date, Cell::Text(String::from("2026-13-45"))))
-        .expect_err("a malformed date is refused");
-    assert!(matches!(error, BigQueryError::NotADate { .. }), "{error:?}");
-}
-
-#[test]
-fn a_row_at_the_wrong_width_is_refused_and_names_which_row() {
-    // The endpoint disagreeing with its own schema. `RowSet::new` would catch it too; this catches it
-    // first so the message can say which row, which is the difference between a usable failure and a
-    // count.
-    let rows = JobRows::of(
-        vec![
-            Field::of(String::from("a"), FieldType::Int64),
-            Field::of(String::from("b"), FieldType::Int64),
-        ],
-        vec![
-            vec![Cell::Text(String::from("1")), Cell::Text(String::from("2"))],
-            vec![Cell::Text(String::from("3"))],
-        ],
-        2,
-    );
-    let error = BigQueryWarehouse::<Recording>::rows(&rows).expect_err("a ragged result is refused");
-    match error {
-        BigQueryError::RowWidth { row, cells, columns } => {
-            assert_eq!((row, cells, columns), (1, 1, 2));
-        }
-        other => panic!("expected a row-width refusal, got {other:?}"),
-    }
-}
-
-#[test]
-fn a_result_shorter_than_what_the_endpoint_reported_is_refused() {
-    // `jobs.query` answers ONE page; completeness is the endpoint's `totalRows`, never the rows alone.
-    // A first page, or an incomplete job's empty `rows`, would otherwise read to `answer()` as *under
-    // the cap, not truncated* - a wrong number under a certified name, through the exact row the
-    // row-cap invariant exists to hold. This is the seam refusing it.
-    let answered = JobRows::of(
-        vec![
-            Field::of(String::from("a"), FieldType::Int64),
-            Field::of(String::from("b"), FieldType::Int64),
-        ],
-        vec![
-            vec![Cell::Text(String::from("1")), Cell::Text(String::from("2"))],
-            vec![Cell::Text(String::from("3")), Cell::Text(String::from("4"))],
-        ],
-        3,
-    );
-    let error = BigQueryWarehouse::<Recording>::rows(&answered).expect_err("a partial result is refused");
-    match error {
-        BigQueryError::Incomplete { delivered, total } => assert_eq!((delivered, total), (2, 3)),
-        other => panic!("expected an incomplete-result refusal, got {other:?}"),
-    }
-}
-
-#[test]
-fn a_federated_leg_is_refused_because_there_is_nothing_above_it_to_combine_legs() {
-    // A leg executed with nothing above it returns rows at a finer grouping than the question asked
-    // for, which is a wrong number under a certified name. Both SQL adapters answer this the same way.
-    let warehouse = open(Recording::empty(), shared_posture());
     let leg = crate::tests::a_leg();
-    let error = warehouse
-        .execute(Executable::Leg(&leg), &leg_of(&shared_posture()), test_deadline())
-        .expect_err("a leg has no combiner above it");
-    match error {
-        BigQueryError::LegWithoutCombiner { ref table } => assert_eq!(table, "fct_subscription_monthly"),
-        other => panic!("expected a leg refusal, got {other:?}"),
-    }
-    assert!(warehouse.transport.seen.borrow().is_empty());
+    let presented = leg_of(&impersonating_posture());
+    drop(
+        warehouse
+            .execute(Executable::Leg(&leg), &presented, test_deadline())
+            .expect("a leg renders and is submitted"),
+    );
+    let seen = warehouse.transport.seen.borrow();
+    let [asked] = seen.as_slice() else {
+        panic!("one leg is one job, and the transport saw {} of them", seen.len());
+    };
+    let rendered = sutura_sql::generate_leg(&leg, sutura_sql::Dialect::BigQuery).expect("the leg fixture renders");
+    assert_eq!(
+        asked.statement,
+        rendered.sql(),
+        "the leg reached the transport as something other than `generate_leg`'s own GoogleSQL"
+    );
+    assert_eq!(asked.params.len(), rendered.params().len(), "the values did not travel apart");
+    assert_eq!(
+        asked.subject.as_deref(),
+        Some("an-exchanged-token-for-the-asker"),
+        "the leg ran as somebody other than the asker"
+    );
+    assert_eq!(
+        asked.impersonate.as_deref(),
+        Some(super::fakes::A_DECLARED_ACCOUNT),
+        "the account this source declared for the asker did not ride on the leg"
+    );
 }
 
 #[test]
@@ -242,67 +119,38 @@ fn a_result_the_endpoint_would_not_return_at_once_is_a_size_bound_and_not_an_out
 }
 
 #[test]
-fn a_page_shorter_than_the_reported_total_is_a_size_bound_and_a_longer_one_is_not() {
-    // The second shape, and this one the ADAPTER decides: a delivered count BELOW the reported total
-    // is the same bound reached without a page token, so it is a governance refusal rather than a
-    // `503`. `a_result_shorter_than_what_the_endpoint_reported_is_refused` above asserts that it is
-    // refused at all; this asserts what a caller is then told it was.
-    let warehouse = open(Recording::empty(), shared_posture());
-    assert!(
-        warehouse.result_did_not_fit(&BigQueryError::Incomplete { delivered: 2, total: 3 }),
-        "a partial page is a result too large"
-    );
-
-    // And the OTHER side of the same variant is deliberately NOT this bound. More rows delivered than
-    // the endpoint says exist is the endpoint contradicting itself - a defect, which a retry may well
-    // not repeat - so calling it a governance refusal would tell a caller not to retry the one shape
-    // here where retrying could work.
-    assert!(
-        !warehouse.result_did_not_fit(&BigQueryError::Incomplete { delivered: 3, total: 2 }),
-        "an endpoint contradicting itself is not a result too large"
-    );
-}
-
-#[test]
-fn a_schema_this_adapter_cannot_map_is_refused_whatever_the_data_happened_to_be() {
-    // **The hole review found, and it was in the comment as well as in the code.** `cell` answers a
-    // null BEFORE it reads the column's type, which is right for a null and wrong for the schema: a
-    // result with NO rows never reaches `cell` at all, and a result whose unmapped column happens to
-    // be entirely null reaches it and is answered. So a `TIMESTAMP` column came back as a successful
-    // empty `RowSet`, and whether this adapter maps a type depended on what the data happened to be.
+fn an_unmapped_result_column_reaches_the_interior_rather_than_becoming_an_adapter_error() {
+    // **What this asserts that the interior's own table does not: that this adapter is a
+    // PASS-THROUGH.** The mapping and its refusals are `sutura_domain::warehouse::arrow`'s and are
+    // tested there; what is this adapter's is that a column the domain maps no cell of leaves
+    // `execute` as the driver's own column rather than as a `BigQueryError` - so the refusal names
+    // the column and the Arrow type once, above the port, for every adapter at the same place.
     //
-    // Both shapes, because they were reachable for two different reasons.
-    let empty = JobRows::of(
-        vec![Field::of(String::from("at"), FieldType::Unmapped(String::from("TIMESTAMP")))],
-        Vec::new(),
-        0,
-    );
-    match BigQueryWarehouse::<Recording>::rows(&empty).expect_err("a zero-row unmapped schema is refused") {
-        BigQueryError::UnmappedType { ref column, ref named } => {
-            assert_eq!(column, "at");
-            assert_eq!(named, "TIMESTAMP");
+    // **This cell used to assert the opposite**, that `BigQueryError::Unreadable` wrapped the
+    // interior's cause without flattening it. `docs/adr/0039` step 2's second half is what changed:
+    // the port's currency is `ResultBatches`, so `execute` no longer decodes and there is no
+    // adapter error left to carry a chain. `Self::rows` and that variant survive for the BOOT path,
+    // which still reads an anchor's rows, and `verify_anchor`'s own cell is where that chain is
+    // pinned now.
+    //
+    // A ZERO-ROW column, deliberately: it is the shape that used to be answered as a successful
+    // empty result, because the cell mapping reads a null before it reads a type.
+    let empty: arrow_array::ArrayRef = std::sync::Arc::new(arrow_array::Float32Array::from(Vec::<f32>::new()));
+    let warehouse = open(Recording::answering(one_column(empty)), shared_posture());
+    let answered = warehouse
+        .execute(Executable::Query(&plan()), &leg_of(&shared_posture()), test_deadline())
+        .expect("the driver's batch agrees with its own announced schema, so the port accepts it");
+    let cause = answered
+        .to_rows()
+        .expect_err("an unmapped result column is refused above the port");
+    match cause {
+        sutura_domain::warehouse::UnreadableCell::UnsupportedType {
+            ref column,
+            ref arrow_type,
+        } => {
+            assert_eq!(column, "value");
+            assert!(arrow_type.contains("Float32"), "{arrow_type}");
         }
-        other => panic!("a zero-row unmapped schema was mapped to {other:?}"),
+        ref other => panic!("expected an unmapped type, got {other:?}"),
     }
-
-    let all_null = JobRows::of(
-        vec![Field::of(String::from("at"), FieldType::Unmapped(String::from("BYTES")))],
-        vec![vec![Cell::Null], vec![Cell::Null]],
-        2,
-    );
-    match BigQueryWarehouse::<Recording>::rows(&all_null).expect_err("an all-null unmapped column is refused") {
-        BigQueryError::UnmappedType { ref named, .. } => assert_eq!(named, "BYTES"),
-        other => panic!("an all-null unmapped column was mapped to {other:?}"),
-    }
-
-    // A malformed type name is the same case rather than a third one: an empty `type` decodes to
-    // `Unmapped("")`, so it is named as what it is rather than read as a column that answers.
-    let malformed = JobRows::of(vec![Field::of(String::from("at"), FieldType::parse(""))], Vec::new(), 0);
-    assert!(
-        matches!(
-            BigQueryWarehouse::<Recording>::rows(&malformed),
-            Err(BigQueryError::UnmappedType { .. })
-        ),
-        "an empty type name was accepted"
-    );
 }

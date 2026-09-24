@@ -56,9 +56,18 @@ Those three plus secure-by-design are the definition of *correct* in review here
   change you cannot tie to a mechanism is unproven - say so rather than asserting it is fine, and
   prefer adding the missing check to adding a sentence.
 - **State the limit next to the claim.** An overstated control is itself the defect. Leg 1 (knowing
-  who is asking) is built. Leg 2 (a source executing AS them) is proven for BigQuery through a
-  declared per-source map, by a hosted run whose job holds both principals' keys by construction -
-  so the exchange mechanics resolve per subject; no served binary has executed as a caller yet.
+  who is asking) is built. Leg 2 (a source executing AS them) is **built and unproven**: on BigQuery
+  the caller's own verified assertion is federated through the declared pool, and the account the
+  source's per-source map declares for that subject becomes the credential's
+  `service_account_impersonation_url` - an undeclared subject is refused, never run as the
+  deployment. The adapter venue that would show it is `wired` with **no observed run**; a served
+  venue is not built, by decision - sutura assumes the operator configures a valid issuer and pool,
+  and proves only its own half. The run this sentence once cited was of an HTTP exchange the ADBC
+  adoption deleted.
+  `docs/where-identity-is-proven.md` decides which venue may be cited, and `check-guidance` refuses
+  this claim while that page records no run - **in prose files only**: its scope is
+  `md`/`nix`/`yml`/`yaml`/`toml`/`sh`, so the same overstatement in a Rust comment is held by
+  review alone.
 - **Never commit or force-push unless asked.** Prefer stacked, individually reviewable PRs via stax.
 - **This shell's cargo env leaks into other checkouts** - `CARGO_*CODEGEN_BACKEND=cranelift` and
   `DUCKDB_*_DIR` are unscoped, and a C++-linking crate built under them aborts. Unset them before

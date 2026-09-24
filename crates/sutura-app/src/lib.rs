@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The service: what happens between a question arriving and an answer leaving.
 //!
 //! Generic over the ports and holding no framework types, so it can be exercised against a fake
@@ -35,10 +36,10 @@ use sutura_domain::identity::{
 };
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::pinned::view::ScopedView;
-use sutura_domain::plan::{Executable, FederatedFailure, RowCeiling};
+use sutura_domain::plan::{Executable, FederationCombiner, RowCeiling};
 use sutura_domain::query::{Query, RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{PreFlight, Warehouse};
+use sutura_domain::warehouse::{PreFlight, UnreadableCell, Warehouse};
 use sutura_semantic::{CompileFailure, Compiled, compile};
 
 pub(crate) use crate::bounds::{exceeds_response_bound, exceeds_row_cap};
@@ -130,7 +131,7 @@ pub use crate::spend::{SpendBudget, SpendLedger};
 /// typed error all the way out. A `Box<dyn Error>` here would be the same loss of information the
 /// boundary gate bans `anyhow` for, arrived at by a different route.
 #[derive(Debug, thiserror::Error)]
-pub enum ServiceError<E, M> {
+pub enum ServiceError<E, M, C> {
     /// The pinned bundle would not compile this question, or the splitter built a two-source plan
     /// this workspace could not then assemble.
     ///
@@ -150,19 +151,31 @@ pub enum ServiceError<E, M> {
         #[source]
         cause: E,
     },
-    /// The federated combiner could not assemble the two legs' rows.
+    /// The federated combiner could not assemble the two legs' results.
     ///
-    /// **An internal defect rather than a refusal, for every arm but the two `answer_federated`
-    /// maps by name.** A correctly split and certified question should not make the combiner fail: a
-    /// missing column or a malformed result is a bug in the splitter, an adapter or the combiner, so
-    /// it leaves as a failure the transport answers like a data-system outage. The two the answer
-    /// path turns into refusals are the two governance outcomes - [`FederatedFailure::ResourcesExhausted`],
-    /// refused as [`RefusalReason::ResourcesExhausted`], and the row cap, refused as
-    /// [`RefusalReason::ResultTooLarge`].
+    /// **Typed in the COMBINER's own error, which is what the port being a port buys.** `docs/adr/0039`
+    /// step 3 moved the combine into an adapter, so the cause is that implementor's type exactly as
+    /// [`Self::Warehouse`]'s is a data adapter's - and `sutura-app` still names no engine.
+    ///
+    /// **An internal defect rather than a refusal, and only because the two governance outcomes are
+    /// taken off it FIRST.** `answer_federated` asks
+    /// [`FederationCombiner::working_set_exhausted`](sutura_domain::plan::FederationCombiner::working_set_exhausted)
+    /// and then
+    /// [`answer_not_well_formed`](sutura_domain::plan::FederationCombiner::answer_not_well_formed),
+    /// so what reaches here is a leg result that does not carry a label the plan named, or a plan
+    /// that would not build - this workspace's own wiring, which no caller caused and none can fix.
     #[error("the combined answer could not be assembled")]
-    Federated {
+    Combine {
         #[source]
-        cause: FederatedFailure,
+        cause: C,
+    },
+    /// The federated path's own wiring produced a shape it cannot answer for.
+    ///
+    /// Every arm is unreachable through the one production splitter - see [`FederationMiswired`].
+    #[error("the federated answer path is mis-wired")]
+    Miswired {
+        #[source]
+        cause: FederationMiswired,
     },
     /// The credential broker could not mint. Nothing about the question was wrong.
     ///
@@ -214,6 +227,63 @@ pub enum ServiceError<E, M> {
         #[source]
         cause: CredentialsDoNotFitTheRequest,
     },
+    /// A result came back as Arrow and one of its columns could not become a domain value.
+    ///
+    /// **This variant is where the Arrow port's decode moved to, not a new failure mode.**
+    /// `docs/adr/0039` step 2 puts the one Arrow-to-[`Value`](sutura_domain::warehouse::Value)
+    /// decode in the interior and step 2's second half moves the CALL to the presentation edge, so
+    /// the failure that used to arrive wrapped in an adapter's own error - `BigQueryError::
+    /// Unreadable`, the engine's `DataFusionError::Unreadable` - arrives here instead, for every
+    /// adapter at once.
+    ///
+    /// **An internal failure rather than a refusal, and that is today's classification kept rather
+    /// than chosen afresh:** both adapters mapped it into their own error type, which reaches a
+    /// transport as [`Self::Warehouse`] does. What it means is that a data system returned a column
+    /// of a type this workspace does not map, or a value no domain cell can hold - a non-finite
+    /// double, a day number that is not a date. No caller caused it and narrowing the question does
+    /// not avoid it, which is why it is not a refusal a caller is told to act on.
+    #[error("a result column could not be read")]
+    Unreadable {
+        #[source]
+        cause: UnreadableCell,
+    },
+}
+
+/// The federated path's own wiring, in the three shapes it cannot answer for.
+///
+/// **Every arm is unreachable through `sutura_semantic::plan::federated_plan`, the one production
+/// splitter, and each is typed anyway rather than assumed away.** A previous revision reached for
+/// a `DuplicateLabels` combine failure for the first of them - a failure about a leg RESULT, minted
+/// from a value that has nothing to do with one - which is the shape this enum replaces.
+#[derive(Debug, thiserror::Error)]
+pub enum FederationMiswired {
+    /// The two legs named one data system, so the provenance record could not hold both.
+    ///
+    /// `FederatedPlan::new` refuses same-source legs, so this is a splitter invariant that changed.
+    #[error("both legs of the federated answer name `{at}`, so one provenance record cannot hold both")]
+    LegsCollide {
+        /// `at` rather than `source`, because `thiserror` reads a field called `source` as the
+        /// `Error::source` chain - `SourceAlreadyOpen::at`'s own reason.
+        at: sutura_domain::model::SourceName,
+    },
+    /// The two leg results did not resolve to one of each side.
+    ///
+    /// `FederatedPlan::legs` returns the fact leg and the lookup leg by construction, so a pair
+    /// built from it is one of each.
+    #[error("the two leg results are not one fact leg and one lookup leg")]
+    LegsAreNotOneOfEach {
+        #[source]
+        cause: sutura_domain::plan::LegsAreNotOneOfEach,
+    },
+    /// Ranking a combined answer produced a row set whose rows contradict its own columns.
+    ///
+    /// `FederatedPlan::rank` re-orders and truncates rows it was handed, so it cannot change a
+    /// width.
+    #[error("the ranked answer is not rectangular")]
+    RankedAnswer {
+        #[source]
+        cause: sutura_domain::warehouse::MalformedRowSet,
+    },
 }
 
 /// Now, in whole seconds since the Unix epoch, for the one comparison this crate makes.
@@ -246,7 +316,8 @@ pub(crate) fn now_in_unix_seconds() -> u64 {
 ///
 /// A named alias because the inline form is over the complexity threshold in `clippy.toml`, and
 /// naming it is the better half of that trade: the generic parameter is a warehouse, not a result.
-pub type Answering<W, B> = Result<Answered, ServiceError<<W as Warehouse>::Error, <B as CredentialBroker>::Error>>;
+pub type Answering<W, B, C> =
+    Result<Answered, ServiceError<<W as Warehouse>::Error, <B as CredentialBroker>::Error, <C as FederationCombiner>::Error>>;
 
 /// One call's result: what the caller is told, and what it ran under.
 ///
@@ -352,20 +423,22 @@ impl Answered {
 /// guard un-skippable rather than merely conventional is on the domain side:
 /// `sutura_domain::identity::BoundToTheRequest` is the only type that hands out a `Presented`, and
 /// `agreeing_with` is the only thing that builds one.
-pub fn answer<W, B>(
+pub fn answer<W, B, C>(
     definitions: &Validated<PinnedDefinitions>,
     query: &Query,
     context: &RequestContext,
     broker: &B,
     warehouses: &Warehouses<W>,
+    combiner: &C,
     working_set_bytes: u64,
     deadline: Deadline,
     ledger: &SpendLedger,
     row_ceiling: RowCeiling,
-) -> Answering<W, B>
+) -> Answering<W, B, C>
 where
     W: Warehouse,
     B: CredentialBroker,
+    C: FederationCombiner,
 {
     let pinned = definitions.get();
     let view = scoped_for(pinned, context);
@@ -382,6 +455,7 @@ where
                 context,
                 broker,
                 warehouses,
+                combiner,
                 working_set_bytes,
                 deadline,
                 ledger,
@@ -626,6 +700,11 @@ where
             return Err(ServiceError::Warehouse { cause });
         }
     };
+    // **The presentation edge, and `docs/adr/0039` step 2 put it here.** The port hands back Arrow;
+    // this is the one call that turns it into the rows a caller reads, and it is above every adapter
+    // rather than inside each one. The two bounds below count rows and bytes, so they read the
+    // decoded set - an Arrow row count would not see the width a caller's cells add up to.
+    let rows = rows.to_rows().map_err(|cause| ServiceError::Unreadable { cause })?;
     // The row cap, enforced rather than merely requested. The plan asked for one row more than
     // `plan.max_rows()`, so more than that many coming back means the result was cut short - and a
     // truncated result is a wrong total under a certified name, with provenance attached and nothing

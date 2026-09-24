@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! `sutura-dev` - the developer workflow that needs to know which worktree it is in.
 //!
 //! Why a separate binary rather than another `xtask` task: xtask holds *gates*, which answer

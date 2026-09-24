@@ -94,8 +94,11 @@ years. Say so rather than adding a wrap check.
 
 ## Decision 4: `sutura-runtime` owns the registry, behind a default-off feature
 
-`sutura-domain` is excluded mechanically - `ALLOWED_IN_DOMAIN` is twenty-eight crates and a registry is
-not among them, so adding one is an architecture decision by that gate's own doc comment.
+`sutura-domain` is excluded mechanically - `ALLOWED_IN_DOMAIN` (`xtask/src/boundaries/edges.rs`) names
+every crate the interior's whole transitive tree may hold and a registry is not among them, so adding
+one is an architecture decision by that gate's own doc comment. The list was twenty-eight crates when
+this was written and is ninety-seven since `docs/adr/0039` put Arrow in the interior; the number is
+not what the argument rests on, so it is stated as the gate rather than as a count.
 
 `sutura-runtime` is right for the same reason it already owns `Admission`, and that module says it: the
 resource it bounds is the process, and *"two independently sized semaphores would be two controls each
@@ -418,3 +421,20 @@ would mean widening `sutura-runtime`'s surface for a case no shipped code can re
 (`crates/sutura-cli/src/serve/tests/agent_identity.rs`) holds the refusal, built through the
 composition root's own `agent::mount` so what is refused is the real wiring mistake. The two cells
 the Third amendment names are unchanged and still hold the push itself.
+
+## Fifth amendment, 2026-09-22: the residual gap the memory series would have understated is now two-thirds closed
+
+*The memory series, and why they are absent rather than zero* states the limit as *not what a driver
+buffers, not `collect()` materialising every batch, not the row set built in the conversion loop*, and
+that list is the reason no production gauge reads the pool: a pool-reserved figure is not process
+memory. **Two of those three are now bounded**, by `docs/adr/0009`'s fourth amendment - a byte budget
+spent in `sutura_domain::warehouse::Accumulating::push`, charging the batches held and the row
+conversion to come, with `collect()` gone from the engine's path entirely.
+
+**The conclusion of this record does not move, and the reason it does not is worth stating rather than
+leaving as an absence.** A gauge on the pool would still report operator reservations only; the new
+bound is a refusal rather than a reading, exposes no accessor, and is sized from the same configured
+ceiling the pool is - so a query's worst case is now TWICE `runtime.working_set_max_bytes` rather than
+once, which is a second reason a pool reading is not process memory rather than a first reason to
+publish one. What remains genuinely unbounded is a foreign driver's own buffering and the transient of
+one batch arriving whole before it can be charged.

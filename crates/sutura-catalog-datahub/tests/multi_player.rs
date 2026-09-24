@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The multi-player example, exercised through the recorded fixture.
 //!
 //! `examples/multi-player/README.md` is the deployment shape this test proves: a multi-player

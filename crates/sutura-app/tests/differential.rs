@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! One plan, computed by the engine and by every registered data system, compared.
 //!
 //! The sides are not several implementations of one thing, and reading them that way overstates what
@@ -270,12 +271,16 @@ mod tests {
             let name = stem(&path);
 
             let no_budget = sutura_app::SpendLedger::no_budget();
+            // The real combiner: this suite compares two data systems' answers to one question, and
+            // a federated question among them has to be combined by the thing a release links.
+            let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
             let from_engine = answer(
                 &validated,
                 &question,
                 &crate::adapters::a_caller(),
                 &crate::adapters::shared_credential(),
                 &engine,
+                &combiner,
                 1 << 30,
                 crate::adapters::deadline(),
                 &no_budget,
@@ -287,6 +292,7 @@ mod tests {
                 &crate::adapters::a_caller(),
                 &crate::adapters::shared_credential(),
                 &other,
+                &combiner,
                 1 << 30,
                 crate::adapters::deadline(),
                 &no_budget,

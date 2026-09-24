@@ -184,7 +184,9 @@ async fn a_question_that_spans_two_data_systems_is_refused_until_a_leg_executes(
     // 409 from `answer_federated`'s own gate, not an adapter's typed refusal surfacing as the 503
     // reserved for a retryable outage, and not `SourceUnavailable` for a source this fixture never
     // opened. `sutura-exec-datafusion` declares the constant now, so the shipped engine no longer
-    // reaches this branch; `sutura-exec-bigquery` and any adapter taking the default still do.
+    // reaches this branch, and `sutura-exec-bigquery` stopped reaching it with `telekom/sutura#929`;
+    // what still does is `sutura-exec-postgres`, `sutura-exec-clickhouse`, `sutura-exec-oracle` and
+    // this fake.
     let app = over(
         two_source_bundle(),
         two_source_fake_warehouse(),
@@ -398,8 +400,15 @@ async fn a_request_that_outruns_the_bound_carries_the_documented_failure_body() 
     // after `start`, because `start` re-executes every anchor.
     let settings = settings(Environment::Development, "server:\n  request_timeout_seconds: 2\n");
     let (engine, held) = warehouse_that_can_be_held();
-    let service = LocalService::start(&catalog_of(bundle()), engine, sink(), crate::testing::broker(), 1 << 30)
-        .expect("the test bundle validates");
+    let service = LocalService::start(
+        &catalog_of(bundle()),
+        engine,
+        sink(),
+        crate::testing::broker(),
+        sutura_domain::plan::RefusingCombiner,
+        1 << 30,
+    )
+    .expect("the test bundle validates");
     let app = crate::router(&crate::testing::state_over(Arc::new(service), settings)).expect("the test router assembles");
     held.arm();
 
@@ -480,6 +489,7 @@ async fn the_assembled_router_hands_back_the_tiers_something_has_to_sweep() {
                 fake_warehouse(),
                 sink(),
                 crate::testing::broker(),
+                sutura_domain::plan::RefusingCombiner,
                 1 << 30,
             )
             .expect("the test bundle validates"),

@@ -9,10 +9,10 @@
 //!
 //! # Why this is worth a gate rather than a sentence
 //!
-//! The credential cache `docs/adr/0031` landed lives entirely inside
-//! `sutura_exec_bigquery::WorkloadIdentityBroker`'s private `sts::cache` module and never touches
-//! `sutura-app` or `sutura-domain` - which is exactly *held by recall* rather than by a mechanism.
-//! A `HashMap` keyed by subject and holding a `sutura_domain::warehouse::RowSet` would
+//! The credential cache `docs/adr/0031` landed lived entirely inside one adapter crate and never
+//! touched `sutura-app` or `sutura-domain`; it is deleted now (`docs/adr/0031`'s second amendment),
+//! and what it never had was a mechanism keeping it out of the interior - which is exactly *held by
+//! recall*. A `HashMap` keyed by subject and holding a `sutura_domain::warehouse::RowSet` would
 //! answer a second identical question without asking the source again, silently reusing an
 //! answer across two subjects the moment their questions coincide - the opposite of what
 //! `docs/where-identity-is-proven.md` argues a green run must mean.
@@ -25,9 +25,9 @@
 //! worth of work this one does not attempt. What is built instead, and all that is claimed: **no
 //! named-field `struct` in `crates/sutura-app/src` or `crates/sutura-domain/src` declares a
 //! `HashMap` or `BTreeMap` field whose value type names one of [`ANSWER_PATH_TYPES`]** - the
-//! hexagon's own interior, never an adapter. A map living inside an adapter crate (`BigQuery`'s
-//! own `sts::cache`, or a future one) is out of scope by construction, not by an exclusion this gate
-//! carries and could be argued open - the two directories named above are the whole of its walk.
+//! hexagon's own interior, never an adapter. A map living inside an adapter crate is out of scope by
+//! construction, not by an exclusion this gate carries and could be argued open - the two
+//! directories named above are the whole of its walk.
 //!
 //! **Three further limits, stated where the claim is:**
 //!

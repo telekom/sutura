@@ -51,6 +51,15 @@ serde_json = { workspace = true, optional = true }
 # rather than left to drift, which is the shape `nix/with-tier.sh` records paying for once.
 [dev-dependencies]
 sutura-dev = { workspace = true }
+# Arrow, for ONE distortion and one reason: since `docs/adr/0039` step 2 the execution port's
+# currency is `ResultBatches`, so *an adapter returned a column this workspace maps no cell of* is a
+# shape a fake has to be able to produce - and `sutura_domain::warehouse::arrow`'s row builder only
+# ever emits the three types the domain maps, so no row-shaped fake can reach it. DEV only: the
+# harness rule in `xtask/src/boundaries/harness.rs` walks NORMAL edges and its header says why a
+# dev-dependency here is the evidence rather than a breach - a pack BODY is `src/`, and `src/` names
+# neither of these.
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
 
 [lints]
 workspace = true

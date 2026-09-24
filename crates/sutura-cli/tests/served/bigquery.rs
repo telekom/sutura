@@ -1,0 +1,167 @@
+//! What a `bigquery` deployment's own startup does with the ADBC driver, on the COMPOSED BINARY.
+//!
+//! **This exists because the in-process suite could not hold it.** `serve/bigquery.rs` claims the
+//! boot "reads the FILE and not only the variable" and stops the process on a driver it cannot
+//! load. Review measured that claim: deleting the probe statement at BOTH composition roots left
+//! the whole suite green at exit 0 with clippy clean, because every cell that reaches that code
+//! path stops at the *variable is unset* refusal one line above it.
+//!
+//! **This file holds ONE of those two roots**, and a later round measured that too: `sutura serve`
+//! is what it spawns, so the one-shot `sutura query` root in `src/sources/bigquery.rs` was still
+//! unheld after this file existed. `tests/declared_source.rs` carries the pair for that root, on the
+//! same spawned-binary argument and for the same reason.
+//!
+//! **A spawned binary and not an in-process cell, and that is forced rather than preferred.**
+//! `std::env::set_var` is `unsafe` on edition 2024 and this file's own root forbids `unsafe_code`,
+//! so a test cannot put `SUTURA_BIGQUERY_ADBC_DRIVER` into its own process. A child takes it through
+//! `Command::env`, which is safe - and the harness strips every `SUTURA_*` variable first, so the
+//! one this suite sets is the only one the deployment sees.
+//!
+//! # The three cases, and why one of them alone proves nothing
+//!
+//! Three cases over one fixture, differing only in that variable:
+//!
+//! * **unset** - the refusal says this build carries no driver and names the variable. This is the
+//!   case every existing cell reaches, and it passes whether or not a probe exists.
+//! * **set, to an absolute path holding no driver** - the refusal names the driver and says it did
+//!   not initialise. Only a boot that OPENS the file can produce it, so this is the cell that dies
+//!   when the probe goes.
+//! * **set, to a RELATIVE path** - refused by the parse, before anything is opened, because what a
+//!   relative path names depends on the working directory the supervisor happened to use and the
+//!   driver is the code that then executes every question (`telekom/sutura#929`'s sixth finding).
+//!
+//! All three are asserted to be DIFFERENT refusals rather than each matched in isolation: a boot
+//! that answered *no driver* to all three would satisfy a lone substring check on the first.
+//!
+//! # What it does not establish
+//!
+//! That a real driver loads, and NOT that a release artefact carries one. This binary is a cargo
+//! build, so `cfg(adbc_driver_linked)` is off in it and the mounted route is the only one it has -
+//! which is why the unset case here refuses rather than succeeding. `just bigquery-driver-check` is
+//! the venue that asks a RELEASE artefact, with the variable cleared, whether the driver it
+//! initialised is the one it carries; it runs on `x86_64-linux` only.
+
+#[cfg(test)]
+mod tests {
+    use sutura_config::Environment;
+
+    use crate::harness::{
+        LOCAL_SOURCE, LOOPBACK, SINGLE_USER, TOKEN, derived_catalog, example_root, files_source, refused_to_start, settings_over,
+        written,
+    };
+
+    /// The source alias the moved model is pointed at.
+    const BQ_SOURCE: &str = "warehouse";
+
+    /// The one model this fixture moves off the `files` source and onto the `bigquery` one.
+    ///
+    /// `daily_usage.md` for `harness::two_kind`'s recorded reason: it is the one model the example
+    /// catalog declares with no `via` relationship, so moving it changes which adapter answers and
+    /// never how many legs a plan has.
+    const MOVED_MODEL: &str = "daily_usage.md";
+
+    /// A `bigquery` source entry, with every key `sutura_config` requires of one.
+    ///
+    /// The credential file names nothing and that is deliberate: the ADBC driver authenticates
+    /// itself, so a boot that read this path would be reading a file no transport in this build
+    /// wants - which is a second thing these cells would catch.
+    fn bigquery_entry() -> String {
+        format!(
+            "  {BQ_SOURCE}:\n    \
+               kind: \"bigquery\"\n    \
+               billing_project: \"acme-analytics\"\n    \
+               dataset: \"warehouse\"\n    \
+               credential_file: \"/nonexistent/sutura-test-bigquery.json\"\n    \
+               max_bytes_billed: 1073741824\n    \
+               posture: \"shared-service-user\"\n"
+        )
+    }
+
+    /// A deployment whose catalog puts one model on a `bigquery` source, so the boot opens one.
+    fn settings(case: &str) -> String {
+        let example = example_root();
+        let data = example.join("data");
+        let catalog = derived_catalog(case, &example.join("catalog"), MOVED_MODEL, BQ_SOURCE);
+        settings_over(
+            &catalog,
+            &data,
+            LOOPBACK,
+            &format!("{SINGLE_USER}  access_token: \"{TOKEN}\"\n"),
+            &format!("{}{}", files_source(LOCAL_SOURCE, &data), bigquery_entry()),
+        )
+    }
+
+    /// What the composed binary said when it declined to serve this deployment.
+    fn refusal(case: &str, driver: &[(&str, &str)]) -> String {
+        refused_to_start(Environment::Development, written(case, &settings(case)), driver).join("\n")
+    }
+
+    #[test]
+    fn a_driver_path_naming_no_driver_stops_the_process_rather_than_the_first_question() {
+        // **THE CELL THE SERVING ROOT'S PROBE IS HELD BY - that root, and not "either" of them.**
+        // `SUTURA_BIGQUERY_ADBC_DRIVER` is set to an absolute path, so both the resolve and the
+        // parse one line above the probe pass and the boot has to open the file to fail. Delete the
+        // `AdbcBigQuery::probe` call in `src/serve/bigquery.rs` and this reads the *no driver*
+        // refusal instead - which is the mutation review found nothing catching.
+        //
+        // **What it does NOT hold, measured: the other root.** This comment claimed both; deleting
+        // the same call in `src/sources/bigquery.rs` left all 141 cells of `-p sutura-cli` green,
+        // because nothing spawned the one-shot command with the variable set. That half is
+        // `tests/declared_source.rs`'s
+        // `a_driver_path_naming_no_driver_stops_this_command_rather_than_its_one_question`.
+        let said = refusal(
+            "bigquery-driver-unloadable",
+            &[("SUTURA_BIGQUERY_ADBC_DRIVER", "/nonexistent/libadbc_driver_bigquery.so")],
+        );
+        assert!(
+            said.contains("did not initialise"),
+            "the refusal must say the driver did not INITIALISE, not that no driver was named:\n{said}"
+        );
+        assert!(said.contains(BQ_SOURCE), "the refusal must name the source:\n{said}");
+        assert!(
+            !said.contains("is not set"),
+            "a boot that only read the variable cannot have opened the file:\n{said}"
+        );
+    }
+
+    #[test]
+    fn a_relative_driver_path_is_refused_by_the_parse_and_never_opened() {
+        // **THE THIRD CASE, and the one `telekom/sutura#929`'s sixth finding is about.** A relative
+        // path names a different file depending on the working directory a supervisor launched this
+        // process in, and the driver is the code that then executes every question - so it is
+        // refused where it is READ rather than canonicalised into whatever the cwd happens to make
+        // it. Asserted against the other two sentences, because a boot that answered *no driver* to
+        // all three would satisfy a lone substring check.
+        let said = refusal(
+            "bigquery-driver-relative",
+            &[("SUTURA_BIGQUERY_ADBC_DRIVER", "lib/libadbc_driver_bigquery.so")],
+        );
+        assert!(said.contains("is relative"), "the refusal must name the defect:\n{said}");
+        assert!(said.contains(BQ_SOURCE), "the refusal must name the source:\n{said}");
+        assert!(
+            !said.contains("did not initialise"),
+            "a path refused by the parse is never opened, so nothing can have failed to initialise:\n{said}"
+        );
+        assert!(
+            !said.contains("is not set"),
+            "the variable WAS set, so the absent-driver sentence is the wrong one:\n{said}"
+        );
+    }
+
+    #[test]
+    fn a_deployment_naming_no_driver_at_all_is_a_different_refusal() {
+        // **THE CONTROL.** Without it the cell above passes over a boot that refuses every
+        // `bigquery` deployment for any reason: both cases exit 1 and both name the source, so the
+        // only thing separating them is WHICH sentence, and this is the half that fixes that
+        // sentence to the case it belongs to.
+        let said = refusal("bigquery-driver-unset", &[]);
+        assert!(
+            said.contains("SUTURA_BIGQUERY_ADBC_DRIVER") && said.contains("is not set"),
+            "an unnamed driver is refused by the variable check:\n{said}"
+        );
+        assert!(
+            !said.contains("did not initialise"),
+            "nothing was opened, so nothing can have failed to initialise:\n{said}"
+        );
+    }
+}

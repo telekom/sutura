@@ -15,13 +15,24 @@
 //! # What the pool counts, and what it does not
 //!
 //! It counts what the engine's own operators reserve: a hash-join build side, aggregate state, a
-//! sort. **It counts nothing else.** Not what a driver buffers, not `collect()` materialising every
-//! batch into memory at once, not the `Vec<Vec<Value>>` built while a result is converted into domain
-//! rows - all three of which are on the path a question takes through this crate. So this is not a
-//! bound on the process's memory and must not be alerted on as one: a question large enough to end
-//! the process on one of those paths still ends it. `docs/adr/0009` puts the bound that reaches them
-//! - a byte budget applied as rows are converted - with the execution boundary rather than here, and
-//! says so rather than letting this one be read as wider than it is.
+//! sort. **It counts nothing else.** Not what a driver buffers, not the batches a result is held as,
+//! not the `Vec<Vec<Value>>` built while a result is converted into domain rows.
+//!
+//! **Two of those three are now bounded, by a different mechanism, and this is where the boundary
+//! between them is stated.** `docs/adr/0009` puts a byte budget at the execution boundary rather
+//! than here, and it is built: [`WorkingSet::result_budget`] converts this ceiling into a
+//! [`ResultBudget`](sutura_domain::warehouse::ResultBudget) that
+//! `sutura_domain::warehouse::Accumulating::push` spends as each batch arrives, charging both the
+//! batches held and the row conversion to come. So a result wide enough to end the process is
+//! refused rather than materialised, and `collect()` is gone from this crate - the engine's own
+//! output is streamed into that guard.
+//!
+//! **What is still not bounded, so this pool is still not a bound on the process's memory:** a
+//! driver's own buffering, which is a foreign adapter's business rather than this engine's, and the
+//! per-batch peak - one batch arrives whole before it can be charged, so the budget is exceeded
+//! transiently by whatever the engine's largest single batch costs. And the two are separate
+//! budgets sized from one number, so the two together reach twice the configured ceiling rather
+//! than once. Neither is alertable as process memory.
 //!
 //! # Greedy, and never spilling
 //!
@@ -89,6 +100,24 @@ impl WorkingSet {
     #[must_use]
     pub const fn bytes(self) -> usize {
         self.0.get()
+    }
+
+    /// The same number, as the budget one result's materialisation is charged against.
+    ///
+    /// **The configured ceiling and not a second key**, which is the decision and it is sized by
+    /// what a wrong value costs. `runtime.working_set_max_bytes` is already mandatory and already
+    /// checked at boot against the memory this process can reach, so deriving from it cannot be
+    /// unset, cannot default to unlimited, and cannot disagree with the number an operator tuned. A
+    /// second key could be all three.
+    ///
+    /// **The limit, next to the claim:** two budgets sized from one number are still two budgets.
+    /// The operators may reserve up to the ceiling and one result may cost up to the ceiling, so a
+    /// query's worst case is twice it - not once, which is what a reader of one number would assume.
+    /// `docs/adr/0009`'s amendment carries the arithmetic.
+    #[inline]
+    #[must_use]
+    pub const fn result_budget(self) -> sutura_domain::warehouse::ResultBudget {
+        sutura_domain::warehouse::ResultBudget::of_bytes(self.0)
     }
 }
 
@@ -175,13 +204,15 @@ pub(crate) fn refused_a_reservation(error: &DataFusionError) -> bool {
         DataFusionError::Runtime { .. }
         | DataFusionError::Environment { .. }
         | DataFusionError::Attach { .. }
+        // A codec suffix this build cannot read is refused while the file is being registered, so
+        // there is no plan and nothing reserved.
+        | DataFusionError::UnknownCodec { .. }
+        | DataFusionError::UnknownFormat { .. }
         | DataFusionError::Build { .. }
         | DataFusionError::Analyze { .. }
-        | DataFusionError::UnsupportedType { .. }
-        | DataFusionError::Downcast { .. }
-        | DataFusionError::NotFinite { .. }
-        | DataFusionError::NotADate { .. }
-        | DataFusionError::Shape { .. }
+        // Both are read AFTER the batches came back, so the reservation they needed was granted.
+        | DataFusionError::Unreadable { .. }
+        | DataFusionError::Unannounced { .. }
         | DataFusionError::SchemaMismatch { .. }
         // A probe's result that is not two counts is read AFTER the batches came back, so the
         // reservation it needed was granted.

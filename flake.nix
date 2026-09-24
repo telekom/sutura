@@ -37,9 +37,15 @@
     };
     jscpd-src.url = "github:kucherenko/jscpd/v5.2.0";
     jscpd-src.flake = false;
+    # The ADBC BigQuery driver, self-built from source so every release triple -
+    # including the two static musl ones - gets a hermetic, reproducible native
+    # driver (telekom/sutura#913). Apache-2.0. The Go driver's `go/pkg` facade
+    # (c-shared, `-tags driverlib`) is what `adbc_driver_manager` dlopens.
+    bigquery-adbc-src.url = "github:adbc-drivers/bigquery/go/v1.13.0";
+    bigquery-adbc-src.flake = false;
   };
 
-  outputs = { self, nixpkgs, flake-utils, crane, rust-overlay, jscpd-src, ... }:
+  outputs = { self, nixpkgs, flake-utils, crane, rust-overlay, jscpd-src, bigquery-adbc-src, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -418,11 +424,20 @@
         # check POINTS AT, never the declaration.
         shipped = import ./nix/shipped.nix {
           inherit pkgs nixpkgs system crane rust-overlay craneLib commonArgs
-            inheritedArtifacts auditable mimallocFor optLevelFor;
+            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers;
           inherit (commonArgs) version;
         };
 
         inherit (shipped) binaries crossPackages imageTargets;
+
+        # The ADBC BigQuery driver packages, some binding-visible here so `packages.*`, a `checks`
+        # entry and every SHIPPED artefact's link point at the same four triples. `shipped` above
+        # reads this for the `c-archive` half - a release artefact carries its own driver.
+        adbcDrivers = import ./nix/bigquery-adbc-drivers.nix {
+          pkgs = pkgs;
+          bigqueryAdbcGoSource = "${bigquery-adbc-src}/go";
+          buildDriver = import ./nix/bigquery-adbc.nix;
+        };
 
         # #149 branch 5's runner - `nix/kind-smoke.nix` carries what it proves and what it does
         # not. `shipped.localImages.oci` is the SAME native image `nix build .#oci` builds, so
@@ -484,14 +499,67 @@
             meta.mainProgram = "xtask";
           });
 
-        };
+        }
+        // adbcDrivers;
 
         # `nix flake check` IS the gate. Every entry reuses `cargoArtifacts`, so the
         # dependency tree is built once for the whole set, not once per check.
         # Deliberately does NOT include the package: `nix flake check` runs its entries in
         # arbitrary order, and the release build must come AFTER lints and tests, not
-        # alongside them. CI builds the package as an explicit later step.
+        # alongside them. CI builds the package as an explicit later step. The single
+        # exception is `adbc-driver-bigquery` below - it only has to not break, and the
+        # reviewer found nothing in CI realised it, so it earns a slot here.
         checks = {
+          # The self-built ADBC BigQuery driver, as a gate with a REAL venue: the
+          # reviewer found nothing in CI realised these packages, so a broken driver
+          # would sail a green PR. `nix flake check` realises this derivation, which
+          # has each of the four cross-triple `libadbc_driver_bigquery.so` builds as
+          # an input and fails if any of them is missing. This is the one place the
+          # driver has to build before a PR can be green.
+          #
+          # **It was fail-open and the message was the tell.** The first shape looped
+          # over `$buildInputs` and then printed a literal "all four triples built",
+          # so `buildInputs = [ ]` exited 0 over zero drivers - and so does any
+          # expected count DERIVED from the same list (`0 -eq 0`). The floor is
+          # therefore a literal: four is what `nix/bigquery-adbc-drivers.nix`
+          # declares, and a fifth triple has to fail here until somebody bumps it,
+          # which is the right amount of friction for a release-artefact set.
+          # `attrValues` rather than four hand-written attribute names so this gate
+          # cannot name a driver the driver file no longer builds.
+          #
+          # **BOTH driver shapes, since `telekom/sutura#929`'s sixth finding.** Each
+          # triple builds a `.so` for a mounted driver AND a `.a` the published
+          # artefact links in, and a gate asserting one of two would leave the
+          # release half unmeasured - the archive is the ONLY route the two static
+          # musl artefacts have. `crates/sutura-exec-bigquery/build.rs` refuses an
+          # archive-less directory, so an absent `.a` would fail a release build
+          # rather than ship a mounted fallback; this is the cheaper place to find
+          # out, on every pull request and on every system.
+          #
+          # **The limit, beside the claim: this LOADS nothing.** It is a
+          # file-existence test plus a literal count, so it establishes that the
+          # four triples' two files build and no more - a driver that builds and
+          # cannot be opened passes here. The venue that RUNS one is `ci.yml`'s
+          # `bigquery-driver-check` job (`bash nix/bigquery-driver-check.sh`,
+          # `sutura doctor` against the release artefacts), and it is
+          # `x86_64-linux` only.
+          adbc-driver-bigquery = pkgs.runCommand "adbc-driver-bigquery-check" {
+            buildInputs = builtins.attrValues adbcDrivers;
+          } ''
+            found=0
+            for d in $buildInputs; do
+              for shape in so a; do
+                test -f "$d/lib/libadbc_driver_bigquery.$shape" \
+                  || { echo "missing libadbc_driver_bigquery.$shape in $d" >&2; exit 1; }
+              done
+              found=$((found + 1))
+            done
+            test "$found" -eq 4 \
+              || { echo "built $found ADBC driver triples and this release declares 4" >&2; exit 1; }
+            mkdir -p "$out"
+            printf '%d ADBC driver triples built\n' "$found" > "$out/result"
+          '';
+
           # `--all-features` is load-bearing, not thoroughness for its own sake: the
           # adapters are feature-gated and default-off, so the default feature set is
           # nearly empty. Without it, clippy and the tests would cover none of them and
@@ -806,7 +874,8 @@
         };
 
         # `nix run .#keycloak-served-test` - the one cell that needs a REAL identity provider rather
-        # than the mock, on `apps.bigquery-acceptance`'s pattern: an app rather than a check because
+        # than the mock, on the pattern the since-removed `bigquery-acceptance` app established
+        # (#430): an app rather than a check because
         # `checks.*` run once per `wholeTree` build and this leg's own JVM boot is a cost `just
         # validate` should not add to every one of them - `nix/keycloak-tier.nix`'s own header names
         # the same tradeoff for why this tier is not yet in `checks.nextest`'s `preCheck`.
@@ -851,6 +920,41 @@
           '');
         };
 
+        # `nix run .#bigquery-declared-principal` - LEG 2 for BigQuery, on the venue that can answer
+        # it: do two declared subjects' questions execute as two DIFFERENT principals, neither of
+        # them the deployment's own? The source's declared map decides only which subjects may be
+        # served; which principal each becomes is the declared pool's, so no address this venue
+        # holds predicts the answer and the cells compare the two answers against each other.
+        #
+        # An app rather than a `checks.*` entry for `apps.keycloak-served-test`'s reason and one
+        # more: it needs a real project, so a build sandbox with no network cannot host it at all.
+        # `docs/where-identity-is-proven.md` is where what a green run of it may be cited for lives,
+        # and `cargo xtask check-venues` reads the `nix run` line in
+        # `.github/workflows/bigquery-declared-principal.yml` as this venue's own anchor.
+        #
+        # **The pool is back in the picture, which a round of this comment had it out of.** The
+        # withdrawn principal switch handed over ONE credential - the deployment's own - plus the two
+        # account addresses it was authorized to impersonate; `docs/adr/0018`'s fifth amendment
+        # priced that shorter chain and its sixth amendment withdrew it. What ships federates each
+        # subject's OWN assertion against the declared pool, so this job places the deployment's
+        # credential (the control leg reads it) and one assertion per subject, and the two addresses
+        # are not passed at all.
+        #
+        # `--run-ignored only`, because both cells are `#[ignore]`d: `just validate` has no network,
+        # and a leg that skipped on an absent environment would report green over nothing. They
+        # panic naming the variable instead.
+        apps.bigquery-declared-principal = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-declared-principal" ''
+            set -euo pipefail
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features               --run-ignored only -E 'test(/declared_principal::/)' "$@"
+          '');
+        };
+
         # `nix run .#causality -- --since <ref>` - the red-before-green gate.
         #
         # An app and not a check for three reasons: it needs git history (a build sandbox has
@@ -883,183 +987,6 @@
           '');
         };
 
-        # `nix run .#bigquery-acceptance` - the one leg that talks to a real cloud service, and an app rather than a check
-        # because `checks.*` run in the nix sandbox, which has no network: nothing here is hermetic and none of it is in
-        # `just validate`. It carries the pinned cargo and `cargo-nextest` for `apps.deny`'s reason - `nix run` puts only the
-        # named program on PATH, so shelling out to a host cargo would be a second toolchain. It fails loudly without
-        # `GOOGLE_APPLICATION_CREDENTIALS`, `SUTURA_BQ_DATASET` or `SUTURA_BQ_TABLE`; the billing project comes from the key's
-        # own `project_id`, so CI configures none. `--run-ignored only` reaches every `#[ignore]`d test in the targets it runs
-        # rather than a listed set - which is why the identity and cross-resource legs are excluded by BINARY, not by a list.
-        apps.bigquery-acceptance = {
-          type = "app";
-          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-acceptance" ''
-            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
-
-            ${cargoLinkEnv}
-            ${cargoWarmStart}
-            exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
-              --run-ignored only -E 'not binary(exchanged_identity) and not binary(cross_resource)' "$@"
-          '');
-        };
-        # The two-principal cell this used to filter out alongside (`apps.bigquery-two-principals`) was
-        # withdrawn on telekom/sutura#123: sutura does not re-verify a source's row-level security.
-
-        # `nix run .#bigquery-exchanged-identity` - the exchanged-identity cell, issue #376: the only
-        # leg holding no principal's key. `.github/workflows/bigquery-exchanged-identity.yml` invokes
-        # this on `workflow_dispatch` only - not on every push, until the maintainer's `iamcredentials`
-        # binding lands and one manual run is green (the mistake telekom/sutura#287 was held to avoid).
-        apps.bigquery-exchanged-identity = {
-          type = "app";
-          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-exchanged-identity" ''
-            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
-
-            ${cargoLinkEnv}
-            ${cargoWarmStart}
-            exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
-              --run-ignored only -E 'binary(exchanged_identity)' "$@"
-          '');
-        };
-        # `nix run .#bigquery-mint-subject-assertion` - mints one Google-issued OIDC ID token per
-        # principal at job time, from the same service-account key `bq-test` already holds
-        # (telekom/sutura#376's "no new long-lived secret" design). The mint step of
-        # `.github/workflows/bigquery-exchanged-identity.yml` invokes this app in place of a bare
-        # `just`, which would need a cargo on the runner without the linker env this app sources -
-        # the install-nix-action job installs nix only, so a first dispatch would die at `just:
-        # command not found` (or at a bare cargo missing `cargoLinkEnv`). `just
-        # bigquery-mint-subject-assertion` is kept for a laptop and runs this same app. `key`, the
-        # pool audience and the `out` path are passed as arguments, never as `${{ }}` values.
-        apps.bigquery-mint-subject-assertion = {
-          type = "app";
-          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-mint-subject-assertion" ''
-            export PATH="${toolchain}/bin:$PATH"
-
-            ${cargoLinkEnv}
-            ${cargoWarmStart}
-            exec cargo run --profile ci -p sutura-exec-bigquery --example mint_subject_assertion --features wire -- "$@"
-          '');
-        };
-        # `nix run .#e2e-datahub-bigquery` - wave one of the identity-aware E2E, on `apps.keycloak-
-        # served-test`'s pattern: an app rather than a check because `checks.*` run once per
-        # `wholeTree` build and this leg's own JVM boot plus a real BigQuery dataset is a cost `just
-        # validate` should not add to every one of them. Starts the SAME Keycloak tier
-        # `apps.keycloak-tier` runs by hand, pins the toolchain and nextest for `apps.deny`'s
-        # reason, and NOT `exec`'d so the `trap` that stops the tier survives a failing cell.
-        #
-        # Fake DataHub only in PR 1: the composed binary's catalog points at an IN-PROCESS
-        # `FakeServer` (`sutura_catalog_datahub::test_support::FakeServer`), so nothing here needs
-        # docker. The `--datahub tier` mode (the hosted job's) and the `SESSION_USER()` cell are
-        # PR 2 and the maintainer's binding respectively - neither is invoked by this app and both
-        # say so where they live.
-        apps.e2e-datahub-bigquery = {
-          type = "app";
-          program = builtins.toString (pkgs.writeShellScript "sutura-e2e-datahub-bigquery" ''
-            set -euo pipefail
-            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${keycloakTier.tier}/bin:$PATH"
-
-            # The SAME `--datahub fake|tier` switch `just e2e-datahub-bigquery` parses, so the two
-            # are mirrors rather than one accepting a flag the other silently forwards to nextest as
-            # a test filter. All arguments join into one string here, the way `just`'s variadic
-            # `*datahub` parameter does - so `--datahub tier` (two words) is one mode, exactly as
-            # typed, and there is nothing left over to forward once it is read.
-            if [ "$#" -eq 0 ]; then
-              mode="--datahub fake"
-            else
-              mode="$*"
-            fi
-            case "$mode" in
-              "--datahub fake")
-                export SUTURA_E2E_DATAHUB_MODE=fake ;;
-              "--datahub tier")
-                export SUTURA_E2E_DATAHUB_MODE=tier
-                echo "e2e-datahub-bigquery: --datahub tier - the REAL docker DataHub tier, not the recorded fake."
-                echo "e2e-datahub-bigquery: brings up the 5-container platform, provisions the certified metric under"
-                echo "e2e-datahub-bigquery: the deployment's structured property, has the tier mint its own PAT"
-                echo "e2e-datahub-bigquery: (never committed), and points the served binary's HTTP AspectReader at it."
-                echo "e2e-datahub-bigquery: Fail-not-skip."
-                cargo run -q -p xtask -- dev-up --with datahub
-                # Headless GMS exposes no /auth/* token surface, so the TIER mints its own PAT offline
-                # with its own signing key. Written into a generated token_file (never committed - it
-                # is under the ignored discovery dir) and exported by path, exactly as the just task
-                # does, so `tests/served/e2e.rs`'s `adopt_minted_pat` passes it to the served binary.
-                DATAHUB_TOKEN_FILE="$(git rev-parse --show-toplevel)/.sutura-dev/datahub-pat"
-                cargo run -q -p sutura-dev --features mock-issuer -- mint-pat "$DATAHUB_TOKEN_FILE"
-                export SUTURA_DATAHUB_TOKEN_FILE="$DATAHUB_TOKEN_FILE"
-                ;;
-              *) echo "e2e-datahub-bigquery: unknown carrier '$mode' - use --datahub fake or --datahub tier"; exit 2 ;;
-            esac
-
-            ${cargoLinkEnv}
-            ${cargoWarmStart}
-            # Armed BEFORE `start`, same as `apps.keycloak-served-test` (#804): a `start` that
-            # binds a port or writes state and THEN fails exits under `set -euo pipefail` before
-            # a trap armed after it ever exists, leaving the JVM running with nothing to tear it
-            # down (#816).
-            rc=0
-            sutura-keycloak-tier status >/dev/null 2>&1 || rc=$?
-            if [ "$rc" = 1 ]; then trap 'sutura-keycloak-tier stop' EXIT; fi
-            sutura-keycloak-tier start
-            # `exec` inside a SUBSHELL, not the outer script, for the same reason `apps.keycloak-
-            # served-test` documents it: `check-warm-start` requires a live `exec cargo ` line, but
-            # exec'ing the outer shell would replace it before the `trap` above fires, leaving the
-            # JVM running. The parens make this `exec` replace only the subshell; the outer shell and
-            # its trap survive to run `sutura-keycloak-tier stop` once the subshell exits.
-            (
-              exec cargo nextest run --cargo-profile ci -p sutura-cli --all-features \
-                --run-ignored only -E 'test(the_wave_one_path_answers_a_verified_caller_under_the_shared_key)'
-            )
-          '');
-        };
-        # `nix run .#bigquery-cross-dataset` / `.#bigquery-cross-project` - issue #118's two cross-resource venues: writable
-        # per-run fixtures across two datasets, read-only preprovisioned mirrors across two projects. Two apps because each
-        # needs inputs the other does not, and one demanding both would strand the runnable leg. `ci.yml`'s
-        # `bigquery-acceptance` job invokes the dataset app after the acceptance leg; nothing invokes the
-        # project app.
-        apps.bigquery-cross-dataset = {
-          type = "app";
-          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-cross-dataset" ''
-            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
-            ${cargoLinkEnv}
-            ${cargoWarmStart}
-            exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
-              --run-ignored only -E 'binary(cross_resource) and test(join_across_datasets_)' "$@"
-          '');
-        };
-        apps.bigquery-cross-project = {
-          type = "app";
-          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-cross-project" ''
-            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
-            ${cargoLinkEnv}
-            ${cargoWarmStart}
-            exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
-              --run-ignored only -E 'binary(cross_resource) and test(join_across_projects_)' "$@"
-          '');
-        };
-
-        # `nix run .#default-features` - the shipped feature set COMPILES and LINTS.
-        #
-        # The other half of the app below, and they are two apps because they are two verdicts:
-        # `cargo check` plus `cargo clippy` at the default set here, `cargo nextest` at it there. A
-        # single app would collapse a compile failure and a test failure into one exit code on the
-        # one lane no other gate in this repository sees at all.
-        #
-        # An app for `apps.causality`'s reason (it shells out to cargo, which needs a registry and a
-        # writable target directory), with the pinned toolchain for `apps.deny`'s - and here that
-        # second reason is load-bearing rather than tidy: clippy's lint set depends on its channel,
-        # so a host cargo would report a set nothing else here agrees with, on the half of this lane
-        # that exists BECAUSE `cargo check` cannot see a lint.
-        #
-        # NO profile argument, for the reason the app below gives: the gate derives cargo's profile
-        # from the stamp `cargoWarmStart` leaves behind, so there is no flag to put on the wrong side
-        # of a `--`. The `--profile ci` on this line is cargo's own, building the xtask binary into
-        # the warmed directory, and `check-warm-start` is what reads it.
-        #
-        # The sweep this app most needs is the warm start's own now (#346). It asks for one shipped
-        # package with NO feature flags, which the v2 resolver gives a narrower feature set and
-        # therefore a different `-C metadata` than the workspace-wide union the closure was built
-        # at - so `utoipa-swagger-ui` is recompiled rather than reused, against the `OUT_DIR` its
-        # build script baked in another derivation. It used to inline the script here and the other
-        # four consumers inherited a purge from whichever of them ran first, which is an ordering
-        # rather than a mechanism; `nix/cargo-env.nix` carries it for all five.
         apps.default-features = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-default-features" ''

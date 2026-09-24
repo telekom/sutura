@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The agent-facing surface: one governed tool, over the Model Context Protocol.
 //!
 //! **Transport only.** It parses the wire shape, translates it into a domain [`Query`], calls

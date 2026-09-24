@@ -31,8 +31,8 @@ in the PR this ADR ships beside):
   that priced its own dry run has nowhere to put the number.
 - **BigQuery's dry run is free and slotless** and its `QueryResponse` already carries
   `totalBytesProcessed` as a top-level field, beside `kind`, `jobReference` and `cacheHit` -
-  `crates/sutura-exec-bigquery/src/wire/document.rs`'s own header names it among the fields nothing
-  here reads. `crates/sutura-exec-bigquery/src/wire.rs`'s `validate_job` discards it today, in words:
+  `document.rs`'s own header names it among the fields nothing
+  here reads. `wire.rs`'s `validate_job` discards it today, in words:
   *"a dry run returns `totalBytesProcessed`, and this discards it... `PreFlight::Accepted` also
   carries no field for an estimate, so there is nowhere to put it."*
 - **`PrincipalChain`** is the key a budget would use, and says so in its own doc comment:
@@ -256,7 +256,7 @@ except the one call site with a real number to put there
   limit for acceptance - *"the data system's opinion at pre-flight time and not a guarantee about
   execute"* - and an estimate inherits it: what a job is actually billed for can differ from
   `totalBytesProcessed`, which is why #139's own verification section calls that gap "the one number
-  here that cannot be assumed" and routes the live check to `just bigquery-acceptance` rather than a
+  here that cannot be assumed" and routed the live check to the (since-removed) `bigquery-acceptance` leg rather than a
   fake.
 - **A federated answer's estimate is the sum of every leg's `Some`, ignoring every leg's `None`.**
   This under-counts whenever a `None` leg would have scanned real bytes, which today is every leg

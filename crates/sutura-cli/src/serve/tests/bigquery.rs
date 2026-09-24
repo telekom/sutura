@@ -1,8 +1,8 @@
 //! `bigquery`-kind sources: the settings-tree refusal for a missing key, the composition root's own
 //! refusal for a build that did not link the adapter, and - on a build that did - the furthest a
-//! fixture with no project can reach: the credential layer, the billed-bytes ceiling, the anchor's
-//! verification rule, and the boot line for the credential cache's default. Moved out of `tests.rs`
-//! as a pure relocation to keep that file under the 1000-line cap with room to spare.
+//! fixture with no project can reach: the driver demand, the anchor's verification rule, and the
+//! broker this root attaches for an impersonating source. Moved out of `tests.rs` as a pure
+//! relocation to keep that file under the 1000-line cap with room to spare.
 
 use super::support::bundle_with_an_anchor;
 use super::{bigquery_entry, default_timeout, one_worker, open_engine, opened_bigquery, refusal, registry, wif};
@@ -63,120 +63,102 @@ fn a_bigquery_source_is_refused_by_a_build_that_did_not_link_the_adapter() {
 
 #[test]
 #[cfg(feature = "bigquery")]
-fn a_bigquery_source_reaches_the_credential_the_deployment_declared() {
-    // **What this proves, and it is deliberately the furthest a test with no project can reach:** the
-    // kind DISPATCHED to the BigQuery adapter, the shared posture was accepted against that adapter's
-    // own `IMPERSONATION`, both bounds parsed, and the composition asked for the credential file the
-    // settings tree named. A refusal about that path is the proof; a refusal about the feature, the
-    // kind or the posture would mean it stopped earlier.
-    //
-    // It cannot go further here by construction: `wire::BigQueryWire`'s host is a `const` and its
-    // agent is `https_only`, so there is no loopback to point it at - `docs/adr/0018` states that as a
-    // coverage hole paid for with a security property, and `just bigquery-acceptance` is the leg that
-    // closes it against a real dataset.
+fn a_bigquery_source_refuses_for_a_missing_driver_not_the_credential_file() {
+    // **What this proves, and it is the whole seam a test with no driver can reach:** the kind
+    // DISPATCHED to the BigQuery adapter, the shared posture was accepted against that adapter's
+    // OWN `IMPERSONATION`, both bounds parsed, and the composition then demanded the on-disk ADBC
+    // driver - refused here because no `SUTURA_BIGQUERY_ADBC_DRIVER` points at one. The driver
+    // authenticates ambiently, so the `credential_file` a `bigquery_entry` declares is deliberately
+    // NOT read: matching the driver refusal is exactly how this proves the file never is.
     let error = refusal(
         opened_bigquery(&bigquery_entry("warehouse", "shared-service-user", "")),
-        "the declared credential file is not there, so this deployment does not start",
+        "the ADBC driver is not configured, so this deployment does not start",
     );
     assert!(
-        error.contains("credential_file"),
-        "the refusal must name the key that could not be read: {error}"
+        error.contains("SUTURA_BIGQUERY_ADBC_DRIVER"),
+        "the refusal must name the driver variable an operator has to set: {error}"
     );
     assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
-    // NOT the neighbouring arms, which is the half that stops this passing on the wrong branch: a
-    // build that linked no adapter, or a posture cross-check that fired, would both be green on the
-    // two assertions above if they only checked for a refusal.
+    assert!(
+        !error.contains("credential_file"),
+        "the driver authenticates ambiently - a credential file must not be read: {error}"
+    );
     assert!(
         !error.contains("--features bigquery"),
         "this build DID link the adapter: {error}"
-    );
-    assert!(
-        !error.contains("no fallback"),
-        "the shared posture is deliverable by this adapter: {error}"
-    );
-    // **And the pre-flight has not run either, which is the ordering half.** An operator told about
-    // a table when the credential is unreadable would go and edit the catalog, which was never
-    // wrong. A type is what makes this hold rather than this assertion - though not the type this
-    // comment first named: `wire::credential::Credential::read` is the only public constructor of a
-    // `Credential`, and a `BigQueryWarehouse` cannot exist without one, so no arrangement of `run`
-    // can ask a dataset about a table before its credential was read off disk.
-    assert!(
-        !error.contains("does not hold"),
-        "no dataset is asked about a table before its credential is read: {error}"
     );
 }
 
 #[test]
 #[cfg(feature = "bigquery")]
-fn an_impersonating_source_is_opened_and_reads_the_credential_it_declared() {
-    // **Issue 87's serve half, and the reversal is the point of the change.** The exchanging broker
-    // is now attached in `run()`'s `bigquery` arm, so `open_engine` no longer refuses an
-    // `impersonation-at-source` source by name - the adapter declares `PerSubjectCredential`, and a
-    // subject's credential is exactly what the attached `WorkloadIdentityBroker` mints. The refusal
-    // that used to stand in for "no broker attached" is gone from this path.
-    //
-    // **What this reaches instead is the furthest a test with no project can: the source is OPENED
-    // and reads the credential file it declared** - and when that is missing, the boot names the
-    // FILE and not the posture. It cannot check the broker wire here because `open_engine` predates
-    // the broker; the attachment lives in `run()`, at the seam this suite cannot reach without a
-    // real project.
+fn an_impersonating_source_is_opened_and_reaches_the_driver_refusal() {
+    // **Issue 87's serve half, and the reversal is the point of the change.** The adapter declares
+    // `PerSubjectCredential`, so the serve open fn's capability cross-check ACCEPTS an
+    // `impersonation-at-source` entry - it is not refused here by name. Which principal a subject's
+    // job runs as is decided at request time, by the broker plus the driver's own impersonation
+    // option, and this boot seam cannot reach either without a driver. What a test with no driver
+    // CAN reach is the demand for the on-disk driver itself; matching that instead of an
+    // `impersonation-at-source` refusal is what shows the capability half still accepts the posture.
+    // The ATTACHING half now has its own cells at the foot of this file.
     let error = refusal(
         opened_bigquery(&bigquery_entry(
             "warehouse",
             "impersonation-at-source",
             &format!("{}    verification_identity: \"sutura_anchor_reader\"\n", wif()),
         )),
-        "an impersonating source with a declared workload identity is served, so reaching its credential is the test",
+        "an impersonating source passes the capability check, so its refusal is the missing driver",
     );
     assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
     assert!(
-        error.contains("credential_file"),
-        "the source was OPENED and its refusal is about the credential it declared: {error}"
+        error.contains("SUTURA_BIGQUERY_ADBC_DRIVER"),
+        "the source was OPENED past the posture cross-check and its refusal names the driver: {error}"
     );
-    // The composition gap is closed: these are the two sentences the old refusal said, and neither
-    // is true any more - the exchange and the broker are wired, so an entry reaching this far is not
-    // read as the deployment's own identity.
     assert!(
         !error.contains("does not attach a broker"),
-        "the composition no longer refuses impersonation by name: {error}"
-    );
-    assert!(
-        !error.contains("no fallback"),
-        "the posture is no longer a fallback-shaped refusal: {error}"
+        "the serve open fn still accepts the posture - impersonation is not refused by name here: {error}"
     );
 }
 
 #[test]
 #[cfg(feature = "bigquery")]
 fn a_bigquery_ceiling_the_adapter_will_not_send_is_a_startup_refusal_naming_the_key() {
-    // The other half of leaving `max_bytes_billed` a bare number in the settings tree: the RANGE
-    // belongs to `sutura_exec_bigquery::wire::BytesBilledCeiling`, so there is one parse of it and it
-    // happens here. What this asserts is that the refusal still names the key an operator has to
-    // change - a range error from a newtype with no key attached would be a support request.
+    // **The refusal's own cell, and not the predicate's.** `BytesBilledCeiling::parse` has its own
+    // cells beside the type; this is the only thing that shows the served root CONSULTS it. Wrap the
+    // parse's `?` so the error is discarded while the value is still read - the shape `dead_code`
+    // cannot see - and this cell is what reddens.
+    //
+    // This test lived here before, held the same range parse, and was DELETED when the HTTP wire
+    // took `BytesBilledCeiling` with it, on the stated grounds that "there is no boot-time number
+    // left to test". There is again: the ADBC driver takes a `bigquery.query.max_bytes_billed`
+    // statement option, so `max_bytes_billed` is parsed and sent rather than required and ignored.
     //
     // Zero rather than a value above the cap, because zero is the one an operator reaches by writing
-    // a placeholder: it would refuse every question rather than bounding one.
+    // a placeholder - and BigQuery reads a ceiling below one as NO ceiling, so it is the value that
+    // silently buys nothing rather than the one that refuses everything.
     let entry = bigquery_entry("warehouse", "shared-service-user", "").replace("1073741824", "0");
     let error = refusal(
         opened_bigquery(&entry),
-        "a ceiling of zero would refuse every question rather than bounding one",
+        "a ceiling of zero is how BigQuery spells no ceiling, so it cannot be one",
     );
     assert!(error.contains("max_bytes_billed"), "the refusal must name the key: {error}");
     assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
     assert!(
-        !error.contains("credential_file"),
-        "the bound is parsed before the credential file is read: {error}"
+        !error.contains("SUTURA_BIGQUERY_ADBC_DRIVER"),
+        "the ceiling is parsed BEFORE the driver is resolved, so this must not be the driver's refusal: {error}"
     );
 }
 
 // `a_request_timeout_that_leaves_no_job_budget_does_not_start` lived here: a ten-second
 // `server.request_timeout_seconds` used to refuse a `bigquery` deployment at boot, because
 // `QueryDeadline::within_request_timeout` divided that number by the two calls one answer makes and
-// found nothing left. `docs/adr/0029` retired that arithmetic - a request-time job now derives
-// `timeoutMs`/`jobTimeoutMs` from the port's own `Deadline`, which the transport opens from the SAME
-// key without dividing it, so a ten-second `server.request_timeout_seconds` is a usable (if narrow)
-// budget rather than an unservable one. The refusal this test held is gone with the arithmetic that
-// produced it; deleted rather than adapted, because there is no boot-time number left to test.
+// found nothing left. `docs/adr/0029` retired that arithmetic, and its second amendment retired the
+// replacement too: a request-time job CARRIES the port's own `Deadline` and sends it nowhere, so
+// there is no per-call job budget to divide and a ten-second `server.request_timeout_seconds` is a
+// usable (if narrow) caller budget over an unbounded job. This comment read *derives
+// `timeoutMs`/`jobTimeoutMs` from the port's own `Deadline`* until #929's eighth round; those were
+// `jobs.query` request parameters and went with the HTTP transport. The refusal this test held is
+// gone with the arithmetic that produced it; deleted rather than adapted, because there is no
+// boot-time number left to test.
 
 #[test]
 fn an_anchor_on_a_bigquery_source_is_held_to_the_same_verification_rule() {
@@ -222,92 +204,86 @@ fn an_anchor_on_a_bigquery_source_is_held_to_the_same_verification_rule() {
     );
 }
 
+/// The `workload_identity` block an impersonating source needs, with whatever the case adds after it.
+///
+/// `wif()` plus a tail rather than a second literal, so the audience and scope every case shares are
+/// written once and only the part under test differs.
+#[cfg(feature = "bigquery")]
+fn wif_with(extra: &str) -> String {
+    format!("{}{extra}    verification_identity: \"sutura_anchor_reader\"\n", wif())
+}
+
+/// Two declared subjects, each mapped to its own account - the shape a served impersonating source
+/// is ADMITTED on. Whether either subject is answered is not a question this module asks.
+#[cfg(feature = "bigquery")]
+fn two_declared_subjects() -> &'static str {
+    "      impersonate:\n        \"analyst-a@example.com\": \"bq-a@acme-analytics.iam.gserviceaccount.com\"\n        \
+     \"analyst-b@example.com\": \"bq-b@acme-analytics.iam.gserviceaccount.com\"\n"
+}
+
 #[test]
 #[cfg(feature = "bigquery")]
-fn the_boot_line_names_the_credential_cache_as_off_by_default() {
-    // `docs/adr/0031` is off by default, and the identity skill's own rule is that the startup log
-    // prints the limit beside the mode - this is the cell that reads that line back. The line is
-    // built from `WorkloadIdentityBroker::cache_capacity()`, so this cell also reads that accessor
-    // on the SAME broker the line was printed for: "off by default" is held by the two agreeing,
-    // not by a reader of `broker::build_broker`'s own source, and not by trusting the line alone.
-    let capture = sutura_runtime::testing::Capture::new();
-    let telemetry = sutura_config::TelemetrySettings::new(
-        sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
-        sutura_config::LogFilter::parse("info").expect("a test directive is a directive"),
-        sutura_config::LogFormat::Bunyan,
-        true,
-    );
-    let subscriber =
-        sutura_runtime::telemetry::subscriber(&telemetry, capture.clone()).expect("a valid directive builds a subscriber");
+fn a_declared_two_subject_map_admits_the_source_to_the_broker() {
+    // **THE NEGATIVE CONTROL for the two boot refusals below**, and it is the cell that says the
+    // composition works at all: without it both of those pass over a `build_broker` that refused
+    // every registry. A declared two-subject map builds a broker holding this source, so the
+    // refusals beneath are about what they name rather than about anything impersonating.
+    //
+    // **Named for admission, because admission is all it asserts.** It used to be named for the
+    // source being *answerable*, and review broke that name: a broker that admits this registry and
+    // then refuses to mint for every subject keeps this cell green, because what is read is
+    // `count()` and not an answer. Nothing in this module mints or asks - the per-subject mint on a
+    // request is held in `sutura_http::identity_e2e` over a fake broker, and no cell anywhere asks a
+    // real BigQuery as a declared subject.
+    let broker = super::super::broker::build_broker(&registry(&bigquery_entry(
+        "warehouse",
+        "impersonation-at-source",
+        &wif_with(two_declared_subjects()),
+    )))
+    .expect("a declared two-subject map is a source this deployment can serve");
+    assert_eq!(broker.count(), 1);
+}
 
-    let built = tracing::subscriber::with_default(subscriber, || {
-        super::super::broker::build_broker(
-            &registry(&bigquery_entry("warehouse", "shared-service-user", "")),
-            default_timeout(),
-            sutura_config::CredentialCacheSettings::default(),
-            None,
-            None,
-        )
-    })
-    .expect("a shared bigquery source with a declared ceiling builds a broker");
-
-    assert_eq!(
-        built.cache_capacity(),
-        None,
-        "the broker itself must hold no cache under the default settings, not merely log one as off"
-    );
-
-    let rendered = capture.contents();
+#[test]
+#[cfg(feature = "bigquery")]
+fn an_impersonating_source_naming_no_subject_does_not_boot() {
+    // **The defect class this whole composition was rebuilt to remove.** An impersonating source
+    // whose map names nobody can serve no caller: every question would be refused
+    // `credential_unavailable` while the startup log said the source opened. So it is a startup
+    // failure, and the refusal names the key an operator writes rather than the broker.
+    let error = super::super::broker::build_broker(&registry(&bigquery_entry(
+        "warehouse",
+        "impersonation-at-source",
+        &wif_with(""),
+    )))
+    .map(drop)
+    .expect_err("a source that can serve no caller must not boot");
+    assert!(error.contains("warehouse"), "the refusal must name the entry: {error}");
     assert!(
-        rendered.contains("credential_cache: off"),
-        "the default settings must boot with the cache off, and say so: {rendered}"
-    );
-    assert!(
-        !rendered.contains("credential_cache: on"),
-        "the default settings must never log the cache as on: {rendered}"
+        error.contains("impersonate"),
+        "the refusal must name the key to write: {error}"
     );
 }
 
-/// The workload-identity block of an `impersonation-at-source` source that ALSO declares the issuer
-/// and STS audience its pool trusts (`telekom/sutura#817`'s seam), with values that differ from the
-/// direct leg-one ones the boot-refusal cell below sets up.
-#[cfg(feature = "bigquery")]
-fn wif_with_unmatching_expectations() -> &'static str {
-    "    workload_identity:\n      audience: \
-     \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/\
-     providers/sso\"\n      scope: \"https://www.googleapis.com/auth/bigquery.readonly\"\n      \
-     expected_issuer: \"https://pool.example.com\"\n      \
-     expected_audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/\
-     workloadIdentityPools/analysts/providers/sso\"\n"
-}
-
-#[cfg(feature = "bigquery")]
 #[test]
-fn a_source_declaring_pool_expectations_direct_leg_one_cannot_satisfy_refuses_at_boot() {
-    // telekom/sutura#817's boot half: when leg 1 is `direct` and a source declares the issuer and
-    // audience its pool trusts, the SAME document must satisfy both. Here the pool's expected issuer
-    // differs from the direct leg-one issuer, so no caller token `security.inbound` would verify is
-    // one the pool would accept - the deployment refuses at boot, naming the source, rather than
-    // serving questions whose every credential the pool would decline.
-    let overlay = format!(
-        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n  inbound:\n    \
-         mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
-         authorization_server: \"https://leg-one.example.com\"\n    \
-         key_set_file: \"/nonexistent/sutura-test-key.pem\"\n    algorithms: [\"ES256\"]\n\
-         sources:\n{}",
-        bigquery_entry("warehouse", "impersonation-at-source", wif_with_unmatching_expectations()),
-    );
-    let settings = sutura_config::Settings::load(
-        &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
-    )
-    .expect("an inbound-direct and impersonating settings block loads");
-    let error = super::super::broker::build_broker(
-        settings.sources(),
-        settings.server().request_timeout(),
-        settings.security().credential_cache(),
-        None,
-        settings.security().inbound(),
-    )
-    .expect_err("a source whose pool expectations no direct leg-one document satisfies refuses at boot");
-    assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
+#[cfg(feature = "bigquery")]
+fn a_declared_pool_expectation_does_not_boot_because_nothing_in_this_build_reads_it() {
+    // `expected_issuer`/`expected_audience` tie leg 1's issuer and audience to what a
+    // workload-identity pool accepts, and the only thing that ever read them was the token exchange
+    // this build no longer contains. Left in place they would read as a control that is in place -
+    // `sutura_config` refuses a verification identity on a shared source for the same reason - so
+    // they are refused here, naming both keys.
+    let error = super::super::broker::build_broker(&registry(&bigquery_entry(
+        "warehouse",
+        "impersonation-at-source",
+        &wif_with(&format!(
+            "{}      expected_issuer: \"https://issuer.example.com/realms/sutura\"\n      expected_audience: \
+             \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n",
+            two_declared_subjects()
+        )),
+    )))
+    .map(drop)
+    .expect_err("a pool expectation no transport in this build checks must not boot");
+    assert!(error.contains("expected_issuer"), "{error}");
+    assert!(error.contains("expected_audience"), "{error}");
 }

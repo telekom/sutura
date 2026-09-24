@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! A [`SemanticCatalog`] over an RDBMS dictionary - the narrowest declaration, and the one that
 //! needs no service.
 //!

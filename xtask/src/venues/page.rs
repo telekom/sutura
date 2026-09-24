@@ -62,6 +62,20 @@ pub(super) const STRUCTURAL: &[&str] = &["The venues", "Which venue answers whic
 /// truth, and review is still what decides that a row describes the thing it names.
 pub(super) const VERDICTS: &[&str] = &["only here", "redundant", "unrun", "wired", "yes", "can", "no", "-"];
 
+/// The verdicts that COUNT AS ANSWERING a claim, which is the page's own set and not a second one.
+///
+/// **One constant because two lists were measured to disagree.** `problems` spelled the citable
+/// pair as a `match` pattern and `crate::venues::leg_two_row` spelled it as a slice that also held
+/// `only here` - so a leg-2 cell reading `only here` would have unlocked a claim in
+/// `check-guidance` that nothing here polices, and a cell reading `can` escaped the observed-run
+/// rule that `yes` is held to. Both readers take this constant now, so the sets cannot part again
+/// without changing the one place that defines them.
+///
+/// `only here` and `redundant` are deliberately absent: they say WHICH venue owns a claim rather
+/// than that this venue has answered it. `unrun` and `wired` are absent for the reason the page's
+/// header gives - neither counts towards a claim being answered, "which is not at all".
+pub(super) const CITABLE: &[&str] = &["yes", "can"];
+
 /// What a venue that runs nowhere says in its `Reached by` cell.
 pub(super) const NOT_BUILT: &str = "not built";
 

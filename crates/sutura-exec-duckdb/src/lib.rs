@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! A [`Warehouse`] adapter over `DuckDB`, for local development and single-file work.
 //!
 //! `DuckDB` is the case where the data is a file and there is no server to authenticate against, so
@@ -23,9 +24,12 @@ use duckdb::types::Value as DuckValue;
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::TableName;
 use sutura_domain::plan::Executable;
+use sutura_domain::warehouse::arrow::of_row_set;
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, PreFlight, Real, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{
+    AnchorRows, MalformedRowSet, ParamValue, PreFlight, Real, ResultBatches, RowSet, Value, Warehouse,
+};
 use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
@@ -542,10 +546,19 @@ impl Warehouse for DuckDbWarehouse {
     }
 
     /// Carried, not enforced here; see [`Self::dry_run`]'s note and `docs/adr/0029`.
-    fn execute(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
-        self.run(&query)
+        let rows = self.run(&query)?;
+        // The Arrow port's conversion, in the adapter that owns the row-speaking driver. This one is
+        // the adapter `docs/adr/0039` names as unable to be Arrow-NATIVE until `duckdb-rs` releases
+        // its merged arrow-59 bump, so this is where that expiry lands rather than a second place.
+        of_row_set(&rows).map_err(|cause| DuckDbError::Shape { cause })
     }
 
     /// Re-runs an anchor's plan, under the one identity this connection was opened with.
@@ -621,7 +634,7 @@ fn duck_types(path: &Path) -> Result<String, DuckDbError> {
 /// Arrow array - and neither crate may depend on the other: they are two implementors of one port,
 /// and a shared test helper would have to live in the domain, which is not allowed to know that
 /// either of them exists. So the agreement is asserted as the same expected column written out in
-/// both places: here, and in `crates/sutura-exec-datafusion/src/value_mapping_tests.rs`. The two
+/// both places: here, and in `crates/sutura-domain/src/warehouse/arrow/tests.rs`. The two
 /// test names quote each other, so a change to one that is not made to the other shows up as a
 /// failing assertion rather than as a disagreement nobody notices until an anchor stops
 /// reproducing.
@@ -700,8 +713,8 @@ mod tests {
 
     #[test]
     fn every_type_this_adapter_maps_answers_what_the_engine_answers() {
-        // The twin of `every_type_the_engine_maps_answers_what_the_data_source_answers` in
-        // `crates/sutura-exec-datafusion/src/value_mapping_tests.rs`. Same logical values, same
+        // The twin of `every_type_the_interior_maps_answers_what_the_data_source_answers` in
+        // `crates/sutura-domain/src/warehouse/arrow/tests.rs`. Same logical values, same
         // expected column, one row per width - because a Parquet `INT32` column under a `min` or a
         // `max` used to answer here and error there.
         // Boundary values rather than round ones, written in hex where the decimal form is a bit
@@ -787,7 +800,7 @@ mod tests {
     fn a_non_finite_double_is_refused_here_because_it_is_refused_there() {
         // THE FINDING THIS ARM EXISTS FOR, and the twin of
         // `a_non_finite_double_is_refused_on_both_sides_of_the_port` in
-        // `crates/sutura-exec-datafusion/src/value_mapping_tests.rs`. This arm was `Value::Real(v)`
+        // `crates/sutura-domain/src/warehouse/arrow/tests.rs`. This arm was `Value::Real(v)`
         // on a raw `f64`, and the value that reached it was real: a ratio measure declaring
         // `zero_denominator: fails` renders as an unguarded division with the numerator cast to
         // `DOUBLE`, and `CAST(3 AS DOUBLE) / 0` in this data system is `inf`, not an error. So the
@@ -869,6 +882,7 @@ mod tests {
         for handed in [
             Presented::SubjectToken {
                 material: sutura_domain::identity::Secret::new("an-exchanged-token"),
+                impersonate: None,
             },
             Presented::SubjectPrincipal {
                 name: sutura_domain::identity::PrincipalName::parse("analyst_role").expect("a test name is a name"),

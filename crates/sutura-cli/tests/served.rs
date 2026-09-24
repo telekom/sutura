@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The deployment a user actually gets: a settings file, a catalog directory, a listener, a bearer
 //! token, one question, rows.
 //!
@@ -23,8 +24,8 @@
 //!
 //! # Why it can be a gate rather than a `nix run` app
 //!
-//! A files-backed source needs no network and no credential, so unlike `just bigquery-acceptance`
-//! this runs inside `checks.nextest` - which is what makes it a real gate. The port comes from the
+//! A files-backed source needs no network and no credential, so unlike the removed `BigQuery`
+//! acceptance leg this runs inside `checks.nextest` - which is what makes it a real gate. The port comes from the
 //! kernel (`server.port: 0`, read back off the socket and printed by `sutura_http::server::serve`),
 //! because two checks share one sandbox and a fixed port is how that becomes a flake.
 //!
@@ -78,18 +79,6 @@ mod keycloak_test;
 #[cfg(feature = "datahub")]
 #[path = "served/datahub.rs"]
 mod datahub;
-// Wave one of the identity-aware E2E (`just e2e-datahub-bigquery`): a `datahub` catalog, a
-// `bigquery` source, a real Keycloak issuer. Gated on the two build features whose adapters it
-// composes plus the `bigquery` wire - `datahub` arrives with issue #202's serve PR. All the cells
-// are `#[ignore]`d and none is reached by `just test`; see e2e.rs's own header for the full
-// dependency split (#202 PR1+PR2, the provisioned Keycloak tier, #376 P2 behind the maintainer's
-// binding).
-#[cfg(unix)]
-#[cfg(test)]
-#[cfg(feature = "datahub")]
-#[cfg(feature = "bigquery")]
-#[path = "served/e2e.rs"]
-mod e2e;
 
 // The agent-surface cells (`/mcp` hidden behind leg 1, the boot refusal, two callers), split into
 // their own file for the same `max-lines` reason; `#[path]` keeps them next to the harness they
@@ -99,6 +88,16 @@ mod e2e;
 #[cfg(test)]
 #[path = "served/agent.rs"]
 mod agent;
+
+// The composed binary's own `bigquery` startup, which only a SPAWNED child can hold: the boot
+// probe reads an environment variable, and `std::env::set_var` is `unsafe` on edition 2024 while
+// `unsafe_code` is `forbid` here - so an in-process cell cannot set one. `#[cfg(unix)]` and
+// `#[cfg(feature = "bigquery")]` for the reasons the modules around this one give.
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "bigquery")]
+#[path = "served/bigquery.rs"]
+mod bigquery;
 
 // The four startup refusals (`github.com/telekom/sutura#302`), split out of `mod tests` below by
 // the same 1000-line cap - a pure relocation, no `#[cfg(unix)]`/`#[cfg(feature)]` of its own
@@ -789,6 +788,7 @@ mod tests {
                 "unusable-keys",
                 &settings_declaring_inbound(&example_root(), &issuer, published.path()),
             ),
+            &[],
         );
         let told = said.join("\n");
         // **Asserted on the refusal's own sentence, and the reason is that nothing else separates the

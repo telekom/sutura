@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The VERIFYING half of the source channel, against the tier's real server.
 //!
 //! **This is the cell issue 125 could not write before the fact: a chain is actually verified.**

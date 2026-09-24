@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! What a worktree's services are called, and where they are listening.
 //!
 //! A library rather than two modules inside a binary, and the reason is the second module: a test

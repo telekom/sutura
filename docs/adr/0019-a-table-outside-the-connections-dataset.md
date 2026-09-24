@@ -354,6 +354,8 @@ cross-project READ remains unproved against a real second project, for the reaso
 already gave: the acceptance credential's IAM refuses `datasets.create` and there is no second
 project to read across. That gap is now deliberate rather than pending - closing it would prove a
 platform capability this record has never needed to claim, not close a hole in what this adapter
-decides. The `#[ignore]`d cross-project cell in
-`crates/sutura-exec-bigquery/tests/cross_resource.rs` was waiting on this decision, and now it is
-waiting on the same infrastructure this record already named: nothing about `resolve` changes that.
+decides. The `#[ignore]`d cross-project cell that was waiting on this decision - `cross_resource.rs`
+in this adapter's own integration tests - no longer exists: it went with the HTTP wire transport
+(`github.com/telekom/sutura#913`), so the gap is now carried by this paragraph and by nothing
+executable. It waits on the same infrastructure this record already named, and nothing about
+`resolve` changes that.

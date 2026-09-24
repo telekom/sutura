@@ -81,6 +81,7 @@ signature it has now is the one two implementors settled, not the one a sketch g
 | Port | Kind | Note |
 | --- | --- | --- |
 | `Warehouse` | driven | The engine that ships, the dev-dependency legs, the networked adapter behind its feature, the fakes |
+| `FederationCombiner` | driven | One implementor - `sutura-exec-datafusion`'s `DataFusionCombiner` - plus the domain's own refusing fixture. `docs/adr/0007` designed it and recorded that it was not built; `docs/adr/0039` step 3 built it. It arrived WITH its implementor, which is why it is a row here rather than a guess at a signature |
 | `SemanticCatalog` | driven | The local catalog, the declaring one, the fakes, and the hand-written oracle the goldens compare against |
 | `CredentialBroker` | driven | Two real implementors - see `sutura/identity` for which one every shipped binary builds |
 | `AuditSink` | driven | The tracing sink in `sutura-runtime`, and the recording fakes |
@@ -92,7 +93,7 @@ for a job API, a reader for a metadata aspect - and several do; those are intern
 their crate, not to the interior. One of them, `sutura_http::inbound::keys::KeySetSource`, is
 allowlisted BY NAME in `xtask/src/boundaries/ports.rs` with the reason. The whole set is what
 `grep -rn 'pub trait ' crates --include='*.rs' | grep '/src/'` answers:
-17 `pub trait` declarations under `crates/*/src` against the rows above, and that gap is what this
+14 `pub trait` declarations under `crates/*/src` against the rows above, and that gap is what this
 paragraph is about.
 
 **The count is gated; the rows are not, and the difference is worth reading exactly.**

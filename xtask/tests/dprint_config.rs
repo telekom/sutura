@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The dprint exclusion list is pinned, because a formatter's blind spot grows in silence.
 //!
 //! TEN PATHS ARE EXCLUDED AND EACH NAMES A MECHANISM a reformat would break: `check-api-docs`

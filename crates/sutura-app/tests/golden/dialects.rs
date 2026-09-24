@@ -548,11 +548,18 @@ fn evidence(dialect: Dialect) -> Evidence {
         // `nix/postgres-tier.nix` stands up in the same sandbox, ClickHouse against the server
         // `nix/clickhouse-tier.nix` stands up beside it (`github.com/telekom/sutura#920`).
         Dialect::DuckDb | Dialect::Postgres | Dialect::ClickHouse => Evidence::Executed,
+        // Both fields MOVED with the wire deletion, and the pair is why this axis is typed: the
+        // `bigquery-acceptance` leg and `tests/corpus.rs` were deleted together with the HTTP
+        // transport they executed over, so the arm this replaces cited a task the `justfile` no
+        // longer declares and a file no longer in the tree. The hosted venue that is left asks a
+        // real dataset `SESSION_USER()` per declared subject rather than running the corpus, which
+        // is a NARROWER venue than the one it replaces - so `stated_in` moves to the header that
+        // argues the render-only limit at length rather than to that venue's own.
         Dialect::BigQuery => Evidence::RenderOnly {
             venue: Venue::OnDemand {
-                task: "bigquery-acceptance",
+                task: "bigquery-declared-principal",
             },
-            stated_in: "crates/sutura-exec-bigquery/tests/corpus.rs",
+            stated_in: "crates/sutura-exec-bigquery/tests/conformance.rs",
         },
         // `sutura-exec-oracle` arrived with `github.com/telekom/sutura#127` PR 2 while this change
         // was in review, and this arm MOVED for it: the declaration it replaced said *no adapter
@@ -595,12 +602,13 @@ fn evidence(dialect: Dialect) -> Evidence {
 /// this test relies on and no mechanism holds, so an adapter or a tier named otherwise reads as
 /// absent. A present directory is not a WIRED adapter - nothing here asks whether a composition
 /// root links it, and `sutura-exec-oracle` is the standing case of one nothing links. The
-/// compose and `justfile` reads are substring searches over the file, not a parse of either. And
-/// none of this reaches whether a golden's CONTENT is right: measured while `ClickHouse` was still
-/// render-only, flipping its `date_trunc_shape` to the wrong shape and re-accepting the render
-/// goldens left this test and `dialects::clickhouse::every_generated_statement_parses_here` both
-/// green, which is the ceiling [`Evidence::RenderOnly`] declares rather than closes - and the
-/// ceiling `BigQuery` and `Oracle` still stand under.
+/// compose read is a substring search over the file and the `justfile` read a line-anchored name
+/// prefix, neither a parse of either. And none of this reaches whether a golden's CONTENT is right:
+/// measured while `ClickHouse` was still render-only, flipping its `date_trunc_shape` to the wrong
+/// shape and re-accepting the render goldens left this test and
+/// `dialects::clickhouse::every_generated_statement_parses_here` both green, which is the ceiling
+/// [`Evidence::RenderOnly`] declares rather than closes - and the ceiling `BigQuery` and `Oracle`
+/// still stand under.
 #[test]
 fn every_dialect_declares_what_backs_its_goldens() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -656,8 +664,16 @@ fn every_dialect_declares_what_backs_its_goldens() {
                 let service = format!("\n  {name}:\n");
                 match venue {
                     Venue::OnDemand { task } => {
+                        // A line-anchored prefix and NOT `contains("\n{task}:")`, which is what
+                        // this read used to be: `just` declares a recipe taking arguments as
+                        // `<name> *args:`, so the colon form answered *not declared* to every
+                        // parameterised venue - fail-open, and measured on
+                        // `bigquery-declared-principal`. Anchoring at a line start also stops a
+                        // mention inside a comment from counting as a declaration.
                         assert!(
-                            justfile.contains(&format!("\n{task}:")),
+                            justfile.lines().any(|line| line
+                                .strip_prefix(task)
+                                .is_some_and(|rest| rest.starts_with(':') || rest.starts_with(' '))),
                             "{name} declares its venue is reached by `just {task}`, which the justfile \
                              does not declare"
                         );

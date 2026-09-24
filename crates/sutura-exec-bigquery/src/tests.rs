@@ -6,34 +6,39 @@
 //! endpoint would never hand back on demand. `Conventions` asks for fakes and not mocked HTTP; this is
 //! why.
 //!
-//! What no test here can do is prove the WIRE. An implementor that speaks to the endpoint now exists,
-//! [`crate::wire`], behind the default-off `wire` feature, and its own suite proves that it builds the
-//! request it says it builds and reads the answer it says it reads, over documents that are not the
-//! service's. Nothing in this repository has sent a statement to a real project; `docs/adr/0017`
-//! records what a test could run against instead, and `docs/adr/0018` records that it has not been.
+//! What no test here can do is prove the WIRE. The implementor that speaks to the endpoint is
+//! [`crate::adbc`], behind the default-off `adbc` feature, and its own suite proves what it builds
+//! and reads over documents that are not the service's. Nothing in this repository has sent a
+//! statement to a real project; `docs/adr/0017` records what a test could run against instead, and
+//! `docs/adr/0018` records that it has not been.
 
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::identity::Presented;
-use sutura_domain::model::{ColumnName, Grain, MetricName, QualifiedTable, TableName};
-use sutura_domain::plan::{Executable, PlanBindings, PlanBucket, PlanColumn, ResultLabel};
+use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, TableName};
+use sutura_domain::plan::{
+    Executable, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin,
+    ResultLabel,
+};
 use sutura_domain::source::ImpersonationCapability;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
-use sutura_domain::warehouse::preflight::TablesPresent;
-use sutura_domain::warehouse::{PreFlight, Value, Warehouse};
+use sutura_domain::warehouse::{Accumulating, ParamValue, PreFlight, ResultBatches, Warehouse};
 
-use crate::transport::{Cell, Field, FieldType, JobDeadline, JobRows, ListingTotal, NotShort, Shortfall};
+use std::sync::Arc;
+
+use arrow_array::{ArrayRef, RecordBatch, StringArray};
+use arrow_schema::{DataType, Field, Schema, SchemaRef};
+
+use crate::transport::{JobDeadline, ListingTotal, NotShort, Shortfall};
 use crate::{BigQueryError, BigQueryWarehouse};
 
 /// The transports and fixtures these assertions are written against.
 mod fakes;
+mod preflight;
 mod results;
 
-/// The boot pre-flight, and the query/boot refusal predicates that share its fixtures.
-mod preflight;
-
 use fakes::{
-    Broken, Case, ListingRefused, Paged, Recording, Refusing, TimedOut, a_subject_token, day, impersonating_posture, leg_of,
-    one_cell, open, other_posture, plan, plan_in_dataset, shared_posture, source, test_deadline,
+    Broken, ListingRefused, Paged, Recording, Refusing, TimedOut, a_subject_token, a_subject_token_naming_no_account, day,
+    impersonating_posture, leg_of, one_column, open, other_posture, plan, plan_in_dataset, shared_posture, source, test_deadline,
 };
 
 // -------------------------------------------------------------------------------- tests ----
@@ -149,24 +154,32 @@ fn two_subjects_each_run_their_statement_under_the_bearer_minted_for_them() {
     assert_ne!(seen[0].subject, seen[1].subject);
 }
 
-/// The answer an identity read is supposed to get: one `session_user` column, one row, one cell.
+/// An identity read's answer: one `session_user` column of `text`, as Arrow.
 ///
 /// Here rather than in `fakes`, and it is the one fixture in this file that is: `fakes` is the
 /// half a reverted implementation takes with it, so a fixture that lives there is one the causality
-/// gate cannot see these assertions using. It is also three lines, and `one_cell`'s column is named
-/// `value` - which in an identity read would read as the value-mapping table's fixture pointed at
-/// the wrong test.
-fn one_identity(cell: Cell) -> JobRows {
-    JobRows::of(
-        vec![Field::of(String::from("session_user"), FieldType::String)],
-        vec![vec![cell]],
-        1,
-    )
+/// gate cannot see these assertions using. It is also three lines, and `one_column`'s column is
+/// named `value` - which in an identity read would read as the value-mapping table's fixture
+/// pointed at the wrong test.
+fn identity_column(rows: Vec<Option<&str>>) -> ResultBatches {
+    labelled("session_user", rows)
+}
+
+/// A one-column `text` result under any label, as Arrow.
+fn labelled(label: &str, rows: Vec<Option<&str>>) -> ResultBatches {
+    let schema: SchemaRef = Arc::new(Schema::new(vec![Field::new(label, DataType::Utf8, true)]));
+    let count = rows.len();
+    let array: ArrayRef = Arc::new(StringArray::from(rows));
+    let mut accumulating = Accumulating::announcing(Arc::clone(&schema), count.max(1), roomy());
+    accumulating
+        .push(RecordBatch::try_new(schema, vec![array]).expect("a one-column fixture batch is rectangular"))
+        .expect("a fixture batch carries its own schema");
+    accumulating.finish()
 }
 
 /// The same, spelled from an identifier, for the two tests that assert on the value.
-fn answered_as(who: &str) -> JobRows {
-    one_identity(Cell::Text(String::from(who)))
+fn answered_as(who: &str) -> ResultBatches {
+    identity_column(vec![Some(who)])
 }
 
 #[test]
@@ -241,26 +254,25 @@ fn an_identity_read_that_is_not_one_identity_is_refused_and_the_refusal_quotes_n
     // to a public workflow log, and the one thing this answer can contain is an account
     // identifier - so a refusal quoting what came back would be the disclosure the read exists to
     // check for.
-    let two_rows = JobRows::of(
-        vec![Field::of(String::from("session_user"), FieldType::String)],
-        vec![
-            vec![Cell::Text(String::from("principal-a@example.com"))],
-            vec![Cell::Text(String::from("principal-b@example.com"))],
-        ],
-        2,
-    );
-    let two_columns = JobRows::of(
-        vec![
-            Field::of(String::from("session_user"), FieldType::String),
-            Field::of(String::from("extra"), FieldType::String),
-        ],
-        vec![vec![
-            Cell::Text(String::from("principal-a@example.com")),
-            Cell::Text(String::from("principal-b@example.com")),
-        ]],
-        1,
-    );
-    for answer in [two_rows, one_identity(Cell::Null), two_columns] {
+    let two_rows = identity_column(vec![Some("principal-a@example.com"), Some("principal-b@example.com")]);
+    let two_columns = {
+        let schema: SchemaRef = Arc::new(Schema::new(vec![
+            Field::new("session_user", DataType::Utf8, true),
+            Field::new("extra", DataType::Utf8, true),
+        ]));
+        let mut accumulating = Accumulating::announcing(Arc::clone(&schema), 1, roomy());
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(StringArray::from(vec!["principal-a@example.com"])) as ArrayRef,
+                Arc::new(StringArray::from(vec!["principal-b@example.com"])) as ArrayRef,
+            ],
+        )
+        .expect("a two-column fixture batch is rectangular");
+        accumulating.push(batch).expect("a fixture batch carries its own schema");
+        accumulating.finish()
+    };
+    for answer in [two_rows, identity_column(vec![None]), two_columns] {
         let warehouse = open(Recording::answering(answer), impersonating_posture());
         let refused = warehouse
             .session_user(&a_subject_token("exchanged-for-principal-a"))
@@ -276,26 +288,13 @@ fn an_identity_read_that_is_not_one_identity_is_refused_and_the_refusal_quotes_n
     }
 }
 
-#[test]
-fn an_identity_read_whose_page_is_short_of_its_own_total_is_the_documented_refusal() {
-    // One comparison, in one place. `Incomplete` is this crate's documented reading of *the
-    // endpoint delivered fewer rows than it reported*, and an identity read writing a second
-    // comparison of its own beside it is the two-deadlines defect `sts::clears_floor` records -
-    // two answers to one question, free to disagree.
-    let short = JobRows::of(
-        vec![Field::of(String::from("session_user"), FieldType::String)],
-        vec![vec![Cell::Text(String::from("principal-a@example.com"))]],
-        2,
-    );
-    let warehouse = open(Recording::answering(short), impersonating_posture());
-    let refused = warehouse
-        .session_user(&a_subject_token("exchanged-for-principal-a"))
-        .expect_err("a page short of its own total is refused");
-    assert!(
-        matches!(refused, BigQueryError::Incomplete { delivered: 1, total: 2 }),
-        "{refused:?}"
-    );
-}
+// `an_identity_read_whose_page_is_short_of_its_own_total_is_the_documented_refusal` WENT WITH THE
+// PAGING IT READ. It asserted `BigQueryError::Incomplete` - a delivered count below the endpoint's
+// own reported `totalRows` - which only the deleted HTTP wire transport ever reported. An ADBC read
+// streams the whole result and `run` drains the reader, so a truncated stream is an `Err` rather
+// than a short answer; `docs/adr/0039` records why completeness is the drain. The SHAPE check the
+// identity read still needs is asserted one cell up, which is the half that would be a wrong
+// identity rather than a missing one.
 
 #[test]
 fn an_identity_read_whose_credential_disagrees_with_the_posture_reaches_no_endpoint() {
@@ -317,23 +316,26 @@ fn an_identity_read_whose_credential_disagrees_with_the_posture_reaches_no_endpo
 }
 
 #[test]
-fn a_principal_to_switch_to_is_refused_rather_than_run_under_this_deployments_own_identity() {
-    // **The shape this adapter declares it can carry a subject and still cannot deliver.** A
-    // `SubjectPrincipal` is the SAME POSTURE as a subject token to the domain, so `agrees_with` passes
-    // it at an `impersonation-at-source` source and only this adapter can say `BigQuery` has no
-    // proxy-user mechanism to resolve it. Accepting it would submit the job under the credential the
-    // transport already holds - `subject_bearer` has no material to send - while provenance, read off
-    // this source's posture, reported the answer as impersonated: every row as the process, recorded
-    // as the asker. Both credential-taking methods are asked, because `deliverable` is shared and the
-    // pre-flight is where a missing check would be noticed least.
+fn a_principal_to_switch_to_is_refused_rather_than_run_on_this_deployments_own_connection() {
+    // **The mechanism reversal, as a cell.** For two rounds this adapter DELIVERED this shape: the
+    // driver's `target_principal` option impersonated a declared account from the deployment's own
+    // application default credentials, so the connection was the deployment's and the subject's
+    // credential was nowhere in the chain. The owner rejected it - *"indeed no fallback! we must
+    // work with impersonation!!"* - so `JobIdentity` carries one subject arm now and there is no
+    // spelling for a principal switch at all.
+    //
+    // `agrees_with` passes this shape, because a principal and an assertion are one POSTURE to the
+    // domain, so only the adapter can say it cannot be delivered. Both credential-taking methods
+    // are asked, because `deliverable`'s successor is shared and the pre-flight is where a missing
+    // check would be noticed least.
     let warehouse = open(Recording::empty(), impersonating_posture());
     let plan = plan();
     let presented = Presented::SubjectPrincipal {
-        name: sutura_domain::identity::PrincipalName::parse("analyst_role").expect("a test name is a name"),
+        name: sutura_domain::identity::PrincipalName::parse("bq-a@sutura.example.com").expect("a test name is a name"),
     };
     let refused = warehouse
         .execute(Executable::Query(&plan), &presented, test_deadline())
-        .expect_err("a principal switch is not a bearer this adapter can send");
+        .expect_err("a principal switch is not a mechanism this adapter has");
     assert!(matches!(refused, BigQueryError::NoPrincipalSwitch { .. }), "{refused:?}");
     let pre_flight = warehouse
         .dry_run(Executable::Query(&plan), &presented, test_deadline())
@@ -466,7 +468,14 @@ fn a_dry_run_the_endpoint_rejects_is_not_reported_as_accepted() {
     assert!(core::error::Error::source(&error).is_some());
 }
 
-/// One fact leg, for the arm that refuses one.
+/// One fact leg, the shape `sutura_semantic::federated_plan` builds: a dimension key, a measure
+/// term, and the two range bounds as predicates with their values as the parameters those
+/// predicates index.
+///
+/// **The bindings are not decoration, for [`fakes::plan`]'s own reason one shape over.** A leg
+/// carrying no predicate renders no `WHERE`, so a leg fixture without them gives the no-injection
+/// assertion in `crate::tests::results` nothing to look for - the values have to be somewhere for a
+/// test to see that they are not in the text.
 fn a_leg() -> sutura_domain::plan::LegPlan {
     let table = TableName::parse("fct_subscription_monthly").expect("a test table is a table");
     let column = |name: &str| PlanColumn::new(table.clone(), ColumnName::parse(name).expect("a test column is a column"));
@@ -475,9 +484,122 @@ fn a_leg() -> sutura_domain::plan::LegPlan {
         metric: MetricName::parse("mrr").expect("a test metric is a metric"),
         tables: sutura_domain::plan::StatementTables::only(table.clone()),
         bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, column("month")),
-        keys: Vec::new(),
-        terms: Vec::new(),
-        bindings: PlanBindings::none(),
+        keys: vec![PlanKey::new(
+            ResultLabel::dimension(&DimensionName::parse("region").expect("a test dimension is a dimension")),
+            column("region"),
+        )],
+        terms: vec![LegTerm::new(
+            PlanTerm::Aggregate {
+                aggregate: Aggregate::Sum,
+                column: column("mrr_cents"),
+            },
+            ResultLabel::measure(&MetricName::parse("mrr").expect("a test metric is a metric")),
+        )],
+        bindings: PlanBindings::parse(
+            vec![
+                PlanFilter::new(
+                    PredicateOrigin::Definition,
+                    PlanPredicate::AtOrAfter {
+                        column: column("month"),
+                        param: 0,
+                    },
+                ),
+                PlanFilter::new(
+                    PredicateOrigin::Definition,
+                    PlanPredicate::Before {
+                        column: column("month"),
+                        param: 1,
+                    },
+                ),
+            ],
+            vec![ParamValue::Date(day("2026-06-01")), ParamValue::Date(day("2026-07-01"))],
+        )
+        .expect("a fixture leg binds its two range bounds in placeholder order"),
         range: TimeRange::new(day("2026-06-01"), day("2026-07-01")).expect("a test range is a range"),
     }
+}
+
+#[cfg(feature = "adbc")]
+#[test]
+fn a_dry_run_the_transport_declined_is_not_asked_rather_than_a_failed_question() {
+    // **THE CELL FOR "a configured ADBC source can answer a question at all".** `sutura_app::answer`
+    // calls `Warehouse::dry_run` before `execute` and turns an `Err` that is neither a spent
+    // deadline nor a source refusal into `ServiceError::Warehouse` - so while this adapter mapped a
+    // declined dry run to a failure, an ADBC-backed source answered NOTHING. Round 4 of
+    // `telekom/sutura#929`'s review called that *adoption scaffolding, not an adopted transport*.
+    //
+    // `NotAsked` and never `Accepted`, which is the half a weaker fix would have got wrong: the
+    // port's own documentation says a defaulted pre-flight reads as *this subject may run this
+    // plan*. Asserted by VALUE, so an `Accepted { estimated_bytes: None }` fails here.
+    //
+    // The real `AdbcBigQuery` over a path naming no `.so`, deliberately: `validate` refuses before
+    // the driver is loaded, so this exercises the shipped transport rather than a fake that would
+    // have to restate the decision under test.
+    let warehouse = open(
+        crate::adbc::AdbcBigQuery::new(
+            crate::adbc::DriverLocation::parse("/nonexistent/libadbc_driver_bigquery.so")
+                .expect("an absolute path parses whether or not a file is there"),
+            crate::adbc::Impersonation::Disabled,
+            crate::adbc::BytesBilledCeiling::parse(1024 * 1024 * 1024).expect("a gibibyte is a usable ceiling"),
+        ),
+        shared_posture(),
+    );
+    let plan = plan();
+    let answered = warehouse
+        .dry_run(Executable::Query(&plan), &leg_of(&shared_posture()), test_deadline())
+        .expect("a dry run the transport declined is not a question that failed");
+    assert_eq!(answered, PreFlight::NotAsked);
+}
+
+#[test]
+fn a_subject_token_with_no_declared_target_is_refused_rather_than_run_as_the_pool_principal() {
+    // **The half-configured deployment, refused at the adapter seam.** A subject's own credential
+    // with no account declared beside it has no `service_account_impersonation_url` to become, so
+    // the only two things this adapter could do are refuse or let the question run as whatever
+    // principal the declared pool resolves the subject to - and the second is a deployment whose
+    // `impersonate` map says one thing while every caller executes as another. `telekom/sutura#929`
+    // review: a security-critical setting must not be accepted and then ignored; silently widened
+    // is the same defect from the other side.
+    //
+    // Not reachable from the broker this crate ships - that one mints the account off the map it
+    // parsed - so this is the refusal for `Presented` being a public port, and the transport is
+    // never asked at all.
+    let warehouse = open(Recording::empty(), impersonating_posture());
+    let plan = plan();
+    let refused = warehouse
+        .execute(
+            Executable::Query(&plan),
+            &a_subject_token_naming_no_account("an-assertion-with-no-account"),
+            test_deadline(),
+        )
+        .expect_err("a subject's credential with no declared account is not a leg this adapter runs");
+    assert!(
+        matches!(refused, BigQueryError::NoImpersonationTarget { ref at } if at == "warehouse"),
+        "{refused:?}"
+    );
+    assert!(
+        warehouse.transport.seen.borrow().is_empty(),
+        "the job reached the transport, so the question ran as somebody"
+    );
+    // The refusal reaches a log and may not carry the caller's assertion.
+    assert!(!refused.to_string().contains("an-assertion-with-no-account"), "{refused}");
+    // And the DECLARED direction is served by the same adapter, so this is not passing against a
+    // path that refuses every subject.
+    drop(
+        warehouse
+            .execute(
+                Executable::Query(&plan),
+                &a_subject_token("an-assertion-with-an-account"),
+                test_deadline(),
+            )
+            .expect("a subject's credential with a declared account is a leg this adapter runs"),
+    );
+}
+
+/// A materialisation budget no fixture in this file comes near.
+///
+/// The bound under test here is never the byte budget - `sutura_domain::warehouse::arrow`'s own
+/// cells own that - so a fixture that refused for crossing it would be testing its own size.
+const fn roomy() -> sutura_domain::warehouse::ResultBudget {
+    sutura_domain::warehouse::ResultBudget::of_bytes(core::num::NonZeroUsize::MAX)
 }

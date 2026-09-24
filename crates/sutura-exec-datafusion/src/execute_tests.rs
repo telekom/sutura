@@ -1,13 +1,12 @@
 //! The adapter's own suite: attaching a file, executing a plan, and the translation helpers.
 //!
-//! In its own file for the reason `value_mapping_tests.rs` and `width_tests.rs` are: `lib.rs` is at
+//! In its own file for the reason `width_tests.rs` is: `lib.rs` is at
 //! the 1000-line gate, and the gate's answer to that is to split the file rather than to shorten
 //! the fix. A pure move - nothing here changed with the split.
 
-use super::collect::cell;
 use super::translate::{aggregate_expr, literal, measure_expression, unit};
 use super::{DataFusionError, DataFusionWarehouse, column};
-use datafusion::arrow::array::{ArrayRef, BooleanArray, Date32Array, Float32Array, Int64Array, StringArray};
+use datafusion::arrow::array::{ArrayRef, BooleanArray, Date32Array, Int64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::catalog::streaming::StreamingTable;
@@ -144,34 +143,10 @@ fn region_key() -> Vec<PlanKey> {
     )]
 }
 
-#[test]
-fn a_day_number_comes_back_as_iso_text_so_the_two_adapters_agree() {
-    // The bug: leaving a `Date32` as its day count, or rendering it with `Debug`. The `DuckDB`
-    // adapter converts its own day numbers to ISO text through the same calendar, and a
-    // differential test compares the two textually - so a bucket that came back as `20605` here
-    // and as `2026-06-01` there would fail for a formatting reason and look like a data one.
-    let array = Date32Array::from(vec![day("2026-06-01").days_since_epoch()]);
-    assert_eq!(
-        cell("period", &array, 0).expect("a day number is a date"),
-        Value::Text(String::from("2026-06-01"))
-    );
-    // And a null stays a null rather than becoming the epoch.
-    let absent = Date32Array::from(vec![None::<i32>]);
-    assert_eq!(cell("period", &absent, 0).expect("a null is a null"), Value::Null);
-}
-
-#[test]
-fn a_column_type_this_adapter_does_not_map_is_an_error_naming_it() {
-    // The bug: a `Debug` fallback. A 32-bit float widened to an `f64` prints as
-    // 0.10000000149011612, which would flow into an answer looking like data and make the two
-    // adapters disagree about a number neither of them got wrong.
-    let array = Float32Array::from(vec![0.1_f32]);
-    let error = cell("amount", &array, 0).expect_err("a 32-bit float is not mapped");
-    assert!(matches!(error, DataFusionError::UnsupportedType { .. }), "{error:?}");
-    let message = error.to_string();
-    assert!(message.contains("amount"), "{message}");
-    assert!(message.contains("Float32"), "{message}");
-}
+// TWO CELLS MOVED RATHER THAN DELETED, and where they went is the point: the value mapping is
+// `sutura_domain::warehouse::arrow` since `docs/adr/0039`, so the day-number-to-ISO cell and the
+// unmapped-type refusal are rows of that module's table now. Asserting them here as well would be
+// two copies of one mapping, which is the shape this change exists to remove.
 
 #[test]
 fn a_column_reference_keeps_the_case_the_catalog_wrote() {
@@ -274,6 +249,7 @@ fn a_grouped_sum_comes_back_labelled_and_ordered_the_way_the_plan_says() {
     let query = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
     let result = adapter
         .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
+        .map(|batches| crate::decoded(&batches))
         .expect("the plan runs");
     assert_eq!(result.columns(), query.result_labels().as_slice());
     assert_eq!(
@@ -318,6 +294,7 @@ fn a_large_decimal_fixture_total_stays_exact() {
     let query = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
     let result = adapter
         .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
+        .map(|batches| crate::decoded(&batches))
         .expect("the plan runs");
     assert_eq!(
         result.rows(),
@@ -360,6 +337,7 @@ fn a_ratio_whose_zero_denominator_yields_null_answers_null_rather_than_failing()
     );
     let result = adapter
         .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
+        .map(|batches| crate::decoded(&batches))
         .expect("the plan runs");
     assert_eq!(result.cell(0, 2), Some(&Value::Real(real(3.5))));
     assert_eq!(result.cell(1, 2), Some(&Value::Null));
@@ -391,6 +369,7 @@ fn a_count_if_answers_zero_for_a_group_with_no_matches_rather_than_nothing() {
     );
     let result = adapter
         .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
+        .map(|batches| crate::decoded(&batches))
         .expect("the plan runs");
     assert_eq!(result.cell(0, 2), Some(&Value::Integer(0)));
     assert_eq!(result.cell(1, 2), Some(&Value::Integer(1)));
@@ -428,6 +407,7 @@ fn a_conditional_count_is_usable_as_a_ratio_numerator() {
     );
     let result = adapter
         .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
+        .map(|batches| crate::decoded(&batches))
         .expect("the plan runs");
     assert_eq!(result.cell(0, 2), Some(&Value::Real(real(0.5))));
     assert_eq!(result.cell(1, 2), Some(&Value::Real(real(0.0))));
@@ -528,6 +508,7 @@ fn credential_material_this_engine_cannot_use_is_refused_before_the_plan_is_buil
     for handed in [
         sutura_domain::identity::Presented::SubjectToken {
             material: sutura_domain::identity::Secret::new("an-exchanged-token"),
+            impersonate: None,
         },
         sutura_domain::identity::Presented::SubjectPrincipal {
             name: sutura_domain::identity::PrincipalName::parse("analyst_role").expect("a test name is a name"),

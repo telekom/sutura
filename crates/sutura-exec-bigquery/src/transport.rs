@@ -9,8 +9,8 @@
 //!   against a fake that returns rows, which is what *ports get fakes, not mocked HTTP* asks for.
 //! - **The dependency decision is isolated to one implementor.** An outbound HTTP stack plus a
 //!   credential source is a real addition to a workspace that cross-compiles to musl and gates
-//!   licences exactly, and it arrives in exactly one place: [`crate::wire`], behind the crate's
-//!   default-off `wire` feature. `docs/adr/0018` prices it. The sentence that kept this seam empty for
+//!   licences exactly, and it arrives in exactly one place: [`crate::adbc`], behind the crate's
+//!   default-off `adbc` feature. The HTTP `wire` it replaced was removed with this adoption. The sentence that kept this seam empty for
 //!   a release - *nothing in this repository can verify a network client* - is now half spent: nothing
 //!   in CI can, and a developer's own project has. Three tests passed against a real dataset on
 //!   2026-08-30, over one hand-built `SUM` rather than the corpus.
@@ -21,10 +21,10 @@
 use core::num::NonZeroU64;
 use std::collections::BTreeSet;
 
-use sutura_domain::identity::Secret;
-use sutura_domain::warehouse::ParamValue;
+use sutura_domain::identity::{PrincipalName, Secret};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
+use sutura_domain::warehouse::{ParamValue, ResultBatches};
 
 /// How a request writes its bind parameters.
 ///
@@ -52,14 +52,70 @@ pub enum ParameterMode {
 /// reads as exactly the regression it would be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobDeadline {
-    /// A request-time call's own `Deadline`, opened by the transport at the answer's arrival.
-    /// `Warehouse::dry_run`/`execute` build this arm, and only this arm - see
-    /// [`JobRequest::new`]'s own doc.
+    /// A request-time call's own `Deadline`. `Warehouse::dry_run`/`execute` build this arm, and
+    /// only this arm - see [`JobRequest::new`]'s own doc, which carries the limit: the ADBC
+    /// transport sends what is left of it as the job's `jobTimeoutMs`, a server-side stop.
     Port(Deadline),
     /// The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and
-    /// the identity read build this arm; [`crate::wire::BigQueryWire::submit`] opens a fresh window
-    /// from this transport's own configured [`crate::wire::JobBounds`] instead.
+    /// the identity read build this arm. This used to add *the ADBC driver opens a fresh window
+    /// under its own configured bounds instead*, and this process configures no TIME bound at all:
+    /// the database options it sets are `bigquery.project_id` and `bigquery.dataset_id`, plus the
+    /// three an impersonating leg chains for the credential document (`adbc::identity`'s
+    /// `credential_options`), and none of them is a window - so whatever window exists is the
+    /// driver's own default and is not ours to state. **It is not the only bound, and the earlier
+    /// *no bound at all* overstated that:** `bigquery.query.max_bytes_billed` is set on every
+    /// statement this transport submits, which bounds what a job may SPEND and says nothing about
+    /// how long it may take. It is an `OptionStatement` rather than an `OptionDatabase`, which is
+    /// why it is not in the list above.
     Boot,
+}
+
+/// Which identity one job is to be executed as.
+///
+/// **TWO variants, and the second one is the whole of leg 2.** A round of this type carried three -
+/// a bearer, and a PRINCIPAL the data system was asked to become on a connection the DEPLOYMENT
+/// authenticated. The owner rejected that mechanism, so the arm is gone rather than deprecated: a
+/// question answered under the deployment's identity while provenance reported it as the asker's has
+/// no spelling here, which is what makes `Warehouse::IMPERSONATION` a fact about the code.
+///
+/// **The domain still presents three shapes** ([`sutura_domain::identity::Presented`]), so the
+/// mapping is 3 -> 2 and not one to one: `BigQueryWarehouse::job_identity` is where the third becomes
+/// a refusal (`BigQueryError::NoPrincipalSwitch`), because *can this be delivered* is a transport's
+/// fact and `Presented::agrees_with` passes both subject shapes - they are one POSTURE.
+///
+/// `Copy`, because every arm is a borrow: it is read out of a request and matched on, never stored.
+#[derive(Debug, Clone, Copy)]
+pub enum JobIdentity<'job> {
+    /// Whatever identity the transport itself already holds.
+    ///
+    /// The shared posture, and the boot path - see [`JobDeadline::Boot`] for the other half of what
+    /// "no caller" means to a request.
+    Transport,
+    /// The asking subject's own verified assertion, and the account this deployment declared that
+    /// subject's questions should execute as.
+    ///
+    /// **The subject's own credential and not a stand-in for it**, which is the whole of leg 2:
+    /// [`crate::adbc`] puts the assertion behind a workload-identity credential document, so
+    /// Google's own token service verifies it and resolves the subject to the declared pool's
+    /// principal. Nothing on that path runs the question under the deployment's identity.
+    ///
+    /// **`target` is the SECOND hop and is a field rather than a third arm**, because it is not a
+    /// second mechanism: the credential the driver ends up holding is still derived from the
+    /// caller's own assertion, and the pool principal impersonating a declared account is one chain
+    /// with two links. It is not the deleted principal switch, which ran from the deployment's own
+    /// application default credentials with the caller's credential nowhere in the chain - that has
+    /// no spelling here and a broker presenting it is refused by
+    /// `BigQueryError::NoPrincipalSwitch`.
+    ///
+    /// **Both fields are read by `crate::adbc`**, and a transport that read only `assertion` would
+    /// run every declared caller as one pool principal while a deployment's `impersonate` map said
+    /// otherwise.
+    AsSubject {
+        /// What the pool verifies.
+        assertion: &'job Secret,
+        /// What the pool's principal then impersonates.
+        target: &'job PrincipalName,
+    },
 }
 
 /// One query job, as this adapter asks for it.
@@ -72,7 +128,7 @@ pub struct JobRequest<'job> {
     params: &'job [ParamValue],
     billing_project: &'job ProjectId,
     default_dataset: &'job DatasetId,
-    subject_bearer: Option<&'job Secret>,
+    identity: JobIdentity<'job>,
     deadline: JobDeadline,
 }
 
@@ -83,20 +139,19 @@ impl<'job> JobRequest<'job> {
     /// itself. A public constructor would be the string entry point the module header says does not
     /// exist: a caller could pass any statement and any parameters.
     ///
-    /// **`deadline` names which clock this call answers to - see [`JobDeadline`].** A leg
-    /// `Warehouse::dry_run`/`execute` builds carries `JobDeadline::Port`, opened by the transport at
-    /// the answer's arrival, so `timeoutMs`/`jobTimeoutMs` derive from what is really left rather
-    /// than from this adapter's own configured job bounds. `verify_anchor`, a fixture load or drop,
-    /// and the identity read have no caller and no request timeout to read one from - `docs/adr/0029`
-    /// calls that the boot path - so they pass `JobDeadline::Boot`, and `submit` opens a fresh window
-    /// from this transport's own [`crate::wire::JobBounds`] instead, exactly as every call did before
-    /// this parameter existed.
+    /// **`deadline` names which clock this call answers to - see [`JobDeadline`].** A leg `Warehouse::dry_run`/`execute` builds carries
+    /// `JobDeadline::Port`; `verify_anchor`, a fixture load or drop, and the identity read have no
+    /// caller and no request timeout to read one from - `docs/adr/0029` calls that the boot path -
+    /// so they pass `JobDeadline::Boot`. The ADBC transport sends what is left of a `Port` arm as
+    /// the job's `jobTimeoutMs` and sends no time bound for `Boot` - so a call site that wrote
+    /// `Boot` for a request-time leg is an unbounded job, the regression [`JobDeadline`]'s own doc
+    /// describes.
     pub(crate) const fn new(
         statement: &'job str,
         params: &'job [ParamValue],
         billing_project: &'job ProjectId,
         default_dataset: &'job DatasetId,
-        subject_bearer: Option<&'job Secret>,
+        identity: JobIdentity<'job>,
         deadline: JobDeadline,
     ) -> Self {
         Self {
@@ -104,7 +159,7 @@ impl<'job> JobRequest<'job> {
             params,
             billing_project,
             default_dataset,
-            subject_bearer,
+            identity,
             deadline,
         }
     }
@@ -126,22 +181,24 @@ impl<'job> JobRequest<'job> {
         self.params
     }
 
-    /// The asking subject's own credential, where the leg carried one.
+    /// Who this job is to be executed as.
     ///
-    /// **This is the half that makes a `BigQuery` source execute as the asker.** A
-    /// [`Presented::SubjectToken`](sutura_domain::identity::Presented::SubjectToken) carries the
-    /// credential a broker minted for the asking subject - an exchanged Google access token scoped
-    /// to that subject - and the transport sends it as its bearer for THIS job, so the endpoint
-    /// evaluates the statement under whoever the token says. `None` for the shared posture, whose
-    /// leg runs under the identity the transport itself already holds.
+    /// **This is the half that decides who a `BigQuery` job is executed as**, and which of
+    /// [`JobIdentity`]'s arms a leg carries is decided once, above, from what the broker presented -
+    /// never re-derived here. A transport that cannot serve the arm it is handed refuses; one that
+    /// ignored it would answer as itself while provenance reported the asker. It does not make the
+    /// source execute as the asker on its own: [`JobIdentity::AsSubject`] carries the subject's
+    /// assertion and the account declared for that subject, and the declared pool is what resolves
+    /// the assertion to a principal able to impersonate it - unproven against a live pool, per
+    /// `docs/where-identity-is-proven.md`.
     #[inline]
     #[must_use]
-    pub const fn subject_bearer(&self) -> Option<&Secret> {
-        self.subject_bearer
+    pub const fn identity(&self) -> JobIdentity<'_> {
+        self.identity
     }
 
     /// Which clock this call answers to. See [`JobDeadline`] and the constructor's own doc for what
-    /// each arm means to [`crate::wire::BigQueryWire::submit`].
+    /// each arm means to the transport's own submit.
     #[inline]
     #[must_use]
     pub const fn deadline(&self) -> JobDeadline {
@@ -285,10 +342,13 @@ pub struct HeldTables {
 /// reporting every table absent while the cross-check read clean. An entry with no readable id is
 /// the shape signal; an id `usable_table_id` rejected is the legitimate drop, and it still counts.
 ///
-/// The same cross-check one document over is [`crate::BigQueryError::Incomplete`], which compares
-/// `delivered` against `total` on a query answer and REFUSES. Two vocabularies for one shape, named
-/// here so a reader who greps one finds the other. This type carries the inventory evidence;
-/// preflight decides whether it leaves a requested table unaccounted for and refuses through a value.
+/// **This is the only reported-total cross-check left in this crate.** There used to be a second,
+/// `BigQueryError::Incomplete`, comparing a query answer's delivered count against the endpoint's
+/// own `totalRows`; `docs/adr/0039` records why an ADBC read's completeness is the full drain
+/// instead, and it went with the paging it described. A LISTING still carries a total, because a
+/// dataset listing is a metadata document and not a result stream. This type carries the inventory
+/// evidence; preflight decides whether it leaves a requested table unaccounted for and refuses
+/// through a value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListingTotal {
     /// The document carried no total at all, so an empty listing and an empty dataset are one value.
@@ -599,149 +659,6 @@ impl DatasetId {
     }
 }
 
-/// What the endpoint said a column is.
-///
-/// **A closed set plus one named escape**, rather than a passthrough of every type the endpoint can
-/// return. Each variant here is a claim that this adapter maps that type to a domain value and has a
-/// test saying so; [`Self::Unmapped`] carries the endpoint's own spelling so a type nobody mapped
-/// produces an error NAMING it rather than a null.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FieldType {
-    /// A 64-bit integer.
-    Int64,
-    /// A double. Mapped through `Real`, which refuses a non-finite value.
-    Float64,
-    /// An exact decimal - `NUMERIC` or `BIGNUMERIC`. Mapped to TEXT rather than to a double, so an
-    /// exact total stays exact; `sutura-exec-duckdb` maps its own `Decimal` the same way and for the
-    /// same sentence.
-    Numeric,
-    /// A boolean.
-    Bool,
-    /// Text.
-    String,
-    /// A calendar date, as ISO text.
-    Date,
-    /// A type this adapter does not map, under the name the endpoint used for it.
-    Unmapped(String),
-}
-
-impl FieldType {
-    /// Decodes a type name the endpoint sends, into the closed vocabulary this adapter maps.
-    ///
-    /// A query response spells the types the legacy way - `INTEGER`/`FLOAT`/`BOOLEAN` - while the
-    /// variants here are named after their modern spellings. The transport that reads an answer's
-    /// schema calls this, so which spellings become `Int64` is decided HERE, where the value mapping
-    /// lives, and not in the unbuilt transport. A name nobody maps becomes [`Self::Unmapped`] under
-    /// the endpoint's own spelling, so an answer is refused NAMING it rather than answered as null.
-    #[must_use]
-    pub fn parse(name: &str) -> Self {
-        match name {
-            "INT64" | "INTEGER" => Self::Int64,
-            "FLOAT64" | "FLOAT" => Self::Float64,
-            "BOOL" | "BOOLEAN" => Self::Bool,
-            "NUMERIC" | "BIGNUMERIC" => Self::Numeric,
-            "STRING" => Self::String,
-            "DATE" => Self::Date,
-            other => Self::Unmapped(String::from(other)),
-        }
-    }
-}
-
-/// One column, as the endpoint described it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Field {
-    name: String,
-    kind: FieldType,
-}
-
-impl Field {
-    /// Names one column.
-    #[must_use]
-    pub const fn of(name: String, kind: FieldType) -> Self {
-        Self { name, kind }
-    }
-
-    /// The label a result column carries.
-    #[inline]
-    #[must_use]
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    /// What the endpoint said this column is.
-    #[inline]
-    #[must_use]
-    pub const fn kind(&self) -> &FieldType {
-        &self.kind
-    }
-}
-
-/// One cell, as the endpoint sent it.
-///
-/// **Text or nothing, and that is the endpoint's shape rather than a simplification.** A value in a
-/// query response is a JSON string whatever its declared type is - an integer arrives as `"250"` - so
-/// the mapping from text to a typed domain value is this adapter's work, and [`Field::kind`] is what
-/// decides it. Modelling it as already-typed here would move that work into the transport, where the
-/// fake and the real implementor would each have to do it and could disagree.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Cell {
-    /// JSON `null`.
-    Null,
-    /// A value, as the endpoint spelled it.
-    Text(String),
-}
-
-/// A job's result: what the columns are, the rows under them, and how many the job produced.
-///
-/// **The count is part of the result, and that is what makes a partial answer not a result.** The
-/// endpoint's `jobs.query` answers one page - "as many results as can be contained within the
-/// maximum permitted reply size" - and `totalRows` "can be more than the number of rows in this
-/// single page". A first page, or an incomplete job's empty `rows`, is *under the cap, not
-/// truncated*, and this adapter's `rows` refuses a delivered count that does not equal what the
-/// endpoint reported as total - see [`super::BigQueryError::Incomplete`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct JobRows {
-    fields: Vec<Field>,
-    rows: Vec<Vec<Cell>>,
-    total_rows: usize,
-}
-
-impl JobRows {
-    /// Assembles a result.
-    ///
-    /// `total_rows` is what the endpoint reported as `totalRows`, which is present only when a job is
-    /// complete - so an incomplete job has no value to fill it with, and the transport has to error.
-    #[must_use]
-    pub const fn of(fields: Vec<Field>, rows: Vec<Vec<Cell>>, total_rows: usize) -> Self {
-        Self {
-            fields,
-            rows,
-            total_rows,
-        }
-    }
-
-    /// The columns, in the order the statement projected them.
-    #[inline]
-    #[must_use]
-    pub fn fields(&self) -> &[Field] {
-        &self.fields
-    }
-
-    /// The rows on this page.
-    #[inline]
-    #[must_use]
-    pub fn rows(&self) -> &[Vec<Cell>] {
-        &self.rows
-    }
-
-    /// What the endpoint said the job's total is, which a delivered page is compared against.
-    #[inline]
-    #[must_use]
-    pub const fn total_rows(&self) -> usize {
-        self.total_rows
-    }
-}
-
 /// A dry run's own byte estimate, when it priced one - `None` is `docs/adr/0030`'s honest absence,
 /// never a defaulted zero.
 ///
@@ -761,19 +678,34 @@ pub type DryRunEstimate = Option<EstimatedBytes>;
 /// uses no slots and is not charged - which is what makes `Warehouse::dry_run` able to answer
 /// `PreFlight::Accepted` honestly here rather than inheriting the port's `NotAsked` default.
 ///
-/// **Three more members are not that, and the count is spelled out because it has been wrong
-/// twice.** `result_did_not_fit` asks the implementor about a failure it already has and sends
-/// nothing; `list_tables` sends a metadata read rather than a statement, which is what makes it
-/// cheap enough for a boot check; and `apply`, behind the `fixtures` feature, is the second
+/// **The rest send nothing, and they are listed BY KIND rather than counted.** The count was wrong
+/// twice, and then a third time: the sentence said *three more members* while five predicates had
+/// been added under it, because a number in prose is a second thing to keep true and no gate reads
+/// this one. So: `list_tables` sends a metadata read rather than a statement, which is what makes
+/// it cheap enough for a boot check; `apply`, behind the `fixtures` feature, is the second
 /// statement-issuing method - present only in a build that loads fixtures, so no deployment can
-/// reach it.
+/// reach it; and every remaining member is a PREDICATE that sends nothing and asks the implementor
+/// about a failure it already holds, because [`Self::Error`] is the implementor's own type and the
+/// adapter above it cannot read one.
 pub trait JobTransport {
     /// Why the endpoint could not answer. The adapter wraps it and never lets it reach a caller of
     /// the domain port raw.
     type Error: core::error::Error + Send + Sync + 'static;
 
-    /// Runs a job and returns its rows.
-    fn run(&self, request: &JobRequest<'_>) -> Result<JobRows, Self::Error>;
+    /// Runs a job and returns its result, as Arrow.
+    ///
+    /// **Arrow rather than this crate's own row vocabulary, and `docs/adr/0039` decides it.** There
+    /// used to be a `JobRows` here - a `Vec<Vec<Cell>>` of TEXT, because the deleted HTTP wire
+    /// transport received every value as a JSON string whatever its declared type was. The ADBC
+    /// driver hands back typed Arrow arrays on the same `arrow-array` major
+    /// `sutura_domain::warehouse::arrow` names, so a batch reaches the interior with no conversion
+    /// at all; the shape it replaced cast every column to `Utf8` and then parsed the text back into
+    /// a number, which gave an exact total two chances to stop being exact.
+    ///
+    /// `ResultBatches` carries its own invariant: every batch was checked against the announced
+    /// schema by NAME and type before a value in it was read. A transport cannot hand back one it
+    /// did not check, because `Accumulating` is the only constructor.
+    fn run(&self, request: &JobRequest<'_>) -> Result<ResultBatches, Self::Error>;
 
     /// Validates a job without reading data.
     ///
@@ -881,7 +813,11 @@ pub trait JobTransport {
     }
 
     /// Was this JOB failure the port's own `Deadline` running out - found already spent before this
-    /// call sent anything, or the service stopping the job at `jobTimeoutMs`?
+    /// call sent anything?
+    ///
+    /// **One half and not two.** The ADBC transport asks the service to stop a job at
+    /// `jobTimeoutMs`, and a job stopped that way comes back as a job failure this predicate does
+    /// not recognise - the already-spent half is the one it reports.
     ///
     /// **The `Warehouse::deadline_exceeded` question one port further down, asked here for the
     /// reason every other predicate on this trait is:** `Self::Error` is the implementor's own type,
@@ -889,13 +825,34 @@ pub trait JobTransport {
     ///
     /// **The reply shape a cancelled job answers with is asserted rather than known**, and that is
     /// stated here rather than left implicit: `docs/adr/0029` asks it be measured against a real
-    /// endpoint before this predicate is fully trusted, and `crate::wire::WireError::NotComplete`'s
-    /// own doc says why that measurement is not yet in this repository's acceptance suite - the
+    /// endpoint before this predicate is fully trusted, and the cancelled-job shape the removed `wire`
+    /// asserted is not measured because that transport is gone with the ADBC adoption - the
     /// obvious way to reach it races a statement against a real deadline and this crate's corpus
     /// fixture is too small to lose that race reliably.
     ///
     /// Defaulted to `false`, which is the answer a fake gives unless a test is about this bound.
     fn deadline_exceeded(&self, _error: &Self::Error) -> bool {
+        false
+    }
+
+    /// Was this failure the transport DECLINING to dry-run at all, rather than asking and failing?
+    ///
+    /// **The difference decides whether a source can answer a question at all**, which is why it is
+    /// a predicate here and not a comment somewhere. `sutura_app`'s answer path calls
+    /// `Warehouse::dry_run` before it calls `execute` and turns anything that is neither a spent
+    /// deadline nor a source refusal into a service ERROR - so a transport with no dry-run at all,
+    /// returning `Err` from [`Self::validate`], makes every question against its source fail. Round
+    /// 4 of `telekom/sutura#929`'s review measured exactly that on the ADBC transport.
+    ///
+    /// `true` here lets `crate::BigQueryWarehouse`'s `Warehouse::dry_run` answer
+    /// `PreFlight::NotAsked` - the port's own word for *this adapter did not ask* - instead of a
+    /// failure. **`NotAsked` is not `Accepted` and no caller may read it as one**, which is what
+    /// keeps this from becoming a defaulted yes: the port's own documentation says so, and nothing
+    /// is priced, so `sutura_app`'s spend ledger charges nothing for such a source.
+    ///
+    /// Defaulted to `false`: a transport that HAS a dry run and failed one has failed, and that is
+    /// the direction a fake gives unless a test is about this split.
+    fn declined_to_dry_run(&self, _error: &Self::Error) -> bool {
         false
     }
 

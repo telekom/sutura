@@ -124,9 +124,10 @@ pub(super) fn entry(alias: &str, posture: &str, extra: &str) -> String {
 
 /// The `workload_identity` block an `impersonation-at-source` source must now declare.
 ///
-/// Issue 87 made the declaration required (an exchanging broker has to know which provider it hands
-/// a subject's token to), and these fixtures thread it through so the test reaches the refusal it is
-/// actually about rather than stopping at the settings tree.
+/// Issue 87 made the declaration required (the ADBC transport's credential document names the
+/// pool a subject's assertion federates against, and that pool is this key), and these fixtures
+/// thread it through so the test reaches the refusal it is actually about rather than stopping at
+/// the settings tree.
 pub(super) fn wif() -> &'static str {
     "    workload_identity:\n      audience: \
      \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/\
@@ -357,10 +358,10 @@ mod agent;
 #[cfg(test)]
 mod bigquery;
 
-// The agent-route byte join: `crate::serve::agent::mount` behind the real `establish_asked` + leg 1,
-// over the shipped exchanging broker. Only a composition root links both the MCP transport (the
-// `agent` feature) and the `bigquery` broker, which is why this lives here and not in `sutura-http`
-// next to its sibling - `sutura-http`'s `agent` feature is deliberately empty. `just test` runs
+// The composed agent route: `crate::serve::agent::mount` behind the real `establish_asked` + leg 1,
+// answered by the broker a served `bigquery` deployment actually attaches. Only a composition root
+// links both the MCP transport (the `agent` feature) and that broker, which is why this lives here
+// and not in `sutura-http` - `sutura-http`'s `agent` feature is deliberately empty. `just test` runs
 // `--all-features`, so both halves are linked there.
 #[cfg(all(feature = "agent", feature = "bigquery"))]
 mod agent_identity;
@@ -374,11 +375,10 @@ fn a_catalog_reading_two_kinds_of_source_now_opens_both_and_reaches_the_second_k
     // so a catalog whose models sit on a `files` source and a `bigquery` source now opens BOTH
     // through `kind::open_mixed` instead of refusing at the kind mismatch.
     //
-    // Proven by which refusal fires, not by a successful boot: the credential file is deliberately
-    // absent (`bigquery_entry`'s own doc says why), so this mix still fails - but it fails on
-    // `open_bigquery`'s real credential read, which it can only reach after the `files` source has
-    // ALSO opened. The old message named the pair and both kinds; this one names the file
-    // `open_bigquery` actually tried to read.
+    // Proven by which refusal fires, not by a successful boot: the ADBC driver is not configured, so
+    // this mix still fails - but it fails on `open_bigquery`'s own boot refusal, which it can only
+    // reach after the `files` source has ALSO opened. The old message named the pair and both kinds;
+    // this one names the driver variable `open_bigquery` actually demanded.
     let both = format!(
         "{}{}",
         entry(ENGINE_SOURCE, "shared-service-user", ""),
@@ -395,19 +395,15 @@ fn a_catalog_reading_two_kinds_of_source_now_opens_both_and_reaches_the_second_k
             default_timeout(),
             None,
         ),
-        "a mixed catalog opens each kind and reaches the bigquery arm's own credential refusal",
+        "a mixed catalog opens each kind and reaches the bigquery arm's own boot refusal",
     );
     assert!(
         !error.contains("one kind of data system at a time"),
         "the retired gate must not fire any more: {error}"
     );
     assert!(
-        error.contains("credential_file"),
-        "the refusal must be `open_bigquery`'s own, naming the key: {error}"
-    );
-    assert!(
-        error.contains("nonexistent") || error.contains("sutura-test-bigquery.json"),
-        "the refusal must name the file this mix actually tried to read: {error}"
+        error.contains("SUTURA_BIGQUERY_ADBC_DRIVER"),
+        "the refusal must be `open_bigquery`'s own, naming the driver variable: {error}"
     );
 }
 

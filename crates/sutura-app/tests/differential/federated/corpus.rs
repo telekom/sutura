@@ -337,7 +337,7 @@ pub(crate) fn remote_products(stem: &str, source_line: &'static str) -> Derived 
 /// something the differential above answers, and this one is a corpus no deployment may serve.
 ///
 /// **Identical rather than differing, which is what makes it the case the guards missed.**
-/// `FederatedFailure::AmbiguousLink` fires when two lookup rows disagree in a column the question
+/// `FederatedAnswerRefusal::AmbiguousLink` fires when two lookup rows disagree in a column the question
 /// projects; when they agree the lookup leg's own `GROUP BY` has already collapsed them, so the
 /// two-source side answered the number the declaration promises while the one-source side's `JOIN`
 /// added the measure twice. Measured on the tree before the boot check existed: `29138` against

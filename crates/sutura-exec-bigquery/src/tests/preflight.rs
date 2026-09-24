@@ -1,15 +1,20 @@
-//! The boot pre-flight and the query/boot refusal predicates that share its fixtures.
+//! The boot pre-flight, and the query/boot refusal predicates that share its fixtures.
 //!
-//! Split out of `tests.rs` at the length gate: a harness on one side, these assertions on the
-//! other - the same seam `fakes.rs`'s own header names, and its warning applies here too. This
-//! file carries its own `#[test]`s throughout, so it cannot be mistaken for an implementation-only
-//! module the causality gate would revert.
+//! **Split out of `tests.rs` at the unexemptable 1000-line cap.** A concept and not a half: every
+//! assertion here is about what the adapter concludes from a dataset's own table listing - which
+//! tables a bundle names, what a listing said about its own size, and which of those outcomes is a
+//! refusal rather than an absence. The identity, rendering and dry-run cells stay in the parent,
+//! next to the fake they are written against. This file carries its own `#[test]`s throughout, so
+//! it cannot be mistaken for an implementation-only module the causality gate would revert.
 
 use std::collections::BTreeSet;
 
+use sutura_domain::model::QualifiedTable;
+use sutura_domain::warehouse::preflight::TablesPresent;
+
 use super::{
-    BigQueryError, Broken, Executable, ListingRefused, ListingTotal, NotShort, QualifiedTable, Recording, Refusing, Shortfall,
-    TablesPresent, TimedOut, Warehouse as _, leg_of, open, plan, shared_posture, test_deadline,
+    BigQueryError, Broken, Executable, ListingRefused, ListingTotal, NotShort, Recording, Refusing, Shortfall, TimedOut,
+    Warehouse as _, leg_of, open, plan, shared_posture, test_deadline,
 };
 
 /// The tables a bundle would ask about, as the port takes them.

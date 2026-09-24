@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! A [`SemanticCatalog`] over an `OpenMetadata` deployment: the richest of the three measured metadata
 //! sources, and still a **declaring** one.
 //!

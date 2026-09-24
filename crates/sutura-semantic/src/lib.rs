@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The semantic compiler: a modelled question becomes one plan for one data system.
 //!
 //! Two stages, in two modules, and the split is the design rather than tidiness:
@@ -54,7 +55,8 @@ pub enum Compiled {
     Planned { plan: Box<DomainPlan> },
     /// The question resolved to two data systems, split into a fact leg and a lookup leg.
     ///
-    /// The two legs execute against their own sources and [`FederatedPlan::combine`] turns the rows
+    /// The two legs execute against their own sources and the combiner behind
+    /// [`FederationCombiner`](sutura_domain::plan::FederationCombiner) turns the batches
     /// back into one answer above them.
     Federated { plan: Box<FederatedPlan> },
     /// The question was refused, and this is why.

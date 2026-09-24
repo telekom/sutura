@@ -88,22 +88,32 @@ subgroup, and the `MeasureDoesNotFederate` refusal.
 (1) **not two identities** - every adapter a release links is `NoPlaceForASubject` and
 `deliverable_by` refuses `impersonation-at-source` against it in every composition root, so every
 `files` source is `shared-service-user` and both legs of a shipped answer run under one
-operating-system identity. **Which is also why the mixed-posture refusal fires for nothing today:**
+operating-system identity. **Which is also why the mixed-posture refusal fires for nothing on a PUBLISHED build:**
 `ExecutedAs::uniform` refuses an answer whose legs decide identity two different ways, and no
-published build can reach a source of each kind - the only `PerSubjectCredential` adapter is
-`sutura-exec-bigquery`, which leaves `EXECUTES_LEGS` at its default and is therefore refused as
-`FederationNotExecutable` before the postures are compared. #112's heterogeneous registry landed
-without changing this: `sutura-exec-bigquery`'s constant is untouched, so a shipped mix still
-cannot put two postures on one federated answer; (2) **no golden reaches the engine's leg path** -
+published build can reach a source of each kind, because no published artefact links the only
+`PerSubjectCredential` adapter. **What changed with `telekom/sutura#929` is the reason, and the
+old reason is now wrong:** `sutura-exec-bigquery` used to leave `EXECUTES_LEGS` at its default and
+be refused as `FederationNotExecutable` before the postures were ever compared. It declares the
+constant now and renders a leg through `sutura_sql::generate_leg`, so a `--features bigquery`
+build DOES reach the posture comparison - a `files` leg beside a `bigquery` impersonating leg is
+refused as `LegsDecideIdentityDifferently` rather than as not-executable, and two impersonating
+`bigquery` legs pass it and federate with a per-subject credential at each
+(`one_subject_federating_two_sources_is_minted_each_sources_own_declared_account` holds that the
+one mint over both sources resolves each source's own declared account). **What no green run here
+says:** no federated answer has been produced against a real dataset - the dialect axis declares
+`Dialect::BigQuery` `Evidence::RenderOnly`, so the claim is *the leg renders for the dialect and
+the transport submits it with the subject's own credential and the configured ceiling*; (2) **no golden reaches the engine's leg path** -
 it emits no SQL, so `tests/golden/legs.rs` pins rendered legs for five dialects and the conformance
 cell plus the differential are the whole of THAT path's evidence. *None of those five is what a
 release executes* was the wording here and is spent: `sutura-exec-postgres` declares
 `EXECUTES_LEGS` and `nix/shipped.nix` carries the `postgres` feature, so the Postgres statements are
 the shape a published binary sends, and its conformance binding executes a leg against the
 provisioned tier. Oracle declares the constant too and has no venue any gate reaches - its leg is
-rendered and gate-checked, never executed, which
-`crates/sutura-app/tests/differential/federated/leg_evidence.rs` holds as a typed declaration
-against `DataSystemUnderTest::available()`; (3) **one deployment still cannot get two genuinely different POSTURES onto one
+rendered and gate-checked, never executed - and `sutura-exec-bigquery`'s leg is bound the same way
+Postgres's is (`execute_packs!` tagged `executes_legs`) but against a fixed lookup table rather than
+a provisioned tier or a live dataset. All three declarations, and what each one's evidence is, live
+in `crates/sutura-app/tests/differential/federated/leg_evidence.rs` as a typed `LegEvidence` rather
+than a bare name; (3) **one deployment still cannot get two genuinely different POSTURES onto one
 federated answer, but it can now hold two KINDS** - `#112`'s `crate::serve::kind::AnyWarehouse` is
 a closed enum over the adapters a build LINKED, erasing a heterogeneous `Warehouses<AnyWarehouse>`
 the way `sutura_app::warehouses`'s own header named as the remedy; `one_kind` is retired, and

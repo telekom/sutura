@@ -60,8 +60,9 @@ surface there is no basis to claim BigQuery accepts an agent identity.
 **2. Is it obtainable in the venues this runs in?** Independently of (1), an agent identity is
 "attested and tied to the lifecycle of the agent" - an agent that lives in a GCP agent runtime.
 This deployment's exchange path runs from a **GitHub Actions OIDC token** on an external runner
-(`crates/sutura-exec-bigquery/src/sts.rs`'s one hop, `.exchange(workload.audience(),
-workload.scope(), assertion)`). Nothing in the read documentation describes issuing an agent identity
+(at the time, `sts.rs`'s one hop, `.exchange(workload.audience(), workload.scope(), assertion)`;
+that broker is deleted and the ADBC driver federates the assertion itself now - `docs/adr/0018`'s
+eighth amendment). Nothing in the read documentation describes issuing an agent identity
 to a runner outside Google's agent platform. Even if BigQuery accepted one, obtainability in CI is
 unestablished, and the CI answer is the one the leg-2 harness depends on.
 
@@ -71,8 +72,10 @@ unestablished, and the CI answer is the one the leg-2 harness depends on.
 BigQuery credential remains `SharedServiceUser` over Workload Identity Federation - already keyless,
 no service-account key file. The attestation-and-lifecycle improvement an agent identity would bring
 is not available to this venue on the documented surface, and there is no false claim in the tree to
-correct by shipping one. No code changes. `crates/sutura-exec-bigquery/src/sts.rs` is untouched, as
-the issue required until step 1 was answered.
+correct by shipping one. No code changes. `sts.rs` was untouched, as the issue required until step 1 was answered; it has
+since been deleted for an unrelated reason (`docs/adr/0018`'s eighth amendment), which changes
+nothing about this decision - the deployment's BigQuery credential is still `SharedServiceUser` over
+federation.
 
 This does not close the door if Google later documents a BigQuery (or general data-API) acceptance of
 agent identities: the gate is a documented consumer, and the moment one exists this evaluation is

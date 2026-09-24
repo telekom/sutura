@@ -17,6 +17,10 @@
 
 use core::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+
+use arrow_array::{ArrayRef, RecordBatch};
+use arrow_schema::{Field, Schema, SchemaRef};
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::identity::Presented;
@@ -30,12 +34,11 @@ use sutura_domain::plan::{
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::estimate::EstimatedBytes;
-use sutura_domain::warehouse::{ParamValue, Value};
+use sutura_domain::warehouse::{Accumulating, ParamValue, ResultBatches};
 
 use crate::BigQueryWarehouse;
 use crate::transport::{
-    Cell, DatasetAddress, DatasetId, Field, FieldType, HeldTables, JobDeadline, JobRequest, JobRows, JobTransport, ListingTotal,
-    ProjectId,
+    DatasetAddress, DatasetId, HeldTables, JobDeadline, JobIdentity, JobRequest, JobTransport, ListingTotal, ProjectId,
 };
 
 // ------------------------------------------------------------------------------ the fake ----
@@ -54,7 +57,22 @@ pub(super) struct Asked {
     pub(super) params: Vec<String>,
     pub(super) project: String,
     pub(super) dataset: String,
+    /// The ASSERTION a job carried, where the leg named a subject. `None` for a shared leg, which
+    /// runs as the identity the transport already holds.
+    ///
+    /// **One field again, because there is one subject shape again.** It was two for two rounds -
+    /// a bearer and a principal - while the adapter could deliver either; the principal switch was
+    /// deleted, so a second field would record a mechanism nothing can produce.
     pub(super) subject: Option<String>,
+    /// The ACCOUNT the job was to execute as, where the leg named a subject - `BigQuery`'s
+    /// `service_account_impersonation_url` one layer down. `None` for a shared leg.
+    ///
+    /// **Recorded beside the assertion rather than folded into it**, because the two answer
+    /// different questions and a federated answer needs both: the assertion is WHOSE question this
+    /// is, and this is WHICH principal the data system runs it as. A leg carrying the right
+    /// assertion and a dropped account is exactly the defect `telekom/sutura#929` F3 fixed one
+    /// layer up, and a fake blind to this field could not see it come back.
+    pub(super) impersonate: Option<String>,
     /// Which clock this call answered to - `JobDeadline::Port` for a request-time call,
     /// `JobDeadline::Boot` for `verify_anchor`. This is F1's own seam: the port's `Deadline` has to
     /// cross into `JobRequest` unmangled, and a fake that recorded nothing here could not catch a
@@ -68,7 +86,7 @@ pub(super) struct Asked {
 /// no-injection property at this boundary: an adapter that merged a value into the text would show up
 /// as a statement carrying it and a parameter list one short.
 pub(super) struct Recording {
-    answer: JobRows,
+    answer: ResultBatches,
     /// What a dry run answers with. `None` by default - the honest absence `docs/adr/0030` names -
     /// set with [`Self::estimating`] for the test that asserts the carry rather than the asking.
     estimate: Option<EstimatedBytes>,
@@ -91,7 +109,7 @@ pub(super) struct Recording {
 }
 
 impl Recording {
-    pub(super) fn answering(answer: JobRows) -> Self {
+    pub(super) fn answering(answer: ResultBatches) -> Self {
         Self {
             answer,
             estimate: None,
@@ -136,7 +154,7 @@ impl Recording {
     }
 
     pub(super) fn empty() -> Self {
-        Self::answering(JobRows::of(Vec::new(), Vec::new(), 0))
+        Self::answering(no_rows())
     }
 
     #[expect(
@@ -159,7 +177,14 @@ impl Recording {
             dataset: String::from(request.default_dataset().as_str()),
             // Exposed only here, in a test, where the whole point is to assert the exact bearer the
             // adapter forwarded. Production code never reads it as text.
-            subject: request.subject_bearer().map(|secret| String::from(secret.expose_secret())),
+            subject: match request.identity() {
+                JobIdentity::AsSubject { assertion, .. } => Some(String::from(assertion.expose_secret())),
+                JobIdentity::Transport => None,
+            },
+            impersonate: match request.identity() {
+                JobIdentity::AsSubject { target, .. } => Some(target.to_string()),
+                JobIdentity::Transport => None,
+            },
             deadline: request.deadline(),
         });
     }
@@ -168,7 +193,7 @@ impl Recording {
 impl JobTransport for Recording {
     type Error = FakeCannotFail;
 
-    fn run(&self, request: &JobRequest<'_>) -> Result<JobRows, Self::Error> {
+    fn run(&self, request: &JobRequest<'_>) -> Result<ResultBatches, Self::Error> {
         self.record(request);
         Ok(self.answer.clone())
     }
@@ -224,7 +249,7 @@ pub(super) struct ListingRefused;
 impl JobTransport for Refusing {
     type Error = ListingRefused;
 
-    fn run(&self, _request: &JobRequest<'_>) -> Result<JobRows, Self::Error> {
+    fn run(&self, _request: &JobRequest<'_>) -> Result<ResultBatches, Self::Error> {
         Err(ListingRefused)
     }
 
@@ -264,7 +289,7 @@ pub(super) struct EndpointSaidNo;
 impl JobTransport for Broken {
     type Error = EndpointSaidNo;
 
-    fn run(&self, _request: &JobRequest<'_>) -> Result<JobRows, Self::Error> {
+    fn run(&self, _request: &JobRequest<'_>) -> Result<ResultBatches, Self::Error> {
         Err(EndpointSaidNo)
     }
 
@@ -322,10 +347,30 @@ pub(super) fn impersonating_posture() -> SourcePosture {
     SourcePosture::ImpersonationAtSource
 }
 
-/// A token presented as the asker's own, for the impersonating posture.
+/// The account every fixture leg below declares for its subject.
+///
+/// One value, because what these cells are about is the ASSERTION crossing the seam; the cells
+/// about which account crosses name their own (`principal::tests` for the mint,
+/// `adbc::subject::tests` for the document).
+pub(super) const A_DECLARED_ACCOUNT: &str = "bq-analyst@acme.iam.gserviceaccount.com";
+
+/// A token presented as the asker's own, for the impersonating posture, with the account a
+/// deployment declared that asker's questions run as.
 pub(super) fn a_subject_token(raw: &str) -> Presented {
     Presented::SubjectToken {
         material: sutura_domain::identity::Secret::new(raw),
+        impersonate: Some(
+            sutura_domain::identity::PrincipalName::parse(A_DECLARED_ACCOUNT).expect("a fixture account is an account"),
+        ),
+    }
+}
+
+/// The same token with NO account declared beside it - the half-configured leg this adapter
+/// refuses rather than running as the pool's own principal.
+pub(super) fn a_subject_token_naming_no_account(raw: &str) -> Presented {
+    Presented::SubjectToken {
+        material: sutura_domain::identity::Secret::new(raw),
+        impersonate: None,
     }
 }
 
@@ -426,16 +471,28 @@ pub(super) fn plan_in_dataset() -> QueryPlan {
     ))
 }
 
-/// One row of the shared value-mapping table: what the endpoint declared, what it sent, and the
-/// domain value both SQL adapters have to produce for it.
+/// A result of no rows at all, under a schema of no columns.
 ///
-/// Named because the tuple is over the `type_complexity` threshold this workspace tightened, exactly
-/// as `sutura-exec-duckdb`'s own `Case` is.
-pub(super) type Case = (FieldType, Cell, Value);
+/// **What the fake answers unless a test hands it something**, and it goes through
+/// `Accumulating` for the same reason production does: `ResultBatches` has no other constructor, so
+/// a fake cannot hand back an unchecked result that production would have refused.
+pub(super) fn no_rows() -> ResultBatches {
+    ResultBatches::none_under(Arc::new(Schema::empty()))
+}
 
-/// One column and one row of it, for the value-mapping table.
-pub(super) fn one_cell(kind: FieldType, cell: Cell) -> JobRows {
-    JobRows::of(vec![Field::of(String::from("value"), kind)], vec![vec![cell]], 1)
+/// One column called `value`, holding one Arrow array.
+///
+/// **What replaced `one_cell(FieldType, Cell)`, and the difference is the whole of the `BigQuery`
+/// half of `docs/adr/0039`**: the old helper built a TEXT cell under a declared type, because the
+/// deleted HTTP transport received every value as a JSON string. The driver hands back typed
+/// arrays, so a fixture is an array - and the value mapping it used to exercise is asserted once,
+/// in `sutura_domain::warehouse::arrow`'s own table, against the same `DuckDB` twin.
+pub(super) fn one_column(array: ArrayRef) -> ResultBatches {
+    let schema: SchemaRef = Arc::new(Schema::new(vec![Field::new("value", array.data_type().clone(), true)]));
+    let mut accumulating = Accumulating::announcing(Arc::clone(&schema), 1, roomy());
+    let batch = RecordBatch::try_new(schema, vec![array]).expect("a one-column fixture batch is rectangular");
+    accumulating.push(batch).expect("a fixture batch carries its own schema");
+    accumulating.finish()
 }
 
 /// A transport whose failure IS the endpoint declining to return the result at once.
@@ -455,7 +512,7 @@ pub(super) struct OnePageOfMore;
 impl JobTransport for Paged {
     type Error = OnePageOfMore;
 
-    fn run(&self, _request: &JobRequest<'_>) -> Result<JobRows, Self::Error> {
+    fn run(&self, _request: &JobRequest<'_>) -> Result<ResultBatches, Self::Error> {
         Err(OnePageOfMore)
     }
 
@@ -494,7 +551,7 @@ pub(super) struct BudgetSpent;
 impl JobTransport for TimedOut {
     type Error = BudgetSpent;
 
-    fn run(&self, _request: &JobRequest<'_>) -> Result<JobRows, Self::Error> {
+    fn run(&self, _request: &JobRequest<'_>) -> Result<ResultBatches, Self::Error> {
         Err(BudgetSpent)
     }
 
@@ -516,4 +573,12 @@ impl JobTransport for TimedOut {
     fn apply(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
         Err(BudgetSpent)
     }
+}
+
+/// A materialisation budget no fixture in this file comes near.
+///
+/// The bound under test here is never the byte budget - `sutura_domain::warehouse::arrow`'s own
+/// cells own that - so a fixture that refused for crossing it would be testing its own size.
+const fn roomy() -> sutura_domain::warehouse::ResultBudget {
+    sutura_domain::warehouse::ResultBudget::of_bytes(core::num::NonZeroUsize::MAX)
 }

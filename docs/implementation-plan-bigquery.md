@@ -205,8 +205,8 @@ either.
 **And 0017's prediction about itself did not come true, which is the part to read before believing
 any of this.** The change that wrote the wire could NOT run it: the machine had no `gcloud`, no
 application-default credential and no project. So a leg exists at
-`crates/sutura-exec-bigquery/tests/acceptance.rs`, three `#[ignore]`d tests behind
-`just bigquery-acceptance`, and **it is unexecuted**. **It is also narrower than what 0017 specifies**
+`acceptance.rs`, three `#[ignore]`d tests behind
+`bigquery-acceptance`, and **it is unexecuted**. **It is also narrower than what 0017 specifies**
 
 - one hand-built `SUM` over a two-column table, exercising none of the constructs the parse check was
   measured to be blind about, so a green run of it would close a smaller gap than the records first

@@ -64,6 +64,11 @@ mod citations;
 // boundary is the one seam here: `stale` and `references` judge a LINE, while `claims` and
 // `counts` judge a claim across lines and need a flattened view to do it.
 mod claims;
+
+// One claim whose refutation is a STATE another gate parses rather than a file this one can read:
+// *leg 2 is proven*. Its own header carries the measurement - four surfaces said so over deleted
+// code while this gate printed `ok`.
+mod leg_two;
 // The citation half of `github.com/telekom/sutura#243`. A module rather than lines here for the
 // reason above: this file has to have room for the tables, and a scan over Rust source shares
 // nothing with them but the span walk and the task-name parse below.
@@ -410,6 +415,10 @@ type TreeVerdict = (Vec<String>, PageCounts, Reading, Scan);
 fn tree_problems(root: &Path, files: &[String], text_files: &[String]) -> TreeVerdict {
     let mut problems = stale_phrases(root, text_files);
     problems.extend(contradicted_claims(root, text_files));
+    // `text_files`, and the CONDITION comes from another gate's parser rather than from a needle in
+    // a page: `crate::venues::leg_two_citable` reads the claims matrix. Its own module header
+    // carries why this is not a `CONTRADICTED` row and what the pair does not reach.
+    problems.extend(leg_two::problems(root, text_files));
     problems.extend(count_mismatches(root, files, text_files));
     problems.extend(bad_task_references(root, text_files));
     // `files` and `text_files`, like `count_mismatches`: the mechanism is derived from ANY file, and
@@ -544,6 +553,45 @@ mod tests {
         // And a real task name still parses, stopping at the backtick or space.
         assert_eq!(task_name_at("check-guidance` runs"), Some("check-guidance"));
         assert_eq!(task_name_at("max-lines --json"), Some("max-lines"));
+    }
+
+    #[test]
+    fn the_leg_two_rule_is_wired_into_the_walk_and_not_merely_written() {
+        // **RED WHEN WRITTEN, and the defect was in the fix rather than in the tree.** Review
+        // measured that turning `problems.extend(leg_two::problems(..))` in `tree_problems` into
+        // `drop(..)` left 92 tests green, and that with the call gone the pre-round-3 `AGENTS.md`
+        // sentence passed `check-guidance` at exit 0. Every cell the rule had drove
+        // `leg_two::stated_in` or `venues::leg_two_row::citable_in` directly, so the REGISTRATION
+        // was held by nothing - the same defect class the rule itself exists to catch.
+        //
+        // `api_docs::tests`' unarmed-tree cell is the shape: drive the WALK against a fixture root,
+        // so the only way the problem can appear is through the call site under test.
+        let root = std::env::temp_dir().join(format!("sutura-guidance-leg-two-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&root));
+        std::fs::create_dir_all(root.join("docs")).expect("fixture root");
+        // A venue page whose two leg-2 rows carry no citable verdict, which is the condition.
+        std::fs::write(
+            root.join("docs/where-identity-is-proven.md"),
+            "| Claim | Fake at the port |\n| --- | --- |\n\
+             | Whether two distinct subjects resolve to two distinct principals | **wired** |\n\
+             | A served binary executes as a verified human caller through the declared per-source map | - |\n",
+        )
+        .expect("fixture venue page");
+        // And a page stating the claim anyway.
+        std::fs::write(
+            root.join("AGENTS.md"),
+            "Leg 1 is built. Leg 2 (a source executing AS them) is proven for BigQuery.\n",
+        )
+        .expect("fixture claimant");
+
+        let subjects = vec![String::from("AGENTS.md")];
+        let (problems, ..) = super::tree_problems(&root, &subjects, &subjects);
+        drop(std::fs::remove_dir_all(&root));
+
+        assert!(
+            problems.iter().any(|problem| problem.contains("no leg-2 row")),
+            "the leg-2 rule is not reached by the walk this gate runs: {problems:?}"
+        );
     }
 
     #[test]

@@ -139,8 +139,8 @@ impl FixtureCredential {
 
     /// The parse, over a LOOKUP rather than over the process environment.
     ///
-    /// The seam is not decoration: `std::env::set_var` is `unsafe` in Rust 2024 and this workspace
-    /// sets `unsafe_code = "forbid"`, so a test that reached for the real environment could not be
+    /// The seam is not decoration: `std::env::set_var` is `unsafe` in Rust 2024 and this crate's
+    /// root forbids `unsafe_code`, so a test that reached for the real environment could not be
     /// written at all - the same wall `crates/sutura-cli/src/audit.rs` documents. The refusals below
     /// are therefore provokable, which is the whole reason to have typed them.
     ///

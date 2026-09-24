@@ -48,7 +48,7 @@ use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::preflight::TablesPresent;
-use sutura_domain::warehouse::{AnchorRows, PreFlight, RawExecution, RowSet, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, PreFlight, RawExecution, ResultBatches, Warehouse};
 use sutura_exec_datafusion::DataFusionWarehouse;
 
 /// One adapter, of whichever kind this build linked - see the module header for the two things it
@@ -190,7 +190,12 @@ impl Warehouse for AnyWarehouse {
         any_fallible!(self, dry_run, executable, presented, deadline)
     }
 
-    fn execute(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         any_fallible!(self, execute, executable, presented, deadline)
     }
 
@@ -529,22 +534,6 @@ fn oracle_group(
     Err(String::from(
         "`open_oracle` returned an open registry on a build with no Oracle adapter linked",
     ))
-}
-
-/// Whether this mix needs the exchanging broker - true the moment ANY opened source is `BigQuery`,
-/// since `build_broker` already scans the whole `sources:` registry for shared AND impersonating
-/// entries rather than only `bigquery`-kind ones.
-///
-/// **No feature-off twin, unlike its siblings above.** Its one caller - `serve.rs`'s `Mixed` arm -
-/// only asks this inside its OWN `#[cfg(feature = "bigquery")]` half; the other half never needed
-/// an exchanging broker to begin with and calls neither this nor a stand-in for it. A twin
-/// returning `false` unconditionally would therefore have no caller on a build without the
-/// feature, which `-D dead-code` catches rather than tolerates.
-#[cfg(feature = "bigquery")]
-pub(crate) fn needs_exchanging_broker(engines: &sutura_app::Warehouses<AnyWarehouse>) -> bool {
-    engines
-        .each()
-        .any(|(_, warehouse)| matches!(warehouse, AnyWarehouse::BigQuery(_)))
 }
 
 #[cfg(test)]

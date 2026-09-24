@@ -87,6 +87,12 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+# The domain's own `fixtures` feature, for ONE item: `plan::RefusingCombiner`, the fake over
+# `docs/adr/0007`'s second driven port. A `sutura_app::LocalService` takes a combiner, and this
+# crate's suite composes whole services to exercise routing and refusal shapes - so without a fake
+# over the port each transport would write its own. Adds no package to `Cargo.lock`: the feature is
+# a cfg, and this crate already depends on the domain.
+sutura-domain = { workspace = true, features = ["fixtures"] }
 # The committed schema dump. Reviewed as a diff, never typed: a new or widened tool input changes
 # the snapshot and the byte-compare fails until somebody re-accepts it.
 insta = { workspace = true }

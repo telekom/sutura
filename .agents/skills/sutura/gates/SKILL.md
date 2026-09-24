@@ -66,6 +66,23 @@ ordering is not a mechanism** - and neither is a position, so the gate reads the
 below the export) and the NAMES (the variable the sweep resolves against the variable the warmer
 exports) rather than trusting either.
 
+**A green `validate` is scoped to ONE TARGET, and that is the third way to lose code from it.**
+`just ci` reads `builtins.currentSystem`, so a darwin host builds `checks.aarch64-darwin.clippy`
+while CI builds `checks.x86_64-linux.clippy`. Same derivation function, same
+`--workspace --all-targets --all-features -- -D warnings`, different target triple - so an item
+behind `#[cfg(target_os = "linux")]` compiles to NOTHING locally and both verdicts are true at once.
+`builders` is empty on a developer host and `extra-platforms` is `x86_64-darwin`, so
+`.#checks.x86_64-linux.*` cannot be built here at all: its plan is ~900 derivations for a system
+this machine refuses. **Measured at cost on `telekom/sutura#929`:** two compile errors in a
+file-wide-gated test module reached CI's clippy leg while every local `validate` reported clippy
+green, and the same file at that commit still passes `just lint` locally at exit 0 with zero
+`error[E`. Caching was ruled out separately - the store held a valid output for that tree's darwin
+clippy derivation, which makes those greens correct reports about a different target. **The fix is
+not to remember it: gate the TESTS and never the module**, so type-checking (which is
+target-independent) stays under the local gate and only `/proc` or an `ioctl` is Linux-only. And it
+is not just clippy - `nextest`, `doctest` and `crap` read the same `cfg`, so nothing local judges a
+whole-file-gated item.
+
 **`flake.nix` cannot be fully modularised.** `apps.<name>`, the `packages = ` block and the
 `checks = {` block must stay in it, because two xtask gates scan that file for them **textually**
 and both fail closed on finding none. A `nix/` module holds what an app or a check *points at*,
@@ -815,7 +832,7 @@ panic-free.
   2026-09-05: the `main` branch ruleset requires exactly one context, `ci`, classic branch
   protection is absent (`404 Branch not protected`), and the second repository ruleset is
   `disabled`. So the four `cross / link (<triple>)` legs - and `docs.yml`'s `verify`,
-  `security-audit.yml`'s `audit`, `bigquery-acceptance` and `crap-comment` - **are required by
+  `security-audit.yml`'s `audit` and `crap-comment` - **are required by
   nothing**, and a red one has never blocked a merge, in the queue or out of it, with no override
   and nobody clicking anything. Everything routed through the `ci` job IS gated, which is how a
   step added there is genuinely gating. `devco/required-contexts` is the record and
@@ -997,6 +1014,19 @@ tree did not compile at all, and the retry then dropped those modules and orphan
 trying to measure. **The fix is the rule above, read the right way round: the characterization
 `#[test]` belongs in a file that changes behaviour and adds tests together, and the new file keeps
 only the harness.**
+
+**THE `Claim-Cell:` BIJECTION IS RANGE-WIDE, so a claim cell and any other new test cannot share a
+PR.** `claim::validate` requires the declarations to name *exactly* the diff's added tests, both
+directions, and `Claim::of` reads every message in `base..HEAD` - so one commit carrying a
+declaration makes every later commit's new test read as *not declared* and the range fails at exit
+1 before any tree is built. CI never sees it (the push base is `HEAD^`, one commit), which is why it
+surfaces only when a human runs `just causality <pr-base>` over a landed range. Measured at the cost
+of two full runs on `telekom/sutura#929`: one claim cell plus two folded-in branches' nine new tests.
+**What to do:** re-run with a base ABOVE the declaring commit, which drops the declaration out of
+the range and returns the gate to its ordinary arm, and re-verify the claim by applying its own
+committed patch by hand - that is the same `git apply` plus single-cell run `kill_cell` performs.
+Never declare the other tests to satisfy the bijection: a `Claim-Cell:` over a test that pins NEW
+behaviour is a false claim, and the trailer is the one thing here that cannot be wrong.
 
 **AND THE SECOND HALF OF THAT RULE DECIDES WHICH FILE IS MEASURED: a comment-only change holds
 nothing back.** `has_non_test_additions` treats a blank line, a comment and an attribute as carrying

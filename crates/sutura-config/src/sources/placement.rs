@@ -356,7 +356,8 @@ pub enum PostgresDial {
 /// be skipped" look like the same sentence and are not.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourcePlacement {
-    /// A directory of CSV or Parquet files, read by the in-process engine.
+    /// A directory of Parquet, CSV or NDJSON files - each text format plain or compressed - read
+    /// by the in-process engine.
     Files {
         /// Absolute, because a service's working directory is whatever its supervisor chose.
         data_dir: PathBuf,
@@ -379,22 +380,38 @@ pub enum SourcePlacement {
         billing_project: BillingProject,
         /// Where an unqualified table name resolves. See [`DatasetId`].
         dataset: DatasetId,
-        /// The credential file this source is reached with. Absolute, checked at parse.
+        /// The credential file this source is reached with. Absolute, checked at parse - **and read
+        /// by nothing.**
         ///
         /// **A path rather than a credential**, so nothing in this tree holds token material and
-        /// `Secret` has nothing to redact here. Reading it is the adapter's job and happens once, at
-        /// the line that opens the source.
+        /// `Secret` has nothing to redact here. Reading it used to be the adapter's job at the line
+        /// that opens the source; the ADBC driver authenticates itself, so the composition root
+        /// passes the path nowhere (`sutura_cli::sources::bigquery` says so at its own boot line).
+        /// **Still required and still checked to be ABSOLUTE - and not checked to exist**, which is
+        /// the correction `telekom/sutura#929`'s eighth review round made to this very paragraph.
+        /// `sources::parse_absolute` refuses `path.is_relative()` and returns; nothing stats the
+        /// file. Measured: adding `|| !path.exists()` to that predicate - a no-op if the claim had
+        /// held - produced 26 failures. So an operator who writes a path to a file that is not
+        /// there boots clean, and one who writes a relative path gets a refusal about a key that
+        /// changes nothing either way. A settings surface with no mechanism behind it rather than a
+        /// control, stated at both of the two things it does and does not check.
         credential_file: PathBuf,
-        /// The most one job may be billed for scanning.
+        /// The most one job may be billed for scanning. **Required, and sent to the data system as
+        /// `BigQuery`'s own `maximumBytesBilled`.**
         ///
-        /// **A bare number and not a newtype, and that is deliberate rather than an omission.** The
-        /// RANGE belongs to the adapter - `sutura_exec_bigquery::wire::BytesBilledCeiling::parse`
-        /// refuses a zero and refuses a value above the largest ceiling it will send - and a second
-        /// copy of those two bounds here would be the drifting duplicate this repository's
-        /// *canonical sources* rule exists to prevent. So there is exactly one parse of this number,
-        /// in the composition root, and a value outside the range is a startup refusal naming
-        /// `sources.<alias>.max_bytes_billed`. What this crate owns is that the key was WRITTEN, which
-        /// is the half a settings tree can see.
+        /// **A bare number here and a newtype one crate over, deliberately.** The RANGE belongs to
+        /// the adapter that sends it - `sutura_exec_bigquery::adbc::BytesBilledCeiling::parse`
+        /// refuses a zero and refuses a value above the largest ceiling that transport will send -
+        /// so a second copy of those bounds in this crate would be a drifting duplicate of the only
+        /// one that decides anything. Both composition roots parse it at the line that opens the
+        /// source, so a value outside the range stops the process before a listener is bound. What
+        /// this crate owns is that the key was WRITTEN, which is the half a settings tree can see.
+        ///
+        /// **For one review round the parse did not exist**, the type having gone with the HTTP
+        /// wire and the `jobs.query` parameter it fed, so a declared `0` and a declared `u64::MAX`
+        /// both booted green over a source with no bound on bytes scanned at all.
+        /// `docs/adr/0017`'s nineteenth amendment records that state and its twentieth records the
+        /// fix, including the driver option the fix is read off.
         max_bytes_billed: u64,
     },
     /// A `PostgreSQL` database, reached over a connection the deployment declares.

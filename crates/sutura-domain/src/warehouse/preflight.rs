@@ -332,7 +332,7 @@ mod tests {
     use crate::plan::{AnchorPlan, Executable};
     use crate::source::{ImpersonationCapability, SourcePosture};
     use crate::warehouse::deadline::Deadline;
-    use crate::warehouse::{AnchorRows, RowSet, Warehouse};
+    use crate::warehouse::{AnchorRows, ResultBatches, Warehouse};
 
     fn table(raw: &str) -> QualifiedTable {
         QualifiedTable::parse(raw).expect("a test table path parses")
@@ -468,7 +468,7 @@ mod tests {
             _executable: Executable<'_>,
             _presented: &Presented,
             _deadline: Deadline,
-        ) -> Result<RowSet, Self::Error> {
+        ) -> Result<ResultBatches, Self::Error> {
             Err(core::fmt::Error)
         }
 

@@ -613,6 +613,7 @@ mod tests {
             &asked_by_a_person(),
             &FixedBroker::GrantsShared,
             &registry,
+            &sutura_domain::plan::RefusingCombiner,
             1 << 30,
             test_deadline(),
             &crate::spend::SpendLedger::no_budget(),

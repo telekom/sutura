@@ -40,8 +40,38 @@ serde_json = { workspace = true }
 # framework. The root manifest carries the count; `xtask/src/boundaries.rs` is where the allowlist
 # entry makes it arguable in a diff.
 secrecy = { workspace = true }
+# **Arrow at the interior**, which `docs/adr/0039` decides against `docs/adr/0007`'s
+# `RowSet`-at-the-port and against the unmerged 0037's refusal. The argument is
+# `ALLOWED_IN_DOMAIN`'s own line - *no runtime, no client, no engine*: Arrow is a data FORMAT, and
+# the engine, the ADBC driver manager and any future Arrow Flight leg already speak it. What it buys
+# is ONE Arrow-to-`Value` decode (`warehouse::arrow`) where there were three, one of which went via
+# text and so had two chances to lose an exact number.
+#
+# `arrow-array` and `arrow-schema` rather than the `arrow` umbrella, measured: the umbrella adds a
+# terminal renderer and an IPC stack this crate names nothing from. The major is 59, which is the
+# ENGINE's - `.agents/skills/sutura/dependencies` states that the engine owns it - so these unify
+# with `datafusion`'s and with `adbc_core`'s, and a batch crosses from either with no conversion.
+# NO new lockfile entry: both were already resolved at 59.2.0 before this edge existed.
+#
+# The cost is 64 crates the boundary allowlist now carries, of which `cargo tree -p sutura-domain
+# --all-features` compiles 21 - and under the workspace-unified resolve `just test` and `just lint`
+# use, more than that, because `adbc_core` turns `arrow-array`'s optional `chrono-tz` on for the one
+# `arrow-array` the graph shares. So the number depends on the venue, and both are in
+# `xtask/src/boundaries/edges.rs`, which is also where this is arguable in a diff. Two of them
+# perform OS I/O: a time-zone database (`chrono` -> `iana-time-zone`) and an entropy source
+# (`arrow-array` -> `ahash` -> `getrandom`). Neither is reachable from this crate's code, and
+# because that is a claim about current use rather than a mechanism, `clippy.toml` bans the clock
+# and entropy entry points by name. `devco/arrow-majors-allow` is where the 58/59 split's own row
+# records what naming the type does and does not change.
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+# `i256` for the wide-decimal rows of `warehouse::arrow`'s mapping table; the root manifest says why
+# it cannot come through `arrow-array`.
+arrow-buffer = { workspace = true }
 
 # Two features, both default-off and adding no dependency: `warehouse::agreement`, the typed
 # comparison the differential legs make, and `warehouse::csv`, the shared fixture schema. They are

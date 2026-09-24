@@ -1,16 +1,25 @@
 ---
 title: What the BigQuery wire is built from
-description: The dependency decision the BigQuery transport was gated on - four community and official clients priced against what each costs the release, the licence gate and Arrow, why every wrapper crate is refused on one transitive dependency, why the REST endpoint over a client already in the graph costs zero new packages, and the consequence that a wire now exists and has been run against a real project - for one hand-built statement first, and since 2026-08-31 for the example corpus, which is a claim 0017's third amendment and the correction in the What is claimed section carry rather than this sentence.
+description: The dependency decision the BigQuery transport was gated on - four community and official clients priced against what each costs the release, the licence gate and Arrow, why every wrapper crate is refused on one transitive dependency, and why the REST endpoint over a client already in the graph cost zero new packages. Superseded by its own fifth and sixth amendments: the transport it chose was deleted for the ADBC driver, and per-subject execution is workload-identity federation of the asker's own assertion - the fifth amendment's principal switch was rejected and deleted, and the sixth says what replaced it.
 ---
 
 # What the BigQuery wire is built from
 
-Status: **accepted.** The transport is built, feature-gated, linted, tested and audited - and since
-2026-08-30 it has been **run against a real project**, which is the first time anything in this
-repository has had a statement accepted by `BigQuery`. *What is claimed, and what is not* is the
-section at the end, and it is the one to read before taking a green run for more than it is:
-**one hand-built `SUM` was accepted first, and since 2026-08-31 the example corpus has run green
-against a real dataset too.**
+Status: **superseded by this record's own fifth amendment.** The transport this record decided was
+built, feature-gated, linted, tested and audited, and from 2026-08-30 it was **run against a real
+project** - the first time anything in this repository had a statement accepted by `BigQuery`. It has
+since been **deleted**: the ADBC driver is the adapter's only transport, and the `ureq` client, its
+agent, its bounds and its credential and exchange machinery went with it. The DEPENDENCY reasoning
+below is why every wrapper crate was refused and still holds as reasoning; the transport it chose
+does not ship. Read the fifth amendment first, then *What is claimed, and what is not* - the two
+hosted runs this line used to open on are runs of code that is no longer in the tree.
+
+**And so are the CELLS the wire-era sections cite, which those sections state in the present tense.**
+A cell named in a section above the fifth amendment lived under `src/wire/**` or in an integration
+target that went with it - `exchanged_identity.rs` and the `#[ignore]`d dataset legs beside it are
+gone, and `src/tests.rs` still exists but holds the ADBC transport's cells rather than the wire's - so
+a reader who greps one of those names finds nothing. It is a record of what was built, not a map of
+the tree; the amendments name what survived.
 
 **Corrected:** this status block read *one hand-built `SUM` was accepted, not the corpus* while the
 correction in *What is claimed, and what is not* records the corpus leg as built and run. A record
@@ -153,14 +162,8 @@ Four parts, each with its own reason:
    *this port* is otherwise unaffected: nothing here lets an implementation select a credential FOR
    the subject or tell two concurrent subjects apart, which is a property of `AccessTokens::bearer`'s
    signature rather than of the constant. What carries the leg's subject through per-leg execution is
-   `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker`, composed in `sutura-serve`
-   (#284). **Superseded 2026-09-16:** a hosted run of `bigquery-exchanged-identity` exchanged each
-   principal's own assertion against a real STS and resolved it to that principal, so leg 2 is
-   proven for BigQuery through the declared per-source map; AGENTS.md's sentence now reads: *"Leg 1
-   (knowing who is asking) is built. Leg 2 (a source executing AS them) is proven for BigQuery
-   through a declared per-source map, by a hosted run whose job holds both principals' keys by
-   construction - so the exchange mechanics resolve per subject; no served binary has executed as a
-   caller yet."*
+   `sts.rs`'s `WorkloadIdentityBroker`, composed in `sutura-serve`
+   (#284) - both deleted by the eighth amendment below. **Superseded 2026-09-16, and that supersession is itself WITHDRAWN 2026-09-22:** the hosted run of `bigquery-exchanged-identity` cited here did exchange each principal's own assertion against a real STS, but it ran `wire::StsOverHttp` and `wire::IamCredentialsOverHttp` - deleted by the fifth and eighth amendments below - so it is a run of code this tree does not contain and settles nothing about what ships. The `AGENTS.md` sentence quoted here no longer reads that way: leg 2 is *built and unproven* there, a source's declared map decides only WHETHER a caller may be served, and `docs/where-identity-is-proven.md` records the venue that would show a pool resolving one as `wired`.
 
 ### Which shipped artifact links what, per target
 
@@ -376,7 +379,7 @@ ratio, no `CAST(... AS FLOAT64)` and no `ISOWEEK` - and `ISOWEEK` plus `DATE_TRU
 are precisely the two constructs `0017` MEASURED a parse check to be blind about, which makes them what
 a live run is worth most for. The corpus-wide leg `0017` specifies - load the fixtures, run the
 corpus's questions, compare rows with the engine - **is now built**, as
-`crates/sutura-exec-bigquery/tests/corpus.rs`. **Corrected: this said the corpus-wide leg *is not
+`corpus.rs`. **Corrected: this said the corpus-wide leg *is not
 built*, which made this the THIRD answer in this file to one question** - the status block said it,
 this bullet said it, and the correction further down this section contradicted both. What is still
 true of the run this bullet is about is its own first sentence: that run was one statement. The count
@@ -390,19 +393,14 @@ per-subject execution.
 
 **Corrected: the constant moved, and this section did not follow it.** `IMPERSONATION` is
 `ImpersonationCapability::PerSubjectCredential` now. A leg presenting `Presented::SubjectToken` has
-somewhere to go: the token rides as the job's bearer - `Presented::SubjectPrincipal` is still refused
-(`BigQueryError::NoPrincipalSwitch`), since this adapter has no connection-level principal switch to
-give it. **What this section's premise still gets right:** the corpus leg tested here runs on the
+somewhere to go: the assertion becomes an `external_account` credential document the driver
+federates against the declared pool (sixth amendment) - `Presented::SubjectPrincipal` is refused
+(`BigQueryError::NoPrincipalSwitch`), since the mechanism that shape names was deleted. **What this section's premise still gets right:** the corpus leg tested here runs on the
 service-account credential, so a green run says nothing about the per-subject path. What that path
-needs is built, not unbuilt: `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker`
-mints the per-leg credential and `sutura-serve`'s `bigquery` composition attaches it (#284). The
-limit is narrower - **superseded 2026-09-16:** a hosted run of `bigquery-exchanged-identity`
-exchanged each principal's own assertion against a real STS and resolved it to that principal, so
-leg 2 is proven for BigQuery through the declared per-source map; AGENTS.md's sentence now reads:
-*"Leg 1 (knowing who is asking) is built. Leg 2 (a source executing AS them) is proven for BigQuery
-through a declared per-source map, by a hosted run whose job holds both principals' keys by
-construction - so the exchange mechanics resolve per subject; no served binary has executed as a
-caller yet."* (`docs/where-identity-is-proven.md`).
+needed was built, not unbuilt: `sts.rs`'s `WorkloadIdentityBroker`
+minted the per-leg credential and `sutura-serve`'s `bigquery` composition attached it (#284) - both
+deleted by the eighth amendment below. The
+limit is narrower - **Superseded 2026-09-16, and that supersession is itself WITHDRAWN 2026-09-22:** the hosted run of `bigquery-exchanged-identity` cited here did exchange each principal's own assertion against a real STS, but it ran `wire::StsOverHttp` and `wire::IamCredentialsOverHttp` - deleted by the fifth and eighth amendments below - so it is a run of code this tree does not contain and settles nothing about what ships. The `AGENTS.md` sentence quoted here no longer reads that way: leg 2 is *built and unproven* there, a source's declared map decides only WHETHER a caller may be served, and `docs/where-identity-is-proven.md` records the venue that would show a pool resolving one as `wired`.
 
 ### The service-account flow, and what it cost
 
@@ -449,8 +447,8 @@ INT64"*. The fault was in the FIXTURE - the plan's metric label was the same wor
 ### What is still not claimed, and by what mechanism
 
 The leg is a **smoke leg**, and it is:
-`crates/sutura-exec-bigquery/tests/acceptance.rs`, five `#[ignore]`d tests, reached by
-`just bigquery-acceptance`, needing three variables a developer names in their own environment.
+`acceptance.rs`, five `#[ignore]`d tests, reached by
+`bigquery-acceptance`, needing three variables a developer names in their own environment.
 
 **And it is narrower than what 0017 and issue #70 ask for, which is stated here because a record that
 promises the corpus over a test submitting one statement is the overstated-claim defect this
@@ -468,7 +466,7 @@ at a dataset** - load the example fixtures, run the corpus's questions, compare 
 
 **Corrected:** this said *"and it is not built"*, and listed the sentences narrowed to match it -
 0017's amendment, `AGENTS.md`, `docs/architecture.md`, both plan pages, the justfile recipe and the
-leg's own header. **It is built**, as `crates/sutura-exec-bigquery/tests/corpus.rs`, and it has run
+leg's own header. **It is built**, as `corpus.rs`, and it has run
 green against a real dataset; [0017](0017-what-a-bigquery-test-runs-against.md)'s third amendment is
 the record of that run and says which of the four bullets it answered. **The limit next to that: the
 three legs that reach a real dataset are `#[ignore]`d and outside `just validate`**, because a nix
@@ -616,7 +614,7 @@ bullets down:
   `the_dataset_really_answers_a_listing_and_names_only_the_table_it_does_not_hold` is `#[ignore]`d
   beside its neighbours and asks a real dataset about a set of one table it holds and one it does
   not, with the clean set asserted FIRST as the control. **It has never run on a developer machine
-  here** - no dataset is named in this environment, so `just bigquery-acceptance` fails on its own
+  here** - no dataset is named in this environment, so the (since-removed) `bigquery-acceptance` leg would fail on its own
   precondition rather than reporting green. **It has RUN, green, in the `bigquery-acceptance` job** -
   on #221's own branch on 2026-09-02 and again on `main` at the commit that merged it on 2026-09-03 -
   and it keeps running there, because `--run-ignored only` reaches every `#[ignore]`d test in the
@@ -782,7 +780,7 @@ bullets down:
   `totalItems` value reached an assertion, a panic message or a log line. A deferral pointing at
   evidence that cannot bear it is the overstatement this record is otherwise built to avoid.
   `a_real_listing_reports_a_total_and_it_accounts_for_the_entries_it_carried` is what measures it
-  now, in `just bigquery-acceptance`, one rung BELOW the domain port because `TablesPresent` carries
+  now, in the (since-removed) `bigquery-acceptance` leg, one rung BELOW the domain port because `TablesPresent` carries
   no count and should not. It prints the verdict and requires a total the crate could read - red, not
   silent, if the service populates nothing, because a cross-check whose input never arrives has no
   teeth.
@@ -863,9 +861,9 @@ accessor.
 and a caller that deliberately calls `as_str` can render it. This removes the accident, not the
 capability, and it says nothing about what the endpoint records on its own side. The tests are
 `the_endpoints_own_message_is_redacted_under_debug_and_absent_from_display` in
-`crates/sutura-exec-bigquery/src/wire/tests.rs`, and
+`tests.rs`, and
 `a_refusal_this_leg_dies_on_names_the_reason_and_never_the_message` in
-`crates/sutura-exec-bigquery/tests/exchanged_identity.rs`, which holds that the leg goes through the
+`exchanged_identity.rs`, which holds that the leg goes through the
 status-and-reason shape rather than rendering the error.
 
 ## Third amendment, 2026-09-12: provider reason text is closed before ordinary rendering
@@ -878,7 +876,7 @@ value renders only a static local marker. The same type is carried by incomplete
 errors, so no ordinary rendering of a shape-derived diagnostic can carry provider text either.
 
 `an_unrecognized_provider_reason_cannot_reach_ordinary_error_rendering` in
-`crates/sutura-exec-bigquery/src/wire/tests.rs` is the regression test for the boundary.
+`tests.rs` is the regression test for the boundary.
 
 ## Fourth amendment, 2026-09-16: `sutura-serve` folded into `sutura-cli`, and the artifact table's own row with it
 
@@ -886,13 +884,7 @@ errors, so no ordinary rendering of a shape-derived diagnostic can carry provide
 after every site below was written. Three, in the base body rather than in an earlier amendment:
 
 - *The decision* named `WorkloadIdentityBroker` as "composed in `sutura-serve` (#284)". It is composed
-  in `sutura-cli`'s `serve` module now. **Superseded 2026-09-16:** a hosted run of
-  `bigquery-exchanged-identity` exchanged each principal's own assertion against a real STS and
-  resolved it to that principal, so leg 2 is proven for BigQuery through the declared per-source
-  map; AGENTS.md's sentence now reads: *"Leg 1 (knowing who is asking) is built. Leg 2 (a source
-  executing AS them) is proven for BigQuery through a declared per-source map, by a hosted run
-  whose job holds both principals' keys by construction - so the exchange mechanics resolve per
-  subject; no served binary has executed as a caller yet."*
+  in `sutura-cli`'s `serve` module now. **Superseded 2026-09-16, and that supersession is itself WITHDRAWN 2026-09-22:** the hosted run of `bigquery-exchanged-identity` cited here did exchange each principal's own assertion against a real STS, but it ran `wire::StsOverHttp` and `wire::IamCredentialsOverHttp` - deleted by the fifth and eighth amendments below - so it is a run of code this tree does not contain and settles nothing about what ships. The `AGENTS.md` sentence quoted here no longer reads that way: leg 2 is *built and unproven* there, a source's declared map decides only WHETHER a caller may be served, and `docs/where-identity-is-proven.md` records the venue that would show a pool resolving one as `wired`.
 - *Which shipped artifact links what, per target*'s table carried a whole row for `sutura-serve` as
   its own release artifact, and a `Corrected:` note beneath it saying `nix/shipped.nix:161-164` names
   it as a shipped binary. Both are spent: `nix/shipped.nix`'s `binaries` list has one entry now
@@ -903,3 +895,623 @@ after every site below was written. Three, in the base body rather than in an ea
   citing `crates/sutura-cli/src/serve.rs`'s `OpenedSources::BigQuery` - the citation already named the
   post-fold file; only the crate name in the sentence was `sutura-serve`. It is `sutura-cli` linking
   the adapter, through the same type alias, unchanged otherwise.
+
+## Fifth amendment, 2026-09-20: ADBC replaces the wire, and impersonation becomes a principal switch
+
+The `wire` transport is gone. `adbc-drivers/bigquery` (Go, Apache-2.0), self-built per release triple
+by `nix/bigquery-adbc.nix` and pinned at `go/v1.13.0`, is the adapter's only transport, reached
+through `adbc_core` + `adbc_driver_manager` over the C ABI. The driver owns its own HTTP and its own
+authentication, so this crate ships no client and reads no credential file. Everything this record
+prices about the four wrapper crates - `anyhow` in a library, an Arrow major this workspace cannot
+carry - is a property of those crates and is unaffected; what is spent is the `ureq` conclusion it
+ends on.
+
+**The identity claim this record carried has changed mechanism, and the new one is weaker in a way
+that has to be written down.** The wire forwarded the asking subject's exchanged access token as the
+job's own bearer: Google's token service verified the caller's assertion against a workload-identity
+pool, `iamcredentials.generateAccessToken` resolved it to the account the declared per-source map
+named, and the job ran under that account. The pinned ADBC driver has **no option that accepts a
+per-subject access token** - its auth types take a credential file, a credential JSON document, or an
+OAuth client id/secret/refresh-token triple, and its `bigquery.impersonate.*` options build an
+impersonated token source from the process's own application default credentials
+(`go/connection.go`'s `newClient`, which passes no client options to
+`impersonate.CredentialsTokenSource` and replaces any other auth option with it).
+
+So `IMPERSONATION` stays `PerSubjectCredential` and what delivers it is
+`bigquery.impersonate.target_principal`, set per job to the account the declared map names for the
+asking subject. The domain already had the shape for that and already called it the weaker one:
+`Presented::SubjectPrincipal` is *a principal the data system switches to, on a connection the
+DEPLOYMENT authenticated.* The chain is now **leg 1 verifies the caller, this deployment maps the
+verified subject to a declared account, and this deployment's own identity is authorized to become
+it** - so the caller's possession of a credential is checked by sutura and by nobody else on the
+path, and the deployment holds `roles/iam.serviceAccountTokenCreator` on every account it declares.
+`docs/where-identity-is-proven.md` carries what a run would have to show; leg 2 is **not** proven on
+this transport.
+
+### The two alternatives, priced
+
+**Let the driver do the whole federation.** `bigquery.auth_type = json_credential_string` with a
+credential JSON of Google's `external_account` type reproduces the deleted chain exactly, inside the
+driver: the pool audience, the token endpoint and a `service_account_impersonation_url` naming the
+declared account, with the caller's assertion as the subject token. It keeps the property this
+amendment gives up - Google verifies the caller's assertion - and every value it needs is already in
+the settings tree. **The cost is that the subject token has to be on a filesystem path**: in
+`cloud.google.com/go/auth v0.23.2` an external account's `credential_source` is a file, a URL, an
+executable or an AWS metadata endpoint, and the programmatic supplier is a Go-level interface with no
+JSON spelling. That means writing a verified caller's own assertion to disk, once per request, with a
+lifetime nothing in the type system bounds - and `docs/adr/0020` is the record of a repository that
+treats a credential reaching a log as the defect. Refused here, and it is the option to revisit if
+the trust chain matters more than the exposure.
+
+**Add the option upstream.** A driver option taking an already-minted access token
+(`option.WithTokenSource(oauth2.StaticTokenSource(..))`) is about fifteen lines of Go and would let
+sutura keep the exchange in process and hand the result to the driver. It needs the exchange back -
+the deleted `StsOverHttp`/`IamCredentialsOverHttp` hops, or an HTTP client to rebuild them on - so it
+is a larger change than the one this amendment makes, and it belongs upstream rather than as a vendor
+patch (`VENDOR.md` records the three source-level adaptations this build already carries, and a forked
+public option surface is a different kind of debt from a `go.mod` floor relax). An unpatched driver
+refuses an unknown option key rather than ignoring it, so a deployment pointed at an upstream `.so`
+would fail closed - which is what makes this safe to propose and unsafe to assume.
+
+### The values are BOUND, and the first shape of this amendment refused every question
+
+`adbc_core::Statement::bind` takes one Arrow `RecordBatch` and the driver reads a `bigquery`
+query parameter per column (`record_reader.go`'s `getQueryParameter`). Between the transport's
+adoption and this paragraph the transport did not call it: it answered
+`Uncovered("bind statement parameters")` to any request carrying values. **That was the whole
+surface, not a corner.** `sutura_domain::query::Question` makes its `range` a mandatory field, and
+`sutura_sql::Dialect::BigQuery` renders `PlaceholderStyle::Question`, so every rendered statement
+carries positional `?` and values to go with them - a served `bigquery` deployment booted clean and
+answered nothing. Round-2 review of telekom/sutura#929 found it; `crates/sutura-exec-bigquery/src/adbc/bind.rs`
+is the fix and carries the type map.
+
+**One row, and the driver is why that is a property rather than a detail.** Inside each bound batch
+the driver loops `for i := range int(rec.NumRows())` and runs the whole query once per row, appending
+each result to the same stream - so a two-row batch is one question answered twice and concatenated,
+which is a wrong number under a certified metric name and nothing would report it. `ONE_QUESTION` is
+a named constant and `a_parameter_batch_carries_exactly_one_row` is its cell.
+
+A date binds as Arrow `Date32` and not as text, because the driver derives the `GoogleSQL` type from
+the ARROW type: a date sent as `STRING` compares against a `DATE` column through a coercion
+`GoogleSQL` does not perform, and against a text column compares lexically. The domain's `Date`
+already holds days since the epoch, so nothing is formatted on that path.
+
+### The driver is not linked in: a four-way owner decision, priced
+
+The owner asked for the driver to be INCLUDED in the release artefacts and verified in CI, for
+normal CI and for the musl artefact. The mechanism that would resolve all three at once is known:
+`-buildmode=c-archive` instead of `c-shared`, linking the archive into the binary, and
+`adbc_driver_manager::ManagedDriver::load_static` instead of `load_dynamic_from_filename`. Then the
+driver ships because it IS the binary, static musl works because no `dlopen` is reached, and the
+`SUTURA_BIGQUERY_ADBC_DRIVER` startup requirement disappears.
+
+**What stands in the way is first-party `unsafe`, and it is a CHOICE rather than a wall.** An
+earlier draft of this amendment called `unsafe_code = "forbid"` the blocker; review refuted it with
+this repository's own precedent, so the correction is here rather than deleted. `load_static` takes
+an `&adbc_ffi::FFI_AdbcDriverInitFunc`, which is
+`unsafe extern "C" fn(c_int, *mut c_void, *mut FFI_AdbcError) -> AdbcStatusCode`, and the only way
+to obtain one for a linked archive is an `unsafe extern` block declaring the archive's
+`AdbcDriverInit` symbol. Four routes reach that, and the owner picks one:
+
+1. **Lift the workspace `forbid`.** `Cargo.toml`'s lint table sets `unsafe_code = "forbid"` and says
+   in the same place that needing it *"is an architecture decision, and lifting a `forbid` is
+   exactly the size of diff that decision deserves."* Cost: every crate in the workspace becomes a
+   place `unsafe` may appear, and the property that no first-party `unsafe` exists stops being a
+   fact about the tree. Cheapest to write, most expensive to give up.
+2. **A vendored crate outside the workspace, owning the one `unsafe` block.**
+   `Cargo.toml`'s `exclude = ["vendor/mimalloc_rust"]` is the established precedent - that path
+   holds **21 lines carrying `unsafe`** today, outside this forbid's reach, and `VENDOR.md` is where
+   such a thing is recorded. **The number is stated with its method because three different ones
+   were in circulation** - ten, eleven and twenty-one, for one thing:
+   `grep -rc unsafe vendor/mimalloc_rust --include='*.rs'` summed over its three files gives
+   11 + 10 + 0 = 21, and eleven was `src/lib.rs` alone. Counting `unsafe fn`/`impl`/`{`/`extern`
+   occurrences agrees at 21, because no line carries two. Cost: a second build unit and a `VENDOR.md` row, and the `unsafe` is real
+   wherever it lives - what the exclusion buys is that it is CONTAINED and named rather than
+   permitted everywhere.
+3. **An upstream `adbc_driver_manager` API that takes a symbol NAME rather than a function
+   pointer.** The manager already resolves symbols by name for the dynamic path; a `load_static`
+   sibling accepting `&str` would keep the `unsafe` on their side of the ABI, where it already is.
+   Cost: an upstream round trip on somebody else's release schedule, which is the slowest route and
+   the only one that leaves this workspace unchanged. `AGENTS.md`'s *propose upstream* is this.
+4. **Stay dynamic, and decide what musl means.** Keep `load_dynamic_from_filename`, ship the `.so`
+   as a release asset beside each gnu artefact, and either drop the two musl triples or declare ADBC
+   gnu-only. Cost: no `unsafe` at all and no upstream work, in exchange for `bigquery` being
+   unavailable on the static artefacts - which is the status quo made explicit rather than a
+   regression.
+
+**Two routes review closed, recorded as closed rather than left open.** `sutura-domain`'s
+`ALLOWED_IN_DOMAIN` does not extend to this: it is a dependency allowlist and says nothing about a
+lint. And a workspace MEMBER cannot escape the lint by omitting `[lints] workspace = true`, because
+`xtask/src/api_docs/lints.rs` requires every member to inherit it - measured at 22 of 22.
+
+**What was built instead, because a link check would have been worse than nothing.** `sutura doctor`
+loads the `.so` through the driver manager and reports the outcome, which runs the driver's Go
+runtime inside the shipped binary beside tokio and the release allocator - the coexistence that is
+the real risk and that linking alone cannot show. `just bigquery-driver-check` runs that command
+against BOTH release binaries and asserts the gnu one loads and the static musl one does not, in
+both directions: if musl ever loads, the check refuses and says this record is wrong rather than
+going green. `ci.yml`'s `bigquery-driver-check` job invokes it on the `data_source_bigquery`
+classification, and `ci-aggregate` holds run-or-fail for it.
+
+**And the driver's own BUILD check was gated by nothing until the same change.** It sat only inside
+the `continue-on-error: true` measure-host stage, with no unconditional re-run beneath it the way
+`reuse` and `helm-chart` have - so its exit code was discarded on every push, which is how it stayed
+green while its own script was failing on `Is a directory`. `ci.yml` now realises it in an
+unconditional `ADBC driver` step as well.
+
+### What else moved with the transport
+
+- `WorkloadIdentityBroker` survived with its ports, its cache, its floor and its claim check, and had
+  **no implementor a composition root could reach** - both hops were the wire's. It stopped being what
+  a served deployment attaches, and the eighth amendment below deletes it outright.
+- `sutura serve` attaches `sutura_exec_bigquery::DeclaredPrincipalBroker` instead: the declared
+  subject-to-account map, presented as the identity each job runs as, with a startup refusal for a
+  declaration naming nobody and for the pool expectations `telekom/sutura#817` added, which described
+  an exchange this build does not perform.
+- **Between the transport's deletion and this amendment, a served `impersonation-at-source` `bigquery`
+  source booted clean and was refused on every question.** The posture cross-check passed on
+  `PerSubjectCredential` while the only broker attached was the static one, which holds nothing for an
+  impersonating source. That is the defect this amendment closes, and it is recorded rather than
+  quietly fixed because the shape - a control that reads as present at boot and is absent at request
+  time - is the one this repository treats as worse than an outage.
+- **No release artefact carries a driver.** `nix/shipped.nix` and `nix/oci.nix` publish none, while
+  `SUTURA_BIGQUERY_ADBC_DRIVER` is a hard startup requirement, so `bigquery` is non-functional out of
+  the box on all four triples. And a static musl binary cannot `dlopen` a `.so` at all, so two of the
+  four triples cannot load one however it is shipped - which is now ASSERTED by running the artefact
+  rather than stated (see above). Both are open decisions, not conclusions of this record; the
+  archive route that would close them is the `unsafe_code` section above.
+  **Both are closed by the tenth amendment**, which takes exactly that route: every published
+  artefact links the `c-archive` and no release artefact reads the variable at all.
+- **The driver is loaded at BOOT now, not on the first question.** Both composition roots call
+  `AdbcBigQuery::probe` after reading the path, so a missing or wrong-ABI `.so` stops the process.
+  What that does not establish is that a question can be answered: the probe opens no connection.
+- **`list_tables` warns and SERVES, and the comment claiming otherwise is corrected.** The transport
+  cannot list a dataset (`GetObjects` is unbound), and it is not an authorization refusal - so
+  `serve::boot` takes the WARN arm. The consequence, stated where it is: on a `bigquery` source a
+  mistyped `table:` is not caught at boot; it fails the first question against that model, which a
+  `files` deployment does not do. `the_listing_this_transport_cannot_do_is_not_an_authorization_refusal`
+  pins that the override is READ - review measured that flipping it left the suite green - and **not
+  "both directions", which this line claimed and a constant `false` does not have.** The second
+  direction is a different cell one layer up:
+  `adbc::tests::a_listing_this_transport_cannot_do_is_a_warning_and_not_a_startup_refusal` reads the
+  outcome `serve::boot` acts on.
+
+## Sixth amendment, 2026-09-20: the principal switch is deleted, and WIF replaces it
+
+**The fifth amendment above decided a mechanism the owner rejected, and it is not kept beside this
+one.** That amendment priced a PRINCIPAL SWITCH - `bigquery.impersonate.target_principal`, an
+impersonated credential minted from the deployment's own application default credentials - and was
+honest about its cost: the asking subject's credential was nowhere in the chain, leg 1 was the only
+barrier, and the deployment held `roles/iam.serviceAccountTokenCreator` on every declared account.
+The owner's instruction was *"indeed no fallback! we must work with impersonation!!"*, so the switch
+is **deleted rather than demoted**: `crate::transport::JobIdentity` carries one subject arm, there
+is no option list that names an impersonation target, and a `Presented::SubjectPrincipal` is refused
+by the adapter.
+
+**What ships is Workload Identity Federation, and the route the fifth amendment refused is the one
+taken.** It said `external_account` was unavailable because its `credential_source` is
+file/url/executable/aws only, so a caller's assertion would have to reach the driver on disk. That
+enumeration was right and the conclusion was wrong - it did not read `url_provider.go`, whose source
+kind is a plain `GET` with **arbitrary headers from the credential document**. So:
+
+```text
+bigquery.auth_type = json_credential_string
+bigquery.auth.credentials_type = external_account
+bigquery.auth.credentials = an `external_account` document naming a loopback URL
+  -> go/connection.go: option.WithAuthCredentialsJSON(credType, bytes)
+  -> credentials/filetypes.go: handleExternalAccount, which passes `credential_source` THROUGH
+  -> externalaccount.NewTokenProvider: GET our loopback source, exchange at Google's STS
+```
+
+Three facts from the pinned `cloud.google.com/go/auth v0.23.2` make it work, each measured rather
+than assumed: `filetypes.go` hands `f.CredentialSource` through whole; `Options::validate` performs
+**no** scheme or host check, so a loopback address is accepted; and a non-empty
+`service_account_impersonation_url` is what turns the second hop on, which is why omitting it leaves
+the credential as the pool principal the subject resolved to - two subjects, two principals, with no
+declared map in the middle.
+
+**The four source kinds, priced, because the choice is the security decision.** `url` was taken:
+nothing is written and nothing appears in `argv`, and the per-request document can carry a nonce in
+the path and a secret in a header. `executable` needs `GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES=1`
+on every deployment and its command is one whitespace-split string with no shell, so a per-request
+assertion would travel in `argv` (world-readable) or through the same loopback machinery plus a fork.
+`file` puts the assertion at rest and is the fallback this is preferred over. `certificate` is mTLS
+workload identity with nowhere for a caller's assertion, and `environment_id` accepts only `aws1`.
+
+**What the loopback port costs, stated where the claim is.** It is on `127.0.0.1` with a
+kernel-assigned port, so any local process can connect. Two independent 128-bit values are required
+together and both exist only inside the credential document this process built for one request, so
+the bound is *a local process that can read that document already has the assertion*. That bound
+rests on the document never reaching disk or a log - it is a `Secret` up to one named exposure at the
+driver boundary, and `the_credential_document_is_redacted_under_debug` is the cell on it.
+
+**And `IMPERSONATION` is now true by construction rather than by a doc amendment.** The subject's own
+assertion is what Google verifies; the two postures are XOR
+(`Impersonation::Disabled` for `shared-service-user`, which runs on the deployment's own application
+default credentials and is mandatory there, against `Impersonation::ThroughPool` for
+`impersonation-at-source`); and the pair *a subject at a source with no pool* is a REFUSAL rather
+than a degradation. There is no arm that answers a subject's question as the deployment.
+
+**Two things this amendment does not claim.** Nothing reachable from this repository shows Google
+ACCEPTING the assertion - the document is built and the loopback source is asserted against a real
+socket, and the exchange needs a pool, a project and a hosted run, so
+`docs/where-identity-is-proven.md` keeps its venue at `wired` and **leg 2 is not proven.** And the
+multi-hop case the owner named (Keycloak or Entra, then an RFC 8693 exchange, then the pool) is not
+built: `WorkloadIdentityBroker` was the home for that hop and had no HTTP implementor, and the eighth
+amendment deletes it - so what ships is the single-hop case where the caller's own verified document
+is what the pool trusts, and a multi-hop exchange would start from nothing rather than from a type.
+
+### Addendum to the sixth amendment, 2026-09-20: what review measured on the loopback source
+
+Three corrections, all from breaking the thing rather than reading it. They do not change the
+mechanism; they are the bounds the first cut of it did not have.
+
+**The request bound was nominal.** `MOST_REQUEST_BYTES` was checked BETWEEN lines around a
+`read_line`, which is unbounded WITHIN one line - a review measured 268 MB accepted on a single line
+against a nominal 8 KiB, and raising the constant to `usize::MAX` killed no cell. The read is now
+capped at one byte past the bound and a head that reaches the cap is refused rather than truncated
+and matched, so a caller cannot present both correct values and then any amount of padding.
+
+**One idle connection was a denial of service, and it hung shutdown.** With no credentials at all, a
+local process could connect, send nothing, and the driver's own fetch was never served - the accept
+loop is serial and the socket had no deadline - after which `Drop`'s join never returned. Every
+accepted socket now carries a read and write deadline. **The limit that remains**: connections are
+still handled one at a time, so a process that keeps opening them can DELAY a fetch by up to one
+window each time. It cannot prevent one and it cannot read anything. Handling connections
+concurrently would trade that for a detached handler holding the assertion after the request it
+belonged to ended, which is the guarantee `Drop` exists to give.
+
+**`scope` reaches nothing, and the fifth amendment's replacement did not change that.** Measured
+against the pinned sources: `credsfile::ExternalAccountFile` (`cloud.google.com/go/auth@v0.23.2`)
+has no `scopes` member, so the credential document cannot carry one; and the driver's only scope
+option is `bigquery.impersonate.scopes`, which `connection.go`'s `hasImpersonationOptions` reads as a
+request for service-account impersonation - it then demands a target principal and REPLACES the
+federated credential with an impersonated token source. So `sources.<alias>.workload_identity.scope`
+is declared and sent by nothing; it is not screened in the transport either, because a screened value
+that goes nowhere reads as a control that is in place. `audience` is the one of the three keys the
+transport sends, and `impersonate`'s keys are read for authorization while its values are not read at
+all.
+
+**And the hosted venue asserted the deleted mechanism.** `each_subject_executes_as_the_account_this_source_declared_for_it`
+built a `Presented::SubjectPrincipal` - the shape this adapter now refuses - so it could not have
+reached a dataset, and its comment said a `principal://` answer would mean the hop did not happen,
+which is exactly what this mechanism produces. Rewritten as
+`each_subject_executes_as_its_own_principal_at_the_declared_pool`: two subjects, two DISTINCT
+principals, neither of them the deployment's own. Nothing predicts either string, because the pool
+resolves it.
+
+## Seventh amendment, 2026-09-21: the transport can answer at all, the Arrow read is bounded and checked, and execution does not move to DataFusion
+
+**A configured ADBC source could not answer ANY question, and nothing in this crate showed it.**
+`crate::adbc::AdbcBigQuery::validate` returned an error because ADBC has no call that prices a
+statement without running it - which read as honest here and was fatal one crate up:
+`sutura_app::answer` calls `Warehouse::dry_run` before `execute` and turns any `Err` that is neither
+a spent deadline nor a source refusal into `ServiceError::Warehouse`. So every question against a
+`bigquery` source over this transport was a service error, on a deployment that booted clean. Review
+round 4 of `github.com/telekom/sutura#929` called the PR *adoption scaffolding, not an adopted
+transport*; this is the half of that which was a live defect rather than a missing feature.
+
+The fix is the shape this trait already uses for the same problem - `listing_was_refused`,
+`job_was_refused`, `deadline_exceeded` are all predicates the adapter asks its transport about a
+failure it already holds. `JobTransport::declined_to_dry_run` is the fourth, ADBC answers `true` for
+its own `AdbcError::NoDryRun` variant and nothing else, and `BigQueryWarehouse::dry_run` answers
+`PreFlight::NotAsked` for it. **`NotAsked` and never `Accepted { estimated_bytes: None }`**: the
+port's own documentation is that a defaulted pre-flight reads as *this subject may run this plan*,
+and `sutura_conformance::execute`'s pack compares `estimated_bytes.is_some()` against
+`PRICES_DRY_RUN` on an accepted one. The variant is matched rather than `Uncovered`'s `&'static str`,
+because `list_tables` answers `Uncovered` too and a predicate keyed on text would read a listing this
+transport cannot do as a dry run it declined.
+
+**The limit, and it is a control that got weaker rather than a gap that was always there.** Nothing
+prices a statement on a shipped path now, so `sutura_app`'s spend ledger charges a `bigquery` source
+nothing and `governance.per_replica_spend_ceiling` bounds no source at all - `docs/adr/0030`'s
+counter is live code with no adapter feeding it. `BigQueryWarehouse::PRICES_DRY_RUN` stays `true`
+because it declares what the ENDPOINT can do (a free, slotless `dryRun`, which is still true) and
+because it cannot vary with the transport type; the correction is written at that constant and in
+`.agents/skills/sutura/invariants/SKILL.md`'s spend row, whose *every adapter but BigQuery* is now
+*every adapter including BigQuery*. Binding an ADBC call that prices, or reading the job statistics
+the driver attaches after a run, is what would restore it - neither is built here.
+
+**On DataFusion, the review asked for one of two things and this amendment takes the second
+explicitly, so the absence is named rather than inferred.** The options were *move
+execution and federation to a bounded DataFusion Arrow path*, or *scope this as a transport-only
+change and do not claim the federation goal here*. This is the transport-only scope: the ADBC driver
+replaces the wire and nothing else moves. A `RecordBatch` the driver hands back never enters a
+DataFusion `SessionContext` or a `TableProvider`; it is decoded into `crate::transport::JobRows` and
+a federation leg's rows are re-aggregated by `sutura_app` in memory, exactly as they were under the
+wire. Whether execution belongs on a DataFusion Arrow path is a separate decision with its own
+owner, and building it here would be that work done twice.
+
+**What the same review did measure is a real defect, and it is fixed rather than scoped away.** The
+read was an unbounded double materialisation: every `RecordBatch` was collected into a `Vec` and
+then every row decoded beside it, so a result was held twice before anything downstream could look
+at a working set - and a federation leg carries no `LIMIT` at all (`sutura_domain::plan::leg`'s own
+header says so, because a leg is not an answer), so nothing in the statement bounded what a driver
+could stream back. `sutura_domain::warehouse::Accumulating` - which `docs/adr/0039` step 2 made the
+interior's own guard, replacing the `crate::adbc::decode::Decoding` this sentence used to name -
+now takes one batch at a time off the driver's
+reader, so there is one materialisation; `crate::adbc::MOST_RESULT_ROWS` is a ceiling
+enforced at the batch that crosses it, so the rows past it are never held, and
+`crate::adbc::MOST_RESULT_BYTES` is the byte ceiling beside it (`docs/adr/0009`'s fourth amendment),
+because a row count is no bound at all on a result whose width the caller chooses; and the cast to text is
+one vectorised `arrow_cast::cast` per COLUMN per batch, where it used to sit inside the row loop and
+cast each column's whole array once per row of it.
+
+**A width check is not a schema check, and this one was a wrong answer rather than a failure.** The
+decode compared `batch.num_columns()` against the announced field count and nothing else, so a
+driver handing back two columns of the SAME type in the wrong order produced a transposed answer
+under a certified metric name, silently. Nothing in the pinned graph would have caught it, measured
+rather than assumed:
+
+- `arrow_array::RecordBatch::try_new` validates **positionally** - it zips columns against fields
+  and compares type and nullability. Field names are never compared, which is why a
+  differently-typed swap errors and a same-typed swap does not.
+- DataFusion's name-based mechanism is **opt-in and on the datasource path**. `SchemaAdapter` and
+  `SchemaMapper` are deprecated and their default implementation answers `not_impl_err!`; the live
+  `PhysicalExprAdapter` does resolve by name, and only for a datasource.
+- **Nothing validates that a custom plan's stream matches its declared schema.** The plan contract
+  assumes it and consumers index positionally.
+
+So for a foreign driver behind this transport the obligation is ours and it was unenforced.
+`Decoding::push` now refuses a batch whose field at a position is not the field the schema announced
+there - **name and type** - as a typed `Decode::Mislabelled` carrying the position and both
+descriptors, before a single value is read. The comparison is not a bare `zip`: the width refusal
+runs first and is what makes the pairing total, because a `zip` alone silently matches the shorter
+prefix, which is both halves of the same defect.
+
+**The limit beside it.** This makes the transport stricter than it was: if the pinned driver ever
+emits a batch whose schema differs from the one its own reader announced, a question that used to
+answer now refuses. That is the direction to fail in - a refusal an operator can read beats a
+transposed aggregate nobody can see - but it is a behaviour change and not only a check. And the
+ceiling is a bound on this process's memory, never a cap on an answer: `sutura_domain::plan::MAX_ROWS`
+is the answer cap and travels in the statement's own `LIMIT`.
+
+## Eighth amendment, 2026-09-21: the exchanging broker is deleted, not kept beside the shipping path
+
+**`sts.rs`, `sts/cache.rs` and `sts/tests.rs` - 2,571 lines - are deleted, with the
+`WorkloadIdentityBroker` they held and its three ports (`StsExchange`, `ImpersonateAsAccount`,
+`UnixClock`).** The fifth and sixth amendments took the transport that implemented them; this one
+takes the code that was left.
+
+**Why, in the owner's own terms.** Leg 1 has real, independent evidence: a live Keycloak issues a
+token, the composed binary verifies it and refuses a wrong audience
+(`crates/sutura-cli/tests/served/keycloak_test.rs`), and `keycloak-served-test` is a required
+context. What the `sts` tree added on top of that was *the verified bytes are the bytes offered to an
+exchange* - and after the `wire` removal there was no exchange to offer them to. Every `StsExchange`
+in the tree was a test fake, no composition root could reach the broker, and the ADBC path never
+touched the module. So the tree was evidence about a leg that does not ship, propped up by fakes; the
+owner's decision was to drop it rather than keep artificial scaffolding around a claim that already
+has real evidence.
+
+**What the shipping path does instead.** `DeclaredPrincipalBroker`
+(`crates/sutura-exec-bigquery/src/principal.rs`) decides WHETHER a caller may be served at an
+impersonating source, from a declared per-source map keyed on the full verified subject; the ADBC
+transport then puts that caller's own assertion behind an `external_account` credential document
+served over a loopback source (`crates/sutura-exec-bigquery/src/adbc/subject.rs`), and Google's token
+service - not this process - performs the exchange. There is no second broker to pick and no arm
+a misconfiguration can select back onto an exchange this tree cannot make.
+
+### What went with it, each decided rather than fixed blind
+
+| Dependent                                           | What it became                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sutura-exec-bigquery`'s `lib.rs` re-exports        | Deleted; `principal`'s four types are the crate's whole broker surface                                                                                                                                                                                                                                                                                                                                      |
+| `sutura-exec-bigquery`'s `base64` and `parking_lot` | Deleted from the manifest - the claim decode and the cache lock were their only callers, and `unused-deps` is what caught them rather than a reading                                                                                                                                                                                                                                                        |
+| `sutura-http`'s `identity_e2e`                      | **Kept.** Five of its seven cells never touched the broker; the two that drove it over a fake exchange are deleted, and the `sutura-exec-bigquery` DEV-dependency with them - so one adapter-to-adapter edge is gone                                                                                                                                                                                        |
+| `sutura-cli`'s `serve::tests::agent_identity`       | **Kept.** Its two byte-join cells are deleted; the two spend-headroom cells stay and now run over `DeclaredPrincipalBroker`, the broker `serve` really attaches, which is stronger evidence than the fixture they used to run over                                                                                                                                                                          |
+| `devco/claim-mutations/`                            | Three patches deleted with the cells they killed - `a_declared_subject_resolves_through_the_hop_to_the_declared_sa`, `the_shipped_exchanging_broker_exchanges_the_document_the_agent_route_verified`, `two_callers_over_the_agent_route_offer_two_distinct_subject_tokens_to_the_exchange`. A patch whose anchor no longer exists cannot apply, which is a gate that refuses rather than a gate that passes |
+| `docs/adr/0031`, `docs/adr/0032`                    | Second amendments: each decision is spent, and each says what of its reasoning is still worth reading                                                                                                                                                                                                                                                                                                       |
+| `security.credential_cache`                         | **Left in place, and it reads nothing.** It was already unread before this change; `docs/adr/0031`'s second amendment states the limit rather than this amendment implying a cache still exists                                                                                                                                                                                                             |
+
+**What this does NOT change, and the sentence is the important one.**
+`docs/where-identity-is-proven.md` reads exactly as it did: leg 2's venue stays `wired`, because
+deleting evidence that was only ever a fake-port cell proves nothing. Leg 1's evidence is untouched -
+the Keycloak cells are not in this diff.
+
+## Ninth amendment, 2026-09-21: what is actually pinned, and how the Go module version was read
+
+**This record calls `cloud.google.com/go/auth v0.23.2` *pinned*, and that phrasing overstates what
+this repository pins.** Round 7's review went looking for the pin and found none: there is no `go/`
+directory here and no Go module version DECLARED anywhere in the tree. The version string does occur
+in the tree, in this page and in the doc comments and generated pages that cite
+`credsfile::ExternalAccountFile`; all of those are prose. The one occurrence outside prose is an
+illustrative `# e.g.` inside a shell comment in `nix/bigquery-adbc.nix`, a sample of the
+`<path>@<version>` shape the install phase walks rather than a declaration. **No count is written
+down here on purpose:** the earlier wording counted both the *pinned* phrasings and the in-tree
+occurrences, and each number was already wrong by the round that read it, because nothing compares
+either against the tree.
+
+**What is pinned is the driver SOURCE and its module closure's hash**, two values, both in-tree:
+
+| Value                                             | Where                                                             |
+| ------------------------------------------------- | ----------------------------------------------------------------- |
+| flake input `bigquery-adbc-src`, ref `go/v1.13.0` | `flake.nix`, locked to one rev with its `narHash` in `flake.lock` |
+| `vendorHash` over the whole resolved module set   | `nix/bigquery-adbc-drivers.nix`, shared by all four triples       |
+
+The `cloud.google.com/go/auth` version is therefore *resolved*, not declared: that rev's own
+`go.mod`/`go.sum` chooses it, and the `vendorHash` refuses a build in which anything about that
+choice changed. The pair is as tight as a version literal would be - a different `go/auth` is a
+different `vendorHash` - but it is a different claim, and *pinned* invited a reader to grep for
+something that is not there.
+
+**How the version was read, since a resolved value still has to be readable.** The install phase
+writes every module in the build's own import closure, with its licence file name, to
+`lib/DRIVER-MODULES.txt` beside the built `.so`. Reading that file out of a driver this tree built
+gives `cloud.google.com/go/auth@v0.23.2` on its second line - so `v0.23.2` is correct as a
+measurement of the current pin, and the three facts the sixth amendment took from those sources
+stand. It is not correct as a description of what this repository declares. **The limit:** nothing
+compares that file against a number written down anywhere, so a driver bump moves the resolved
+version silently, and any prose naming `v0.23.2` - here, or in the two doc comments that cite
+`credsfile::ExternalAccountFile` - is a measurement with a date on it rather than a checked fact.
+
+## Tenth amendment, 2026-09-22: the driver IS the artefact, and route 1 was taken with a containment gate
+
+**The seventh amendment's four-way owner decision is settled: route 1.** The owner's ruling was
+*"we could have an option (maybe unsafe) that would use the right constructor on musl to handle SO
+cant we do that?"*, and the narrowing beside it was equally explicit - the `forbid` is lifted for
+one exception, not outright. So `-buildmode=c-archive` is built beside the `c-shared` `.so` by the
+same derivation, `nix/shipped.nix` links it into every published artefact whose triple has one, and
+`ManagedDriver::load_static` opens it. The consequences the seventh amendment predicted all hold:
+the driver ships because it IS the binary, static musl works because no `dlopen` is reached, and no
+release artefact reads `SUTURA_BIGQUERY_ADBC_DRIVER` at all.
+
+**Routes 2, 3 and 4 are recorded as declined rather than deleted.** Route 2 - a crate outside the
+workspace - was re-costed and is worse than it reads: `Cargo.toml`'s `exclude` takes the crate out
+of `--workspace` clippy, out of the test sweep, out of `check-boundaries` and out of
+`check-api-docs`' member census, so the one `unsafe` in the tree would sit in the one crate no gate
+reads. Route 3 stays the right upstream ask and is not a blocker for a release; route 4 is the
+status quo, and *BigQuery is unavailable on half the published triples* is what it costs.
+
+**What route 1 costs, and what pays for it.** `[workspace.lints.rust] unsafe_code` is `deny` now,
+not `forbid`. That change was forced rather than chosen: cargo refuses a member that both inherits
+`[workspace.lints]` and overrides one entry - *"cannot override `workspace.lints` in `lints`"* -
+and an `#[expect(unsafe_code)]` beneath an inherited `forbid` is `E0453`, both measured. What
+replaces the lost strictness is a re-assertion at every crate root, which a crate cannot then
+lower, and `cargo xtask check-unsafe` holding that every root carries it with exactly one declared
+exception.
+
+Measured in both directions, because *the exception did not widen* is the claim worth breaking:
+
+| Probe                                                                                           | Verdict                                                                                                                               |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| an `#[expect(unsafe_code)]` plus an `unsafe extern` block planted in `sutura-tls`               | `error[E0453]: expect(unsafe_code) incompatible with previous forbid` and `error: usage of an unsafe extern block` - does not compile |
+| the same probe with that crate root's `#![forbid(unsafe_code)]` deleted, so only `deny` applies | compiles clean, `Finished dev profile` - **so the workspace level alone is exactly the widening the gate refuses**                    |
+| `cargo xtask check-unsafe` over that second shape                                               | `FAILED - 1 crate root(s) do not re-assert #![forbid(unsafe_code)] ... crates/sutura-tls/src/lib.rs`                                  |
+
+**The limits, next to the claim.** The `unsafe extern` block lives behind
+`cfg(adbc_driver_linked)`, which only a build that links the archive compiles - so `just lint` and
+every `--all-features` cargo gate judge it not at all, and what reads it is the text gate plus the
+`cross` release builds that link it. The gate reads the roots a conventional layout produces rather
+than the target list cargo resolves, so a target declared with an explicit `path` is outside it.
+And the driver a linked artefact carries is pinned by the flake lock and by nothing in the type
+system: a second archive exporting `AdbcDriverInit` would be the wrong driver, silently.
+
+**The fifth amendment's record is spent and this replaces it.** `just bigquery-driver-check` no
+longer hands each binary a `.so` and asserts that the static musl one cannot load it. It runs
+`sutura doctor` against both release artefacts with `SUTURA_BIGQUERY_ADBC_DRIVER` **cleared**, and
+requires each to report a driver that both *initialised* and is *linked into this binary* - so a
+derivation that stopped linking the archive is a red rather than a silent fall back to a mounted
+path. The matcher asserts its own five known-answer cases before reading an artefact, because a
+probe that passes by not measuring is the failure this repository has been bitten by.
+
+**What linking the archive does to the artefact, measured on the x86_64-musl one.** The binary is
+146 MB and its runtime closure gains exactly three paths - `tzdata`, `iana-etc` and `mailcap` -
+which are Go's stdlib data references and not a toolchain, so `checks.one-binary`'s closure rule is
+unaffected. The published image was already correct for the driver's TLS by accident of an earlier
+decision: `nix/oci.nix` puts `cacert` and `tzdata` in `contents` and sets `SSL_CERT_FILE`, which Go's
+`crypto/x509` reads on linux, so a `FROM scratch` image with a carried driver has a CA bundle. Worth
+recording because the opposite would have been invisible until a question was asked.
+
+**What no venue here establishes.** That a question can be answered. `probe` opens no connection
+and reads no credential, and nothing in `just validate` links the static path at all - the four
+`cross` jobs and `bigquery-driver-check` do. `x86_64-unknown-linux-musl` is the one triple whose
+link was measured by hand for this amendment (`static-pie linked`, with a Go BuildID in the ELF
+header); the other three are CI's to report.
+
+## Eleventh amendment, 2026-09-22: the declared account is carried, so the second hop is on
+
+The sixth amendment above got the mechanism right and the DECLARATION wrong. It recorded that
+omitting `service_account_impersonation_url` "leaves the credential as the pool principal the
+subject resolved to - two subjects, two principals, with no declared map in the middle", and that
+was a correct reading of the Go library and a wrong conclusion about the product: a deployment
+declaring `sources.<alias>.workload_identity.impersonate` had its subject-to-account map ACCEPTED
+and then ignored, so changing a configured target principal had no effect on anything.
+`telekom/sutura#929`'s re-review named it a security-critical setting accepted and then ignored, and
+chose enforcement over deleting the contract.
+
+**What changed, and it is one field.** `sutura_domain::identity::Presented::SubjectToken` carries
+`impersonate: Option<PrincipalName>` beside its material; `DeclaredPrincipalBroker` mints the
+account declared beside the asking subject into it; `JobIdentity::AsSubject` carries both; and
+`adbc::subject::SubjectSource::document` renders
+`https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/<account>:generateAccessToken`
+as the document's `service_account_impersonation_url`. So the chain is two links: federate the
+caller's own assertion at STS, then `generateAccessToken` on the declared account with that
+federated credential. Measured off the pinned `cloud.google.com/go/auth v0.23.2`:
+`credentials/internal/externalaccount/externalaccount.go` wraps the federated provider in
+`credentials/internal/impersonate` when and only when that member is non-empty, and that provider
+POSTs the value as a URL verbatim.
+
+**An `Option` and not a fourth `Presented` variant.** A variant means a new exhaustive arm in every
+adapter that matches the enum, to say what the `None` already says; the absence is *no second hop*,
+not a fourth posture. Which of the two an adapter can deliver is the adapter's own fact, so
+`BigQueryWarehouse::job_identity` refuses a `None` as `BigQueryError::NoImpersonationTarget` rather
+than running the question as the pool's own principal - the half-configured deployment being the
+state worth keeping off a dataset.
+
+**Two security properties that are not plumbing.** The value may ride only on `PrincipalName`, which
+is declared by hand: every other principal newtype in `sutura-domain` comes out of
+`principal_newtype!`, which stores the masked form and drops the raw, so on one of those the account
+would reach Google as `s***-a@a***.i***.g***`. And `PrincipalName::parse` is far wider than an
+email (it accepts `/`, `:`, `?`, `#`, quotes and spaces, because it is the parser every principal
+identifier shares) while the value becomes one path segment of the URL that selects which account
+the question runs as. The narrowing is the sending crate's, at both ends:
+`DeclaredPrincipals::parse` refuses a non-account shape as a STARTUP failure, and
+`adbc::identity::authenticate` refuses it again as `AdbcError::UnusableTarget`, because `Presented`
+is a public port any broker can construct.
+
+**No Pulumi resource changed.** `roles/iam.workloadIdentityUser` on each target account carries
+`iam.serviceAccounts.getAccessToken`, so the binding `test-infra/pulumi/google` already declares is
+exactly what the second hop needs; `roles/iam.serviceAccountTokenCreator`, which the deleted
+deployment-side switch would have needed, is still declared nowhere.
+
+**What this amendment does not claim, and the sixth amendment's own exclusion still stands.**
+Nothing reachable from this repository shows Google accepting either hop; the venue stays `wired`
+and **leg 2 is not proven.** And nothing here - no type, lint, hook or gate - checks that the pool's
+principal may actually impersonate a declared account: no boot-time probe is available, since the
+driver's token fetch is lazy, `AdbcBigQuery::probe` opens no connection and reads no credential, and
+a boot-time mint would need a caller's assertion that boot does not have. An account that is
+declared, well-formed and not reachable surfaces as `AdbcError::Adbc` on the first question by that
+subject, never at boot. `scope` still reaches nothing: the document has no `scopes` member, and the
+library sends `cloud-platform` to the STS leg and the caller's own scopes to the impersonation call.
+
+## Twelfth amendment, 2026-09-22: deferred table validation is an accepted decision, with its operational semantics written down
+
+`telekom/sutura#929`'s re-review asked for the *could not be ASKED* answer to stop being a
+described behaviour and become an explicit acceptance decision. The behaviour does not change; what
+changes is that the trade is recorded as a decision with its refusal semantics stated, rather than
+as a paragraph in `docs/serving.md` that a reader may take for an unfinished edge.
+
+**The decision. A boot that cannot ASK a data system about the catalog's tables serves anyway, and
+the catalog is trusted for metadata until the first question against that source.** Accepted, not
+deferred.
+
+**What is deferred, exactly.** Existence of the tables a bundle names on a source whose listing did
+not come back - the case the amendment above classifies as *unreachable, undecodable, or a dataset
+that is not there*. Only that case. The other four answers are startup refusals and stay refusals:
+a table the data system says it does not have, a listing an identity was not allowed to read, a
+listing short of its own total (`Unaccounted`), and a source the catalog reads with no entry
+declaring it. `PreFlight::NotAsked` - every non-`bigquery` adapter's answer - is not this case
+either and was never a refusal.
+
+**Why, and the number is the argument.** A deployment cannot ask a data system about fifty thousand
+tables at startup. The two alternatives were both priced and both rejected here: refusing to start
+whenever a data system is briefly unreachable makes an availability incident out of a transient
+one, and a `skip_preflight` key is a control that is off in exactly the deployment that most needs
+it. The same reasoning the amendment above applies to `Unaccounted` applies in reverse: warning
+where the tree refuses today would be a loosening, and refusing where the tree warns today would be
+a tightening nobody has priced against a real catalog.
+
+**What an operator sees instead of a refusal.** A `WARN` on the startup log naming the source and
+the tables it could not account for, and the process serves. That line is the whole signal; there is
+no second one later, and nothing re-asks. A deployment that wants boot-time certainty gets it by
+authoring an anchor on the metrics that matter - an anchor re-executes at boot and covers both
+halves a listing cannot (the model's columns, and whether the boot identity may read the table).
+
+**When the failure surfaces.** On the **first question against that source**, as that source's own
+error, not at boot and not on a health probe. A mistyped `table:` is a query-time failure for every
+caller who asks a metric that reads it, indefinitely, until somebody reads the `WARN` or the first
+failure.
+
+**What is explicitly NOT promised.** That a green boot means the catalog matches the data system.
+That the `WARN` is escalated, retried, re-asked, or reflected in readiness - it is not, on any of
+the four. That a pre-flight which DID succeed establishes anything beyond table existence: not the
+model's columns, and not that a question's identity may read the table. And that any adapter other
+than `bigquery` asks at all.
+
+**Held by, and the limit on it.** The classification is held by `sutura_app::preflight::ask`'s
+exhaustive match over `TablesPresent` with no wildcard arm - which is what made both composition
+roots fail to compile until each decided - and by the cells the amendment above names. **No
+mechanism holds the sentences in this amendment**: that the `WARN` is the only signal, that nothing
+re-asks, and that readiness ignores it are properties of code that no gate reads as prose. A change
+that started re-asking, or that escalated the `WARN`, would leave this amendment wrong and green.
+Stated here rather than asserted as enforced.

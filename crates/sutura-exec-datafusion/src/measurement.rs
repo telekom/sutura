@@ -15,7 +15,7 @@ use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, Warehouse};
 
 use crate::{DataFusionError, DataFusionWarehouse, WorkingSet};
 use datafusion::execution::memory_pool::{MemoryPool as _, PeakRecordingPool};
@@ -83,7 +83,12 @@ impl Warehouse for MeasuredWarehouse {
         self.warehouse.dry_run(executable, presented, deadline)
     }
 
-    fn execute(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         self.warehouse.execute(executable, presented, deadline)
     }
 

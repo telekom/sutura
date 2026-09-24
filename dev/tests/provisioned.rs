@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The wiring, against services that are actually running.
 //!
 //! Everything in `dev/src` can be tested over a discovery file somebody wrote by hand, and that is

@@ -39,15 +39,15 @@
 //! none.
 //!
 //! **Since #119 every created table carries an EXPIRATION, because `panic = "abort"` means a
-//! cancelled runner's cleanup never runs.** This crate's acceptance leg runs under
-//! `[profile.ci] panic = "abort"` on `nix run .#bigquery-acceptance`, so a killed job unwinds
+//! cancelled runner's cleanup never runs.** The crate's acceptance leg used to run under
+//! `[profile.ci] panic = "abort"` before it was removed alongside the wire; a killed job unwinds
 //! nothing - a `Drop` guard on the loader would be skipped before it ran. Table expiration is the
 //! one mechanism that survives that: the table self-deletes a fixed interval after the DDL, whether
 //! or not anybody drops it. The explicit DROP at the end of a run is the tidy half (no table
 //! lingers even for the interval); the expiration is the guarantee half (a run that never reaches
 //! the DROP still leaves nothing but itself after [`EXPIRATION_HOURS`]).
 //!
-//! The fixture tables are named *with* the run's suffix - see `tests/corpus.rs` - so the DDL
+//! The fixture tables are named *with* the run's suffix - see the crate's `tests/` - so the DDL
 //! carries no dataset or project, which is how a per-run table name stays safe to print in a public
 //! log: the TABLE names are committed fixture names plus a token, and only the dataset and project
 //! are resources.
@@ -61,9 +61,11 @@ use sutura_domain::model::{ColumnName, InvalidIdentifier, TableName};
 
 /// Every column type this importer will declare.
 ///
-/// The five `BigQuery` types [`crate::transport::FieldType`] maps, and no others - so a fixture
-/// cannot produce a table whose columns come back as `Unmapped`. `NUMERIC` is deliberately absent:
-/// nothing in the corpus needs an exact decimal, and a type nothing exercises reads as coverage.
+/// Five `BigQuery` types whose Arrow form `sutura_domain::warehouse::arrow` maps, and no others -
+/// so a fixture cannot produce a table whose columns come back refused. `NUMERIC` is deliberately
+/// absent: nothing in the corpus needs an exact decimal, and a type nothing exercises reads as
+/// coverage. This used to cite this crate's own `FieldType`; `docs/adr/0039` moved the mapping to
+/// the interior and the set it has to stay inside with it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ColumnType {
     Bool,

@@ -19,7 +19,7 @@ use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
-use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Value, Warehouse};
 
 use super::{app, metrics_settings, over};
 use crate::testing::{
@@ -559,8 +559,13 @@ impl Warehouse for PricedWarehouse {
         })
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
-        Ok(self.result.clone())
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
+        Ok(crate::testing::canned(&self.result))
     }
 
     fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
@@ -602,12 +607,19 @@ fn app_with_a_spend_ceiling(settings: sutura_config::Settings) -> axum::Router {
         posture,
         result,
     });
-    let service = crate::surface::LocalService::start(&catalog_of(bundle()), warehouses, sink(), broker(), 1 << 30)
-        .expect("the test bundle validates")
-        .with_spend_ledger(sutura_app::SpendLedger::new(Some(sutura_app::SpendBudget::new(
-            budget.ceiling_bytes(),
-            budget.window(),
-        ))));
+    let service = crate::surface::LocalService::start(
+        &catalog_of(bundle()),
+        warehouses,
+        sink(),
+        broker(),
+        sutura_domain::plan::RefusingCombiner,
+        1 << 30,
+    )
+    .expect("the test bundle validates")
+    .with_spend_ledger(sutura_app::SpendLedger::new(Some(sutura_app::SpendBudget::new(
+        budget.ceiling_bytes(),
+        budget.window(),
+    ))));
     crate::router(&state_over(Arc::new(service), settings)).expect("the test router assembles")
 }
 

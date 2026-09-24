@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The provisioned `DataHub` instance, asked the one question the recorded fixture cannot answer.
 //!
 //! # What this test IS, stated before what it is not, because the distinction is the whole point
@@ -58,7 +59,8 @@
 //!
 //! # `#[ignore]`d, behind `just datahub-acceptance` - and the reason is a DEFECT IN THE SEAM
 //!
-//! This is the `just bigquery-acceptance` precedent and not a preference, and the fact that decided
+//! This follows the precedent of the now-removed `just bigquery-acceptance` leg, and is not a
+//! preference; the fact that decided
 //! it is worth writing down because it affects more than this test.
 //!
 //! **The seam that decided it is repaired, and the venue stays.** `.sutura-dev/endpoints.json` has
@@ -136,9 +138,8 @@ mod tests {
             .map(ToString::to_string)
     }
 
-    /// Built the way `sutura_exec_bigquery::wire::WireAgent::pinned` builds one, minus `https_only`:
-    /// this is loopback plaintext by construction, because the tier publishes an ephemeral HTTP
-    /// port.
+    /// A plain `ureq::Agent`, with no `https_only`: this is loopback plaintext by construction,
+    /// because the tier publishes an ephemeral HTTP port.
     ///
     /// `status_as_error` is the one knob, and it is a knob because the two cells need opposite
     /// halves of `ureq` 3's default. The reachability probe wants a non-2xx to arrive as an `Err`

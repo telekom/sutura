@@ -282,6 +282,13 @@ pub struct VerifiedCaller {
     scopes: Scopes,
     groups: Groups,
     assertion: sutura_domain::identity::Secret,
+    /// When the assertion above stops being one, off the `exp` this verification checked.
+    ///
+    /// **Retained rather than discarded at the gate**, because a broker that PRESENTS the caller's
+    /// own assertion to a data system mints a leg whose validity is this instant and has no second
+    /// lifetime to use. `exp` is in `required_spec_claims`, so a `VerifiedCaller` always has one and
+    /// this is neither an `Option` nor an `Expiry` - the type that can say *never*.
+    expires: u64,
 }
 
 impl VerifiedCaller {
@@ -301,12 +308,14 @@ impl VerifiedCaller {
         scopes: Scopes,
         groups: Groups,
         assertion: sutura_domain::identity::Secret,
+        expires: u64,
     ) -> Self {
         Self {
             chain,
             scopes,
             groups,
             assertion,
+            expires,
         }
     }
 
@@ -326,6 +335,19 @@ impl VerifiedCaller {
     #[must_use]
     pub const fn assertion(&self) -> &sutura_domain::identity::Secret {
         &self.assertion
+    }
+
+    /// When the assertion above stops being one, in seconds since the Unix epoch.
+    ///
+    /// The `exp` this verification already enforced, carried forward so a broker that presents the
+    /// assertion can mint a leg with the same bound rather than with none. Reading it is not a
+    /// second lifetime check: [`crate::inbound::token::TokenValidator::verify`] already refused an
+    /// expired token, and this is what stops one accepted at second 0 of a long answer from being
+    /// treated as valid forever.
+    #[inline]
+    #[must_use]
+    pub const fn expires(&self) -> u64 {
+        self.expires
     }
 
     /// What the token said this caller may do.

@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The answer path end to end: compile, mint, execute, materialise - on the example's own
 //! `DataFusion` engine and CSVs, so #140's two ceilings (the working-set maximum, the request
 //! deadline) have a measured number to be set against rather than "a provisional number nobody
@@ -132,6 +133,7 @@ fn run_question(bencher: divan::Bencher, name: &str) {
             &caller(),
             &fixture.broker,
             &fixture.warehouses,
+            &sutura_domain::plan::RefusingCombiner,
             WorkingSetCeiling::DEFAULT_BYTES,
             Deadline::opened_at(Instant::now(), fixture.budget),
             &SpendLedger::no_budget(),

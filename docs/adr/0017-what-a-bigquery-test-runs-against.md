@@ -315,8 +315,8 @@ table. Worth recording twice over:
 **The transport exists.** [0018](0018-what-the-bigquery-wire-is-built-from.md) is the dependency
 decision this record deferred, and `sutura_exec_bigquery::wire` is what came of it: `jobs.query` over
 a blocking HTTP client already resolved in `Cargo.lock`, behind a default-off feature, with the
-acceptance leg written as `crates/sutura-exec-bigquery/tests/acceptance.rs` and reached by
-`just bigquery-acceptance`.
+acceptance leg written as `acceptance.rs` and reached by
+`bigquery-acceptance`.
 
 So the last bullet above is corrected rather than left standing: a developer who wants to try it now
 has the transport and needs only `just gcloud-login` and three values in their own environment.
@@ -330,7 +330,7 @@ hand-built `SUM` over a two-column table a developer supplies. It contains no jo
 `ISOWEEK` and `DATE_TRUNC`'s argument order are exactly the two things this page MEASURED the parse
 check to be blind about, so they are what a live run is worth most for. **The leg this page specifies
 is #78's importer shape pointed at a dataset - load the fixtures, run the corpus's questions, compare
-rows with the engine - and it is now built**, as `crates/sutura-exec-bigquery/tests/corpus.rs`.
+rows with the engine - and it is now built**, as `corpus.rs`.
 **Corrected: this sentence said *it is not built*, and the third amendment below already quotes it as
 the sentence that stopped being true** - so this record contradicted itself while `docs/adr/0018` and
 `docs/architecture.md` both cite it as their authority for the opposite. The quotation in that
@@ -440,15 +440,18 @@ because a reader arriving at an amendment wants to know which of its limits a la
 **Corrected: the premise moved and the consequence with it.** `IMPERSONATION` is
 `ImpersonationCapability::PerSubjectCredential` now, so an `impersonation-at-source` declaration
 against this adapter is no longer refused by the posture cross-check alone - `deliverable_by`
-accepts it. The broker is built too: `crates/sutura-exec-bigquery/src/sts.rs`'s
-`WorkloadIdentityBroker` performs the exchange, and `sutura-serve`'s `bigquery` composition
-attaches it (#284). What gates per-subject execution is narrower than "nothing composes it" -
-**superseded 2026-09-16:** a hosted run of `bigquery-exchanged-identity` exchanged each principal's
-own assertion against a real STS and resolved it to that principal, so leg 2 is proven for BigQuery
-through the declared per-source map. AGENTS.md's sentence now reads: *"Leg 1 (knowing who is
-asking) is built. Leg 2 (a source executing AS them) is proven for BigQuery through a declared
-per-source map, by a hosted run whose job holds both principals' keys by construction - so the
-exchange mechanics resolve per subject; no served binary has executed as a caller yet."*
+accepts it. The broker was built too: `sts.rs`'s `WorkloadIdentityBroker` performed the exchange
+and `sutura-serve`'s `bigquery` composition attached it (#284) - **both deleted since**
+(`docs/adr/0018`'s eighth amendment), leaving `DeclaredPrincipalBroker` as what a served deployment
+attaches. What gates per-subject execution is narrower than "nothing composes it" -
+**superseded 2026-09-16, and superseded AGAIN 2026-09-20:** a hosted run of
+`bigquery-exchanged-identity` exchanged each principal's own assertion against a real STS and
+resolved it to that principal, and for four days AGENTS.md read leg 2 as proven on the strength of
+it. **That run is of code this tree no longer contains** - the workflow, the exchange and the
+workload-identity pool went with the HTTP transport (`docs/adr/0018`, fifth amendment). The
+sentence quoted here is not reproduced, because `check-guidance`'s leg-2 rule refuses it and
+quoting a false claim in order to date it is what an amendment heading already does.
+AGENTS.md now records leg 2 as built and unproven, with the hosted venue `wired`
 (`docs/where-identity-is-proven.md`).
 
 ## Third amendment, 2026-08-31: the corpus leg is built, and two of the four bullets are answered
@@ -459,8 +462,8 @@ being true, and it named itself as the thing to watch:
 > **The leg this page specifies is #78's importer shape pointed at a dataset - load the fixtures, run
 > the 21 questions, compare rows with the engine - and it is not built.**
 
-It is built. `crates/sutura-exec-bigquery/tests/corpus.rs`, three `#[ignore]`d tests behind the same
-`just bigquery-acceptance` the smoke leg uses. **And it has RUN, green, in CI on 2026-08-31** - the
+It is built. `corpus.rs`, three `#[ignore]`d tests behind the same
+`bigquery-acceptance` the smoke leg uses. **And it has RUN, green, in CI on 2026-08-31** - the
 `bigquery-acceptance` job, 8 tests passed, five of them the smoke leg's and three this one's, against
 the `bq-test` environment's real dataset. So the sentence above is superseded by a measurement rather
 than by an intention.
@@ -752,8 +755,8 @@ sign-on. The venue for that is a developer's own machine, one-off, and recorded.
 
 ### What each cell required, and which are now true
 
-**The fakes cell is the oldest and still holds.** The wire is exercised against a fake
-[`transport::JobTransport`] and the broker against a fake [`StsExchange`] - a fake implements the port,
+**The fakes cell is the oldest and still holds.** The wire was exercised against a fake
+[`transport::JobTransport`] and the broker against a fake `StsExchange` - a fake implements the port,
 never a documented HTTP layer, so a test can never assert our own request bytes back to us. Nothing in
 this amendment changes it; it is here because a decision about venues starts with the one venue already
 settled.
@@ -939,9 +942,11 @@ than how long a REQUEST may - one number both roots read - and that is a setting
 than this record's.
 
 **Superseded by `docs/adr/0029`.** `QueryDeadline::within_request_timeout` and `CALLS_PER_ANSWER` are
-deleted: a request-time job now derives `timeoutMs`/`jobTimeoutMs` from the port's own `Deadline`,
-opened once per answer and shared by every call it makes, rather than from a share of this adapter's
-own configured job bounds divided in advance. This composition root now fills `JobBounds` from
+deleted: a request-time job is handed the port's own `Deadline`, opened once per answer and shared
+by every call it makes, rather than a share of this adapter's own configured job bounds divided in
+advance. It is handed it and nothing sends it on - `timeoutMs`/`jobTimeoutMs` were `jobs.query`
+request parameters and went with the HTTP transport, so this sentence's earlier *derives* is
+retracted by `docs/adr/0029`'s second amendment. This composition root now fills `JobBounds` from
 `server.request_timeout_seconds` directly - the number this paragraph's limit measured against the
 old arithmetic no longer applies, because there is no longer an arithmetic here to measure.
 
@@ -1172,7 +1177,7 @@ where the documented source build did not compile.
   release-profile probe would double the step's cost for a codegen difference nobody has priced; the
   concession is in the step's printed notice instead, where a reader of a green run will see it.
 - **The probe links and never RUNS**, so nothing here says the feature works - only that it builds.
-  `just bigquery-acceptance` is the leg that answers the other question.
+  `bigquery-acceptance` is the leg that answers the other question.
 - **Binary size is unmeasured**: no step prints it, so the artefact-closure argument above is still
   qualitative.
 - **`sutura-serve`'s `tls` and `bigquery` are deliberately unprobed**, so none of this is evidence
@@ -1263,11 +1268,11 @@ dataset (`vars.SUTURA_BQ_DATASET`), not on the ref, with `cancel-in-progress: fa
 runs against the one `bq-test` dataset therefore QUEUE rather than interleave. It is the belt, not
 the braces: the per-run suffix is what makes them safe, and the developer's own local run is a
 concurrent writer the group cannot serialise - its per-run table names announce it on the shared
-dataset, and the `just bigquery-acceptance` comment says that in one sentence.
+dataset, and the `bigquery-acceptance` comment says that in one sentence.
 
 ### What becomes provable, and how
 
-`just bigquery-acceptance` twice concurrently, locally, both green - the table names differ per run,
+`bigquery-acceptance` twice concurrently, locally, both green - the table names differ per run,
 and each run drops its own. The CI job is green on a branch, its printed table names carrying the
 run suffix.
 
@@ -1306,7 +1311,7 @@ principals is not two subjects, and eliding those is the overstatement that page
 ### Three decisions, and the reason each went the way it did
 
 **It has its own task and its own nix app rather than being a third leg inside
-`just bigquery-acceptance`.** It needs five values and two key documents the other two legs do not,
+`bigquery-acceptance`.** It needs five values and two key documents the other two legs do not,
 and one task demanding all of them would make the legs a developer holding one credential *can* run
 unreachable. Both apps filter on the test BINARY and not on a test list, so the property the
 acceptance app's comment states survives: a test added to either target is reached without a count
@@ -1638,8 +1643,8 @@ change takes that measurement.
 `github.com/telekom/sutura#685` measured it: *"`checks.one-binary` and `checks.shipped-features`
 themselves now build every release and release-performance target at this feature set"* is false
 for the second half of that claim. `checks.one-binary` reads `crossPackages."${b.bin}-${target}"`
-(`nix/shipped.nix:545`) - the unsuffixed key - and `checks.shipped-features` reads
-`nativeBinaries.${b.bin}` (`:659`), the native, unsuffixed key. Neither expression ever names the
+(`nix/shipped.nix:573`) - the unsuffixed key - and `checks.shipped-features` reads
+`nativeBinaries.${b.bin}` (`:687`), the native, unsuffixed key. Neither expression ever names the
 `-performance` suffix, so neither gate builds or reads a `release-performance` target; both are
 release-profile only. `github.com/telekom/sutura#685`'s own binaries slice (musl at
 `release-performance`) is a separate, matrix-only fix that does not touch either gate either.
@@ -1679,3 +1684,87 @@ gate does NOT hold**: `Allowed to claim` is free prose, read only far enough to 
 parseable - like `What it costs`, no verdict vocabulary applies to it, and nothing checks that its
 wording agrees with the *Which venue answers which claim* matrix below it. That agreement is
 review's, the same limit this page's own foot already states for `Where it runs`.
+
+## Nineteenth amendment, 2026-09-21: the two required BigQuery source keys reach nothing
+
+*The three keys a served source needs* says `max_bytes_billed` is **"the only bound on bytes SCANNED
+anywhere in this repository and the only number in the settings tree that spends money"**, and that
+its range stays the adapter's - `BytesBilledCeiling::parse` - "so there is one parse of it and a value
+outside the range is a startup refusal naming the key". **None of that is true at HEAD, and the
+number is now the weakest thing in the settings tree rather than the most consequential.**
+
+`BytesBilledCeiling` went with the HTTP transport, and so did the `jobs.query` parameter it fed. It
+was not replaced: the ADBC driver is given no ceiling at all, the value is carried to no data system,
+and - the part worth stating on its own - **there is no parse of it anywhere now**, so a declared
+zero and a declared `u64::MAX` are both accepted at boot. The same bullet's `credential_file` is in
+the same position: required, checked absolute, and passed nowhere, because the driver authenticates
+itself (`crates/sutura-cli/src/sources/bigquery.rs` records that at its own boot line, which is where
+this was found).
+
+**Why they are still required rather than removed here.** Dropping a required key is a settings-schema
+break, and a deployment that stops declaring a spend ceiling because this repository stopped reading
+one is the worse outcome: the bound belongs at the source system either way. So they stay, declared,
+with the limit written where it is read - `crates/sutura-config/src/sources/placement.rs`'s two field
+docs and `docs/serving.md`'s sources section - and removing them is its own decision.
+
+**What bounds spend: nothing in this repository, and `governance.per_replica_spend_ceiling` is not
+the replacement.** That ceiling is `sutura_app::SpendLedger`, charged from a dry run's estimate, per
+subject, inside one replica's window - a bound on what this process ADMITS, never on what BigQuery
+bills, and per replica, so N replicas would be N ceilings. **It is inert on a `BigQuery` source over
+ADBC.** No ADBC call prices a statement, so `AdbcBigQuery::validate` declines,
+`BigQueryWarehouse::dry_run` answers `PreFlight::NotAsked`, and a `None` estimate is *not counted*
+rather than *free*: nothing is charged and nothing is refused. Measured rather than inferred -
+neutralising the ledger's refusal killed only cells running over a priced fake, because no shipped
+transport can reach it. So a deployment's only real bound is at the source system, which is where the
+two required keys above already point. Retracting the claim is the correction here; inventing a
+ceiling this repository does not send would have been the defect.
+
+## Twentieth amendment, 2026-09-22: `max_bytes_billed` reaches the driver, and the ceiling it is not
+
+The Nineteenth amendment's *"there is no parse of it anywhere now"* and *"the ADBC driver is given no
+ceiling at all"* are **no longer true, and the reason they could be fixed is that the driver can be
+asked.** The previous round declined this decision on the grounds that no driver option is verifiable
+without a driver and a network. The flake pins the driver's source (`bigquery-adbc-src`, tag
+`go/v1.13.0`), so its option table is readable in the nix store, and that is where this was settled
+rather than by guessing:
+
+- `go/driver.go` declares `OptionQueryMaxBytesBilled = "bigquery.query.max_bytes_billed"`;
+- `go/statement.go`'s `SetOptionInt` assigns it to `queryConfig.MaxBytesBilled`, which is BigQuery's
+  own `maximumBytesBilled` job configuration - so the bound is enforced at the service;
+- it is an INTEGER option, and `adbc_ffi` routes an `OptionValue::Int` to `StatementSetOptionInt`
+  only at ADBC revision 1.1.0. The driver is opened at `AdbcVersion::default()`, which is that
+  revision. Sent as a string it would reach the driver's `SetOptionString`, whose match does not
+  carry the key, and come back `NotImplemented`.
+
+So *The three keys a served source needs* reads true again: `BytesBilledCeiling::parse` is back, in
+`crates/sutura-exec-bigquery/src/adbc/ceiling.rs` rather than in the deleted wire, it is the only
+parse of the number, and a value outside its range is a startup refusal naming the key and the
+source. Both composition roots parse it at the seam the two resource ids are already parsed at. The
+option is set in `adbc::prepared`, which every statement this transport submits passes through - a
+leg, a verified anchor, the identity read and a fixture load - so no call site can opt out. The cell
+is `adbc::tests::every_statement_this_transport_submits_carries_the_configured_bytes_billed_ceiling`,
+which asserts the exact option key and value over the recording statement fake, because a
+*misspelled* key is not a loud failure: an unknown key is `NotImplemented`, but a key that happens to
+name a different option of the driver's own would set something else and still bill the scan.
+
+**Two values are refused rather than sent**, which is what makes this a parse and not a cast. Zero is
+BigQuery's own spelling of *no ceiling* - the field is read as unset below one - so a deployment that
+wrote the tightest bound imaginable would have been given none at all; and a value above one tebibyte
+is refused as a bound on the bound, being indistinguishable from no ceiling in practice.
+
+**What this does NOT close, stated because the Nineteenth amendment's own retraction is still half
+right.** `maximumBytesBilled` bounds bytes billed for ONE JOB. N questions cost N times it. It is not
+a bound on a deployment's total spend, on one subject's spend, or on any window - and on a
+capacity-priced reservation a job is billed for SLOT TIME rather than for bytes scanned, so there
+this ceiling bounds the scan without bounding the bill. `governance.per_replica_spend_ceiling` is
+still inert on a `BigQuery` source for exactly the reason that amendment gives: no shipped ADBC call
+prices a statement, `AdbcBigQuery::validate` declines, and a `None` estimate is *not counted*.
+
+**That half is possible rather than blocked, and it was deliberately not built here.** The same
+pinned driver carries `OptionQueryDryRun = "bigquery.query.dry_run"`, and `go/record_reader.go`'s
+`makeDryRunReader` attaches `BIGQUERY:statistics:query:total_bytes_processed` to the Arrow schema it
+returns - which is the number the ledger charges. What is missing is a venue that can OBSERVE it: no
+check in this repository reaches a real dataset, so a `validate` built on that metadata would sit on
+the hot path of every question with its own failure mode unmeasured, and a `per_replica_spend_ceiling`
+that reads as enforced when it may not be is worse than one that is documented as inert. The evidence
+above is recorded so the next round starts from the option name rather than from the question.

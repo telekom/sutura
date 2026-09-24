@@ -475,7 +475,25 @@ impl PostureNotDeliverable {
 /// declaration is told why, not just that.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImpersonationCapability {
-    /// There is a place in this adapter's path for a subject's own credential to arrive.
+    /// There is a place in this adapter's path for the ASKING SUBJECT to arrive, so a source
+    /// declared [`SourcePosture::ImpersonationAtSource`] can be opened here.
+    ///
+    /// **The name is accurate again, and a round of this doc argued the opposite.** It said the
+    /// variant was "wider than its name" because the only shipping adapter that declared it
+    /// delivered a [`SubjectPrincipal`](crate::identity::Presented::SubjectPrincipal) - a principal
+    /// the data system switches to on a connection the DEPLOYMENT authenticated, with nothing the
+    /// subject possesses in the chain. That mechanism was deleted:
+    /// `sutura-exec-bigquery` federates the asker's own verified assertion and REFUSES the principal
+    /// shape, so a subject's own credential is exactly what arrives.
+    ///
+    /// **So a third variant naming the principal switch has nothing left to name**, and this is
+    /// where that decision is recorded rather than in the adapter that prompted it. Should a future
+    /// adapter deliver the weaker shape, the vocabulary question comes back with it.
+    ///
+    /// **What this variant still does NOT tell a reader**, and the boot check does not need it to:
+    /// how much of the caller's own authorization is in the chain at the source. That is the
+    /// adapter's own documentation, and the only thing [`SourcePosture::deliverable_by`] asks is
+    /// whether the impersonating posture is deliverable at all.
     PerSubjectCredential,
     /// There is not. An in-process engine over local files is this: one process, one operating-system
     /// identity, and nowhere for a subject to appear. Saying so explicitly is the point of the
@@ -632,7 +650,7 @@ impl ExecutedAs {
     ///
     /// Consumes and returns, so a record is built in one expression and there is no half-built state
     /// for something else to read. The federated answer path constructs the second leg here and
-    /// groups the two in [`crate::plan::federated::FederatedPlan::combine`], so the shape of this
+    /// groups the two in the combiner behind [`crate::plan::FederationCombiner`], so the shape of this
     /// record is what decides whether a leg can be added without moving the digest - which is why it
     /// was settled before an answer format shipped rather than after.
     ///

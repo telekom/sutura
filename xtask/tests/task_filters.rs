@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Literal selector parity through the real `check-scope` entry point, without running a venue.
 //! These fixtures hold text selection only, not shell/Nix evaluation or live identity behavior.
 

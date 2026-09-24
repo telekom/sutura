@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The real gate must finish resolved-feature admission before it compiles either shipped root.
 //! Fake Cargo owns only the subprocess boundary; no process-global environment or cwd is changed.
 

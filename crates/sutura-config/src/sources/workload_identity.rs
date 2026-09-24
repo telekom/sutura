@@ -1,48 +1,61 @@
-//! The token-exchange setup one `impersonation-at-source` source declares.
+//! The Workload Identity Federation setup one `impersonation-at-source` source declares.
 //!
-//! **This is the tape a subject's own credential is exchanged against** - RFC 8693 handed to a
-//! Workload Identity Federation provider. A source that executes as the asking subject has to say
-//! *which* provider receives the subject's token and *what the exchanged credential may do*, and
-//! both are that source's declaration rather than this process's guess. See `docs/adr/0008` and the
-//! issue that wired the adapter that presents one.
+//! **This process performs no exchange.** `audience` names the pool a subject's own assertion is
+//! federated against, and the federating is Google's token service's, driven by the driver from the
+//! `external_account` document `sutura_exec_bigquery`'s ADBC transport builds. A source that
+//! executes as the asking subject has to say *which* pool receives that assertion, and that is the
+//! source's declaration rather than this process's guess. See `docs/adr/0008` and `docs/adr/0018`'s
+//! sixth amendment.
 //!
-//! The two newtypes are declared here, in the settings tree that owns the value, and the broker that
-//! performs the exchange holds its own copies in the adapter that links it - the same reason
-//! [`BillingProject`] is checked both here and in the transport that interpolates
-//! it: an adapter may not depend on the settings tree, so the format is checked where it is declared
-//! AND where it is sent.
+//! **What each declared value actually reaches.** `audience` is sent. `scope` is parsed and sent
+//! nowhere: the credential document has no `scopes` member, and the driver's own scope option
+//! selects the DELETED principal-switch mechanism rather than this one. `impersonate`'s KEYS decide
+//! which subjects a source may be served for, and since `telekom/sutura#929` F3 its VALUES name the
+//! account each of those subjects executes as - sent as the credential document's
+//! `service_account_impersonation_url`, so changing one changes which account a caller's questions
+//! run as.
+//! `expected_issuer`/`expected_audience` are REFUSED at boot by
+//! `sutura_cli::serve::broker` - the RFC 8693 hop that checked them is deleted
+//! (`docs/adr/0034`, both amendments), and a declaration nothing reads is a control that reads as
+//! being in place.
+//!
+//! The two newtypes are declared here, in the settings tree that owns the value, and the adapter
+//! that sends `audience` holds its own copy - the same reason [`BillingProject`] is checked both
+//! here and in the transport that interpolates it: an adapter may not depend on the settings tree,
+//! so the format is checked where it is declared AND where it is sent.
 
-/// The audience a subject token is exchanged for: a workload identity provider resource.
+/// The pool a subject's own assertion is federated against: a workload identity provider
+/// resource.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WifAudience(String);
 
-/// The OAuth scope the exchanged credential is minted for.
+/// The OAuth scope an operator declares for the federated credential. Sent by nothing - see
+/// [`WorkloadIdentityConfig::scope`].
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WifScope(String);
 
-/// The token-exchange setup a `impersonation-at-source` source needs.
+/// The Workload Identity Federation setup a `impersonation-at-source` source needs.
 ///
-/// **`impersonate` is the second hop, telekom/sutura#376's iamcredentials step, and it is additive.**
-/// An entry with an empty map keeps today's behaviour exactly: a bare RFC 8693 exchange, presented as
-/// the caller's own federated credential. A subject present as a key is the ONLY way a source ever
-/// asks Google's `iamcredentials.generateAccessToken` for anything - there is no fallback to the
-/// deployment's own identity for a caller absent from the map, because the broker that reads this
-/// refuses such a caller before any network call rather than answering as the process.
+/// **`impersonate` decides WHO MAY BE SERVED, and nothing else.** A subject present as a key is the
+/// only caller a source may be asked as; a caller absent from it is refused by
+/// `sutura_exec_bigquery::DeclaredPrincipalBroker` before any network call rather than answered as
+/// the process. **And the declared account beside each key decides WHO that caller becomes**: it
+/// is sent as the credential document's `service_account_impersonation_url`, so the pool resolves
+/// the subject to its own principal and that principal then impersonates this account
+/// (`telekom/sutura#929` F3 - a round of this adapter read the keys and ignored the values). An
+/// empty map, and an account this adapter cannot name in a request, are both refused where they
+/// can become a startup failure, by `DeclaredPrincipals::parse`.
 ///
-/// **`expected_issuer` and `expected_audience` name what the pool itself trusts, and both are the
-/// missing link telekom/sutura#817 names.** Leg 1 (who is asking) verifies a document against
-/// `security.inbound`'s issuer and audience; the exchange hands that *same* subject token to
-/// Google STS for this pool. Unless the pool's trusted issuer and its STS audience are the very
-/// values leg 1 verifies, the two trust roots are unconnected by construction - a document leg 1
-/// accepts is one the pool declines. Declaring them beside the exchange makes the link mechanical:
-/// the broker refuses a boot whose leg 1 can never satisfy the stated pool, and a runtime cell
-/// asserts the asserted document actually carries them before it is offered to a real STS.
+/// **`expected_issuer` and `expected_audience` are refused at boot.** They named what the pool
+/// itself trusts, so that a document leg 1 accepts could not be one the pool declines -
+/// telekom/sutura#817's seam. The mechanism that compared them was the RFC 8693 hop and its claim
+/// check, both deleted (`docs/adr/0034`, both amendments), so `sutura_cli::serve::broker` refuses a
+/// source declaring either, naming both keys. They stay parsed and refusable rather than dropped so
+/// that a deployment which once declared them fails loudly; whether the settings tree should keep
+/// them at all is an owner decision `docs/adr/0034` does not take.
 ///
-/// **Both are `Option`, and absent keeps today's deployment exactly.** A source that declares no
-/// expectation still exchanges as before; the seam only graduates a deployment that writes the two
-/// roots down. That is deliberate: the pool expectation is a value an operator has to know (it is
-/// this deployment's own pool configuration), and failing an existing bare-exchange deployment over
-/// a value it never wrote would be the same over-reach `impersonate` is careful not to commit.
+/// **Both are still `Option` and a PAIR**, refused unless both or neither are present - a lone
+/// value would be half a comparison even once something compares them again.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkloadIdentityConfig {
     audience: WifAudience,
@@ -99,13 +112,12 @@ impl WorkloadIdentityConfig {
                 return Err(InvalidWorkloadIdentity::DuplicateImpersonationSubject);
             }
         }
-        // **The twin-root link is a PAIR, telekom/sutura#817 - both or neither.** A source that
-        // declares only one expectation names a half the broker's boot comparison and the mint
-        // claim check both refuse to act on, so a lone value would be a declaration nothing enforces:
-        // the exact gap #817 exists to close. Reject it here, at the boundary that can.
-        // (`assertion_matches_expectations` and `build_broker` both require both `Some`, and a
-        // partial declaration is not "a bit of a link" - it is a documented expectation the runtime
-        // quietly ignores.)
+        // **The twin-root link is a PAIR, telekom/sutura#817 - both or neither.** A lone value is
+        // half a comparison, so it would be a declaration nothing could enforce even if something
+        // compared them - the exact gap #817 exists to close. Refused here, at the boundary that
+        // can. Nothing compares them TODAY: the RFC 8693 hop and its claim check are deleted and
+        // `sutura_cli::serve::broker` refuses either key outright, so what this arm decides is only
+        // which error an operator gets.
         let (expected_issuer, expected_audience) = match (expected_issuer, expected_audience) {
             (None, None) => (None, None),
             (Some(issuer), Some(audience)) => (
@@ -133,7 +145,19 @@ impl WorkloadIdentityConfig {
         &self.audience
     }
 
-    /// The scope the exchanged credential carries.
+    /// The scope the exchanged credential would carry, and **no transport in this build sends it.**
+    ///
+    /// Stated here because this is where an operator declares it. The shipped path federates the
+    /// asker's own assertion through an `external_account` credential document, and the pinned
+    /// driver has nowhere to put a scope: the document shape
+    /// (`cloud.google.com/go/auth@v0.23.2`'s `credsfile::ExternalAccountFile`) has no `scopes`
+    /// member, and the driver's own `bigquery.impersonate.scopes` option is read as a request for
+    /// service-account impersonation, which replaces the federated credential rather than scoping
+    /// it. The `BigQuery` client's own default scope applies instead.
+    ///
+    /// **Declared and unread, not declared and ignored** - the distinction is that this is the
+    /// sentence an operator meets, so nobody reads a narrowed scope as a control that is in place.
+    /// Removing the key is a settings break and a follow-up; misreporting it is a defect now.
     #[inline]
     #[must_use]
     pub const fn scope(&self) -> &WifScope {
@@ -147,14 +171,16 @@ impl WorkloadIdentityConfig {
         &self.impersonate
     }
 
-    /// The issuer the pool trusts, if the declaration named one - `None` keeps the bare exchange.
+    /// The issuer the pool trusts, if the declaration named one. `Some` is refused at boot -
+    /// nothing compares it; see the type's own doc.
     #[inline]
     #[must_use]
     pub const fn expected_issuer(&self) -> Option<&crate::IssuerUrl> {
         self.expected_issuer.as_ref()
     }
 
-    /// The audience the pool accepts, if the declaration named one - `None` keeps the bare exchange.
+    /// The audience the pool accepts, if the declaration named one. `Some` is refused at boot,
+    /// for [`WorkloadIdentityConfig::expected_issuer`]'s reason.
     #[inline]
     #[must_use]
     pub const fn expected_audience(&self) -> Option<&WifAudience> {
@@ -162,12 +188,15 @@ impl WorkloadIdentityConfig {
     }
 }
 
-/// The service account a declared subject's exchanged credential is impersonated into.
+/// The service account an operator declares beside a subject in `impersonate`.
 ///
-/// **Checked here, and checked again where it is sent.** The same reason [`WifAudience`] gives:
-/// `crates/sutura-exec-bigquery/src/wire/iamcredentials.rs` interpolates this value into a request
-/// path and may not depend on this crate, so the format is validated once at declaration and once at
-/// the adapter that sends it.
+/// **Parsed here and parsed AGAIN by the crate that sends it.** It is interpolated into one path
+/// segment of the credential document's `service_account_impersonation_url`, which decides which
+/// account the question runs as, so the check belongs where the risk is as well as where the value
+/// is declared - `sutura_exec_bigquery::principal::names_a_service_account` applies the same rule at
+/// parse and at send. That is deliberate duplication, not drift: the domain's
+/// `PrincipalName::parse` between them accepts `/`, `:` and `?`, because it is the parser every
+/// principal identifier shares.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WorkloadIdentitySa(String);
 

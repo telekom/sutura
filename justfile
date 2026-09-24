@@ -124,7 +124,8 @@ bench:
 
 # THE FOUR E2E TARGETS BELOW are all gates: `checks.nextest` runs each, because files, a loopback
 # port and a pipe need no network and no credential. Each exists to run its one target while working
-# on it, not as a second tier, and unlike `just bigquery-acceptance` nothing in them is `#[ignore]`d.
+# on it, not as a second tier, and unlike the (since-removed) BigQuery acceptance leg nothing in them
+# is `#[ignore]`d.
 
 # Run the end-to-end suite against the composed `sutura serve` command.
 #
@@ -236,7 +237,10 @@ ci:
     # helm-chart IS in this list rather than `just shipped`'s: it lints and renders one chart and
     # validates against three vendored schema files, seconds rather than the minutes a release
     # profile build costs - `nix/helm-chart.nix` carries the derivation.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart; do
+    # adbc-driver-bigquery IS in this list: it is the one venue that realises the four cross
+    # `libadbc_driver_bigquery.so` builds (review telekom/sutura#913 round 1 found no gate built the
+    # driver), so a broken driver triple reds this task like any other gate check.
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L
     done
@@ -287,6 +291,36 @@ gates: hygiene
     # compiled here and executed by nothing. Two were in that state when this landed.
     cargo run -q -p xtask -- check-default-feature-tests
     bash nix/run-gate.sh crap
+
+# LEG 2 for BigQuery: two declared subjects, two accounts, `SESSION_USER()` as the oracle. Needs a
+# real project whose accounts this identity may impersonate - `docs/where-identity-is-proven.md`
+# carries what a green run may be cited for, and both cells panic naming the variable they lack
+# rather than skipping.
+# `#[ignore]`d, so `just test` never reaches them, and this is NOT a gate: `just validate`'s nix
+# checks have no network at all, so nothing here can run there.
+# CI runs the same leg through `nix run .#bigquery-declared-principal`, on the pinned toolchain,
+# from `.github/workflows/bigquery-declared-principal.yml`. Keep this filter aligned with that app;
+# neither derives the other - `keycloak-served-test`'s own pattern - and this recipe runs the
+# developer's own cargo directly rather than delegating, which is what makes it useful on a laptop
+# that already has the project configured.
+
+# Ask a real dataset who each declared subject's question ran as.
+bigquery-declared-principal *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "bigquery-declared-principal: scope sutura-exec-bigquery - the two hosted cells that read \`SESSION_USER()\` per declared subject."
+    echo "bigquery-declared-principal: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
+    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
+      -E 'test(/declared_principal::/)' {{ args }}
+
+# `nix/bigquery-driver-check.sh` carries the whole argument: what it loads, what a green run does
+# NOT establish, and why the musl outcome is asserted in both directions. x86_64-linux only - it
+# refuses elsewhere rather than skipping.
+
+# Load the ADBC driver into the gnu and static musl binaries and read the outcome - the `ci`
+# profile by default; `SUTURA_DRIVER_CHECK_PROFILE=release` asks the published build.
+bigquery-driver-check:
+    bash nix/bigquery-driver-check.sh
 
 # The finishing sequence, over the committed branch diff. Needs a clean tree.
 ship-check:
@@ -597,58 +631,6 @@ infra-set:
     case "${PULUMI_BACKEND_URL:-file://{{ justfile_directory() }}/test-infra/pulumi/google}" in file://*) test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1) ;; esac
     STACK="{{stack}}" BQ_TEST_ENV="{{bq_test_env}}" PULUMI_BACKEND_URL="${PULUMI_BACKEND_URL:-file://{{ justfile_directory() }}/test-infra/pulumi/google}" bash {{ justfile_directory() }}/test-infra/pulumi/google/sync-bq-test-env.sh
 
-# Live BigQuery acceptance is outside `just validate`: nix checks have no network. CI runs it in
-# `bq-test` for pushes and same-repository PRs, not forks without secrets. The dataset is shared
-# with CI; per-run table suffixes isolate reads and drops, and a 24-hour expiration bounds leftovers.
-
-# Run the live BigQuery acceptance suite against the configured project.
-bigquery-acceptance:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "bigquery-acceptance: scope sutura-exec-bigquery - the acceptance leg only, against a real project."
-    echo "bigquery-acceptance: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
-    echo "bigquery-acceptance: CI runs the same leg through \`nix run .#bigquery-acceptance\`, in its own job."
-    # Keep this filter aligned with apps.bigquery-acceptance; neither derives the other (#430).
-    # Identity and cross-resource venues must not run under the ordinary acceptance name.
-    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
-      -E 'not binary(exchanged_identity) and not binary(cross_resource)'
-
-# One shared credential, two disposable datasets in its billing project. Not run by ordinary acceptance.
-bigquery-cross-dataset:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    bash nix/mask-bigquery-resources.sh
-    echo "bigquery-cross-dataset: explicit writable fixture venue; not a local gate or identity proof."
-    echo 'scope: sutura-exec-bigquery; run `just test` for the whole workspace.'
-    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
-      -E 'binary(cross_resource) and test(join_across_datasets_)'
-
-# Read-only preprovisioned mirrors, with no fixture creation or changed billing semantics.
-bigquery-cross-project:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    bash nix/mask-bigquery-resources.sh
-    echo "bigquery-cross-project: explicit read-only mirror venue; not provisioning or identity proof."
-    echo 'scope: sutura-exec-bigquery; run `just test` for the whole workspace.'
-    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
-      -E 'binary(cross_resource) and test(join_across_projects_)'
-
-# The two-principal cell this task ran (`tests/two_principals.rs`) was withdrawn on
-# telekom/sutura#123: sutura does not re-verify a source's row-level security. `docs/where-identity-is-proven.md`
-# is the map for what remains - the exchanged-identity cell below.
-
-# The only BigQuery leg that holds no principal's key - which is what separates impersonation from
-# credential selection. NO WORKFLOW INVOKES IT: two of the five values it needs are not in the
-# `bq-test` environment. **It has never run.**
-# Run the exchanged-identity cell: one workload identity, exchanged per subject.
-bigquery-exchanged-identity:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "bigquery-exchanged-identity: scope sutura-exec-bigquery - one workload identity, exchanged per subject."
-    echo "bigquery-exchanged-identity: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
-    echo "bigquery-exchanged-identity: CI runs it through \`nix run .#bigquery-exchanged-identity\`, manually dispatched."
-    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'binary(exchanged_identity)'
-
 # The one cell that needs a REAL identity provider rather than the mock - a real RS256 signature
 # over a real JWKS document, neither of which `sutura_dev::issuer` can generate. The binary reads
 # the JWKS as its `key_set_file`; the HARNESS fetched it over HTTPS, nobody reads a discovery
@@ -661,7 +643,8 @@ bigquery-exchanged-identity:
 # tier is started here rather than already up.
 # CI runs the same leg through `nix run .#keycloak-served-test`, on the pinned toolchain, gated on
 # the paths that can change this claim. Keep this filter aligned with that app; neither derives the
-# other - `bigquery-acceptance`'s own pattern (#430) - and this recipe starts and stops the tier
+# other - the pattern the since-removed `bigquery-acceptance` leg established (#430) - and this
+# recipe starts and stops the tier
 # itself rather than delegating to the app, so a developer's own cargo runs it directly.
 # Start the keycloak tier, run the one real-issuer cell, stop the tier - fails rather than skips.
 keycloak-served-test:
@@ -679,84 +662,6 @@ keycloak-served-test:
     if [ "$rc" = 1 ]; then trap 'nix run .#keycloak-tier -- stop' EXIT; fi
     cargo nextest run -p sutura-cli --run-ignored only \
       -E 'test(a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused) | test(a_real_idp_mints_an_id_token_whose_aud_is_a_third_partys)'
-# Mints one Google-issued ID token from a service-account key file, for the exchanged-identity cell
-# above - telekom/sutura#376. `key` is a path to the key, never its content; `out` is the path the
-# token is written to, never printed. Not a gate; a CI-only step invokes this per principal through
-# the flake app `nix run .#bigquery-mint-subject-assertion` (the workflow cannot run a bare cargo -
-# the job installs nix only). This recipe keeps the same mint available on a laptop, running that
-# same app.
-bigquery-mint-subject-assertion key target_audience out:
-    nix run .#bigquery-mint-subject-assertion -- \
-      "{{key}}" "{{target_audience}}" "{{out}}"
-# Wave one of the identity-aware E2E: a `datahub` catalog carries the certified metric, the
-# deployment is driven by REAL Keycloak password-grant tokens (not the mock), and the certified
-# question executes against a REAL BigQuery project under one shared credential - the whole thing
-# runs on the composed binary over HTTP `/v1/query`. The fake DataHub lives IN the test
-# (`FakeServer` from `sutura_catalog_datahub::test_support`, `github.com/telekom/sutura#202`) and
-# the Keycloak tier is brought up here the way `just keycloak-served-test` brings it up.
-#
-# **The one runnable cell answers over a REAL `bigquery` source** (named, like `served/datahub.rs`,
-# after the catalog, so the fixed `bigquery`→name mapping reaches it), under `posture:
-# shared-service-user` - one credential for whoever asks. **Leg 2 - executing BigQuery AS the
-# asking subject, read back as `SESSION_USER()` - is NOT claimed here**: it stays the separate
-# `#[ignore]`d cell in `sutura-exec-bigquery`'s own acceptance suite, behind the maintainer's
-# binding (issue #376 P2), and `docs/where-identity-is-proven.md` keeps that half `unrun`.
-#
-# **The one cell this runs is `#[ignore]`d, for the same two reasons the keycloak cell is:** the JVM
-# boot is a cost `just test` should not pay, and the tier flag `sutura_dev::provisioned` reads is
-# shared with Postgres. It ALSO needs a real BigQuery project - `GOOGLE_APPLICATION_CREDENTIALS` and
-# `SUTURA_BQ_DATASET` in this environment - and FAILS, naming whichever is absent, rather than
-# skipping: a run that silently skipped the one leg this task exists to exercise would report PASS
-# over nothing, the same argument `crates/sutura-exec-bigquery/tests/support/support.rs`'s `named`
-# makes for the adapter's own acceptance leg.
-# Run the wave-one E2E: DataHub metadata -> a real issuer's token -> three asks over HTTP, the
-# certified one answered from real BigQuery. `--datahub fake` (the default) answers the recorded
-# corpus through an in-process `FakeServer` and needs no docker for DataHub. `--datahub tier` is PR
-# 2's hosted job and REFUSES here with the named reason: the docker DataHub tier lands in PR 2,
-# which this PR does not build.
-e2e-datahub-bigquery *datahub:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    # just's OWN template substitution of the `datahub` parameter, NEVER `$1` - this is a
-    # `#!/usr/bin/env bash` recipe and this justfile sets no `positional-arguments`, so a shebang
-    # recipe's `$1` is always empty and every invocation used to silently take the fake branch.
-    # Measured with a probe recipe of identical shape under the `just` binary this repository pins:
-    # `--datahub tier`, `-- --datahub tier` and `-- bogus` all took the fake branch and exited 0.
-    mode="{{datahub}}"
-    if [ -z "$mode" ]; then mode="--datahub fake"; fi
-    case "$mode" in
-      "--datahub fake")
-        export SUTURA_E2E_DATAHUB_MODE=fake ;;
-      "--datahub tier")
-        export SUTURA_E2E_DATAHUB_MODE=tier
-        echo "e2e-datahub-bigquery: --datahub tier - the REAL docker DataHub tier, not the recorded fake."
-        echo "e2e-datahub-bigquery: brings up the 5-container platform, provisions the certified metric under the"
-        echo "e2e-datahub-bigquery: deployment's structured property, has the tier mint its own PAT (never committed),"
-        echo "e2e-datahub-bigquery: and points the served binary's HTTP AspectReader at it. Fail-not-skip: dev-up exits"
-        echo "e2e-datahub-bigquery: non-zero if a container stays unhealthy, and the cell fails closed if the PAT is"
-        echo "e2e-datahub-bigquery: unreadable."
-        cargo run -q -p xtask -- dev-up --with datahub
-        # Headless GMS exposes no /auth/* token surface, so the TIER mints its own PAT offline with
-        # its own signing key. Written into a generated token_file (never committed - it is under the
-        # worktree's ignored discovery dir) and exported by path, exactly as the flake app does, so
-        # `tests/served/e2e.rs`'s `adopt_minted_pat` can pass it to the served binary unchanged.
-        DATAHUB_TOKEN_FILE="$(git rev-parse --show-toplevel)/.sutura-dev/datahub-pat"
-        cargo run -q -p sutura-dev --features mock-issuer -- mint-pat "$DATAHUB_TOKEN_FILE"
-        export SUTURA_DATAHUB_TOKEN_FILE="$DATAHUB_TOKEN_FILE"
-        ;;
-      *) echo "e2e-datahub-bigquery: unknown carrier '$mode' - use --datahub fake or --datahub tier"; exit 2 ;;
-    esac
-    if [ "$mode" = "--datahub tier" ]; then carrier="the REAL docker DataHub tier"; else carrier="an in-process HTTP fake (the recorded corpus, #202)"; fi
-    echo "e2e-datahub-bigquery: scope sutura-cli - the wave-one E2E over $carrier, a real issuer and a real BigQuery source."
-    echo "e2e-datahub-bigquery: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
-    echo "e2e-datahub-bigquery: leg 2 (executing AS the asking subject) stays behind #376 P2 - see docs/where-identity-is-proven.md."
-    rc=0
-    nix run .#keycloak-tier -- status >/dev/null 2>&1 || rc=$?
-    nix run .#keycloak-tier -- start
-    if [ "$rc" = 1 ]; then trap 'nix run .#keycloak-tier -- stop' EXIT; fi
-    cargo nextest run -p sutura-cli --all-features --run-ignored only \
-      -E 'test(the_wave_one_path_answers_a_verified_caller_under_the_shared_key)'
-
 # ------------------------------------------------------------------ dev flow ---
 
 # This worktree's service ports and compose project.

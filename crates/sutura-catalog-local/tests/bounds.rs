@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The two startup bounds on local catalog intake, held against the PUBLIC API only.
 //!
 //! **Why an integration test and not a `#[cfg(test)]` unit test.** `cargo xtask test-causality`

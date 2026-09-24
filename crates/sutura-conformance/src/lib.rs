@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The conformance packs: one set of test bodies over the ports, bound to an adapter by a macro.
 //!
 //! `docs/adr/0012` is the construction and this crate is the first piece of it built. The
@@ -24,7 +25,7 @@
 //!
 //! 1. **The packs live in their own crate**, depending on `sutura-domain` and on no adapter - so the
 //!    harness is a dependency an adapter's own crate can take rather than a directory another
-//!    crate's tests reach into sideways. That is what `crates/sutura-exec-bigquery/tests/corpus.rs`
+//!    crate's tests reach into sideways. That was what `corpus.rs`
 //!    could not do and had to hand-write instead.
 //! 2. **Every behaviour keeps its own name per adapter.** A generic function per pack would give one
 //!    test name per adapter, so a failure would say *the duckdb pack failed* and not which
@@ -454,6 +455,22 @@ where
     /// fails on the same condition for every other behaviour.
     #[error("the corpus holds no cases, so this behaviour asserted nothing")]
     EmptyCorpus,
+    /// The data system answered, and a column of the answer could not become a domain value.
+    ///
+    /// **Its own fault rather than a content disagreement, and the diagnosis is why.** Since
+    /// `docs/adr/0039` step 2 the port's currency is Arrow, so the decode happens above every
+    /// adapter - and the failure it can produce is *this workspace maps no cell of that Arrow type*,
+    /// not *this adapter computed the wrong number*. Reported as a disagreement it would send a
+    /// reader to look at the data.
+    ///
+    /// The variant carries [`sutura_domain::warehouse::UnreadableCell`], which names the column and
+    /// its Arrow type and never a cell.
+    #[error("case `{case}`: a column of the answer could not be read")]
+    Unreadable {
+        case: String,
+        #[source]
+        cause: sutura_domain::warehouse::UnreadableCell,
+    },
 }
 
 /// What one behaviour of one pack answers.

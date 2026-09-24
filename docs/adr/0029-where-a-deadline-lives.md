@@ -7,7 +7,10 @@ description: One absolute deadline per answer, opened by the transport and carri
 
 Status: **accepted; the record, port signature and refusal have landed. The engine returns at a
 cooperative yield after its deadline and drops the rows future; Postgres stops its certified path
-with `statement_timeout`; BigQuery derives `timeoutMs`/`jobTimeoutMs` from the port deadline. The
+with `statement_timeout`; BigQuery sends what is left of the port deadline as the ADBC driver's
+`bigquery.query.job_timeout` (`jobTimeoutMs`) - the third amendment below; the second retracted the
+deleted HTTP wire's version of that claim.
+The
 table states each mechanism and its limits. Postgres's raw SQL path has no per-request deadline and
 remains bounded by its connect-time ceiling.** Four accepted
 records lean on this being decided - [0007](0007-federating-across-different-data-systems.md),
@@ -194,10 +197,15 @@ answer's arithmetic is therefore: the same `Deadline` is handed to every leg, an
 computing a share. The refusal for a budget leg 1 spent names the same variant; which leg spent it is
 in the audit record's leg entries and not in the caller's sentence.
 
-**The combine is outside it.** `FederatedPlan::combine` is a pure function over rows already in
-memory, bounded by the working-set ceiling and not by time. The last thing the deadline bounds is the
-last leg; a combine that outruns the reply margin surfaces as the transport's `408`. Stated rather
-than closed, because the combine has no `.await` to land a cancellation on.
+**The combine is outside it, and `docs/adr/0039` step 3 did not change that.** The combine is a
+`DataFusion` plan over batches already in memory now - `sutura_domain::plan::FederationCombiner`,
+implemented in `sutura-exec-datafusion` - bounded by the working-set ceiling and not by time. The
+last thing the deadline bounds is the last leg; a combine that outruns the reply margin surfaces as
+the transport's `408`. Stated rather than closed: the port's signature carries no `Deadline`, so
+there is nowhere for a caller to hand one over, and the combiner's own `block_on` has no timeout
+around it. **Closing it is the same change the adapters' own deadlines were** - a
+`tokio::time::timeout` around the combine, which the engine's `Warehouse::execute` already does for a
+leg - and it is not made here.
 
 **Not taken: dividing the budget per leg.** A share per leg is a number with an assumption in it -
 that the legs are alike - and the wrong one refuses a question whose fast leg would have left its
@@ -262,3 +270,30 @@ arrives it shortens the budget the transport opens and changes nothing on the po
 `sutura_exec_bigquery::wire::StsOverHttp`, wired by the composition root - `sutura-serve` folded into
 `sutura-cli`'s `serve` module (`github.com/telekom/sutura#685` step 2) - and the claim that it does
 not read the port's `Deadline` at all is otherwise unaffected.
+
+## Second amendment, 2026-09-21: `StsOverHttp` is deleted, so the row above is about nothing
+
+The amendment above corrects *whose* `StsOverHttp` it is. There is no `StsOverHttp`: it went with the
+BigQuery HTTP transport and then with the exchanging broker itself (`docs/adr/0018`, fifth and eighth
+amendments), and `sutura_exec_bigquery` has no `wire` module at all now. **So the gap that row
+recorded - an exchange that ignores the port's `Deadline` - is closed by deletion rather than by a
+deadline reaching it**, which is worth separating from the rest of this record: nothing was fixed.
+
+**And the BigQuery row's other half is now false in the other direction.** *What holds it, and what
+does not* has the port's `Deadline` reaching the wire as `timeoutMs`/`jobTimeoutMs`; those were
+`jobs.query` request parameters, and the ADBC transport sends nothing of the sort. `JobDeadline::Port`
+still reaches `JobRequest`, `JobRequest::deadline` still reads it, and the only implementor never
+looks - measured by grepping the one `JobTransport` implementor for the field, whose sole reader is a
+test fake. So for BigQuery this decision's in-process half holds (a question whose deadline is spent
+is refused before the call) and its at-the-source half reaches nothing: **a running BigQuery job is
+not cancelled, and nothing bounds how long it takes.** `docs/serving.md`'s
+`server.request_timeout_seconds` row says the same thing where an operator reads it.
+
+**Third amendment: the ADBC transport sends the deadline again.** `adbc::prepared` sets the pinned
+driver's `bigquery.query.job_timeout` (read off `go/statement.go`'s `SetOptionInt`, milliseconds) to
+what is left of a `JobDeadline::Port`, rounded up because the driver reads `0` as unbounded, and
+refuses a spent one as `DeadlineSpent` before anything is sent; the boot path sends no time bound.
+Held by fake-statement cells in `adbc/tests.rs`. **The limit:** `jobTimeoutMs` is the service's
+best-effort stop, this process cancels nothing itself (the driver's `Statement::cancel` is not
+wired), a job stopped that way reads as a job failure rather than `deadline_exceeded`, and none of it
+has been run against the service yet.

@@ -82,7 +82,7 @@
 use sutura_domain::audit::{AuditSink, CallRecord};
 use sutura_domain::identity::{CredentialBroker, RequestContext};
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, SemanticCatalog};
-use sutura_domain::plan::RowCeiling;
+use sutura_domain::plan::{FederationCombiner, RowCeiling};
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::Warehouse;
 use sutura_domain::warehouse::deadline::Deadline;
@@ -335,23 +335,35 @@ pub enum ServiceNotStarted {
 /// ceiling out of its settings replaces it. Not a constructor argument, unlike every other field
 /// here: those are what a service cannot exist without, and an unbounded ledger is a real, working
 /// default rather than an omission this type should refuse to start without.
-pub struct LocalService<W, S, B> {
+pub struct LocalService<W, S, B, C> {
     definitions: Validated<PinnedDefinitions>,
     warehouses: Warehouses<W>,
     sink: S,
     broker: B,
+    /// The federation combiner - `docs/adr/0007`'s second driven port, held beside the
+    /// [`Warehouses`] registry for the same reason it is: which implementor a process holds is a
+    /// property of the BUILD, decided at a composition root. This crate is generic in it and names
+    /// no engine, which is what `xtask check-boundaries`'s application rule holds.
+    ///
+    /// A constructor argument and not an `Option`, for the sink's reason: a service that cannot
+    /// answer a two-source question is a different service, not a degraded one, and the capability
+    /// gate in [`crate::federated`] already refuses a build whose ADAPTERS cannot run a leg. There
+    /// is nowhere for "this deployment forgot a combiner" to be a state.
+    combiner: C,
     working_set_bytes: u64,
     spend_ledger: SpendLedger,
     row_ceiling: RowCeiling,
 }
 
-impl<W, S, B> LocalService<W, S, B>
+impl<W, S, B, C> LocalService<W, S, B, C>
 where
     W: Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
     S: AuditSink + Send + Sync + 'static,
     B: CredentialBroker + Send + Sync + 'static,
     B::Error: Send + Sync,
+    C: FederationCombiner + Send + Sync + 'static,
+    C::Error: Send + Sync,
 {
     /// Loads one catalog through its port, re-runs every anchor against `warehouse`, and returns a
     /// service only if all of them held.
@@ -360,18 +372,26 @@ where
     /// what makes several compose, and a single-catalog deployment is that function's one-entry
     /// case, so there is one code path to keep honest rather than a second one that happens to
     /// serve.
-    pub fn start<C>(
-        catalog: &C,
+    pub fn start<K>(
+        catalog: &K,
         warehouses: Warehouses<W>,
         sink: S,
         broker: B,
+        combiner: C,
         working_set_bytes: u64,
     ) -> Result<Self, ServiceNotStarted>
     where
-        C: SemanticCatalog,
-        C::Error: Send + Sync,
+        K: SemanticCatalog,
+        K::Error: Send + Sync,
     {
-        Self::start_composed(core::slice::from_ref(catalog), warehouses, sink, broker, working_set_bytes)
+        Self::start_composed(
+            core::slice::from_ref(catalog),
+            warehouses,
+            sink,
+            broker,
+            combiner,
+            working_set_bytes,
+        )
     }
 
     /// Loads every declared catalog through its port, composes them into one bundle, re-runs every
@@ -382,18 +402,22 @@ where
     /// The buttons the serve/schema each press are the same, which is what keeps "the bundle this
     /// validates is the bundle this serves" true for N sources rather than for one.
     ///
-    /// `C::Error: Send + Sync` for the same reason `W::Error` is - the cause is kept, owned, and a
-    /// startup failure is reported from wherever the composition root happens to be.
-    pub fn start_composed<C>(
-        catalogs: &[C],
+    /// `K::Error: Send + Sync` for the same reason `W::Error` is - the cause is kept, owned, and a
+    /// startup failure is reported from wherever the composition root happens to be. The catalog's
+    /// type parameter is `K` and not `C` because `C` is the combiner now: the two used to be the
+    /// same letter, and the combiner is a property of the SERVICE while a catalog is a property of
+    /// one call.
+    pub fn start_composed<K>(
+        catalogs: &[K],
         warehouses: Warehouses<W>,
         sink: S,
         broker: B,
+        combiner: C,
         working_set_bytes: u64,
     ) -> Result<Self, ServiceNotStarted>
     where
-        C: SemanticCatalog,
-        C::Error: Send + Sync,
+        K: SemanticCatalog,
+        K::Error: Send + Sync,
     {
         let mut bundles = Vec::with_capacity(catalogs.len());
         for catalog in catalogs {
@@ -413,6 +437,7 @@ where
             warehouses,
             sink,
             broker,
+            combiner,
             working_set_bytes,
             spend_ledger: SpendLedger::no_budget(),
             row_ceiling: RowCeiling::DEFAULT,
@@ -443,13 +468,15 @@ where
     }
 }
 
-impl<W, S, B> Surface for LocalService<W, S, B>
+impl<W, S, B, C> Surface for LocalService<W, S, B, C>
 where
     W: Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
     S: AuditSink + Send + Sync + 'static,
     B: CredentialBroker + Send + Sync + 'static,
     B::Error: Send + Sync,
+    C: FederationCombiner + Send + Sync + 'static,
+    C::Error: Send + Sync,
 {
     fn definitions(&self) -> &PinnedDefinitions {
         self.definitions.get()
@@ -462,6 +489,7 @@ where
             context,
             &self.broker,
             &self.warehouses,
+            &self.combiner,
             self.working_set_bytes,
             deadline,
             &self.spend_ledger,
@@ -483,12 +511,24 @@ where
             // do nothing about either. The typed cause is what tells them apart in the log.
             ServiceError::Posture { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
             // D19 + A4: only the combiner's OWN wiring defects reach here now -
-            // `FederatedAnswerRefusal::of` classifies a deterministic combine failure (a non-finite
+            // `FederationCombiner::answer_not_well_formed` classifies a deterministic combine failure (a non-finite
             // ratio, an ambiguous link) as a `RefusalReason` before `answer_federated` ever returns
             // this `Err`, because retrying either does not help. What is left really is a
             // data-system concern in the sense that matters to a transport: the question and the
             // caller were fine.
-            ServiceError::Federated { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
+            // The combiner's own typed failure, and it reaches a transport where the data
+            // adapter's does: what is left after `answer_federated` has taken the ceiling and the
+            // deterministic refusals off it is this workspace's own wiring, which the question and
+            // the caller were both fine for.
+            ServiceError::Combine { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
+            // The federated path's own three unreachable shapes. `Miswired` rather than `Warehouse`
+            // is not cosmetic: a data system being down invites a retry, and none of these is.
+            ServiceError::Miswired { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
+            // The Arrow port's decode, which used to arrive inside an adapter's own error and
+            // therefore through the arm above. Same destination on purpose: a column whose type this
+            // workspace does not map is this deployment's concern and not the caller's, and the
+            // typed `UnreadableCell` under it is what names the column and the Arrow type.
+            ServiceError::Unreadable { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
         })?;
         // Here, and before the `Ok`. Not in the transport: a record the transport writes is a record
         // that exists only for the transports that remember to write one, and this is the one line
@@ -541,7 +581,7 @@ where
     }
 }
 
-impl<W, S, B> core::fmt::Debug for LocalService<W, S, B> {
+impl<W, S, B, C> core::fmt::Debug for LocalService<W, S, B, C> {
     /// Hand-written because a warehouse adapter need not be `Debug`, and because printing a bundle
     /// into a log is a page of definitions for no benefit. The digest identifies it.
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -586,6 +626,7 @@ mod tests {
             Warehouses::of(engine),
             DiscardingAuditSink,
             FixedBroker::GrantsShared,
+            sutura_domain::plan::RefusingCombiner,
             1 << 30,
         )
         .expect_err("the in-process engine cannot execute authored SQL");
@@ -628,6 +669,7 @@ mod tests {
             Warehouses::of(engine),
             DiscardingAuditSink,
             FixedBroker::GrantsShared,
+            sutura_domain::plan::RefusingCombiner,
             1 << 30,
         )
         .expect_err("the example carries an authored metric the in-process engine cannot execute");
@@ -702,6 +744,7 @@ mod tests {
             Warehouses::of(warehouse),
             RecordingSink { sender },
             FixedBroker::GrantsShared,
+            sutura_domain::plan::RefusingCombiner,
             1 << 30,
         )
         .expect("an empty catalog with no anchors boots against any warehouse");

@@ -55,8 +55,8 @@ mod catalog;
 /// The refusals this root makes by reading the bundle. `main.rs` keeps the ORDER they run in.
 mod boot;
 
-/// The exchanging broker a `bigquery` deployment is served under. `cfg`-gated like the adapter:
-/// a build that links none of `sutura-exec-bigquery` has no `StsOverHttp` to attach.
+/// The broker a `bigquery` deployment is served under. `cfg`-gated like the adapter: a build that
+/// links none of `sutura-exec-bigquery` has no `DeclaredPrincipalBroker` to attach.
 #[cfg(feature = "bigquery")]
 mod broker;
 
@@ -209,8 +209,10 @@ pub(crate) fn run() -> Result<(), String> {
     // writes a record per outcome and keeps nothing.
     // The credential broker is the fourth port and the one that decides what a question executes
     // as, and which one this root attaches is decided per ARM below: an impersonating source can
-    // only be served by a broker that EXCHANGES a subject's credential, and only a `bigquery` build
-    // links one. Every other shape goes through `shared_identity_service`, whose doc carries the
+    // only be served by `sutura_exec_bigquery::DeclaredPrincipalBroker`, which presents the asking
+    // subject's own verified assertion for the driver to federate, and only a `bigquery` build links
+    // one. **The EXCHANGING broker this line used to name is deleted** (`docs/adr/0018`, eighth
+    // amendment): its HTTP hops went with the `wire` transport. Every other shape goes through `shared_identity_service`, whose doc carries the
     // argument once rather than four times - **and in every arm, a subject with no credential at a
     // source is refused as `credential_unavailable` rather than answered under the deployment's own
     // identity**, the fallback the port exists to make unrepresentable.
@@ -237,10 +239,14 @@ pub(crate) fn run() -> Result<(), String> {
             // This comment used to add *and only `open_engine` produces a registry, which is what
             // makes the first half of that order a type rather than a convention*, and review
             // disproved it twice: `Warehouses::of` and `::and` are both `pub`, and this very file
-            // calls `of` further down, in `open_bigquery`. What holds the first half is the
-            // `BigQuerySource` alias declared beside `OpenedSources`, whose transport parameter is
-            // `BigQueryWire<Credential>` and whose `Credential` has one public constructor,
-            // `Credential::read`.
+            // calls `of` further down, in `open_bigquery`. **And the replacement claim - that the
+            // `BigQuerySource` alias's `BigQueryWire<Credential>` transport held it, because
+            // `Credential::read` was its one public constructor - died with the `wire` half: there
+            // is no credential to read, and `AdbcBigQuery::new` takes a `DriverLocation`. So the
+            // first half of the order is held by NOTHING today.** What `open_bigquery` still reads
+            // at boot is the driver this artefact carries (or the one a source build mounted) and
+            // the declared scope, so an unusable one of either is a startup failure; that is a
+            // smaller claim than the one this comment used to make.
             //
             // **The second half is held by `check-boot-order`**, which `just hygiene` runs, and it
             // is there because this comment used to close by calling the order *a convention this
@@ -252,10 +258,15 @@ pub(crate) fn run() -> Result<(), String> {
             // went red, correctly - the order it reads is an order a person reads too. What was
             // extracted instead is the per-shape broker choice.
             boot::refuse_absent_tables(&pinned, &engines)?;
-            // The exchanging broker this build is the one that can attach. `StsOverHttp` reuses the
-            // same pinned agent and bounds the source composition already declares, so the exchange
-            // and the job share one connection pool and one set of pins - see `crate::broker`.
-            let broker = exchanging_broker(&settings, outbound.as_ref())?;
+            // **The broker that makes an impersonating source answerable, and it is the only one
+            // this crate can attach.** The exchanging broker's HTTP hops went with the `wire` half
+            // and the broker itself is deleted, but the ADBC driver DOES take a subject's own
+            // bearer now - `crate::adbc::identity::authenticate` federates it against the declared
+            // pool. This attaches `DeclaredPrincipalBroker`: the declared subject-to-account map,
+            // presenting each subject's OWN verified assertion rather than a principal to become.
+            // `crate::serve::broker` carries what that does not cover, and refuses at boot every
+            // declaration this build cannot honour.
+            let broker = broker::build_broker(settings.sources())?;
             (started(&catalogs, engines, broker, &settings)?, None)
         }
         #[cfg(feature = "postgres")]
@@ -285,17 +296,18 @@ pub(crate) fn run() -> Result<(), String> {
             // the first time (its `preflight` takes the port's default), which `boot.rs`'s own doc
             // says is informational rather than a defect.
             boot::refuse_absent_tables(&pinned, &mixed.engines)?;
-            // The broker choice `build_broker`'s own doc already generalised: it scans the WHOLE
-            // `sources:` registry for shared and impersonating entries, not only `bigquery`-kind
-            // ones, so "does this mix need the exchanging broker" is exactly "did it open a
-            // `BigQuery` source" - never "is this build entirely `BigQuery`".
+            // **One broker per ANSWER, so the choice is per BUILD and not per kind.** A mix may
+            // read a shared source of one kind and an impersonating one of another, and
+            // `build_broker` scans the whole registry rather than the `bigquery` entries - so "does
+            // this mix need the principal broker" is exactly "does this build link the adapter that
+            // can deliver one". With no impersonating source declared it holds the same shared map
+            // the static broker would, and refuses the same sources.
             #[cfg(feature = "bigquery")]
-            let served = if kind::needs_exchanging_broker(&mixed.engines) {
-                let broker = exchanging_broker(&settings, outbound.as_ref())?;
-                started(&catalogs, mixed.engines, broker, &settings)?
-            } else {
-                shared_identity_service(&catalogs, mixed.engines, &settings)?
-            };
+            let served = started(&catalogs, mixed.engines, broker::build_broker(settings.sources())?, &settings)?;
+            // No `BigQuery` adapter linked, so no adapter in this build declares
+            // `PerSubjectCredential` and every impersonating entry is already refused at its own
+            // posture cross-check. The static broker is then the whole truth: every declared shared
+            // source served as itself, and nothing else mintable.
             #[cfg(not(feature = "bigquery"))]
             let served = shared_identity_service(&catalogs, mixed.engines, &settings)?;
             (served, mixed.attached)
@@ -568,7 +580,7 @@ async fn serve_as_configured(
 pub(crate) enum OpenedSources {
     /// The in-process engine over directories of files.
     Files(files::Opened),
-    /// A `BigQuery` dataset per source, reached over the wire.
+    /// A `BigQuery` dataset per source, reached through the ADBC driver.
     ///
     /// Nothing is attached, so there is no table set beside it - see the note at the call site of
     /// [`sutura_app::preflight::refuse_unattached`], which states what that costs.
@@ -622,14 +634,13 @@ pub(crate) type OracleSource = sutura_exec_oracle::OracleWarehouse;
 #[cfg(feature = "postgres")]
 pub(crate) type PostgresSource = sutura_exec_postgres::PostgresWarehouse;
 
-/// A `BigQuery` source as this binary composes it: the adapter, over the wire, over a credential file.
+/// A `BigQuery` source as this binary composes it: the adapter, over the ADBC driver.
 ///
-/// Named once because it appears in a registry type, a `Warehouse` bound and a constructor's return,
-/// and because the three layers ARE the composition - `docs/adr/0018` is the record for the inner two.
+/// Named once because it appears in a registry type, a `Warehouse` bound and a constructor's return.
+/// TWO layers now and not three: the credential layer the `wire` half carried is gone - the driver
+/// authenticates itself - so the composition is the adapter over the one reachable transport.
 #[cfg(feature = "bigquery")]
-pub(crate) type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<
-    sutura_exec_bigquery::wire::BigQueryWire<sutura_exec_bigquery::wire::credential::Credential>,
->;
+pub(crate) type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery>;
 
 /// The started service, with the adapter it was built over erased.///
 /// Named because `Result<Arc<dyn Surface>, String>` is over the `type_complexity` threshold this
@@ -643,7 +654,8 @@ type Serving = Arc<dyn Surface>;
 ///
 /// Generic in the adapter AND the broker, and the second generic is what lets the two arms below
 /// differ: a `files` deployment has no impersonating source, so its broker is the static one; a
-/// `bigquery` deployment with an impersonating source gets the exchanging broker. Returning
+/// `bigquery` deployment gets `DeclaredPrincipalBroker`, presenting each subject's own verified
+/// assertion rather than exchanging anything itself - the exchanging broker is deleted. Returning
 /// `Arc<dyn Surface>` is what lets the shared lines after each arm stop caring which of those it
 /// was - the transport takes a trait object, so the monomorphisation ends here rather than through
 /// the router.
@@ -671,30 +683,45 @@ where
     let working_set_bytes = settings.runtime().working_set().bytes().get() as u64;
     let spend_budget = settings.spend_budget();
     let row_ceiling = settings.row_ceiling();
+    // The combiner, built once for this replica - the served root's half of `docs/adr/0007`'s
+    // second driven port. Built here rather than handed in, for the reason the audit sink is: which
+    // implementor a process holds is a property of the BUILD, and this is the build.
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new()
+        .map_err(|cause| format!("{cause}\ncould not build the federation combiner"))?;
     match catalogs {
-        catalog::OpenedCatalogs::Markdown(catalogs) => {
-            LocalService::start_composed(catalogs, engines, TracingAuditSink::new(), broker, working_set_bytes)
-                .map(|service| {
-                    Arc::new(
-                        service
-                            .with_spend_ledger(spend_ledger(spend_budget))
-                            .with_row_ceiling(row_ceiling),
-                    ) as Serving
-                })
-                .map_err(flatten)
-        }
+        catalog::OpenedCatalogs::Markdown(catalogs) => LocalService::start_composed(
+            catalogs,
+            engines,
+            TracingAuditSink::new(),
+            broker,
+            combiner,
+            working_set_bytes,
+        )
+        .map(|service| {
+            Arc::new(
+                service
+                    .with_spend_ledger(spend_ledger(spend_budget))
+                    .with_row_ceiling(row_ceiling),
+            ) as Serving
+        })
+        .map_err(flatten),
         #[cfg(feature = "datahub")]
-        catalog::OpenedCatalogs::Datahub(catalogs) => {
-            LocalService::start_composed(catalogs, engines, TracingAuditSink::new(), broker, working_set_bytes)
-                .map(|service| {
-                    Arc::new(
-                        service
-                            .with_spend_ledger(spend_ledger(spend_budget))
-                            .with_row_ceiling(row_ceiling),
-                    ) as Serving
-                })
-                .map_err(flatten)
-        }
+        catalog::OpenedCatalogs::Datahub(catalogs) => LocalService::start_composed(
+            catalogs,
+            engines,
+            TracingAuditSink::new(),
+            broker,
+            combiner,
+            working_set_bytes,
+        )
+        .map(|service| {
+            Arc::new(
+                service
+                    .with_spend_ledger(spend_ledger(spend_budget))
+                    .with_row_ceiling(row_ceiling),
+            ) as Serving
+        })
+        .map_err(flatten),
     }
 }
 
@@ -729,27 +756,6 @@ where
         engines,
         StaticCredentialBroker::from_registry(settings.sources()),
         settings,
-    )
-}
-
-/// The exchanging broker, built from the same five declarations at both of its call sites.
-///
-/// A named call rather than the argument list twice, for [`shared_identity_service`]'s reason one
-/// size smaller: the `BigQuery` arm and the `Mixed` arm must not be able to build it from different
-/// settings, and two spelled-out call sites are two chances to.
-///
-/// # Errors
-///
-/// Whatever `broker::build_broker` refuses: a credential cache window it cannot use, or declared
-/// outbound material it cannot load.
-#[cfg(feature = "bigquery")]
-fn exchanging_broker(settings: &Settings, outbound: Option<&sutura_tls::Declared>) -> Result<broker::ExchangingBroker, String> {
-    broker::build_broker(
-        settings.sources(),
-        settings.server().request_timeout(),
-        settings.security().credential_cache(),
-        outbound,
-        settings.security().inbound(),
     )
 }
 

@@ -11,7 +11,7 @@ End-to-end impersonation is the point of the product: a query executes as the su
 | | State | What that means |
 | --- | --- | --- |
 | **Leg 1** - knowing who is asking | **Built** | A deployment declaring `security.inbound` verifies a caller's own token from a signature |
-| **Leg 2** - a source executing as them | **Proven live for one source, hosted** | On BigQuery through its declared per-source map, a hosted `workflow_dispatch` run resolved each principal to its own account (run in `docs/where-identity-is-proven.md`). The port, the exchanging broker and the serve composition are built; every other source still executes as one identity, and no served binary answers under an asker |
+| **Leg 2** - a source executing as them | **Built, and unproven** | On BigQuery a source's declared per-source map decides WHETHER a caller may be served there AND which account their questions execute as: the subject's own assertion is federated to the declared pool, and the pool's principal then impersonates the account declared beside that subject (`telekom/sutura#929` F3). The port, the broker and the serve composition are built; the hosted venue that would show either hop is `wired` and **nobody has dispatched it**. The run this row used to cite was of an HTTP exchange the ADBC adoption deleted. Every other source still executes as one identity |
 
 So a deployment can name the subject in every audit record, record which posture each leg ran under,
 and **still read every row as one identity.** `docs/adr/0014` and `docs/adr/0010` both warn about
@@ -64,40 +64,30 @@ proof of impersonation.
   Same reason: **compare the posture VARIANT and never the value** - the acknowledgement resolves per
   source, so two ordinary shared legs are two unequal values and one posture, and a `!=` would refuse
   the only federating shape that ships.
-- **`Expiry` used to be read by nothing; the FLOOR now lands it in the broker.** The domain reads no
-  clock - `Expiry::passed_by` takes the instant as an argument and `Minted::agreeing_with` makes the
-  already-dead check there. The FLOOR (`docs/adr/0008` part 6) - *is there enough life left for what
-  this query may take* - lives in the broker adapter, the component that has the configured query
-  timeout: `WorkloadIdentityBroker::with_floor` refuses an exchanged credential already inside the
-  floor rather than presenting it. The `sutura serve` composition wires the floor from
-  `server.request_timeout_seconds`.
-- **The broker's clock is a port, not an ambient read**, and the reason is a measured one: while it
-  was `SystemTime::now()` inside `mint`, the broker suite minted a fixed 2027 expiry against the
-  live clock and was therefore *scheduled* to go red in early 2027 - a failure nobody would have
-  been looking for. `UnixClock` makes the instant an input (`SystemClock` ships, `measured_against`
-  is how a test names one), so the floor's decision is asserted at instants decades out. Two of its
-  three arms are that a mint *does not ask the time*: a purely shared mint and a broker with no
-  floor. Those are held by a clock that always fails, plus a third test firing the same clock
-  through a floor that can, so the pair cannot pass vacuously. **The narrower shape this is not:**
-  every other time-dependent API here takes the instant as a *parameter*, which is better and is
-  unavailable while `CredentialBroker::mint` carries none - widening that domain port reaches ten
-  implementors across eight crates.
-- **The floor's absence is `None`, never a zero.** `Option<NonZeroU64>`, because the sentinel
-  version needed the same "is there a floor" test in `mint` *and* in `clears_floor`, each with a
-  paragraph promising the two would not drift. `with_floor` is the one place a zero is read, and the
-  served path cannot reach it: `RequestTimeout::parse` already refuses a zero timeout. With no floor
-  the adapter refuses nothing - not even an already-past expiry, which is the domain's
-  `Expiry::passed_by` at the leg.
-- **The floor asks `Expiry::passed_by` rather than comparing, and the boundary is why.** It once
-  wrote its own `unix >= now + floor`, a second deadline comparison beside the domain's - which
-  counts the boundary second as PASSED on purpose, since `not_after` is whole seconds. The two
-  disagreed the wrong way: a credential with *exactly* the floor left was granted here and then
-  called expired by the domain at the last instant of the budget it had just cleared. A second
-  comparison next to a documented one is the defect, not the off-by-one.
+- **`docs/adr/0008` part 6's expiry FLOOR is not implemented, and nothing replaces it.** *Is there
+  enough life left for what this query may take* lived in `WorkloadIdentityBroker::with_floor`, which
+  was deleted with that broker (`docs/adr/0018`, eighth amendment) - and it had **already been
+  unwired** since the `wire` removal took the composition that called it, so no served deployment
+  ever had a floor. What IS checked is narrower and is the domain's: `Expiry::passed_by` plus
+  `Minted::agreeing_with` refuse an **already-dead** credential, and `BoundToTheRequest::still_usable_at`
+  is the reader. So a credential with one second left is presented and a question that takes two
+  seconds fails at the source. `grep -rn with_floor crates` is empty - do not cite a floor.
+  **What the deleted floor is still worth reading for:** it asked `Expiry::passed_by` rather than
+  writing its own `unix >= now + floor`, because the two comparisons disagreed at the boundary
+  second, and its absence was `Option<NonZeroU64>` rather than a zero sentinel. A second deadline
+  comparison beside a documented one is the defect, not the off-by-one.
+- **The clock was a port there too, for a measured reason worth keeping if a broker ever needs one
+  again.** While it was `SystemTime::now()` inside `mint`, the broker suite minted a fixed 2027
+  expiry against the live clock and was therefore *scheduled* to go red in early 2027 - a failure
+  nobody would have been looking for. `UnixClock`/`SystemClock` made the instant an input; both are
+  deleted. `sutura_runtime::relative_range::WallClock` is the surviving instance of that shape, and
+  the reason `CredentialBroker::mint` never took the instant as a parameter is that widening that
+  domain port reaches ten implementors across eight crates.
 - **The caller's assertion is carried, and whether it is read depends on the broker.** `RequestContext`
-  holds it as an `Option<Secret>`; `WorkloadIdentityBroker` exchanges it (a subject with none at an
-  impersonating source is refused as `credential_unavailable`), while `StaticCredentialBroker` never
-  reads it. `docs/adr/0014` Decision 3 is still open about which document each inbound mode retains to
+  holds it as an `Option<(Secret, Expiry)>` - one field, because material with no lifetime is the
+  disagreement that matters; `DeclaredPrincipalBroker` presents it for the driver to federate (a
+  subject with none at an impersonating source is refused as `credential_unavailable`), while
+  `StaticCredentialBroker` never reads it. `docs/adr/0014` Decision 3 is still open about which document each inbound mode retains to
   fill it. That field is also why `RequestContext` drops `PartialEq`/`Eq`: `==` on credential material
   is a timing oracle.
 
@@ -148,64 +138,106 @@ mode; and scopes decide **operations**, not rows.
 uses** (and the `sutura` command's). It holds an entry only for a source declared shared, so an
 impersonating source gets nothing and the question is refused rather than answered as the process.
 
-`WorkloadIdentityBroker` is the first broker that **exchanges** (RFC 8693) rather than minting from
-configuration, and it is the reason `RequestContext` carries an assertion at all. Two maps by
-source, so one plan reading a shared source and an impersonating one is served by one broker; one
-`Expiry` for the whole answer, the earliest across everything minted, and a floor wired from the
-query timeout. `sutura serve`'s `bigquery` build composes it for a deployment with an impersonating
-source, carrying both shapes.
+`DeclaredPrincipalBroker` (`crates/sutura-exec-bigquery/src/principal.rs`) is what a served
+`bigquery` deployment attaches, and it is the reason `RequestContext` carries an assertion at all.
+Two maps by source, so one plan reading a shared source and an impersonating one is served by one
+broker. **It decides WHETHER, never WHO**: a declared per-source map keyed on the full verified
+[`SubjectKey`] says which callers this source may be asked as, and a caller absent from it is refused
+rather than widened to the deployment's identity; who they BECOME is the workload-identity pool's,
+resolved by Google's token service from the assertion the ADBC transport puts in front of the driver.
+It presents the asking assertion's OWN expiry - an earlier round minted `NothingExpires`, which was
+honest while it presented a service account's name and became a check that always answers yes the
+moment it started presenting credential material.
 
-**It also caches, off by default** (`docs/adr/0031`, `security.credential_cache.enabled`) - a
-private `sts::cache` module keyed on `(PrincipalChain, audience, scope)` with no path in from a
-caller, never populated on a refusal or an `Err`, and served only up to `min(not_after − the same
-floor, the operator's configured window)`. **The key is the whole chain, not a bare `Subject`** -
-review found the first version's own doc claiming an acting agent "is always absent today" while
-`sutura-http`'s inbound gate already builds one from an `act` claim; a subject-only key would have
-served a delegated caller the direct caller's credential. `sutura-domain` and `sutura-app` are
-untouched; the whole cache is inside the one broker that pays a round trip. **What it does not
-close**: per-process only, no bound on the caller's own assertion lifetime (the issue's own second
-of three TTL bounds - the first and third are enforced), a served entry (cached or freshly minted)
-can still expire mid-question if the floor a composition root wires does not cover the request's
-own deadline (nothing asserts that coverage anywhere), and a claim a provider maps from outside what
-the domain verifies (a group, a custom attribute) stays outside the key by construction.
+**The exchanging broker is gone.** `WorkloadIdentityBroker` was the first and only broker that
+EXCHANGED (RFC 8693), with an `ImpersonateAsAccount` second hop and a private credential cache
+(`docs/adr/0031`, `docs/adr/0032`). Its two HTTP implementors went with the BigQuery `wire`
+transport; after that every `StsExchange` in the tree was a test fake and no composition root could
+reach the broker, so `docs/adr/0018`'s eighth amendment deleted all 2,571 lines of it. **Nothing in
+this tree exchanges a token, and nothing caches a credential.** `security.credential_cache` is still
+parsed and still refuses a zero capacity or window - and **is read by nothing**, which is a settings
+surface with no mechanism behind it rather than a cache that is merely off.
+
+**What the deleted cache is still worth reading for** (`docs/adr/0031`'s second amendment): the key
+must be the whole `PrincipalChain` and never a bare `Subject`. Review found the first version's own
+doc claiming an acting agent "is always absent today" while `sutura-http`'s inbound gate already
+built one from an `act` claim; a subject-only key would have served a delegated caller the direct
+caller's credential.
 
 A broker that could not be **reached** is not a refusal: that is `SurfaceFailure::Broker` and
 `503 identity_unavailable`, which shares its status with a dead data system and not its code.
 
-## Wired in serve, and the two things it is still not
+## Wired in serve, and what it is still not
 
-- The BigQuery adapter declares a per-subject credential and sends the asker's token as its job's
-  own bearer, decided **once before anything is built or sent** - the asker's where the leg carried
-  one, otherwise the source's own, never both, which is what keeps two concurrent subjects apart at
-  that seam. The expiry guard stays on the source's own credential, because a subject's token was
-  already checked by the broker that minted it.
-- **`sutura serve` attaches the exchanging broker** to a served `bigquery` source with a declared
-  `workload_identity`, so an impersonating source is no longer refused by name - it is opened and
-  answers as the asker. The `sutura` command (`mcp`/`query`) still refuses by name, because it
-  attaches only `StaticCredentialBroker`; the two roots are separate binaries and the CLI's
-  attaching half is not built. A forgotten attachment cannot silently read every row as the
-  deployment: the port refuses a source the broker holds neither half for as `credential_unavailable`.
-- **An exchange HAS run against real STS and `iamcredentials`** - hosted, in the `bq-test` environment on 2026-09-16 - and resolved each principal to its own account. The limit beside it: that is BigQuery only, through the per-source map the source declares. No served binary has yet answered a caller under an asker.
-- `CredentialUnavailable` is reachable **through the served binary** now: a served impersonating
-  source with no inbound gate answers `403 credential_unavailable` (no assertion to exchange), and a
-  caller whose exchange the provider refuses gets `503` from `SurfaceFailure::Broker`. None of that
-  is an answer *under* an asker.
+- The BigQuery adapter builds a **workload-identity credential document** per request and hands it
+  to the driver: an `external_account` whose `credential_source` is a loopback `url` serving the
+  asking subject's OWN verified assertion, nonce-bound, for as long as one request holds it
+  (`crates/sutura-exec-bigquery/src/adbc/subject.rs`). No token is exchanged in this tree - Google's
+  token service federates the assertion against the pool the source declares. Which of
+  [`JobIdentity`]'s arms a leg carries is decided once, above, from what the broker presented, and a
+  transport that cannot serve the arm it is handed refuses.
+- **`service_account_impersonation_url` names the account declared for the asking subject**, which
+  is `telekom/sutura#929` F3 and reverses a round of this row that had it asserted NULL. So the
+  chain is two links - federate the assertion at STS, then `generateAccessToken` on the declared
+  account with that federated credential - and the grant that matters is
+  `roles/iam.workloadIdentityUser` **on the target account**, whose member is the pool's
+  `principal://.../subject/<id>`, because that role carries `iam.serviceAccounts.getAccessToken`.
+  Still **not** `roles/iam.serviceAccountTokenCreator`, which is what the deleted deployment-side
+  switch needed. **Two limits, both stated in the code beside the claim:** nothing here sees a live
+  IAM policy, so a declared account the pool principal may not impersonate fails as
+  `AdbcError::Adbc` on the FIRST QUESTION BY THAT SUBJECT and never at boot; and no run has shown
+  Google accepting either hop.
+- **`sutura serve` attaches `DeclaredPrincipalBroker`** (`crates/sutura-cli/src/serve/broker.rs`) to
+  a served `bigquery` source with a declared `workload_identity`, so an impersonating source is no
+  longer refused by name - it is opened. The `sutura` command (`mcp`/`query`) still refuses by name,
+  because it attaches only `StaticCredentialBroker`; the two roots are separate binaries and the
+  CLI's attaching half is not built. A forgotten attachment cannot silently read every row as the
+  deployment: the port refuses a source the broker holds neither half for as
+  `credential_unavailable`.
+- `CredentialUnavailable` is reachable **through the served binary**: a served impersonating source
+  with no inbound gate answers `403 credential_unavailable` (no verified subject to serve), and a
+  broker that cannot be reached gets `503` from `SurfaceFailure::Broker`. None of that is an answer
+  *under* an asker.
+- **No exchange has run against a real Google token service from any code in this tree.** A round of
+  this file offered a hosted run on 2026-09-16 as evidence, unqualified. That run was of
+  `wire::StsOverHttp`, `wire::IamCredentialsOverHttp` and `WorkloadIdentity::target_for` - all three
+  deleted with the HTTP transport (`docs/adr/0018`, fifth and eighth amendments) - so it is a run of
+  code this tree does not contain and may not be cited for anything the tree does now.
 
-**What proved leg 2 for BigQuery, hosted.** The pool is provisioned, the acceptance leg is written -
-`sutura-exec-bigquery`'s `each_principal_is_who_this_source_says_it_is_executing_as` with
-`the_deployments_own_identity_is_neither_principal` as its control, each `#[ignore]`d and failing
-rather than skipping when the environment is unset - and on 2026-09-16 a hosted `workflow_dispatch`
-run of it concluded `success`, each principal resolved to its own account. **The hop that used to be
-the missing third thing is built:** `wire::StsOverHttp` posts the RFC 8693 request and returns the
-FEDERATED credential a workload-identity pool resolves to a pool subject with; `wire::IamCredentialsOverHttp`
-now makes the second call (`iamcredentials.generateAccessToken`) to the account
-`WorkloadIdentity::target_for` declares (telekom/sutura#774), so a source's exchange resolves to a
-service account rather than stopping at the pool subject. The limit beside the claim: leg 2 is
-proven here for BigQuery only, on the hosted `bq-test` venue, through the per-source map - and the
-run is citable only beside the mint step, which holds both principals' own keys by construction, so
-it proves the mechanics resolve per subject and nothing about an unprivileged caller.
+**What leg 2 rests on, and it is a `wired` venue rather than a run.** The mechanism is built, the
+pool is provisioned in `test-infra/pulumi/google`, and the cells are written:
+`crates/sutura-exec-bigquery/tests/declared_principal.rs`'s
+`each_subject_executes_as_its_own_principal_at_the_declared_pool` with
+`the_deployments_own_identity_is_neither_subjects_principal` as its control, each `#[ignore]`d and
+failing rather than skipping when the environment is unset, dispatched by
+`.github/workflows/bigquery-declared-principal.yml`. **Nobody has dispatched it**, which is why
+`docs/where-identity-is-proven.md` records that venue as `wired` and not `yes`. Nothing reachable
+from this repository shows Google ACCEPTING an assertion.
 
-**And one consequence for what a subject token can buy.** A plain exchange yields exactly ONE
-identity per subject token - whoever the token's `sub` is - so *two* principals need *two* subject
-tokens. One workload identity becomes two accounts through the `iamcredentials` hop, per the map
-`WorkloadIdentity::target_for` holds.
+**And what ships is not the principal switch either.** A round of this row said the transport sets
+`bigquery.impersonate.target_principal` per job with the caller's credential nowhere in the chain,
+which was true for two rounds and was rejected; `JobIdentity` has no spelling for it now.
+
+**What the declared map buys, both halves.** Its KEYS decide which subjects a source may be asked
+as; its VALUES name the account each of those subjects executes as, carried on
+`Presented::SubjectToken`'s `impersonate` and sent as the credential document's
+`service_account_impersonation_url`. So changing a declared target principal changes which account
+a caller's question runs as - which it did NOT for three rounds, and
+`telekom/sutura#929`'s re-review called out a security-critical setting accepted and then ignored.
+Two subjects need two pool bindings AND two map entries.
+
+**Two things about carrying that value that are not obvious and are both load-bearing.** It may
+only ride on `PrincipalName`, which is declared by hand: every other principal newtype in
+`sutura-domain` comes out of `principal_newtype!`, which stores the masked form and drops the raw,
+so on one of those an account address would reach Google as `s***-a@a***.i***.g***` and be refused.
+And `PrincipalName::parse` is far WIDER than an email - it accepts `/`, `:`, `?`, `#`, quotes and
+spaces, because it is the parser every principal identifier shares - while the value is
+interpolated into one path segment of a URL that selects which account a question runs as, and the
+Go library POSTs that URL verbatim with no shape check. The narrowing is the sending crate's, at
+both ends: `DeclaredPrincipals::parse` (a startup refusal) and `adbc::identity::authenticate`
+(`AdbcError::UnusableTarget`, because `Presented` is a public port).
+
+**The limit on all of the above, stated where the claim is:** `check-guidance`'s leg-2 rule
+(`xtask/src/guidance/leg_two.rs`) holds this page to the venue cell, but its scope is
+`md`/`nix`/`yml`/`yaml`/`toml`/`sh` - **no gate in this repository can refuse a leg-2 overstatement
+in a Rust comment**, and it matches literal wordings, so a paraphrase escapes.

@@ -23,7 +23,7 @@ the caller" needs a credential minted per request. That now exists: a request co
 query path, a credential broker mints once per answer for every source a plan reads, and the
 execution port has no signature that runs without the result - so a subject with no credential at
 a source is refused rather than answered as this process. What is absent is a data system that
-evaluates the asking subject: no adapter in this build can carry a per-subject credential. Against
+evaluates the asking subject: no published adapter can carry a per-subject credential - `bigquery` is a default-off feature and the adapter behind it does. Against
 a local file the property is trivially true and worth nothing, because a file has no login.
 Against a warehouse it is still a target - what changed is that no *question* has a code path for
 a warehouse to be read as this process through. The boot path does, by design: it re-executes
@@ -138,8 +138,8 @@ Not yet as the identity-aware runtime this site describes, and the gap is narrow
 specific than it used to be. There **is** a request context, a credential broker port with a
 static-credential implementor, an audit sink, an MCP surface, and - where a deployment declares
 `security.inbound` - a verified caller identity from a signature, with OAuth scopes deciding which
-operations that caller may invoke. What there is **not** is leg 2: no adapter in this build has
-anywhere for a per-subject credential to arrive, both declare so, and the broker that ships mints
+operations that caller may invoke. What there is **not** is leg 2: no published adapter has
+anywhere for a per-subject credential to arrive, both published adapters declare so, and the broker that ships mints
 what an operator configured. So a deployment can know exactly who is asking, record it, refuse a
 subject it holds no credential for - and still read every row as one identity. There is no Arrow
 result envelope. The one data system the shipped binary opens is the in-process engine over those

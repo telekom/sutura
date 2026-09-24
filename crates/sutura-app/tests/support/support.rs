@@ -50,9 +50,18 @@ use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::{AnchorPlan, Executable, QueryPlan};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
-use sutura_domain::warehouse::{AnchorRows, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, ResultBatches, RowSet, Value, Warehouse};
 
 use crate::adapters::source;
+
+/// A fake's canned [`RowSet`] as the port's own Arrow currency.
+///
+/// One helper rather than a conversion at each fake: `arrow::of_row_set`'s only failure is a row
+/// set whose width invariant is broken, and `RowSet::new` refuses one before it exists - so a fake
+/// built from a literal cannot reach it.
+pub(crate) fn canned(rows: &RowSet) -> ResultBatches {
+    sutura_domain::warehouse::arrow::of_row_set(rows).expect("a row set's width invariant is the only failure this has")
+}
 
 /// Why a stand-in could not answer. None of them can fail; the type exists because the ports
 /// require one.
@@ -185,20 +194,28 @@ impl Warehouse for RecordingWarehouse {
         clippy::unwrap_in_result,
         reason = "the fixed one-cell result is a literal, so a failure to build it is a broken \n                  test rather than an input to handle"
     )]
-    fn execute(&self, executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         let plan = whole_plan(executable);
         self.seen.borrow_mut().push(String::from(plan.metric().as_str()));
         // One row of nothing, shaped so `RowSet::new` accepts it. A fake that returned plausible
         // numbers would invite a test to assert on them, and those numbers would be this file's
         // opinion rather than a data system's.
-        Ok(RowSet::new(vec![String::from("recorded")], vec![vec![Value::Null]]).expect("one column and one cell is rectangular"))
+        Ok(canned(
+            &RowSet::new(vec![String::from("recorded")], vec![vec![Value::Null]])
+                .expect("one column and one cell is rectangular"),
+        ))
     }
 
     // The anchor path runs the same body. It takes no credential, so what it says about identity is
     // what these fakes can honestly say: nothing reaches a data system here.
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         self.execute(Executable::Query(plan.plan()), &fake_leg(), fake_deadline())
-            .map(AnchorRows::of)
+            .map(|batches| AnchorRows::of(batches.to_rows().expect("the fake's own literal decodes")))
     }
 }
 
@@ -269,21 +286,28 @@ impl Warehouse for CertifiedNumbers {
         clippy::unwrap_in_result,
         reason = "the one-cell result is built from a literal shape, so a failure to build it is a \n                  broken test rather than an input to handle"
     )]
-    fn execute(&self, executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         let plan = whole_plan(executable);
         // Labelled after the plan's metric, because that is the column an anchor check looks for. A
         // metric this fake holds no number for answers nothing, which reads as a mismatch rather
         // than as a pass.
         let label = String::from(plan.metric().as_str());
         let value = self.numbers.get(&label).cloned().unwrap_or_default();
-        Ok(RowSet::new(vec![label], vec![vec![Value::Text(value)]]).expect("one column and one cell is rectangular"))
+        Ok(canned(
+            &RowSet::new(vec![label], vec![vec![Value::Text(value)]]).expect("one column and one cell is rectangular"),
+        ))
     }
 
     // The anchor path runs the same body, which is what makes this fake the one a bundle validates
     // against: `verify_and_validate` goes through here now rather than through `execute`.
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         self.execute(Executable::Query(plan.plan()), &fake_leg(), fake_deadline())
-            .map(AnchorRows::of)
+            .map(|batches| AnchorRows::of(batches.to_rows().expect("the fake's own literal decodes")))
     }
 }
 
@@ -346,19 +370,26 @@ impl Warehouse for WideResult {
         clippy::unwrap_in_result,
         reason = "the one-column shape is a literal here, so a failure to build it is a broken test \n                  rather than an input to handle"
     )]
-    fn execute(&self, executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         let plan = whole_plan(executable);
         self.asked_for.borrow_mut().push(plan.row_limit());
         // One column, so the shape is trivially rectangular and the only thing the test reads is how
         // many rows there are. The values are all the same on purpose: a fake that returned
         // plausible numbers would invite an assertion about them.
         let rows = vec![vec![Value::Integer(1)]; self.rows];
-        Ok(RowSet::new(vec![String::from(plan.metric().as_str())], rows).expect("one column and one cell per row"))
+        Ok(canned(
+            &RowSet::new(vec![String::from(plan.metric().as_str())], rows).expect("one column and one cell per row"),
+        ))
     }
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         self.execute(Executable::Query(plan.plan()), &fake_leg(), fake_deadline())
-            .map(AnchorRows::of)
+            .map(|batches| AnchorRows::of(batches.to_rows().expect("the fake's own literal decodes")))
     }
 }
 
@@ -404,15 +435,22 @@ impl Warehouse for HeavyResult {
         clippy::unwrap_in_result,
         reason = "the one-row, one-column shape is a literal here, so a failure to build it is a \n                  broken test rather than an input to handle"
     )]
-    fn execute(&self, executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         let plan = whole_plan(executable);
         let cell = Value::Text("x".repeat(self.bytes));
-        Ok(RowSet::new(vec![String::from(plan.metric().as_str())], vec![vec![cell]]).expect("one column and one row"))
+        Ok(canned(
+            &RowSet::new(vec![String::from(plan.metric().as_str())], vec![vec![cell]]).expect("one column and one row"),
+        ))
     }
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         self.execute(Executable::Query(plan.plan()), &fake_leg(), fake_deadline())
-            .map(AnchorRows::of)
+            .map(|batches| AnchorRows::of(batches.to_rows().expect("the fake's own literal decodes")))
     }
 }
 
@@ -468,7 +506,12 @@ impl Warehouse for ExhaustedEngine {
     // is no reservation for a ceiling to refuse there, which is why `answer` does not treat its
     // failure as exhaustion either.
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         Err(Exhausted)
     }
 
@@ -517,7 +560,12 @@ impl Warehouse for BothPredicatesEngine {
         &self.source
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         Err(Exhausted)
     }
 
@@ -565,7 +613,12 @@ impl Warehouse for BrokenEngine {
         &self.source
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         Err(Exhausted)
     }
 
@@ -622,7 +675,12 @@ impl Warehouse for WideForTheWire {
         &self.source
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         Err(WouldNotFit)
     }
 

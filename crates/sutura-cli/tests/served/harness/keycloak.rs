@@ -135,8 +135,8 @@ fn read_realm(root: &Path) -> Realm {
 /// does not make the `https://` issuer decorative: `nix/keycloak-tier.nix`'s realm file names the
 /// exact CA it minted for this exact server's leaf certificate, and loading precisely that one is
 /// what keeps this agent refusing anything else presenting itself as this issuer, the same
-/// property a real deployment gets from a real CA. Bounded by `START_BUDGET`-scale timeouts rather
-/// than a job deadline, unlike `sutura-exec-bigquery::wire::WireAgent`.
+/// property a real deployment gets from a real CA. Bounded by `START_BUDGET`-scale timeouts, a
+/// test harness's own clock rather than a job deadline.
 fn agent(tls_certificate_file: &Path) -> ureq::Agent {
     let pem = std::fs::read(tls_certificate_file).unwrap_or_else(|cause| {
         panic!(

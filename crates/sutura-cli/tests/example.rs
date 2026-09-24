@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The example under `examples/single-player`, run as a test.
 //!
 //! **One directory, two purposes, and no second copy of either.** `examples/single-player` is what
@@ -525,6 +526,7 @@ mod tests {
                 &a_caller(),
                 &single_user_broker(),
                 &warehouse,
+                &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
                 1 << 30,
                 deadline(),
                 &sutura_app::SpendLedger::no_budget(),

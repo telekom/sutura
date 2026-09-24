@@ -20,7 +20,7 @@ use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, ResultBatches, Warehouse};
 
 use super::{Side, derived, duckdb_on, engine_on, lookup_source, source};
 
@@ -65,7 +65,12 @@ impl Warehouse for TwoKinds {
         }
     }
 
-    fn execute(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         match self {
             Self::DuckDb(w) => w.execute(executable, presented, deadline).map_err(TwoKindsError::DuckDb),
             Self::DataFusion(w) => w.execute(executable, presented, deadline).map_err(TwoKindsError::DataFusion),

@@ -431,6 +431,14 @@ jobs:
       # new binary in no release. An earlier version of this comment claimed otherwise, which is
       # the same omission class #111 was. `cargo xtask check-shipped-binaries` is the rule for
       # that, and it runs on a pull request rather than at tag time.
+      # The driver check against the artefacts this release publishes - the release-only half of
+      # `ci.yml`'s `bigquery-driver-check`, which runs on the `ci` profile per pull request (see
+      # `nix/bigquery-driver-check.sh` for what that leaves out: LTO and stripping).
+      - name: The published binaries carry a working ADBC BigQuery driver
+        env:
+          SUTURA_DRIVER_CHECK_PROFILE: release
+        run: bash nix/bigquery-driver-check.sh
+
       - name: Check that every build arrived
         run: |
           set -eu

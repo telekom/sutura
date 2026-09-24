@@ -134,7 +134,7 @@ pub(crate) const BUILT_IN_SOURCE: &str = "local";
 pub(crate) enum Opened {
     /// The in-process engine over a directory of files.
     Files(OpenedWith<DataFusionWarehouse>),
-    /// A `BigQuery` dataset, reached over the wire.
+    /// A `BigQuery` dataset, reached through the ADBC driver.
     #[cfg(feature = "bigquery")]
     BigQuery(OpenedWith<bigquery::BigQuerySource>),
     /// A `PostgreSQL` database, reached over the declared channel.
@@ -221,7 +221,7 @@ pub(crate) fn configured() -> Result<sutura_config::Settings, String> {
 /// the STS exchange) verifies against `ureq`'s own compiled-in roots and presents no client
 /// certificate, unchanged from every release before this. `Some` is loaded through
 /// `sutura_tls::load_anchors`/`load_identity` here, ONCE, so every call site that builds a
-/// [`sutura_exec_bigquery::wire::WireAgent`] shares one read rather than re-reading a bundle, the
+/// the outbound transports share one read rather than re-reading a bundle, the
 /// host store or a client identity pair per source.
 ///
 /// Called unconditionally - on a build with no `bigquery` feature this simply has no reader, the same
@@ -286,8 +286,8 @@ fn unservable(cause: &sutura_config::SettingsLoadError) -> String {
 /// The environment-overlay half of the remedy above, over the variables a process has set.
 ///
 /// A function of the names rather than of the process, so the wording is testable without a process
-/// environment a test cannot arrange - `std::env::set_var` is `unsafe` in this edition and the
-/// workspace forbids it.
+/// environment a test cannot arrange - `std::env::set_var` is `unsafe` in this edition and this
+/// crate's root forbids it.
 ///
 /// **Both branches say something.** The empty one is not silence: telling a reader the overlay is
 /// empty is what rules it out, and a remedy that lists three places to look without saying which

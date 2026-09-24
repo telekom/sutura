@@ -62,22 +62,7 @@ tls = ["sutura-config/tls", "sutura-http/tls"]
 # list, same set, and it links and runs. Both reach CI now, as `nix run .#default-features` and
 # `nix run .#default-feature-tests` in the required `ci` job, so this lane's lint half is a required
 # check rather than the four `cross` link builds and a developer's memory.
-bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/wire"]
-
-# Loads and drops a real fixture table over BigQuery - `sutura-exec-bigquery`'s own `fixtures`
-# feature, turned on here for `just e2e-datahub-bigquery` alone. Arrived from `sutura-serve`'s
-# manifest at the fold.
-#
-# **Kept off `bigquery` itself, on purpose.** `fixtures` is a write path (`CREATE OR REPLACE TABLE`
-# / `DROP TABLE`) this binary's composition root (`src/sources/bigquery.rs`) never calls - nothing
-# routes an HTTP request to it - and `sutura-exec-bigquery`'s own doc for it says "no shipped build
-# holds it". Folding it into `bigquery` would make that false for the one build that DOES turn
-# `bigquery` on alone: `nix/shipped.nix`'s `probeFeatures`, which measures the operator-facing
-# adapter's own cost. A separate feature keeps that probe measuring exactly what `--features
-# bigquery` means for an operator, while `--all-features` - what `just lint`, `just test`, `just
-# e2e-datahub-bigquery` and every nix check already pass - still turns this on too, since that flag
-# enables every feature this manifest declares.
-bigquery-e2e-fixtures = ["bigquery", "sutura-exec-bigquery/fixtures"]
+bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc"]
 
 # The Postgres adapter, and with it the outbound TLS the source channel verifies against.
 #
@@ -254,6 +239,11 @@ tracing = { workspace = true }
 mimalloc = { workspace = true }
 
 [dev-dependencies]
+# The domain's own `fixtures` feature, for `plan::RefusingCombiner` - the fake over
+# `docs/adr/0007`'s second driven port. The served root builds the REAL combiner; this crate's own
+# suite composes services that answer single-source questions, where a combiner that answered would
+# be inventing a federated answer nothing reads.
+sutura-domain = { workspace = true, features = ["fixtures"] }
 # `tests/example.rs` runs `examples/single-player` and pins what came out. Snapshots rather than
 # hand-written expectations, for the reason the rest of the repo uses them: a typed expectation
 # asserts what somebody wished the generator did. Every test in it runs in the default build: the

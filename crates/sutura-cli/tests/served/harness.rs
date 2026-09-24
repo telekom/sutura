@@ -481,7 +481,12 @@ pub(crate) fn derived_beside(config_dir: &Path) -> PathBuf {
 ///
 /// `environment` reaches the child through [`command`]: it decides which refusals apply at all, so
 /// it is a parameter of the case rather than a constant of the harness.
-pub(crate) fn refused_to_start(environment: Environment, config_dir: PathBuf) -> Vec<String> {
+///
+/// `extra` is applied AFTER [`command`] strips this shell's own `SUTURA_*` variables, which is the
+/// only way a case can hand the child one: the strip is deliberate and unconditional (see
+/// [`command`]), so a case needing a variable the deployment reads has to set it on the far side.
+/// `&[]` for every case whose deployment is its settings file alone.
+pub(crate) fn refused_to_start(environment: Environment, config_dir: PathBuf, extra: &[(&str, &str)]) -> Vec<String> {
     // **Held in a guard from the moment it is spawned, and the failing path is the reason rather
     // than the passing one.** The assertion below fires when the process is STILL RUNNING, which
     // is exactly the defect this function exists to catch - and `std::process::Child` does not
@@ -489,8 +494,12 @@ pub(crate) fn refused_to_start(environment: Environment, config_dir: PathBuf) ->
     // its configuration directory behind for the rest of the run. `Served`'s own `Drop` documents
     // the standard this file holds itself to: never a process or a directory left behind, a
     // panicking assertion included.
+    let mut launch = command(&config_dir, environment);
+    for (key, value) in extra {
+        launch.env(key, value);
+    }
     let mut spawned = Spawned {
-        child: command(&config_dir, environment).spawn().expect("the composed binary starts"),
+        child: launch.spawn().expect("the composed binary starts"),
         config_dir,
         reaped: false,
     };

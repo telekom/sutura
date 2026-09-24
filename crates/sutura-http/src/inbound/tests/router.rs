@@ -415,6 +415,7 @@ fn a_declared_inbound_identity_with_no_gate_attached_assembles_no_router() {
         fake_warehouse(),
         crate::testing::sink(),
         broker(),
+        sutura_domain::plan::RefusingCombiner,
         1 << 30,
     )
     .expect("the test bundle validates");
@@ -446,6 +447,7 @@ async fn the_agent_route_refuses_an_unverified_caller_with_the_same_challenge_ev
         fake_warehouse(),
         crate::testing::sink(),
         broker(),
+        sutura_domain::plan::RefusingCombiner,
         1 << 30,
     )
     .expect("the test bundle validates");

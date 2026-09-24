@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! `check-vendor-count`'s own module carries the unit-level proof for every branch; this is the
 //! separate integration target `sutura/gates`' causality note asks for, so the gate's PRODUCTION
 //! and its inline tests staying in one file does not orphan the mechanical red-before-green

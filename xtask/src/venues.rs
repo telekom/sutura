@@ -18,10 +18,12 @@
 //!   `mod verdicts`, beside the code, and its header carries why each exists and the limit each
 //!   does not reach: `unrun` expires when CI reaches a venue, `wired` is refused until it does,
 //!   and a citable verdict needs an invocation that CI runs AND that runs tests.
-//! * **A `yes` cell over an on-demand venue has to say a run was observed, in its own section, and
-//!   may not still say `unrun` or `wired` there.** `unrun` and `wired` tie their word to the
+//! * **A CITABLE cell over an on-demand venue has to say a run was observed, in its own section,
+//!   and may not still say `unrun` or `wired` there.** `yes` and `can` both, out of one
+//!   `page::CITABLE` - review measured `can` escaping this rule while `yes` was held to it, which
+//!   made the softer spelling an unlock. `unrun` and `wired` tie their word to the
 //!   section that carries them; `yes` had no equivalent tie, so a cell could move off either state
-//!   in one edit while the section stayed put. [`verdicts::yes_problems`] is the tie and its own
+//!   in one edit while the section stayed put. [`verdicts::citable_problems`] is the tie and its own
 //!   header carries the limit: this reads a WORD, never that a named run is real.
 //! * **A venue's `Where it runs` cell states a place from a closed vocabulary**, because it decides
 //!   whether the row may be cited at all and was free prose. [`page::RUN_SITES`] has the measurement.
@@ -64,7 +66,6 @@ use crate::repo;
 // The acceptance venue's half. Its limit is a property of `.github/workflows/ci.yml` rather than of
 // the page, so it reads a different file with a different parser - and every assertion about it
 // lives beside that parser, where the fixture it needs is.
-mod acceptance;
 
 // The same venue's ENVIRONMENT contract, one layer out: `acceptance` reads what the job DOES with
 // each value, and this reads whether the environment can be made to carry it at all. Three lists
@@ -104,6 +105,14 @@ mod problems;
 
 use problems::page_problems;
 
+// Leg 2's own row, and the one thing this gate exports: `check-guidance` owns the prose walk and
+// this owns the table, so the CONDITION of its leg-2 rule is parsed here. It carries its own
+// `#[test]`s, which is what keeps it off the causality gate's revert list - the reason every other
+// split here left its assertions behind.
+mod leg_two_row;
+
+pub(crate) use leg_two_row::leg_two_citable;
+
 /// The map. One page: a second copy of a venue table is the drift this gate is about.
 const PAGE: &str = "docs/where-identity-is-proven.md";
 
@@ -116,17 +125,6 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         eprintln!("xtask check-venues: {PAGE} is not readable - it IS the map");
         return Verdict::Fail;
     };
-    let mut acceptance_problems = Vec::new();
-    let mut pairs = Vec::new();
-    for &(workflow, job) in acceptance::JOBS {
-        let Ok(text) = std::fs::read_to_string(root.join(workflow)) else {
-            eprintln!("xtask check-venues: {workflow} is not readable");
-            return Verdict::Fail;
-        };
-        pairs.push(format!("`{job}`"));
-        acceptance_problems.extend(acceptance::scan(workflow, job, &text));
-    }
-
     let tests = match test_names() {
         Ok(tests) => tests,
         Err(why) => {
@@ -165,14 +163,12 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     };
 
     let mut problems = page_problems(&page, &tests, &invoked, &runs_tests);
-    problems.extend(acceptance_problems);
     let contract = environment::problems(&root);
     problems.extend(contract.problems);
 
     if problems.is_empty() {
         println!(
-            "xtask check-venues: ok - {PAGE} and {} job(s), {} cited test(s), {} CI invocation(s) resolved, {} task(s) that run tests, {} environment name(s) reconciled across three lists",
-            pairs.join(", "),
+            "xtask check-venues: ok - {PAGE}, {} cited test(s), {} CI invocation(s) resolved, {} task(s) that run tests, {} environment name(s) reconciled across three lists",
             cited_tests(&page).len(),
             invoked.len(),
             runs_tests.len(),
@@ -486,6 +482,32 @@ Not built.
                 .iter()
                 .any(|p| p.contains("A real dataset under a shared key") && p.contains("OBSERVED")),
             "a `yes` cell over an on-demand venue with no run named in its section has to fail: {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_can_cell_over_an_on_demand_venue_is_held_to_the_same_observed_run_as_yes() {
+        // **The unlock review measured**: `yes` was held to naming an observed run and `can` was
+        // not, so the softer spelling bought a citation nothing had earned. `can` means *the
+        // standing test lives in another venue* - which on an ON-DEMAND venue still needs a job's
+        // own run to be true of anything, because that is the only thing that can make it true.
+        //
+        // Both edits together, so this cannot pass by the section being intact: the cell moves to
+        // `can` AND the observed sentence goes. No cell on the real page is in this state today, so
+        // this rule is held here and by nothing on the page - which is worth saying rather than
+        // leaving a reader to assume the page exercises it.
+        let softened = MAP
+            .replace(
+                ", and the leg's run was observed on 2026-01-01 against the fixture project",
+                "",
+            )
+            .replace("| **yes** |", "| can |");
+        let found = problems(&softened);
+        assert!(
+            found
+                .iter()
+                .any(|p| p.contains("A real dataset under a shared key") && p.contains("OBSERVED")),
+            "a `can` cell over an on-demand venue with no run named in its section has to fail: {found:?}"
         );
     }
 
@@ -850,10 +872,10 @@ Not built.
         // The anchor without which the three arms above are satisfied by a broken scan, and there
         // is no golden here to compare against - so three oracles that are not this reader.
         // `just --list` names the recipes, `justfile` carries the `cargo nextest` lines, and the
-        // page cites the two names below; the reader has to agree with all three.
+        // page cites the names below; the reader has to agree with all three.
         let root = crate::repo::root().expect("the repo root");
         let runs_tests = super::test_tasks(&root).expect("the justfile defines tasks that run tests");
-        for task in ["test", "bigquery-acceptance", "bigquery-exchanged-identity"] {
+        for task in ["test", "keycloak-served-test"] {
             assert!(
                 runs_tests.contains(task),
                 "`just {task}` runs `cargo nextest run` in the justfile and the scan resolved {} \
@@ -890,14 +912,14 @@ Not built.
     fn the_ci_scan_sees_the_venue_ci_actually_invokes() {
         // The anchor without which the arm above is satisfied by a broken scan. A set that found
         // nothing makes every `unrun` cell pass, and the gate's own floor only catches an empty
-        // one - so this names the invocation that must be in there: `nix run .#bigquery-acceptance`
-        // is the venue on this page that HAS a green run, and if the walk cannot see that one it
-        // cannot see the one that matters either.
+        // one - so this names the invocation that must be in there: `nix run .#keycloak-served-test`
+        // is the on-demand venue on this page that HAS a green run, and if the walk cannot see that
+        // one it cannot see the one that matters either.
         let root = crate::repo::root().expect("the repo root");
         let invoked = super::invoked(&root).expect("the CI scan reads .github/workflows");
         assert!(
-            invoked.contains("bigquery-acceptance"),
-            "the CI scan resolved {} name(s) and none of them is `bigquery-acceptance`, which \
+            invoked.contains("keycloak-served-test"),
+            "the CI scan resolved {} name(s) and none of them is `keycloak-served-test`, which \
              `.github/workflows/ci.yml` invokes - the walk is broken, not the workflows",
             invoked.len()
         );

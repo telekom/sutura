@@ -36,7 +36,7 @@ pub fn configuration_variables_from_process() -> Vec<String> {
 /// The sorted, deduplicated `SUTURA__*` names out of an arbitrary listing.
 ///
 /// Separated from the process read for the reason [`super::Sources`] itself is a value:
-/// `std::env::set_var` is `unsafe` in this edition and this workspace forbids it, so a test cannot
+/// `std::env::set_var` is `unsafe` in this edition and this crate's root forbids it, so a test cannot
 /// arrange a process environment. Taking the names as an iterator makes the filtering a pure
 /// function a test can drive, and leaves exactly one caller reading the real environment.
 fn prefixed(names: impl Iterator<Item = OsString>) -> Vec<String> {

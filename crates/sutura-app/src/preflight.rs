@@ -481,7 +481,7 @@ mod tests {
     use sutura_domain::source::{ImpersonationCapability, SourcePosture};
     use sutura_domain::warehouse::deadline::Deadline;
     use sutura_domain::warehouse::preflight::{TablesPresent, UnaccountedTables};
-    use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
+    use sutura_domain::warehouse::{AnchorRows, ResultBatches, Warehouse};
 
     use super::{Notice, Refusal, TablesChanged, Verdict, ask, refuse_unattached};
     use crate::warehouses::Warehouses;
@@ -532,7 +532,7 @@ mod tests {
             _executable: Executable<'_>,
             _presented: &Presented,
             _deadline: Deadline,
-        ) -> Result<RowSet, Self::Error> {
+        ) -> Result<ResultBatches, Self::Error> {
             Err(CouldNotAsk)
         }
 

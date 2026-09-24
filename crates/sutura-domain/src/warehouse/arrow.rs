@@ -1,0 +1,742 @@
+//! An Arrow result at the interior: the schema guard a foreign driver needs, and the one place an
+//! Arrow array becomes a domain [`Value`].
+//!
+//! # Why the hexagon's interior names an Arrow array type
+//!
+//! `docs/adr/0039` decides it, reversing `docs/adr/0007`'s *the port's currency stays `RowSet`*
+//! and the unmerged 0037's refusal. The argument is the one `ALLOWED_IN_DOMAIN`'s own line draws -
+//! *no runtime, no client, no engine*: Arrow is a data FORMAT, and the engine, the ADBC driver
+//! manager and every future Arrow Flight leg already speak it. **The cost is in that allowlist and
+//! nowhere else**, which is where it can be argued in a diff.
+//!
+//! What it buys is one decode instead of one per adapter. Before this module there were three, and
+//! the `BigQuery` one went through TEXT: Arrow arrays cast to `Utf8`, a text cell per value, then a
+//! `parse::<i64>()` back to a number. A total that was exact in the data system and exact in Arrow
+//! had two chances to stop being exact on the way out.
+//!
+//! # `RecordBatch::try_new` is not a schema check, and that is the whole reason [`Accumulating`]
+//! exists
+//!
+//! Arrow validates a batch **positionally and by type only** - it zips columns against fields and
+//! never reads a field NAME. So a driver that hands back two same-typed columns in the wrong order
+//! builds a perfectly valid `RecordBatch`, and a consumer that only counted columns would label
+//! those values with the announced schema's names: a transposed answer under a certified metric
+//! name, with no error anywhere. A differently-typed swap Arrow already refuses, which is why the
+//! swap that matters - and the mutation worth running against this module - is of two **same-typed**
+//! columns.
+//!
+//! Nothing in `DataFusion` closes it either: `SchemaAdapter`/`SchemaMapper` are deprecated,
+//! `PhysicalExprAdapter` resolves by name on the DATASOURCE path and is opt-in, and nothing
+//! validates that a custom `ExecutionPlan`'s stream matches its declared schema at all. For a
+//! foreign driver the obligation is ours, so it is held here once rather than per adapter.
+//!
+//! # Where this module's checks stop
+//!
+//! [`Accumulating`] refuses a width, a mislabelled position and a row ceiling **before a value is
+//! read**. It does not check nullability - Arrow does, positionally - and it does not check that the
+//! announced schema is the one the plan asked for; that is the caller's, and
+//! `sutura_domain::plan::QueryPlan::result_labels` is what it compares against.
+
+use arrow_array::cast::AsArray as _;
+use arrow_array::{Array, RecordBatch};
+use arrow_schema::{DataType, SchemaRef};
+
+use crate::calendar::Date;
+use crate::warehouse::cell::{Real, Value};
+use crate::warehouse::rows::{MalformedRowSet, RowSet};
+
+/// A result, as Arrow: the schema every batch was checked against, and the batches.
+///
+/// **A newtype whose invariant is the schema agreement**, so a value of this type is one whose every
+/// batch carried the announced fields by name and type. There is no public constructor taking
+/// batches directly - [`Accumulating`] is the only way in - because a constructor that took a
+/// `Vec<RecordBatch>` and checked afterwards would let a caller hold an unchecked one for a line,
+/// and the check has to happen while the stream is read or a bound on it is not a bound.
+#[derive(Debug, Clone)]
+pub struct ResultBatches {
+    schema: SchemaRef,
+    batches: Vec<RecordBatch>,
+    rows: usize,
+}
+
+/// Why a result stream was refused, before any value in it was read.
+///
+/// Each variant carries field DESCRIPTORS - a name and an Arrow type, which is a driver's own
+/// metadata - and never a cell, so a refusal an operator reads discloses no data.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum UnannouncedBatch {
+    /// A batch of a different width than the schema it arrived under.
+    #[error("a result batch has {delivered} columns for a {announced}-field schema")]
+    Width { announced: usize, delivered: usize },
+    /// A batch of the right width whose field at one position is not the announced one, so its
+    /// values would have been labelled with another column's name.
+    #[error("a result batch carries `{delivered}` at position {at}, where the schema announced `{announced}`")]
+    Mislabelled {
+        at: usize,
+        announced: String,
+        delivered: String,
+    },
+    /// The stream carried more rows than the caller's ceiling allows.
+    ///
+    /// The ceiling is passed in rather than fixed here: what is a sane bound depends on whether the
+    /// caller is reading an answer or a federation leg, and only the caller knows which.
+    #[error("a result stream carries more than {most} rows")]
+    OverBound { most: usize },
+    /// The stream would cost more memory to hold and convert than the caller's budget allows.
+    ///
+    /// **The sibling of [`Self::OverBound`] counting what is actually scarce**, which round 7 of
+    /// `telekom/sutura#929`'s review is the report for: a row ceiling is not a memory bound when the
+    /// caller controls row WIDTH, so a million narrow rows and a thousand very wide ones are the
+    /// same number under [`Self::OverBound`] and orders of magnitude apart here.
+    ///
+    /// Carries the BUDGET and never the demand, for [`ResultBudget`]'s stated reason: the budget is
+    /// a number an operator configured and can act on, while what the question wanted is an
+    /// observation about one caller's data.
+    #[error("a result would cost more than the {most_bytes}-byte materialisation budget to hold")]
+    OverBudget { most_bytes: usize },
+}
+
+/// Why an Arrow array could not become a domain value.
+#[derive(Debug, thiserror::Error, PartialEq)]
+pub enum UnreadableCell {
+    /// A column whose Arrow type this domain does not map.
+    ///
+    /// An error rather than a `Debug` rendering, because this is the last place a value can be wrong
+    /// without anybody noticing: a rendered nested type would flow into an answer looking like data,
+    /// and an anchor comparison against it would pass or fail for reasons nobody could read.
+    #[error("column {column} came back as {arrow_type}, which this domain does not map")]
+    UnsupportedType { column: String, arrow_type: String },
+    /// An array whose runtime type is not the one its own schema declares - an Arrow invariant
+    /// violation, so a driver defect rather than anything a caller asked for.
+    #[error("column {column} did not downcast to {arrow_type}, though its schema says that is its type")]
+    Downcast { column: String, arrow_type: &'static str },
+    /// A 64-bit float that is not finite.
+    ///
+    /// CHECKED rather than taken: `inf` is what an unguarded division answers, and rendering it puts
+    /// the string `"inf"` in an answer under a metric's own certified name.
+    #[error("column {column} came back as a value that is not a finite number")]
+    NotFinite {
+        column: String,
+        #[source]
+        cause: crate::warehouse::cell::NotFinite,
+    },
+    /// A day count that is not a date this calendar can express.
+    #[error("column {column} came back as a day number that is not a date")]
+    NotADate {
+        column: String,
+        #[source]
+        cause: crate::calendar::InvalidDate,
+    },
+    /// The decoded rows did not form a rectangle - unreachable by construction, propagated rather
+    /// than swallowed so an edit that breaks the construction fails loudly.
+    #[error("the decoded rows are not rectangular")]
+    Ragged(#[source] MalformedRowSet),
+}
+
+/// How a field reads in a refusal: its name and its Arrow type, never a value.
+fn descriptor(field: &arrow_schema::Field) -> String {
+    let (name, kind) = (field.name(), field.data_type());
+    format!("{name} {kind}")
+}
+
+/// How many bytes one result may cost to hold and to convert, together.
+///
+/// **A newtype for the unit, beside a `usize` row count that means something else entirely.**
+/// [`Accumulating::announcing`] takes both, and `docs/adr/0009`'s whole argument for retiring the
+/// per-leg row cap is that the two quantities are unrelated - so two bare integers there would be
+/// one bound and one number that looks like it. `NonZeroUsize` rather than `usize` because a zero
+/// budget refuses the empty result too, and an empty result is an answer.
+///
+/// **It parses nothing beyond non-zero, and where the range is parsed is the point.** The value a
+/// deployment runs with is `sutura_config::WorkingSetCeiling`, checked at boot against the memory
+/// the process can actually reach; this type is the unit that number travels in once an adapter has
+/// converted it. So there is no *unset* state to default: a call site that has no budget has no
+/// value of this type and does not compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResultBudget(core::num::NonZeroUsize);
+
+impl ResultBudget {
+    /// The budget, in bytes.
+    #[must_use]
+    pub const fn of_bytes(bytes: core::num::NonZeroUsize) -> Self {
+        Self(bytes)
+    }
+
+    /// The budget as a plain count, for the arithmetic that spends it.
+    #[inline]
+    #[must_use]
+    pub const fn bytes(self) -> usize {
+        self.0.get()
+    }
+}
+
+/// What holding this batch and converting it into domain rows will cost, in bytes.
+///
+/// [`RecordBatch::get_array_memory_size`] is Arrow's own measure and is the first of the three
+/// terms; it counts the arrays' BUFFERS, including the slack a buffer allocated with spare capacity
+/// carries, and does not count the `RecordBatch`'s own struct, its schema, or the `Vec` this
+/// accumulator holds the batches in.
+///
+/// It is counted TWICE, and the second count is the half review round 7 of `telekom/sutura#929`
+/// named: [`ResultBatches::to_rows`] builds a whole second copy as `Vec<Vec<Value>>`, so a budget
+/// charged for the batches alone understates the real peak by roughly a factor of two. The third
+/// term is that copy's own structure - one `Vec` per row plus one [`Value`] per cell - which is
+/// what makes a result of many narrow rows cost more here than its buffers suggest.
+///
+/// **It OVER-counts a fixed-width column, deliberately.** An `Int64` cell lands inline in a
+/// `Value::Integer` that the third term already charges for, so doubling the buffer charges it
+/// twice; a `Utf8` cell is cloned into an owned `String` whose heap really is a second copy of the
+/// same bytes. One rule that over-charges the narrow case is a stricter bound than two rules with a
+/// column-type branch in them, and stricter is the direction this budget fails in.
+fn materialised(batch: &RecordBatch) -> usize {
+    let arrays = batch.get_array_memory_size();
+    let cells = batch.num_columns().saturating_mul(core::mem::size_of::<Value>());
+    let converted = batch
+        .num_rows()
+        .saturating_mul(core::mem::size_of::<Vec<Value>>().saturating_add(cells));
+    arrays.saturating_mul(2).saturating_add(converted)
+}
+
+/// One result stream, checked against its announced schema batch by batch.
+///
+/// **The accumulator exists so the schema check, the row ceiling and the byte budget fire WHILE the
+/// stream is read.** A driver's reader is driven straight into [`Self::push`], so a stream that will
+/// be refused is refused at the batch that crosses the line - not after every batch has been
+/// collected, which is the point at which the memory a ceiling protects has already been spent.
+#[derive(Debug)]
+pub struct Accumulating {
+    announced: SchemaRef,
+    most: usize,
+    budget: ResultBudget,
+    batches: Vec<RecordBatch>,
+    rows: usize,
+    bytes: usize,
+}
+
+impl Accumulating {
+    /// Starts reading a stream announced under `schema`, refusing past `most` rows or `budget`
+    /// bytes of materialisation.
+    #[must_use]
+    pub const fn announcing(schema: SchemaRef, most: usize, budget: ResultBudget) -> Self {
+        Self {
+            announced: schema,
+            most,
+            budget,
+            batches: Vec::new(),
+            rows: 0,
+            bytes: 0,
+        }
+    }
+
+    /// Checks one batch against the announced schema and keeps it.
+    ///
+    /// # Errors
+    ///
+    /// [`UnannouncedBatch::Width`] for a batch of the wrong width, [`UnannouncedBatch::Mislabelled`]
+    /// for one whose field at a position is not the announced one, and
+    /// [`UnannouncedBatch::OverBound`] where this batch would take the stream past the ceiling.
+    pub fn push(&mut self, batch: RecordBatch) -> Result<(), UnannouncedBatch> {
+        let announced = self.announced.fields();
+        let delivered = batch.schema_ref().fields();
+        if delivered.len() != announced.len() {
+            return Err(UnannouncedBatch::Width {
+                announced: announced.len(),
+                delivered: delivered.len(),
+            });
+        }
+        // The `zip` cannot truncate, and the width refusal above is what makes that true rather than
+        // a comment: a `zip` WITHOUT it silently matches the shorter prefix, which is both halves of
+        // the defect this check exists for - a narrower batch reads as a match on its first columns,
+        // and a same-typed swap reads as a match on nothing at all.
+        for (at, (announced, delivered)) in announced.iter().zip(delivered).enumerate() {
+            if announced.name() != delivered.name() || announced.data_type() != delivered.data_type() {
+                return Err(UnannouncedBatch::Mislabelled {
+                    at,
+                    announced: descriptor(announced),
+                    delivered: descriptor(delivered),
+                });
+            }
+        }
+        let arriving = batch.num_rows();
+        if self.rows.saturating_add(arriving) > self.most {
+            return Err(UnannouncedBatch::OverBound { most: self.most });
+        }
+        // **Charged before the batch is retained, and charged for the conversion too.** The whole
+        // point of the budget is that it refuses while the result is still arriving: a check against
+        // the finished `Vec` would run at the moment the memory it protects has already been spent.
+        // `materialised` is what a batch costs to HOLD plus what `ResultBatches::to_rows` will
+        // spend copying it, so the refusal lands one batch before the peak rather than halfway
+        // through it - earlier than `docs/adr/0009` specified, against the same budget.
+        let spending = self.bytes.saturating_add(materialised(&batch));
+        if spending > self.budget.bytes() {
+            return Err(UnannouncedBatch::OverBudget {
+                most_bytes: self.budget.bytes(),
+            });
+        }
+        self.bytes = spending;
+        self.rows = self.rows.saturating_add(arriving);
+        self.batches.push(batch);
+        Ok(())
+    }
+
+    /// How many rows have been accepted so far, which a completeness check compares against.
+    #[inline]
+    #[must_use]
+    pub const fn delivered(&self) -> usize {
+        self.rows
+    }
+
+    /// What the accepted batches have already spent of the budget, which is what they cost to hold
+    /// and will cost to convert.
+    #[inline]
+    #[must_use]
+    pub const fn spent_bytes(&self) -> usize {
+        self.bytes
+    }
+
+    /// The checked result.
+    #[must_use]
+    pub fn finish(self) -> ResultBatches {
+        ResultBatches {
+            schema: self.announced,
+            batches: self.batches,
+            rows: self.rows,
+        }
+    }
+}
+
+impl ResultBatches {
+    /// A result with no rows, under a schema - what an adapter answers for an empty stream.
+    ///
+    /// The budget is the smallest one that exists and nothing is charged against it: no batch is
+    /// pushed, so no byte is spent. A caller-supplied budget here would be a parameter with nothing
+    /// to bound.
+    #[must_use]
+    pub fn none_under(schema: SchemaRef) -> Self {
+        Accumulating::announcing(schema, 0, ResultBudget::of_bytes(core::num::NonZeroUsize::MIN)).finish()
+    }
+
+    /// The schema every batch was checked against.
+    #[inline]
+    #[must_use]
+    pub const fn schema(&self) -> &SchemaRef {
+        &self.schema
+    }
+
+    /// The batches, in the order the stream delivered them.
+    #[inline]
+    #[must_use]
+    pub fn batches(&self) -> &[RecordBatch] {
+        &self.batches
+    }
+
+    /// How many rows the stream delivered.
+    #[inline]
+    #[must_use]
+    pub const fn rows(&self) -> usize {
+        self.rows
+    }
+
+    /// The result as domain rows.
+    ///
+    /// **The one Arrow-to-[`Value`] decode in this workspace.** It used to be three - the engine's
+    /// own, the `DuckDB` adapter's, and `BigQuery`'s via text - and one plan answered by two adapters
+    /// has to produce one number or an anchor certified against one stops reproducing against the
+    /// other. Agreement is a correctness property here, not tidiness, which is why the mapping is a
+    /// single function with a single test table rather than a convention.
+    ///
+    /// # Errors
+    ///
+    /// [`UnreadableCell`], naming the column and the Arrow type.
+    pub fn to_rows(&self) -> Result<RowSet, UnreadableCell> {
+        let columns: Vec<String> = self
+            .schema
+            .fields()
+            .iter()
+            .map(|field| String::from(field.name().as_str()))
+            .collect();
+        // THE TYPE PASS, BEFORE A ROW IS READ, and the hole it closes was measured rather than
+        // imagined. `cell` answers a null before it looks at the column's type, so a result with NO
+        // rows never reaches it at all and a result whose unmapped column happens to be entirely
+        // null reaches it and is answered: a `TIMESTAMP` column came back as a successful EMPTY
+        // result, and whether this workspace maps a type depended on what the data happened to be.
+        // `sutura-exec-bigquery`'s own decoder had this pass and the engine did not; it is here now,
+        // so **both ARROW adapters** get it - the engine and `BigQuery`, which are the two that
+        // decode through this function.
+        //
+        // **NOT every adapter, which is what this comment used to claim.** The other three decode
+        // their own driver's vocabulary and never reach here, so the hole is open behind them to
+        // different depths, and a reader of this paragraph should not infer otherwise:
+        //
+        //   * `sutura-exec-duckdb`'s `cell` takes a `DuckValue` and never sees a column type at
+        //     all - `DuckValue::Null` is its first arm - so BOTH halves are still open there;
+        //   * `sutura-exec-postgres`' and `sutura-exec-oracle`'s `cell` dispatch on the column's
+        //     declared type, so the all-null half is closed and the ZERO-ROW half is not: no rows
+        //     means `cell` is never called, and an unmapped column passes as a successful empty
+        //     result exactly as it used to here.
+        for (label, field) in columns.iter().zip(self.schema.fields()) {
+            mapped(label, field.data_type())?;
+        }
+        let mut rows: Vec<Vec<Value>> = Vec::with_capacity(self.rows);
+        for batch in &self.batches {
+            for row in 0..batch.num_rows() {
+                let mut cells = Vec::with_capacity(columns.len());
+                for (index, label) in columns.iter().enumerate() {
+                    // `index` walks the announced schema's own width, which `Accumulating::push`
+                    // refused a batch for not matching - so the column is there by construction.
+                    // Propagated rather than defaulted, because a `Value::Null` here would be a
+                    // wrong number dressed as a missing one.
+                    let array = batch.columns().get(index).ok_or_else(|| UnreadableCell::Downcast {
+                        column: label.clone(),
+                        arrow_type: "a column at the announced position",
+                    })?;
+                    cells.push(cell(label, array.as_ref(), row)?);
+                }
+                rows.push(cells);
+            }
+        }
+        RowSet::new(columns, rows).map_err(UnreadableCell::Ragged)
+    }
+}
+
+/// Whether this domain maps a column of this Arrow type at all, asked of the TYPE and no value.
+///
+/// **A second match over the same set as [`cell`], and both directions of a drift fail closed.** A
+/// type [`cell`] reads but this does not name is refused at the schema pass, which is a column
+/// refused that could have been read; a type this names but [`cell`] does not is refused per cell as
+/// [`UnreadableCell::UnsupportedType`] instead, one step later. Neither direction answers a value.
+/// `every_mapped_type_passes_the_schema_pass_and_float32_does_not` is what holds the two together,
+/// and it reads the mapping table rather than a list of its own.
+fn mapped(label: &str, kind: &DataType) -> Result<(), UnreadableCell> {
+    match *kind {
+        DataType::Int8
+        | DataType::Int16
+        | DataType::Int32
+        | DataType::Int64
+        | DataType::UInt8
+        | DataType::UInt16
+        | DataType::UInt32
+        | DataType::UInt64
+        | DataType::Float64
+        | DataType::Utf8
+        | DataType::LargeUtf8
+        | DataType::Utf8View
+        | DataType::Date32
+        | DataType::Boolean
+        | DataType::Decimal128(..)
+        | DataType::Decimal256(..) => Ok(()),
+        ref other => Err(UnreadableCell::UnsupportedType {
+            column: String::from(label),
+            arrow_type: format!("{other:?}"),
+        }),
+    }
+}
+
+/// One cell, as a domain value.
+///
+/// Every integer width answers, because every one of them fits an `i64` losslessly - a Parquet
+/// `INT32` column under a `min` or a `max` used to answer through one adapter and error in another.
+/// A 64-bit unsigned value that does not fit is rendered as text rather than wrapped: a silently
+/// truncated total is a wrong number.
+///
+/// **Widening a 32-bit float to an `f64` is the tempting arm and is exactly wrong**, so it is absent:
+/// `0.1_f32` as an `f64` prints as `0.10000000149011612`, and two adapters would then disagree about
+/// a number neither of them got wrong.
+///
+/// An exact decimal stays TEXT unless its scale is zero, for the same reason: turning it into an
+/// `f64` is how a total that was correct in the engine stops being correct in an answer. A
+/// zero-scale decimal that fits an `i64` widens, and one that does not stays text.
+///
+/// `Date64` is deliberately absent. Nothing on this path produces one - `date_trunc` over a `Date32`
+/// stays a `Date32`, a Parquet `DATE` logical type reads as `Date32`, and `DuckDB`'s `DATE` is a day
+/// count - so mapping it would mean choosing what a millisecond count that is not a whole number of
+/// days means, in an arm no question can reach. An unreachable arm holding a semantic choice nobody
+/// reviewed is worse than an error naming the type.
+fn cell(label: &str, array: &dyn Array, row: usize) -> Result<Value, UnreadableCell> {
+    if array.is_null(row) {
+        return Ok(Value::Null);
+    }
+    match *array.data_type() {
+        DataType::Int64 => Ok(Value::Integer(
+            array.as_primitive::<arrow_array::types::Int64Type>().value(row),
+        )),
+        // Every narrower width, because `i64::from` is lossless for all of them. Written out rather
+        // than reached through a cast so that the conversion is the compiler's business.
+        DataType::Int8 => Ok(Value::Integer(i64::from(
+            array.as_primitive::<arrow_array::types::Int8Type>().value(row),
+        ))),
+        DataType::Int16 => Ok(Value::Integer(i64::from(
+            array.as_primitive::<arrow_array::types::Int16Type>().value(row),
+        ))),
+        DataType::Int32 => Ok(Value::Integer(i64::from(
+            array.as_primitive::<arrow_array::types::Int32Type>().value(row),
+        ))),
+        DataType::UInt8 => Ok(Value::Integer(i64::from(
+            array.as_primitive::<arrow_array::types::UInt8Type>().value(row),
+        ))),
+        DataType::UInt16 => Ok(Value::Integer(i64::from(
+            array.as_primitive::<arrow_array::types::UInt16Type>().value(row),
+        ))),
+        DataType::UInt32 => Ok(Value::Integer(i64::from(
+            array.as_primitive::<arrow_array::types::UInt32Type>().value(row),
+        ))),
+        // The one width that does not fit. Text when it overflows rather than wrapped: a total that
+        // came back correct must not become a negative number on the way into an answer.
+        DataType::UInt64 => {
+            let value = array.as_primitive::<arrow_array::types::UInt64Type>().value(row);
+            Ok(i64::try_from(value).map_or_else(|_| Value::Text(value.to_string()), Value::Integer))
+        }
+        DataType::Float64 => {
+            let value = array.as_primitive::<arrow_array::types::Float64Type>().value(row);
+            Real::parse(value)
+                .map(Value::Real)
+                .map_err(|cause| UnreadableCell::NotFinite {
+                    column: String::from(label),
+                    cause,
+                })
+        }
+        DataType::Utf8 => Ok(Value::Text(String::from(array.as_string::<i32>().value(row)))),
+        DataType::LargeUtf8 => Ok(Value::Text(String::from(array.as_string::<i64>().value(row)))),
+        // The Parquet default for a string column in this Arrow version, so an affordance that reads
+        // one is not broken on arrival. CSV inference gives the owned form above.
+        DataType::Utf8View => Ok(Value::Text(String::from(array.as_string_view().value(row)))),
+        // ISO text, so the domain's calendar stays the one definition of what a day number means -
+        // and so two adapters' time buckets can be compared at all.
+        DataType::Date32 => {
+            let days = array.as_primitive::<arrow_array::types::Date32Type>().value(row);
+            Date::from_days_since_epoch(days)
+                .map(|date| Value::Text(date.to_iso()))
+                .map_err(|cause| UnreadableCell::NotADate {
+                    column: String::from(label),
+                    cause,
+                })
+        }
+        // `0` or `1`: this domain's `Value` has no boolean, and a text `"true"` would compare unequal
+        // to another adapter's `1`.
+        DataType::Boolean => Ok(Value::Integer(i64::from(array.as_boolean().value(row)))),
+        DataType::Decimal128(_, 0) => {
+            let text = array
+                .as_primitive::<arrow_array::types::Decimal128Type>()
+                .value_as_string(row);
+            Ok(text.parse::<i64>().map_or_else(|_| Value::Text(text), Value::Integer))
+        }
+        DataType::Decimal128(..) => Ok(Value::Text(
+            array
+                .as_primitive::<arrow_array::types::Decimal128Type>()
+                .value_as_string(row),
+        )),
+        DataType::Decimal256(_, 0) => {
+            let text = array
+                .as_primitive::<arrow_array::types::Decimal256Type>()
+                .value_as_string(row);
+            Ok(text.parse::<i64>().map_or_else(|_| Value::Text(text), Value::Integer))
+        }
+        DataType::Decimal256(..) => Ok(Value::Text(
+            array
+                .as_primitive::<arrow_array::types::Decimal256Type>()
+                .value_as_string(row),
+        )),
+        ref other => Err(UnreadableCell::UnsupportedType {
+            column: String::from(label),
+            arrow_type: format!("{other:?}"),
+        }),
+    }
+}
+
+/// One column's Arrow array, built from domain values.
+///
+/// **No longer behind the `fixtures` feature, and `docs/adr/0039` step 2's second half is why.**
+/// With [`Warehouse::execute`](crate::warehouse::Warehouse::execute) returning [`ResultBatches`],
+/// the four adapters whose drivers speak rows - `DuckDB`, `Postgres`, Oracle, `ClickHouse` - call
+/// this on their own production path. An adapter whose driver speaks Arrow still calls none of it.
+///
+/// **The inference is deliberately narrow and stated where it is made.** All-`Integer` is `Int64`,
+/// all-`Real` is `Float64`, a column that mixes `Integer` with EXACT INTEGRAL TEXT is
+/// `Decimal128(38, 0)`, and anything else is `Utf8` with each value rendered. An all-null column,
+/// and every column of a result with no rows at all, reads as `Int64` - which no cell can be read
+/// from, so the type is arbitrary rather than wrong.
+///
+/// **The `Decimal128` arm exists because the "no source produces a mixed column" argument is
+/// FALSE here, and it was measured rather than reasoned.** A data system does declare one type per
+/// column - but a row-speaking adapter maps that column PER CELL: `sutura-exec-duckdb` and
+/// `sutura-exec-postgres` both answer a whole number that fits an `i64` as [`Value::Integer`] and
+/// one that does not as an exact [`Value::Text`], so one `DECIMAL`/`HUGEINT` column arrives mixed.
+/// The conformance corpus has two such cases (`wide-total-by-day`,
+/// `overflowing-integer-total-by-day`), and rendering them to `Utf8` turned `Integer(15)` into
+/// `Text("15")` - a conformance failure against the reference rows, on the production path, for
+/// two of the four adapters the Arrow port makes convert.
+///
+/// `Decimal128(38, 0)` round-trips both halves exactly, because [`ResultBatches::to_rows`]'s
+/// zero-scale arm widens a
+/// value that fits an `i64` back to [`Value::Integer`] and leaves one that does not as its exact
+/// text. That is the same pairing `sutura-exec-bigquery`'s conformance fake declares by hand.
+///
+/// **The limit that survives:** a column mixing [`Value::Integer`] or [`Value::Real`] with text
+/// that is NOT an exact integer still renders to `Utf8`, so a number in it comes back as text. An
+/// all-text column is never promoted, deliberately - a postal code column of `"01234"` would lose
+/// its leading zero, and text a source declared as text is not a number this may decide about.
+#[must_use]
+pub fn arrow_column(values: &[Value]) -> (DataType, arrow_array::ArrayRef) {
+    use std::sync::Arc;
+
+    let present = || values.iter().filter(|value| !matches!(**value, Value::Null));
+    if present().all(|value| matches!(*value, Value::Integer(_))) {
+        let integers: Vec<Option<i64>> = values
+            .iter()
+            .map(|value| match *value {
+                Value::Integer(number) => Some(number),
+                _ => None,
+            })
+            .collect();
+        return (DataType::Int64, Arc::new(arrow_array::Int64Array::from(integers)));
+    }
+    if present().all(|value| matches!(*value, Value::Real(_))) {
+        let reals: Vec<Option<f64>> = values
+            .iter()
+            .map(|value| match *value {
+                Value::Real(number) => Some(number.get()),
+                _ => None,
+            })
+            .collect();
+        return (DataType::Float64, Arc::new(arrow_array::Float64Array::from(reals)));
+    }
+    if let Some(exact) = exact_integers(values) {
+        return exact;
+    }
+    let texts: Vec<Option<String>> = values
+        .iter()
+        .map(|value| match *value {
+            Value::Null => None,
+            ref other => Some(other.render()),
+        })
+        .collect();
+    (DataType::Utf8, Arc::new(arrow_array::StringArray::from(texts)))
+}
+
+/// How wide an exact integral column is declared, which is the widest `Decimal128` Arrow has.
+///
+/// The scale is zero, and that pairing is what [`ResultBatches::to_rows`] reads to widen a
+/// fitting value back to
+/// [`Value::Integer`].
+const EXACT_PRECISION: u8 = 38;
+
+/// A column mixing [`Value::Integer`] with exact integral text, as one `Decimal128(38, 0)` array.
+///
+/// `None` when the column is not that shape, which leaves [`arrow_column`]'s text arm to answer -
+/// and also when `with_precision_and_scale` refuses, which the two constants above make
+/// unreachable: `arrow` rejects only a precision past 38 or a scale past the precision. Answered as
+/// `None` rather than unwrapped because this workspace allows neither `unwrap` nor `expect` here,
+/// and the fallback is the behaviour this arm replaced rather than a new one.
+fn exact_integers(values: &[Value]) -> Option<(DataType, arrow_array::ArrayRef)> {
+    use std::sync::Arc;
+
+    let present = || values.iter().filter(|value| !matches!(**value, Value::Null));
+    // At least one real `Integer`: an all-TEXT column is never promoted. See `arrow_column`.
+    if !present().any(|value| matches!(*value, Value::Integer(_))) {
+        return None;
+    }
+    let exact: Option<Vec<Option<i128>>> = values
+        .iter()
+        .map(|value| match *value {
+            Value::Null => Some(None),
+            Value::Integer(number) => Some(Some(i128::from(number))),
+            Value::Text(ref text) => text.parse::<i128>().ok().map(Some),
+            Value::Real(_) => None,
+        })
+        .collect();
+    let array = arrow_array::Decimal128Array::from(exact?)
+        .with_precision_and_scale(EXACT_PRECISION, 0)
+        .ok()?;
+    Some((DataType::Decimal128(EXACT_PRECISION, 0), Arc::new(array)))
+}
+
+/// A [`RowSet`] as Arrow batches: what an adapter whose driver speaks rows returns from
+/// [`Warehouse::execute`](crate::warehouse::Warehouse::execute).
+///
+/// **One function, named, in the interior - which is what makes the four adapters paying for the
+/// Arrow port a single place to measure and a single place to delete.** `docs/adr/0007` asked for
+/// exactly that when it still expected the conversion to live in a combiner crate; the port moved
+/// and the property did not.
+///
+/// It carries [`arrow_column`]'s inference limit.
+///
+/// # Errors
+///
+/// [`MalformedRowSet::RowWidth`], which a [`RowSet`] cannot be: [`RowSet::new`] refuses a ragged
+/// row before one exists. Propagated rather than defaulted, because a batch built anyway from a
+/// row set whose invariant had been broken would be an answer with cells in the wrong columns.
+pub fn of_row_set(rows: &RowSet) -> Result<ResultBatches, MalformedRowSet> {
+    of_rows(rows.columns(), rows.rows())
+}
+
+/// A result built from domain rows, for a fake and for an adapter whose source speaks rows.
+///
+/// Un-gated for [`arrow_column`]'s reason, and it carries that function's inference limit.
+/// [`of_row_set`] is the form an adapter holding a [`RowSet`] calls, whose width
+/// invariant makes the ragged case unreachable.
+///
+/// # Errors
+///
+/// [`MalformedRowSet::RowWidth`] for a ragged input, refused here rather than at the Arrow layer -
+/// `RecordBatch::try_new` would answer a different error for the same defect, and one of the two
+/// would be the one nobody had read.
+/// **It charges nothing against a [`ResultBudget`], and that is a limit rather than an oversight.**
+/// Its input is rows the caller already holds, so every byte this bound would refuse has been
+/// allocated before the call - a budget here would be a check after the spend, which is the exact
+/// shape [`Accumulating::push`] exists to avoid. The three adapters that reach here decode their own
+/// driver's vocabulary into a `RowSet` first and are therefore **outside the byte budget entirely**;
+/// bounding them means bounding their own decode loops, which is a change to each of them.
+pub fn of_rows(columns: &[String], rows: &[Vec<Value>]) -> Result<ResultBatches, MalformedRowSet> {
+    use std::sync::Arc;
+
+    use arrow_schema::{Field, Schema};
+
+    for (index, row) in rows.iter().enumerate() {
+        if row.len() != columns.len() {
+            return Err(MalformedRowSet::RowWidth {
+                row: index,
+                cells: row.len(),
+                columns: columns.len(),
+            });
+        }
+    }
+    let mut fields = Vec::with_capacity(columns.len());
+    let mut arrays = Vec::with_capacity(columns.len());
+    for (index, label) in columns.iter().enumerate() {
+        let column: Vec<Value> = rows
+            .iter()
+            .map(|row| row.get(index).cloned().unwrap_or(Value::Null))
+            .collect();
+        let (kind, array) = arrow_column(&column);
+        fields.push(Field::new(label.as_str(), kind, true));
+        arrays.push(array);
+    }
+    let schema: SchemaRef = Arc::new(Schema::new(fields));
+    let mut accumulating = Accumulating::announcing(
+        Arc::clone(&schema),
+        rows.len(),
+        // The largest budget that exists, because the rows are already allocated - see the note on
+        // this function. Not a budget an adapter may pass: `ResultBudget` has no such constant.
+        ResultBudget::of_bytes(core::num::NonZeroUsize::MAX),
+    );
+    if rows.is_empty() {
+        return Ok(accumulating.finish());
+    }
+    // `try_new` cannot fail here: every array was built from the same `rows.len()` and its field
+    // carries the type the builder chose. Mapped rather than unwrapped, because this workspace
+    // allows neither `unwrap` nor `expect`.
+    let batch = RecordBatch::try_new(Arc::clone(&schema), arrays).map_err(|_arrow| MalformedRowSet::RowWidth {
+        row: 0,
+        cells: 0,
+        columns: columns.len(),
+    })?;
+    accumulating.push(batch).map_err(|_unannounced| MalformedRowSet::RowWidth {
+        row: 0,
+        cells: 0,
+        columns: columns.len(),
+    })?;
+    Ok(accumulating.finish())
+}
+
+#[cfg(test)]
+mod tests;

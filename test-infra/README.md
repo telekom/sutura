@@ -1,8 +1,8 @@
 # sutura identity test infrastructure
 
 Test-grade Google infrastructure that makes issue #81's identity cells real. This is
-**not** production infrastructure: it provisions disposable resources a developer (or
-the `bigquery-acceptance` job) points at to prove the identity mechanism. It is managed
+**not** production infrastructure: it provisions disposable resources a developer (or the
+`bigquery-declared-principal` job) points at to exercise the identity mechanism. It is managed
 in-repo via Pulumi, and it holds **no real identifiers** - every project, pool and
 principal name is a Pulumi config value supplied at run time.
 
@@ -20,24 +20,38 @@ owns the enterprise-IdP half. This project is the (a) Google half.
   policy - so the same question answered under each principal returns different rows.
   The isolation is BigQuery's row-level IAM; sutura's part is only that each job runs
   under its own bearer;
-- a Google Workload Identity Federation **pool + OIDC provider**, so a subject's own token
-  can be exchanged at Google STS (the (a) token path). **Workload, not workforce** - the
-  broker that performs sutura's exchange (`StsOverHttp`) sends an RFC 8693 `jwt` subject
-  token, which is exactly the shape workload-pool OIDC providers accept (and workforce pools
-  do not). The exported `workload_audience` is what a deployment declares as
+- a Google Workload Identity Federation **pool + OIDC provider**, so a subject's own assertion
+  can be federated at Google STS (the (a) token path). **Workload, not workforce** - the
+  `external_account` credential document the BigQuery adapter builds makes the driver send an
+  RFC 8693 `jwt` subject token, which is exactly the shape workload-pool OIDC providers accept
+  (and workforce pools do not). Nothing in sutura performs the exchange itself. The exported
+  `workload_audience` is what a deployment declares as
   `sources.<alias>.workload_identity.audience`;
 - two `roles/iam.workloadIdentityUser` bindings, one per principal, granting each principal's
-  pool subject the right to impersonate its own service account. That binding is what turns the
-  STS-exchanged credential from a federated `principal://.../subject/...` into the service
-  account's own identity: without it an `iamcredentials.generateAccessToken` hop is refused and
-  `SESSION_USER()` keeps reading the federated subject, never the principal's account the
-  exchanged-identity cell asserts against. Each member is keyed by that principal's own account
-  id (`unique_id`) - the `sub` its minted id_token carries and hence the pool subject it resolves
-  to - so a principal can impersonate only itself.
+  pool subject the right to impersonate its own service account. Each member is keyed by that
+  principal's own account id (`unique_id`) - the `sub` its minted id_token carries and hence the
+  pool subject it resolves to - so a principal can impersonate only itself.
+
+  **These bindings are load-bearing again, and no resource change was needed to make them so.**
+  They authorize an `iamcredentials.generateAccessToken` hop, which is exactly what
+  `telekom/sutura#929` F3 restored: the shipped credential document now carries
+  `service_account_impersonation_url` naming the account declared for the asking subject, and
+  `roles/iam.workloadIdentityUser` on that account carries `iam.serviceAccounts.getAccessToken`. So
+  the grant that stopped applying and came back is this one, and
+  `roles/iam.serviceAccountTokenCreator` - which the deleted deployment-side switch would have
+  needed - is still not declared anywhere. What remains unexercised is the RUN: the venue is
+  `wired` in `docs/where-identity-is-proven.md` and nobody has dispatched it, so nothing here shows
+  Google accepting either hop;
+- **and the row grants are in play again too.** The two row access policies name
+  `serviceAccount:<email>` grantees, which - since each subject now executes AS its declared
+  account - is the identity the mechanism becomes. The row half of leg 2, two subjects reading two
+  different row sets, is therefore provisioned for by this stack; what is missing is a dispatch and
+  a served surface to ask through, not a resource.
 
 `workload_audience` carries the project **number**, not the project id: STS's own `audience`
 request parameter refuses the id with `invalid_target`. `workload_allowed_audiences` defaults to
-`[workload_audience]` - the pool's own audience, matching the `aud` sutura's broker mints - so a
+`[workload_audience]` - the pool's own audience, which is the `aud` whoever mints a subject's
+assertion has to carry (nothing in sutura mints one; the driver forwards what leg 1 verified) - so a
 stack that never sets it still accepts sutura's tokens; a configured list only adds audiences on
 top (and gets the default appended if it omits it). This changed `workload_audience`'s shape, so a
 stack that already ran `infra-set` under the old (broken) value must run it again after `infra-up`.
@@ -154,16 +168,20 @@ with `pulumi destroy --preview-only`. Re-create afterwards with `infra-up` then 
 
 ## What consumes the outputs
 
-- the `bq-test` environment's secrets/vars (see below), consumed by the `bigquery-acceptance`
-  job;
-- `principal_a_email` / `principal_b_email` and the row-grant mapping are what the
-  two-principal acceptance cell asserts against;
+- the `bq-test` environment's secrets/vars (see below), consumed by the
+  `bigquery-declared-principal` job - the `bigquery-acceptance` job that used to read them is
+  removed;
+- `principal_a_email` / `principal_b_email` are asserted against by **nothing that ships**: the
+  declared-principal cells compare the two `SESSION_USER()` answers against each other, because
+  the pool decides the principal and no address predicts it;
 - `workload_audience` (and the pool provider) is the (a) end of a served
-  `impersonation-at-source` source, once the exchanging broker is attached to one.
+  `impersonation-at-source` source: `sutura serve` attaches
+  `sutura_exec_bigquery::DeclaredPrincipalBroker` to one, and the driver federates the asker's own
+  assertion against that pool.
 
 ## The `bq-test` GitHub environment
 
-The stack's outputs reach the `bigquery-acceptance` CI job through the `bq-test` GitHub
+The stack's outputs reach the `bigquery-declared-principal` CI job through the `bq-test` GitHub
 **environment**. A one-time operator step, `just infra-set`, reads the stack's secret outputs
 and pushes them to that environment, so nothing is committed and the CI credential + resource
 names follow the stack after a re-`up` (which only rotates the keys). `just infra-set` needs
@@ -217,8 +235,9 @@ dataset's location is immutable, changing that value recreates the venue on the 
 The stack creates a dedicated **CI service account** (`ci_sa`), granted project-level
 `bigquery.jobUser` and dataset-level `bigquery.dataEditor` on the stack dataset, the `ci_dataset`
 (the already-populated acceptance dataset) and the cross dataset, so the acceptance/corpus legs and
-the cross-resource venue can run under it. A fork's pull request cannot see an environment's secrets, so `bigquery-acceptance`
-skips there and runs in-repo, the same `docs/adr/0017` rule.
+the cross-resource venue can run under it. A fork's pull request cannot see an environment's
+secrets, which is one reason `bigquery-declared-principal` is `workflow_dispatch` only - the same
+`docs/adr/0017` rule the removed `bigquery-acceptance` job met with a skip.
 
 ## Caveats
 

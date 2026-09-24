@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Does work on the blocking pool still belong to the request that started it?
 //!
 //! # Why this is an integration test and not a `mod tests` in `src/blocking.rs`

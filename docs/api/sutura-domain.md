@@ -12,10 +12,17 @@ names its dependencies by.
 
 Nothing here may depend on a framework: no async runtime, no web server, no query engine.
 `cargo xtask check-boundaries` enforces it over the whole transitive tree, because the rule
-is worth more as a check than as a sentence in a design document. The allowlist is `serde` and
-`thiserror` and their proc-macro support, plus the `serde_json` and `sha2` that the definition
-digest needs, and nothing else - which is why there is a hand-written calendar in `calendar`
-and no SQL parser anywhere in this crate, `expression` included.
+is worth more as a check than as a sentence in a design document. The allowlist is `serde`,
+`thiserror` and their proc-macro support, the `serde_json` and `sha2` the definition digest
+needs, `secrecy`/`zeroize` for `identity::Secret`, and - since `docs/adr/0039` - Arrow, which
+brought the whole of `warehouse::arrow` and 64 further crates in its closure. So *and nothing
+else* is no longer the shape of this list, and the hand-written calendar in `calendar` is now
+held by a narrower argument than it was: `chrono` IS in the closure, reached through
+`arrow-array`, and the reason `calendar` does not use it is that a date this domain accepts is
+a parsed value with its own refusals rather than whatever a general calendar library will
+represent - plus a wall clock in a query planner answers a different thing at midnight, which
+`clippy.toml` bans by name rather than leaving to this paragraph. What is still absent outright
+is a SQL parser: nowhere in this crate, `expression` included.
 
 **Four ports live here now, and each arrived with the adapter that implements it.** A port exists
 to invert a dependency on something outside the hexagon, so a trait with no implementor is a
@@ -29,7 +36,7 @@ settings crate because the identity provider it reads *is* the settings tree.
 **What the credential port did and did not buy, said here because the count above invites the
 wrong reading.** There is no longer a signature that reaches a data system with a question and no
 credential, and a subject with no credential at a source is refused rather than answered as the
-process. What is absent is the other end: no adapter in this build has anywhere for a per-subject
+process. What is absent is the other end: no PUBLISHED adapter has anywhere for a per-subject
 credential to arrive, so a leg runs under the identity an operator declared for that source and
 `pinned::Provenance` records which. The one method that still executes with no credential is
 `warehouse::Warehouse::verify_anchor`, the boot path's; `clippy.toml` bans it everywhere else and
@@ -48,7 +55,7 @@ types it speaks in:
 - `plan` is what we decided to execute, and the artifact the execution port speaks in.
 - `federation` is how a measure survives being computed in pieces: which aggregates descend
   into a leg, which one descends decomposed, and which needs its rows pulled up. The splitter
-  and the combiner (`plan::FederatedPlan::combine`) both call it, and since
+  and the combiner (behind `plan::FederationCombiner`) both call it, and since
   `sutura-exec-datafusion` declares `Warehouse::EXECUTES_LEGS` a published build answers a
   two-source question end to end - so this is a classification on the answer path rather than
   one with no production caller, which is what this line used to say.
@@ -2739,6 +2746,25 @@ secret comes into existence.
 
 `Clone`, `Debug`
 
+### `use ComputeContext`
+
+An opaque, stable discriminator for *which caller, on which data system* a federated leg runs as.
+
+**There is one constructor and it takes the subject, so a context with no subject in it is not a
+value this type has.** That is the mechanism rather than a convention: the field is private, no
+`From`, `Default` or `parse` exists, and `Self::of` cannot be called without a `Subject` in
+hand. A future `FederationProvider::compute_context` that returns `self.context.as_str()` is
+therefore subject-bearing by construction, and one that returns `None` or a constant does not
+type-check against this type at all.
+
+Equality and ordering are over the digest, which is what the optimizer's comparison needs: equal
+for one caller's repeated scans of one source, unequal for two callers or two sources.
+
+**No `serde` derive, deliberately.** Nothing in `crate::identity`'s principal half is
+serializable, for that module's stated reason - a type that can be read off the wire is a caller
+stating its own identity - and a compute context is derived from a verified subject. It reaches a
+remote as plan text, which is the adapter's business, not a wire shape this type owns.
+
 ### `use Agreed`
 
 What a broker answered, checked against the request it was asked about.
@@ -2997,15 +3023,27 @@ invite a client to retry a deployment bug until something works.
 
 ### `use PrincipalName`
 
-A name a data system knows a principal by, for the posture where a session is switched to it.
+A name a data system knows a principal by.
+
+Two roles: the one a session is switched to, and the one a source is asked to execute as after
+the asker's own credential authenticated (`Presented::SubjectToken`'s `impersonate`).
 
 **Not a `Secret`, and that is a statement rather than an omission.** A role or service-account
 name is not secret: the trust on that leg belongs to the connection the deployment
 authenticated, and the name is what the data system evaluates its policies against. A type that
 redacted it would hide the one value an operator has to be able to read back in a log.
 
+**Declared here by hand rather than by `principal_newtype!`, and that is load-bearing rather
+than historical.** That macro stores `mask_principal_into`'s
+output and drops the raw, which is right for a value that only ever reaches a record and wrong
+for one that is SENT: masked, an account address arrives at whatever is asked to become it as
+`s***-a@a***.i***.g***` and is refused. Every value of this type keeps its full string.
+
 Parsed by the same parser every principal identifier in this module goes through, so a name that
-could forge a line in the record a call is written to does not exist. Construct it with
+could forge a line in the record a call is written to does not exist. **What that parser does
+NOT do is narrow this to one data system's shape** - it accepts `/`, `:`, `?`, `#`, quotes and
+spaces, so a crate that interpolates this value into a path or a URL narrows it again at the
+point of sending. Construct it with
 `parse`: the field is private, there is no `Deserialize`, and `TryFrom<String>`
 delegates to the same constructor.
 
@@ -6507,38 +6545,37 @@ One group-by key of the answer: which leg owns it, and the label it carries in t
 
 ### `use FederatedAnswerRefusal`
 
-A federated answer that could not be computed as asked, classified apart from a wiring defect.
+A federated answer that could not be computed as asked, told apart from a wiring defect.
 
-**D19 + A4: every arm here is deterministic.** The same plan against the same data refuses
-again, which is the opposite of what `sutura_app::ServiceError::Federated` used to mean once it
-reached a transport: an HTTP `503`, the status a data system that might come back produces.
-`Self::of` is the total function that decides which arms count - the wiring defects
-(`MissingColumn`, `DuplicateLabels`, `UnsupportedAggregate`, `MalformedRow`,
-`LeafCursorExhausted`) are a defect in this workspace's own splitter, not a caller's, and stay a
-`ServiceError`; `FederatedFailure::ResourcesExhausted` already has its own
-`RefusalReason` variant and is handled before this classification
-runs.
+**Every arm here is deterministic.** The same plan against the same legs refuses again, which is
+the opposite of what a data-system failure means to a transport: a caller told `503` retries,
+and a retry against any of these returns the same refusal. The implementor's own error type is
+where the detail lives; this is what a caller is told.
 
-**Carries no cell.** `AmbiguousLink`'s join key and `FloatLinkKey`'s value are exactly the
-caller data this workspace never puts in a message a caller or an agent reads - see
-`FederatedFailure`'s own header for D6, the case that named it. Every arm here is a bare
-discriminant.
+**Carries no cell.** A join key and a leaf value are exactly the caller data this workspace
+never puts in a message a caller or an agent reads - `telekom/sutura#929`'s D6 named the case, a
+join key that could be a customer identifier - so every arm is a bare discriminant. The
+combiner's own error may carry an Arrow TYPE, which is a driver's metadata rather than anybody's
+data.
 
-### `use FederatedFailure`
+# Two arms were removed with the hand-written combine, and both for the same kind of reason
 
-Why a federated answer could not be assembled.
+`MixedNumericLeaf` refused a leaf column carrying both integer and real cells, because
+`RowSet` constrains a row's width and nothing about its cells. **An
+Arrow column has ONE type**, so the shape is not representable at the port any more and an arm
+for it would be a refusal nothing can provoke.
 
-The shape failures are defects in this workspace's own wiring - a leg result missing a column
-`super::labels` named, or a row narrower than its result's own columns. The `NonFinite`
-variant is a `fails` guard meeting a zero denominator, which no divide-tree node can produce a
-value for.
-
-**D6: `AmbiguousLink`'s `Display` does not interpolate `key`.** A join
-key is exactly the kind of cell this workspace treats as caller data - the finding named a case
-where it could be a customer identifier - and `Display` is what every logger and every future
-refusal surface reads. The field stays for equality in tests; nothing here stops a future arm
-from interpolating it instead, which is why this is held by review at any new call site rather
-than by the compiler.
+`Overflow` refused a leaf total that crossed an `i64`. That refusal lost the answer, and the
+combiner does not need it: it sums an exact integral leaf as a 256-bit decimal, and
+`ResultBatches::to_rows` widens a zero-scale value
+that fits an `i64` back to an integer and renders one that does not as its exact text. So a
+total past `i64::MAX` comes back **exact** where it used to be refused. **The limit that
+replaces it, stated where the arm was:** `DataFusion`'s own sum accumulator adds with wrapping
+arithmetic (`add_wrapping`, measured in the pinned 55.1.0 source, and its upstream documentation
+says an overflow wraps rather than erroring), so the bound is the accumulator's width and not a
+refusal. A 256-bit accumulator over leaf values a `Decimal128` column can hold needs on the
+order of `10^38` rows to wrap, which no row ceiling in this workspace permits - but it is a
+width, not a guard, and a combiner that narrowed the accumulator would silently lose that.
 
 ### `use FederatedPlan`
 
@@ -6561,6 +6598,46 @@ be reconstructed from its serialized form and no field here is a request a calle
 ### `use FederatedPlanError`
 
 Why a federated plan could not be built.
+
+### `use FederationCombiner`
+
+Joins two legs' results and re-aggregates the answer above them.
+
+**The second driven port, declared beside `Warehouse` and
+`SemanticCatalog`**, and the module header is why it is a port.
+`sutura_app::federated::answer_federated` is the driver; a crate above this one implements it.
+An adapter never calls another adapter and this does not change that: the combine is called from
+the application, above every adapter, exactly where `FederatedPlan::combine` was called from.
+
+# Every method is required, and that is the mechanism
+
+`Warehouse` defaults its four classifying predicates, because an
+adapter with no memory pool has an honest `None` to give. A combiner does not: there is one
+implementation, the working-set ceiling is the whole of what bounds it, and an implementor that
+inherited `None` would turn a ceiling an operator configured into the `503` a dead data system
+produces - with nothing in a diff to see. So `Self::working_set_exhausted` and
+`Self::answer_not_well_formed` have no default body: a second implementor has to write both
+arms where a reviewer reads them.
+
+# What the domain may ask about an implementor's error, and why it is two predicates
+
+`Self::Error` is the implementor's own type, so nothing above this port can tell *the pool would
+not grow* from *the plan would not build*. The two questions split the same way the query path's
+already do:
+
+* `Self::working_set_exhausted` is the governance bound -
+  `RefusalReason::ResourcesExhausted`, which
+  carries the ceiling an operator configured.
+* `Self::answer_not_well_formed` is a deterministic refusal about the DATA the legs returned -
+  `RefusalReason::FederatedAnswerNotWellFormed`.
+  The same plan against the same rows refuses again, which is what makes it a refusal rather
+  than a retryable failure.
+
+Both are predicates rather than conversions, for the reason
+`Warehouse::working_set_exhausted` gives:
+an implementor that could return a `RefusalReason` could mint any
+of them from a failure of its own. Everything else leaves as the implementor's typed error and
+reaches a caller as this workspace's own defect.
 
 ### `use InternalLabel`
 
@@ -6599,7 +6676,7 @@ What is established, and by what:
 | Claim | Venue | Mechanism |
 | --- | --- | --- |
 | the five dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
-| `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
+| `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05; the acceptance leg that held it was removed with the `wire` transport and the ADBC adoption |
 | the pinned `DuckDB` executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
 
 `BigQuery` is the target that had to be asked rather than reasoned about, because it is the one
@@ -6663,9 +6740,34 @@ columns become one. `metric__{n}` over a 63-character metric name is 66 characte
 scheme could produce exactly that. Nothing here reads a metric's name, and the widest label a
 `usize` can index is 27 characters.
 
+### `use LegResult`
+
+One leg's result, tagged with the side the `LegPlan` it was executed from named.
+
+**The tag is parsed, not passed.** `Self::of` takes the plan and reads the side off the
+variant, so a caller cannot label a lookup leg's rows as the fact leg's - which is the mistake
+`Legs` exists to make unrepresentable one level up.
+
 ### `use LegSide`
 
 Which leg's result an answer key is read from.
+
+### `use Legs`
+
+Both legs' results, which cannot hold two of one side and cannot be built with them swapped.
+
+Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
+for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
+so an owned pair would say *moved* about something that is shared either way.
+
+### `use LegsAreNotOneOfEach`
+
+Two leg results that name the same side, so there is no pair to combine.
+
+Unreachable through `sutura_app`'s federated path, which builds one `LegResult` per
+`FederatedPlan::legs` entry and that method returns the two variants by construction. Typed
+anyway rather than assumed away: it is the one thing `Legs::of` cannot answer, and a silent
+choice between two facts would combine a leg with itself.
 
 ### `use labels`
 
@@ -6679,6 +6781,27 @@ function twice, so naming by aggregate would give both leaves one label and a co
 divides a column by itself. Position cannot collide, and it is all a leg needs: a leg carries one
 metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
 under the metric's own certified name, which `FederatedPlan`'s `measure_label` holds.
+
+### `use NothingCombined`
+
+What `RefusingCombiner` answers with.
+
+### `use RefusingCombiner`
+
+A combiner that answers nothing, for a transport's own tests.
+
+**A fake over the port, which is this workspace's rule for one** - never a mocked engine. It
+exists because a transport's suite composes a whole `sutura_app::LocalService` to exercise
+routing, credentials and refusal shapes, and a service takes a combiner: without this, each
+transport would write its own, and two copies of a fake are two things to keep in step.
+
+**Refusing rather than answering, and that is the honest fake for its callers.** No transport
+test asks a two-source question - the adapters those suites register are mono fakes - so a
+combiner that produced rows would be inventing an answer nothing reads. A combine that is
+reached through this fake is a test that has drifted into the federated path, and it fails
+loudly rather than passing over a fabricated number.
+
+Behind `fixtures`, so nothing published holds it.
 
 ### `use ResultLabel`
 
@@ -7270,18 +7393,27 @@ the number, and an out-of-range index is out of order as well.
 
 ### Module `federated`
 
-The federated question: two legs, and the combine that happens above them.
+The federated question: two legs, the plan that names them, and the port the combine happens
+through.
 
-**This module gives `crate::federation` its caller.** Until now that module was "a
-classification and a rule, nothing executes it": `Descent::of` and `Federation::of` were total but
-nothing produced a `crate::plan::LegPlan` and nothing consumed the rows one returns. This module
-is the other half - the small, closed contract that a splitter fills with facts and this module's
-own `FederatedPlan::combine` turns back into rows.
+**This module gives `crate::federation` its caller.** `Descent::of` and `Federation::of` are
+total classifications that nothing used to execute; a `FederatedPlan` is the small, closed
+contract a splitter fills with facts, and `combiner`'s port is what turns two legs' results
+back into one answer's rows.
+
+**The combine used to be a method here and is not any more.** `docs/adr/0039` step 3 replaced
+`FederatedPlan::combine` - a pure domain function that walked rows one cell at a time - with a
+`DataFusion` plan in an adapter, under the owner instruction *no hand row handling*. What that
+leaves here is the plan TYPE, its refusals, the label scheme both halves read, and the port; the
+four accessors `FederatedPlan::bucket_label`, `FederatedPlan::measure_label`,
+`FederatedPlan::federation` and `FederatedPlan::include_unmatched` exist because an
+implementor above this crate cannot read a private field. What is deliberately not published is
+anything a combiner could use to invent a column.
 
 **What the splitter and the combiner agree on, and it is one function.** A fact leg's terms are
 projected under labels, and the combiner has to find each term's column *by* its label - the
 mistake this design refuses to make is the two halves agreeing by review. `labels` is that one
-function: the splitter names the fact leg's terms with it and the combiner re-derives the same
+function: the splitter names the fact leg's terms with it and a combiner re-derives the same
 names from the same `Federation` and looks them up in the fact leg's result. There is no second
 copy of the naming rule to drift.
 
@@ -7290,19 +7422,19 @@ result carries public dimension labels beside the internal ones, so an internal 
 an identifier is a label a legal dimension name can collide with - reproduced. `InternalLabel`
 is the type that cannot be spelled by one.
 
-**The division cannot happen in a leg, and `combine` is where it
-happens instead.** The `Above` tree already carries the only
-`ZeroDenominator` in the federated path; this module walks it
-above the legs, after every leg's rows have been re-aggregated. Applying a guard inside a leg is
-the wrong number this shape exists to prevent.
+**The division cannot happen in a leg, and that survives the combine moving out.** The
+`Above` tree carries the only
+`ZeroDenominator` in the federated path, and
+`FederatedPlan::federation` hands a combiner that tree rather than a per-leg guard - a guard
+applied inside a leg is the wrong number this shape exists to prevent.
 
-**What this module will not do, because `combine` cannot express it.** The re-aggregation
-`combine` performs covers the leaves a *decomposable* measure produces - a re-aggregating
-`Sum`, `Min` or
-`Max` over already-aggregated leg columns. A measure that does not
-decompose at all (a distinct count) has no re-aggregating function, and the honest answer for this
-slice is to refuse it in the splitter rather than pull its rows up through a combiner that would
-have to re-count. The refusal names the aggregate.
+**What no combiner may be asked to express, and the refusal is here rather than there.** The
+re-aggregation above the legs covers the leaves a *decomposable* measure produces - a
+re-aggregating `Sum`, `Min` or
+`Max`. A measure that does not decompose at all (an exact
+distinct count) has no re-aggregating function, so `FederatedPlan::new` refuses such a leaf
+before a plan exists and `reaggregates` is the whole statement of which do. That keeps an
+implementor's own unsupported-aggregate arm unreachable through this constructor.
 
 #### `struct FederatedPlan`
 
@@ -7329,28 +7461,41 @@ be reconstructed from its serialized form and no field here is a request a calle
 ##### Methods
 
 ```rust
-pub fn combine(&self, fact: &RowSet, lookup: &RowSet, byte_budget: u64) -> Result<RowSet, FederatedFailure>
+pub fn bucket_label(&self) -> &str
 ```
 
-Turns one result per leg into one answer's rows.
+The label the fact leg projected its time bucket under, which the answer groups by.
 
-The fact and lookup results are joined on the recorded link column, grouped by the answer's
-keys - in the order the question asked them, matching the mono path - and the bucket,
-re-aggregated by each leaf's own `Carried::combine`,
-and only then divided through the `Above` tree. Those last two
-steps belong to `reaggregate`, reached as `Leaves::of` and `Leaves::measure`; the join, the
-grouping and the budget are this file's.
-
-`byte_budget` is the working-set ceiling `docs/adr/0009` applies at the conversion boundary:
-the answer materialised here is counted as it is built, and a question that would cross it is
-refused as `FederatedFailure::ResourcesExhausted` rather than truncated, so a caller never
-reads a result that stopped early as a result that returned.
+**Four accessors arrived with the combiner port and this is the first of them.** The combine
+used to be a method here and read these fields directly; an implementor above this crate
+cannot, so the plan publishes what a combine needs and nothing more. What is deliberately
+NOT published is anything a combiner could use to invent a column: every one of these is a
+label the splitter already assigned or a tree it already built.
 
 ```rust
 pub const fn fact(&self) -> &LegPlan
 ```
 
 The fact leg.
+
+```rust
+pub const fn federation(&self) -> &Federation
+```
+
+The combine tree above the legs, and the metric that names its leaves.
+
+Every leaf it carries has a re-aggregating function, because `Self::new` refused a plan
+whose leaf did not - so an implementor's own unsupported-aggregate arm is unreachable
+through this constructor rather than absent.
+
+```rust
+pub const fn include_unmatched(&self) -> bool
+```
+
+Whether a fact row with no lookup row survives with null remote keys.
+
+LEFT for a lookup leg carrying no filter, INNER for one that does - the splitter's decision,
+published here so a combiner does not have to guess. `docs/adr/0009` decides the direction.
 
 ```rust
 pub fn keys(&self) -> &[AnswerKey]
@@ -7369,6 +7514,12 @@ pub const fn lookup(&self) -> &LegPlan
 ```
 
 The lookup leg.
+
+```rust
+pub fn measure_label(&self) -> &str
+```
+
+The label the answer's measure is emitted under - the metric's own certified name.
 
 ```rust
 pub const fn metric(&self) -> &MetricName
@@ -7397,12 +7548,12 @@ for the two legs to disagree about, and the constructor requires both legs to pr
 pub fn rank(combined: &RowSet, top: Top) -> Result<RowSet, MalformedRowSet>
 ```
 
-Case 2's rank - `github.com/telekom/sutura#777`: `Self::combine` already sorted `combined`
+Case 2's rank - `github.com/telekom/sutura#777`: a combiner already sorted `combined`
 ascending by its own key cells, nulls last; this re-sorts it by `top`'s own criterion,
 stably, so two rows tied on that criterion keep the key order they already have, and then
 keeps `top.n()` of them.
 
-**The column position, not a label lookup.** `Self::combine`'s own doc states the answer's
+**The column position, not a label lookup.** `FederationCombiner::combine`'s own doc states the answer's
 column order - every key, then the bucket, then the measure - so `TopBy::Metric` is the
 last column and `TopBy::Period` the one before it, by construction rather than by name.
 That is a property of every `FederatedPlan`'s own combined answer rather than of one
@@ -7430,7 +7581,7 @@ pub const fn with_top(self, top: Top) -> Self
 ```
 
 Attaches the federated `top` - `github.com/telekom/sutura#777` - so
-`combine`'s caller knows the answer still needs ranking and truncating
+the combiner's caller knows the answer still needs ranking and truncating
 after the legs are joined.
 
 A builder rather than a constructor argument, for
@@ -7529,40 +7680,125 @@ Why a federated plan could not be built.
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+#### `use FederationCombiner`
+
+Joins two legs' results and re-aggregates the answer above them.
+
+**The second driven port, declared beside `Warehouse` and
+`SemanticCatalog`**, and the module header is why it is a port.
+`sutura_app::federated::answer_federated` is the driver; a crate above this one implements it.
+An adapter never calls another adapter and this does not change that: the combine is called from
+the application, above every adapter, exactly where `FederatedPlan::combine` was called from.
+
+# Every method is required, and that is the mechanism
+
+`Warehouse` defaults its four classifying predicates, because an
+adapter with no memory pool has an honest `None` to give. A combiner does not: there is one
+implementation, the working-set ceiling is the whole of what bounds it, and an implementor that
+inherited `None` would turn a ceiling an operator configured into the `503` a dead data system
+produces - with nothing in a diff to see. So `Self::working_set_exhausted` and
+`Self::answer_not_well_formed` have no default body: a second implementor has to write both
+arms where a reviewer reads them.
+
+# What the domain may ask about an implementor's error, and why it is two predicates
+
+`Self::Error` is the implementor's own type, so nothing above this port can tell *the pool would
+not grow* from *the plan would not build*. The two questions split the same way the query path's
+already do:
+
+* `Self::working_set_exhausted` is the governance bound -
+  `RefusalReason::ResourcesExhausted`, which
+  carries the ceiling an operator configured.
+* `Self::answer_not_well_formed` is a deterministic refusal about the DATA the legs returned -
+  `RefusalReason::FederatedAnswerNotWellFormed`.
+  The same plan against the same rows refuses again, which is what makes it a refusal rather
+  than a retryable failure.
+
+Both are predicates rather than conversions, for the reason
+`Warehouse::working_set_exhausted` gives:
+an implementor that could return a `RefusalReason` could mint any
+of them from a failure of its own. Everything else leaves as the implementor's typed error and
+reaches a caller as this workspace's own defect.
+
+#### `use LegResult`
+
+One leg's result, tagged with the side the `LegPlan` it was executed from named.
+
+**The tag is parsed, not passed.** `Self::of` takes the plan and reads the side off the
+variant, so a caller cannot label a lookup leg's rows as the fact leg's - which is the mistake
+`Legs` exists to make unrepresentable one level up.
+
+#### `use Legs`
+
+Both legs' results, which cannot hold two of one side and cannot be built with them swapped.
+
+Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
+for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
+so an owned pair would say *moved* about something that is shared either way.
+
+#### `use LegsAreNotOneOfEach`
+
+Two leg results that name the same side, so there is no pair to combine.
+
+Unreachable through `sutura_app`'s federated path, which builds one `LegResult` per
+`FederatedPlan::legs` entry and that method returns the two variants by construction. Typed
+anyway rather than assumed away: it is the one thing `Legs::of` cannot answer, and a silent
+choice between two facts would combine a leg with itself.
+
+#### `use NothingCombined`
+
+What `RefusingCombiner` answers with.
+
+#### `use RefusingCombiner`
+
+A combiner that answers nothing, for a transport's own tests.
+
+**A fake over the port, which is this workspace's rule for one** - never a mocked engine. It
+exists because a transport's suite composes a whole `sutura_app::LocalService` to exercise
+routing, credentials and refusal shapes, and a service takes a combiner: without this, each
+transport would write its own, and two copies of a fake are two things to keep in step.
+
+**Refusing rather than answering, and that is the honest fake for its callers.** No transport
+test asks a two-source question - the adapters those suites register are mono fakes - so a
+combiner that produced rows would be inventing an answer nothing reads. A combine that is
+reached through this fake is a test that has drifted into the federated path, and it fails
+loudly rather than passing over a fabricated number.
+
+Behind `fixtures`, so nothing published holds it.
+
 #### `use FederatedAnswerRefusal`
 
-A federated answer that could not be computed as asked, classified apart from a wiring defect.
+A federated answer that could not be computed as asked, told apart from a wiring defect.
 
-**D19 + A4: every arm here is deterministic.** The same plan against the same data refuses
-again, which is the opposite of what `sutura_app::ServiceError::Federated` used to mean once it
-reached a transport: an HTTP `503`, the status a data system that might come back produces.
-`Self::of` is the total function that decides which arms count - the wiring defects
-(`MissingColumn`, `DuplicateLabels`, `UnsupportedAggregate`, `MalformedRow`,
-`LeafCursorExhausted`) are a defect in this workspace's own splitter, not a caller's, and stay a
-`ServiceError`; `FederatedFailure::ResourcesExhausted` already has its own
-`RefusalReason` variant and is handled before this classification
-runs.
+**Every arm here is deterministic.** The same plan against the same legs refuses again, which is
+the opposite of what a data-system failure means to a transport: a caller told `503` retries,
+and a retry against any of these returns the same refusal. The implementor's own error type is
+where the detail lives; this is what a caller is told.
 
-**Carries no cell.** `AmbiguousLink`'s join key and `FloatLinkKey`'s value are exactly the
-caller data this workspace never puts in a message a caller or an agent reads - see
-`FederatedFailure`'s own header for D6, the case that named it. Every arm here is a bare
-discriminant.
+**Carries no cell.** A join key and a leaf value are exactly the caller data this workspace
+never puts in a message a caller or an agent reads - `telekom/sutura#929`'s D6 named the case, a
+join key that could be a customer identifier - so every arm is a bare discriminant. The
+combiner's own error may carry an Arrow TYPE, which is a driver's metadata rather than anybody's
+data.
 
-#### `use FederatedFailure`
+# Two arms were removed with the hand-written combine, and both for the same kind of reason
 
-Why a federated answer could not be assembled.
+`MixedNumericLeaf` refused a leaf column carrying both integer and real cells, because
+`RowSet` constrains a row's width and nothing about its cells. **An
+Arrow column has ONE type**, so the shape is not representable at the port any more and an arm
+for it would be a refusal nothing can provoke.
 
-The shape failures are defects in this workspace's own wiring - a leg result missing a column
-`super::labels` named, or a row narrower than its result's own columns. The `NonFinite`
-variant is a `fails` guard meeting a zero denominator, which no divide-tree node can produce a
-value for.
-
-**D6: `AmbiguousLink`'s `Display` does not interpolate `key`.** A join
-key is exactly the kind of cell this workspace treats as caller data - the finding named a case
-where it could be a customer identifier - and `Display` is what every logger and every future
-refusal surface reads. The field stays for equality in tests; nothing here stops a future arm
-from interpolating it instead, which is why this is held by review at any new call site rather
-than by the compiler.
+`Overflow` refused a leaf total that crossed an `i64`. That refusal lost the answer, and the
+combiner does not need it: it sums an exact integral leaf as a 256-bit decimal, and
+`ResultBatches::to_rows` widens a zero-scale value
+that fits an `i64` back to an integer and renders one that does not as its exact text. So a
+total past `i64::MAX` comes back **exact** where it used to be refused. **The limit that
+replaces it, stated where the arm was:** `DataFusion`'s own sum accumulator adds with wrapping
+arithmetic (`add_wrapping`, measured in the pinned 55.1.0 source, and its upstream documentation
+says an overflow wraps rather than erroring), so the bound is the accumulator's width and not a
+refusal. A 256-bit accumulator over leaf values a `Decimal128` column can hold needs on the
+order of `10^38` rows to wrap, which no row ceiling in this workspace permits - but it is a
+width, not a guard, and a combiner that narrowed the accumulator would silently lose that.
 
 #### `use InternalLabel`
 
@@ -7601,7 +7837,7 @@ What is established, and by what:
 | Claim | Venue | Mechanism |
 | --- | --- | --- |
 | the five dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
-| `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
+| `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05; the acceptance leg that held it was removed with the `wire` transport and the ADBC adoption |
 | the pinned `DuckDB` executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
 
 `BigQuery` is the target that had to be asked rather than reasoned about, because it is the one
@@ -7678,6 +7914,232 @@ divides a column by itself. Position cannot collide, and it is all a leg needs: 
 metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
 under the metric's own certified name, which `FederatedPlan`'s `measure_label` holds.
 
+#### Module `combiner`
+
+The second driven port, and the pair of leg results it takes.
+
+`docs/adr/0007` designed it here and recorded that it was not built; step 3 of
+`docs/adr/0039` is what builds it.
+The second driven port: what joins and re-aggregates two legs, above every adapter.
+
+# Why this is a port and not a function
+
+`docs/adr/0007` designed it here and recorded that it was not what got built: *"the combine
+needs `DataFusion`, `sutura-app` may not name a framework, so the domain declares a port beside
+`Warehouse` and `SemanticCatalog` and a crate above it implements the combine over
+`DataFusion`"*. What landed instead was `FederatedPlan::combine`, a pure domain function that
+walked rows by hand. `docs/adr/0039-arrow-and-datafusion-override-the-hand-written-combiner.md`
+step 3 reverses that by owner instruction - *no hand row handling: `DataFusion`, Arrow, Arrow
+Flight or ADBC* - so this is the port arriving, not a new invention.
+
+A path in backticks rather than a Markdown link, and that is not style: `just api` republishes
+this header at `docs/api/sutura-domain.md`, where `mkdocs --strict` resolves a relative link
+against the PUBLISHED page's directory rather than this file's - and fails the build.
+
+**The domain names no engine, and that is the constraint the trait is shaped by.**
+`xtask/src/boundaries/edges.rs`'s `ALLOWED_IN_DOMAIN` is an allowlist over this crate's whole
+transitive tree and its line is *no runtime, no client, no engine*. `DataFusion` is an engine, so
+the trait lives here and its implementor lives in an adapter. Arrow is a data FORMAT, which is
+why `ResultBatches` may be the currency on both sides of this
+signature - the argument is
+`crate::warehouse::arrow`'s and it was paid there.
+
+# What the shape buys, which is that the two legs cannot be swapped
+
+A combiner taking `(&ResultBatches, &ResultBatches)` has two arguments of one type whose swap
+compiles and answers a wrong number under a certified metric name - the fact leg's measure
+grouped by the lookup leg's keys. `Legs` makes the swap unrepresentable rather than reviewed:
+each leg's result is tagged with the side by `LegResult::of`, which reads it off the
+`LegPlan` the leg was executed from and takes no side from its caller, and `Legs::of`
+assigns by that tag rather than by argument position. So the two can be handed over in either
+order and a pair that is not one of each does not build a value.
+
+##### `struct LegResult`
+
+```rust
+pub struct LegResult
+```
+
+One leg's result, tagged with the side the `LegPlan` it was executed from named.
+
+**The tag is parsed, not passed.** `Self::of` takes the plan and reads the side off the
+variant, so a caller cannot label a lookup leg's rows as the fact leg's - which is the mistake
+`Legs` exists to make unrepresentable one level up.
+
+###### Methods
+
+```rust
+pub const fn batches(&self) -> &ResultBatches
+```
+
+The batches, as the leg's adapter handed them over.
+
+```rust
+pub const fn of(plan: &LegPlan, batches: ResultBatches) -> Self
+```
+
+One executed leg's result, under the side its plan names.
+
+```rust
+pub const fn side(&self) -> LegSide
+```
+
+Which leg this result came from.
+
+###### Implements
+
+`Clone`, `Debug`
+
+##### `struct Legs`
+
+```rust
+pub struct Legs<'a>
+```
+
+Both legs' results, which cannot hold two of one side and cannot be built with them swapped.
+
+Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
+for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
+so an owned pair would say *moved* about something that is shared either way.
+
+###### Methods
+
+```rust
+pub const fn fact(self) -> &'a ResultBatches
+```
+
+The metric's own leg: its keys, its time bucket and its carried leaves.
+
+```rust
+pub const fn lookup(self) -> &'a ResultBatches
+```
+
+The second data system's leg: the remote keys the answer groups by.
+
+```rust
+pub const fn of(one: &'a LegResult, other: &'a LegResult) -> Result<Self, LegsAreNotOneOfEach>
+```
+
+The pair, assigned by each result's own tag rather than by the order they arrive in.
+
+# Errors
+
+`LegsAreNotOneOfEach` when both results name the same side.
+
+###### Implements
+
+`Clone`, `Copy`, `Debug`
+
+##### `struct LegsAreNotOneOfEach`
+
+```rust
+pub struct LegsAreNotOneOfEach
+```
+
+Two leg results that name the same side, so there is no pair to combine.
+
+Unreachable through `sutura_app`'s federated path, which builds one `LegResult` per
+`FederatedPlan::legs` entry and that method returns the two variants by construction. Typed
+anyway rather than assumed away: it is the one thing `Legs::of` cannot answer, and a silent
+choice between two facts would combine a leg with itself.
+
+###### Methods
+
+```rust
+pub const fn both(self) -> LegSide
+```
+
+The side both results claimed.
+
+An accessor rather than a `pub` field, which `xtask check-boundaries`'s API-shape rule holds
+for every library type here: a public field lets a struct literal build the value the
+constructor would have rejected, and this one is only ever minted by `Legs::of`.
+
+###### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+##### `trait FederationCombiner`
+
+```rust
+pub trait FederationCombiner
+```
+
+Joins two legs' results and re-aggregates the answer above them.
+
+**The second driven port, declared beside `Warehouse` and
+`SemanticCatalog`**, and the module header is why it is a port.
+`sutura_app::federated::answer_federated` is the driver; a crate above this one implements it.
+An adapter never calls another adapter and this does not change that: the combine is called from
+the application, above every adapter, exactly where `FederatedPlan::combine` was called from.
+
+# Every method is required, and that is the mechanism
+
+`Warehouse` defaults its four classifying predicates, because an
+adapter with no memory pool has an honest `None` to give. A combiner does not: there is one
+implementation, the working-set ceiling is the whole of what bounds it, and an implementor that
+inherited `None` would turn a ceiling an operator configured into the `503` a dead data system
+produces - with nothing in a diff to see. So `Self::working_set_exhausted` and
+`Self::answer_not_well_formed` have no default body: a second implementor has to write both
+arms where a reviewer reads them.
+
+# What the domain may ask about an implementor's error, and why it is two predicates
+
+`Self::Error` is the implementor's own type, so nothing above this port can tell *the pool would
+not grow* from *the plan would not build*. The two questions split the same way the query path's
+already do:
+
+* `Self::working_set_exhausted` is the governance bound -
+  `RefusalReason::ResourcesExhausted`, which
+  carries the ceiling an operator configured.
+* `Self::answer_not_well_formed` is a deterministic refusal about the DATA the legs returned -
+  `RefusalReason::FederatedAnswerNotWellFormed`.
+  The same plan against the same rows refuses again, which is what makes it a refusal rather
+  than a retryable failure.
+
+Both are predicates rather than conversions, for the reason
+`Warehouse::working_set_exhausted` gives:
+an implementor that could return a `RefusalReason` could mint any
+of them from a failure of its own. Everything else leaves as the implementor's typed error and
+reaches a caller as this workspace's own defect.
+
+##### `struct RefusingCombiner`
+
+```rust
+pub struct RefusingCombiner
+```
+
+A combiner that answers nothing, for a transport's own tests.
+
+**A fake over the port, which is this workspace's rule for one** - never a mocked engine. It
+exists because a transport's suite composes a whole `sutura_app::LocalService` to exercise
+routing, credentials and refusal shapes, and a service takes a combiner: without this, each
+transport would write its own, and two copies of a fake are two things to keep in step.
+
+**Refusing rather than answering, and that is the honest fake for its callers.** No transport
+test asks a two-source question - the adapters those suites register are mono fakes - so a
+combiner that produced rows would be inventing an answer nothing reads. A combine that is
+reached through this fake is a test that has drifted into the federated path, and it fails
+loudly rather than passing over a fabricated number.
+
+Behind `fixtures`, so nothing published holds it.
+
+###### Implements
+
+`Clone`, `Copy`, `Debug`, `Default`, `FederationCombiner`
+
+##### `struct NothingCombined`
+
+```rust
+pub struct NothingCombined
+```
+
+What `RefusingCombiner` answers with.
+
+###### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 #### Module `label`
 
 The reserved label namespace, and the one function that assigns it.
@@ -7729,7 +8191,7 @@ What is established, and by what:
 | Claim | Venue | Mechanism |
 | --- | --- | --- |
 | the five dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
-| `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
+| `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05; the acceptance leg that held it was removed with the `wire` transport and the ADBC adoption |
 | the pinned `DuckDB` executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
 
 `BigQuery` is the target that had to be asked rather than reasoned about, because it is the one
@@ -8009,10 +8471,9 @@ The label the answer's measure carries: the metric's own certified name.
 One source's share of a federated question, and the only thing the port can be handed.
 
 **The shapes and their closure.** `sutura_semantic::federated_plan` produces one of these,
-`sutura_app::answer_federated` hands it to an adapter, and
-`FederatedPlan::combine` - a function in this crate -
-assembles the two results; `sutura-sql` renders a leg per dialect and `sutura-exec-datafusion`
-builds one as a logical plan. `.agents/skills/sutura/query-surface` carries which of those a
+`sutura_app::answer_federated` hands it to an adapter, and the combiner behind
+`FederationCombiner` assembles the two results; `sutura-sql`
+renders a leg per dialect and `sutura-exec-datafusion` builds one as a logical plan. `.agents/skills/sutura/query-surface` carries which of those a
 published artefact reaches, and this module says the shape rather than the state.
 `docs/adr/0007-federating-across-different-data-systems.md` decides the shape and
 `docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 decides what a leg may compute.
@@ -8880,9 +9341,9 @@ somebody else's input.
   as an HTTP `503` - "worth retrying", the status a data system that might come back
   produces. Neither is: the same plan against the same rows fails again, so retrying spends a
   caller's own budget on an answer that was never going to change.
-  `crate::plan::FederatedAnswerRefusal::of` is the total classification that decides
-  which `FederatedFailure` causes land here rather than
-  staying a wiring-defect `ServiceError`.
+  `crate::plan::FederationCombiner::answer_not_well_formed` is the predicate that decides
+  which of a combiner's own failures land here rather than staying a wiring-defect
+  `ServiceError`.
 
   Carries the classification and no cell: see `FederatedAnswerRefusal`'s
   own note on why a join key or a float value never reaches this far.
@@ -10228,7 +10689,24 @@ declaration is told why, not just that.
 
 #### Variants
 
-- `PerSubjectCredential` - There is a place in this adapter's path for a subject's own credential to arrive.
+- `PerSubjectCredential` - There is a place in this adapter's path for the ASKING SUBJECT to arrive, so a source declared `SourcePosture::ImpersonationAtSource` can be opened here.
+
+  **The name is accurate again, and a round of this doc argued the opposite.** It said the
+  variant was "wider than its name" because the only shipping adapter that declared it
+  delivered a `SubjectPrincipal` - a principal
+  the data system switches to on a connection the DEPLOYMENT authenticated, with nothing the
+  subject possesses in the chain. That mechanism was deleted:
+  `sutura-exec-bigquery` federates the asker's own verified assertion and REFUSES the principal
+  shape, so a subject's own credential is exactly what arrives.
+
+  **So a third variant naming the principal switch has nothing left to name**, and this is
+  where that decision is recorded rather than in the adapter that prompted it. Should a future
+  adapter deliver the weaker shape, the vocabulary question comes back with it.
+
+  **What this variant still does NOT tell a reader**, and the boot check does not need it to:
+  how much of the caller's own authorization is in the chain at the source. That is the
+  adapter's own documentation, and the only thing `SourcePosture::deliverable_by` asks is
+  whether the impersonating posture is deliverable at all.
 - `NoPlaceForASubject` - There is not. An in-process engine over local files is this: one process, one operating-system identity, and nowhere for a subject to appear. Saying so explicitly is the point of the declaration - a file engine is the easiest source in the world to assume nothing about, and "nobody declared anything for the engine" is how a deployment ends up believing its whole surface impersonates because its *network* source does.
 
 #### Methods
@@ -10371,7 +10849,7 @@ A second leg, for a federated answer.
 
 Consumes and returns, so a record is built in one expression and there is no half-built state
 for something else to read. The federated answer path constructs the second leg here and
-groups the two in `crate::plan::federated::FederatedPlan::combine`, so the shape of this
+groups the two in the combiner behind `crate::plan::FederationCombiner`, so the shape of this
 record is what decides whether a leg can be added without moving the digest - which is why it
 was settled before an answer format shipped rather than after.
 
@@ -10553,6 +11031,26 @@ is a closed set of typed variants an adapter binds, never text somebody concaten
 `crate::query` is the *tool* surface, where SQL must be unrepresentable because the text comes
 from a caller; here there is no text for a value to reach at all.
 
+# The currency is Arrow, and `docs/adr/0039` step 2 decided it before there was a consumer
+
+`Warehouse::execute` returns `ResultBatches` rather than a `RowSet`, so an adapter whose
+driver speaks Arrow hands its batches through untouched and the one Arrow-to-`Value` decode
+happens once, at the presentation edge, in `ResultBatches::to_rows`.
+
+**What that costs, because it is not free for every adapter and the record only counted the
+half that gains.** The two Arrow-native adapters - `BigQuery` through ADBC, and the engine -
+stop converting at all, and a federated leg from either reaches the combiner with its driver's
+own types. The four whose drivers speak rows - `DuckDB`, `Postgres`, Oracle, `ClickHouse` -
+now convert at their own boundary through `arrow::of_rows`, which they did not before: on a
+single-source answer that is a conversion out and `ResultBatches::to_rows` back, for data
+that never left the process. The conversion did not disappear; it moved to the adapter that
+owns the row-speaking driver, which is where the leg's own cost already had to be paid.
+
+**And it carries `arrow::arrow_column`'s inference limit onto those four adapters' production
+path**: a column mixing `Value::Integer` and `Value::Text` cells round-trips as text. No
+data system produces one - a source declares a column's type - so what this reaches is a fake
+that builds one by hand, and the row builder's own doc is where that is stated.
+
 ### `enum ParamValue`
 
 ```rust
@@ -10661,7 +11159,8 @@ that. `docs/adr/0008` part 1 is the decision, and the mechanism is the absence o
 rather than a rule somebody follows.
 
 The boot path is the other caller of this port and it has no subject, so it gets its own method:
-`Self::verify_anchor` takes no credential and returns `AnchorRows` rather than a `RowSet`.
+`Self::verify_anchor` takes no credential and returns `AnchorRows` rather than the
+`ResultBatches` a question comes back as.
 **Which is narrower than the record asked for, deliberately.** `docs/adr/0008` gave that method a
 `VerificationIdentity` parameter so the two credentials could not be confused at a call site, and
 then named a `compile_fail` test asserting that answering a question cannot pass one. That test
@@ -10721,7 +11220,7 @@ use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::SourcePosture;
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, ResultBatches, Warehouse};
 
 struct Undeclared {
     source: SourceName,
@@ -10740,7 +11239,7 @@ impl Warehouse for Undeclared {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<ResultBatches, Self::Error> {
         Err(core::fmt::Error)
     }
 
@@ -10759,7 +11258,7 @@ use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, ResultBatches, Warehouse};
 
 struct Declared {
     source: SourceName,
@@ -10779,7 +11278,7 @@ impl Warehouse for Declared {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<ResultBatches, Self::Error> {
         Err(core::fmt::Error)
     }
 
@@ -10793,6 +11292,52 @@ assert_eq!(
     ImpersonationCapability::NoPlaceForASubject
 );
 ```
+
+### `use Accumulating`
+
+One result stream, checked against its announced schema batch by batch.
+
+**The accumulator exists so the schema check, the row ceiling and the byte budget fire WHILE the
+stream is read.** A driver's reader is driven straight into `Self::push`, so a stream that will
+be refused is refused at the batch that crosses the line - not after every batch has been
+collected, which is the point at which the memory a ceiling protects has already been spent.
+
+### `use ResultBatches`
+
+A result, as Arrow: the schema every batch was checked against, and the batches.
+
+**A newtype whose invariant is the schema agreement**, so a value of this type is one whose every
+batch carried the announced fields by name and type. There is no public constructor taking
+batches directly - `Accumulating` is the only way in - because a constructor that took a
+`Vec<RecordBatch>` and checked afterwards would let a caller hold an unchecked one for a line,
+and the check has to happen while the stream is read or a bound on it is not a bound.
+
+### `use ResultBudget`
+
+How many bytes one result may cost to hold and to convert, together.
+
+**A newtype for the unit, beside a `usize` row count that means something else entirely.**
+`Accumulating::announcing` takes both, and `docs/adr/0009`'s whole argument for retiring the
+per-leg row cap is that the two quantities are unrelated - so two bare integers there would be
+one bound and one number that looks like it. `NonZeroUsize` rather than `usize` because a zero
+budget refuses the empty result too, and an empty result is an answer.
+
+**It parses nothing beyond non-zero, and where the range is parsed is the point.** The value a
+deployment runs with is `sutura_config::WorkingSetCeiling`, checked at boot against the memory
+the process can actually reach; this type is the unit that number travels in once an adapter has
+converted it. So there is no *unset* state to default: a call site that has no budget has no
+value of this type and does not compile.
+
+### `use UnannouncedBatch`
+
+Why a result stream was refused, before any value in it was read.
+
+Each variant carries field DESCRIPTORS - a name and an Arrow type, which is a driver's own
+metadata - and never a cell, so a refusal an operator reads discloses no data.
+
+### `use UnreadableCell`
+
+Why an Arrow array could not become a domain value.
 
 ### `use NotFinite`
 
@@ -11042,9 +11587,12 @@ so a byte count read off a dry run cannot be confused with any of the plan's oth
 
 **Zero is a legitimate estimate, not a stand-in for "unknown".** A cached result or a trivial
 `SELECT` can genuinely cost nothing to scan, so `Self::parse` cannot fail: this type validates
-nothing beyond fitting in a `u64`. That is unlike a bound such as
-`BytesBilledCeiling`, where zero would refuse every question and is refused itself - an estimate
-of zero is simply the truth for some questions. What means "could not price" is the `Option`
+nothing beyond fitting in a `u64`. That is unlike a bound, where zero would refuse every question
+and ought to be refused itself - an estimate of zero is simply the truth for some questions. The
+contrast has a live counterpart again: `sutura_exec_bigquery`'s `BytesBilledCeiling` is a BOUND
+over the same unit, and its `parse` refuses a zero for exactly the reason this type accepts one -
+`BigQuery` reads a `maximumBytesBilled` below one as no ceiling, so a bound of nothing is no
+bound, while an estimate of nothing is a fact. What means "could not price" is the `Option`
 around this type on `super::PreFlight::Accepted`, never a reserved value inside it.
 
 ##### Methods
@@ -11560,7 +12108,7 @@ row for a customer key the dimension table already had:
 
 `29138 - 22765` is that one customer's June revenue, counted a second time. **Neither answer was
 refused**, and which one a deployment gets depends on where the dimension model sits rather than
-on the question. `FederatedFailure::AmbiguousLink`
+on the question. `FederatedAnswerRefusal::AmbiguousLink`
 covers half the shape and only on the federated side: it fires when the duplicate rows DISAGREE
 in a column the question projects, and the `GROUP BY` has already removed them when they agree.
 
@@ -12375,6 +12923,357 @@ The rows, for the boot path that compares them against what an author certified.
 ##### Implements
 
 `Clone`, `Debug`, `PartialEq`
+
+### Module `arrow`
+
+An Arrow result at the interior.
+
+The schema guard a foreign driver needs, and the one place an Arrow array becomes a `Value`.
+`docs/adr/0039` decides that the interior may name an Arrow array type; the module header
+carries the argument and where its checks stop.
+An Arrow result at the interior: the schema guard a foreign driver needs, and the one place an
+Arrow array becomes a domain `Value`.
+
+# Why the hexagon's interior names an Arrow array type
+
+`docs/adr/0039` decides it, reversing `docs/adr/0007`'s *the port's currency stays `RowSet`*
+and the unmerged 0037's refusal. The argument is the one `ALLOWED_IN_DOMAIN`'s own line draws -
+*no runtime, no client, no engine*: Arrow is a data FORMAT, and the engine, the ADBC driver
+manager and every future Arrow Flight leg already speak it. **The cost is in that allowlist and
+nowhere else**, which is where it can be argued in a diff.
+
+What it buys is one decode instead of one per adapter. Before this module there were three, and
+the `BigQuery` one went through TEXT: Arrow arrays cast to `Utf8`, a text cell per value, then a
+`parse::<i64>()` back to a number. A total that was exact in the data system and exact in Arrow
+had two chances to stop being exact on the way out.
+
+# `RecordBatch::try_new` is not a schema check, and that is the whole reason `Accumulating`
+exists
+
+Arrow validates a batch **positionally and by type only** - it zips columns against fields and
+never reads a field NAME. So a driver that hands back two same-typed columns in the wrong order
+builds a perfectly valid `RecordBatch`, and a consumer that only counted columns would label
+those values with the announced schema's names: a transposed answer under a certified metric
+name, with no error anywhere. A differently-typed swap Arrow already refuses, which is why the
+swap that matters - and the mutation worth running against this module - is of two **same-typed**
+columns.
+
+Nothing in `DataFusion` closes it either: `SchemaAdapter`/`SchemaMapper` are deprecated,
+`PhysicalExprAdapter` resolves by name on the DATASOURCE path and is opt-in, and nothing
+validates that a custom `ExecutionPlan`'s stream matches its declared schema at all. For a
+foreign driver the obligation is ours, so it is held here once rather than per adapter.
+
+# Where this module's checks stop
+
+`Accumulating` refuses a width, a mislabelled position and a row ceiling **before a value is
+read**. It does not check nullability - Arrow does, positionally - and it does not check that the
+announced schema is the one the plan asked for; that is the caller's, and
+`sutura_domain::plan::QueryPlan::result_labels` is what it compares against.
+
+#### `struct ResultBatches`
+
+```rust
+pub struct ResultBatches
+```
+
+A result, as Arrow: the schema every batch was checked against, and the batches.
+
+**A newtype whose invariant is the schema agreement**, so a value of this type is one whose every
+batch carried the announced fields by name and type. There is no public constructor taking
+batches directly - `Accumulating` is the only way in - because a constructor that took a
+`Vec<RecordBatch>` and checked afterwards would let a caller hold an unchecked one for a line,
+and the check has to happen while the stream is read or a bound on it is not a bound.
+
+##### Methods
+
+```rust
+pub fn batches(&self) -> &[RecordBatch]
+```
+
+The batches, in the order the stream delivered them.
+
+```rust
+pub fn none_under(schema: SchemaRef) -> Self
+```
+
+A result with no rows, under a schema - what an adapter answers for an empty stream.
+
+The budget is the smallest one that exists and nothing is charged against it: no batch is
+pushed, so no byte is spent. A caller-supplied budget here would be a parameter with nothing
+to bound.
+
+```rust
+pub const fn rows(&self) -> usize
+```
+
+How many rows the stream delivered.
+
+```rust
+pub const fn schema(&self) -> &SchemaRef
+```
+
+The schema every batch was checked against.
+
+```rust
+pub fn to_rows(&self) -> Result<RowSet, UnreadableCell>
+```
+
+The result as domain rows.
+
+**The one Arrow-to-`Value` decode in this workspace.** It used to be three - the engine's
+own, the `DuckDB` adapter's, and `BigQuery`'s via text - and one plan answered by two adapters
+has to produce one number or an anchor certified against one stops reproducing against the
+other. Agreement is a correctness property here, not tidiness, which is why the mapping is a
+single function with a single test table rather than a convention.
+
+# Errors
+
+`UnreadableCell`, naming the column and the Arrow type.
+
+##### Implements
+
+`Clone`, `Debug`
+
+#### `enum UnannouncedBatch`
+
+```rust
+pub enum UnannouncedBatch
+```
+
+Why a result stream was refused, before any value in it was read.
+
+Each variant carries field DESCRIPTORS - a name and an Arrow type, which is a driver's own
+metadata - and never a cell, so a refusal an operator reads discloses no data.
+
+##### Variants
+
+- `Width` - A batch of a different width than the schema it arrived under.
+- `Mislabelled` - A batch of the right width whose field at one position is not the announced one, so its values would have been labelled with another column's name.
+- `OverBound` - The stream carried more rows than the caller's ceiling allows.
+
+  The ceiling is passed in rather than fixed here: what is a sane bound depends on whether the
+  caller is reading an answer or a federation leg, and only the caller knows which.
+- `OverBudget` - The stream would cost more memory to hold and convert than the caller's budget allows.
+
+  **The sibling of `Self::OverBound` counting what is actually scarce**, which round 7 of
+  `telekom/sutura#929`'s review is the report for: a row ceiling is not a memory bound when the
+  caller controls row WIDTH, so a million narrow rows and a thousand very wide ones are the
+  same number under `Self::OverBound` and orders of magnitude apart here.
+
+  Carries the BUDGET and never the demand, for `ResultBudget`'s stated reason: the budget is
+  a number an operator configured and can act on, while what the question wanted is an
+  observation about one caller's data.
+
+##### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `enum UnreadableCell`
+
+```rust
+pub enum UnreadableCell
+```
+
+Why an Arrow array could not become a domain value.
+
+##### Variants
+
+- `UnsupportedType` - A column whose Arrow type this domain does not map.
+
+  An error rather than a `Debug` rendering, because this is the last place a value can be wrong
+  without anybody noticing: a rendered nested type would flow into an answer looking like data,
+  and an anchor comparison against it would pass or fail for reasons nobody could read.
+- `Downcast` - An array whose runtime type is not the one its own schema declares - an Arrow invariant violation, so a driver defect rather than anything a caller asked for.
+- `NotFinite` - A 64-bit float that is not finite.
+
+  CHECKED rather than taken: `inf` is what an unguarded division answers, and rendering it puts
+  the string `"inf"` in an answer under a metric's own certified name.
+- `NotADate` - A day count that is not a date this calendar can express.
+- `Ragged` - The decoded rows did not form a rectangle - unreachable by construction, propagated rather than swallowed so an edit that breaks the construction fails loudly.
+
+##### Implements
+
+`Debug`, `Display`, `Error`, `PartialEq`
+
+#### `struct ResultBudget`
+
+```rust
+pub struct ResultBudget
+```
+
+How many bytes one result may cost to hold and to convert, together.
+
+**A newtype for the unit, beside a `usize` row count that means something else entirely.**
+`Accumulating::announcing` takes both, and `docs/adr/0009`'s whole argument for retiring the
+per-leg row cap is that the two quantities are unrelated - so two bare integers there would be
+one bound and one number that looks like it. `NonZeroUsize` rather than `usize` because a zero
+budget refuses the empty result too, and an empty result is an answer.
+
+**It parses nothing beyond non-zero, and where the range is parsed is the point.** The value a
+deployment runs with is `sutura_config::WorkingSetCeiling`, checked at boot against the memory
+the process can actually reach; this type is the unit that number travels in once an adapter has
+converted it. So there is no *unset* state to default: a call site that has no budget has no
+value of this type and does not compile.
+
+##### Methods
+
+```rust
+pub const fn bytes(self) -> usize
+```
+
+The budget as a plain count, for the arithmetic that spends it.
+
+```rust
+pub const fn of_bytes(bytes: core::num::NonZeroUsize) -> Self
+```
+
+The budget, in bytes.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct Accumulating`
+
+```rust
+pub struct Accumulating
+```
+
+One result stream, checked against its announced schema batch by batch.
+
+**The accumulator exists so the schema check, the row ceiling and the byte budget fire WHILE the
+stream is read.** A driver's reader is driven straight into `Self::push`, so a stream that will
+be refused is refused at the batch that crosses the line - not after every batch has been
+collected, which is the point at which the memory a ceiling protects has already been spent.
+
+##### Methods
+
+```rust
+pub const fn announcing(schema: SchemaRef, most: usize, budget: ResultBudget) -> Self
+```
+
+Starts reading a stream announced under `schema`, refusing past `most` rows or `budget`
+bytes of materialisation.
+
+```rust
+pub const fn delivered(&self) -> usize
+```
+
+How many rows have been accepted so far, which a completeness check compares against.
+
+```rust
+pub fn finish(self) -> ResultBatches
+```
+
+The checked result.
+
+```rust
+pub fn push(&mut self, batch: RecordBatch) -> Result<(), UnannouncedBatch>
+```
+
+Checks one batch against the announced schema and keeps it.
+
+# Errors
+
+`UnannouncedBatch::Width` for a batch of the wrong width, `UnannouncedBatch::Mislabelled`
+for one whose field at a position is not the announced one, and
+`UnannouncedBatch::OverBound` where this batch would take the stream past the ceiling.
+
+```rust
+pub const fn spent_bytes(&self) -> usize
+```
+
+What the accepted batches have already spent of the budget, which is what they cost to hold
+and will cost to convert.
+
+##### Implements
+
+`Debug`
+
+#### `fn arrow_column`
+
+```rust
+pub fn arrow_column(values: &[crate::warehouse::cell::Value]) -> (arrow_schema::DataType, arrow_array::ArrayRef)
+```
+
+One column's Arrow array, built from domain values.
+
+**No longer behind the `fixtures` feature, and `docs/adr/0039` step 2's second half is why.**
+With `Warehouse::execute` returning `ResultBatches`,
+the four adapters whose drivers speak rows - `DuckDB`, `Postgres`, Oracle, `ClickHouse` - call
+this on their own production path. An adapter whose driver speaks Arrow still calls none of it.
+
+**The inference is deliberately narrow and stated where it is made.** All-`Integer` is `Int64`,
+all-`Real` is `Float64`, a column that mixes `Integer` with EXACT INTEGRAL TEXT is
+`Decimal128(38, 0)`, and anything else is `Utf8` with each value rendered. An all-null column,
+and every column of a result with no rows at all, reads as `Int64` - which no cell can be read
+from, so the type is arbitrary rather than wrong.
+
+**The `Decimal128` arm exists because the "no source produces a mixed column" argument is
+FALSE here, and it was measured rather than reasoned.** A data system does declare one type per
+column - but a row-speaking adapter maps that column PER CELL: `sutura-exec-duckdb` and
+`sutura-exec-postgres` both answer a whole number that fits an `i64` as `Value::Integer` and
+one that does not as an exact `Value::Text`, so one `DECIMAL`/`HUGEINT` column arrives mixed.
+The conformance corpus has two such cases (`wide-total-by-day`,
+`overflowing-integer-total-by-day`), and rendering them to `Utf8` turned `Integer(15)` into
+`Text("15")` - a conformance failure against the reference rows, on the production path, for
+two of the four adapters the Arrow port makes convert.
+
+`Decimal128(38, 0)` round-trips both halves exactly, because `ResultBatches::to_rows`'s
+zero-scale arm widens a
+value that fits an `i64` back to `Value::Integer` and leaves one that does not as its exact
+text. That is the same pairing `sutura-exec-bigquery`'s conformance fake declares by hand.
+
+**The limit that survives:** a column mixing `Value::Integer` or `Value::Real` with text
+that is NOT an exact integer still renders to `Utf8`, so a number in it comes back as text. An
+all-text column is never promoted, deliberately - a postal code column of `"01234"` would lose
+its leading zero, and text a source declared as text is not a number this may decide about.
+
+#### `fn of_row_set`
+
+```rust
+pub fn of_row_set(rows: &crate::warehouse::rows::RowSet) -> Result<ResultBatches, crate::warehouse::rows::MalformedRowSet>
+```
+
+A `RowSet` as Arrow batches: what an adapter whose driver speaks rows returns from
+`Warehouse::execute`.
+
+**One function, named, in the interior - which is what makes the four adapters paying for the
+Arrow port a single place to measure and a single place to delete.** `docs/adr/0007` asked for
+exactly that when it still expected the conversion to live in a combiner crate; the port moved
+and the property did not.
+
+It carries `arrow_column`'s inference limit.
+
+# Errors
+
+`MalformedRowSet::RowWidth`, which a `RowSet` cannot be: `RowSet::new` refuses a ragged
+row before one exists. Propagated rather than defaulted, because a batch built anyway from a
+row set whose invariant had been broken would be an answer with cells in the wrong columns.
+
+#### `fn of_rows`
+
+```rust
+pub fn of_rows(columns: &[String], rows: &[Vec<crate::warehouse::cell::Value>]) -> Result<ResultBatches, crate::warehouse::rows::MalformedRowSet>
+```
+
+A result built from domain rows, for a fake and for an adapter whose source speaks rows.
+
+Un-gated for `arrow_column`'s reason, and it carries that function's inference limit.
+`of_row_set` is the form an adapter holding a `RowSet` calls, whose width
+invariant makes the ragged case unreachable.
+
+# Errors
+
+`MalformedRowSet::RowWidth` for a ragged input, refused here rather than at the Arrow layer -
+`RecordBatch::try_new` would answer a different error for the same defect, and one of the two
+would be the one nobody had read.
+**It charges nothing against a `ResultBudget`, and that is a limit rather than an oversight.**
+Its input is rows the caller already holds, so every byte this bound would refuse has been
+allocated before the call - a budget here would be a check after the spend, which is the exact
+shape `Accumulating::push` exists to avoid. The three adapters that reach here decode their own
+driver's vocabulary into a `RowSet` first and are therefore **outside the byte budget entirely**;
+bounding them means bounding their own decode loops, which is a change to each of them.
 
 ### Module `raw`
 

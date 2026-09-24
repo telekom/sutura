@@ -14,20 +14,6 @@ use super::{Contradicted, Evidence, Withdrawn};
 
 pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
     Contradicted {
-        name: "additional named credential writes are held only by review",
-        wordings: &["for the CI key and by review for the two principal keys placed beside it"],
-        evidence: &[Evidence {
-            path: "xtask/src/venues/acceptance/properties.rs",
-            holds: "let mut placed: BTreeSet<&str> = commands",
-        }],
-        instead: "`just hygiene` checks recognised redirects from secret-naming commands and \
-                  requires each destination in a cleanup command's argument list; \
-                  `xtask/src/venues/acceptance/properties.rs` holds that scan. Indirect copies, \
-                  working-directory changes and whether cleanup executes remain review's",
-        only: &[],
-        except: &[],
-    },
-    Contradicted {
         // Issue 312, and the reason it is an entry rather than a rewrite alone: the wording was a
         // page's YAML `description`, which mkdocs-material renders into `<meta name="description">`
         // - so a reader who never opens the record is told a DataHub deployment carries no metric
@@ -158,10 +144,10 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
                 holds: "DataFusionWarehouse::new",
             },
         ],
-        instead: "the engine ships. `sutura query` opens a `DataFusionWarehouse` over the CSV and \
-                  Parquet files in the directory it was given, Parquet preferred; \
-                  `sutura-exec-duckdb` is a DEV-dependency of `sutura-app`'s tests. \
-                  `docs/architecture.md`'s table is the inventory",
+        instead: "the engine ships. `sutura query` opens a `DataFusionWarehouse` over the Parquet, \
+                  CSV and NDJSON files in the directory it was given - each text format plain or \
+                  compressed, Parquet first; `sutura-exec-duckdb` is a DEV-dependency of \
+                  `sutura-app`'s tests. `docs/architecture.md`'s table is the inventory",
         only: &[],
         except: &[],
     },
@@ -269,10 +255,13 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         wordings: &["the database is built in memory"],
         evidence: &[Evidence {
             path: "crates/sutura-cli/src/sources/files.rs",
-            holds: "attach_parquet",
+            // The candidate names come from the engine since `docs/adr/0039`; the anchor moved with
+            // them, because `attach_parquet` is no longer called from this file at all.
+            holds: "sutura_exec_datafusion::candidates",
         }],
-        instead: "there is no database. The engine registers one file per model in process, \
-                  Parquet preferred over CSV, and reads it where it lies",
+        instead: "there is no database. The engine registers one file per model in process - \
+                  Parquet first, then CSV or NDJSON, plain or compressed - and reads it where it \
+                  lies",
         only: &[],
         except: &[],
     },
@@ -441,12 +430,19 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
             "a plan resolves to one source, a measure reads",
             "plan resolves to exactly one source, a measure reads",
         ],
-        // The combiner's declaration, which is what the sentence says does not exist. It is called
-        // from `sutura_app`'s federated path, but the declaration is the narrower fact and the one
-        // that retires the rule if federation is ever taken back out.
+        // The combiner PORT's declaration, which is what the sentence says does not exist. It is
+        // driven from `sutura_app`'s federated path and implemented in `sutura-exec-datafusion`,
+        // but the declaration is the narrower fact and the one that retires the rule if federation
+        // is ever taken back out.
+        //
+        // **MOVED, and the move is `docs/adr/0039` step 3 rather than a re-anchoring for
+        // convenience.** This was `plan/federated.rs`'s `pub fn combine(` - a pure domain function
+        // that walked rows - and that function is gone: the combine is a `DataFusion` plan in an
+        // adapter now. The port's own declaration is the closest thing to the old anchor, and it is
+        // the same narrowness: a tree with no `FederationCombiner` is a tree that combines nothing.
         evidence: &[Evidence {
-            path: "crates/sutura-domain/src/plan/federated.rs",
-            holds: "pub fn combine(",
+            path: "crates/sutura-domain/src/plan/federated/combiner.rs",
+            holds: "pub trait FederationCombiner",
         }],
         instead: "`sutura_app`'s federated answer path builds the second leg and \
                   `crates/sutura-domain/src/plan/federated.rs` declares what groups the \
@@ -517,14 +513,13 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // than a survivor.
         //
         // REVIEW #667: this entry's own `instead` repeated a second stale claim - "a broker that
-        // mints a per-leg credential is still unbuilt" - trusted from the same stale module doc
-        // (`lib.rs:56-63`, last touched 2026-08-31 in #93, before #284). The broker IS built:
-        // `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker` performs the
-        // exchange, and `crates/sutura-cli/src/serve/broker.rs` composes it (`build_broker`,
-        // #284; that path was `crates/sutura-serve/src/broker.rs` before `github.com/telekom/
-        // sutura#685` step 2 folded the crate in). The limit that stays true now is
-        // `.agents/skills/sutura/identity/SKILL.md`'s own row: built, though no served binary has
-        // executed as a caller yet (`docs/where-identity-is-proven.md`).
+        // mints a per-leg credential is still unbuilt" - trusted from a stale module doc. A broker
+        // IS built, and it is no longer the EXCHANGING one that comment named: the wire removal took
+        // its two HTTP hops and `docs/adr/0018`'s eighth amendment deleted the broker itself, so
+        // what a served `bigquery` deployment attaches is
+        // `crates/sutura-exec-bigquery/src/principal.rs`'s `DeclaredPrincipalBroker`. The limit that
+        // stays true is `.agents/skills/sutura/identity/SKILL.md`'s own row: built, though no served
+        // binary has executed as a caller yet (`docs/where-identity-is-proven.md`).
         name: "the BigQuery adapter has no place for a subject",
         wordings: &[
             "IMPERSONATION` still reads `NoPlaceForASubject`",
@@ -536,12 +531,11 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         }],
         instead: "`BigQueryWarehouse::IMPERSONATION` is `ImpersonationCapability::PerSubjectCredential`, \
                   so a source declared `impersonation-at-source` can be opened here and the posture \
-                  cross-check no longer refuses it by name. The broker is built too: \
-                  `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker` performs the \
-                  exchange and `crates/sutura-cli/src/serve/broker.rs` composes it. What is still \
-                  true is narrower - proven by a hosted run whose job held both principals' own \
-                  keys, so it resolves per subject and no served binary has executed as a caller \
-                  yet (`docs/where-identity-is-proven.md`)",
+                  cross-check no longer refuses it by name. What is still true is narrower: the ADBC \
+                  transport puts the asking subject's own verified assertion behind a \
+                  workload-identity credential document for Google's token service to verify, and \
+                  nothing reachable from this repository shows that document being accepted - no \
+                  served binary has executed as a caller (`docs/where-identity-is-proven.md`)",
         only: &[],
         // Both records state the old value and amend it in place, per this repository's own rule
         // for a record: preserve the sentence and correct it beside itself. Excepting them is what
@@ -550,35 +544,6 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
             "docs/adr/0017-what-a-bigquery-test-runs-against.md",
             "docs/adr/0018-what-the-bigquery-wire-is-built-from.md",
         ],
-    },
-    Contradicted {
-        // telekom/sutura#376. `docs/where-identity-is-proven.md`'s bq-test venue moved from
-        // `wired` to `yes` after a hosted run (35076526218). The wording it retired - the broker
-        // was built but never taken to a real exchange - fell with it; this row is the ratchet that
-        // refuses it coming back anywhere. The two ADR records that used to echo the old wording
-        // were amended in place on 2026-09-16 with the superseding sentence, so nothing is
-        // excepted to grandfather them. The run held both principals' own keys by construction, so
-        // it proved the STS/`iamcredentials` mechanics resolve per subject; the served half stayed
-        // unproven.
-        name: "the BigQuery exchange never ran against a real STS",
-        wordings: &[
-            "wired in serve, not proven live",
-            "no exchanged token has ever run against a real STS",
-        ],
-        // Refuted by the venue row's own yes: while the page carries the observed run the rule is
-        // live and forbids its wording; if the row ever reverts to `wired` the rule retires itself
-        // rather than forbidding a sentence that has become true again.
-        evidence: &[Evidence {
-            path: "docs/where-identity-is-proven.md",
-            holds: "The state is `yes`",
-        }],
-        instead: "`docs/where-identity-is-proven.md` records a hosted `workflow_dispatch` of \
-                  `bigquery-exchanged-identity` that exchanged each principal's job-time assertion \
-                  against a real STS and resolved it to that principal's own account. The job held \
-                  both principals' own keys by construction, so the mechanics resolve per subject \
-                  and no served binary has executed as a caller yet",
-        only: &[],
-        except: &[],
     },
     Contradicted {
         // github.com/telekom/sutura#159. `AGENTS.md` carried a *Built And Not Wired* section that
@@ -824,16 +789,29 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
             "There are 2 flavours of sutura:",
             "Per connection the mode can be configured.",
         ],
-        // The sentence that refutes it, stated today where the true limit is set out. It is the
-        // anchor rather than prose recalled: `docs/serving.md` says no source executes as the
-        // asking subject, so there is nothing to select.
+        // **RE-ANCHORED ON CODE, and the previous anchor was the trap this comment now records.**
+        // It was a SENTENCE in `docs/serving.md` - and that sentence said *no adapter in this
+        // build* can carry a per-subject credential, which is true of every published binary and
+        // false of a `--features bigquery` one. So the rewording that added the qualifier would
+        // have retired this rule silently, had `tests::every_live_rule_still_has_its_evidence` not
+        // been there to redden `just test` for a needle that stopped matching. A prose needle
+        // makes a rule retire on a paraphrase; a declaration cannot be paraphrased.
+        //
+        // `SourcePosture` is the direct refutation of the reselectable half: a posture is a value
+        // parsed out of one source's `sources:` entry, so there is no per-CONNECTION mode to
+        // configure. What it does not refute on its own is the *2 flavours* half - the qualified
+        // sentence in `docs/serving.md` carries that, and this rule holds the wording rather than
+        // the reasoning.
         evidence: &[Evidence {
-            path: "docs/serving.md",
-            holds: "no adapter in this build can carry a per-subject credential",
+            path: "crates/sutura-domain/src/source.rs",
+            holds: "pub enum SourcePosture",
         }],
         instead: "single player is what ships and the only mode any connection runs; multiplayer \
-                  is the design target. No adapter in this build can carry a per-subject \
-                  credential, so no source executes as the asking subject and nothing selects it",
+                  is the design target. A posture is declared per SOURCE in the `sources:` tree \
+                  (`sutura_domain::source::SourcePosture`) and never chosen per connection, and no \
+                  PUBLISHED adapter can carry a per-subject credential - `bigquery` is a \
+                  default-off feature and the one adapter that can, so no published binary \
+                  executes a source as the asking subject and nothing selects it",
         only: &[],
         except: &[],
     },

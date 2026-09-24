@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! A [`SemanticCatalog`] over `DataHub`'s entity aspects: the canonical **declaring** source.
 //!
 //! `docs/adr/0016-what-datahub-can-carry.md` is the measurement that decides what this adapter is.

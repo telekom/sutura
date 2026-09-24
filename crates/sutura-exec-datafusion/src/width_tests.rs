@@ -1,6 +1,6 @@
 //! How wide the engine runs, and that a wide one is still callable the way the port is called.
 //!
-//! Its own file for the reason `value_mapping_tests.rs` is: `lib.rs` is at the 1000-line gate, and
+//! Its own file for the reason `execute_tests.rs` is: `lib.rs` is at the 1000-line gate, and
 //! the gate's answer to that is to split the file rather than to shorten the change.
 //!
 //! **What is asserted here, and what deliberately is not.** The numbers that justified widening the
@@ -123,6 +123,7 @@ fn a_wide_engine_answers_from_several_threads_at_once_with_no_runtime_entered() 
             scope.spawn(|| {
                 let rows = adapter
                     .execute(Executable::Query(&asked), &crate::test_leg(), crate::test_deadline())
+                    .map(|batches| crate::decoded(&batches))
                     .expect("a concurrent question is answered");
                 (rows.columns().len(), rows.rows().len())
             })
@@ -152,9 +153,11 @@ fn one_thread_answers_the_same_question_the_same_way_a_wide_one_does() {
     let asked = question();
     let from_one = narrow
         .execute(Executable::Query(&asked), &crate::test_leg(), crate::test_deadline())
+        .map(|batches| crate::decoded(&batches))
         .expect("one thread answers");
     let from_many = wide
         .execute(Executable::Query(&asked), &crate::test_leg(), crate::test_deadline())
+        .map(|batches| crate::decoded(&batches))
         .expect("four threads answer");
     assert_eq!(from_one.columns(), from_many.columns());
     assert_eq!(from_one.rows(), from_many.rows());

@@ -13,7 +13,7 @@ use sutura_domain::plan::Executable;
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
-use sutura_domain::warehouse::{AnchorRows, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, ResultBatches, RowSet, Value, Warehouse};
 
 // ---------------------------------------------------------------------------
 // The federated answer orchestration
@@ -166,6 +166,7 @@ fn a_federated_answer_mints_once_runs_both_legs_and_records_both_identities() {
         &asked_by_a_person(),
         &broker,
         &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
@@ -223,6 +224,7 @@ fn a_federated_answer_sums_both_legs_estimates_before_charging_the_ledger_once()
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
         &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
         FEDERATED_BUDGET,
         test_deadline(),
         &ledger,
@@ -293,6 +295,7 @@ fn a_federated_fact_preflight_refusal_is_not_a_partial_answer() {
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
         &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
@@ -351,6 +354,7 @@ fn a_federated_lookup_preflight_refusal_means_neither_leg_ever_executes() {
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
         &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
@@ -403,6 +407,7 @@ fn a_federated_fact_preflight_failure_keeps_its_warehouse_cause_and_no_partial_a
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
         &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
@@ -460,6 +465,7 @@ fn a_federated_lookup_preflight_failure_means_the_fact_leg_never_executes() {
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
         &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
@@ -516,6 +522,7 @@ fn a_federated_answer_that_crosses_the_working_set_is_refused_not_error() {
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
         &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
         1,
         test_deadline(),
         &SpendLedger::no_budget(),
@@ -571,6 +578,7 @@ fn a_deterministic_combine_failure_is_a_refusal_not_a_service_error() {
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
         &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
@@ -622,6 +630,7 @@ fn an_answer_whose_legs_would_run_under_two_postures_is_refused_before_minting()
         &asked_by_a_person(),
         &broker,
         &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
@@ -693,6 +702,7 @@ fn two_shared_sources_with_different_acknowledgements_are_still_answered() {
         &asked_by_a_person(),
         &broker,
         &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
@@ -749,6 +759,7 @@ fn a_federated_answer_is_refused_when_no_adapter_executes_a_leg() {
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
         &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
@@ -815,8 +826,13 @@ impl Warehouse for AsymmetricLegWarehouse {
         self.can_execute_legs
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
-        Ok(self.result.clone())
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
+        Ok(crate::tests_support::canned(&self.result))
     }
 
     fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
@@ -857,6 +873,7 @@ fn a_federated_answer_is_refused_when_only_one_leg_can_execute() {
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
         &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),

@@ -990,6 +990,7 @@ economise.
    | `check-attribution-owner` | the ABSENCE of `ATTRIBUTION.md` at the repo root, and `.github/workflows/release.yml` for whether the release still generates the attribution asset |
    | `check-serde-parse` | the Rust under `crates/` |
    | `check-newtype-leaks` | the Rust under `crates/` |
+   | `check-unsafe` | the root manifest's `members` list, then every crate root each member's layout produces under `crates/`, `xtask/` and `dev/` - for `#![forbid(unsafe_code)]` - plus every `.rs` under those members for an `expect`/`allow` of the same lint |
    | `check-answer-path-caches` | the Rust under `crates/sutura-app/src` and `crates/sutura-domain/src` - for a `HashMap`/`BTreeMap` field whose value type is one read off the answer path |
    | `check-boot-order` | the Rust under `crates/` - the two declared composition roots for the order, every other file for whether it *calls* the pre-flight without being declared |
    | `check-one-bound` | the Rust under `crates/`, for how many execution bounds each crate builds, plus which crates have a `src/main.rs` and are therefore a process |

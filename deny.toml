@@ -89,6 +89,20 @@ allow = [
   # is the Linux Foundation's permissive data licence: no copyleft, and no obligation attaching to
   # anything built with it.
   "CDLA-Permissive-2.0",
+  # `libbz2-rs-sys`, reached through `bzip2` <- `compression-codecs` <- `async-compression` <-
+  # `datafusion-datasource`, which is what the engine's `compression` feature turns on. Accepted
+  # deliberately rather than by unification: `docs/adr/0039` decides that a compressed CSV or JSON
+  # source is a capability this runtime states, and `crates/sutura-exec-datafusion/src/attach.rs`
+  # is where the extension is parsed into a codec. The bzip2/libbzip2 licence is the original
+  # BSD-style one - permissive, no copyleft, attribution only - and it is the ONLY licence the
+  # feature adds. **The reason for that, corrected on `telekom/sutura#929`:** the other C-building
+  # arrival, `liblzma`/`liblzma-sys`, declares `MIT OR Apache-2.0`, both of which this list already
+  # carries - not `0BSD`, which this comment used to claim and which appears nowhere in this file,
+  # so as a reason it could not have been true. Measured off the published manifest at the resolved
+  # version rather than recalled. `unused-allowed-license = "deny"` below is what would have caught
+  # a `0BSD` entry actually being added on that reasoning; a wrong reason for a correct absence has
+  # no mechanism, which is why it survived.
+  "bzip2-1.0.6",
 ]
 
 # So it cannot rot back: an entry nothing uses FAILS rather than warns. Adding a licence then

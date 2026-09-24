@@ -33,9 +33,9 @@
 //! to the plan, or a de-duplicating subquery, which absorbs the violation rather than refusing it and
 //! makes the number depend on the declaration instead of on the data.
 //!
-//! **On the FEDERATED path that argument is too strong, and review is why it now says so.**
-//! `FederatedPlan::combine` already raises
-//! [`FederatedFailure::AmbiguousLink`](sutura_domain::plan::FederatedFailure::AmbiguousLink) - a
+//! **On the FEDERATED path that argument is too strong, and review is why it now says so.** The
+//! combiner already raises
+//! [`FederatedAnswerRefusal::AmbiguousLink`](sutura_domain::plan::FederatedAnswerRefusal::AmbiguousLink) - a
 //! refusal that exists, is typed, and is reached today for duplicates that DISAGREE in a column the
 //! question projects. What blinds it to the agreeing case is only the lookup leg's own `GROUP BY`,
 //! and there are two ways to unblind it, which differ in what each costs and in what each needs

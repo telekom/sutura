@@ -443,8 +443,15 @@ mod tests {
         let settings =
             Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay)).expect("the test settings load");
         let (engine, held) = warehouse_that_can_be_held();
-        let service = LocalService::start(&catalog_of(bundle()), engine, sink(), crate::testing::broker(), 1 << 30)
-            .expect("the test bundle validates");
+        let service = LocalService::start(
+            &catalog_of(bundle()),
+            engine,
+            sink(),
+            crate::testing::broker(),
+            sutura_domain::plan::RefusingCombiner,
+            1 << 30,
+        )
+        .expect("the test bundle validates");
         let router = crate::router(&crate::testing::state_over(Arc::new(service), settings)).expect("the test router assembles");
         (router, held)
     }
@@ -474,8 +481,15 @@ mod tests {
         let admission = sutura_runtime::Admission::from_settings(settings().runtime());
         let (engine, held) = warehouse_that_can_be_held();
         let service: Arc<dyn crate::surface::Surface> = Arc::new(
-            LocalService::start(&catalog_of(bundle()), engine, sink(), crate::testing::broker(), 1 << 30)
-                .expect("the test bundle validates"),
+            LocalService::start(
+                &catalog_of(bundle()),
+                engine,
+                sink(),
+                crate::testing::broker(),
+                sutura_domain::plan::RefusingCombiner,
+                1 << 30,
+            )
+            .expect("the test bundle validates"),
         );
         let assemble = |state: &ServiceState| crate::router(state).expect("the test router assembles");
         let first = assemble(&ServiceState::new(

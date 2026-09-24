@@ -162,9 +162,10 @@ None is configured here, so the zero is a true statement about that list.
 
 It is not a true statement about static analysis. Inside the one required `ci` context this
 repository runs clippy at `--workspace --all-targets --all-features -- -D warnings`, with the whole
-`restriction` and `nursery` categories on, `unsafe_code = "forbid"`, and `unwrap_used` / `panic` /
+`restriction` and `nursery` categories on, `forbid(unsafe_code)` at every crate root, and
+`unwrap_used` / `panic` /
 `indexing_slicing` denied; `zizmor` and `actionlint` over every workflow; `shellcheck` over every
-script; `cargo-deny` against RustSec; and the 34 hygiene gates `just hygiene` runs, of 56 registered
+script; `cargo-deny` against RustSec; and the 41 hygiene gates `just hygiene` runs, of 67 registered
 `cargo xtask` tasks.
 
 **And there is still a gap, which is why the recommendation is to add one rather than to accept the
@@ -257,8 +258,9 @@ but undocumented, 4 not met, 4 N/A.** Per category:
 The two categories that usually cost a project weeks are the two that are already complete. Quality
 is 13/13 on the strength of 2738 `#[test]` plus 122 `#[tokio::test]` across 276 files, a
 coverage-derived CRAP gate, and clippy at `restriction` + `nursery` under `-D warnings`. Security is
-15/15 and one N/A on signed releases with SLSA provenance and CycloneDX SBOMs, `unsafe_code =
-"forbid"`, rustls with no TLS below 1.2, a signing-algorithm parser that refuses symmetric and
+15/15 and one N/A on signed releases with SLSA provenance and CycloneDX SBOMs,
+`forbid(unsafe_code)` at every crate root but the one `docs/adr/0018`'s tenth amendment excepts,
+rustls with no TLS below 1.2, a signing-algorithm parser that refuses symmetric and
 `none`, weekly `cargo-deny`, and gitleaks on every commit.
 
 **Three of the four genuinely unmet were one thing, and that thing has happened.** `repo_public`

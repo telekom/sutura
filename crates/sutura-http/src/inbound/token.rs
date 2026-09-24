@@ -412,11 +412,16 @@ impl TokenValidator {
             None => Groups::none(),
             Some(claimed) => Groups::parse(claimed).map_err(|cause| TokenRejected::UnusableGroups { cause })?,
         };
+        // **The verified `exp`, carried forward rather than dropped at the gate.** A broker that
+        // presents this assertion to a data system mints a leg whose validity is exactly this, and
+        // `u64::try_from` failing means an `exp` before the epoch - so the fallback is the instant
+        // that is already past rather than a credential with no bound at all.
         Ok(VerifiedCaller::established(
             chain,
             scopes,
             groups,
             sutura_domain::identity::Secret::new(token),
+            u64::try_from(claims.exp).unwrap_or(0),
         ))
     }
 

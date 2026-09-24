@@ -11,6 +11,26 @@
 //! is a closed set of typed variants an adapter binds, never text somebody concatenated.
 //! [`crate::query`] is the *tool* surface, where SQL must be unrepresentable because the text comes
 //! from a caller; here there is no text for a value to reach at all.
+//!
+//! # The currency is Arrow, and `docs/adr/0039` step 2 decided it before there was a consumer
+//!
+//! [`Warehouse::execute`] returns [`ResultBatches`] rather than a [`RowSet`], so an adapter whose
+//! driver speaks Arrow hands its batches through untouched and the one Arrow-to-[`Value`] decode
+//! happens once, at the presentation edge, in [`ResultBatches::to_rows`].
+//!
+//! **What that costs, because it is not free for every adapter and the record only counted the
+//! half that gains.** The two Arrow-native adapters - `BigQuery` through ADBC, and the engine -
+//! stop converting at all, and a federated leg from either reaches the combiner with its driver's
+//! own types. The four whose drivers speak rows - `DuckDB`, `Postgres`, Oracle, `ClickHouse` -
+//! now convert at their own boundary through [`arrow::of_rows`], which they did not before: on a
+//! single-source answer that is a conversion out and [`ResultBatches::to_rows`] back, for data
+//! that never left the process. The conversion did not disappear; it moved to the adapter that
+//! owns the row-speaking driver, which is where the leg's own cost already had to be paid.
+//!
+//! **And it carries [`arrow::arrow_column`]'s inference limit onto those four adapters' production
+//! path**: a column mixing [`Value::Integer`] and [`Value::Text`] cells round-trips as text. No
+//! data system produces one - a source declares a column's type - so what this reaches is a fake
+//! that builds one by hand, and the row builder's own doc is where that is stated.
 
 use std::collections::BTreeSet;
 
@@ -68,6 +88,14 @@ pub mod deadline;
 /// A result set, and an anchor's rows.
 pub mod rows;
 
+/// An Arrow result at the interior.
+///
+/// The schema guard a foreign driver needs, and the one place an Arrow array becomes a [`Value`].
+/// `docs/adr/0039` decides that the interior may name an Arrow array type; the module header
+/// carries the argument and where its checks stop.
+pub mod arrow;
+
+pub use arrow::{Accumulating, ResultBatches, ResultBudget, UnannouncedBatch, UnreadableCell};
 pub use cell::{NotFinite, Real, Value};
 pub use rows::{AnchorRows, MalformedRowSet, RowSet};
 
@@ -161,7 +189,8 @@ pub enum PreFlight {
 /// rather than a rule somebody follows.
 ///
 /// The boot path is the other caller of this port and it has no subject, so it gets its own method:
-/// [`Self::verify_anchor`] takes no credential and returns [`AnchorRows`] rather than a [`RowSet`].
+/// [`Self::verify_anchor`] takes no credential and returns [`AnchorRows`] rather than the
+/// [`ResultBatches`] a question comes back as.
 /// **Which is narrower than the record asked for, deliberately.** `docs/adr/0008` gave that method a
 /// `VerificationIdentity` parameter so the two credentials could not be confused at a call site, and
 /// then named a `compile_fail` test asserting that answering a question cannot pass one. That test
@@ -221,7 +250,7 @@ pub enum PreFlight {
 /// use sutura_domain::plan::{AnchorPlan, Executable};
 /// use sutura_domain::source::SourcePosture;
 /// use sutura_domain::warehouse::deadline::Deadline;
-/// use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
+/// use sutura_domain::warehouse::{AnchorRows, ResultBatches, Warehouse};
 ///
 /// struct Undeclared {
 ///     source: SourceName,
@@ -240,7 +269,7 @@ pub enum PreFlight {
 ///         &self.posture
 ///     }
 ///
-///     fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+///     fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<ResultBatches, Self::Error> {
 ///         Err(core::fmt::Error)
 ///     }
 ///
@@ -259,7 +288,7 @@ pub enum PreFlight {
 /// use sutura_domain::plan::{AnchorPlan, Executable};
 /// use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 /// use sutura_domain::warehouse::deadline::Deadline;
-/// use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
+/// use sutura_domain::warehouse::{AnchorRows, ResultBatches, Warehouse};
 ///
 /// struct Declared {
 ///     source: SourceName,
@@ -279,7 +308,7 @@ pub enum PreFlight {
 ///         &self.posture
 ///     }
 ///
-///     fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+///     fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<ResultBatches, Self::Error> {
 ///         Err(core::fmt::Error)
 ///     }
 ///
@@ -482,9 +511,9 @@ pub trait Warehouse {
     ///
     /// ```compile_fail
     /// use sutura_domain::plan::Executable;
-    /// use sutura_domain::warehouse::{RowSet, Warehouse};
+    /// use sutura_domain::warehouse::{ResultBatches, Warehouse};
     ///
-    /// fn _as_the_process<W: Warehouse>(warehouse: &W, executable: Executable<'_>) -> Result<RowSet, W::Error> {
+    /// fn _as_the_process<W: Warehouse>(warehouse: &W, executable: Executable<'_>) -> Result<ResultBatches, W::Error> {
     ///     warehouse.execute(executable)
     /// }
     /// ```
@@ -496,14 +525,14 @@ pub trait Warehouse {
     /// use sutura_domain::identity::Presented;
     /// use sutura_domain::plan::Executable;
     /// use sutura_domain::warehouse::deadline::Deadline;
-    /// use sutura_domain::warehouse::{RowSet, Warehouse};
+    /// use sutura_domain::warehouse::{ResultBatches, Warehouse};
     ///
     /// fn _as_the_asker<W: Warehouse>(
     ///     warehouse: &W,
     ///     executable: Executable<'_>,
     ///     presented: &Presented,
     ///     deadline: Deadline,
-    /// ) -> Result<RowSet, W::Error> {
+    /// ) -> Result<ResultBatches, W::Error> {
     ///     warehouse.execute(executable, presented, deadline)
     /// }
     /// ```
@@ -530,13 +559,13 @@ pub trait Warehouse {
     /// ```compile_fail
     /// use sutura_domain::identity::Presented;
     /// use sutura_domain::plan::Executable;
-    /// use sutura_domain::warehouse::{RowSet, Warehouse};
+    /// use sutura_domain::warehouse::{ResultBatches, Warehouse};
     ///
     /// fn _forgot_the_deadline<W: Warehouse>(
     ///     warehouse: &W,
     ///     executable: Executable<'_>,
     ///     presented: &Presented,
-    /// ) -> Result<RowSet, W::Error> {
+    /// ) -> Result<ResultBatches, W::Error> {
     ///     warehouse.execute(executable, presented)
     /// }
     /// ```
@@ -545,7 +574,12 @@ pub trait Warehouse {
     /// point: nothing here checks the ARITY, the compiler already does, so this pair is honest about
     /// proving only that the third argument exists and is a `Deadline`, not that a reviewer needs to
     /// remember to ask for it.
-    fn execute(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<RowSet, Self::Error>;
+    fn execute(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error>;
 
     /// Re-runs one anchor's plan, under the identity this adapter was configured with.
     ///

@@ -15,6 +15,14 @@
 //! materialising it ends it, before any operator has reserved anything. `docs/adr/0009` puts the bound
 //! that reaches that - a byte budget applied as rows are converted - with the execution boundary, and
 //! says plainly that this branch can assert a reservation refused and cannot assert a leg refused.
+//!
+//! **That bound exists now and this file still cannot assert it, which is a fact about the two
+//! numbers rather than about the bound.** `WorkingSet::result_budget` derives the budget from the
+//! same configured ceiling that sizes the pool, so a ceiling small enough to refuse this fixture's
+//! answer is one the grouped aggregate is refused by first: probed at 64 KiB, 128 KiB, 192 KiB,
+//! 256 KiB, 384 KiB, 512 KiB and 1 MiB, every ceiling came back as a refused reservation before a
+//! batch existed. `crate::collect::budget_tests` is where the budget is asserted, against a bare
+//! scan with no blocking operator to reserve ahead of it.
 
 use std::sync::Arc;
 
@@ -111,6 +119,7 @@ fn the_same_question_under_a_roomy_ceiling_is_answered() {
     let roomy = engine(ROOMY);
     let rows = roomy
         .execute(Executable::Query(&question()), &crate::test_leg(), crate::test_deadline())
+        .map(|batches| crate::decoded(&batches))
         .expect("a thousand groups fit in 64 mebibytes");
     // A thousand distinct keys in one month: three columns - the bucket, the key and the measure.
     assert_eq!((rows.columns().len(), rows.rows().len()), (3, 1000));

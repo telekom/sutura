@@ -11,7 +11,9 @@ evidence it rests on; no wiring, no crate change and no gate ships with it. What
 because the alternative - attaching an exchange to a transport that has nowhere to put a caller -
 is the expensive way to find out. **Read *Amendment, 2026-09-16* before citing the `_context`
 paragraph below** - the parameter it describes as discarded is now read, by code this record's
-evidence anticipated rather than by a change to this decision.
+evidence anticipated rather than by a change to this decision. **Read *Second amendment,
+2026-09-23* before citing either "it does not deliver leg 2 on any surface" or "it does not make
+anything published able to impersonate" below** - both are superseded.
 
 [0014](0014-how-a-caller-proves-who-it-is.md) built leg 1 on the HTTP surface: a deployment
 declaring `security.inbound` verifies a caller's own token from a signature.
@@ -30,7 +32,7 @@ command is written here because a bare figure in prose is one nobody can re-chec
 | Measured                                                                                                          | Value                                                                                                                                                                                                                                                                               |
 | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | occurrences of `broker`, case-insensitive, in the agent surface's composition root `crates/sutura-cli/src/mcp.rs` | **0**. `git cat-file blob origin/main:crates/sutura-cli/src/mcp.rs \| grep -c -i broker` over a file `grep -c ''` reports at 471 lines                                                                                                                                              |
-| `crates/sutura-mcp/src/lib.rs:214`                                                                                | `pub async fn serve_stdio<S>(service, permitted, prose, admission, reply)` - **no parameter a principal could arrive through**                                                                                                                                                      |
+| `crates/sutura-mcp/src/lib.rs:221`                                                                                | `pub async fn serve_stdio<S>(service, permitted, prose, admission, reply)` - **no parameter a principal could arrive through**                                                                                                                                                      |
 | what that function opens                                                                                          | `rmcp::transport::stdio()` - the process's own pipes                                                                                                                                                                                                                                |
 | `crates/sutura-mcp/Cargo.toml` first-party dependencies                                                           | `sutura-app`, `sutura-config`, `sutura-domain`, `sutura-runtime`. **No adapter and no broker**                                                                                                                                                                                      |
 | the chain the agent surface establishes                                                                           | `crates/sutura-mcp/src/principal.rs`: `pub(crate) const fn established() -> RequestContext` returning `RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself))` - **a `const fn` with no inputs**, which is the honest shape for a transport that authenticates nobody |
@@ -302,7 +304,7 @@ this decision to have settled.
 - **It is not a claim that two callers get two answers.** Nothing in the default suite asserts
   that two subjects read two different row sets: the scaffold for it is
   `two_subjects_with_different_grants_read_two_different_row_sets` at
-  `crates/sutura-exec-bigquery/tests/acceptance.rs:791`, `#[ignore]`d and needing a real project.
+  `acceptance.rs:791`, `#[ignore]`d and needing a real project.
   This record changes none of that.
 - **It does not decide the exchange chain.** See the next section: one hop is built, and the chain
   the requirement asks for is a separate design with its own failure modes.
@@ -328,7 +330,8 @@ The requirement this record serves is that the agent surface takes the caller's 
 whatever enterprise identity provider issued it and reaches a credential the data source accepts,
 through **however many exchanges that takes**.
 
-Measured at `5ae3bde`: the broker performs one. `crates/sutura-exec-bigquery/src/sts.rs:420`:
+Measured at `5ae3bde`: the broker performed one. `sts.rs:420`, in code this tree no longer
+contains:
 
 ```rust
 let credential = self
@@ -337,9 +340,17 @@ let credential = self
     .map_err(|cause| ExchangeUnusable::Provider { cause: Box::new(cause) })?;
 ```
 
-against the port at `crates/sutura-exec-bigquery/src/sts.rs:116`,
-`fn exchange(&self, audience: &str, scope: &str, subject_token: &Secret) -> Result<StsCredential, Self::Error>`,
-whose one non-test implementor is `StsOverHttp` at `crates/sutura-exec-bigquery/src/wire/sts.rs:114`.
+against the port `sutura_exec_bigquery::StsExchange`,
+`fn exchange(&self, audience: &str, scope: &str, subject_token: &Secret) -> Result<StsCredential, Self::Error>`.
+**Corrected 2026-09-20:** this named `sts.rs:116` and `sts.rs:114` and said the port's one non-test
+implementor is `StsOverHttp`. Both line numbers now point at an accessor - a citation by line is one
+edit from wrong - and `StsOverHttp` was deleted with the BigQuery HTTP transport (`docs/adr/0018`,
+fifth amendment). **The port had five implementors and every one of them was a fake**, so
+nothing in a shipped build exchanged anything: the hop this section calls the one that is built was
+no longer built, and `docs/adr/0018`'s eighth amendment has since deleted the port with its broker.
+**Nothing in this tree exchanges a token at all now** - the ADBC driver federates the asker's own
+assertion at Google's token service instead, so the chain this section measures has no first hop
+here to count.
 There is no second hop and nowhere to configure one:
 `git grep -n -i 'audience\|scope' origin/main -- crates/sutura-config/src/credentials.rs` returns
 nothing. Nor is any enterprise provider wired -
@@ -465,7 +476,7 @@ binding was correct *because* the value was empty under the pipe. `context` is n
 be ignored - it is threaded through `asked` unconditionally - but the pipe still supplies nothing to
 read: `Asking`'s other arm, `TheProcessOwner`, never inspects `context` at all (`:315-318`), and
 `crate::serve_stdio` - the only thing this crate serves - always builds `TheProcessOwner`
-(`crates/sutura-mcp/src/lib.rs:222-225`). `PerRequest` is produced behind this crate's own
+(`crates/sutura-mcp/src/lib.rs:223-226`). `PerRequest` is produced behind this crate's own
 default-off `http` feature, by a module (`crate::http`, `#378` PR3) that a composition root
 already mounts: `sutura-cli` wires it behind its own optional `agent` feature and a settings
 switch (`crates/sutura-cli/src/serve/agent.rs:62-73`, `serve.rs:336-341,350-353`), and
@@ -486,3 +497,29 @@ agent transport is neither: it is the same type-level plumbing this record price
 mounted by a composed, tested binary behind an optional feature - reachable by nothing this
 repository publishes - and it moves nothing about per-subject execution. AGENTS.md's own line
 holds unchanged: leg 1 is built, leg 2 is not, on anything published.
+
+## Second amendment, 2026-09-23: two premises of the amendment above are spent, and the record's own conclusion narrows with them
+
+**"No published artefact carries it" no longer holds, for a reason neither amendment above
+anticipated.** The first amendment's own citation - `nix/shipped.nix`'s `crossPackages` taking no
+`features` argument, so a cross-built release shipped cargo's default feature set only - was true
+of `docs/adr/0017`'s Eighth amendment and stopped being true at its Fifteenth: "one binary, every
+adapter compiled in, because which adapters a deployment uses is configuration, not a build."
+`features = [ "bigquery" "postgres" "tls" "datahub" "agent" ]` is what `nix/shipped.nix` now reads
+for every release and release-performance build, native and cross - not `probeFeatures`, which is
+a separate, narrower per-triple link check. So *What this decision does NOT cover*'s own bullet
+above, **"it does not make anything published able to impersonate"**, is superseded: a published
+artefact now links `sutura-exec-bigquery`.
+
+**And that adapter's own `IMPERSONATION` is `PerSubjectCredential`**, so *"it does not deliver leg
+2 on any surface"* - this record's other bullet in the same section - narrows too:
+`telekom/sutura#929` built the exchange the bullet said had never run, resolving a declared
+subject's assertion to a principal through a workload-identity pool, per source
+(`docs/where-identity-is-proven.md`, *A declared principal at a real dataset*, `wired`).
+
+**What survives, and it is still the whole of the limit this record leaves.** No SERVED binary has
+executed a leg as the calling subject - the *venue* half of leg 2, which is distinct from the
+*mechanism* half this amendment corrects. AGENTS.md's own line no longer reads *leg 2 is not [built]
+on anything published*; it reads that leg 2 is proven for BigQuery through a declared per-source
+map, and that no served binary has executed as a caller yet. This amendment aligns this record with
+that line rather than restating the line it replaces.

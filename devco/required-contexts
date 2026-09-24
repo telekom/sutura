@@ -151,29 +151,28 @@ ci.yml:crap-comment
 # would leave it permanently pending.
 ci.yml:pr-cache
 
-# The live BigQuery acceptance venue. Advisory deliberately rather than by omission: it needs an
-# environment a fork's pull request cannot see, so requiring it would leave every fork pull request
-# permanently pending - the failure mode this file's own header warns about.
-ci.yml:bigquery-acceptance
-
 # The provisioned-Keycloak leg-1 venue: `if: needs.ci.outputs.identity == 'true'`, so it reports
 # nothing at all on a pull request whose diff does not touch the `identity` category - the same
-# reason `format.yml:format` below is advisory rather than the reason `bigquery-acceptance` above
-# is. Unlike that one it reads no secret and needs no environment, so a fork's pull request can run
+# reason `format.yml:format` below is advisory rather than the reason the since-removed
+# `bigquery-acceptance` leg was - that entry is gone from this file with the job. Unlike it this one
+# reads no secret and needs no environment, so a fork's pull request can run
 # it when the paths select it; what still rules out `[required]` is that most pull requests do not
 # touch those paths at all, and a required context that does not report on most runs is exactly the
 # permanently-pending merge this file's header warns about.
 ci.yml:keycloak-served-test
 
-# The wave-one E2E over the real docker DataHub tier, advisory for BOTH of the two reasons the
-# records above are. Like `bigquery-acceptance` it reaches the `bq-test` environment's key, which
-# a fork's pull request cannot see - requiring it would leave every fork permanently pending. And
-# it is category-gated on the `data_source_bigquery || identity || catalog_datahub` union, so like
-# `keycloak-served-test` it reports nothing at all on a pull request touching none of those paths,
-# and a required context that does not report on most runs is the permanently-pending merge this
-# file's header warns about. Its own `ci-aggregate` accounting is what keeps a category-selected
-# skip red, so the coverage stays advisory without going silent.
-ci.yml:e2e-datahub-bigquery
+# The ADBC driver, executed rather than built: `if: needs.ci.outputs.data_source_bigquery ==
+# 'true'`, so it reports nothing on a pull request whose diff does not touch that category - the
+# same reason `keycloak-served-test` above is advisory rather than required, and the same reason it
+# is nonetheless GATED: `ci-aggregate` holds run-or-fail for it, and `ci-aggregate` is a required
+# context. It reads no secret and needs no environment, so a fork's pull request can run it when
+# the paths select it.
+#
+# What it buys over the `ADBC driver` step inside `ci`: that step builds the four `.so` files, this
+# one LOADS one into both release binaries and runs the driver's Go runtime beside tokio and the
+# allocator. The owner asked for a run rather than a link, and a link-success check would have
+# passed over a driver that cannot initialise.
+ci.yml:bigquery-driver-check
 
 # #149 branch 5's smoke test, advisory on `ci.yml:demo-container`'s own reasoning one entry
 # down: it needs a container runtime and a real network namespace, which is what makes it
