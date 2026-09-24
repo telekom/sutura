@@ -23,8 +23,10 @@ const QUERY: Subject = Subject {
     allow_file: ALLOW_FILE,
     // 23: `github.com/telekom/sutura#777` added `TopNotFederated`, then replaced it with
     // `TopOverUncertifiedRows` once the two-case rule made the blanket refusal's arm unreachable -
-    // a straight substitution, so the count is unchanged.
-    variants: variants(23),
+    // a straight substitution, so the count was unchanged. 22 since `docs/adr/0040` DELETED
+    // `LegsDecideIdentityDifferently`: a cross-posture federated answer is disclosed per leg
+    // instead, so there is no question left for that variant to refuse.
+    variants: variants(22),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

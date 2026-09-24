@@ -45,11 +45,11 @@
 //!
 //! **Zero was not enough, and a review proved it.** Making the walk `break` after its first hit left
 //! three of four messages unread, the verdict `ok`, and every test in this module green. So the
-//! verdict carries DENOMINATORS - files read against in-scope files counted from the listing, and
-//! per file, literals classified against the literals that file holds. Two levels, because fixing
-//! only the first was measured insufficient: the same `break` moved one level down left the file
-//! count at 204 of 204 and read `ok` again. Both are pairs of numbers taken from different places,
-//! which is the only reason comparing them proves anything, and a shortfall in either is red.
+//! verdict carries DENOMINATORS - files classified against files `Census::inspect` actually opened,
+//! and per file, literals classified against the literals that file holds. Two levels, because
+//! fixing only the first was measured insufficient: the same `break` moved one level down left the
+//! file count at 204 of 204 and read `ok` again. An in-scope file that vanished after discovery is
+//! refused too; `inspect` otherwise reports it as absent rather than unreachable.
 //!
 //! # Three limits, next to the claim
 //!
@@ -225,20 +225,19 @@ fn declared_features(manifest: &str) -> BTreeSet<String> {
 
 /// What one walk of the tree saw.
 ///
-/// `scanned` exists because a review broke this gate by making it `break` out of the file loop
-/// after the first hit: three of four messages went unread, the verdict was `ok`, and every one of
-/// this module's tests stayed green. **A count of what was FOUND cannot see that.** A count of what
-/// was LOOKED AT, compared against a list built independently, can.
+/// `scanned` is compared with the count `Census::inspect` derives from its own reads. A return from
+/// the per-file closure before classification cannot silently shorten this gate's work.
 struct Scan {
     /// The instructions, in source order.
     found: Vec<Subject>,
-    /// In-scope files actually read.
+    /// In-scope files fully classified.
     scanned: usize,
     /// Literals examined - the other number that collapses when a reader stops early.
     literals: usize,
 }
 
 /// Every rebuild instruction in the tree, outside test code.
+#[cfg(test)]
 fn subjects(files: &[String], read: &PostImage<'_>) -> Result<Scan, String> {
     let mut scan = Scan {
         found: Vec::new(),
@@ -250,15 +249,19 @@ fn subjects(files: &[String], read: &PostImage<'_>) -> Result<Scan, String> {
             format!("could not read {rel}, so the scan that decides which messages this gate reads is incomplete")
         })?;
         scan.scanned = scan.scanned.saturating_add(1);
-        if !text.contains(FEATURE) && !FLAGS.iter().any(|flag| text.contains(flag)) {
-            continue;
-        }
+        classify(rel, &text, read, &mut scan)?;
+    }
+    Ok(scan)
+}
+
+fn classify(rel: &str, text: &str, read: &PostImage<'_>, scan: &mut Scan) -> Result<(), String> {
+    if text.contains(FEATURE) || FLAGS.iter().any(|flag| text.contains(flag)) {
         let tests = regions::scope(rel, read);
         // Two numbers about the SAME loop, one taken before it and one counted inside it. The file
         // denominator above does not reach here: a review's `break` after the first hit left files
         // at 204 of 204 and still read `ok`, because what collapsed was the literal walk. This is
         // the number that collapses with it.
-        let literals = string_literals(&text);
+        let literals = string_literals(text);
         let total = literals.len();
         let mut classified = 0_usize;
         for literal in literals {
@@ -267,7 +270,7 @@ fn subjects(files: &[String], read: &PostImage<'_>) -> Result<Scan, String> {
                 continue;
             }
             scan.found.push(Subject {
-                file: rel.clone(),
+                file: String::from(rel),
                 line: literal.line,
                 names: named_features(&literal.body),
             });
@@ -280,7 +283,7 @@ fn subjects(files: &[String], read: &PostImage<'_>) -> Result<Scan, String> {
         }
         scan.literals = scan.literals.saturating_add(total);
     }
-    Ok(scan)
+    Ok(())
 }
 
 /// Each subject against its own crate's table.
@@ -329,22 +332,57 @@ fn unresolved(root: &std::path::Path, found: &[Subject]) -> Result<Vec<String>, 
     Ok(problems)
 }
 
-fn check() -> Result<Vec<String>, String> {
-    let (root, files) = repo::all_files()
-        .and_then(|census| census.into_listing(repo::Unmigrated::FeatureRemedies))
-        .map_err(|why| why.describe())?;
+type InspectedSubjects = Result<(Scan, String), String>;
+
+fn inspect_subjects(census: repo::Census, root: &std::path::Path) -> InspectedSubjects {
     let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
-    // The denominator, built from the LISTING rather than from the walk - the two cannot agree by
-    // construction, which is the only reason comparing them proves anything.
-    let expected = files.iter().filter(|rel| in_scope(rel)).count();
-    let scan = subjects(&files, &read)?;
-    if scan.scanned != expected {
+    let mut scan = Scan {
+        found: Vec::new(),
+        scanned: 0,
+        literals: 0,
+    };
+    let mut invalid = None;
+    let inspected = census
+        .inspect(&[], in_scope, |rel, bytes| match std::str::from_utf8(bytes) {
+            Ok(text) => {
+                if let Err(why) = classify(rel, text, &read, &mut scan) {
+                    if invalid.is_none() {
+                        invalid = Some(why);
+                    }
+                } else {
+                    scan.scanned = scan.scanned.saturating_add(1);
+                }
+            }
+            Err(why) => {
+                if invalid.is_none() {
+                    invalid = Some(format!("could not decode {rel}: {why}"));
+                }
+            }
+        })
+        .map_err(|why| why.describe())?;
+    if let Some(why) = invalid {
+        return Err(why);
+    }
+    if inspected.absent() != 0 {
         return Err(format!(
-            "read {} of {expected} in-scope file(s) - the walk stopped early, so this verdict is \
-             about part of the tree",
-            scan.scanned
+            "{} in-scope file(s) vanished after discovery, so the scan is incomplete",
+            inspected.absent()
         ));
     }
+    if scan.scanned != inspected.judged() {
+        return Err(format!(
+            "classified {} of {} in-scope file(s) - the walk stopped early, so this verdict is \
+             about part of the tree",
+            scan.scanned,
+            inspected.judged()
+        ));
+    }
+    Ok((scan, inspected.verdict()))
+}
+
+fn check() -> Result<Vec<String>, String> {
+    let root = repo::root().ok_or_else(|| repo::Refusal::NoRoot.describe())?;
+    let (scan, witness) = inspect_subjects(repo::all_files().map_err(|why| why.describe())?, &root)?;
     let found = scan.found;
     if found.is_empty() {
         return Err(String::from(
@@ -360,8 +398,8 @@ fn check() -> Result<Vec<String>, String> {
             .map(|subject| format!("{}:{} -> {}", subject.file, subject.line, subject.names.join(", ")))
             .collect();
         held.push(format!(
-            "(read {} literal(s) in {} of {expected} in-scope file(s))",
-            scan.literals, scan.scanned
+            "(read {} literal(s) in {} in-scope file(s); {})",
+            scan.literals, scan.scanned, witness
         ));
         return Ok(held);
     }
@@ -401,7 +439,9 @@ pub(crate) fn run(args: &[String]) -> Verdict {
 
 #[cfg(test)]
 mod tests {
-    use super::{backticked_tail, declared_features, instructs_a_rebuild, named_features, subjects, unresolved};
+    use super::{
+        backticked_tail, declared_features, inspect_subjects, instructs_a_rebuild, named_features, subjects, unresolved,
+    };
 
     /// The reader every fixture test uses: a fixed map, so classification needs no checkout.
     fn reading<'a>(files: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + use<'a> {
@@ -583,24 +623,6 @@ mod tests {
     }
 
     #[test]
-    fn the_walk_reports_how_many_files_it_read_not_just_what_it_found() {
-        // Found by review: a `break` after the first hit left three of four messages unread and the
-        // verdict `ok`, with every test here green. The denominator is what sees that.
-        let files = [
-            (
-                "crates/a/src/lib.rs",
-                "fn f() { let _ = \"Rebuild with `--features tls`\"; }\n",
-            ),
-            ("crates/b/src/lib.rs", "fn g() { let _ = \"nothing to say here\"; }\n"),
-        ];
-        let read = reading(&files);
-        let listing = vec![String::from("crates/a/src/lib.rs"), String::from("crates/b/src/lib.rs")];
-        let scan = subjects(&listing, &read).expect("the fixture reads");
-        assert_eq!(scan.scanned, 2, "both in-scope files are read, not only the one that hit");
-        assert_eq!(scan.found.len(), 1);
-    }
-
-    #[test]
     fn a_commented_table_header_and_a_comma_list_are_both_legal_and_neither_is_a_red() {
         // Both were FALSE REDS found by review, and a false red is the shape that gets a gate
         // disabled. The manifests in this tree are heavily commented.
@@ -613,19 +635,19 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_tree_this_gate_ships_on_has_subjects_and_they_all_resolve() {
-        // Not a restatement of the gate: it is the FAIL-CLOSED half, and the count is the witness.
-        // A scan that finds nothing is a reader that stopped reading, and it would pass everything.
-        let Ok((root, files)) =
-            crate::repo::all_files().and_then(|census| census.into_listing(crate::repo::Unmigrated::FeatureRemedies))
-        else {
-            return;
-        };
-        let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
-        let scan = subjects(&files, &read).expect("every crate source reads");
-        let found = scan.found;
-        assert!(!found.is_empty(), "no rebuild instruction found - the literal scan is broken");
-        assert_eq!(unresolved(&root, &found).expect("every manifest reads"), Vec::<String>::new());
+    #[test] // An indexed source that disappears must invalidate the verdict.
+    fn a_listed_source_that_vanishes_refuses_the_scan() {
+        let root = std::env::temp_dir().join(format!("sutura-feature-remedies-census-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&root));
+        for name in ["a", "b"] {
+            let dir = root.join(format!("crates/{name}/src"));
+            std::fs::create_dir_all(&dir).expect("a scratch crate");
+            std::fs::write(dir.join("lib.rs"), "fn plain() {}\n").expect("a source file");
+        }
+        let census = crate::repo::collect_files(&root, &root.join("crates"), &["rs"]);
+        std::fs::remove_file(root.join("crates/b/src/lib.rs")).expect("a vanished source");
+        let result = inspect_subjects(census, &root);
+        drop(std::fs::remove_dir_all(&root));
+        assert!(result.is_err_and(|problem| problem.contains("1 in-scope file(s) vanished")));
     }
 }

@@ -1,11 +1,9 @@
 //! Which jobs gate a merge, and which only look as though they do.
 //!
 //! **The finding this exists for:** the four `cross / link (<triple>)` legs were widely assumed to
-//! gate a merge and were required by nothing. Measured against the API on 2026-09-05, the `main`
-//! branch ruleset requires exactly one context, `ci`, and classic branch protection is absent - so
-//! a red link leg has never blocked a merge, in the queue or out of it, with no override and no
-//! bypass. Renaming those legs broke no required check, which is the good news; that none of them
-//! was ever required is the finding.
+//! gate a merge and are required by nothing. Measured against the API on 2026-09-24, the `main`
+//! branch ruleset requires `ci` and `ci-aggregate`, and classic branch protection is absent - so
+//! a red link leg does not block a merge under the ruleset read that day.
 //!
 //! Nothing in the repository could say so, because the required set lived only in GitHub's API.
 //! `devco/required-contexts` is that set written down, with the date, the exact response and the

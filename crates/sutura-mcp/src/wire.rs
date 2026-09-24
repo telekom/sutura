@@ -728,6 +728,44 @@ mod tests {
         );
     }
 
+    /// A CROSS-POSTURE answer names both postures on BOTH halves of the result.
+    ///
+    /// **`docs/adr/0040`'s one behavioural break, on the agent surface.** A shared leg beside an
+    /// impersonating one used to leave as a refusal; it is an answer whose `executed_as` carries one
+    /// entry per source with two DIFFERENT posture values - and the TEXT half matters as much as the
+    /// structured one, because an agent that reads only the text is the case that half exists for.
+    ///
+    /// **Disclosure is not a control:** the postures and the rows are in one result, so an agent that
+    /// reads which leg ran as whom already has them. The control is the boot-time acknowledgement on
+    /// each source's own entry.
+    #[test]
+    fn a_cross_posture_answer_names_both_postures_on_both_halves() {
+        let rows = RowSet::new(vec![String::from("region")], vec![vec![Value::Text(String::from("north"))]])
+            .expect("a one-cell result is a result set");
+        let content = OutcomeContent::from(&ToolOutcome::Answer {
+            provenance: crate::testing::bundle().provenance(crate::testing::ran_two_postures()),
+            rows,
+        });
+        let OutcomeContent::Answer { ref executed_as, .. } = content else {
+            panic!("a cross-posture answer is answered, not refused");
+        };
+        assert_eq!(
+            executed_as
+                .iter()
+                .map(|leg| (leg.source.as_str(), leg.posture))
+                .collect::<Vec<(&str, &str)>>(),
+            vec![("local", "shared-service-user"), ("warehouse", "impersonation-at-source")],
+            "the structured half names which leg came from which authorization domain"
+        );
+        let text = content.as_text();
+        assert!(text.contains("\nread from local as: shared-service-user"), "{text}");
+        assert!(text.contains("\nread from warehouse as: impersonation-at-source"), "{text}");
+        // The LABELS only: `SourcePosture`'s shared variant carries the operator's own
+        // acknowledgement and derives `Serialize`, and an agent's context is the last place it
+        // belongs.
+        assert!(!text.contains("transport-layer fake"), "{text}");
+    }
+
     /// A description whose lines include a fake `definitions:` trailer must not reach column zero.
     ///
     /// `describe_catalog` was splicing metric prose inline, so a description containing

@@ -143,13 +143,6 @@ Every reason you can be given, and what to do about each:
   instead of the second one - that shape ranks exactly, before the combine, and never reaches this
   ceiling. Retrying the same question unchanged returns the same refusal: this is a configured
   bound, not a passing outage, and only whoever operates this deployment can raise it.
-- **legs_decide_identity_differently** - the question spans two data systems that decide who is
-  asking differently, so one answer would add rows read under one identity to rows read under
-  another - a total neither identity is entitled to.
-  Ask the same metric without the dimension that sits on the second data system, and the mono-source
-  question on each is still answered. Retrying changes nothing, and this is not an outage: it is a
-  fact about how the two data systems are declared. If every dimension you need crosses them, say so
-  to the person you are acting for.
 - **plan_tables_share_an_identifier** - answering would read two different tables that carry the
   same name, and one statement cannot tell them apart.
   Try a dimension that does not need that join - it is the join that puts both tables in one

@@ -1303,3 +1303,34 @@ floating-point link key and two legs whose link columns can never match are deci
 Arrow SCHEMAS now. The hand-written combine decided a link column's kind from the first non-null
 cell it happened to find, so two EMPTY legs whose link types can never agree were answered as *no
 rows* - a right-looking answer to a question that cannot have one.
+
+## Sixth amendment, 2026-09-22: a federated answer may span two identity postures
+
+**One sentence in *Identity* above is now wrong in the direction that matters, and this amendment is
+where it is corrected rather than struck.** That section commits this record to keeping per-subject
+execution reachable, and it is - but the rule that grew out of it, *one answer's legs all decide
+identity the same way*, refused the shape that reachability produces.
+`0040-a-cross-posture-federated-answer-is-disclosed-per-leg.md` is the ruling and the reasoning; what
+it means here is that a federated answer whose fact leg runs as the deployment's acknowledged shared
+identity and whose lookup leg runs as the asking subject is **answered**, with one `executed_as` entry
+per source naming that leg's own posture.
+
+**Why it had to be, in this record's own terms.** `sutura-exec-bigquery` is the only adapter declaring
+`PerSubjectCredential`, so a BigQuery leg paired with a leg-executing shared-posture adapter
+is cross-posture. The refusal prevented that pairing, which is
+the narrowest possible reading of the per-source-adapter shape this section argues for.
+
+**What does not change, and the last row of that table is the one to read.** *Every query runs as the
+calling principal* is **still not held**, and this amendment does not move it: an answer now says
+which of its legs did and which did not, which is a disclosure and not a control - `executed_as` and
+the rows leave in one body. What carries the weight instead is the boot refusal
+`NotFitToServe::SharedSourceNotAcknowledged`, which moves from the earlier of two checks over the same
+fact to the only one. And the arithmetic *Identity* warns about is unchanged and unsoftened: rows a
+shared identity was permitted to see, added to rows the asking subject was permitted to see, make a
+total no identity is entitled to. What answers for it is that an operator declared each source's
+posture in writing on its own entry before the process started, and the answer names which leg came
+from which - not that anybody opted in.
+
+**One consequence for the budget, since this record owns the federated path's shape.** A mixed
+answer's spend charge sums both legs' estimates against **one** subject key (`docs/adr/0030`,
+all-or-nothing) regardless of which leg ran as whom. Two authorization domains, one budget.

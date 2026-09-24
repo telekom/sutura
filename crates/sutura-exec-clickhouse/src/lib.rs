@@ -7,12 +7,9 @@
 //! # Why `ureq` and not an async driver
 //!
 //! **The port carries no `async fn`, and `ureq` is natively blocking - so this adapter needs no
-//! `tokio` runtime and no `block_on` at all.** That is not a simplification made for this crate
-//! alone: `sutura-exec-bigquery`'s own `Cargo.toml` states the reasoning for its `ureq`-based wire
-//! at length, and it transfers unchanged - `Warehouse::execute` reaches this adapter through
-//! `sutura_runtime::spawn_carrying_span`, on a blocking-pool thread, and starting a runtime
-//! *there* (which an async driver wrapped the way `sutura_exec_postgres` wraps `tokio-postgres`
-//! would need) is exactly the `reqwest::blocking` shape that entry warns against. `ClickHouse`'s
+//! `tokio` runtime and no `block_on` at all.** `Warehouse::execute` reaches this adapter through
+//! `sutura_runtime::spawn_carrying_span` on a blocking-pool thread. An async driver would need a
+//! runtime there, while `ureq` can execute the request directly. `ClickHouse`'s
 //! own HTTP interface asks for nothing more than one request/response per statement, which is
 //! `ureq`'s whole job. **A pure-Rust driver either way**: `ureq` with the `rustls` feature links
 //! no C TLS library, and this crate's own `tls` module (over `sutura-tls`) is what most of
@@ -389,6 +386,35 @@ where
         clickhouse_type: String::from(kind),
     };
     match kind {
+        "Tuple(String, Dynamic)" => {
+            let serde_json::Value::Array(mut pair) = value else {
+                return Err(unsupported());
+            };
+            if pair.len() != 2 {
+                return Err(unsupported());
+            }
+            let Some(inner) = pair.pop() else {
+                return Err(unsupported());
+            };
+            let Some(serde_json::Value::String(inner_type)) = pair.pop() else {
+                return Err(unsupported());
+            };
+            let inner_kind = inner_type
+                .strip_prefix("Nullable(")
+                .and_then(|rest| rest.strip_suffix(')'))
+                .unwrap_or(&inner_type);
+            if matches!(inner_kind, "Int128" | "UInt128" | "Int64" | "UInt64" | "Float32" | "Float64")
+                || inner_kind.starts_with("Decimal(")
+            {
+                if inner.is_null() {
+                    Ok(Value::Null)
+                } else {
+                    cell_of(label, &inner_type, inner)
+                }
+            } else {
+                Err(unsupported())
+            }
+        }
         "String" | "Date" | "Date32" => match value {
             serde_json::Value::String(text) => Ok(Value::Text(text)),
             serde_json::Value::Null => Ok(Value::Null),
@@ -397,6 +423,7 @@ where
         "UInt8" | "UInt16" | "UInt32" | "UInt64" | "Int8" | "Int16" | "Int32" | "Int64" => {
             integer_value(&value).ok_or_else(unsupported)
         }
+        "Int128" | "UInt128" => wide_integer_value(&value, kind == "UInt128").ok_or_else(unsupported),
         "Float32" | "Float64" => {
             let raw = float_text(&value).ok_or_else(unsupported)?;
             Real::parse(raw).map(Value::Real).map_err(|cause| ClickHouseError::NotFinite {
@@ -413,8 +440,7 @@ where
 /// [`Value::Text`] where it is a `UInt64` past `i64::MAX` - the split `sutura_exec_duckdb` makes for
 /// `UBIGINT`, so the same wide sum reads the same on both. Measured by running
 /// `sutura-conformance`'s `wide-total-by-day` case against the tier, which this adapter refused as
-/// an unmapped `UInt64` before; `xtask/src/conformance/reconcile.rs`'s `clickhouse` entry says why
-/// that binding is not committed.
+/// an unmapped `UInt64` before. The conformance binding now runs that case against the tier.
 ///
 /// A narrower integer arrives as a JSON number; a 64-bit one as a string, because every request
 /// pins `output_format_json_quote_64bit_integers` (`transport`'s `JSON_QUOTE_64BIT_INTEGERS`) - so
@@ -427,6 +453,18 @@ fn integer_value(value: &serde_json::Value) -> Option<Value> {
         serde_json::Value::String(ref text) => text.parse().map(Value::Integer).ok().or_else(|| text.parse().ok().map(wide)),
         _ => None,
     }
+}
+
+fn wide_integer_value(value: &serde_json::Value, unsigned: bool) -> Option<Value> {
+    let serde_json::Value::String(text) = value else {
+        return None;
+    };
+    if unsigned {
+        text.parse::<u128>().ok()?;
+    } else {
+        text.parse::<i128>().ok()?;
+    }
+    Some(text.parse::<i64>().map_or_else(|_| Value::Text(text.clone()), Value::Integer))
 }
 
 fn float_text(value: &serde_json::Value) -> Option<f64> {

@@ -4447,6 +4447,7 @@ dependencies = [
  "rustls-pki-types",
  "serde_json",
  "sutura-conformance",
+ "sutura-dev",
  "sutura-domain",
  "sutura-sql",
  "sutura-tls",
