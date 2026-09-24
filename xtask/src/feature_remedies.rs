@@ -227,6 +227,7 @@ fn declared_features(manifest: &str) -> BTreeSet<String> {
 ///
 /// `scanned` is compared with the count `Census::inspect` derives from its own reads. A return from
 /// the per-file closure before classification cannot silently shorten this gate's work.
+#[derive(Debug)]
 struct Scan {
     /// The instructions, in source order.
     found: Vec<Subject>,
@@ -649,5 +650,62 @@ mod tests {
         let result = inspect_subjects(census, &root);
         drop(std::fs::remove_dir_all(&root));
         assert!(result.is_err_and(|problem| problem.contains("1 in-scope file(s) vanished")));
+    }
+
+    /// `github.com/telekom/sutura#414`, pinned against `inspect_subjects` itself rather than
+    /// against the pure `classify` helper: a fixture map cannot exercise the census's own file
+    /// loop, so a `.take(1)` written between the census and this gate's read would be invisible
+    /// to every other test here. This scratch tree goes through `repo::collect_files`, the same
+    /// door `run` uses, with two files where only one carries a rebuild instruction.
+    #[test]
+    fn inspect_subjects_reads_every_in_scope_file_not_just_the_one_that_hits() {
+        let root = std::env::temp_dir().join(format!("sutura-feature-remedies-census-walk-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&root));
+        std::fs::create_dir_all(root.join("crates/a/src")).expect("a scratch crate");
+        std::fs::create_dir_all(root.join("crates/b/src")).expect("a scratch crate");
+        std::fs::write(
+            root.join("crates/a/src/lib.rs"),
+            "fn f() { let _ = \"Rebuild with `--features tls`\"; }\n",
+        )
+        .expect("a readable file");
+        std::fs::write(
+            root.join("crates/b/src/lib.rs"),
+            "fn g() { let _ = \"nothing to say here\"; }\n",
+        )
+        .expect("a readable file");
+
+        let census = crate::repo::collect_files(&root, &root, &["rs"]);
+        let result = inspect_subjects(census, &root);
+        drop(std::fs::remove_dir_all(&root));
+
+        let (scan, _witness) = result.expect("both scratch files read");
+        assert_eq!(scan.scanned, 2, "both in-scope files are read, not only the one that hits");
+        assert_eq!(scan.found.len(), 1);
+    }
+
+    /// The discovery-time half of the same class: a subtree the walk cannot enter must refuse the
+    /// whole scan, never shrink the count `run` prints. `repo::collect_files` records this at
+    /// discovery, so `inspect_subjects` never receives the narrowed listing to begin with.
+    #[test]
+    fn an_unreachable_subtree_refuses_the_scan_rather_than_shrinking_it() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let root = std::env::temp_dir().join(format!("sutura-feature-remedies-census-unreachable-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&root));
+        std::fs::create_dir_all(root.join("crates/a/src")).expect("a scratch crate");
+        std::fs::create_dir_all(root.join("crates/b/src/sub")).expect("a scratch crate");
+        std::fs::write(root.join("crates/a/src/lib.rs"), "fn f() {}\n").expect("a readable file");
+        std::fs::set_permissions(root.join("crates/b/src/sub"), std::fs::Permissions::from_mode(0o000))
+            .expect("chmod 000 on the subtree");
+
+        let census = crate::repo::collect_files(&root, &root, &["rs"]);
+        let result = inspect_subjects(census, &root);
+
+        std::fs::set_permissions(root.join("crates/b/src/sub"), std::fs::Permissions::from_mode(0o700))
+            .expect("restore permissions so cleanup can remove the tree");
+        drop(std::fs::remove_dir_all(&root));
+
+        let err = result.expect_err("an unreachable subtree must refuse the scan, not shrink its count");
+        assert!(err.contains("sub"), "{err}");
     }
 }
