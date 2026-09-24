@@ -304,8 +304,7 @@ mod tests {
             "an answer arrived with no definition digest: {}",
             reply.body
         );
-        // And which identity produced the one leg. `shared-service-user` is the truth for this
-        // deployment: no source a shipped binary serves executes as the asking subject.
+        // This deployment's local source executes under its declared shared identity.
         assert_eq!(
             body["executed_as"],
             serde_json::json!([{ "source": "local", "posture": "shared-service-user" }])

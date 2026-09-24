@@ -579,9 +579,8 @@ mod tests {
                 .is_some_and(|digest| !digest.is_empty()),
             "an answer arrived with no definition digest: {result}"
         );
-        // And which identity produced the one leg. `shared-service-user` is the truth for this
-        // surface: a pipe establishes no caller, and no source this binary opens executes as an
-        // asking subject.
+        // A pipe establishes no caller, and this example's source executes under its declared
+        // shared identity.
         assert_eq!(
             content["executed_as"],
             serde_json::json!([{ "source": SOURCE, "posture": "shared-service-user" }]),
