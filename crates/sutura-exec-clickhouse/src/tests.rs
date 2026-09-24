@@ -12,9 +12,7 @@ use super::*;
 type ScriptedAnswer = Option<Result<Vec<u8>, ScriptedError>>;
 
 /// A scripted [`ClickHouseTransport`], so this crate's own port behaviour can be driven with no
-/// live endpoint - the crate has no `tests/conformance.rs` binding (it is not registered in the
-/// golden matrix's `data_systems` arm), so the unit tests here are the whole of this adapter's own
-/// test coverage.
+/// live endpoint. The conformance binding and golden matrix also run against the provisioned tier.
 ///
 /// Calls [`crate::deadline::refuse_if_spent`] before answering, so the deadline guard is held at
 /// the transport seam rather than only in [`crate::transport::Http`] - and captures the rendered
@@ -230,6 +228,28 @@ fn a_uint64_past_i64_max_decodes_as_its_exact_digits() {
     let body = "[\"n\"]\n[\"UInt64\"]\n[\"10000000000000000006\"]\n";
     let rows: RowSet = rows_from_json::<ScriptedError>(body.as_bytes()).expect("a wide unsigned integer decodes");
     assert_eq!(rows.rows()[0][0], Value::Text(String::from("10000000000000000006")));
+}
+
+#[test]
+fn a_uint128_above_i128_max_decodes_as_its_exact_digits() {
+    let body = "[\"n\"]\n[\"UInt128\"]\n[\"340282366920938463463374607431768211455\"]\n";
+    let rows: RowSet = rows_from_json::<ScriptedError>(body.as_bytes()).expect("a UInt128 decodes");
+    assert_eq!(
+        rows.rows()[0][0],
+        Value::Text(String::from("340282366920938463463374607431768211455"))
+    );
+}
+
+#[test]
+fn a_clickhouse_sum_keeps_wide_integers_decimal_scale_and_float_type() {
+    let body = "[\"total\"]\n[\"Tuple(String, Dynamic)\"]\n[[\"Int128\",\"9223372036854775808\"]]\n[[\"Int128\",\"18446744073709551616\"]]\n[[\"Decimal(38, 2)\",\"11.50\"]]\n[[\"Nullable(Decimal(38, 2))\",\"19.50\"]]\n[[\"Float64\",3]]\n[[\"Nullable(Float64)\",4]]\n";
+    let rows: RowSet = rows_from_json::<ScriptedError>(body.as_bytes()).expect("typed sums decode");
+    assert_eq!(rows.rows()[0][0], Value::Text(String::from("9223372036854775808")));
+    assert_eq!(rows.rows()[1][0], Value::Text(String::from("18446744073709551616")));
+    assert_eq!(rows.rows()[2][0], Value::Text(String::from("11.50")));
+    assert_eq!(rows.rows()[3][0], Value::Text(String::from("19.50")));
+    assert_eq!(rows.rows()[4][0], Value::Real(Real::parse(3.0).expect("finite")));
+    assert_eq!(rows.rows()[5][0], Value::Real(Real::parse(4.0).expect("finite")));
 }
 
 #[test]

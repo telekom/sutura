@@ -132,34 +132,37 @@ half-claimed.
   reason is a finding: `VerificationIdentity::parse` is `pub`, so `sutura-app` could construct one and
   that `compile_fail` block would have compiled. A test that cannot fail is worse than no test.
 
-**Three more corrections, each recorded in
+**Three corrections at that stage, each recorded in
 [a credential per leg](adr/0008-a-credential-per-leg-for-the-calling-subject.md)'s own *What is
-built*:** the port takes the existing `RequestContext` rather than a new `Caller`, and **carries no
-caller assertion** - the exchange is blocked on 0014 Decision 3's verification, so that field now would
-be the guess this step was delayed to avoid; `Minted::Refused` carries a source rather than a whole
-`RefusalReason`; and provenance still reads `Warehouse::posture` rather than `Presented::executed_as`,
-which belongs with the first adapter able to make the two disagree.
+built*:** the port took the existing `RequestContext` rather than a new `Caller`, and **then carried no
+caller assertion** - the exchange awaited 0014 Decision 3's verification, so adding that field at
+the time would have been a guess; `Minted::Refused` carries a source rather than a whole
+`RefusalReason`; and provenance then read `Warehouse::posture` rather than
+`Presented::executed_as`, which belonged with the first adapter able to make the two disagree.
 
 **What this unblocks, and what it does not.** Every row that needed a credential *type* to key on is
-unblocked. What is absent for all of them is **an adapter that can carry a per-subject credential**:
-both shipped ones declare `NoPlaceForASubject`, so the two subject shapes are constructed only by
-tests and the two-subject test at the foot of 0008 remains unwritable.
+unblocked. The published BigQuery adapter now declares `PerSubjectCredential` and carries
+`Presented::SubjectToken` through the declared per-subject account map; the other adapters still
+declare `NoPlaceForASubject`. The two-subject BigQuery cell is written and wired in CI, but no run
+has been observed, so source execution as each subject remains unproven
+([identity venues](where-identity-is-proven.md)).
 
 ## The plan-stage refusal, re-keyed to identity
 
-**Goal.** `PlanSpansTwoSources` becomes *a plan spanning two identities*, which is the property the
-check was always reaching for. Today the plan stage collects sources into a `BTreeSet` and refuses
-unless exactly one is in it; once federation ships, two sources in one plan is the normal case and the
-thing that must still be refused is a plan whose legs would not all evaluate as the same asker.
+**Original goal.** `PlanSpansTwoSources` would become *a plan spanning two identities*. At that
+stage the plan collected sources into a `BTreeSet` and refused unless exactly one was present.
+Federation now accepts supported two-source questions and reports each leg's posture, even when
+they differ; the following correction records why the plan-stage refusal and later uniform-posture
+refusal were retired.
 
-**It is the LAST assumption to move, and that ordering is the decision rather than the schedule.**
+**It was the LAST assumption to move, and that ordering was the decision rather than the schedule.**
 [0007](adr/0007-federating-across-different-data-systems.md)'s survey of the six single-source
 assumptions puts this one last for a reason that is not politeness: there is nothing to key on until a
 principal type exists, so re-keying it before `feat/principal-chain` and `feat/credential-port` means
 re-keying it to a value that is not there. And the failure direction is the expensive one - a
 re-key that lands early does not refuse where it should, which is a wrong answer rather than an outage.
-`feat/two-source-execution` is also a prerequisite, because until two sources can be answered at all
-the old refusal is still the correct behaviour and removing it would strand every federated question.
+`feat/two-source-execution` was also a prerequisite: until two sources could be answered, the old
+refusal was correct and removing it would have stranded every federated question.
 
 **Landed, and NOT at the plan stage - which is the correction this section needed.** A posture is a
 property of an *opened adapter* (`Warehouse::posture`, held in `Warehouses<W>` in `sutura-app`);
@@ -178,7 +181,7 @@ adapter. So the property is a `sutura-domain` type and the call site is
 added `ExecutedAs::uniform`, returning a `UniformlyExecuted` that `PinnedDefinitions::provenance` was
 narrowed to take, plus `RefusalReason::LegsDecideIdentityDifferently` carrying the posture LABELS and
 never a `SourcePosture`. `docs/adr/0040` deletes all four: only one adapter can carry a per-subject
-credential, so refusing a mixed answer refused every heterogeneous federation, and a cross-posture
+credential, so refusing a mixed answer refused every BigQuery federation with a shared-posture adapter, and a cross-posture
 answer is disclosed per leg instead. What survives from this step is `ExecutedAs` itself and the rule
 that only posture LABELS ever leave the process - an operator's acknowledgement prose derives
 `Serialize` and must not reach a caller, a log or an agent's context. And three things that MOVED with
@@ -206,7 +209,7 @@ it rather than after it:
   `compile_fail` doctest on `provenance` with its compiling twin.
 - `two_shared_sources_with_different_acknowledgements_are_still_one_posture`, and its orchestrator
   twin - the strand guard. `SourcePosture` derives `PartialEq` and the acknowledgement resolves per
-  source, so a predicate comparing VALUES would refuse the only federating shape that ships. Compare
+  source, so a predicate comparing VALUES would refuse a valid shared-posture federation. Compare
   the variant.
 - `a_mixed_posture_refusal_carries_the_labels_and_no_acknowledgement_text` - on `Debug` and on the
   serialized body.

@@ -32,9 +32,9 @@
 //! # No security scheme is declared, and that is honest
 //!
 //! `utoipa` can describe a bearer scheme, and describing one here would put an `Authorize` button
-//! in the browser UI. It is deliberately absent: a scheme in the document reads as an
-//! authentication model, and this service has none - the token authenticates the *deployment*, not
-//! the caller. The `401` on each operation says what actually happens, and
+//! in the browser UI. It is deliberately absent: a single scheme would not describe the deployment's
+//! choice between a shared token and verified caller tokens. The `401` on each operation says what
+//! actually happens, and
 //! [`DESCRIPTION`] says what it means.
 
 use utoipa::OpenApi;
@@ -67,14 +67,13 @@ recorded against. A deployment configured without it authenticates the DEPLOYMEN
 shared access token, and records every call against the deployment itself. Which of the two this \
 one is, is a deployment decision and this document does not say.\n\
 \n\
-NEITHER IS PER-CALLER ACCESS. A credential IS minted per question, for the data system the question \
-reads - no question executes without one - and on this build it is the identity the service process \
-holds for that source rather than yours, because no adapter here can carry a per-subject one. So \
-there is no row-level scoping either way: every question is answered with whatever access the \
-service process already had, whoever asked it. One 403 IS about a credential and it is not the one \
-you presented here: credential_unavailable means you have no access at that data system, and this \
-deployment will not read it as itself instead. Every other 403 is the catalog's answer about a \
-metric. And no request field carries an identity: a body naming a subject is a 400 that says so.";
+CALLER IDENTITY DOES NOT BY ITSELF PROVE SOURCE ACCESS. A credential is obtained per question for \
+the source it reads. A BigQuery source can federate your verified assertion through its declared \
+per-subject account map; an undeclared subject is refused, not run as the service. No served run has \
+yet shown the source accepting that identity. Other sources execute under their declared shared \
+identity, so their rows are governed by that identity's access. A credential_unavailable 403 means \
+the source credential could not be obtained. No request field carries an identity: a body naming a \
+subject is a 400 that says so.";
 
 /// The document, before the route fragments are merged into it.
 ///

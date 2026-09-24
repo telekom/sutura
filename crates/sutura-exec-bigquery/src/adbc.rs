@@ -769,8 +769,10 @@ impl JobTransport for AdbcBigQuery {
     }
 
     #[cfg(feature = "fixtures")]
-    fn apply(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
-        Err(AdbcError::Uncovered("bulk-load fixtures"))
+    fn apply(&self, request: &JobRequest<'_>) -> Result<(), Self::Error> {
+        let (_driver, mut statement, _source) = self.connect(request)?;
+        statement.execute_update().map_err(AdbcError::Adbc)?;
+        Ok(())
     }
 }
 

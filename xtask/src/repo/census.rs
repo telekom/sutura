@@ -432,6 +432,11 @@ impl Inspected {
     pub(crate) const fn judged(&self) -> usize {
         self.judged
     }
+
+    /// Listed in-scope files that disappeared before this census could open them.
+    pub(crate) const fn absent(&self) -> usize {
+        self.absent
+    }
 }
 
 #[cfg(test)]

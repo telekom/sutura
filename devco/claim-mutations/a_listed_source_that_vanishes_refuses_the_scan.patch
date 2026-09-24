@@ -1,0 +1,12 @@
+diff --git a/xtask/src/feature_remedies.rs b/xtask/src/feature_remedies.rs
+--- a/xtask/src/feature_remedies.rs
++++ b/xtask/src/feature_remedies.rs
+@@ -363,7 +363,7 @@ fn inspect_subjects(census: repo::Census, root: &std::path::Path) -> InspectedSubjects {
+     if let Some(why) = invalid {
+         return Err(why);
+     }
+-    if inspected.absent() != 0 {
++    if inspected.absent() > 1 {
+         return Err(format!(
+             "{} in-scope file(s) vanished after discovery, so the scan is incomplete",
+             inspected.absent()

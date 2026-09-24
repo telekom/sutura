@@ -208,12 +208,12 @@ deleted, and the answer's `executed_as` carries one entry per source naming that
 
 **Why it lands on this record specifically.** The closed enum is what made a heterogeneous adapter
 set expressible at all, and `BigQuery` is the only variant declaring `PerSubjectCredential` - so the
-enum's own reason for existing is exactly what makes every heterogeneous federation cross-posture.
-Refusing the mix refused the enum's point.
+enum lets BigQuery pair with a shared-posture adapter, which is cross-posture. Refusing that
+mix prevented this pairing; two shared-posture adapters could still federate.
 
 **Unchanged, and worth saying because this record's *What this does not decide* is where a reader
 looks for it.** The enum's own `IMPERSONATION` is still fixed at the restrictive
 `NoPlaceForASubject` for every variant, held safe only because nothing generic reads it and
 `deliverable_by` runs against each adapter's own concrete constant before an adapter is wrapped. And
-nothing here makes a mixed answer *shipped*: no published artefact links the impersonating adapter,
-which `checks.shipped-features` reads off the artefact.
+a published artefact now links the impersonating adapter (`nix/shipped.nix`), so a mixed answer is
+reachable. This record does not establish a served cross-posture run.

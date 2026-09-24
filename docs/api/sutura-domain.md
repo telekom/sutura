@@ -36,9 +36,10 @@ settings crate because the identity provider it reads *is* the settings tree.
 **What the credential port did and did not buy, said here because the count above invites the
 wrong reading.** There is no longer a signature that reaches a data system with a question and no
 credential, and a subject with no credential at a source is refused rather than answered as the
-process. What is absent is the other end: no PUBLISHED adapter has anywhere for a per-subject
-credential to arrive, so a leg runs under the identity an operator declared for that source and
-`pinned::Provenance` records which. The one method that still executes with no credential is
+process. A published build now links `BigQuery`, which is wired to carry a verified caller's
+assertion to a declared per-subject principal; no served run has proven that hop. Other sources
+run under an operator-declared shared identity, and `pinned::Provenance` records each leg's
+posture. The one method that still executes with no credential is
 `warehouse::Warehouse::verify_anchor`, the boot path's; `clippy.toml` bans it everywhere else and
 `plan::AnchorPlan` says plainly that it is a self-check on that path rather than a barrier.
 
@@ -5092,9 +5093,9 @@ make unrepresentable.
 
 The argument is `ExecutedAs`, so an answer whose legs decided identity differently is
 answered with one entry per source rather than refused - `docs/adr/0040`, taken because
-`BigQuery` is the only impersonating adapter and every heterogeneous federation is therefore
-cross-posture. **The record is not the control:** it travels in the same body as the rows, so
-a caller who reads it already has them. What is load-bearing is the boot acknowledgement each
+`BigQuery` is the only impersonating adapter, so a `BigQuery` leg paired with a
+shared-posture leg is cross-posture. **The record is not the control:** it travels in the
+same body as the rows, so a caller who reads it already has them. What is load-bearing is the boot acknowledgement each
 source's own entry carries, refused by `sutura_config::Settings::refusals` before a listener
 binds.
 
@@ -10347,8 +10348,8 @@ both of which happen before a listener is bound.
 An answer whose legs decide identity differently is **answered**, and `ExecutedAs` is what says
 so: one entry per source, each carrying that leg's own posture, so a mixed answer names which leg
 came from which. `docs/adr/0040` is the record, and `BigQuery` being the only impersonating adapter
-is why it had to be: every heterogeneous federation is cross-posture by construction, so refusing
-the mix refused federation itself.
+is why it had to be: every `BigQuery` federation with a shared-posture adapter is cross-posture
+by construction, so refusing the mix prevented that pairing.
 
 **The reasoning that used to refuse it stays true, and is not what changed.** Rows a shared
 identity was permitted to see, added to rows the asking subject was permitted to see, make a total

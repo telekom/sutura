@@ -88,7 +88,7 @@ pub(crate) enum AdapterFailure {
     },
     /// The credential this fake was handed is one it has nowhere to put.
     ///
-    /// **The shape both shipped adapters have**, reproduced here because this is the crate where
+    /// **The shape of an adapter without subject delivery**, reproduced here because this is the crate where
     /// the consequence is assertable: a wiring defect between the broker and the source
     /// declaration has to leave as an `Err` rather than as a refusal, and only a fake pair - a
     /// broker that mints subject material and an adapter that cannot use it - can provoke it
@@ -235,7 +235,7 @@ impl FixedWarehouse {
         self.executions.get()
     }
 
-    /// Refuses credential material this fake has nowhere to put, the way both shipped adapters do.
+    /// Refuses credential material this fake has nowhere to put, as shared-identity adapters do.
     fn deliverable(&self, presented: &Presented) -> Result<(), AdapterFailure> {
         match *presented {
             Presented::SharedServiceUser { .. } => Ok(()),

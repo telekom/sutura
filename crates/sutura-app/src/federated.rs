@@ -18,28 +18,24 @@
 //! CONCRETE adapter rather than the enum wrapping it - and a leg-capable kind sitting beside a
 //! leg-declining one refuses only the leg that cannot run, never the whole answer.
 //!
-//! **This path is reachable from a published artefact now**, because `sutura-exec-datafusion`
-//! declares the constant and is non-optional in the shipped binary, and `sutura-exec-postgres`
-//! declares it behind a feature the shipped binary enables. What that does NOT make it is
-//! per-subject: both leg-executing kinds a release links declare
-//! `ImpersonationCapability::NoPlaceForASubject`, so
-//! [`ExecutedAs::and`](sutura_domain::source::ExecutedAs::and) records the same shared posture
-//! twice - but the same posture is not the same identity, since each Postgres leg runs as its own
-//! source entry's database role. Single-player federation.
+//! **This path is reachable from a published artefact.** `DataFusion` and `Postgres` execute legs
+//! under `ImpersonationCapability::NoPlaceForASubject`, so a federation between them records the
+//! shared posture twice. Each source may still hold a different deployment identity. `BigQuery` also
+//! ships and is the one adapter that can execute a leg as the asking subject.
 //!
-//! **Two legs CAN now each run as the asking subject, and only on a `bigquery` build.**
+//! **Two legs CAN each run as the asking subject when both sources are `bigquery`.**
 //! `sutura-exec-bigquery` declares the constant since `telekom/sutura#929` and is the one adapter
 //! declaring `PerSubjectCredential`, so `sutura serve --features bigquery` over two `bigquery`
 //! sources reaches this path with two IMPERSONATING legs rather than two shared ones - and a
-//! `bigquery` leg beside any other adapter's is a CROSS-POSTURE answer, disclosed per leg rather
-//! than refused (`docs/adr/0040`). `BigQuery` being the only impersonating adapter is why that had to
-//! be: every heterogeneous federation is cross-posture by construction. The single mint below does
-//! not collapse them: that adapter's
+//! `bigquery` leg beside a leg-executing shared-posture adapter is a CROSS-POSTURE answer,
+//! disclosed per leg rather than refused (`docs/adr/0040`). `BigQuery` being the only impersonating adapter is why that had to
+//! be: every `BigQuery` federation with a shared-posture adapter is cross-posture by construction.
+//! The single mint below does not collapse them: that adapter's
 //! `DeclaredPrincipalBroker::mint` walks the `SourceSet` and resolves each source's OWN declared
 //! account for the asking subject out of that source's own map, so one mint over two sources yields
 //! one credential per leg
 //! (`one_subject_federating_two_sources_is_minted_each_sources_own_declared_account`). **The limits,
-//! beside the claim:** no published artefact links that adapter, and no federated answer has been
+//! beside the claim:** the published artefact links that adapter, but no federated answer has been
 //! produced against a real dataset - what is held is that each leg renders for the dialect and is
 //! submitted with that subject's own credential and that source's configured byte ceiling.
 
@@ -174,9 +170,9 @@ where
     };
     // **No verdict over the two postures, and `docs/adr/0040` is why the one that stood here is
     // gone.** It refused an answer whose legs decided identity differently - and BigQuery is the
-    // only impersonating adapter, so that refused every heterogeneous federation rather than an
-    // edge case. The reasoning it carried stays TRUE and is written rather than softened: rows a
-    // shared identity was permitted to see, added to rows the asking subject was permitted to see,
+    // only impersonating adapter, so that prevented BigQuery from federating with any
+    // shared-posture adapter. The reasoning it carried stays TRUE: rows a shared identity was
+    // permitted to see, added to rows the asking subject was permitted to see,
     // make a total no identity is entitled to, under a certified metric name and valid provenance.
     //
     // What answers for it is not `executed_as`, which reaches a caller in the SAME body as the rows
