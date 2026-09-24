@@ -168,13 +168,16 @@ cannot be derived.**
   which an operator can declare the source and cannot make the connection safe. What the change did
   NOT reach is stated in row 19 and in `docs/adr/0010`.
 
-**A third ordering used to belong here and is now DISCHARGED, which is worth recording rather than
-deleting.** The refusal for an answer combining two identity postures had to land before the first
-shipped build that can answer a two-source question, because a build that can combine postures
-before anything refuses one answers silently where it should refuse. The refusal shipped -
-`RefusalReason::LegsDecideIdentityDifferently` - so #113 is closed and #112 no longer waits on it.
-The pair is kept here because a spent constraint read as a live one costs a reviewer the same time
-as a missed one.
+**A third ordering used to belong here, was DISCHARGED, and is now RETIRED - all three states worth
+recording rather than deleting.** The refusal for an answer combining two identity postures had to
+land before the first shipped build that can answer a two-source question, because a build that can
+combine postures before anything refuses one answers silently where it should refuse. The refusal
+shipped - `RefusalReason::LegsDecideIdentityDifferently` - so #113 closed and #112 stopped waiting on
+it. It is then deleted by `docs/adr/0040`: a cross-posture answer is disclosed per leg, because only
+one adapter can carry a per-subject credential and refusing the mix refused every heterogeneous
+federation. What holds the ordering's original worry is the BOOT refusal
+`NotFitToServe::SharedSourceNotAcknowledged`, which fires before a listener binds. The pair is kept
+here because a spent constraint read as a live one costs a reviewer the same time as a missed one.
 
 **The limit, stated next to the claim:** these are orderings between changes, not a statement about
 what identity sutura proves. Leg 1 - knowing who is asking - is built. Leg 2 - a source executing AS

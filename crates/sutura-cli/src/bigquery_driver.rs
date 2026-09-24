@@ -52,3 +52,43 @@ pub(crate) fn resolve(subject: &str) -> Result<DriverLocation, String> {
     DriverLocation::parse(&named)
         .map_err(|cause| format!("`{MOUNTED}` does not name a driver this process can open for {subject}: {cause}"))
 }
+
+/// Refuses a `security.outbound` declaration the `BigQuery` transport would silently not honour.
+///
+/// **The ADBC driver dials with its own trust store and presents no client certificate** - nothing
+/// in this build hands it a bundle or an identity. The deleted HTTP transport did read both: a
+/// declared bundle REPLACED the compiled-in roots, which narrows trust. So serving a `bigquery` source
+/// under a declared bundle or identity would widen trust behind a declaration that says the
+/// opposite, and a declaration that silently does nothing is what `docs/adr/0010` forbids.
+/// `Anchors::System` with no identity promises nothing the driver's own store does not already
+/// stand for, and is accepted - which is the limit: nothing here shows the driver's store is the
+/// same set of roots.
+///
+/// # Errors
+///
+/// A sentence naming `sources.<source>` and what was declared, when `outbound` carries a bundle or
+/// a client identity.
+pub(crate) fn refuse_undeliverable_outbound(
+    source: &sutura_domain::model::SourceName,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<(), String> {
+    let Some(declared) = outbound else {
+        return Ok(());
+    };
+    let bundle = matches!(declared.anchors(), sutura_tls::Anchors::Bundle(_));
+    let identity = declared.identity().is_some();
+    if !bundle && !identity {
+        return Ok(());
+    }
+    let what = match (bundle, identity) {
+        (true, true) => "a trust-anchor bundle and a client identity",
+        (true, false) => "a trust-anchor bundle",
+        _ => "a client identity",
+    };
+    Err(format!(
+        "`security.outbound` declares {what}, and `sources.{source}` is `kind: bigquery`: the ADBC \
+         BigQuery driver dials with its own trust store and presents no client certificate, so this \
+         declaration would reach nothing for that source. Remove the bundle and identity from \
+         `security.outbound`, or serve `{source}` from a deployment that does not declare them"
+    ))
+}

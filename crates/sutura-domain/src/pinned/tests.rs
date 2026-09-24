@@ -18,7 +18,7 @@ use crate::definitions::DefinitionDigest;
 use crate::knowledge::{Capability, Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
-use crate::source::{SourcePosture, UniformlyExecuted};
+use crate::source::{ExecutedAs, SourcePosture};
 
 fn metric_name(raw: &str) -> MetricName {
     MetricName::parse(raw).expect("a test metric name is a name")
@@ -302,7 +302,7 @@ fn a_matched_anchor_passes_the_verdict_and_the_bundle_is_untouched() {
     // saying which posture ran - see `PinnedDefinitions::provenance`. One leg, because the test
     // bundle reads one source.
     let ran_as = || {
-        UniformlyExecuted::of(
+        ExecutedAs::of(
             SourceName::parse("local").expect("a test source is a source"),
             SourcePosture::ImpersonationAtSource,
         )
@@ -316,6 +316,43 @@ fn a_matched_anchor_passes_the_verdict_and_the_bundle_is_untouched() {
         .expect("a matched anchor is what the verdict is about");
     assert_eq!(anchored.provenance(ran_as()), expected_provenance);
     assert_eq!(anchored.version().as_str(), "test-1");
+}
+
+#[test]
+fn a_provenance_carries_a_mixed_execution_record_and_names_which_leg_ran_as_what() {
+    // **`docs/adr/0040`, at the type that used to make this unrepresentable.** `provenance` took a
+    // `UniformlyExecuted`, obtainable only from a verdict that refused two postures, so a shared leg
+    // beside an impersonating one had no way to become an answer at all. BigQuery is the only
+    // impersonating adapter, so that refused every heterogeneous federation rather than an edge case.
+    //
+    // **What this is NOT:** a control. The record reaches a caller in the same body as the rows. The
+    // control is the acknowledgement an operator wrote on each source's own entry, which
+    // `sutura_config::Settings::refusals` refuses the deployment over before a listener binds.
+    let mixed = ExecutedAs::of(
+        SourceName::parse("facts").expect("a test source is a source"),
+        SourcePosture::ImpersonationAtSource,
+    )
+    .and(
+        SourceName::parse("geo").expect("a test source is a source"),
+        SourcePosture::SharedServiceUser {
+            declared: crate::source::SharedIdentityDeclared::of(
+                crate::source::AcknowledgementReason::parse("a reference dataset every team reads")
+                    .expect("a test reason is a reason"),
+            ),
+        },
+    )
+    .expect("two sources are two legs");
+
+    let provenance = bundle(None).provenance(mixed);
+    assert_eq!(
+        provenance
+            .executed_as()
+            .legs()
+            .map(|(name, posture)| (name.as_str(), posture.as_str()))
+            .collect::<Vec<(&str, &str)>>(),
+        vec![("facts", "impersonation-at-source"), ("geo", "shared-service-user")],
+        "the answer names which leg came from which authorization domain"
+    );
 }
 
 #[test]

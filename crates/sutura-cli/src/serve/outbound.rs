@@ -49,7 +49,7 @@ pub(super) fn resolve(settings: &Settings) -> Result<Option<sutura_tls::Declared
             sutura_config::OutboundAnchors::Bundle(_) => "bundle",
         },
         identity = identity.is_some(),
-        "security.outbound: declared trust material was read for the BigQuery wire, the STS exchange and the datahub reader"
+        "security.outbound: declared trust material was read for the datahub reader"
     );
     Ok(Some(sutura_tls::Declared::new(anchors, identity)))
 }

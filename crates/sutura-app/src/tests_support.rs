@@ -800,36 +800,43 @@ impl CredentialBroker for CountingBroker {
     }
 }
 
-/// A broker that grants each source the shared witness that source's OWN operator wrote.
+/// A broker that grants each source the leg its OWN declared posture asks for.
 ///
-/// **The fake a two-source shared deployment needs, and the reason is a mechanism rather than
+/// **The fake a two-source deployment needs, and the reason is a mechanism rather than
 /// convenience.** `Presented::agrees_with` compares the witness against the posture the adapter was
-/// handed by *equality on the prose*, and every other fake here mints one fixed witness for every
+/// handed by *equality on the prose*, and every other fake here mints one fixed leg for every
 /// source - which is correct while one acknowledgement is in play and refuses the moment two sources
-/// carry two sentences. `StaticCredentialBroker` is per-source for the same reason.
+/// carry two sentences, or the moment one of them impersonates. `StaticCredentialBroker` is
+/// per-source for the same reason.
+///
+/// **It covers a CROSS-POSTURE set since `docs/adr/0040`**, and that is the correction: it used to
+/// mint a shared leg for an impersonating source too, so `agrees_with` refused such a leg before the
+/// path under test could answer it. That was correct while a mixed answer was refused above the
+/// mint; now it would hide the answer.
 ///
 /// Built from the postures the registry was given, so a test cannot arrange for the broker and the
-/// adapters to disagree by accident. A source it was not told about gets the deployment's own
+/// adapters to disagree by accident. A source it was not told about gets the deployment's own shared
 /// identity, which is what `LegCredentials::minted` needs to cover the set it was asked for.
 pub(crate) struct AcknowledgingBroker {
-    /// The WITNESS per source rather than the `Presented` it becomes. `Presented` is deliberately
-    /// not `Clone` - it carries a `Secret` in another variant - so the leg is built inside `mint`,
-    /// which is where a real broker builds one anyway.
-    by_source: BTreeMap<SourceName, SharedIdentityDeclared>,
+    /// The WITNESS per source rather than the `Presented` it becomes, and `None` for a source that
+    /// impersonates. `Presented` is deliberately not `Clone` - it carries a `Secret` in another
+    /// variant - so the leg is built inside `mint`, which is where a real broker builds one anyway.
+    by_source: BTreeMap<SourceName, Option<SharedIdentityDeclared>>,
 }
 
 impl AcknowledgingBroker {
     /// One entry per source, from that source's own declared posture.
     ///
-    /// An impersonating source contributes nothing, so this fake stays the *shared* broker it says
-    /// it is and such a source falls through to the fixture's own witness - which is what its leg
-    /// is then refused for by `agrees_with`, not by this.
+    /// An impersonating source records `None` and gets the asker's own credential, which is the one
+    /// shape `agrees_with` accepts for `ImpersonationAtSource`.
     pub(crate) fn over(postures: &[(SourceName, SourcePosture)]) -> Self {
         let mut by_source = BTreeMap::new();
         for (source, posture) in postures {
-            if let SourcePosture::SharedServiceUser { ref declared } = *posture {
-                drop(by_source.insert(source.clone(), declared.clone()));
-            }
+            let witness = match *posture {
+                SourcePosture::SharedServiceUser { ref declared } => Some(declared.clone()),
+                SourcePosture::ImpersonationAtSource => None,
+            };
+            drop(by_source.insert(source.clone(), witness));
         }
         Self { by_source }
     }
@@ -841,12 +848,13 @@ impl CredentialBroker for AcknowledgingBroker {
     fn mint(&self, context: &RequestContext, sources: &SourceSet) -> Result<Minted, Self::Error> {
         let mut presented = BTreeMap::new();
         for name in sources.iter() {
-            let leg = self
-                .by_source
-                .get(name)
-                .map_or_else(shared_leg, |declared| Presented::SharedServiceUser {
+            let leg = match self.by_source.get(name) {
+                Some(Some(declared)) => Presented::SharedServiceUser {
                     declared: declared.clone(),
-                });
+                },
+                Some(None) => subject_leg(),
+                None => shared_leg(),
+            };
             drop(presented.insert(name.clone(), leg));
         }
         // The `map_err` arm is unreachable: the map is built from `sources`, so it covers it.
