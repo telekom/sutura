@@ -206,6 +206,7 @@ fn derived_category(path: &str, declared: &BTreeSet<String>) -> Option<String> {
         return None;
     }
     let (_, name) = snapshot.rsplit_once('@')?;
+    let name = if name == "markdown" { "local" } else { name };
     let data_source = format!("data_source_{name}");
     let catalog = format!("catalog_{name}");
     match (declared.contains(&data_source), declared.contains(&catalog)) {
@@ -420,13 +421,7 @@ mod tests {
             ]
             .map(String::from),
         );
-        let (core, selected, reasons) = select(&owned, Some(&declared));
-        Categories {
-            core,
-            selected,
-            declared,
-            reasons,
-        }
+        derive_from(&owned, Ok(declared), Path::new("."))
     }
 
     #[test]
@@ -462,15 +457,24 @@ mod tests {
         assert!(bigquery.needs("data_source_bigquery"));
         assert!(!bigquery.needs("catalog_datahub"));
 
+        let markdown = selected(&["crates/sutura-app/tests/snapshots/example__plan@markdown.snap"]);
+        assert!(!markdown.core);
+        assert!(markdown.needs("catalog_local"));
+
         for path in [
             "docs/api/sutura-domain.md",
+            "docs/api/sutura-http.md",
             "docs/api/sutura-catalog-unknown.md",
+            "docs/api/nested/sutura-catalog-datahub.md",
             "crates/sutura-app/tests/snapshots/catalog_definitions@unknown.snap",
-            "crates/sutura-app/tests/snapshots/catalog_definitions@markdown.snap",
+            "crates/sutura-app/tests/snapshots/catalog_definitions@snowflake.snap",
+            "crates/sutura-app/tests/snapshots/nested/catalog_definitions@datahub.snap",
             "Cargo.lock",
         ] {
             assert!(selected(&[path]).core, "{path} must still run every category");
         }
+        let unknown = selected(&["devco/whatever.toml"]);
+        assert!(unknown.reasons.iter().any(|reason| reason.contains("devco/whatever.toml")));
     }
 
     #[test]
@@ -507,13 +511,6 @@ mod tests {
         ] {
             assert!(cats.needs(cat), "{cat} must run when core runs");
         }
-    }
-
-    #[test]
-    fn an_unmapped_path_selects_core() {
-        let (core, _selected, reasons) = select(&["devco/whatever.toml".to_owned()], None);
-        assert!(core, "an unmapped path must run every category, not be skipped");
-        assert!(reasons.iter().any(|r| r.contains("devco/whatever.toml")), "{reasons:?}");
     }
 
     #[test]
