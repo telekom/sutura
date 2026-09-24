@@ -140,18 +140,21 @@ impl DatahubTier {
             let (status, body) = self.get(&path, pat);
             assert_eq!(status, 200, "the live DataHub answers the paged {entity} read: {body}");
             let page: serde_json::Value = serde_json::from_str(&body).expect("the answer is json");
-            let seen: Vec<&str> = page["entities"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|item| item["urn"].as_str())
-                .collect();
-            if wanted.iter().all(|want| seen.contains(&want.as_str())) {
+            let entities = page["entities"].as_array().expect("the page lists entities");
+            let seen: Vec<&str> = entities.iter().filter_map(|item| item["urn"].as_str()).collect();
+            if wanted.iter().all(|want| {
+                entities.iter().any(|item| {
+                    item["urn"].as_str() == Some(want.as_str())
+                        && aspects
+                            .iter()
+                            .all(|aspect| item.get(*aspect).and_then(|value| value.get("value")).is_some())
+                })
+            }) {
                 return;
             }
             assert!(
                 Instant::now() < deadline,
-                "the tier's {entity} list never indexed {wanted:?} within {INDEX_LAG_BUDGET:?} of \
+                "the tier's {entity} list never indexed {wanted:?} with {aspects:?} within {INDEX_LAG_BUDGET:?} of \
                  a synchronous write that already answered 200 - it had {seen:?}. Either the \
                  search index is further behind than the ~2s this tier was measured at, or the \
                  served binary's boot-time read races provisioning on this runner"
@@ -356,7 +359,7 @@ impl DatahubTier {
         self.wait_until_indexed(
             &pat,
             "dataset",
-            &["schemaMetadata"],
+            &["schemaMetadata", "datasetProperties"],
             &[Self::dataset_urn(&names.orders), Self::dataset_urn(&names.customers)],
         );
         self.wait_until_indexed(
@@ -365,7 +368,12 @@ impl DatahubTier {
             &["semanticModelInfo"],
             &[Self::relationship_urn(&names.relationship)],
         );
-        self.wait_until_indexed(&pat, "metric", &["metricInfo"], &[Self::metric_urn(&names.orders, id)]);
+        self.wait_until_indexed(
+            &pat,
+            "metric",
+            &["metricInfo", "structuredProperties"],
+            &[Self::metric_urn(&names.orders, id)],
+        );
 
         println!(
             "e2e-datahub-adbc: provisioned the certified metric `{id}` under {DEPLOYMENT_PROPERTY} on {}",

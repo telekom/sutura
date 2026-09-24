@@ -3,41 +3,42 @@
 #
 # WHY THIS FILE EXISTS. Which contexts gate a merge lived only in GitHub's API, so *the four cross
 # link legs block a merge* was believed by readers, written down nowhere, and checked by nothing.
-# Read on 2026-09-05 from `repos/telekom/sutura/rulesets/21290172` ("main", target `branch`,
+# Read on 2026-09-24 from `repos/telekom/sutura/rulesets/21290172` ("main", target `branch`,
 # enforcement `active`):
 #
-#     required_status_checks: [ { context: "ci" } ]
+#     required_status_checks: [ { context: "ci" }, { context: "ci-aggregate" } ]
 #     strict_required_status_checks_policy: false
 #
-# Exactly one context. Classic branch protection is absent as well - `branches/main/protection`
+# Exactly two contexts. Classic branch protection is absent as well - `branches/main/protection`
 # answers `404 Branch not protected` - and the second repository ruleset ("main: human review", id
 # 22184737) is `disabled` and declares no rule at all. The ruleset's other rules are `deletion`,
 # `non_fast_forward`, `required_linear_history`, `merge_queue` and `pull_request`.
 #
-# READ ON A DATE, AND ONLY THAT DATE. A red link leg DOES NOT BLOCK A MERGE as read on 2026-09-05.
+# READ ON A DATE, AND ONLY THAT DATE. A red link leg DOES NOT BLOCK A MERGE as read on 2026-09-24.
 # Whether one ever did is not in any response above: a ruleset's history is not in its
 # representation, and the legs reported different context strings before they were renamed, so
 # whether some earlier ruleset required one of those earlier names is exactly what this record
 # cannot say. The earlier wording here was *has never blocked a merge*, which is a claim about the
 # past that nothing read - reported in review, and it is the standard the rest of this file keeps.
 #
-# Confirmed live rather than inferred: on a pull request whose `ci` job had gone green while all
-# four `cross / link (<triple>)` legs were still pending, `gh pr view --json mergeStateStatus` read
+# Confirmed live on 2026-09-05 rather than inferred: on a pull request whose `ci` job had gone
+# green while all four `cross / link (<triple>)` legs were still pending,
+# `gh pr view --json mergeStateStatus` read
 # `UNSTABLE` - GitHub's word for *the required checks are satisfied, something non-required is not*
 # - and not `BLOCKED`, which is what the same command read while `ci` itself was pending.
 #
 # WHAT THE MERGE QUEUE TAKES ITS SIGNAL FROM IS NOT MEASURED HERE. The `merge_queue` rule is in the
 # list above, and its own parameters are the queue's build and merge sizes, its grouping strategy,
 # its merge method and a check-response timeout - no status-check list of its own. So *the queue
-# uses the same single required context* is GitHub's documented behaviour rather than something
+# uses the same required contexts* is GitHub's documented behaviour rather than something
 # this read establishes, and no queue run is cited. Stated as unmeasured rather than asserted.
 #
 # THE LIMIT, and it is why this is a declaration rather than a proof: the API is the authority and
 # it is unreachable from the sandbox the gate runs in. **What is no longer a limit is the
 # organisation level.** `repos/telekom/sutura/rules/branches/main` returns the EFFECTIVE rules for
 # the branch - every ruleset that applies, whatever its level - and needs only repository read.
-# Measured 2026-09-05: six rules, every one of them `ruleset_source_type: Repository` from ruleset
-# 21290172, required status checks exactly one context, and no organisation-sourced rule
+# Measured 2026-09-24: six rules, every one of them `ruleset_source_type: Repository` from ruleset
+# 21290172, required status checks exactly two contexts, and no organisation-sourced rule
 # contributing anything. So for THIS branch an organisation ruleset cannot be invisible. What
 # remains unknown is narrower and is not about `main`: an organisation ruleset that does not apply
 # to this branch today - one targeting other branch patterns, or set to a different enforcement -
@@ -74,7 +75,7 @@
 
 [required]
 
-# The one context the ruleset requires. Everything routed through this job IS gated: the structural
+# The validation context the ruleset requires. Everything routed through this job IS gated: the structural
 # gates, the lints, the tests, the doctests, the causality gate, the API pages. A STEP inside it is
 # gated for the same reason, which is how a gate that only runs there is genuinely gating.
 ci
@@ -83,14 +84,13 @@ ci
 # header prefers one over a matrix-expanded or called-workflow context. It holds that a category-
 # gated leg may be skipped green only when the diff did not select its category, so a filter that
 # silently skips an affected adapter fails here rather than publishing a green-but-red merge. This
-# entry and the `ci` entry beside it are the two contexts the ruleset's `required_status_checks`
-# holds - the second is the owner-held edit `ci-aggregate` needs in the same ruleset to actually
-# block a merge.
+# entry and the `ci` entry beside it are the two contexts the live ruleset's
+# `required_status_checks` holds (verified 2026-09-24).
 ci-aggregate
 
 [advisory]
 
-# A red leg in this section does not block a merge, read on 2026-09-05, in the queue or out of it,
+# A red leg in this section does not block a merge, read on 2026-09-24, in the queue or out of it,
 # with no override and no bypass - nobody has to click anything. Present tense on purpose: see the
 # dated paragraph in the header for what a ruleset's representation does and does not say about
 # its own past. That is the status quo made visible, not a recommendation: whether any of these

@@ -88,7 +88,7 @@ name: ci
 # survives the list, so a commit touching a README and a metric runs - the metric is the reason
 # CI exists.
 #
-# `ci` IS a required check now - it is the one context in the `main` ruleset's
+# `ci` IS a required check now - one of two contexts in the `main` ruleset's
 # `required_status_checks` - so the sentence this paragraph used to state as a hypothetical is
 # live: a required check that never RUNS blocks the merge rather than failing it. GitHub's own
 # words, checked 2026-08-31: "If a workflow is skipped due to path filtering, branch filtering or
@@ -124,7 +124,7 @@ on:
   # required context pending forever; classification inside the job skips irrelevant work.
   pull_request:
   # THE MERGE QUEUE. A queued pull request gets a ref under
-  # `gh-readonly-queue/<base>/pr-<N>-<sha>` and a `merge_group` event, and `ci` is the one context
+  # `gh-readonly-queue/<base>/pr-<N>-<sha>` and a `merge_group` event, and `ci` is one context
   # the `main` ruleset requires - so with nothing listening the required check never reports, and
   # the queue's own `check_response_timeout_minutes` elapses, at which point GitHub assumes a check
   # that never concluded FAILED and drops the entry. MEASURED rather than reasoned, 2026-08-31:

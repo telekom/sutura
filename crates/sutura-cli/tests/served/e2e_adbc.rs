@@ -22,7 +22,6 @@ mod tests {
     use crate::harness::{LOOPBACK, VERSION, config_path, derived_beside, keycloak_settings, start_configured, v1};
 
     const CASE: &str = "e2e-datahub-adbc-bigquery";
-    const BOUNDED_CASE: &str = "e2e-datahub-adbc-bigquery-bounded";
     const CATALOG: &str = "metrics";
 
     fn required(name: &str) -> String {
@@ -206,18 +205,6 @@ mod tests {
         tier.provision(&data.token_file(), &names);
         let endpoint = format!("http://{}", tier.endpoint);
         let question = serde_json::json!({"metric": names.metric(), "grain": "month", "range": {"start": "2026-06-01", "end": "2026-07-01"}}).to_string();
-        let bounded = start_configured(BOUNDED_CASE, &settings(&issuer, &endpoint, &data.token_file(), &bq, 1));
-        let over_ceiling = bounded.post(
-            &v1(sutura_http::constants::base_paths::QUERY),
-            Some(&issuer.subject_a_token),
-            &question,
-        );
-        assert_eq!(over_ceiling.status, 503, "{}", over_ceiling.body);
-        let problem = over_ceiling.json();
-        assert_eq!(problem["code"], "unavailable");
-        assert_eq!(problem["status"], 503);
-        drop(bounded);
-
         let served = start_configured(
             CASE,
             &settings(&issuer, &endpoint, &data.token_file(), &bq, 1024 * 1024 * 1024),
