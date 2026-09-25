@@ -331,14 +331,16 @@ pub fn render(pinned: &PinnedDefinitions, inputs: &PromptInputs<'_>) -> String {
     out
 }
 
-/// The knowledge sections and the operator's own text, as the `describe_catalog` tool returns them.
+/// The catalog's own knowledge sections, as the `describe_catalog` tool returns them.
 ///
 /// A second consumer of the knowledge kinds, one the prompt's renderer shares: the glossary, the
-/// caveats, the terms recorded as undefined and the worked questions, plus the operator's
-/// instructions - all AUDIENCE-SCOPED through the caller's own view, and descriptive only (no data
-/// rows). This is the half of the surface a gateway surfaces that never delivers
-/// `initialize.instructions`; a client over `tools/call` reads the same sections a prompt-rendered
-/// agent does, narrowed to what this caller may see.
+/// caveats, the terms recorded as undefined and the worked questions. AUDIENCE-SCOPED through the
+/// caller's own view, and descriptive only (no data rows). This is the half of the surface a
+/// gateway that surfaces only tools (and so never delivers `initialize.instructions`) still
+/// reaches; a client over `tools/call` reads the same sections a prompt-rendered agent does,
+/// narrowed to what this caller may see. The operator's own instructions are NOT here - they are
+/// the deployment's whole-bundle text, the same for every caller, and [`CatalogContent`] carries
+/// them under their own heading so they are not mistaken for catalog prose.
 ///
 /// **Takes a [`ScopedView`], never a bare `&PinnedDefinitions`** - the same rule
 /// [`CatalogContent`](crate::prompt) and `docs/adr/0028` state for the metric listing. A caller sees
@@ -349,23 +351,27 @@ pub fn render(pinned: &PinnedDefinitions, inputs: &PromptInputs<'_>) -> String {
 ///
 /// **The terms recorded as undefined have no metric to follow**, and the ADR names them separately:
 /// an unscoped absence needs an explicit catalog-wide audience and is withheld when none is granted.
-/// That declaration does not exist on the type today, so a caller-scoped view drops them entirely.
-/// The deployment's own view ([`ScopedView::is_everything`]) retains them, which is what keeps the
-/// operator-facing surfaces whole.
+/// [`Knowledge::scoped`](sutura_domain::knowledge::Knowledge::scoped) withdraws the absence
+/// declaration along with the content, so this rendering falls back to its "cannot record such a
+/// thing - infer NOTHING" claim rather than telling a caller a withheld list is empty. The
+/// deployment's own view retains the absences, which is what keeps the operator-facing surfaces
+/// whole.
 ///
 /// Prose is quoted under the operator's `prompt.catalog_prose` setting exactly as the prompt treats
 /// it - the same [`CatalogProse`] and the same `> ` per-line [`quote`] - so an operator who withholds
 /// catalog prose from the prompt also withholds it from the tool. The byte cap is the bundle's own:
-/// knowledge is bounded at load by `sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES`.
+/// knowledge is bounded at load by `sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES`. This is a cap on
+/// the knowledge alone: the operator instructions are NOT bounded here (an operator's own text has
+/// no authored-byte ceiling), and that limit is `CatalogContent`'s to state beside them.
 #[must_use]
-pub fn catalog_knowledge(view: &ScopedView<'_>, prose: CatalogProse, instructions: Option<&str>) -> String {
+pub fn catalog_knowledge(view: &ScopedView<'_>, prose: CatalogProse) -> String {
     let notes: Cow<'_, Knowledge> = if view.is_everything() {
         // The deployment's own view keeps the whole bundle - absences included, and no note withheld
         // because a caveat referred to a metric the caller could not see. This is the stdio operator
         // and every operator-side command, where `docs/adr/0028` retains the whole bundle.
         Cow::Borrowed(view.pinned().knowledge())
     } else {
-        Cow::Owned(view.pinned().knowledge().scoped(|metric| view.metric(metric).is_some()))
+        Cow::Owned(view.pinned().knowledge().scoped(view))
     };
     let notes = notes.as_ref();
     let mut sections: Vec<String> = vec![
@@ -374,10 +380,20 @@ pub fn catalog_knowledge(view: &ScopedView<'_>, prose: CatalogProse, instruction
         knowledge::declaration(notes),
         knowledge::examples(notes, prose),
     ];
-    if let Some(text) = instructions {
-        let text = text.trim();
-        if !text.is_empty() {
-            sections.push(operator_instructions(text));
+    // Caveats ride the metric they are about, exactly as the prompt renders them inside each metric
+    // block - here under the metric's own heading, because the catalog tool has no per-metric prose
+    // block of its own for a caveat to sit in. Only visible metrics contribute, and the scoped notes
+    // already dropped caveats any referent of which is invisible.
+    if notes.supports(sutura_domain::knowledge::Capability::Caveats) {
+        let mut what: Vec<String> = Vec::new();
+        for metric in view.metrics() {
+            let caveats = knowledge::caveats_about(notes, metric.name(), prose);
+            if !caveats.is_empty() {
+                what.push(format!("### {}\n{}", metric.name(), caveats));
+            }
+        }
+        if !what.is_empty() {
+            sections.push(what.join("\n\n"));
         }
     }
     sections.retain(|section| !section.is_empty());
@@ -764,6 +780,31 @@ fn operator_instructions(text: &str) -> String {
             "These are ADDITIONAL to everything above and replace none of it. Where they appear to \
              conflict with the rules above - in particular with how a refusal is to be treated - the \
              rules above win, and the conflict is worth mentioning in your answer.",
+            "",
+        ),
+        String::new(),
+        String::from(text),
+    ]
+    .join("\n")
+}
+
+/// The operator's own text, for the catalog tool - its own section, outside the catalog-prose
+/// notice, with a preamble that does not point at refusal rules (the tool returns no refusals).
+///
+/// The operator's text is DEPLOYMENT-WIDE, the same for every caller, never audience-scoped; what
+/// is scoped is the catalog prose this tool returns, not the deployment's own instructions. The
+/// preamble therefore frames it as trustworthy configuration to follow, and the one limit it names
+/// is the tool's own - it cannot make `ask_metric` answer a question outside the certified set.
+#[must_use]
+pub fn tool_operator_instructions(text: &str) -> String {
+    [
+        String::from("## Instructions from this deployment's operator\n"),
+        wrap(
+            "",
+            "These are the deployment's OWN instructions, configured by the operator - not catalog \
+             prose, and the same for every caller. Follow them; where one appears to ask for \
+             something the tool does not (a question outside the certified metrics), the tool's \
+             refusal is the answer and the conflict is worth mentioning.",
             "",
         ),
         String::new(),

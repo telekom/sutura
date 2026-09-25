@@ -414,4 +414,37 @@ async fn a_caller_scoped_away_from_a_metric_does_not_receive_that_metrics_knowle
         finance_knowledge.contains("capital expense"),
         "a finance-granted caller must receive the restricted metric's glossary meaning: {finance_knowledge}"
     );
+    // The same scoping holds for the caveat and the worked example that name the restricted metric.
+    assert!(
+        !outsider_knowledge.contains("only a finance-granted caller should trust this number"),
+        "an outsider must not receive the restricted metric's caveat: {outsider_knowledge}"
+    );
+    assert!(
+        finance_knowledge.contains("only a finance-granted caller should trust this number"),
+        "a finance-granted caller must receive the restricted metric's caveat: {finance_knowledge}"
+    );
+    assert!(
+        !outsider_knowledge.contains("ask exactly this"),
+        "an outsider must not receive the restricted metric's worked example: {outsider_knowledge}"
+    );
+    assert!(
+        finance_knowledge.contains("ask exactly this"),
+        "a finance-granted caller must receive the restricted metric's worked example: {finance_knowledge}"
+    );
+    // The absence declaration: the caller-scoped view withdraws `Absences`, so it must render the
+    // honest "cannot record - infer NOTHING" claim - never "kept and empty", which would be a false
+    // negative inviting an agent to approximate a term it should decline. The finance caller (also a
+    // caller scoped view, despite its wider grant) must not read the withheld list as empty either.
+    assert!(
+        outsider_knowledge.contains("infer NOTHING"),
+        "a caller-scoped view must tell the caller to infer nothing from an absent term: {outsider_knowledge}"
+    );
+    assert!(
+        !outsider_knowledge.contains("that list and it is empty"),
+        "a caller-scoped view must not claim the withheld absence list is empty: {outsider_knowledge}"
+    );
+    assert!(
+        !finance_knowledge.contains("that list and it is empty"),
+        "any caller-scoped view must not claim the withheld absence list is empty: {finance_knowledge}"
+    );
 }

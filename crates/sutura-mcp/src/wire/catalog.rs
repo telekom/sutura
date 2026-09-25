@@ -41,8 +41,11 @@ use super::{ProvenanceContent, bundle_content};
 // comment on a wire type is caller-facing prose and the reasoning about the type goes here. The one
 // below is written for that reader.
 /// This tool takes no arguments. It returns the catalog of what this deployment measures, narrowed
-/// to what the calling principal may see: there is nothing to filter or select, so send an empty
-/// object.
+/// to what the calling principal may see - the metrics, grains, dimensions and permitted values.
+///
+/// It also returns the catalog's own knowledge (the glossary, caveats, worked examples and terms
+/// recorded as undefined it carries) and the deployment operator's instructions. There is nothing to
+/// filter or select, so send an empty object.
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[expect(
@@ -61,18 +64,21 @@ pub struct DescribeCatalogArgs {}
 // the text block beside it withheld them: `docs/adr/0022`'s second amendment.
 /// What this deployment measures, as the catalog tool's structured content.
 ///
-/// **A second wire type beside `sutura_http::wire::CatalogBody`, with the same fields, and that is
-/// the same deliberate cost [`super::AskArgs`] already pays.** An adapter never calls another adapter, so
-/// this crate cannot import that shape; what keeps the two equal is review plus the fact that both
-/// are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set, which is where a
-/// missing field would show up as a missing call rather than as a silent divergence.
+/// **A second wire type beside `sutura_http::wire::CatalogBody` for the metric half, and the same
+/// deliberate cost [`super::AskArgs`] already pays.** An adapter never calls another adapter, so
+/// this crate cannot import that shape; what keeps the metric halves equal is review plus the fact
+/// that both are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set.
+/// **The whole type is WIDER than `CatalogBody`**: it also carries the knowledge sections and the
+/// operator's instructions, which the HTTP `/v1/catalog` surface has no equivalent of - that surface
+/// is the structured half alone, rendered by a different reader.
 ///
 /// **What narrows this listing is the CALLER's identity - `docs/adr/0028` - and nothing the caller
 /// SENDS.** `sutura_domain::pinned::SemanticCatalog::load` takes no request context and cannot be
 /// given one, so no argument selects, widens or parameterizes what this returns: the caller's mapped
 /// audiences (which `describe` reads and this constructor takes as a [`ScopedView`]) decide which
-/// metrics the listing holds, while the bundle underneath is the same one every answer is computed
-/// from. Invisible means absent, and it is the transport's job to build the view, never this type's.
+/// metrics and which of their knowledge the listing holds, while the bundle underneath is the same
+/// one every answer is computed from. Invisible means absent, and it is the transport's job to build
+/// the view, never this type's.
 #[derive(Debug, serde::Serialize)]
 pub struct CatalogContent {
     /// Which snapshot this listing describes. The same version and digest an answer carries, so a
@@ -88,14 +94,22 @@ pub struct CatalogContent {
     #[serde(skip)]
     notice: &'static str,
     metrics: Vec<MetricContent>,
-    /// The knowledge sections and the operator's own text, as the prompt carries them - audience-
-    /// scoped through the same `ScopedView` that narrowed the metrics, descriptive only, bounded by
-    /// the bundle's own knowledge cap. `catalog_prose` decides whether note bodies are quoted in it.
+    /// The knowledge sections - glossary, caveats, terms recorded as undefined, worked examples -
+    /// audience-scoped through the same [`ScopedView`] that narrowed the metrics, descriptive only,
+    /// bounded by the bundle's own knowledge cap (`MAX_KNOWLEDGE_BYTES`). `catalog_prose` decides
+    /// whether note bodies are quoted in it.
     ///
     /// A caller that renders only the structured half of the listing still needs the glossary it is
     /// scoped to read: a phrase-resolution surface has no `initialize.instructions` to deliver this
     /// through, which is the whole of issue #971.
     knowledge: String,
+    /// The operator's own instructions, in their own section and NOT part of [`Self::knowledge`].
+    ///
+    /// Deployment-wide and the same for every caller - never audience-scoped - so it sits outside
+    /// the untrusted-catalog notice and under its own "operator's instructions" heading. An operator
+    /// who names a restricted metric in it discloses that metric to every caller with `catalog.read`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    instructions: Option<String>,
 }
 
 /// One metric, as much of it as a caller needs to ask a valid question.
@@ -140,12 +154,6 @@ impl CatalogContent {
     /// the defect this surface shipped until it took the view. `ScopedView` borrows the bundle, so
     /// this builder cannot reach `SemanticCatalog::load` - the knowledge sections and the metrics
     /// are filtered by the caller's own grant, never by a call the renderer omits.
-    ///
-    /// It also asks nothing of the setting itself: [`Carried::under`] and `prose::notice` are the
-    /// crate's only two readers of it, so this builder cannot fill a `description` or pick a notice
-    /// without the operator's decision, and a third `CatalogProse` spelling is a compile error in
-    /// both rather than an `else` arm here.
-    #[must_use]
     pub fn of(view: &ScopedView<'_>, prose: CatalogProse, instructions: Option<&str>) -> Self {
         let metrics = view
             .metrics()
@@ -177,13 +185,22 @@ impl CatalogContent {
         // see a metric does not see that metric's glossary entry, caveat or worked example either.
         // `catalog_knowledge` quotes note bodies under the same `prose` the descriptions follow, so
         // a deployment that withholds catalog prose withholds it from the knowledge tool too.
-        let knowledge = sutura_app::prompt::catalog_knowledge(view, prose, instructions);
+        let knowledge = sutura_app::prompt::catalog_knowledge(view, prose);
+        // The operator's own text is DEPLOYMENT-WIDE - the same for every caller - so it gets its
+        // own section and heading, outside the untrusted-catalog notice, and a preamble written for
+        // a tool that returns no refusal rules. Rendered here rather than by `catalog_knowledge`
+        // precisely so it does not sit under the notice that says to ignore catalog prose.
+        let instructions = instructions.and_then(|raw| {
+            let text = raw.trim();
+            (!text.is_empty()).then(|| sutura_app::prompt::tool_operator_instructions(text))
+        });
         Self {
             provenance: bundle_content(view.pinned()),
             catalog_prose: prose.as_str(),
             notice: prose::notice(prose),
             metrics,
             knowledge,
+            instructions,
         }
     }
 
@@ -234,6 +251,13 @@ impl CatalogContent {
         if !self.knowledge.is_empty() {
             out.push_str("\n\n");
             out.push_str(&self.knowledge);
+        }
+        // The operator's instructions come AFTER the knowledge and the notice, in their own section
+        // with their own heading - outside the "ignore catalog prose" notice's scope, exactly as the
+        // knowledge sections above are the catalog prose that notice governs.
+        if let Some(instructions) = &self.instructions {
+            out.push_str("\n\n");
+            out.push_str(instructions);
         }
         out.push_str("\ndefinitions: ");
         out.push_str(&self.provenance.definition_version);

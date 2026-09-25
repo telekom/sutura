@@ -233,16 +233,11 @@ where
         settings.spend_budget(),
         settings.row_ceiling(),
     )?;
-    // Read off the SERVICE rather than a second catalog load: `service.definitions()` is the exact
-    // bundle `Surface::answer` computes against, so what this composes the prompt over cannot drift
-    // from what it certifies over - `telekom/sutura#776`.
-    let instructions = agent_instructions(service.definitions(), settings)?;
-    // The operator's own text is read a second time at the service level, but from the same
-    // file and settings `agent_instructions` just validated - and validated for the same read
-    // error, because `agent_instructions` is what fails on a missing path first. It is the raw
-    // text the catalog tool carries, never the rendered document: folding the whole prompt into
-    // the tool would put a document inside a document.
-    let operator_instructions = crate::commands::operator_instructions(settings)?.map(std::sync::Arc::from);
+    // One read, two uses: `agent_instructions` both renders the prompt and returns the operator's
+    // raw text it read to do so, so the surface gets the SAME text the prompt folded in - never a
+    // second read of the same path that could disagree with the first.
+    let (instructions, operator_instructions) = agent_instructions(service.definitions(), settings)?;
+    let operator_instructions = operator_instructions.map(std::sync::Arc::from);
     Ok((
         service,
         catalog_prose(settings.prompt().catalog_prose()),

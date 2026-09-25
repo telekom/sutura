@@ -16,11 +16,16 @@ use super::{
     Phrase, Referent,
 };
 use crate::calendar::{Date, TimeRange};
-use crate::catalog::{Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model};
+use crate::capabilities::MetadataCapabilities;
+use crate::catalog::{
+    Audience, AudienceGrant, Definitions, Description, Dimension, DimensionValue, GrantedAudiences, Metric, Model,
+};
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{
-    Aggregate, ColumnName, DimensionName, Grain, InvalidIdentifier, MetricName, ModelName, SourceName, TableName,
+    Aggregate, AudienceId, ColumnName, DimensionName, Grain, InvalidIdentifier, MetricName, ModelName, SourceName, TableName,
 };
+use crate::pinned::view::ScopedView;
+use crate::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
 use crate::query::{Filter, Query};
 
 // ------------------------------------------------------------------------------- the fixture ---
@@ -31,6 +36,10 @@ pub(super) fn column(raw: &str) -> ColumnName {
 
 pub(super) fn metric_name(raw: &str) -> MetricName {
     MetricName::parse(raw).expect("a test metric is a metric")
+}
+
+pub(super) fn audience_id(raw: &str) -> AudienceId {
+    AudienceId::parse(raw).expect("a test audience id is one")
 }
 
 pub(super) fn dimension_name(raw: &str) -> DimensionName {
@@ -739,44 +748,111 @@ fn a_caveat_is_found_by_the_metric_it_is_about_however_it_is_scoped() {
 fn scoped_withholds_knowledge_whose_metric_is_invisible() {
     // `docs/adr/0028`: knowledge follows its structured referents. A glossary entry, a caveat and a
     // worked example that name a metric a caller may not see must disappear from a caller-scoped
-    // read; the terms recorded as undefined have no referent at all and are dropped from every
-    // scoped view. The two open metrics here let the closure stand in for a caller's grant.
-    let knowledge = accepts(KnowledgeInput::new(
-        KnowledgeCapabilities::all(),
-        vec![
-            glossary_entry("turnover", &["Umsatz"], revenue()),
-            glossary_entry(
-                "voice",
-                &[],
-                Referent::Metric {
-                    metric: metric_name("voice_minutes"),
-                },
-            ),
-        ],
-        vec![
-            caveat("about_revenue", vec![revenue()]),
-            caveat(
-                "about_voice",
-                vec![Referent::Metric {
-                    metric: metric_name("voice_minutes"),
-                }],
-            ),
-        ],
-        vec![absence("customer lifetime value", &["CLV"])],
-        vec![example("revenue_example", question(Grain::Month, Vec::new(), Vec::new()))],
-    ));
+    // read; the terms recorded as undefined have no referent at all and are withheld from every
+    // scoped view. A `ScopedView` grants visibility by audience, so the fixture bundle must give
+    // `voice_minutes` a restricted audience for a caller-scoped read to differ from the whole.
+    let voice = metric_name("voice_minutes");
+    let restricted = Audience::Restricted(AudienceGrant::parse(BTreeSet::from([audience_id("finance")])).expect("one id grants"));
+    let definitions = {
+        let model = Model::new(
+            ModelName::parse("subscriptions").expect("a test model is a model"),
+            SourceName::parse("local").expect("a test source is a source"),
+            TableName::parse("fct_subscription_monthly").expect("a test table is a table"),
+            BTreeSet::from([column("month"), column("mrr_cents")]),
+            Description::default(),
+        );
+        let revenue = Metric::new(
+            metric_name("recurring_revenue"),
+            ModelName::parse("subscriptions").expect("a test model is a model"),
+            Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("mrr_cents")))),
+            Vec::new(),
+            column("month"),
+            BTreeSet::from([Grain::Month]),
+            Vec::new(),
+            None,
+            Description::default(),
+            Audience::Open,
+        )
+        .expect("no dimensions to duplicate");
+        let minutes = Metric::new(
+            voice.clone(),
+            ModelName::parse("subscriptions").expect("a test model is a model"),
+            Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("mrr_cents")))),
+            Vec::new(),
+            column("month"),
+            BTreeSet::from([Grain::Day, Grain::Month]),
+            Vec::new(),
+            None,
+            Description::default(),
+            restricted,
+        )
+        .expect("no dimensions to duplicate");
+        Definitions::assemble(vec![model], vec![], vec![revenue, minutes]).expect("the test bundle is consistent")
+    };
+    // An example and a glossary entry that name the restricted metric, plus one that names the open
+    // one - the caller-scoped read must drop the former and keep the latter.
+    let voice_question = Query::new(voice.clone(), Grain::Day, june(), Vec::new(), Vec::new());
+    let revenue_question = question(Grain::Month, Vec::new(), Vec::new());
+    let knowledge = Knowledge::assemble(
+        &definitions,
+        KnowledgeInput::new(
+            KnowledgeCapabilities::all(),
+            vec![
+                glossary_entry("turnover", &["Umsatz"], revenue()),
+                glossary_entry("voice", &[], Referent::Metric { metric: voice.clone() }),
+            ],
+            vec![
+                caveat("about_revenue", vec![revenue()]),
+                caveat("about_voice", vec![Referent::Metric { metric: voice }]),
+            ],
+            vec![absence("customer lifetime value", &["CLV"])],
+            vec![
+                example("voice_example", voice_question),
+                example("revenue_example", revenue_question),
+            ],
+        ),
+    )
+    .expect("every note names a declared metric");
+    let pinned = PinnedDefinitions::pin(
+        DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        definitions.clone(),
+        knowledge.clone(),
+        ContributionManifest::single(
+            SourceName::parse("local").expect("a test source is a source"),
+            Contribution::of(MetadataCapabilities::produced(&definitions, &knowledge)),
+        ),
+    )
+    .expect("the test definitions hash");
 
-    // A caller who may see `recurring_revenue` but not `voice_minutes`.
-    let visible = metric_name("recurring_revenue");
-    let scoped = knowledge.scoped(|metric| *metric == visible);
+    // The deployment's own view keeps absences and their declaration - the operator-facing half.
+    let everything = knowledge.scoped(&ScopedView::everything(&pinned));
+    assert!(
+        !everything.absences().is_empty(),
+        "the deployment view keeps the absence entries"
+    );
+    assert!(
+        everything.declares().declares(Capability::Absences),
+        "the deployment view keeps the absence declaration"
+    );
 
-    assert!(scoped.glossary().contains_key(&phrase("turnover")));
-    assert!(!scoped.glossary().contains_key(&phrase("voice")));
-    assert!(scoped.caveats().contains_key(&note_name("about_revenue")));
-    assert!(!scoped.caveats().contains_key(&note_name("about_voice")));
-    // No referent to inherit visibility from, so withheld from every scoped view.
-    assert!(scoped.absences().is_empty(), "{:?}", scoped.absences());
-    assert!(!scoped.examples().is_empty(), "a visible metric's example survives");
-    // The declaration survives so the renderer still knows what this bundle records.
-    assert!(scoped.declares().declares(Capability::Glossary));
+    // A caller with no finance grant: `voice_minutes` is invisible, so its glossary entry, caveat
+    // and worked example vanish, while `recurring_revenue`'s survive.
+    let outsider = knowledge.scoped(&ScopedView::granted_by(&pinned, GrantedAudiences::none()));
+    assert!(outsider.glossary().contains_key(&phrase("turnover")));
+    assert!(!outsider.glossary().contains_key(&phrase("voice")));
+    assert!(outsider.caveats().contains_key(&note_name("about_revenue")));
+    assert!(!outsider.caveats().contains_key(&note_name("about_voice")));
+    assert!(outsider.examples().contains_key(&note_name("revenue_example")));
+    assert!(
+        !outsider.examples().contains_key(&note_name("voice_example")),
+        "an example on an invisible metric is withheld"
+    );
+    // No referent to inherit visibility from, so every scoped view drops them - and WITH the
+    // declaration, so the prompt renders "cannot record such a thing" instead of "kept and empty".
+    assert!(outsider.absences().is_empty(), "{:?}", outsider.absences());
+    assert!(
+        !outsider.declares().declares(Capability::Absences),
+        "withholding absences must withdraw their declaration so the prompt never claims the list is empty"
+    );
+    assert!(outsider.declares().declares(Capability::Glossary));
 }

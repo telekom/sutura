@@ -433,11 +433,13 @@ where
                 // `Subject::TheDeploymentItself`, which reads as the whole bundle, so a stdio operator
                 // sees exactly what they saw before.
                 //
-                // **The operator's own text rides the same door.** The `initialize.instructions`
-                // prompt a gateway surfaces (or does not) is rendered once over the whole bundle; the
-                // knowledge sections and the operator's instructions the CATALOG tool returns are
-                // audience-scoped through this caller's own view, so issue #971's gateway reaches the
-                // glossary and the rules through `tools/call` alone.
+                // **The operator's own text rides the same door but is NOT audience-scoped.** The
+                // `initialize.instructions` prompt a gateway surfaces (or does not) is rendered once
+                // over the whole bundle; the CATALOG tool's knowledge sections are audience-scoped
+                // through this caller's own view, while the operator's instructions are
+                // deployment-wide and the same for every caller with `catalog.read` - which is no
+                // wider than `initialize` already is, and an operator who names a restricted metric
+                // in them discloses it to every caller.
                 describe(
                     &self.service,
                     asked.context(),

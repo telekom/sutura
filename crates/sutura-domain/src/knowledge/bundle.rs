@@ -33,6 +33,7 @@ use super::{
 };
 use crate::catalog::{Definitions, DimensionValue};
 use crate::model::{DimensionName, Grain, MetricName};
+use crate::pinned::view::ScopedView;
 use crate::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS};
 
 /// Everything a catalog said about what it defines, checked against the definitions it is about.
@@ -510,47 +511,66 @@ impl Knowledge {
             .values()
             .filter(move |note| note.about().iter().any(|referent| *referent.metric() == metric))
     }
-
     /// This bundle's knowledge, filtered down to what one caller may see - `docs/adr/0028`.
     ///
     /// Knowledge follows its structured referents rather than its prose: a glossary entry follows the
     /// metric its `Referent` names, a caveat survives only when EVERY metric it refers to is visible,
-    /// and a worked example follows the metric in its `Query`. `visible` is the caller's own view - a
-    /// metric is visible iff it is both declared and granted - so this is metadata access over the
-    /// already-pinned bundle, never a new source of definitions.
+    /// and a worked example follows the metric in its `Query`. The caller's own view supplies what is
+    /// visible - a metric is visible iff it is both declared and granted - so this is metadata access
+    /// over the already-pinned bundle, never a new source of definitions.
     ///
-    /// **The terms recorded as undefined are the one kind with no metric to inherit from**, and the
-    /// ADR names them separately: an unscoped absence needs an explicit catalog-wide audience and is
-    /// withheld when none is granted. No such declaration exists on the type today, so a caller-scoped
-    /// read drops them entirely rather than guessing at a scope. The deployment's own view retains
-    /// them, which is what keeps the operator-facing surfaces whole.
+    /// **It takes a [`ScopedView`] rather than a predicate, and that is where the ADR rule lives.**
+    /// `docs/adr/0028`'s all-referents rule is exactly "a note survives when every metric it refers
+    /// to is visible to this caller's grant", which is a fact about the caller's view - so a hand-
+    /// written closure at a call site (with the `|_| true` that reads as "drop nothing") cannot exist
+    /// here. The view is the only way to state a caller's grant, and this method is the only reader
+    /// of it for knowledge.
+    ///
+    /// **The terms recorded as undefined have no metric to follow**, and the ADR names them
+    /// separately: an unscoped absence needs an explicit catalog-wide audience and is withheld when
+    /// none is granted. Dropping the CONTENT while keeping the declaration would render "kept and
+    /// empty" to a caller from whom it is withheld - a false negative that invites an agent to
+    /// approximate a term it should decline. So the declaration of `Absences` is withdrawn with the
+    /// content, and the prompt then falls back to its "cannot record such a thing - infer NOTHING"
+    /// claim, which is the honest rendering of a withheld list. The deployment's own view
+    /// (`ScopedView::everything`) is the one caller for whom nothing is withheld: it returns the
+    /// whole bundle unchanged, so the operator-facing surfaces keep absences and their declaration.
     #[must_use]
-    pub fn scoped<F>(&self, visible: F) -> Self
-    where
-        F: Fn(&MetricName) -> bool,
-    {
+    pub fn scoped(&self, view: &ScopedView<'_>) -> Self {
+        // The deployment's own view keeps the whole bundle, absences and their declaration included.
+        // Only a caller-scoped view withholds them. `catalog_knowledge` renders the deployment's own
+        // view by borrowing the bundle directly, but stating that here makes the function correct for
+        // both and keeps the caller-scoped rule one branch old from silently applying to the
+        // deployment.
+        if view.is_everything() {
+            return self.clone();
+        }
+        let mut declares = self.declares.clone();
+        // Withheld, with its declaration, because an invisible absence must not read as a
+        // reviewed-but-empty list - see the doc above.
+        declares.withdraw(Capability::Absences);
         Self {
-            declares: self.declares.clone(),
+            declares,
             glossary: self
                 .glossary
                 .iter()
-                .filter(|(_, entry)| visible(entry.means().metric()))
+                .filter(|(_, entry)| view.metric(entry.means().metric()).is_some())
                 .map(|(term, entry)| (term.clone(), entry.clone()))
                 .collect(),
             caveats: self
                 .caveats
                 .iter()
-                .filter(|(_, note)| note.about().iter().all(|referent| visible(referent.metric())))
+                .filter(|(_, note)| note.about().iter().all(|referent| view.metric(referent.metric()).is_some()))
                 .map(|(name, note)| (name.clone(), note.clone()))
                 .collect(),
             // Withheld from any caller-scoped view: no catalog-wide audience is declared, and the
             // ADR withholds an unscoped absence when none is granted. The deployment's own view keeps
-            // them (this method is not called for it).
+            // them (handled by the `is_everything` branch above).
             absences: BTreeMap::new(),
             examples: self
                 .examples
                 .iter()
-                .filter(|(_, note)| visible(note.question().metric()))
+                .filter(|(_, note)| view.metric(note.question().metric()).is_some())
                 .map(|(name, note)| (name.clone(), note.clone()))
                 .collect(),
         }

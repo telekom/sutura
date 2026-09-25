@@ -370,7 +370,8 @@ async fn a_client_reads_glossary_and_operator_instructions_through_tools_call_al
     let result = client.call_tool(describe()).await.expect("the catalog tool answers");
     assert_ne!(result.is_error, Some(true), "{result:?}");
 
-    // The structured half: a `knowledge` field carrying the glossary the bundle declares.
+    // The structured half: a `knowledge` field carrying the glossary the bundle declares, and a
+    // separate `instructions` field carrying the operator's text in its own section.
     let structured = result
         .structured_content
         .as_ref()
@@ -383,12 +384,17 @@ async fn a_client_reads_glossary_and_operator_instructions_through_tools_call_al
         knowledge.contains("capital expense"),
         "a client over tools/call must read the glossary, got: {knowledge}"
     );
+    let instructions = structured
+        .get("instructions")
+        .and_then(serde_json::Value::as_str)
+        .expect("the catalog carries the operator instructions");
     assert!(
-        knowledge.contains("Instructions from this deployment's operator"),
-        "a client over tools/call must read the operator instructions, got: {knowledge}"
+        instructions.contains("Instructions from this deployment's operator"),
+        "the operator instructions arrive in their own section, got: {instructions}"
     );
 
-    // The text half a plain client renders reaches the same two.
+    // The text half a plain client renders reaches the same two - the glossary and the operator text
+    // in its own section, never folded into the catalog prose.
     let text = text_of(&result);
     assert!(text.contains("capital expense"), "{text}");
     assert!(text.contains("test fixture operator instructions"), "{text}");

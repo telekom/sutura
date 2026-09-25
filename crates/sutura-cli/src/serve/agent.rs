@@ -102,8 +102,11 @@ pub(crate) fn mount(
     admission: sutura_runtime::Admission,
     spend_headroom: SpendHeadroomPush,
 ) -> Result<sutura_http::AgentMount, String> {
-    let instructions = crate::commands::agent_instructions(service.definitions(), settings)?;
-    let operator_instructions = crate::commands::operator_instructions(settings)?.map(std::sync::Arc::from);
+    // One read, two uses: `agent_instructions` returns the operator's raw text beside the rendered
+    // prompt it read it from, so the mounted surface carries the SAME text - never a second read of
+    // the same path that could disagree.
+    let (instructions, operator_instructions) = crate::commands::agent_instructions(service.definitions(), settings)?;
+    let operator_instructions = operator_instructions.map(std::sync::Arc::from);
     let serving = Arc::new(Serving {
         surface: service,
         spend_headroom: spend_headroom.clone(),

@@ -35,7 +35,8 @@ use sutura_domain::identity::{
     CredentialBroker, CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Minted, Presented, RequestContext, SourceSet,
 };
 use sutura_domain::knowledge::{
-    Capability, GlossaryEntry, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, Phrase, Referent,
+    Absence, Capability, Caveat, Example, GlossaryEntry, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, NoteName,
+    Phrase, Referent,
 };
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{
@@ -270,24 +271,58 @@ pub(crate) fn bundle_with_restricted_metric_and_glossary() -> PinnedDefinitions 
     .expect("no dimensions to duplicate");
     let definitions = sutura_domain::catalog::Definitions::assemble(vec![model], vec![], vec![revenue, finance_only])
         .expect("the test bundle is consistent");
+    let finance_only_name = MetricName::parse("finance_only").expect("a restricted metric is a metric");
+    let finance_only_referent = Referent::Metric {
+        metric: finance_only_name.clone(),
+    };
     let knowledge = Knowledge::assemble(
         &definitions,
         KnowledgeInput::new(
-            KnowledgeCapabilities::of([Capability::Glossary]),
+            KnowledgeCapabilities::of([
+                Capability::Glossary,
+                Capability::Caveats,
+                Capability::Examples,
+                Capability::Absences,
+            ]),
             vec![GlossaryEntry::new(
                 Phrase::parse("capital expense").expect("a test phrase is a phrase"),
                 BTreeSet::new(),
-                Referent::Metric {
-                    metric: MetricName::parse("finance_only").expect("a restricted metric is a metric"),
-                },
+                finance_only_referent.clone(),
                 NoteBody::parse("the finance-only meaning of capex").expect("a test body is a body"),
             )],
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
+            vec![Caveat::new(
+                NoteName::parse("finance_only_caveat").expect("a test note name is a name"),
+                // About BOTH the open `revenue` and the restricted `finance_only`, so the
+                // all-referents rule is the thing under test: a caller who may see only
+                // `revenue` still loses this caveat because one of its referents is invisible.
+                vec![
+                    finance_only_referent,
+                    Referent::Metric {
+                        metric: MetricName::parse("revenue").expect("a test metric is a metric"),
+                    },
+                ],
+                NoteBody::parse("only a finance-granted caller should trust this number").expect("a test body is a body"),
+            )],
+            vec![Absence::new(
+                Phrase::parse("customer lifetime value").expect("a test phrase is a phrase"),
+                BTreeSet::new(),
+                NoteBody::parse("CLV is deliberately undefined here").expect("a test body is a body"),
+            )],
+            vec![Example::new(
+                NoteName::parse("finance_only_example").expect("a test note name is a name"),
+                vec![Phrase::parse("finance example").expect("a test phrase is a phrase")],
+                Query::new(
+                    finance_only_name,
+                    Grain::Month,
+                    crate::testing::june(),
+                    Vec::new(),
+                    Vec::new(),
+                ),
+                NoteBody::parse("ask exactly this").expect("a test body is a body"),
+            )],
         ),
     )
-    .expect("the glossary names a declared metric");
+    .expect("every note names a declared metric");
     PinnedDefinitions::pin(
         DefinitionVersion::parse("test-1").expect("a test version is a version"),
         definitions.clone(),
