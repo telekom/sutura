@@ -405,6 +405,10 @@ where
                 relationship.name()
             )
         });
+        let column = key
+            .target_columns()
+            .next()
+            .expect("a declared key has at least one target column");
         // The registry cell is the second of the two call sites `clippy.toml` permits for a port
         // method that executes with no credential - the boot path holds the other. It is here rather
         // than nowhere because a capability nothing measures is a capability that can vanish.
@@ -415,13 +419,13 @@ where
         )]
         let answered = warehouse
             .declared_key(key)
-            .unwrap_or_else(|e| panic!("{} could not count {} on {}: {e}", W::NAME, key.column(), key.table()));
+            .unwrap_or_else(|e| panic!("{} could not count {} on {}: {e}", W::NAME, column, key.table()));
         let KeyUniqueness::Counted(counts) = answered else {
             panic!(
                 "{} did not count {}, so every cardinality declaration on it is unchecked and nothing \
                  else in this suite would have said so",
                 W::NAME,
-                key.column()
+                column
             );
         };
         let rows = rows_in_fixture(&key);
@@ -431,13 +435,13 @@ where
             "{} counted {} values of {} where the fixture holds {rows}",
             W::NAME,
             counts.rows(),
-            key.column()
+            column
         );
         assert!(
             counts.is_unique(),
             "{} says {} is not unique in {}, which would make the example corpus unservable: {counts:?}",
             W::NAME,
-            key.column(),
+            column,
             key.table()
         );
     }

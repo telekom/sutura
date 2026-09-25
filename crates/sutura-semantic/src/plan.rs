@@ -28,23 +28,22 @@
 
 use std::collections::BTreeSet;
 
-use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::measure::Measure;
 use sutura_domain::model::{DimensionName, MetricName, ModelName, SourceName, TableName};
-use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
-    FederatedPlan, FederatedPlanError, IncoherentBindings, InternalLabel, PlanBindings, PlanBucket, PlanColumn, PlanFilter,
-    PlanKey, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables, labels, plan_measure,
-    plan_required_filter,
+    FederatedPlan, FederatedPlanError, IncoherentBindings, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey,
+    PlanPredicate, PredicateOrigin, QueryPlan, ResultLabel, StatementTables, plan_measure, plan_required_filter,
 };
 use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::ParamValue;
 
-use crate::resolve::{Resolution, ResolvedFilter};
+use crate::resolve::{Resolution, ResolvedFilter, ResolvedFilterValue};
 
 mod chain;
+mod federated;
 
-use chain::{chain_joins, chain_leaving_its_source, column_of, every_remote_dimension, is_remote};
+use chain::{chain_joins, chain_leaving_its_source, column_of, every_remote_dimension};
+use federated::federated_plan;
 
 /// What the plan stage decided to execute.
 ///
@@ -86,7 +85,7 @@ pub(crate) enum Plan {
 /// two-source corpus question may get is `MeasureDoesNotFederate`.
 ///
 /// [`NotBound`](PlanError::NotBound) is the fourth arm and carries the same argument for the same
-/// reason. [`predicates_and_params`] and [`requested_for`] mint every parameter index from the
+/// reason. [`predicates_and_params`] and `federated::requested_for` mint every parameter index from the
 /// position the value was pushed to, so neither can build a set
 /// [`PlanBindings::parse`](sutura_domain::plan::PlanBindings::parse) refuses, and no test provokes
 /// this arm either. What it buys is that a producer which stops minting - a hand-written index, a
@@ -121,7 +120,7 @@ pub(crate) enum PlanError {
     /// **The plan-time half of a refusal that used to exist only at load, and the reason for two is
     /// that the load one was wrong in a way nothing downstream could see.** It compared each hop's
     /// TARGET against the metric's source, so a chain crossing at hop 1 and returning at hop 2 was
-    /// accepted; [`is_remote`] then read that chain off its last hop, called it local, and
+    /// accepted; [`chain::is_remote`] then read that chain off its last hop, called it local, and
     /// [`mono_plan`] rendered the other system's table into one statement under a certified metric
     /// name. `sutura_domain::catalog::Definitions::assemble` compares both ends of every later hop
     /// now, which is the mechanism - and this is what holds if a bundle ever reaches the plan stage
@@ -164,6 +163,16 @@ impl From<RefusalReason> for PlanError {
 /// metric's data system after its first hop cannot be rendered by either plan shape, and neither
 /// shape would notice - see [`PlanError::ChainLeavesItsSource`].
 pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
+    // `resolve` has already checked a multi-metric question exactly as it checks a single one -
+    // every metric's grain, every dimension against every metric, every filter value against
+    // every metric's own allowlist. What it has NOT done is decide how more than one metric's
+    // measure becomes one statement's select list, which this stage does not do yet. See
+    // `RefusalReason::MultiMetricNotExecutable`'s own doc comment for the boundary.
+    if resolution.metrics.len() > 1 {
+        return Err(PlanError::Refused(RefusalReason::MultiMetricNotExecutable {
+            requested: resolution.metrics.len(),
+        }));
+    }
     let Some(measure) = resolution.metric.measure() else {
         return Err(PlanError::AuthoredSqlNotPlanned {
             metric: resolution.metric.name().clone(),
@@ -270,235 +279,15 @@ fn mono_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<QueryPlan,
     })
 }
 
-/// Splits a two-source question into a fact leg and a lookup leg.
-///
-/// The metric's own rows (and any same-source dimension) form the fact leg; everything on the one
-/// remote data system forms the lookup leg. The link between them is the relationship's join column,
-/// grouped into the fact leg and projected from the lookup leg under the same label - so the combiner
-/// can find it. A measure that cannot decompose is refused rather than pulled up.
-// The splitter builds both legs, their keys, their filters and the link in one pass over the
-// resolution; it is a single act of splitting a resolved question, and it returns Err from several
-// places that far apart to make a reviewer see the splitter's refusals together.
-fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<FederatedPlan, PlanError> {
-    let metric = resolution.metric;
-    let model = resolution.model;
-    // Two readings of "the table", for the reason `mono_plan` gives: the path is what a leg's `FROM`
-    // names, the bare name is what every column in that leg is qualified by.
-    let own_path = model.table();
-    let own_table = model.table_name();
-
-    let federation = Federation::of(closed);
-    // The combiner cannot re-count a distinct aggregate, so a measure that needs that is refused.
-    if let Some(keys) = federation.carried().iter().find_map(|leaf| match **leaf {
-        Carried::Keys { pulled, .. } => Some(pulled.above()),
-        _ => None,
-    }) {
-        return Err(PlanError::Refused(RefusalReason::MeasureDoesNotFederate {
-            metric: metric.name().clone(),
-            aggregate: keys,
-        }));
-    }
-
-    // One remote data system (more are refused upstream); its dimensions must all be reached through
-    // one first hop, because the combiner links the legs on a single column - and a remote
-    // dimension's HOP 1 is what the link is: it is the hop that crosses into the remote system, and
-    // from the second hop on a chain is same-source by the consistency check, so a remote chain's
-    // hops 2..n would live ON the lookup leg, which the splitter does not plan (see below). The
-    // guards below are unreachable - `plan` calls this only for exactly one remote source, and a
-    // remote dimension has a chain by construction - but a panic here would be reachable from a
-    // catalog plus a question, so they refuse instead.
-    //
-    // A2: neither guard fabricates a `RefusalReason` any more - see `PlanError::NoRemoteJoin`.
-    let Some(first_remote) = every_remote_dimension(resolution).next() else {
-        return Err(PlanError::NoRemoteJoin);
-    };
-    // `.first`: the link into the remote leg is the chain's first hop.
-    let Some(first_join) = first_remote.join.as_ref().and_then(|hops| hops.first()) else {
-        return Err(PlanError::NoRemoteJoin);
-    };
-    let relationship = first_join.relationship;
-    let remote_path = first_join.model.table();
-    let remote_table = first_join.model.table_name();
-    let remote_source = first_join.model.source();
-    for dim in every_remote_dimension(resolution) {
-        let Some(join) = dim.join.as_ref().and_then(|hops| hops.first()) else {
-            continue;
-        };
-        if join.relationship.name() != relationship.name() {
-            return Err(PlanError::Refused(RefusalReason::FederationLinkAmbiguous {
-                source: remote_source.clone(),
-            }));
-        }
-    }
-
-    // **The link's label is reserved, and it used to be the physical join column's text.** That text
-    // is a legal dimension name, and it sat in the same result namespace as the public dimension
-    // labels beside it - so a metric with a legal dimension named `customer_key`, backed by a
-    // different column, produced two fact columns under one label and the combiner refused the
-    // answer. `InternalLabel` is a namespace a question cannot spell into; the dimension stays legal.
-    let link_label = ResultLabel::internal(InternalLabel::Link);
-
-    // The fact leg groups by its local dimension keys plus the join origin, so the lookup leg can be
-    // joined to it above.
-    let mut fact_keys: Vec<PlanKey> = Vec::new();
-    for key in resolution.keys.iter().filter(|key| !is_remote(key, model.source())) {
-        fact_keys.push(PlanKey::new(
-            ResultLabel::dimension(key.dimension.name()),
-            column_of(key, own_table),
-        ));
-    }
-    fact_keys.push(PlanKey::new(
-        link_label.clone(),
-        PlanColumn::new(own_table.clone(), relationship.origin_column().clone()),
-    ));
-
-    // The lookup leg projects the join target plus the remote dimension keys.
-    let mut lookup_keys: Vec<PlanKey> = Vec::new();
-    lookup_keys.push(PlanKey::new(
-        link_label,
-        PlanColumn::new(remote_table.clone(), relationship.target_column().clone()),
-    ));
-    for key in resolution.keys.iter().filter(|key| is_remote(key, model.source())) {
-        lookup_keys.push(PlanKey::new(
-            ResultLabel::dimension(key.dimension.name()),
-            PlanColumn::new(remote_table.clone(), key.dimension.column().clone()),
-        ));
-    }
-
-    // Filters split by which leg owns the column they constrain.
-    let local_filters: Vec<&ResolvedFilter> = resolution
-        .filters
-        .iter()
-        .filter(|filter| !is_remote(&filter.dimension, model.source()))
-        .collect();
-    let remote_filters: Vec<&ResolvedFilter> = resolution
-        .filters
-        .iter()
-        .filter(|filter| is_remote(&filter.dimension, model.source()))
-        .collect();
-
-    let time_column = PlanColumn::new(own_table.clone(), metric.time_column().clone());
-    let fact_bindings = predicates_and_params(resolution, &local_filters, own_table, &time_column)?;
-    let lookup_bindings = requested_for(&remote_filters, remote_table)?;
-
-    // The fact leg's terms, projected under the one labelling rule the combiner reads back - in the
-    // same reserved namespace as the link, for the same reason: `metric__{n}` is a legal dimension
-    // name too, and over a 63-character metric name it also crossed the identifier limit a data
-    // system truncates silently.
-    let leaf_labels = labels(&federation);
-    let mut terms: Vec<LegTerm> = Vec::with_capacity(leaf_labels.len());
-    for (leaf, &label) in federation.carried().iter().zip(leaf_labels.iter()) {
-        let plan_term = match **leaf {
-            Carried::Aggregated { pushed, ref column } => PlanTerm::Aggregate {
-                aggregate: pushed.push(),
-                column: PlanColumn::new(own_table.clone(), column.clone()),
-            },
-            Carried::CountIf { ref column } => PlanTerm::CountIf {
-                column: PlanColumn::new(own_table.clone(), column.clone()),
-            },
-            // Unreachable: the refusal above returned for any Keys leaf.
-            Carried::Keys { .. } => {
-                return Err(PlanError::Refused(RefusalReason::MeasureDoesNotFederate {
-                    metric: metric.name().clone(),
-                    aggregate: sutura_domain::model::Aggregate::CountDistinct,
-                }));
-            }
-        };
-        terms.push(LegTerm::new(plan_term, ResultLabel::internal(label)));
-    }
-
-    // Same-source hops (dimensions on the metric's own system) stay joins on the fact leg. Each
-    // chain stops at its crossing hop, which is the link the lookup leg above carries rather than a
-    // `JOIN` on this leg's statement - and no hop may follow it, which `plan` refuses before
-    // dispatching here. Same builder as the whole-answer path: two copies of "one join per hop,
-    // qualified by the previous hop's target" is how one of them came to be qualified by the
-    // metric's table instead.
-    let joins = chain_joins(resolution, own_table, model.source());
-
-    let bucket = PlanBucket::new(ResultLabel::bucket(), resolution.grain, time_column);
-
-    // **Where the fact leg's tables stop being a list and become a checked set - the same guard the
-    // whole-answer path goes through, reached from the other plan shape.** A leg keeps every
-    // same-source hop as a `JOIN` of its own, so two paths ending in one name render under one
-    // implicit alias inside ONE leg's statement: reproduced, and worse there than on the whole-answer
-    // path, because a leg's rows are combined above it and nothing downstream sees the statement.
-    // `sutura_domain::plan::tables` holds the measurement and the argument for refusing rather than
-    // aliasing; `LegPlan::Fact` takes the checked set as a field, so this call is not something a
-    // future leg producer can forget.
-    let fact_tables =
-        StatementTables::parse(own_path.clone(), joins).map_err(|ambiguous| RefusalReason::PlanTablesShareAnIdentifier {
-            table: ambiguous.alias().clone(),
-        })?;
-
-    // The answer's group-by keys in question order, each naming which leg's result it is read from.
-    // Question order is the mono path's column order too, so a federated answer aligns with a
-    // single-source one (and with a future federated differential that reads rows by position).
-    let answer_keys: Vec<sutura_domain::plan::AnswerKey> = resolution
-        .keys
-        .iter()
-        .map(|key| {
-            let label = ResultLabel::dimension(key.dimension.name());
-            if is_remote(key, model.source()) {
-                sutura_domain::plan::AnswerKey::lookup(label)
-            } else {
-                sutura_domain::plan::AnswerKey::fact(label)
-            }
-        })
-        .collect();
-
-    // LEFT when the lookup carries no filter (an unmatched fact row survives), INNER when it does.
-    // `docs/adr/0009` decides the direction.
-    let include_unmatched = remote_filters.is_empty();
-
-    let fact = sutura_domain::plan::LegPlan::Fact {
-        source: model.source().clone(),
-        metric: metric.name().clone(),
-        tables: fact_tables,
-        bucket: bucket.clone(),
-        keys: fact_keys,
-        terms,
-        bindings: fact_bindings,
-        range: resolution.range,
-    };
-
-    let lookup = sutura_domain::plan::LegPlan::Lookup {
-        source: remote_source.clone(),
-        table: remote_path.clone(),
-        keys: lookup_keys,
-        bindings: lookup_bindings,
-    };
-
-    let plan = FederatedPlan::new(
-        metric.name().clone(),
-        ResultLabel::measure(metric.name()),
-        bucket,
-        fact,
-        lookup,
-        include_unmatched,
-        federation,
-        answer_keys,
-    )?;
-    // A `top` still ranks the answer, just above the combine - the splitter's one case,
-    // `github.com/telekom/sutura#777`'s case 2. A federated `top` is never pushed into a leg's own
-    // statement; every federated `top` ranks after the combine instead.
-    //
-    // **The cause is no longer erased, and this is the whole of `telekom/sutura#338`.** It used to
-    // become `RefusalReason::FederationNotExecutable`, which is ALSO what a build whose adapter does
-    // not declare `EXECUTES_LEGS` gets - so a plan this workspace could not assemble read exactly
-    // like the deployment simply not being able to execute a leg. `FederatedPlan::new`'s `?` above
-    // leaves it as `PlanError::NotAssembled` now, keeping the typed cause, because a defect in our
-    // own wiring is not a governance answer and a caller must not be handed one it could retry.
-    Ok(match resolution.top {
-        Some(top) => plan.with_top(top),
-        None => plan,
-    })
-}
-
 /// Every predicate a fact leg will carry, and the parameters they bind, built together.
 ///
 /// The range bounds, then the metric's required filters, then `requested` - the caller's own filters
 /// that constrain this leg's columns. `requested` is passed in (rather than read off the resolution)
 /// so the splitter can hand the local half here and the remote half to the lookup leg.
+///
+/// **Shared by both plan shapes**, which is why it stays here rather than moving into
+/// `plan::federated` with the rest of the splitter: [`mono_plan`] above calls it directly, and
+/// `plan::federated::federated_plan` reaches it as `super::predicates_and_params`.
 fn predicates_and_params(
     resolution: &Resolution<'_>,
     requested: &[&ResolvedFilter<'_>],
@@ -543,17 +332,49 @@ fn predicates_and_params(
     }
 
     for filter in requested {
-        let param = bind(&mut params, ParamValue::Text(filter.value.clone()));
-        filters.push(PlanFilter::new(
-            PredicateOrigin::Requested,
-            PlanPredicate::Equals {
-                column: column_of(&filter.dimension, own_table),
-                param,
-            },
-        ));
+        let column = column_of(&filter.dimension, own_table);
+        let predicate = requested_predicate(filter, column, &mut params);
+        filters.push(PlanFilter::new(PredicateOrigin::Requested, predicate));
     }
 
     PlanBindings::parse(filters, params)
+}
+
+/// One requested filter's predicate, and the parameter(s) it binds - one for `Eq`, one per value
+/// for `In`/`NotIn`, each pushed in placeholder order so [`PlanBindings::parse`] sees them
+/// consecutive.
+fn requested_predicate(filter: &ResolvedFilter<'_>, column: PlanColumn, params: &mut Vec<ParamValue>) -> PlanPredicate {
+    match filter.value {
+        ResolvedFilterValue::Eq(ref value) => {
+            let param = params.len();
+            params.push(ParamValue::Text(value.clone()));
+            PlanPredicate::Equals { column, param }
+        }
+        ResolvedFilterValue::In(ref values) => {
+            let start = params.len();
+            params.extend(values.iter().cloned().map(ParamValue::Text));
+            PlanPredicate::In {
+                column,
+                params: index_range(start, values.len()),
+            }
+        }
+        ResolvedFilterValue::NotIn(ref values) => {
+            let start = params.len();
+            params.extend(values.iter().cloned().map(ParamValue::Text));
+            PlanPredicate::NotIn {
+                column,
+                params: index_range(start, values.len()),
+            }
+        }
+    }
+}
+
+/// `count` consecutive placeholder indices from `start`, as the `NonEmpty` [`PlanPredicate::In`]/
+/// [`PlanPredicate::NotIn`] carry - infallible because `count` is a [`sutura_domain::nonempty::NonEmpty`]'s
+/// own [`sutura_domain::nonempty::NonEmpty::len`], never zero, so there is no [`sutura_domain::nonempty::EmptySet`]
+/// this could produce and no `expect`/`unwrap` to reach for.
+fn index_range(start: usize, count: usize) -> sutura_domain::nonempty::NonEmpty<usize> {
+    sutura_domain::nonempty::NonEmpty::of(start, ((start.saturating_add(1))..start.saturating_add(count)).collect())
 }
 
 /// The predicates a lookup leg carries: only the caller's own remote filters, bound on the remote
@@ -562,19 +383,12 @@ fn requested_for(requested: &[&ResolvedFilter<'_>], remote_table: &TableName) ->
     let mut params: Vec<ParamValue> = Vec::new();
     let mut filters: Vec<PlanFilter> = Vec::new();
     for filter in requested {
-        let bind = params.len();
-        params.push(ParamValue::Text(filter.value.clone()));
-        filters.push(PlanFilter::new(
-            PredicateOrigin::Requested,
-            PlanPredicate::Equals {
-                column: PlanColumn::new(remote_table.clone(), filter.dimension.dimension.column().clone()),
-                param: bind,
-            },
-        ));
+        let column = PlanColumn::new(remote_table.clone(), filter.dimension.dimension.column().clone());
+        let predicate = requested_predicate(filter, column, &mut params);
+        filters.push(PlanFilter::new(PredicateOrigin::Requested, predicate));
     }
     PlanBindings::parse(filters, params)
 }
-
 /// The three properties of a chain a plan is a function of: which table qualifies hop N's origin
 /// column, that a chain which left its data system is refused here as well as at load, and that the
 /// join order does not depend on the order the caller listed their dimensions.
@@ -592,407 +406,4 @@ fn requested_for(requested: &[&ResolvedFilter<'_>], remote_table: &TableName) ->
 /// The end-to-end evidence for the first property is the two-hop dimension in
 /// `examples/single-player`, which every rendering golden and the executed corpus read.
 #[cfg(test)]
-mod tests {
-    use std::collections::BTreeSet;
-
-    use sutura_domain::calendar::{Date, TimeRange};
-    use sutura_domain::catalog::{Audience, Description, Dimension, Metric, Model, Relationship, ViaChain};
-    use sutura_domain::measure::{AggregatedColumn, Measure, Term};
-    use sutura_domain::model::{
-        Aggregate, ColumnName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
-    };
-    use sutura_domain::plan::QueryPlan;
-
-    use super::{DimensionName, Plan, PlanError, plan};
-    use crate::resolve::{Resolution, ResolvedDimension, ResolvedJoin};
-
-    fn column(raw: &str) -> ColumnName {
-        ColumnName::parse(raw).expect("a test column is a column")
-    }
-
-    fn dimension_name(raw: &str) -> DimensionName {
-        DimensionName::parse(raw).expect("a test dimension is a dimension")
-    }
-
-    /// A model whose physical table is `dim_{name}`, so no `ON` clause below can pass by naming a
-    /// model where it should name a table.
-    fn model(name: &str, on: &str, columns: &[&str]) -> Model {
-        Model::new(
-            ModelName::parse(name).expect("a test model is a model"),
-            SourceName::parse(on).expect("a test source is a source"),
-            TableName::parse(format!("dim_{name}")).expect("a test table is a table"),
-            columns.iter().map(|c| column(c)),
-            Description::default(),
-        )
-    }
-
-    fn relationship(name: &str, from: (&str, &str), to: (&str, &str)) -> Relationship {
-        Relationship::new(
-            RelationshipName::parse(name).expect("a test relationship is a relationship"),
-            ModelName::parse(from.0).expect("a test model is a model"),
-            column(from.1),
-            ModelName::parse(to.0).expect("a test model is a model"),
-            column(to.1),
-            JoinType::ManyToOne,
-        )
-    }
-
-    /// `facts -> customers -> regions` beside `facts -> products`, with `customers` placed on the
-    /// source given.
-    ///
-    /// Two chains that share NO hop, which is what the order cell needs: two chains sharing hop 1
-    /// dedup to the same list in either order, so a corpus built that way passes with the sort
-    /// removed - measured, and it is why `family` is reached through a relationship of its own.
-    ///
-    /// `region_code` is hop 2's origin column and sits on `customers` only: `dim_facts` does not
-    /// declare it, which is what turns the hop-qualification defect into a binder error rather than
-    /// a silent regrouping in this venue.
-    struct Corpus {
-        facts: Model,
-        /// Every declared hop beside the model on its far side, which is what a resolution holds.
-        reached: Vec<(Relationship, Model)>,
-        held: Metric,
-    }
-
-    impl Corpus {
-        fn with_customers_on(customers: &str) -> Self {
-            Self {
-                facts: model("facts", "local", &["amount_cents", "day", "customer_key", "product_key"]),
-                reached: vec![
-                    (
-                        relationship("facts_customer", ("facts", "customer_key"), ("customers", "customer_key")),
-                        model("customers", customers, &["customer_key", "region_code"]),
-                    ),
-                    (
-                        relationship("customers_region", ("customers", "region_code"), ("regions", "code")),
-                        model("regions", "local", &["code", "label"]),
-                    ),
-                    (
-                        relationship("facts_product", ("facts", "product_key"), ("products", "product_key")),
-                        model("products", "local", &["product_key", "family"]),
-                    ),
-                ],
-                held: Metric::new(
-                    MetricName::parse("revenue").expect("a test metric is a metric"),
-                    ModelName::parse("facts").expect("a test model is a model"),
-                    Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
-                    Vec::new(),
-                    column("day"),
-                    BTreeSet::from([Grain::Month]),
-                    vec![
-                        declared("region", "label", &["facts_customer", "customers_region"]),
-                        declared("family", "family", &["facts_product"]),
-                    ],
-                    None,
-                    Description::default(),
-                    Audience::Open,
-                )
-                .expect("these dimensions are distinct"),
-            }
-        }
-
-        /// The dimension named, with each hop of its declared chain resolved by name.
-        fn key(&self, name: &str) -> ResolvedDimension<'_> {
-            let held = self
-                .held
-                .dimension(&dimension_name(name))
-                .expect("the metric declares this dimension");
-            ResolvedDimension {
-                dimension: held,
-                join: Some(
-                    held.via()
-                        .unwrap_or_default()
-                        .iter()
-                        .map(|hop| {
-                            let (relationship, model) = self
-                                .reached
-                                .iter()
-                                .find(|(declared_hop, _)| declared_hop.name() == hop)
-                                .expect("the corpus declares this hop");
-                            ResolvedJoin { relationship, model }
-                        })
-                        .collect(),
-                ),
-            }
-        }
-
-        fn asking<'a>(&'a self, keys: Vec<ResolvedDimension<'a>>) -> Resolution<'a> {
-            Resolution {
-                metric: &self.held,
-                model: &self.facts,
-                grain: Grain::Month,
-                range: TimeRange::new(
-                    Date::parse("2026-06-01").expect("a test date is a date"),
-                    Date::parse("2026-07-01").expect("a test date is a date"),
-                )
-                .expect("June is a range"),
-                keys,
-                filters: Vec::new(),
-                top: None,
-            }
-        }
-    }
-
-    fn declared(name: &str, col: &str, via: &[&str]) -> Dimension {
-        Dimension::new(
-            dimension_name(name),
-            column(col),
-            Some(
-                ViaChain::of(
-                    via.iter()
-                        .map(|hop| RelationshipName::parse(hop).expect("a test relationship is a relationship"))
-                        .collect(),
-                )
-                .expect("a test chain has hops"),
-            ),
-            None,
-            Description::default(),
-        )
-    }
-
-    fn mono(resolution: &Resolution<'_>) -> Box<QueryPlan> {
-        match plan(resolution).expect("this resolution plans") {
-            Plan::Mono(query) => query,
-            Plan::Federated(_) => panic!("every model here is local, so the plan is one statement"),
-        }
-    }
-
-    /// One `ON` clause per hop, each qualified by the table the hop actually starts at.
-    ///
-    /// THE BUG THIS EXISTS FOR: every hop's origin was qualified by the metric's own table, so hop 2
-    /// rendered `ON dim_facts.region_code = dim_regions.code`. `region_code` is a column of
-    /// `dim_customers`; against `DuckDB` that is `Binder Error: Table "dim_facts" does not have
-    /// a column named "region_code"`, and on a fact table that happens to carry a column of the same
-    /// name it is not an error at all - it is a different grouping under a certified metric name.
-    #[test]
-    fn a_later_hop_joins_from_the_previous_hops_table() {
-        let corpus = Corpus::with_customers_on("local");
-        let planned = mono(&corpus.asking(vec![corpus.key("region")]));
-        let clauses: Vec<(String, String)> = planned
-            .joins()
-            .iter()
-            .map(|join| (join.origin().table().to_string(), join.target().table().to_string()))
-            .collect();
-        assert_eq!(
-            clauses,
-            vec![
-                (String::from("dim_facts"), String::from("dim_customers")),
-                (String::from("dim_customers"), String::from("dim_regions")),
-            ],
-            "hop 2 must join FROM the table hop 1 arrived at"
-        );
-    }
-
-    /// The join order is a function of the plan, not of the order the caller listed dimensions.
-    ///
-    /// Two chains sharing no hop, asked in both orders. LEFT joins commute, so a reordering costs no
-    /// wrong number - what it costs is the rendered text every golden in `sutura-app` pins.
-    #[test]
-    fn the_join_order_does_not_depend_on_the_order_the_dimensions_arrive() {
-        let corpus = Corpus::with_customers_on("local");
-        let order =
-            |planned: &QueryPlan| -> Vec<String> { planned.joins().iter().map(|join| join.relationship().to_string()).collect() };
-        assert_eq!(
-            order(&mono(&corpus.asking(vec![corpus.key("region"), corpus.key("family")]))),
-            order(&mono(&corpus.asking(vec![corpus.key("family"), corpus.key("region")]))),
-            "the same two chains asked in two orders rendered two join orders"
-        );
-    }
-
-    /// A chain that left its data system is refused HERE, not only at load.
-    ///
-    /// `customers` on `elsewhere` with `regions` back on `local` is the shape the load check used to
-    /// accept: the last hop is local, so `is_remote` calls the whole chain local and the whole-answer
-    /// plan renders `elsewhere`'s table into one `local` statement. No bundle can be assembled that
-    /// way any more, which is why this resolution is built by hand.
-    #[test]
-    fn a_chain_that_leaves_its_source_is_refused_at_plan_time() {
-        let corpus = Corpus::with_customers_on("elsewhere");
-        let Err(refused) = plan(&corpus.asking(vec![corpus.key("region")])) else {
-            panic!("a chain that crossed and came back must be refused");
-        };
-        assert!(
-            matches!(
-                refused,
-                PlanError::ChainLeavesItsSource { ref dimension, hop: 2, .. } if *dimension == dimension_name("region")
-            ),
-            "expected the chain refusal naming hop 2, got {refused:?}"
-        );
-    }
-
-    /// A ratio side naming a model other than the metric's own - `telekom/sutura#780`'s vocabulary -
-    /// is refused before either plan shape is attempted. The MONO half: no `keys`, so `remote` is
-    /// empty here - a mutation gating on "no remote dimension" would leave this green, which is
-    /// why the sibling test below adds a remote one. Built by hand: the check reads only the
-    /// term's model, so no second model needs declaring for it to fire.
-    #[test]
-    fn a_ratio_term_naming_another_model_is_refused_before_either_plan_shape_is_tried() {
-        let facts = model("facts", "local", &["amount_cents", "customer_key", "day"]);
-        let metric = Metric::new(
-            MetricName::parse("revenue_per_customer").expect("a test metric is a metric"),
-            ModelName::parse("facts").expect("a test model is a model"),
-            Measure::Ratio {
-                numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
-                denominator: Term::Aggregate(AggregatedColumn::on_model(
-                    Aggregate::CountDistinct,
-                    column("customer_key"),
-                    ModelName::parse("customers").expect("a test model is a model"),
-                )),
-                zero_denominator: sutura_domain::measure::ZeroDenominator::Null,
-            },
-            Vec::new(),
-            column("day"),
-            BTreeSet::from([Grain::Month]),
-            Vec::new(),
-            None,
-            Description::default(),
-            Audience::Open,
-        )
-        .expect("no dimensions to duplicate");
-        let resolution = Resolution {
-            metric: &metric,
-            model: &facts,
-            grain: Grain::Month,
-            range: TimeRange::new(
-                Date::parse("2026-06-01").expect("a test date is a date"),
-                Date::parse("2026-07-01").expect("a test date is a date"),
-            )
-            .expect("June is a range"),
-            keys: Vec::new(),
-            filters: Vec::new(),
-            top: None,
-        };
-        let Err(refused) = plan(&resolution) else {
-            panic!("a ratio term naming another model must be refused");
-        };
-        assert!(
-            matches!(
-                refused,
-                PlanError::Refused(sutura_domain::query::RefusalReason::CrossModelRatioNotExecutable {
-                    ref metric,
-                    ref model,
-                }) if *metric == MetricName::parse("revenue_per_customer").expect("a test metric is a metric")
-                    && *model == ModelName::parse("customers").expect("a test model is a model")
-            ),
-            "expected the cross-model ratio refusal naming `customers`, got {refused:?}"
-        );
-    }
-
-    /// The FEDERATED half: one remote dimension, so `remote.len() == 1` and this would otherwise
-    /// dispatch to `federated_plan` - refused for the same reason the mono cell above is, because
-    /// the check runs before `remote` is computed at all. Gating it on "no remote dimension"
-    /// (`telekom/sutura#1014`'s review) plans this federated instead, resolving the denominator
-    /// against the metric's own fact table under a certified name. `customers` is both the
-    /// ratio's second model and the dimension's remote target, on purpose: the same model a
-    /// second fact leg would need is what makes this question plan federated at all.
-    #[test]
-    fn a_ratio_term_naming_another_model_is_refused_with_a_remote_dimension_too() {
-        let facts = model("facts", "local", &["amount_cents", "customer_key", "day"]);
-        let customers = model("customers", "remote", &["customer_key", "region_code"]);
-        let facts_customer = relationship("facts_customer", ("facts", "customer_key"), ("customers", "customer_key"));
-        let metric = Metric::new(
-            MetricName::parse("revenue_per_customer").expect("a test metric is a metric"),
-            ModelName::parse("facts").expect("a test model is a model"),
-            Measure::Ratio {
-                numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
-                denominator: Term::Aggregate(AggregatedColumn::on_model(
-                    Aggregate::Count,
-                    column("customer_key"),
-                    ModelName::parse("customers").expect("a test model is a model"),
-                )),
-                zero_denominator: sutura_domain::measure::ZeroDenominator::Null,
-            },
-            Vec::new(),
-            column("day"),
-            BTreeSet::from([Grain::Month]),
-            vec![declared("region", "region_code", &["facts_customer"])],
-            None,
-            Description::default(),
-            Audience::Open,
-        )
-        .expect("no dimensions to duplicate");
-        let region = metric
-            .dimension(&dimension_name("region"))
-            .expect("the metric declares this dimension");
-        let resolution = Resolution {
-            metric: &metric,
-            model: &facts,
-            grain: Grain::Month,
-            range: TimeRange::new(
-                Date::parse("2026-06-01").expect("a test date is a date"),
-                Date::parse("2026-07-01").expect("a test date is a date"),
-            )
-            .expect("June is a range"),
-            keys: vec![ResolvedDimension {
-                dimension: region,
-                join: Some(vec![ResolvedJoin {
-                    relationship: &facts_customer,
-                    model: &customers,
-                }]),
-            }],
-            filters: Vec::new(),
-            top: None,
-        };
-        let Err(refused) = plan(&resolution) else {
-            panic!("a ratio term naming another model must be refused even with a remote dimension present");
-        };
-        assert!(
-            matches!(
-                refused,
-                PlanError::Refused(sutura_domain::query::RefusalReason::CrossModelRatioNotExecutable {
-                    ref metric,
-                    ref model,
-                }) if *metric == MetricName::parse("revenue_per_customer").expect("a test metric is a metric")
-                    && *model == ModelName::parse("customers").expect("a test model is a model")
-            ),
-            "expected the cross-model ratio refusal naming `customers`, got {refused:?}"
-        );
-    }
-
-    /// The control for the cell above: a term that names the metric's OWN model explicitly plans
-    /// exactly as one naming none does, because both resolve their column against the metric's own
-    /// table. Without this, the check above could not tell "another model" from "any name at all".
-    #[test]
-    fn a_ratio_term_naming_the_metric_s_own_model_plans_like_one_naming_none() {
-        let facts = model("facts", "local", &["amount_cents", "customer_key", "day"]);
-        let metric = Metric::new(
-            MetricName::parse("revenue_per_customer").expect("a test metric is a metric"),
-            ModelName::parse("facts").expect("a test model is a model"),
-            Measure::Ratio {
-                numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
-                denominator: Term::Aggregate(AggregatedColumn::on_model(
-                    Aggregate::CountDistinct,
-                    column("customer_key"),
-                    ModelName::parse("facts").expect("a test model is a model"),
-                )),
-                zero_denominator: sutura_domain::measure::ZeroDenominator::Null,
-            },
-            Vec::new(),
-            column("day"),
-            BTreeSet::from([Grain::Month]),
-            Vec::new(),
-            None,
-            Description::default(),
-            Audience::Open,
-        )
-        .expect("no dimensions to duplicate");
-        let resolution = Resolution {
-            metric: &metric,
-            model: &facts,
-            grain: Grain::Month,
-            range: TimeRange::new(
-                Date::parse("2026-06-01").expect("a test date is a date"),
-                Date::parse("2026-07-01").expect("a test date is a date"),
-            )
-            .expect("June is a range"),
-            keys: Vec::new(),
-            filters: Vec::new(),
-            top: None,
-        };
-        let planned = mono(&resolution);
-        assert!(
-            matches!(planned.measure(), sutura_domain::plan::PlanMeasure::Ratio { .. }),
-            "a same-model term must still plan the ratio"
-        );
-    }
-}
+mod tests;

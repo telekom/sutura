@@ -1,0 +1,16 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: stable(rows)
+---
+- - convergent
+  - 2026-06-01
+  - "2.137100000000e3"
+- - fixed_internet
+  - 2026-06-01
+  - "0.000000000000e0"
+- - mobile
+  - 2026-06-01
+  - "8.025300000000e3"
+- - tv
+  - 2026-06-01
+  - "0.000000000000e0"

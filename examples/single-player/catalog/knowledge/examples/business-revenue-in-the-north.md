@@ -5,12 +5,12 @@ asked:
   - what are business customers in the north worth per month
   - Umsatz der Firmenkunden im Norden
 question:
-  metric: recurring_revenue
+  metrics: [recurring_revenue]
   grain: month
   range: { start: 2026-06-01, end: 2026-07-01 }
   filters:
-    - { dimension: segment, value: business }
-    - { dimension: region, value: north }
+    - { op: eq, dimension: segment, value: business }
+    - { op: eq, dimension: region, value: north }
 ---
 Two filters and nothing to group by: this asks for one number rather than a breakdown.
 

@@ -90,7 +90,23 @@ pub(crate) fn dimension_join(
     right: LogicalPlan,
     join: &PlanJoin,
 ) -> Result<LogicalPlanBuilder, DataFusionError> {
-    let on = column(join.origin()).eq(column(join.target()));
+    // Every key contributes one `=` term, `AND`ed together, exactly as the SQL renderer does - so a
+    // compound join means the same thing whether it runs as a statement or as a logical plan.
+    let on = join.keys().iter().try_fold(None, |acc: Option<Expr>, key| {
+        let term = match key {
+            sutura_domain::plan::PlanJoinKey::Equal { origin, target } => column(origin).eq(column(target)),
+            sutura_domain::plan::PlanJoinKey::TruncatedEqual { origin, grain, target } => {
+                bucket_expression(*grain, origin).eq(column(target))
+            }
+        };
+        Ok::<Option<Expr>, DataFusionError>(Some(match acc {
+            None => term,
+            Some(acc) => acc.and(term),
+        }))
+    })?;
+    let Some(on) = on else {
+        return Err(DataFusionError::NoPredicate);
+    };
     match join.join_type() {
         JoinType::OneToOne | JoinType::ManyToOne | JoinType::OneToMany => builder
             .join_on(right, EngineJoin::Left, [on])

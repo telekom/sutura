@@ -18,7 +18,7 @@
 //! retry" - a transport condition, not a status. `axios` retries nothing on its own, and
 //! `axios-retry` defaults to "a network error or a 5xx error on an idempotent request". Go's
 //! `net/http` reference documents no status-driven retry anywhere. The statuses that *are* retried by
-//! convention are `429` and `408`, and no refusal maps to either. 7 refusal reasons land on `422`,
+//! convention are `429` and `408`, and no refusal maps to either. 9 refusal reasons land on `422`,
 //! documented the other way round: "Clients that receive a `422` response should expect that
 //! repeating the request without modification will fail with the same error."
 //!
@@ -147,16 +147,18 @@ const TAG: &str = "query";
         (
             status = 409,
             description = "REFUSED - `outcome: refusal`. The question is answerable in principle \
-                           and this deployment will not answer it, so `code` says which of four \
+                           and this deployment will not answer it, so `code` says which of five \
                            things stands in the way. `federation_not_executable`: this build has no \
                            adapter that can execute one half of a question spanning two data \
                            systems. `plan_spans_too_many_sources`: it would read from more data \
                            systems than one answer may. `federation_link_ambiguous`: the remote \
                            dimensions join through more than one relationship. \
-                           `measure_does_not_federate`: the measure's aggregate cannot be \
-                           recombined above two legs. None is an outage and none is worth retrying \
-                           unchanged; asking without the dimension on the second data system is \
-                           what sometimes helps.",
+                           `federation_link_compound`: the one relationship crossing into the \
+                           second data system declares more than one join key, and the combiner \
+                           links two legs on a single column. `measure_does_not_federate`: the \
+                           measure's aggregate cannot be recombined above two legs. None is an \
+                           outage and none is worth retrying unchanged; asking without the \
+                           dimension on the second data system is what sometimes helps.",
             body = OutcomeBody
         ),
         (
@@ -434,7 +436,7 @@ mod tests {
     use crate::testing::{bundle, catalog_of, sink, warehouse_that_can_be_held};
 
     /// A well formed question the fake will answer.
-    const QUESTION: &str = r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
+    const QUESTION: &str = r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
 
     /// A router over a warehouse whose answers can be held, and the switch that holds them.
     fn app(overlay: &str) -> (axum::Router, crate::testing::Held) {
@@ -692,7 +694,7 @@ mod tests {
         // (`harness`'s test pins that a plain `subject` IS named). A key that is not one - here, a
         // hyphenated name - must not be reflected verbatim into the 400 detail.
         let (app, _held) = app("");
-        let hostile = r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"foo-bar":1}"#;
+        let hostile = r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"foo-bar":1}"#;
         let (status, body) =
             crate::testing::call(&app, crate::testing::request("POST", "/v1/query", None, Body::from(hostile))).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "an unknown field was accepted: {body}");

@@ -1,0 +1,5 @@
+metrics: [recurring_revenue, voice_minutes]
+grain: month
+range:
+  start: 2026-06-01
+  end: 2026-07-01

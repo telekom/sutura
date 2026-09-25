@@ -176,25 +176,11 @@ pub(super) fn parse_placement(
                 alias: alias.clone(),
                 cause,
             })?;
-            // Issue 124's fail-closed rule, and it is why `plaintext` is a word an operator writes:
-            // a unix socket or a loopback host may say it, and a host a network can reach may not.
-            // Shared with the `clickhouse` arm through [`refuse_remote_plaintext`], which is where
-            // the reasoning is; a unix-socket dial reaches no host and so is not asked.
-            if let crate::sources::placement::PostgresDial::Tcp { ref host, .. } = dial {
-                refuse_remote_plaintext(alias, host, &transport)?;
-            }
-            // The other direction issue 125 asks for: TLS over a unix socket has no handshake to
-            // perform, so a `verified`/`mutual` declaration on that dial is refused HERE, naming both
-            // keys, rather than reaching `PostgresWarehouse::connect_secured` and failing at connect
-            // time with an error that names neither.
-            if transport.anchors().is_some()
-                && let crate::sources::placement::PostgresDial::UnixSocket { .. } = dial
-            {
-                return Err(InvalidSourceRegistry::TlsOverUnixSocket {
-                    alias: alias.clone(),
-                    mode: transport.describe(),
-                });
-            }
+            // Issues 124 and 125, in the one function an rdbms catalog's own connection also calls:
+            // remote plaintext is refused, and TLS over a unix socket - no handshake to perform - is
+            // refused HERE naming both keys, rather than failing at connect time naming neither.
+            crate::sources::transport::refuse_unsafe_postgres_channel(&dial, &transport)
+                .map_err(|cause| channel_refusal(alias, cause))?;
             Ok(SourcePlacement::Postgres {
                 dial,
                 database,
@@ -225,13 +211,22 @@ pub(super) fn refuse_remote_plaintext(
     host: &crate::sources::placement::HostName,
     transport: &crate::sources::transport::SourceTransport,
 ) -> Result<(), InvalidSourceRegistry> {
-    if transport.anchors().is_none() && !crate::sources::transport::host_is_loopback(host.as_str()) {
-        return Err(InvalidSourceRegistry::RemoteWithoutTls {
+    crate::sources::transport::refuse_remote_plaintext(host, transport).map_err(|cause| channel_refusal(alias, cause))
+}
+
+/// A shared channel refusal, named under `sources.<alias>`.
+fn channel_refusal(alias: &SourceName, cause: crate::sources::transport::UnsafeChannel) -> InvalidSourceRegistry {
+    use crate::sources::transport::UnsafeChannel;
+    match cause {
+        UnsafeChannel::RemotePlaintext { host } => InvalidSourceRegistry::RemoteWithoutTls {
             alias: alias.clone(),
-            host: host.as_str().to_owned(),
-        });
+            host,
+        },
+        UnsafeChannel::TlsOverUnixSocket { mode } => InvalidSourceRegistry::TlsOverUnixSocket {
+            alias: alias.clone(),
+            mode,
+        },
     }
-    Ok(())
 }
 
 /// The eleven keys that mean something only to a source this deployment DIALS - `postgres`,

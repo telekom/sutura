@@ -83,10 +83,11 @@ clickhouse = ["dep:sutura-exec-clickhouse"]
 #
 # **Not in `nix/shipped.nix`'s `features`, `allFeatures` or `probeFeatures`, and for `clickhouse`'s
 # kind of reason - measured, not feared.** Asked against `compose.services.yaml`'s real `oracle`
-# image, every whole-plan question this repository renders for `Dialect::Oracle` ends in `LIMIT n`,
-# which the server refuses (`ORA-03049`) - so a published binary linking this adapter today would
-# answer no whole-plan question from an Oracle source (`github.com/telekom/sutura#127` carries the
-# measurement). Reachable by `--features oracle` and `--all-features`, which is what every gate
+# image, every whole-plan question this repository rendered for `Dialect::Oracle` ended in
+# `LIMIT n`, which the server refuses (`ORA-03049`; `github.com/telekom/sutura#127` carries the
+# measurement). It now ends in `FETCH FIRST n ROWS ONLY` - rendered and golden-pinned, and NOT yet
+# executed against an Oracle server by any committed cell, so no whole-plan answer from an Oracle
+# source is proven. Reachable by `--features oracle` and `--all-features`, which is what every gate
 # passes, and by no release.
 oracle = ["dep:sutura-exec-oracle"]
 
@@ -121,6 +122,11 @@ agent = ["sutura-mcp/http", "sutura-http/agent"]
 [dependencies]
 sutura-app = { workspace = true }
 sutura-catalog-local = { workspace = true }
+# `import wren`'s own wire types - a foreign project's `manifest.json`, never a domain type.
+serde = { workspace = true }
+# `import wren`'s manifest parse. Already in the resolved graph through every crate below that
+# depends on it; this is the first thing in `sutura-cli` itself that names it directly.
+serde_json = { workspace = true }
 # The settings tree, for `sutura prompt` alone. It is here so the prompt an operator pipes into an
 # agent's configuration is rendered from the SAME layered configuration the service would read -
 # `prompt.instructions_file` and `prompt.catalog_prose`, defaults then files then one variable per
@@ -233,9 +239,6 @@ insta = { workspace = true }
 # The far side of the `mcp` handshake test: a real MCP client from the same SDK, over an in-memory
 # pipe. Nothing this crate wrote sits between the assertion and the protocol.
 rmcp = { workspace = true, features = ["client"] }
-# The request JSON in that test, and the tool result's structured content. Also the audit records
-# `src/audit.rs` reads back: a record is asserted by KEY, which needs the line parsed.
-serde_json = { workspace = true }
 # `testing::Capture`, the writer `src/audit.rs` puts a subscriber over. Declared again HERE rather
 # than as a feature on the normal dependency above, which is what keeps `test-capture` out of the
 # shipped build: dev-dependencies are not in the graph a `cargo build` resolves. The same

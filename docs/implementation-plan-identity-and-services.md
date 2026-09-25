@@ -813,8 +813,8 @@ one is built:
 - **An MCP server, and the crate now SHIPS in the binary.** `sutura-mcp` is built: two tools, one per
   `Surface` operation, each schema generated from a wire type and committed as a snapshot.
   `serve_stdio`'s composition root is the single-player binary's `mcp` subcommand -
-  `sutura mcp <catalog-dir> <data-dir>` - which is what #110 asked for. So this is the better route,
-  and the demo must still not wait for it.
+  `sutura mcp <catalog-dir> <data-dir>` (until #970 - it reads `catalogs:`/`sources:` since) -
+  which is what #110 asked for. So this is the better route, and the demo must still not wait for it.
 
 **And the part that cannot be waved away: a chat interface needs a MODEL.** Either a hosted provider,
 which means a key and egress from the demo environment, or a local one, which is heavy. Say which the

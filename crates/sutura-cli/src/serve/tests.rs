@@ -594,7 +594,7 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
     )
     .expect("a directory and a version are a settings");
     let catalogs = Catalogs::parse(vec![datahub]).expect("one declared catalog is a registry");
-    let err = super::catalog::open_catalog(&catalogs, None).expect_err("this build does not link the datahub feature");
+    let err = crate::catalog::open_catalog(&catalogs, None).expect_err("this build does not link the datahub feature");
     assert!(err.contains("catalog.kind: datahub"), "{err}");
     assert!(
         err.contains("--features datahub"),
@@ -609,7 +609,7 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
     )
     .expect("a directory and a version are a settings");
     let catalogs = Catalogs::parse(vec![markdown]).expect("one declared catalog is a registry");
-    super::catalog::open_catalog(&catalogs, None).expect("markdown is the kind every build links");
+    crate::catalog::open_catalog(&catalogs, None).expect("markdown is the kind every build links");
 }
 
 /// Every kind `sutura serve` refuses on EVERY build: `openmetadata`/`rdbms` (no reader over a
@@ -640,7 +640,7 @@ fn a_declared_catalog_kind_without_a_reader_is_refused_naming_the_follow_up() {
         )
         .expect("a directory and a version are a settings");
         let catalogs = Catalogs::parse(vec![catalog]).expect("one declared catalog is a registry");
-        let err = super::catalog::open_catalog(&catalogs, None).expect_err("a kind with no reader is refused by name");
+        let err = crate::catalog::open_catalog(&catalogs, None).expect_err("a kind with no reader is refused by name");
         assert!(err.contains(&format!("catalog.kind: {word}")), "{err}");
         assert!(err.contains(follow_up), "a kind with no reader names its follow-up: {err}");
     }
@@ -683,7 +683,7 @@ fn catalogs_of_more_than_one_kind_in_one_deployment_are_refused() {
     )
     .expect("a directory and a version are a settings");
     let catalogs = Catalogs::parse(vec![markdown, datahub]).expect("two distinctly-named catalogs are a registry");
-    let err = super::catalog::open_catalog(&catalogs, None).expect_err("a mix of catalog kinds is refused");
+    let err = crate::catalog::open_catalog(&catalogs, None).expect_err("a mix of catalog kinds is refused");
     assert!(err.contains("markdown"), "{err}");
     assert!(err.contains("datahub"), "{err}");
 }
@@ -713,8 +713,8 @@ fn a_deployment_with_more_than_one_catalog_opens_one_per_declared_entry() {
         .expect("a directory and a version are a settings")
     };
     let catalogs = Catalogs::parse(vec![entry("structure"), entry("metrics")]).expect("two names are a registry");
-    let opened = super::catalog::open_catalog(&catalogs, None).expect("two markdown catalogs open");
-    let super::catalog::OpenedCatalogs::Markdown(opens) = opened else {
+    let opened = crate::catalog::open_catalog(&catalogs, None).expect("two markdown catalogs open");
+    let crate::catalog::OpenedCatalogs::Markdown(opens) = opened else {
         panic!("a markdown-only deployment opens the markdown vector");
     };
     assert_eq!(opens.len(), 2, "one opened catalog per declared entry");

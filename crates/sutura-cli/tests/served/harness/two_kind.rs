@@ -9,14 +9,19 @@
 //! this fixture is what makes that askable, and `served/two_kind.rs` is what asks it.
 //!
 //! **This does not need `EXECUTES_LEGS`, and the settings below are built so it cannot drift into
-//! needing it.** `daily_usage` is the one model this catalog declares with no `via` relationship at
-//! all - see the model's own doc - so moving it onto a second source changes which adapter answers
-//! `voice_minutes`, never how many legs a plan has. The two questions this fixture is for
-//! (`recurring_revenue_june`, already in this module's parent; `voice_minutes_by_day`, `two_kind.rs`'s
-//! own) each read exactly one of the two sources.
+//! needing it.** Moving `daily_usage` onto a second source changes which adapter answers
+//! `voice_minutes`, never how many legs a plan has - `product_family` is the one dimension that
+//! WOULD, since `subscription_product` (hop 2 of its chain) would then cross back onto
+//! `daily_usage`'s own new source, so [`without_the_product_family_dimension`] strips it below. The
+//! two questions this fixture is for (`recurring_revenue_june`, already in this module's parent;
+//! `voice_minutes_by_day`, `two_kind.rs`'s own) each read exactly one of the two sources and neither
+//! asks for the stripped dimension.
 
 use super::postgres::{FixtureLoadGuard, load_into_tier, source_entry};
-use super::{LOCAL_SOURCE, LOOPBACK, SINGLE_USER, TOKEN, derived_catalog, example_root, files_source, settings_over};
+use super::{
+    LOCAL_SOURCE, LOOPBACK, SINGLE_USER, TOKEN, derived_catalog, example_root, files_source, settings_over,
+    without_the_product_family_dimension,
+};
 
 /// The second kind's source name - `postgres`, beside [`LOCAL_SOURCE`]'s `files`.
 ///
@@ -44,6 +49,7 @@ pub(crate) fn settings(case: &str) -> Option<(String, FixtureLoadGuard)> {
     let example = example_root();
     let data = example.join("data");
     let catalog = derived_catalog(case, &example.join("catalog"), MOVED_MODEL, PG_SOURCE);
+    without_the_product_family_dimension(&catalog);
     let loaded = load_into_tier(case, PG_SOURCE)?;
     let sources = format!("{}{}", files_source(LOCAL_SOURCE, &data), source_entry(PG_SOURCE, &loaded));
     let settings = settings_over(

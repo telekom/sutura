@@ -344,13 +344,20 @@ impl Definitions {
                 relationship: relationship.name.clone(),
                 model: relationship.target_model.clone(),
             })?;
-        for (model, column) in [(from, &relationship.origin_column), (to, &relationship.target_column)] {
-            if !model.has_column(column) {
-                return Err(InconsistentDefinitions::RelationshipUnknownColumn {
-                    relationship: relationship.name.clone(),
-                    model: model.name.clone(),
-                    column: column.clone(),
-                });
+        // Every key's origin must be a column of the origin model and every key's target a column
+        // of the target model. A compound key is refused if any one of its columns is undeclared:
+        // the join is an `AND` over the whole set, so a missing column is a statement that cannot
+        // render, and the whole set is what promises the target unique.
+        for key in relationship.keys().as_slice() {
+            let (from_column, to_column) = (key.origin(), key.target());
+            for (model, column) in [(from, from_column), (to, to_column)] {
+                if !model.has_column(column) {
+                    return Err(InconsistentDefinitions::RelationshipUnknownColumn {
+                        relationship: relationship.name.clone(),
+                        model: model.name.clone(),
+                        column: column.clone(),
+                    });
+                }
             }
         }
         Ok(())
@@ -629,7 +636,6 @@ impl Definitions {
         self.relationships.get(name)
     }
 }
-
 /// The authored bytes behind one model beyond its own name: every column it declares, and its
 /// description.
 fn model_bytes(model: &Model) -> usize {
@@ -647,13 +653,13 @@ fn column_bytes(column: &Column) -> usize {
     name.saturating_add(data_type).saturating_add(description)
 }
 
-/// The authored bytes behind one relationship beyond its own name: the two columns it joins on.
+/// The authored bytes behind one relationship beyond its own name: every column of every key it
+/// joins on.
 fn relationship_bytes(relationship: &Relationship) -> usize {
-    relationship
-        .origin_column()
-        .as_str()
-        .len()
-        .saturating_add(relationship.target_column().as_str().len())
+    relationship.keys().as_slice().iter().fold(0, |acc, key| {
+        acc.saturating_add(key.origin().as_str().len())
+            .saturating_add(key.target().as_str().len())
+    })
 }
 
 /// The authored bytes behind one metric beyond its own name: every required filter as it would

@@ -3,7 +3,9 @@
 
 use std::collections::BTreeSet;
 
-use super::{Description, DocumentKind, InvalidMetricDocument, InvalidModelDocument, KindProbe, MetricDoc, ModelDoc};
+use super::{
+    Description, DocumentKind, InvalidMetricDocument, InvalidModelDocument, KindProbe, MetricDoc, ModelDoc, RelationshipDoc,
+};
 use sutura_domain::catalog::{
     Audience, AudienceGrant, DimensionValue, InconsistentDefinitions, InvalidDimensionValue, InvalidViaChain,
 };
@@ -671,6 +673,53 @@ fn a_via_chain_with_no_relationship_in_it_is_refused() {
             dimension: DimensionName::parse("region").expect("a name"),
             cause: InvalidViaChain::Empty,
         }
+    );
+}
+
+fn relationship_doc(yaml: &str) -> Result<RelationshipDoc, serde_norway::Error> {
+    serde_norway::from_str(yaml)
+}
+
+const COMPOUND_RELATIONSHIP: &str = "
+kind: relationship
+name: usage_subscription
+origin: { model: daily_usage, column: subscription_key }
+target: { model: subscriptions, column: subscription_key }
+join_type: many_to_one
+keys:
+  - { origin: subscription_key, target: subscription_key }
+  - { origin: usage_date, grain: month, target: month }
+";
+
+/// A compound join's keys parse into the typed `TruncatedEqual`/`Equal` pair, not the legacy
+/// `origin`/`target` pair alone.
+#[test]
+fn a_compound_relationships_keys_parse() {
+    let doc = relationship_doc(COMPOUND_RELATIONSHIP).expect("two well-formed keys are well-formed");
+    let relationship = doc.into_domain().expect("two keys is a non-empty set");
+    assert_eq!(relationship.keys().as_slice().len(), 2);
+}
+
+/// **The measurement `#[serde(deny_unknown_fields)]` on `JoinKeyDoc` exists for.** Before it, a
+/// typo'd `grian:` in place of `grain:` parsed silently - serde drops a field it does not
+/// recognise unless the struct demands otherwise - and the entry fell through to
+/// `JoinKeyDoc::into_domain`'s `None` arm, becoming a plain `JoinKey::Equal { origin: usage_date,
+/// target: month }` instead of the truncated key the document meant. That key is still a legal
+/// declaration - `usage_date = month` just never matches - so nothing downstream would have
+/// caught it: no parse error, no consistency-check refusal, only a relationship that silently
+/// answers nothing for the dimension it was meant to unlock. Red before `deny_unknown_fields` was
+/// added: this parse used to be `Ok`.
+#[test]
+fn a_typo_in_a_compound_keys_grain_field_is_refused_rather_than_silently_dropped() {
+    let yaml = COMPOUND_RELATIONSHIP.replace("grain: month", "grian: month");
+    assert_ne!(
+        yaml, COMPOUND_RELATIONSHIP,
+        "the replacement must have found the field it means to typo"
+    );
+    let error = relationship_doc(&yaml).expect_err("an unknown field inside a compound key must not parse");
+    assert!(
+        error.to_string().contains("grian"),
+        "the parse error must name the field it could not place: {error}"
     );
 }
 

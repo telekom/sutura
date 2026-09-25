@@ -128,7 +128,7 @@ Eleven metrics; five of them below, and the elision is this page's rather than t
 
 ```text
 version local-working-tree
-digest  3bd02c381fc6d5b8e593ae278a415c7c73948d36d941e4df23adb83572cfc1b8
+digest  b0e74ef1b790cff7171094fec4b9389913e7940bf7c9a2abdec2269c3e29e538
 
 active_subscriptions
   measure    count_distinct(subscription_key)
@@ -185,7 +185,7 @@ A question is a small file. There is no field in it for SQL, a table, a predicat
 ids, so an uncertified question is not something you can write down:
 
 ```yaml
-metric: recurring_revenue
+metrics: [recurring_revenue]
 grain: month
 range:
   start: 2026-06-01
@@ -246,7 +246,7 @@ sutura query examples/single-player/catalog \
 ```
 
 ```text
--- definitions local-working-tree 3bd02c381fc6d5b8e593ae278a415c7c73948d36d941e4df23adb83572cfc1b8
+-- definitions local-working-tree b0e74ef1b790cff7171094fec4b9389913e7940bf7c9a2abdec2269c3e29e538
 region	period	recurring_revenue
 central	2026-06-01	51739
 east	2026-06-01	32598
@@ -275,7 +275,7 @@ sutura query examples/single-player/catalog \
 
 ```text
 refused: DimensionValueNotAllowed
-  the dimension is filterable and the value is not one the definitions declare
+  the value is not one the definitions declare for that dimension
   metric: recurring_revenue
   dimension: region
   remedy: Use a value from that dimension's list below. The refusal does not repeat your value back to you, on purpose, so compare against the list rather than expecting a correction.

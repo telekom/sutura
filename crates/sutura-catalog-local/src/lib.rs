@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Definitions, Description, InconsistentDefinitions, InvalidDescription, Metric, Model, Relationship,
+    Definitions, Description, InconsistentDefinitions, InvalidDescription, InvalidJoinKeys, Metric, Model, Relationship,
 };
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{
@@ -69,9 +69,9 @@ const MAX_CATALOG_DOCUMENTS: usize = 1_000;
 /// Checked from each file's own metadata in [`LocalCatalog::read_all`], before that file is read to
 /// a `String` - so the file that crosses the bound is never read into memory, held by reading the
 /// code rather than by a per-file cell: the stat happens, then the read, in that order, for every
-/// document. (The usual stat-then-read window still applies - a file that grows between the two
-/// calls is read in full at whatever size it reached by the second one; operator-controlled content,
-/// so that window is accepted rather than closed.) 16 MiB is a round number, and a generous one: a
+/// document. There is no stat-then-read window: the size is checked on the handle that is then
+/// read, and the read itself is capped at the bytes the aggregate had left, so a document that
+/// grows or is swapped between the two is refused rather than read in full. 16 MiB is a round number, and a generous one: a
 /// document's PARSED prose is capped after parsing
 /// ([`sutura_domain::knowledge::MAX_NOTE_BODY_BYTES`], [`sutura_domain::catalog::MAX_DESCRIPTION_BYTES`],
 /// both 4 KiB), so `MAX_CATALOG_DOCUMENTS` bodies alone could not exceed roughly 4 MiB even at the
@@ -79,6 +79,44 @@ const MAX_CATALOG_DOCUMENTS: usize = 1_000;
 /// pathological file (`tests/bounds.rs` exercises exactly that case, a single document padded well
 /// past this limit). This bounds the AGGREGATE across many small documents as well as that one case.
 const MAX_CATALOG_BYTES: u64 = 16 * 1024 * 1024;
+
+/// Reads one catalog document whole, through the descriptor already opened.
+///
+/// The open itself is the caller's, so the refusal half lives there: `O_NOFOLLOW` makes a
+/// final-component symlink a refusal (`ELOOP`) at open rather than a read of whatever it
+/// pointed at - the window a document swapped after the walk has - and `O_NONBLOCK` makes a
+/// swapped FIFO `ENXIO` rather than a boot that never returns. This half reads the very
+/// descriptor that was `fstat`'d, so nothing re-opens the path, and there is no `unsafe`:
+/// the descriptor is borrowed for the read and closed by rustix's ownership. Reading happens
+/// in bounded chunks, so a document that grows while it is being read cannot allocate past
+/// `max` even in one chunk.
+fn read_document(fd: &rustix::fd::OwnedFd, max: u64) -> Result<String, ReadError> {
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 16 * 1024];
+    loop {
+        let n = rustix::io::read(fd, &mut chunk).map_err(|cause| ReadError::Io(cause.into()))?;
+        if n == 0 {
+            break;
+        }
+        if buf.len() as u64 + n as u64 > max {
+            return Err(ReadError::OutOfBudget);
+        }
+        match chunk.get(..n) {
+            Some(read) => buf.extend_from_slice(read),
+            None => return Err(ReadError::OutOfBudget),
+        }
+    }
+    let text =
+        String::from_utf8(buf).map_err(|cause| ReadError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, cause)))?;
+    Ok(text)
+}
+
+/// Why [`read_document`] stopped: an OS error on the handle, or the document outgrowing the
+/// bytes left in the aggregate budget while it was being read.
+enum ReadError {
+    Io(std::io::Error),
+    OutOfBudget,
+}
 
 /// The two halves of a bundle's content, read and checked but not yet pinned.
 ///
@@ -120,6 +158,20 @@ pub enum LocalCatalogError {
         #[source]
         cause: std::io::Error,
     },
+    /// An open, stat or read of a document through its descriptor failed in a way the OS
+    /// described but [`Self::Io`]'s wording does not: a swapped symlink refuses with `ELOOP`
+    /// and a swapped FIFO with `ENXIO`, and neither is "could not read".
+    #[error("could not open {path}: {cause}")]
+    Open {
+        path: PathBuf,
+        #[source]
+        cause: rustix::io::Errno,
+    },
+    /// The document opened is not a regular file - a device node, for one, is refused by the
+    /// regular-file check on the handle that was opened, not by the walk, which only saw the
+    /// entry that was there before the swap.
+    #[error("the document {path} is not a regular file - refused rather than read as one")]
+    NotARegularFile { path: PathBuf },
     #[error("{path} is not a catalog document")]
     Malformed {
         path: PathBuf,
@@ -157,6 +209,12 @@ pub enum LocalCatalogError {
         path: PathBuf,
         #[source]
         cause: InvalidModelDocument,
+    },
+    #[error("{path} is not a usable relationship")]
+    Relationship {
+        path: PathBuf,
+        #[source]
+        cause: InvalidJoinKeys,
     },
     /// The prose of a definition document is not a usable description.
     ///
@@ -219,9 +277,10 @@ pub enum LocalCatalogError {
     ///
     /// `path` is the catalog root, matching `TooManyDocuments` and `Empty` above - the rendered
     /// text names "the catalog", so the path in it has to be the catalog's, not one file's.
-    /// `document` is the one whose metadata pushed the running total over `limit` - checked from
-    /// its own size and INCLUDING it, before it is read into memory, not after. `found` is that
-    /// running total.
+    /// `document` is the one whose size pushed the running total over `limit` - checked on the
+    /// handle that is then read, and INCLUDING it, before it is read into memory, not after. A
+    /// document that outgrew that check while being read refuses here too. `found` is the
+    /// running total the refusal saw.
     #[error("the catalog at {path} holds more than {limit} bytes of documents (the read stopped at {document}, {found} found)")]
     TooLarge {
         path: PathBuf,
@@ -252,9 +311,10 @@ pub enum LocalCatalogError {
 /// A catalog read from a directory of documents.
 ///
 /// Carries a declared NAME, the way a `sources:` entry or a `catalogs:` entry carries an alias: it
-/// is the key the contribution manifest records this contributor under. `sutura serve` hands it the
-/// configured `catalogs:.<key>`; `sutura query`/`sutura mcp` name their single directory a
-/// constant. The adapter can no more guess it than a data adapter can guess its source alias.
+/// is the key the contribution manifest records this contributor under. `sutura serve` and, since
+/// issue #970, `sutura mcp` hand it the configured `catalogs:.<key>`; `sutura query` still names
+/// its single directory a constant. The adapter can no more guess it than a data adapter can guess
+/// its source alias.
 #[derive(Debug, Clone)]
 pub struct LocalCatalog {
     name: SourceName,
@@ -375,29 +435,63 @@ impl LocalCatalog {
         let mut total_bytes: u64 = 0;
 
         for path in self.documents()? {
-            // Checked from the file's own metadata, before it is read to a `String` - so the file
-            // that crosses the aggregate bound is refused rather than allocated. A `stat` is the
-            // cost of this check; reading the file whole to measure it first would be the cost this
-            // check exists to avoid.
-            let size = std::fs::metadata(&path)
-                .map_err(|cause| LocalCatalogError::Io {
-                    path: path.clone(),
-                    cause,
-                })?
-                .len();
-            total_bytes = total_bytes.saturating_add(size);
-            if total_bytes > MAX_CATALOG_BYTES {
-                return Err(LocalCatalogError::TooLarge {
-                    path: self.root.clone(),
-                    document: path,
-                    found: total_bytes,
-                    limit: MAX_CATALOG_BYTES,
-                });
-            }
-            let text = std::fs::read_to_string(&path).map_err(|cause| LocalCatalogError::Io {
+            // ONE open per document, and everything about the file decided from the handle that is
+            // actually read. `O_NOFOLLOW` refuses a document swapped for a symlink after the walk -
+            // followed or not, the read never happens; `O_NONBLOCK` refuses a swapped FIFO at open
+            // rather than blocking the boot on it. The TOCTOU of a stat taken before a separately
+            // named read is gone with the second open, and the same handle is what is stat'd and
+            // what is read, so a swap between the two is not reachable at all.
+            //
+            // "Opened once" itself is held by review, not by a test: a hand mutation that appends
+            // a second, unguarded `std::fs::read_to_string(&path)` right after this block is not
+            // killed by a swap-timing test - the window between the two back-to-back opens is
+            // sub-microsecond, well under what even the multi-millisecond swap tests below need to
+            // land reliably (measured across 3 separate `just test` runs against that mutation).
+            let flags = rustix::fs::OFlags::RDONLY
+                .union(rustix::fs::OFlags::NOFOLLOW)
+                .union(rustix::fs::OFlags::NONBLOCK)
+                .union(rustix::fs::OFlags::CLOEXEC);
+            let fd = rustix::fs::open(&path, flags, rustix::fs::Mode::empty()).map_err(|cause| LocalCatalogError::Open {
                 path: path.clone(),
                 cause,
             })?;
+            let stat = rustix::fs::fstat(&fd).map_err(|cause| LocalCatalogError::Open {
+                path: path.clone(),
+                cause,
+            })?;
+            if rustix::fs::FileType::from_raw_mode(stat.st_mode) != rustix::fs::FileType::RegularFile {
+                return Err(LocalCatalogError::NotARegularFile { path: path.clone() });
+            }
+            let remaining = MAX_CATALOG_BYTES - total_bytes.min(MAX_CATALOG_BYTES);
+            if stat.st_size.cast_unsigned() > remaining {
+                return Err(LocalCatalogError::TooLarge {
+                    path: self.root.clone(),
+                    document: path.clone(),
+                    found: total_bytes.saturating_add(stat.st_size.cast_unsigned()),
+                    limit: MAX_CATALOG_BYTES,
+                });
+            }
+            let text = read_document(&fd, remaining.saturating_add(1)).map_err(|cause| match cause {
+                ReadError::OutOfBudget => LocalCatalogError::TooLarge {
+                    path: self.root.clone(),
+                    document: path.clone(),
+                    found: total_bytes.saturating_add(remaining + 1),
+                    limit: MAX_CATALOG_BYTES,
+                },
+                ReadError::Io(cause) => LocalCatalogError::Io {
+                    path: path.clone(),
+                    cause,
+                },
+            })?;
+            if text.len() as u64 > remaining {
+                return Err(LocalCatalogError::TooLarge {
+                    path: self.root.clone(),
+                    document: path.clone(),
+                    found: total_bytes.saturating_add(text.len() as u64),
+                    limit: MAX_CATALOG_BYTES,
+                });
+            }
+            total_bytes = total_bytes.saturating_add(text.len() as u64);
             let split = frontmatter::split(&text).map_err(|cause| LocalCatalogError::Malformed {
                 path: path.clone(),
                 cause,
@@ -507,7 +601,11 @@ impl Collected {
             }
             DocumentKind::Relationship => {
                 let doc: RelationshipDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
-                self.relationships.push(doc.into_domain());
+                self.relationships
+                    .push(doc.into_domain().map_err(|cause| LocalCatalogError::Relationship {
+                        path: PathBuf::from(path),
+                        cause,
+                    })?);
             }
             // Every other kind is a note, and `absorb` is what decides which of the two this is. A
             // wildcard rather than four unreachable arms, because the exhaustiveness that matters is

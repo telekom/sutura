@@ -151,7 +151,7 @@ pub(super) fn example(name: &str, question: Query) -> Example {
 }
 
 pub(super) fn question(grain: Grain, dimensions: Vec<DimensionName>, filters: Vec<Filter>) -> Query {
-    Query::new(metric_name("recurring_revenue"), grain, june(), dimensions, filters)
+    Query::single(metric_name("recurring_revenue"), grain, june(), dimensions, filters)
 }
 
 /// The one input shape every failing test varies one field of.
@@ -791,7 +791,7 @@ fn scoped_withholds_knowledge_whose_metric_is_invisible() {
     };
     // An example and a glossary entry that name the restricted metric, plus one that names the open
     // one - the caller-scoped read must drop the former and keep the latter.
-    let voice_question = Query::new(voice.clone(), Grain::Day, june(), Vec::new(), Vec::new());
+    let voice_question = Query::single(voice.clone(), Grain::Day, june(), Vec::new(), Vec::new());
     let revenue_question = question(Grain::Month, Vec::new(), Vec::new());
     let knowledge = Knowledge::assemble(
         &definitions,
