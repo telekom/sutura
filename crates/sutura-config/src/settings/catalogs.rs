@@ -42,12 +42,14 @@ pub(super) fn parse_catalogs(raw: &RawSettings) -> Result<Catalogs, SettingsErro
             version,
         )
         .map_err(|cause| SettingsError::Catalog { cause })?;
-        // The two `datahub`-only fields, added in a separate step so a markdown entry - the vast
-        // majority of every settings file written before issue #202 - never has to carry them.
+        // `okf`/`openmetadata`/`rdbms` carry no per-kind settings fields yet (only `datahub`
+        // does), so each reaches the plain parsed entry exactly as `markdown` does; `datahub`
+        // adds the three fields in a separate step so every other kind - the vast majority of
+        // every settings file written before issue #202 - never has to carry them.
         // `CatalogKind::parse` already refused any other word, so this match is exhaustive over
         // what `kind` can be at this point.
         let settings = match kind {
-            CatalogKind::Markdown => settings,
+            CatalogKind::Markdown | CatalogKind::Okf | CatalogKind::Openmetadata | CatalogKind::Rdbms => settings,
             CatalogKind::Datahub => {
                 let endpoint = raw_catalog.endpoint.clone().unwrap_or_default();
                 let token_file = raw_catalog.token_file.clone().unwrap_or_default();

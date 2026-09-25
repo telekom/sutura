@@ -612,6 +612,40 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
     super::catalog::open_catalog(&catalogs, None).expect("markdown is the kind every build links");
 }
 
+/// Every kind `sutura serve` refuses on EVERY build: `openmetadata`/`rdbms` (no reader over a
+/// real deployment yet - the follow-up each refusal names). `okf` and `datahub` are NOT here: the
+/// former is now an unconditional dependency of this binary (see `crates/sutura-cli/Cargo.toml`),
+/// so its arm is always linked and never refused, and the latter's not-linked refusal is the
+/// `cfg(not(feature = "datahub"))` half of `a_declared_catalog_kind_this_build_cannot_open_is_a_
+/// boot_refusal_naming_it` above.
+#[test]
+fn a_declared_catalog_kind_without_a_reader_is_refused_naming_the_follow_up() {
+    use sutura_config::{CatalogKind, CatalogSettings, Catalogs};
+    use sutura_domain::model::SourceName;
+    use sutura_domain::pinned::DefinitionVersion;
+    let version = DefinitionVersion::parse("test-1").expect("a test version is a version");
+    // `(kind, word, follow_up)` - the message names the follow-up issue so an operator knows the
+    // kind is declarable and tracked, not a typo. Pinned so a message that dropped the follow-up
+    // text still fails this cell.
+    for (kind, word, follow_up) in [
+        (CatalogKind::Openmetadata, "openmetadata", "#152"),
+        (CatalogKind::Rdbms, "rdbms", "#972"),
+    ] {
+        let catalog = CatalogSettings::parse(
+            SourceName::parse(word).expect("a test name is a name"),
+            kind,
+            PathBuf::from("/nowhere/catalog"),
+            PathBuf::from("/nowhere/data"),
+            version.clone(),
+        )
+        .expect("a directory and a version are a settings");
+        let catalogs = Catalogs::parse(vec![catalog]).expect("one declared catalog is a registry");
+        let err = super::catalog::open_catalog(&catalogs, None).expect_err("a kind with no reader is refused by name");
+        assert!(err.contains(&format!("catalog.kind: {word}")), "{err}");
+        assert!(err.contains(follow_up), "a kind with no reader names its follow-up: {err}");
+    }
+}
+
 // `the_datahub_refusal_offers_no_rebuild_this_binary_has_no_feature_for`
 // (`github.com/telekom/sutura#366`) is RETIRED rather than kept: it asserted the refusal must not
 // name a feature, because the served binary declared none that provided `datahub` at the time.
@@ -657,18 +691,6 @@ fn catalogs_of_more_than_one_kind_in_one_deployment_are_refused() {
 #[cfg(feature = "datahub")]
 mod datahub_served;
 
-// `OpenedCatalogs::Datahub` is `#[cfg(feature = "datahub")]`, so at the default (no-datahub)
-// build the `Markdown` pattern below is the enum's ONLY arm and the `else` is IRREFUTABLE - a
-// rustc error under `-D irrefutable-let-patterns` that the `--all-features` build never sees
-// (there the `Datahub` variant makes it refutable, which is what the `else` is for). The narrow
-// cfg-scoped allowance is the honest way to run the same cell in both builds.
-#[cfg_attr(
-    not(feature = "datahub"),
-    expect(
-        irrefutable_let_patterns,
-        reason = "at the default build the Datahub arm is cfg'd out, so the Markdown pattern and its else are irrefutable; the all-features build has both arms and needs the else"
-    )
-)]
 #[test]
 fn a_deployment_with_more_than_one_catalog_opens_one_per_declared_entry() {
     // Step 4 of the issue: the settings DECLARE several metadata sources and the composition root

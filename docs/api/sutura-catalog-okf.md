@@ -112,6 +112,22 @@ sends a reader to read all of them.
 - `UncheckableKnowledge`
 - `Empty`
 - `TooManyDocuments`
+- `TooLarge` - The read of this document would push the running total over `MAX_CATALOG_BYTES`.
+
+  `path` is the catalog root, matching `TooManyDocuments` and `Empty` above - the rendered
+  text names "the catalog", so the path in it has to be the catalog's, not one file's.
+  `document` is the one whose bytes pushed the running total past `limit`. `found` is that
+  running total. The bound is enforced on the read itself (`OkfCatalog::read_all` and
+  `read_document`): the refusing total comes from the handle's own `metadata()` before the
+  read, or from what the capped read actually delivered if a file grew in between.
+- `NotARegularFile` - The document the walk named is not a regular file when it comes to be read.
+
+  The walk skips links and non-files; this refuses a document that became a non-regular file
+  after the walk. It is the handle actually about to be read, refused before any bytes are:
+  a document swapped for a device (or a symlink to one) after the walk would otherwise be a
+  zero-length file that reads forever. It does not refuse a symlink to a REGULAR file -
+  `std::fs::File::open` follows that, and such a document is read (bounded) - and a
+  swapped FIFO blocks its open rather than reaching this refusal.
 - `Digest`
 
 ### Implements

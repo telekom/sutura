@@ -20,9 +20,10 @@ use sutura_domain::pinned::DefinitionVersion;
 /// operator could write to say *read the model from somewhere else* - so a second catalog kind
 /// could merge complete and silently remain unreachable from any binary.
 ///
-/// Two variants today. [`Self::Datahub`] says which and why, the way `SourceKind::BigQuery` does for
+/// Five variants. [`Self::Datahub`] says which and why, the way `SourceKind::BigQuery` does for
 /// data systems: the vocabulary is the vocabulary of adapters this repository has, and an adapter
 /// that exists in a record rather than in a linked crate is still a word an operator might write.
+/// `#970` added the three declaring adapters that had a crate and no composition root.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CatalogKind {
     /// A directory of markdown documents with YAML frontmatter, read by `sutura-catalog-local`.
@@ -33,14 +34,33 @@ pub enum CatalogKind {
     Markdown,
     /// A metadata service, read through the adapter `docs/adr/0016` specifies and #114 builds.
     ///
-    /// **A declarable kind that no binary this repository ships can open yet, and that is
-    /// deliberate.** The vocabulary of kinds is the vocabulary of adapters *this repository has*
-    /// in its records, and the composition root refuses this kind by name for exactly the reason
-    /// `SourceKind::BigQuery` is refused: an operator who writes the word must be told the truth
-    /// (the adapter is not linked) rather than sent looking for a typo.
+    /// **Openable behind `sutura-cli`'s default-off `datahub` feature; a build without it refuses
+    /// this kind by name**, for exactly the reason `SourceKind::BigQuery` is refused: an operator
+    /// who writes the word must be told the truth (the adapter is not linked) rather than sent
+    /// looking for a typo.
     Datahub,
+    /// A directory of OKF Frictionless Table Schema descriptors, read by `sutura-catalog-okf`.
+    ///
+    /// The narrowest of the three declaring adapters `#970` names, and the only one whose reader
+    /// needs no service: one YAML document per table, on disk, like [`Self::Markdown`].
+    /// `sutura-catalog-okf` is an unconditional dependency of `sutura serve`, so this kind is
+    /// openable by every build of this binary.
+    Okf,
+    /// An `OpenMetadata` deployment, decided by `sutura-catalog-openmetadata` over its own
+    /// `SnapshotReader` port.
+    ///
+    /// **A declarable kind no binary this repository ships can open yet, and that is deliberate.**
+    /// The crate decides a whole metric against a fake reader; a reader over a real deployment is
+    /// the follow-up `#152` names, so the composition root refuses this kind by name until one
+    /// exists rather than opening the recorded fixture against a real deployment's name.
+    Openmetadata,
+    /// An RDBMS dictionary, decided by `sutura-catalog-rdbms` over a `DictionaryReader` port.
+    ///
+    /// **A declarable kind no binary this repository ships can open yet, for the identical reason
+    /// [`Self::Openmetadata`] states.** The crate decides the conversion against a recorded
+    /// dictionary; a reader over a real socket lands with `#972`.
+    Rdbms,
 }
-
 /// The configured word did not name a kind of catalog this build has.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("`{found}` does not name a kind of catalog - one of: {}", CatalogKind::NAMES.join(", "))]
@@ -50,13 +70,16 @@ pub struct UnknownCatalogKind {
 
 impl CatalogKind {
     /// Every accepted spelling, so a message and the parser cannot disagree.
-    pub const NAMES: &'static [&'static str] = &["markdown", "datahub"];
+    pub const NAMES: &'static [&'static str] = &["markdown", "datahub", "okf", "openmetadata", "rdbms"];
 
     /// Reads the configured word.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownCatalogKind> {
         match raw.as_ref().trim() {
             "markdown" => Ok(Self::Markdown),
             "datahub" => Ok(Self::Datahub),
+            "okf" => Ok(Self::Okf),
+            "openmetadata" => Ok(Self::Openmetadata),
+            "rdbms" => Ok(Self::Rdbms),
             other => Err(UnknownCatalogKind {
                 found: String::from(other),
             }),
@@ -70,6 +93,9 @@ impl CatalogKind {
         match self {
             Self::Markdown => "markdown",
             Self::Datahub => "datahub",
+            Self::Okf => "okf",
+            Self::Openmetadata => "openmetadata",
+            Self::Rdbms => "rdbms",
         }
     }
 }
@@ -356,6 +382,22 @@ mod tests {
             CatalogKind::parse(CatalogKind::Markdown.as_str()).expect("a spelling is a kind"),
             CatalogKind::Markdown
         );
+    }
+
+    #[test]
+    fn the_three_declaring_kinds_added_by_issue_970_parse_and_spell() {
+        // `#970` added `okf`/`openmetadata`/`rdbms` to the closed vocabulary: adapters with a
+        // crate and a recorded fixture and, at first, no composition root. Each parses and spells
+        // back its own word, and all five appear in `NAMES` so a refusal lists the whole set.
+        for (kind, word) in [
+            (CatalogKind::Okf, "okf"),
+            (CatalogKind::Openmetadata, "openmetadata"),
+            (CatalogKind::Rdbms, "rdbms"),
+        ] {
+            assert_eq!(CatalogKind::parse(word).expect("a new kind is a kind"), kind);
+            assert_eq!(kind.as_str(), word);
+            assert!(CatalogKind::NAMES.contains(&word), "{word} is not in NAMES");
+        }
     }
 
     #[test]
