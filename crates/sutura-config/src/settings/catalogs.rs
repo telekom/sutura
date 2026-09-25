@@ -8,8 +8,9 @@ use std::path::PathBuf;
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::DefinitionVersion;
 
-use crate::catalog::{CatalogKind, CatalogSettings, Catalogs};
-use crate::raw::RawSettings;
+use crate::catalog::{CatalogKind, CatalogSettings, Catalogs, InvalidCatalogSettings, RdbmsSettings};
+use crate::raw::{RawCatalog, RawSettings};
+use crate::sources::SourceRegistry;
 
 use super::SettingsError;
 
@@ -18,8 +19,9 @@ use super::SettingsError;
 /// `name` and `kind` are required here for the same reason a source's alias is: the contribution
 /// manifest keys on the name and the composition root dispatches the kind, so an entry that omits
 /// either is a declaration that cannot be opened. `kind` is parsed as a closed set; an absent one
-/// was already defaulted by the raw shape.
-pub(super) fn parse_catalogs(raw: &RawSettings) -> Result<Catalogs, SettingsError> {
+/// was already defaulted by the raw shape. `sources` is the parsed registry an rdbms entry's
+/// `source_alias` must name.
+pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Result<Catalogs, SettingsError> {
     let mut entries = Vec::with_capacity(raw.catalogs.len());
     for raw_catalog in &raw.catalogs {
         let name = SourceName::parse(&raw_catalog.name).map_err(|cause| SettingsError::CatalogName {
@@ -42,14 +44,25 @@ pub(super) fn parse_catalogs(raw: &RawSettings) -> Result<Catalogs, SettingsErro
             version,
         )
         .map_err(|cause| SettingsError::Catalog { cause })?;
-        // `okf`/`openmetadata`/`rdbms` carry no per-kind settings fields yet (only `datahub`
-        // does), so each reaches the plain parsed entry exactly as `markdown` does; `datahub`
-        // adds the three fields in a separate step so every other kind - the vast majority of
-        // every settings file written before issue #202 - never has to carry them.
+        // `datahub` and `rdbms` add their own fields in a separate step so every other kind never
+        // has to carry them, and every kind but `rdbms` refuses an rdbms key it would read past.
         // `CatalogKind::parse` already refused any other word, so this match is exhaustive over
         // what `kind` can be at this point.
+        if kind != CatalogKind::Rdbms {
+            refuse_rdbms_keys(&settings, raw_catalog)?;
+        }
         let settings = match kind {
-            CatalogKind::Markdown | CatalogKind::Okf | CatalogKind::Openmetadata | CatalogKind::Rdbms => settings,
+            CatalogKind::Markdown | CatalogKind::Okf | CatalogKind::Openmetadata => settings,
+            CatalogKind::Rdbms => {
+                let rdbms =
+                    RdbmsSettings::parse(settings.name(), raw_catalog, sources).map_err(|cause| SettingsError::Catalog {
+                        cause: InvalidCatalogSettings::Rdbms {
+                            name: settings.name().clone(),
+                            cause,
+                        },
+                    })?;
+                settings.with_rdbms(rdbms)
+            }
             CatalogKind::Datahub => {
                 let endpoint = raw_catalog.endpoint.clone().unwrap_or_default();
                 let token_file = raw_catalog.token_file.clone().unwrap_or_default();
@@ -72,4 +85,26 @@ pub(super) fn parse_catalogs(raw: &RawSettings) -> Result<Catalogs, SettingsErro
         entries.push(settings);
     }
     Catalogs::parse(entries).map_err(|cause| SettingsError::Catalog { cause })
+}
+
+/// Refuses an rdbms-only key on a catalog of another kind. The raw shape knows these keys, so
+/// `deny_unknown_fields` cannot catch one on the wrong kind - this does.
+fn refuse_rdbms_keys(settings: &CatalogSettings, raw: &RawCatalog) -> Result<(), SettingsError> {
+    let written = [
+        ("environment", raw.environment.is_some()),
+        ("live_row_predicate", raw.live_row_predicate.is_some()),
+        ("source_alias", raw.source_alias.is_some()),
+        ("max_dictionary_rows", raw.max_dictionary_rows.is_some()),
+        ("max_dictionary_bytes", raw.max_dictionary_bytes.is_some()),
+        ("connection", raw.connection.is_some()),
+    ];
+    match written.into_iter().find(|&(_, written)| written) {
+        Some((key, _)) => Err(SettingsError::Catalog {
+            cause: InvalidCatalogSettings::RdbmsKeyOnOtherKind {
+                name: settings.name().clone(),
+                key,
+            },
+        }),
+        None => Ok(()),
+    }
 }
