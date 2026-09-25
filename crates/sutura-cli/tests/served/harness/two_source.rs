@@ -83,6 +83,7 @@ const CHAINED_DIMENSION: &str = "  - name: sales_area\n    column: sales_area\n 
 /// and `two_kind`'s own deployments both do) makes hop 2 cross AGAIN, back onto the model's own
 /// source - `sutura_domain::catalog::Definitions::assemble` refuses that bundle by name, the same
 /// shape [`without_the_chained_dimension`] exists for. Called wherever `daily_usage.md` moves.
+#[cfg(feature = "postgres")]
 pub(crate) fn without_the_product_family_dimension(root: &Path) {
     let metric = root.join("metrics").join("voice_minutes.md");
     let text = std::fs::read_to_string(&metric).expect("the derived catalog carries the metric this case edits");
@@ -98,6 +99,7 @@ pub(crate) fn without_the_product_family_dimension(root: &Path) {
 }
 
 /// The block [`without_the_product_family_dimension`] removes, as `examples/single-player` writes it.
+#[cfg(feature = "postgres")]
 const PRODUCT_FAMILY_VIA_USAGE: &str = "dimensions:\n  - name: product_family\n    column: product_family\n    via: [usage_subscription, subscription_product]\n    values: [convergent, fixed_internet, mobile, tv]\n    description: >\n      The kind of product the subscription that used the minutes belongs to. Reached through\n      `usage_subscription` - the compound join from a usage day to the monthly snapshot -\n      and then on to the product. Grouping by it does not multiply the minutes, because the\n      compound key stops every usage day from joining every month that subscription existed.\n";
 
 /// The example catalog, copied, with one model moved off [`LOCAL_SOURCE`] onto `moved_to`.
