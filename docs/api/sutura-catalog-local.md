@@ -62,6 +62,8 @@ finer split is a cheap change if a caller ever needs the branch.
 
 - `NotADirectory`
 - `Io`
+- `Open` - An open, stat or read of a document through its descriptor failed in a way the OS described but `Self::Io`'s wording does not: a swapped symlink refuses with `ELOOP` and a swapped FIFO with `ENXIO`, and neither is "could not read".
+- `NotARegularFile` - The document opened is not a regular file - a device node, for one, is refused by the regular-file check on the handle that was opened, not by the walk, which only saw the entry that was there before the swap.
 - `Malformed`
 - `Frontmatter`
 - `MalformedFrontmatter`
@@ -103,9 +105,10 @@ finer split is a cheap change if a caller ever needs the branch.
 
   `path` is the catalog root, matching `TooManyDocuments` and `Empty` above - the rendered
   text names "the catalog", so the path in it has to be the catalog's, not one file's.
-  `document` is the one whose metadata pushed the running total over `limit` - checked from
-  its own size and INCLUDING it, before it is read into memory, not after. `found` is that
-  running total.
+  `document` is the one whose size pushed the running total over `limit` - checked on the
+  handle that is then read, and INCLUDING it, before it is read into memory, not after. A
+  document that outgrew that check while being read refuses here too. `found` is the
+  running total the refusal saw.
 - `Digest` - The domain could not hash the definitions.
 
   One variant rather than the two this used to have. Those two - the canonical form failing to
