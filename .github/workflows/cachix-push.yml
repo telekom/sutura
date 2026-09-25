@@ -150,6 +150,13 @@ jobs:
       # longer has a chance to substitute a copy this job built moments earlier. It has to build its
       # own now. This workflow reports no status-check context (see the job comment above), so the
       # cost sits entirely off the merge path.
+      #
+      # `checks.adbc-driver-bigquery` realises the four self-built ADBC driver triples and their
+      # cross Go toolchains, none of which the public cache carries. Unpublished, every `ci` run
+      # rebuilt them from source (78 of 78 logs sampled, ~3.6 min of the first stage), and
+      # `bigquery-driver-check`, `kind-smoke`, `demo-container` and `e2e` rebuilt them again. The
+      # driver is keyed on its flake input and `nix/`, not on this commit's source, so it is built
+      # here only when those move; every other push substitutes it and publishes nothing new.
       - name: Realise and publish the dependency and tool closures
         run: |
           set -eu
@@ -159,7 +166,8 @@ jobs:
             .#jscpd \
             .#checks.x86_64-linux.keycloak-tier \
             .#checks.x86_64-linux.postgres-tier \
-            .#checks.x86_64-linux.clickhouse-tier
+            .#checks.x86_64-linux.clickhouse-tier \
+            .#checks.x86_64-linux.adbc-driver-bigquery
 
   # PER-CONSUMER PUBLISH. Each consumer's closure goes to its OWN cache
   # (`sutura-cross-build` / `sutura-connectors`), each with its own 5 GB bucket, so one consumer's
