@@ -962,7 +962,11 @@ mod tests {
                      kind: \"rdbms\"\n    \
                      dir: \"{}\"\n    \
                      data_dir: \"{}\"\n    \
-                     version: \"{VERSION}\"\n\
+                     version: \"{VERSION}\"\n    \
+                     environment: \"test\"\n    \
+                     source_alias: \"{SOURCE}\"\n    \
+                     connection: {{host: \"127.0.0.1\", port: 5432, database: \"dictionary\", user: \"reader\", \
+                     password_file: \"/run/secrets/dictionary\", transport_mode: \"plaintext\"}}\n\
                  sources:\n  \
                    {SOURCE}:\n    \
                      kind: \"files\"\n    \
