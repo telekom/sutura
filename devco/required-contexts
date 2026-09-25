@@ -151,15 +151,16 @@ ci.yml:crap-comment
 # would leave it permanently pending.
 ci.yml:pr-cache
 
-# `keycloak-served-test`'s own classification (#983), so its START does not wait for the full `ci`
-# job to finish. It carries no `if:` at all - it reports on every pull request, push and
+# `keycloak-served-test`'s and `bigquery-driver-check`'s own classification (#983), so neither
+# leg's START waits for the full `ci` job to finish. It carries no `if:` at all - it reports on every pull request, push and
 # merge-group entry - and it reads no secret, so there is nothing here for a fork's pull request
 # to be denied. Advisory for the same reason `pr-cache` above is: nothing downstream needs its
 # result to be `[required]` for the leg it gates to stay covered - `ci-aggregate` (unchanged)
 # still decides what it demands of `keycloak-served-test` from `needs.ci.outputs.identity`, its
 # OWN read, never from this job's. This job's own `identity` output only ever WIDENS which pull
 # requests boot the JVM (`keycloak-served-test` reads it directly, see that entry below), never
-# narrows what `ci-aggregate` requires.
+# narrows what `ci-aggregate` requires. Its `data_source_bigquery` output is the same shape: read
+# by `bigquery-driver-check`, never by `ci-aggregate`.
 ci.yml:identity-classify
 
 # The provisioned-Keycloak leg-1 venue: `if: needs.identity-classify.outputs.identity == 'true'`
@@ -173,8 +174,10 @@ ci.yml:identity-classify
 # permanently-pending merge this file's header warns about.
 ci.yml:keycloak-served-test
 
-# The ADBC driver, executed rather than built: `if: needs.ci.outputs.data_source_bigquery ==
-# 'true'`, so it reports nothing on a pull request whose diff does not touch that category - the
+# The ADBC driver, executed rather than built: `if:` on
+# `needs.identity-classify.outputs.data_source_bigquery` (moved off `ci`'s copy of the flag the
+# way #983 moved `keycloak-served-test`; `ci-aggregate` still reads `ci`'s), so it reports nothing
+# on a pull request whose diff does not touch that category - the
 # same reason `keycloak-served-test` above is advisory rather than required, and the same reason it
 # is nonetheless GATED: `ci-aggregate` holds run-or-fail for it, and `ci-aggregate` is a required
 # context. It reads no secret and needs no environment, so a fork's pull request can run it when

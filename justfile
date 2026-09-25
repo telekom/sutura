@@ -240,7 +240,8 @@ ci:
     # adbc-driver-bigquery IS in this list: it is the one venue that realises the four cross
     # `libadbc_driver_bigquery.so` builds (review telekom/sutura#913 round 1 found no gate built the
     # driver), so a broken driver triple reds this task like any other gate check.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery; do
+    # adbc-driver-postgresql is in it for the same reason, over the four C++ driver builds.
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L
     done
