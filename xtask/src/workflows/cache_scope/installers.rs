@@ -9,7 +9,7 @@
 //! event. This module reads the EFFECT instead - can two installer steps in one job both admit
 //! one event, or (review finding 4) can a job that runs `nix` admit an event with NONE.
 //!
-//! **A closed vocabulary, not a general expression evaluator.** [`admits`] recognises exactly the
+//! **A closed vocabulary, not a general expression evaluator.** `admits` recognises exactly the
 //! two shapes this repository writes - no gate at all, and `github.event_name == '<value>'` or
 //! `!= '<value>'` with extra `&&` conjuncts - and refuses to guess on anything wider: a `||`
 //! anywhere, or a gate this cannot parse, is read as admitting every event. That is the direction
@@ -33,10 +33,7 @@ use super::Step;
 const INSTALLER: &str = "cachix/install-nix-action";
 
 /// Every event a workflow step's `if:` can test in this repository.
-///
-/// `pub(super)` - [`super::publish_scope`] (#1000) walks the same three events over the same
-/// job-admission question, over a different step.
-pub(super) const EVENTS: [&str; 3] = ["push", "pull_request", "merge_group"];
+const EVENTS: [&str; 3] = ["push", "pull_request", "merge_group"];
 
 /// One workflow file's label and text, named for `clippy::type_complexity`'s sake - the same
 /// reason `nix_block::Block` exists.
@@ -44,12 +41,10 @@ type WorkflowFile = (String, String);
 
 /// Every `.yml`/`.yaml` file directly under `.github/workflows`, read and labelled.
 ///
-/// `Err` on anything [`crate::repo::census::Census::inspect`] itself refuses (an unreachable
-/// subtree, an empty discovery) - fails closed rather than silently checking a partial tree, the
-/// same direction [`super::super::contexts::OrdinaryCi::read`] takes for its own narrower set.
-///
-/// `pub(super)` - [`super::publish_scope`] needs the identical file set.
-pub(super) fn every_workflow_file(root: &Path) -> Result<Vec<WorkflowFile>, String> {
+/// `Err` on anything [`crate::repo::Census::inspect`] itself refuses (an unreachable subtree, an
+/// empty discovery) - fails closed rather than silently checking a partial tree, the same
+/// direction [`super::super::contexts::OrdinaryCi::read`] takes for its own narrower set.
+fn every_workflow_file(root: &Path) -> Result<Vec<WorkflowFile>, String> {
     let census = crate::repo::collect_files(root, &root.join(".github/workflows"), &["yml", "yaml"]);
     let mut found = Vec::new();
     census
@@ -148,9 +143,7 @@ fn judge(files: &[(&str, &str)]) -> Vec<String> {
 /// that narrows further with a later conjunct still starts from "admits", never from "excludes".
 /// Compared `eq_ignore_ascii_case`: GitHub Actions compares strings case-insensitively, so a gate
 /// spelled `'Push'` still admits `push`.
-///
-/// `pub(super)` - [`super::publish_scope`] asks the same question of a job's `if:`.
-pub(super) fn admits(gate: Option<&str>, event: &str) -> bool {
+fn admits(gate: Option<&str>, event: &str) -> bool {
     let Some(gate) = gate else { return true };
     if gate.contains("||") {
         return true;
@@ -179,9 +172,7 @@ pub(super) fn admits(gate: Option<&str>, event: &str) -> bool {
 /// the job entirely and could match a LATER job's `if:` at the same depth as its own.
 /// `start` is also the first line of the body (one past the job's `<name>:` header), so the
 /// header's own depth - and therefore the body's key depth - is read off the line before it.
-///
-/// `pub(super)` - [`super::publish_scope`] needs the same job-level gate.
-pub(super) fn job_if(lines: &[&str], start: usize, end: usize) -> Option<String> {
+fn job_if(lines: &[&str], start: usize, end: usize) -> Option<String> {
     let header = lines.get(start.checked_sub(1)?)?;
     let scope = header.len().saturating_sub(header.trim_start().len()).saturating_add(2);
     for line in lines.get(start..end).into_iter().flatten() {
@@ -209,9 +200,7 @@ pub(super) fn job_if(lines: &[&str], start: usize, end: usize) -> Option<String>
 ///
 /// A second, narrower walk rather than a shared one: that function takes a STEP LINE and returns
 /// the one span containing it, which is the wrong shape for a caller that wants every span.
-///
-/// `pub(super)` - [`super::publish_scope`] walks the same job spans.
-pub(super) fn jobs(text: &str) -> Vec<(usize, usize)> {
+fn jobs(text: &str) -> Vec<(usize, usize)> {
     let lines: Vec<&str> = text.lines().collect();
     let mut spans = Vec::new();
     for (index, line) in lines.iter().enumerate() {
