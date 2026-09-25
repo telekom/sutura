@@ -1,15 +1,19 @@
+//! Moved here verbatim from `sutura-catalog-datahub`'s own `src/http/tests.rs` when [`Endpoint`]
+//! itself moved (issue #970's review) - `sutura-catalog-openmetadata` carried a byte-for-byte copy
+//! of the same cells (different example hostnames only), which is exactly the duplication this
+//! crate exists to end. One copy now proves the grammar for both readers.
+
 use super::{Endpoint, InvalidEndpoint};
 
 /// **The reviewer's own probe shape, held as a cell rather than a scratch file.** A non-loopback
-/// `http://` endpoint is refused HERE, at construction - `HttpAspectReader::new` cannot be
-/// called with a `String` at all, so there is no later point where this endpoint could be
-/// dialled with the bearer prepared.
+/// `http://` endpoint is refused HERE, at construction - a reader cannot be built from a `String`
+/// at all, so there is no later point where this endpoint could be dialled with a bearer prepared.
 #[test]
 fn a_plaintext_endpoint_beyond_loopback_is_refused_by_name() {
     assert_eq!(
-        Endpoint::parse("http://datahub.example.internal"),
+        Endpoint::parse("http://catalog.example.internal"),
         Err(InvalidEndpoint::PlaintextBeyondLoopback {
-            host: String::from("datahub.example.internal")
+            host: String::from("catalog.example.internal")
         })
     );
 }
@@ -41,25 +45,25 @@ fn a_plaintext_endpoint_to_an_ip_loopback_literal_is_accepted() {
 #[test]
 fn an_https_endpoint_is_accepted_for_any_host() {
     assert_eq!(
-        Endpoint::parse("https://datahub.example.internal").map(|e| e.as_str().to_owned()),
-        Ok(String::from("https://datahub.example.internal"))
+        Endpoint::parse("https://catalog.example.internal").map(|e| e.as_str().to_owned()),
+        Ok(String::from("https://catalog.example.internal"))
     );
 }
 
 #[test]
 fn a_trailing_slash_is_normalised_away() {
     assert_eq!(
-        Endpoint::parse("https://datahub.example/").map(|e| e.as_str().to_owned()),
-        Ok(String::from("https://datahub.example"))
+        Endpoint::parse("https://catalog.example/").map(|e| e.as_str().to_owned()),
+        Ok(String::from("https://catalog.example"))
     );
 }
 
 #[test]
 fn a_url_naming_neither_scheme_is_refused() {
     assert_eq!(
-        Endpoint::parse("ftp://datahub.example"),
+        Endpoint::parse("ftp://catalog.example"),
         Err(InvalidEndpoint::NotAnHttpUrl {
-            given: String::from("ftp://datahub.example")
+            given: String::from("ftp://catalog.example")
         })
     );
 }
@@ -115,9 +119,9 @@ fn a_fragment_is_refused_rather_than_silently_dropped() {
         })
     );
     assert_eq!(
-        Endpoint::parse("https://datahub.example#"),
+        Endpoint::parse("https://catalog.example#"),
         Err(InvalidEndpoint::PathBeyondRoot {
-            given: String::from("https://datahub.example#")
+            given: String::from("https://catalog.example#")
         })
     );
 }
@@ -147,13 +151,13 @@ fn a_path_is_refused_rather_than_silently_dropped() {
 }
 
 /// Credentials in the URL are refused over `https://` too, not only over plaintext - there is
-/// no legitimate use for them in a declared `DataHub` endpoint either way.
+/// no legitimate use for them in a declared catalog endpoint either way.
 #[test]
 fn credentials_over_https_are_refused_too() {
     assert_eq!(
-        Endpoint::parse("https://user:pw@datahub.example"),
+        Endpoint::parse("https://user:pw@catalog.example"),
         Err(InvalidEndpoint::CredentialsInUrl {
-            given: String::from("https://user:pw@datahub.example")
+            given: String::from("https://user:pw@catalog.example")
         })
     );
 }

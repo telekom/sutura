@@ -104,6 +104,18 @@ oracle = ["dep:sutura-exec-oracle"]
 # feature is what an operator building `sutura` types.
 datahub = ["dep:sutura-catalog-datahub", "sutura-catalog-datahub/http"]
 
+# The OpenMetadata metadata adapter's HTTP reader (issue #152), for `sutura serve`'s
+# `catalog.kind: openmetadata`, and with it the outbound HTTP stack that reader needs.
+#
+# **Default-off for the same ARTEFACT reason `bigquery` above is.** `sutura-catalog-openmetadata`
+# already has a non-optional `ureq` DEV-dependency (its own reader tests), so this feature adds no
+# new edge into the outbound TLS closure at the four cross builds' shared dependency derivation.
+#
+# `sutura-catalog-openmetadata/http` rather than a bare feature name on the dependency alone,
+# mirroring `datahub` above: the adapter crate's own feature gates its reader module, and this
+# crate's feature is what an operator building `sutura` types.
+openmetadata = ["dep:sutura-catalog-openmetadata", "sutura-catalog-openmetadata/http"]
+
 # The agent surface: `sutura-mcp`'s streamable-HTTP transport, mounted by the composition root at
 # `sutura serve`'s `/mcp`.
 #
@@ -179,6 +191,10 @@ sutura-exec-oracle = { workspace = true, optional = true }
 # The DataHub metadata adapter, behind the `datahub` feature above. Optional for the same reason
 # `sutura-exec-bigquery` is: absent, not merely unused, from a build that did not ask for it.
 sutura-catalog-datahub = { workspace = true, optional = true }
+# The OpenMetadata metadata adapter, behind the `openmetadata` feature above. Optional for the same
+# reason `sutura-catalog-datahub` is: absent, not merely unused, from a build that did not ask for
+# it - the outbound HTTP stack that comes with it stays out of the default build.
+sutura-catalog-openmetadata = { workspace = true, optional = true }
 # The OKF metadata adapter. **A normal dependency, not an optional one**, for the same reason
 # `sutura-catalog-local` is: it is a pure directory read with no native or outbound-TLS
 # dependency, so it cross-compiles to musl and there is no artefact reason to hold it out of the

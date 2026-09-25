@@ -92,8 +92,6 @@ pub mod fixture;
 pub mod http;
 #[cfg(feature = "http")]
 pub mod test_support;
-#[cfg(feature = "http")]
-mod tls_roots;
 
 use std::collections::BTreeMap;
 

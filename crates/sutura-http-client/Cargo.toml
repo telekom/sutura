@@ -1,0 +1,39 @@
+[package]
+name = "sutura-http-client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "The bounded, TLS-rotating ureq client sutura-catalog-datahub's and sutura-catalog-openmetadata's HTTP readers share: endpoint validation, a shared deadline, and the TLS anchor fold - extracted under issue #970 once a second catalog HTTP reader made the two byte-for-byte identical (cargo xtask check-jscpd)."
+
+[features]
+# The loopback fake a reader's OWN tests need, `pub` so the readers do not each carry a byte-for-byte
+# copy - see `src/test_support.rs`'s own header for why this is a feature and not `#[cfg(test)]`.
+# Folded into each consumer's `http` feature, the same "dead code in a shipped --features http
+# binary, never called by production composition" trade `sutura-catalog-datahub::test_support`
+# already made before this crate existed.
+test = []
+# The TLS loopback harness (`rcgen`-issued leaf, a real `rustls::ServerConnection`) a reader's own
+# `tests/http_reader.rs::tls_anchors` cells need. Unlike `test` above, NOTHING outside a
+# crate's own test binary needs this - `sutura-cli`'s served suite only dials the plaintext fake -
+# so it stays a dev-dependency-only feature and never folds into `http`: no rustls/rcgen object code
+# reaches a `--features http` build that did not already carry rustls transitively through `ureq`.
+tls-test = ["test", "dep:rcgen", "dep:rustls"]
+
+[dependencies]
+sutura-domain = { workspace = true }
+sutura-tls = { workspace = true }
+thiserror = { workspace = true }
+ureq = { workspace = true }
+base64 = { workspace = true }
+# `test_support::Scripted` bodies only - the same already-resolved dependency every reader crate
+# carries unconditionally.
+serde_json = { workspace = true }
+rcgen = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+
+[lints]
+workspace = true

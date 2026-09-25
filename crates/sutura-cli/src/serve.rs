@@ -88,8 +88,10 @@ mod kind;
 #[cfg(feature = "agent")]
 mod agent;
 
-/// `security.outbound`, resolved once at boot - `github.com/telekom/sutura#125`/`#911`.
-mod outbound;
+/// `security.outbound`, resolved once at boot - `github.com/telekom/sutura#125`/`#911`. `pub(crate)`
+/// since issue #970: `sutura mcp` reads the same declaration to open its own catalog and source
+/// wire, through `crate::serve::outbound::resolve`.
+pub(crate) mod outbound;
 
 /// Re-reading a declared catalog on `catalogs[].refresh_seconds` and re-pinning it - `#975`.
 mod refresh;

@@ -20,7 +20,7 @@ use sutura_config::Settings;
 /// reader for the loaded value (see `super::bigquery::open_bigquery`'s refusal for the parallel case:
 /// a declared `kind: bigquery` with no linked adapter), which is a stated limit rather than a second
 /// refusal this settings crate cannot see the feature set to make.
-pub(super) fn resolve(settings: &Settings) -> Result<Option<sutura_tls::Declared>, String> {
+pub(crate) fn resolve(settings: &Settings) -> Result<Option<sutura_tls::Declared>, String> {
     let Some(declared) = settings.security().outbound() else {
         return Ok(None);
     };
