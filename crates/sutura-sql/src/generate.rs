@@ -57,7 +57,7 @@
 
 use polyglot_sql::DialectType;
 use polyglot_sql::builder::{self, Expr, SelectBuilder};
-use polyglot_sql::expressions::{Expression, Ordered, Parameter, ParameterStyle, Placeholder, Raw, Tuple};
+use polyglot_sql::expressions::{Expression, Fetch, Literal, Ordered, Parameter, ParameterStyle, Placeholder, Raw, Tuple};
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, ColumnName, Grain, JoinType, Qualification, QualifiedTable, TableName};
 use sutura_domain::plan::{
@@ -696,7 +696,7 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
         ),
         None => (tiebreak, usize::try_from(plan.row_limit()).unwrap_or(usize::MAX)),
     };
-    let ast = statement
+    let mut ast = statement
         .where_(where_clause)
         .group_by(grouping)
         // Ordered by what it groups by, so two runs of one question return rows in one order.
@@ -706,6 +706,23 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
         .order_by(ordering)
         .limit(limit)
         .build();
+    // Oracle refuses `LIMIT n` (`ORA-03049`) and takes `FETCH FIRST n ROWS ONLY`. The dialect
+    // layer's `generate_limit` writes `LIMIT` for every target - its `limit_fetch_style` setting is
+    // read by neither `generate_limit` nor `generate_fetch` in the pinned release - so for Oracle the
+    // limit moves onto the `Fetch` node, which that layer renders as `FETCH FIRST`. Every other
+    // dialect keeps the `Limit` node. `github.com/telekom/sutura#127`
+    if dialect == Dialect::Oracle
+        && let Expression::Select(select) = &mut ast
+    {
+        select.limit = None;
+        select.fetch = Some(Fetch {
+            direction: "FIRST".to_owned(),
+            count: Some(Expression::Literal(Box::new(Literal::Number(limit.to_string())))),
+            percent: false,
+            rows: true,
+            with_ties: false,
+        });
+    }
 
     Ok(GeneratedQuery::new(
         plan.source().clone(),
