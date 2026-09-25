@@ -3710,14 +3710,28 @@ headroom.</strong> <code>sutura_spend_headroom_bytes</code> (<code>#884</code>) 
 resets to the full ceiling on every restart, and <code>sum()</code> over N replicas is <code>N * ceiling -
 total_spend</code>, a number that moves whenever N does. This total only grows, so
 <code>sum(rate(sutura_spend_bytes_total[5m]))</code> is correct across a restart (a monitoring
-system's counter-reset handling) and across a changing replica count - <code>docs/adr/0030</code>'s
-owner decision, 2026-09-18: aggregation belongs to the monitoring system, never to
-enforcement, which stays per-replica either way.</p>
-<p><strong>Not yet exported as a metric.</strong> No <code>Surface</code>/<code>ServiceState</code> accessor reaches this method
-today - <code>sutura_spend_bytes_total</code>'s registration and push are sequenced behind
-<code>github.com/telekom/sutura#921</code>, which is already touching the same <code>ServiceState</code> fields
-this counter's gauge sibling lives beside. This method is the mechanism the wiring will
-call; it is proven directly, against the ledger, until that lands.</p>
+system's counter-reset handling) and across a changing replica count - the owner decision
+<code>docs/adr/0030</code>'s amendment records, 2026-09-18: aggregation belongs to the monitoring
+system, never to enforcement, which stays per-replica either way.</p>
+<p><strong>Exported as <code>sutura_spend_bytes_total</code> by both transports, by different routes.</strong>
+<code>sutura_http::ServiceState::new</code> (<code>sutura-http</code>) registers the counter beside the
+<code>sutura_spend_headroom_bytes</code> gauge. <code>POST /v1/query</code>'s post-answer poll pushes it through
+the state's own <code>record_spend_headroom</code>; the agent surface raises it through the
+<code>SpendHeadroomPush</code> handle the composition root hands its <code>Serving</code> wrapper - the HTTP
+route never touches that handle. The <code>/metrics</code> scrape renders it.</p>
+<p><strong>Registered only where a ceiling is configured:</strong> <code>Some</code> here is the registration
+condition, so an unconfigured deployment exports neither series - absent rather than zero,
+the same discipline the gauge applies.</p>
+<p><strong>Limit: on every deployment that can boot with a ceiling today, this series reads 0
+forever.</strong> A ledger charges a <code>None</code> estimate nothing, and the adapters that can boot
+under <code>governance.per_replica_spend_ceiling</code> cannot price a dry run: a <code>bigquery</code> source
+beside the ceiling is refused at boot
+(<code>NotFitToServe::UnpricedSourceUnderSpendCeiling</code>), so no
+priced adapter can be served with one; <code>DuckDB</code> and Postgres answer
+<code>PreFlight::Accepted { estimated_bytes: None }</code>, and <code>ClickHouse</code> and Oracle take the port's
+own default <code>PreFlight::NotAsked</code>. A dashboard reading <code>sum(rate(...))</code> of zero here
+therefore cannot distinguish "nothing was spent" from "no call was ever priced" - see
+<code>docs/adr/0030</code>'s amendment for the same sentence.</p>
 
 
 
