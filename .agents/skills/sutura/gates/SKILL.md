@@ -1149,9 +1149,16 @@ exiting 0 with *ok - claim cells: N declared, N killed*; a PARTIALLY declared se
 refusal - naming only the undeclared remainder - because there is no ordinary proof to run for the
 rest on this arm.
 *tests changed but no implementation did* is retired as a verdict string: nothing prints it any
-more. **The limit stated where the fix landed:** this asks only about an ADDED test - a changed
-assertion inside an EXISTING test, in a file whose production code did not change, still reaches
-`no changed tests - nothing to prove` untouched, tracked as its own follow-up.
+more. **The limit stated where the fix landed narrowed under `github.com/telekom/sutura#1025`:**
+`Scan::of` used to ask only about an ADDED test, so a changed assertion inside an EXISTING test, in
+a file whose production code did not change, reached `no changed tests - nothing to prove`
+untouched. `causality::edited` now names that test too - from the PRE-existing `#[test]` down to
+the item an added line lands inside, the same brace-balancing walk `regions::cfg_test_regions`
+already does for a `#[cfg(test)]` marker - so it reaches this same tests-only arm (or the
+`Plan::NotSeparable` claim arm, if the same file also carries an implementation change). **What is
+still not reached:** a pure DELETION of an assertion, with no line added in its place, names
+nothing either way - `causality::edited`'s own header states why that is not casually fixed
+(reading the PRE-image correctly needs it threaded into `causality::plan`, which does not have it).
 
 **AND READ THE COUNT WITH THE VERDICT, never on its own.** `N of N added tests measured` beside an
 INCONCLUSIVE line means the filterset NAMED N tests, not that any of them ran against base. #307

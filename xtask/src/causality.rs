@@ -97,6 +97,7 @@ mod base;
 mod claim;
 mod coverage;
 mod diff;
+mod edited;
 mod features;
 #[cfg(test)]
 mod fixtures;
@@ -466,10 +467,13 @@ fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], rea
 /// covers everything - there is no ordinary proof to compose it with here, because nothing was
 /// reverted for one to run against.
 ///
-/// **THE LIMIT.** This reads only ADDED tests - `Scan::of`'s own scope, an added `#[test]`
-/// attribute or test-module declaration. An assertion edited inside an EXISTING test, in a file
-/// whose production code did not change, reaches `Plan::NotRequired` instead and is not this
-/// arm's to catch; `github.com/telekom/sutura#1016`'s own second finding tracks it as a follow-up.
+/// **THE LIMIT, NARROWED BY `github.com/telekom/sutura#1025`.** `Scan::of` used to read only
+/// ADDED tests - an added `#[test]` attribute or test-module declaration - so an assertion edited
+/// inside an EXISTING test, in a file whose production code did not change, reached
+/// `Plan::NotRequired` untouched. `super::edited` now names that test too, from the PRE-existing
+/// attribute rather than an added one, so it reaches this same arm. What is still not reached: a
+/// pure DELETION of an assertion, which adds no line either extractor can find - `super::edited`'s
+/// own header states why that is not casually fixed.
 fn tests_only(
     root: &Path,
     at: &Commit,
