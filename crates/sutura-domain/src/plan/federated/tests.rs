@@ -37,6 +37,7 @@ fn a_plan_with_two_legs_on_one_source_does_not_construct() {
         ResultLabel::measure(&metric("revenue")),
         bucket(),
         lookup_leg(),
+        None,
         lookup_leg(),
         true,
         Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents"))),
@@ -94,6 +95,7 @@ fn a_plan_whose_legs_do_not_project_the_link_does_not_construct() {
         ResultLabel::measure(&metric("revenue")),
         bucket(),
         fact_leg(Vec::new()),
+        None,
         unlinked,
         true,
         Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents"))),
@@ -131,6 +133,7 @@ fn a_fact_leg_that_does_not_project_the_link_does_not_construct_either() {
         ResultLabel::measure(&metric("revenue")),
         bucket(),
         unlinked,
+        None,
         lookup_leg(),
         true,
         Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents"))),
@@ -161,6 +164,7 @@ fn a_bucket_that_does_not_match_the_fact_legs_own_does_not_construct() {
         ResultLabel::measure(&metric("revenue")),
         mismatched_bucket,
         fact_leg(terms_for(&federation)),
+        None,
         lookup_leg(),
         true,
         federation,
@@ -181,6 +185,7 @@ fn fact_terms_that_do_not_match_the_federations_labels_do_not_construct() {
         ResultLabel::measure(&metric("revenue")),
         bucket(),
         fact_leg(Vec::new()),
+        None,
         lookup_leg(),
         true,
         federation,
@@ -199,6 +204,7 @@ fn matching_bucket_and_terms_construct_the_negative_control() {
         ResultLabel::measure(&metric("revenue")),
         bucket(),
         fact_leg(terms_for(&federation)),
+        None,
         lookup_leg(),
         true,
         federation,
@@ -242,5 +248,120 @@ fn a_carried_leaf_that_reaggregates_constructs() {
     assert!(
         try_plan_for("revenue", &Measure::Simple(term(Aggregate::Sum, "mrr_cents")), true).is_ok(),
         "a sum re-aggregates with a sum"
+    );
+}
+
+/// A second fact leg over the same source as the first is a no-op second leg, not a federated
+/// question - refused at construction so the two facts never share a `FROM` by mistake.
+#[test]
+fn a_second_fact_on_the_same_source_as_the_first_does_not_construct() {
+    let federation = Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));
+    let same_source = LegPlan::Fact {
+        source: source(FACT_SOURCE),
+        metric: metric("revenue"),
+        tables: StatementTables::only(table(FACT)),
+        bucket: bucket(),
+        keys: vec![key("product_family", FACT), link_key(FACT)],
+        terms: Vec::new(),
+        bindings: PlanBindings::none(),
+        range: range(),
+    };
+    let plan = FederatedPlan::new(
+        metric("revenue"),
+        ResultLabel::measure(&metric("revenue")),
+        bucket(),
+        fact_leg(terms_for(&federation)),
+        Some(same_source),
+        lookup_leg(),
+        true,
+        federation,
+        Vec::new(),
+    );
+    assert!(
+        matches!(plan, Err(FederatedPlanError::FactsOnSameSource { .. })),
+        "a second fact on the same source is not a plan, got {plan:?}"
+    );
+}
+
+/// Two fact legs that share no key label cannot be joined above - the chasm-trap guard as a type
+/// refusal. Without a shared dimension key the combined answer is not one certified number but two
+/// unrelated row sets, so the plan does not exist.
+#[test]
+fn two_facts_that_share_no_key_do_not_construct() {
+    let federation = Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));
+    let plan = FederatedPlan::new(
+        metric("revenue"),
+        ResultLabel::measure(&metric("revenue")),
+        bucket(),
+        fact_leg(terms_for(&federation)),
+        Some(second_fact_leg_with_no_shared_key()),
+        lookup_leg(),
+        true,
+        federation,
+        Vec::new(),
+    );
+    assert!(
+        matches!(plan, Err(FederatedPlanError::FactsShareNoKey)),
+        "two facts sharing no key is the chasm trap, got {plan:?}"
+    );
+}
+
+/// A second fact leg over a different source that shares a key with the first constructs - the
+/// positive control for the two guards above.
+#[test]
+fn two_facts_sharing_a_key_with_a_lookup_construct() {
+    let federation = Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));
+    let plan = FederatedPlan::new(
+        metric("revenue"),
+        ResultLabel::measure(&metric("revenue")),
+        bucket(),
+        fact_leg(terms_for(&federation)),
+        Some(second_fact_leg()),
+        lookup_leg(),
+        true,
+        federation,
+        Vec::new(),
+    );
+    assert!(plan.is_ok(), "two facts sharing a key and a lookup is a plan, got {plan:?}");
+}
+
+/// The three-leg surface: `legs()` returns the second fact leg between the first fact and the
+/// lookup, each under its own source name. A two-fact plan's third leg is a `Fact` over the
+/// second fact's source, distinct from the lookup's source and the first fact's. This pins the
+/// `legs() -> Vec` change (from `[&LegPlan; 2]` to `Vec`) against a regression that silently
+/// drops the second fact or renders it under the lookup's source. The full SQL rendering of a
+/// second fact leg is out of scope here: `golden/legs.rs` renders one leg at a time through
+/// `generate_leg`, and a second `Fact` reuses the same `generate_leg` path the first one does.
+#[test]
+fn a_two_fact_plan_legs_lists_the_second_fact_under_its_own_source() {
+    let federation = Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));
+    let plan = FederatedPlan::new(
+        metric("revenue"),
+        ResultLabel::measure(&metric("revenue")),
+        bucket(),
+        fact_leg(terms_for(&federation)),
+        Some(second_fact_leg()),
+        lookup_leg(),
+        true,
+        federation,
+        Vec::new(),
+    )
+    .expect("a valid three-leg plan");
+    let legs = plan.legs();
+    assert_eq!(legs.len(), 3, "a two-fact plan has three legs: {legs:?}");
+    // Execution order: first fact, second fact, lookup.
+    assert_eq!(legs[0].source().as_str(), "facts", "the first leg is the metric's own fact");
+    assert_eq!(
+        legs[1].source().as_str(),
+        "second",
+        "the second leg is the second fact under its own source"
+    );
+    assert_eq!(legs[2].source().as_str(), "geo", "the third leg is the lookup");
+    // The second fact leg IS a Fact, not a Lookup - that is the surface change: the third
+    // position in `legs()` is a second `Fact` rather than a second `Lookup`.
+    assert!(
+        matches!(legs[1], LegPlan::Fact { .. }),
+        "the second fact leg is a Fact, not a Lookup: {:?}",
+        legs[1]
     );
 }

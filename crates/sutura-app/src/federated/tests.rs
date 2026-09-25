@@ -85,6 +85,7 @@ fn federated_plan() -> sutura_domain::plan::FederatedPlan {
         ResultLabel::measure(&metric()),
         bucket("month"),
         fact,
+        None,
         lookup,
         true,
         federation,
@@ -278,6 +279,11 @@ mod leg_refusal_test;
 /// Case 2's own cells, split out for the same `max-lines` reason - see the module's own header.
 #[cfg(test)]
 mod top_test;
+/// The cross-model ratio's own cells (`telekom/sutura#780`), split out for the same `max-lines`
+/// reason `top_test` was. `#[cfg(test)]` is redundant under this file's own gate and present for
+/// the same `test-causality` reason the submodules above state.
+#[cfg(test)]
+mod two_fact_test;
 
 #[test]
 fn a_federated_fact_preflight_refusal_is_not_a_partial_answer() {

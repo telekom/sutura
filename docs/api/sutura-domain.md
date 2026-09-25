@@ -2746,6 +2746,18 @@ Does this leg carry rows at the fact grain rather than one row per group?
 The price of the pull-up, and the quantity worth logging: it is the difference between a leg
 returning one row per group and one row per distinct key.
 
+```rust
+pub const fn model(&self) -> Option<&ModelName>
+```
+
+The model this leaf reads, copied from the term by `descend`.
+
+`None` for every term written before `telekom/sutura#780`'s vocabulary (`AggregatedColumn::new`
+sets no model). A term that names a model explicitly - including the metric's own - carries
+`Some`, because `descend` has no metric to compare against and copies the field. The combiner
+reads a `Some` leaf off the second fact leg only when the plan carries one; a splitter that
+builds a second fact leg must first erase the metric's own model to `None`, and none does yet.
+
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
@@ -7118,6 +7130,10 @@ Which leg's result an answer key is read from.
 
 Both legs' results, which cannot hold two of one side and cannot be built with them swapped.
 
+A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a third result
+from a second fact model, joined above on the link and the time bucket. The combiner reads it
+through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names.
+
 Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
 so an owned pair would say *moved* about something that is shared either way.
@@ -7127,9 +7143,8 @@ so an owned pair would say *moved* about something that is shared either way.
 Two leg results that name the same side, so there is no pair to combine.
 
 Unreachable through `sutura_app`'s federated path, which builds one `LegResult` per
-`FederatedPlan::legs` entry and that method returns the two variants by construction. Typed
-anyway rather than assumed away: it is the one thing `Legs::of` cannot answer, and a silent
-choice between two facts would combine a leg with itself.
+`FederatedPlan::legs` entry. Typed anyway rather than assumed away: it is the one thing
+`Legs::of` cannot answer, and a silent choice between two facts would combine a leg with itself.
 
 ### `use labels`
 
@@ -7866,10 +7881,14 @@ pub fn keys(&self) -> &[AnswerKey]
 The answer's group-by keys, in question order.
 
 ```rust
-pub const fn legs(&self) -> [&LegPlan; 2]
+pub fn legs(&self) -> Vec<&LegPlan>
 ```
 
-Every leg, in execution order: the fact leg, then the lookup leg.
+Every leg, in execution order: the fact leg, the second fact leg if present, then the
+lookup leg.
+
+A two-fact plan (`telekom/sutura#780`) carries a third leg; the combiner joins it on the
+link and the time bucket above the port.
 
 ```rust
 pub const fn lookup(&self) -> &LegPlan
@@ -7890,7 +7909,7 @@ pub const fn metric(&self) -> &MetricName
 The metric this answer is measured in.
 
 ```rust
-pub fn new(metric: MetricName, measure_label: ResultLabel, bucket: PlanBucket, fact: LegPlan, lookup: LegPlan, include_unmatched: bool, federation: Federation, keys: Vec<AnswerKey>) -> Result<Self, FederatedPlanError>
+pub fn new(metric: MetricName, measure_label: ResultLabel, bucket: PlanBucket, fact: LegPlan, second_fact: Option<LegPlan>, lookup: LegPlan, include_unmatched: bool, federation: Federation, keys: Vec<AnswerKey>) -> Result<Self, FederatedPlanError>
 ```
 
 Constructs a federated plan from its two legs and the answer's key order.
@@ -7925,6 +7944,14 @@ whose contract it reads, not with a value of it.
 **Nulls sort last regardless of `TopDirection`**, the same contract
 `sutura_sql::generate`'s own `ordered_nulls_last` states for the rendered path: a null means
 there was nothing to rank, and that sorts after every value either way.
+
+```rust
+pub const fn second_fact(&self) -> Option<&LegPlan>
+```
+
+The second fact leg, when the measure's ratio terms name two fact models.
+
+`None` for every plan a question produces today - see `FederatedPlanError::FactsShareNoKey`.
 
 ```rust
 pub fn sources(&self) -> impl Iterator<Item> + '_
@@ -8037,6 +8064,21 @@ Why a federated plan could not be built.
 
   Same reason as `BucketMismatch`: the one production splitter derives
   both from `labels(&federation)` in one pass.
+- `FactsOnSameSource` - The second fact leg names the same data system as the first, so it is a no-op second leg rather than a second fact over a different model.
+
+  `telekom/sutura#780`: a cross-model ratio's two facts must read two sources, because each
+  source is a separate identity to satisfy and the chasm trap is impossible only when the two
+  facts never share a `FROM`. Same reachability limit as
+  `FactsShareNoKey`: no question reaches this guard yet.
+- `FactsShareNoKey` - Two fact legs share no key label, so the join above them is impossible.
+
+  The chasm-trap guard as a type refusal: without a shared dimension key to join on, a
+  combined answer is not a certified number but two unrelated row sets, so the plan does not
+  exist rather than producing one. **Reachability limit, stated next to the claim:** no
+  question reaches this guard yet. `plan()` refuses a cross-model ratio before dispatching to
+  `federated_plan`, and `federated_plan` passes `None` for `second_fact`; the guard is
+  exercised only by direct construction. A splitter that builds a second fact leg is what
+  makes it reachable from a question.
 
 ##### Implements
 
@@ -8094,6 +8136,10 @@ variant, so a caller cannot label a lookup leg's rows as the fact leg's - which 
 
 Both legs' results, which cannot hold two of one side and cannot be built with them swapped.
 
+A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a third result
+from a second fact model, joined above on the link and the time bucket. The combiner reads it
+through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names.
+
 Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
 so an owned pair would say *moved* about something that is shared either way.
@@ -8103,9 +8149,8 @@ so an owned pair would say *moved* about something that is shared either way.
 Two leg results that name the same side, so there is no pair to combine.
 
 Unreachable through `sutura_app`'s federated path, which builds one `LegResult` per
-`FederatedPlan::legs` entry and that method returns the two variants by construction. Typed
-anyway rather than assumed away: it is the one thing `Legs::of` cannot answer, and a silent
-choice between two facts would combine a leg with itself.
+`FederatedPlan::legs` entry. Typed anyway rather than assumed away: it is the one thing
+`Legs::of` cannot answer, and a silent choice between two facts would combine a leg with itself.
 
 #### `use NothingCombined`
 
@@ -8360,6 +8405,10 @@ pub struct Legs<'a>
 
 Both legs' results, which cannot hold two of one side and cannot be built with them swapped.
 
+A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a third result
+from a second fact model, joined above on the link and the time bucket. The combiner reads it
+through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names.
+
 Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
 so an owned pair would say *moved* about something that is shared either way.
@@ -8388,6 +8437,23 @@ The pair, assigned by each result's own tag rather than by the order they arrive
 
 `LegsAreNotOneOfEach` when both results name the same side.
 
+```rust
+pub const fn second_fact(self) -> Option<&'a ResultBatches>
+```
+
+The second fact leg, when the plan carries two fact models.
+
+```rust
+pub const fn with_second_fact(self, second: Option<&'a LegResult>) -> Result<Self, LegsAreNotOneOfEach>
+```
+
+The third leg: the second fact's batches, when the plan carries two fact models.
+
+# Errors
+
+`LegsAreNotOneOfEach` naming `LegSide::Lookup` when `second` is a lookup's result, so a
+second lookup cannot be combined as if it were a fact.
+
 ###### Implements
 
 `Clone`, `Copy`, `Debug`
@@ -8401,9 +8467,8 @@ pub struct LegsAreNotOneOfEach
 Two leg results that name the same side, so there is no pair to combine.
 
 Unreachable through `sutura_app`'s federated path, which builds one `LegResult` per
-`FederatedPlan::legs` entry and that method returns the two variants by construction. Typed
-anyway rather than assumed away: it is the one thing `Legs::of` cannot answer, and a silent
-choice between two facts would combine a leg with itself.
+`FederatedPlan::legs` entry. Typed anyway rather than assumed away: it is the one thing
+`Legs::of` cannot answer, and a silent choice between two facts would combine a leg with itself.
 
 ###### Methods
 
