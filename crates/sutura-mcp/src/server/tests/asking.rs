@@ -447,4 +447,30 @@ async fn a_caller_scoped_away_from_a_metric_does_not_receive_that_metrics_knowle
         !finance_knowledge.contains("that list and it is empty"),
         "any caller-scoped view must not claim the withheld absence list is empty: {finance_knowledge}"
     );
+    // Round 2 of #971's review: scoping away the fixture's ONLY glossary entry, caveat and example
+    // left the outsider reading "nothing is recorded in it yet" / "today no metric has one" - false
+    // for THIS caller, who cannot tell "nothing recorded" apart from "recorded, withheld from you".
+    // `flatten` joins on whitespace so a phrase split across `wrap`'s line breaks still matches.
+    let outsider_flat = flatten(outsider_knowledge);
+    assert!(
+        outsider_flat.contains("none of it is visible to you"),
+        "a caller-scoped empty glossary must say so is not visible, not that nothing is recorded: {outsider_knowledge}"
+    );
+    assert!(
+        !outsider_flat.contains("nothing is recorded in it yet"),
+        "a caller-scoped empty glossary must not claim the deployment's own glossary is empty: {outsider_knowledge}"
+    );
+    assert!(
+        outsider_flat.contains("none is visible to you"),
+        "a caller-scoped empty caveat declaration must say so is not visible, not that none is recorded: {outsider_knowledge}"
+    );
+    assert!(
+        !outsider_flat.contains("today no metric has one"),
+        "a caller-scoped empty caveat declaration must not claim the deployment records no caveat at all: {outsider_knowledge}"
+    );
+}
+
+/// Joins on whitespace so a phrase `wrap` split across a line break still matches with `contains`.
+fn flatten(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<&str>>().join(" ")
 }

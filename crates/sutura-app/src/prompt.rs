@@ -306,15 +306,15 @@ pub fn render(pinned: &PinnedDefinitions, inputs: &PromptInputs<'_>) -> String {
         // that has just been told to use a name from the list is the one that needs to know which
         // names were considered and rejected. Empty - and therefore dropped - unless the provider
         // declares that it records such a thing.
-        knowledge::not_defined(notes, inputs.prose),
+        knowledge::not_defined(notes, inputs.prose, knowledge::Audience::Prompt),
         bounds(),
         no_such_field(inputs),
         operations(inputs.tools),
-        knowledge::declaration(notes),
-        knowledge::glossary(notes, inputs.prose),
+        knowledge::declaration(notes, knowledge::Audience::Prompt),
+        knowledge::glossary(notes, inputs.prose, knowledge::Audience::Prompt),
         physical_schema_guidance(pinned),
         metrics(pinned, inputs.prose),
-        knowledge::examples(notes, inputs.prose),
+        knowledge::examples(notes, inputs.prose, knowledge::Audience::Prompt),
         provenance(inputs),
     ];
     if let Some(text) = inputs.instructions {
@@ -342,8 +342,8 @@ pub fn render(pinned: &PinnedDefinitions, inputs: &PromptInputs<'_>) -> String {
 /// the deployment's whole-bundle text, the same for every caller, and the MCP transport's catalog
 /// reply carries them under their own heading so they are not mistaken for catalog prose.
 ///
-/// **Takes a [`ScopedView`], never a bare `&PinnedDefinitions`** - the same rule
-/// [`CatalogContent`](crate::prompt) and `docs/adr/0028` state for the metric listing. A caller sees
+/// **Takes a [`ScopedView`], never a bare `&PinnedDefinitions`** - the same rule the MCP catalog
+/// reply (`sutura_mcp::wire::CatalogContent`) and `docs/adr/0028` state for the metric listing. A caller sees
 /// only the knowledge that belongs to the metrics it is granted: glossary entries, caveats and worked
 /// examples stay with their metric, and an entry whose metric is invisible is withheld. The caveat
 /// all-referents rule is the ADR's own: a caveat survives only when every metric it refers to is
@@ -360,45 +360,61 @@ pub fn render(pinned: &PinnedDefinitions, inputs: &PromptInputs<'_>) -> String {
 /// Prose is quoted under the operator's `prompt.catalog_prose` setting exactly as the prompt treats
 /// it - the same [`CatalogProse`] and the same `> ` per-line [`quote`] - so an operator who withholds
 /// catalog prose from the prompt also withholds it from the tool. The byte cap is the bundle's own:
-/// knowledge is bounded at load by `sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES`. This is a cap on
-/// the knowledge alone: the operator instructions are NOT bounded here (an operator's own text has
-/// no authored-byte ceiling), and that limit is `CatalogContent`'s to state beside them.
+/// knowledge is bounded at load by `sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES`. This function
+/// never sees the operator's own instructions text at all - that text is a separate field the MCP
+/// catalog reply (`sutura_mcp::wire::CatalogContent`) carries beside this one and states, honestly,
+/// as unbounded.
+///
+/// **Section order is `declaration`, `glossary`, `not_defined`, `caveats`, `examples` - fixed, and
+/// deliberately not the prompt's own order.** The declaration's own sentences ("listed below", "at
+/// the end of this document") are true only of the document that renders them; `knowledge::Audience`
+/// carries which one this is, and the order here is what makes its `Tool` wording true. Reordering
+/// this list without updating `knowledge::claim`'s tool-branch text (or vice versa) is exactly the
+/// drift round 2 of #971's review found - `tests::the_tool_reply_orders_its_sections_as_claimed`
+/// holds the two together.
 #[must_use]
 pub fn catalog_knowledge(view: &ScopedView<'_>, prose: CatalogProse) -> String {
-    let notes: Cow<'_, Knowledge> = if view.is_everything() {
+    let (notes, scoped): (Cow<'_, Knowledge>, bool) = if view.is_everything() {
         // The deployment's own view keeps the whole bundle - absences included, and no note withheld
         // because a caveat referred to a metric the caller could not see. This is the stdio operator
         // and every operator-side command, where `docs/adr/0028` retains the whole bundle.
-        Cow::Borrowed(view.pinned().knowledge())
+        (Cow::Borrowed(view.pinned().knowledge()), false)
     } else {
-        Cow::Owned(view.pinned().knowledge().scoped(view))
+        (Cow::Owned(view.pinned().knowledge().scoped(view)), true)
     };
     let notes = notes.as_ref();
+    let audience = knowledge::Audience::Tool { scoped };
     let mut sections: Vec<String> = vec![
-        knowledge::glossary(notes, prose),
-        knowledge::not_defined(notes, prose),
-        knowledge::declaration(notes),
-        knowledge::examples(notes, prose),
+        knowledge::declaration(notes, audience),
+        knowledge::glossary(notes, prose, audience),
+        knowledge::not_defined(notes, prose, audience),
     ];
-    // Caveats ride the metric they are about, exactly as the prompt renders them inside each metric
-    // block - here under the metric's own heading, because the catalog tool has no per-metric prose
-    // block of its own for a caveat to sit in. Only visible metrics contribute, and the scoped notes
+    // Caveats ride the metric they are about, under their own heading - the catalog tool has no
+    // per-metric prose block of its own for a caveat to sit in the way the prompt's metric block
+    // does, so the heading is what stops a caveat reading as a worked question or as part of
+    // whatever section happens to precede it. Only visible metrics contribute, and the scoped notes
     // already dropped caveats any referent of which is invisible.
     if notes.supports(sutura_domain::knowledge::Capability::Caveats) {
-        let mut what: Vec<String> = Vec::new();
+        let mut what: Vec<String> = vec![String::from(CAVEATS_HEADING)];
+        let mut any = false;
         for metric in view.metrics() {
             let caveats = knowledge::caveats_about(notes, metric.name(), prose);
             if !caveats.is_empty() {
                 what.push(format!("### {}\n{}", metric.name(), caveats));
+                any = true;
             }
         }
-        if !what.is_empty() {
+        if any {
             sections.push(what.join("\n\n"));
         }
     }
+    // Examples LAST, so `knowledge::claim`'s "at the end of this document" holds of this reply too.
+    sections.push(knowledge::examples(notes, prose, audience));
     sections.retain(|section| !section.is_empty());
     sections.join("\n\n")
 }
+
+const CAVEATS_HEADING: &str = "## Caveats, by metric";
 
 /// The honest starting point for a deployment that has physical structure and no semantic layer.
 ///

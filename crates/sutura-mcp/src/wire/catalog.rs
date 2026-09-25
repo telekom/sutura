@@ -108,6 +108,8 @@ pub struct CatalogContent {
     /// Deployment-wide and the same for every caller - never audience-scoped - so it sits outside
     /// the untrusted-catalog notice and under its own "operator's instructions" heading. An operator
     /// who names a restricted metric in it discloses that metric to every caller with `catalog.read`.
+    /// **Unbounded, unlike [`Self::knowledge`]: there is no byte cap on the operator's own text**, and
+    /// it is read from `prompt.instructions_file` fresh and repeated in full on every call.
     #[serde(skip_serializing_if = "Option::is_none")]
     instructions: Option<String>,
 }
@@ -212,9 +214,12 @@ impl CatalogContent {
     /// otherwise be shown nothing.
     ///
     /// One metric per line, then its grains and its dimensions, because a model reads that back
-    /// without being told how. Nothing here is truncated: the bundle is bounded at load by
-    /// `sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES` and by the catalog's own parses, and a listing
-    /// that grew past what a context tolerates is a bundle nobody could ask about either way.
+    /// without being told how. The metrics and the knowledge are bounded at load: the bundle by the
+    /// catalog's own parses, and [`Self::knowledge`] additionally by
+    /// `sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES`. **[`Self::instructions`] is NOT bounded here** -
+    /// the operator's own text has no byte ceiling and is repeated in full on every call - so a listing
+    /// that grew past what a context tolerates through the metrics or the knowledge is a bundle nobody
+    /// could ask about either way, and the same is not true of the operator's text.
     pub(crate) fn as_text(&self) -> String {
         let mut out = String::from(self.notice);
         out.push('\n');

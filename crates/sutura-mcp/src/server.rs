@@ -693,10 +693,12 @@ fn invalid(error: &MalformedQuestion) -> ErrorData {
 /// **And the door this does NOT close, named so the claim is not overstated.** The served agent
 /// surface also carries an `initialize.instructions` prompt, rendered once over the WHOLE bundle in
 /// `crates/sutura-cli/src/serve/agent.rs` (`sutura_app::prompt::render`) - its metrics section names
-/// every metric, an audience-restricted one included, to every verified caller. So `docs/adr/0028`'s
-/// invisible-at-both-doors holds of `describe_catalog` and `answer` here, and NOT of the served
-/// prompt; `docs/adr/0028`'s own "the prompt renderer has no served endpoint" is the sentence this
-/// transport makes stale. Scoping that prompt through the same `ScopedView` is the follow-up.
+/// every metric, an audience-restricted one included, to every verified caller, and since #776 the
+/// same prompt also carries every glossary entry, caveat, example and absence over the whole bundle.
+/// So `docs/adr/0028`'s invisible-at-both-doors holds of `describe_catalog` and `answer` here, and
+/// NOT of the served prompt or its knowledge sections; `docs/adr/0028`'s own "the prompt renderer has
+/// no served endpoint" is the sentence this transport makes stale. Scoping that prompt through the
+/// same `ScopedView` is the follow-up.
 ///
 /// **No audit record either, and that is deliberate rather than an omission.**
 /// `sutura_domain::audit::CallRecord` records the outcome of a *question*, and this is not one - there
