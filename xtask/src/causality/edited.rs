@@ -30,6 +30,14 @@
 //! PRE-image, and review falsified the approximation end to end. Reading the PRE-image correctly
 //! would need it threaded into `super::plan`, which does not have it today - a diff that only
 //! deletes an assertion still reaches `Plan::NotRequired`, tracked here rather than guessed at.
+//!
+//! **A second shape this does not reach: an edit inside a `#[cfg(test)]` helper fn that a
+//! `#[test]` calls, but whose own attributed item is not the test's.** `touched_in` walks only
+//! the `#[test]`-declaring item's own brace span, never a sibling item a test calls, so an added
+//! line inside the helper reaches `Plan::NotRequired` the same way a pure deletion does. A
+//! syntactic walker that followed the call graph would be a much bigger mechanism and is outside
+//! the issue's stated scope ("a hunk whose enclosing item is a `#[test]` fn"); the gap is stated
+//! here rather than closed.
 
 use crate::causality::attributes::{declares_a_test, item_below};
 use crate::causality::names::Ident;

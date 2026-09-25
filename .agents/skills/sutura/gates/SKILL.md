@@ -1160,6 +1160,10 @@ already does for a `#[cfg(test)]` marker - so it reaches this same tests-only ar
 still not reached:** a pure DELETION of an assertion, with no line added in its place, names
 nothing either way - `causality::edited`'s own header states why that is not casually fixed
 (reading the PRE-image correctly needs it threaded into `causality::plan`, which does not have it).
+A second shape also still reaches `Plan::NotRequired`: an edit inside a `#[cfg(test)]` helper fn
+that a `#[test]` calls but whose own attributed item is not the test's - `touched_in` walks only
+the `#[test]`-declaring item's own brace span, never a sibling item a test calls. `causality::edited`'s
+own header states both gaps.
 
 **AND READ THE COUNT WITH THE VERDICT, never on its own.** `N of N added tests measured` beside an
 INCONCLUSIVE line means the filterset NAMED N tests, not that any of them ran against base. #307

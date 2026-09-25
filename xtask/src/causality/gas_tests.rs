@@ -431,6 +431,10 @@ fn a_tests_only_claim_cell_with_no_committed_patch_is_refused_as_missing() {
 /// test one - `claim::rot`'s TEXT half refuses a patch that rewrites the `#[cfg(test)]` region
 /// byte-for-byte, and the PATH half refuses any patch at all against a `/tests/` target, which
 /// this file is not.
+///
+/// Every case also asserts that `Scan::of` NAMES the touched test: `plan`'s `edited::touches`
+/// and `Scan::of`'s `edited::touched_in` are separately breakable, and a break of the naming
+/// path alone still answers `Verdict::Fail` - from `report_unreadable`, the wrong refusal.
 fn edited_assertion_case(declare: bool, mutation: Mutation) -> Verdict {
     assert!(
         std::env::var_os("NEXTEST").is_some(),
@@ -510,10 +514,39 @@ fn edited_assertion_case(declare: bool, mutation: Mutation) -> Verdict {
 
     let original = std::env::current_dir().expect("a current directory");
     std::env::set_current_dir(&dir).expect("point the process at the fixture repo");
+    let named = scan_of_runnable_names(&base);
     let verdict = super::run(&[String::from("--since"), base]);
     std::env::set_current_dir(&original).expect("restore the current directory");
     drop(std::fs::remove_dir_all(&dir));
+    assert_eq!(
+        named,
+        Some(vec![String::from("the_existing_one")]),
+        "`Scan::of` must NAME the touched test, or the verdict comes from the wrong refusal"
+    );
     verdict
+}
+
+/// The test names `Scan::of` finds on `run`'s own path, or `None` short of `Scan::Runnable`.
+fn scan_of_runnable_names(base: &str) -> Option<Vec<String>> {
+    let commit = super::provenance::Commit::parse(base)?;
+    let files = super::changed_with_additions(&commit)?;
+    let read = |path: &str| std::fs::read_to_string(path).ok();
+    let plan = super::plan::plan(&files, &read);
+    let test_files = match plan {
+        super::plan::Plan::Separable(sep) => sep.test_files,
+        _ => return None,
+    };
+    match super::scoped::Scan::of(&files, &test_files, &read) {
+        super::scoped::Scan::Runnable(scoped) => Some(
+            scoped
+                .tests()
+                .iter()
+                .map(super::place::AddedTest::name)
+                .map(String::from)
+                .collect(),
+        ),
+        _ => None,
+    }
 }
 
 /// **THE RED-ON-BASE CELL FOR THIS ISSUE.** No `Claim-Cell:` trailer at all, over a diff whose
