@@ -95,7 +95,6 @@ entities and "invalid identifier" with no name sends a reader back to all of the
 - `UnknownSource`
 - `MissingDescription`
 - `Description`
-- `ColumnType`
 - `ColumnDescription`
 - `CardinalityUnrepresentable`
 - `Inconsistent`
@@ -216,8 +215,13 @@ The tables this snapshot carries.
 pub struct ColumnMetadata
 ```
 
-What `OpenMetadata`'s `Column` schema says about one column beyond its name: its `dataType`,
-its own `description`, and whether its `constraint` is `PRIMARY_KEY`.
+What `OpenMetadata`'s `Column` schema COULD supply a reader beyond a column's name.
+
+Its `dataType`, its own `description`, and (via `Table::primary_key`) whether its
+`constraint` is `PRIMARY_KEY`. This adapter's own canonical shape for it - no
+`super::SnapshotReader` but the fixture and a test stub exists today, so nothing yet maps a real
+`constraint` value into `Table::primary_key`; see the crate header's "What is built here,
+and what is NOT".
 
 #### Methods
 

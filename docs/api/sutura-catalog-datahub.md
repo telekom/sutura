@@ -147,7 +147,6 @@ reader back to all of them.
 - `Identifier` - A name on a snapshot did not parse as the identifier kind it claims to be.
 - `Sutura` - The `sutura` structured property's scalar value is not the metric content it claims to be.
 - `Description` - Prose on a snapshot is not a usable description.
-- `ColumnType` - A column's `nativeDataType` did not pass the authored-scalar rule.
 - `ColumnDescription` - A column's own description did not pass the authored-prose rule.
 - `Inconsistent` - The models, relationships and columns did not hold together.
 - `Knowledge` - The bundle's knowledge does not hold together.

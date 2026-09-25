@@ -108,7 +108,6 @@ sends a reader to read all of them.
 - `DuplicateColumn`
 - `MissingDescription`
 - `InvalidDescription`
-- `InvalidColumnType`
 - `InvalidColumnDescription`
 - `InvalidPrimaryKey`
 - `Inconsistent`

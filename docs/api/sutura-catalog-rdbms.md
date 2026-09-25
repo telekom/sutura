@@ -56,14 +56,23 @@ Three findings, and two of them are the declaration's content:
    it from the constraint itself.
 
 **Update, 2026-09-24 (#966).** The measurement above counted TABLE comments; a real dictionary's
-`information_schema.columns` / `pg_catalog` also carries a `data_type` per column and, through
-`col_description`, a per-COLUMN comment - dropped at this port until now. `Table` carries both
-as `ColumnMetadata`, attached with `Table::with_column_metadata`, and a table's own primary
-or unique key as `Table::with_primary_key` - both additive rather than `Table::new`
-parameters, so every existing reader and every test fixture here keeps compiling. Neither
-licenses anything a cardinality or a measure would: a type is descriptive text
+`information_schema.columns` / `pg_catalog` COULD also supply a `data_type` per column, a
+per-COLUMN comment through `col_description`, and its own primary/unique key - a real reader
+could read all three the same way it reads the rest of the dictionary, and none of it existed
+at this port before this issue. `Table` now CAN carry a type and a comment per column, as
+`ColumnMetadata` attached with `Table::with_column_metadata`, and a key as
+`Table::with_primary_key` - both additive rather than `Table::new` parameters, so every
+existing reader and every test fixture here keeps compiling. Neither licenses anything a
+cardinality or a measure would: a type is descriptive text
 (`sutura_domain::catalog::ColumnType`) and a primary key is evidence
 (`sutura_domain::catalog::Model::with_primary_key`).
+
+**What this update does NOT do: read any of it from a real database.** The only
+`DictionaryReader` this crate has is `fixture::FixtureReader`, serving a recorded corpus -
+see "What is built here, and what is NOT" below, unchanged by this update. The fixture now
+carries a type, a comment and a key for two columns, so the conversion, the declaration and the
+byte accounting are exercised the same way the rest of this adapter always has been - against a
+recording, not a socket.
 
 # The declaration, and what it means for the bundle
 
@@ -137,7 +146,6 @@ a reader back to all of them.
 - `ColumnName` - A column's name did not parse.
 - `RelationshipName` - A foreign key's name did not parse.
 - `Description` - A table description did not pass the authored-prose rule.
-- `ColumnType` - A column's declared data type did not pass the authored-scalar rule.
 - `ColumnDescription` - A column comment did not pass the authored-prose rule.
 - `TargetUniquenessUnknown` - The referenced column had no single-column primary or unique-key evidence.
 - `Inconsistent` - The assembled definitions did not hold together.
@@ -323,6 +331,15 @@ pub fn with_primary_key(self, primary_key: Vec<String>) -> Self
 Declares which of this table's columns the dictionary's own primary or unique-key constraint
 names - evidence only, the same as `sutura_domain::catalog::Model::with_primary_key`, which
 is where this arrives once converted.
+
+**Uncorrelated with `SingleColumnTargetUniqueness`, and that is stated rather than
+reconciled.** A `Relationship`'s target-uniqueness evidence licenses one specific foreign
+key's `ManyToOne` direction; this evidence describes the table's OWN key, independent of
+whether anything references it. Nothing here checks the two against each other - a column
+this method names could be the primary key, a unique key that is not the primary one, or
+(a reader's bug) neither, and this type cannot tell which from the name alone. A reader is
+the only thing that could keep them consistent, because only a reader sees the dictionary's
+own labelling of which constraint is which.
 
 ### Implements
 

@@ -74,7 +74,7 @@ impl Snapshot {
 ///
 /// Its `dataType`, its own `description`, and (via [`Table::primary_key`]) whether its
 /// `constraint` is `PRIMARY_KEY`. This adapter's own canonical shape for it - no
-/// [`SnapshotReader`] but the fixture and a test stub exists today, so nothing yet maps a real
+/// [`super::SnapshotReader`] but the fixture and a test stub exists today, so nothing yet maps a real
 /// `constraint` value into [`Table::primary_key`]; see the crate header's "What is built here,
 /// and what is NOT".
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]

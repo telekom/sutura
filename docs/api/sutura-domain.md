@@ -981,10 +981,12 @@ dictionary types every column and comments few of them, a Table Schema descripto
 field and describe none. `nullable` is likewise a source's own claim, read and stored, never
 derived from anything else here.
 
-**`data_type` is descriptive text, never a cast.** It is a quote of what the source called the
-column - `"STRING"`, `"character varying"`, `"NUMERIC(38,9)"` - for a person reading the catalog.
-Nothing in this crate branches on it, and `sutura_sql` has its own closed vocabulary for what a
-statement may execute.
+**`data_type` is descriptive text.** It is a quote of what the source called the column -
+`"STRING"`, `"character varying"`, `"NUMERIC(38,9)"` - for a person reading the catalog. At HEAD
+nothing branches on it - `sutura_sql` has its own closed vocabulary for what a statement may
+execute - but that is an absence rather than a mechanism: `ColumnType`'s own doc names review
+as what holds "never a cast", not the type system, because nothing here stops a future reader of
+`Self::data_type` from treating it as one.
 
 **Column prose is parsed and pinned, and reaches no rendering surface today.** No composition
 root's prompt, tool result or HTTP body names a column - `sutura_app::prompt`'s own header states
@@ -1001,6 +1003,29 @@ pub const fn data_type(&self) -> Option<&ColumnType>
 ```rust
 pub fn description(&self) -> &str
 ```
+
+```rust
+pub fn from_metadata(name: ColumnName, data_type: Option<&str>, description: Option<&str>, nullable: Option<bool>) -> Result<Self, InvalidDescription>
+```
+
+Builds a column from raw type/description text an adapter read off its own source, so the
+"a type is dropped rather than refused, a description still refuses" rule lives once rather
+than once per catalog adapter.
+
+**The two fields are held to different rules on purpose, and this is where that shows.** A
+type that fails `ColumnType::parse` is dropped - `data_type` becomes `None`, the load
+continues - per that type's own doc: nothing renders it, so refusing the whole catalog over
+text nothing reads would cost more than it protects. A description that fails
+`Description::parse` still refuses: it is prose a person or an agent may eventually read,
+held to the same rule every other quoted description in this crate is.
+
+`nullable` is carried through unchanged - there is nothing to parse or drop, only
+`sutura-catalog-local`'s long column form has a source for it, and every other caller passes
+`None`.
+
+# Errors
+
+`InvalidDescription`, if `description` is `Some` and not usable.
 
 ```rust
 pub const fn name(&self) -> &ColumnName
@@ -1107,13 +1132,27 @@ pub const fn table_name(&self) -> &TableName
 The table's own name, without whatever sits above it.
 
 ```rust
-pub fn with_primary_key(self, primary_key: impl IntoIterator<Item>) -> Self
+pub fn with_primary_key(self, primary_key: impl IntoIterator<Item>) -> Result<Self, InconsistentDefinitions>
 ```
 
 Declares which of this model's columns a source's own dictionary marks as its primary key.
 
-Evidence only, per the type's own doc. `Definitions::assemble` refuses a key naming a
-column this model does not declare.
+Evidence only, per the type's own doc: refused if it names a column this model does not
+declare, checked here rather than later in `Definitions::assemble` so a `Model` with a
+dangling key cannot be built at all - the same "unrepresentable over checked" argument
+`Metric::new`'s own duplicate-dimension check makes, applied one level down.
+
+**What this does NOT check: that the key is actually unique in the source's data.** A
+database dictionary's own constraint is checked by the database; an author writing this by
+hand in a markdown document is not, and never was - a key can name real columns and still be
+wrong about which of them are unique together. `crates/sutura-domain` opens no data system
+and reads no rows, so there is nothing here that could check that, and stating so is the
+whole of what this note can do about it.
+
+# Errors
+
+`InconsistentDefinitions::UnknownPrimaryKeyColumn`, naming the first column that is not
+one of this model's own.
 
 #### Implements
 
@@ -1552,16 +1591,21 @@ string measure.
 A `super::Column`'s data type, as a source's own dictionary spells it: `"STRING"`,
 `"character varying"`, `"NUMERIC(38,9)"`.
 
-**Descriptive text, never a cast.** Nothing in this crate branches on it - `sutura_sql` has its
-own closed vocabulary for what a statement may execute, and this is a quote for a person reading
-the catalog.
+**Descriptive text, never a cast BY ANYTHING THAT EXISTS TODAY.** Nothing in this crate branches
+on it, and `sutura_sql` has its own closed vocabulary for what a statement may execute - but that
+is an absence rather than a mechanism: nothing stops a future reader of `Column::data_type` from
+treating it as one, and review is what holds this claim, not a type-level guarantee. Stated
+rather than asserted, per this repository's own rule that an overstated control is itself the
+defect.
 
-**The third caller of `authored_scalar`, sharing `MAX_DIMENSION_VALUE_CHARS` rather than a
-bound of its own.** A type name is shorter than the longest word this repository's example
-catalog writes, and giving it a second constant identical in every other respect would be a
-number to keep in step rather than a fact this type needed. The refusal is
-`InvalidDimensionValue` for the same reason `AnchorValue`'s is: a second name for the same
-five faults would say nothing the shared rule does not.
+**Normalised, unlike `DimensionValue` or `AnchorValue`, and that is a deliberate departure.**
+A run of whitespace - including a newline, however the source pretty-printed a nested type -
+collapses to one plain space before anything else is checked. Two spellings that differ only in
+that whitespace are the same type, and a source's own formatting choice must not move the digest.
+This is safe here specifically because there is no rendering surface for it to disagree with:
+`Description`'s "refuse at load, never alter at render" rule exists because a renderer and a
+digest could see two different texts; a value nothing renders cannot have that defect, so
+normalising it is not the mistake normalising a description would be.
 
 ### `use Description`
 
@@ -1635,6 +1679,15 @@ types; a value is compared byte for byte against what a data system holds and is
 parameter, so a stored value that differed from the authored text would make the digest certify
 something other than what the statement compares against. Where a phrase folds, this refuses.
 
+### `use InvalidColumnType`
+
+Why a column type could not be read.
+
+Its own type rather than `InvalidDimensionValue` - the earlier choice, which left every
+message reading "a dimension value" for a field that is not one, confusing an operator reading a
+refusal about a type. No `Spacing` variant: normalisation is what `ColumnType::parse` does
+with unreadable spacing instead of refusing it.
+
 ### `use InvalidDescription`
 
 Why a description was rejected.
@@ -1668,6 +1721,20 @@ filter value and reports the field and the index without the cause, for the reas
 `crate::query::RefusalReason` gives: reflecting a caller's text into a message that reaches a
 log, a UI and an agent's context is how a rejected value becomes somebody else's input. The text
 is here for the author of a catalog, which is read by a person and loaded by an operator.
+
+### `use MAX_COLUMN_TYPE_CHARS`
+
+The longest declared column type, in characters, once collapsed to one line.
+
+**Generous, and NOT tied to `MAX_DIMENSION_VALUE_CHARS` - that sharing was this type's own
+defect, found in review.** A real composite type - a `STRUCT` or `ARRAY` with several nested
+fields - routinely runs past a dimension value's 64 characters: a `DataHub` field measured in
+review, `STRUCT<street STRING, city STRING, postal_code STRING, country STRING>`, is 70. Reusing
+the dimension bound meant that one legal type spelling refused the WHOLE catalog load, for text
+nothing in this crate branches on. 512 is deliberately far past the 70 observed rather than tight
+around it: unlike a dimension value, nothing renders a column type into a document a person or an
+agent reads today (`super::Column`'s own doc states that), so generosity here costs
+store-and-forget bytes rather than prompt real estate.
 
 ### `use MAX_DESCRIPTION_BYTES`
 
@@ -1790,12 +1857,14 @@ applied to the catalog that bundle is checked against.
 **Measured before it was chosen, and re-measured for issue #966's column type and column
 description, which this bound did not cover before either existed.** This repository's shipped
 `single-player` catalog - the larger of the two example catalogs - is the reference: its widest
-model (`subscriptions`) declares 8 columns, no metric declares more than one required filter,
-and its columns, required filters and dimension values together sum under 2 KiB - one column
-(`subscriptions.mrr_cents`) now carries a declared type and a description, which is what moved
-this half at all. Descriptions are the rest of it, at about 22.5 KiB across eleven metrics and
-five models - each individually inside `MAX_DESCRIPTION_BYTES`, and it is their COUNT that was
-uncapped. `Definitions::authored_bytes` over the loaded corpus reads 24975 bytes, ~24.4 KiB.
+model (`subscriptions`) declares 8 columns, no metric declares more than one required filter, and
+its columns (now including one declared type), required filters and dimension values together
+sum to 922 bytes - one column (`subscriptions.mrr_cents`) carries a declared type and a
+description, and that is what moved this half from the earlier column-blind measurement's
+under-1-KiB figure at all, not past any round number. Descriptions are the rest of it, at 24053
+bytes (~23.5 KiB) across eleven metrics and five models - each individually inside
+`MAX_DESCRIPTION_BYTES`, and it is their COUNT that was uncapped. `Definitions::authored_bytes`
+over the loaded corpus reads 24975 bytes, ~24.4 KiB in total.
 
 `MAX_DEFINITIONS_BYTES` is 128 KiB: about 5.25 times that reference catalog's ~24.4 KiB, less
 headroom than the ~6.5 times an earlier, column-blind measurement claimed - restated here rather
