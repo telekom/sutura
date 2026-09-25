@@ -280,8 +280,8 @@ impl ModelDoc {
     }
 }
 
-/// One end of a relationship, and the grain an origin is truncated to when a join key is
-/// [`JoinKeyDoc::TruncatedEqual`].
+/// One end of a relationship, and the grain an origin is truncated to when a join key's
+/// `grain` is present, making it a truncated equality rather than a plain one.
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EndpointDoc {
