@@ -6581,13 +6581,7 @@ renderer and no executor. `crate::plan::bindings` carries the argument and the l
 - `Before` - `column < param`, the exclusive end.
 - `Equals`
 - `NotEquals`
-- `In` - `column IN (param, param, ..)` - one or more values, `github.com/telekom/sutura#968`.
-
-  `params` rather than a single `param`, because membership in a set binds more than one
-  value - and `crate::nonempty::NonEmpty` rather than a plain `Vec`, unlike the index list
-  a predicate normally carries: an empty `IN ()` is either a syntax error or, rendered as
-  `NOT IN ()`, a silently vanished filter (fail-open), and both are worse than refusing the
-  question earlier. A producer cannot reach this variant with zero placeholders to fill.
+- `In` - `column IN (param, param, ..)` - one or more values, `github.com/telekom/sutura#968`. `crate::nonempty::NonEmpty` rather than a plain `Vec`: an empty `IN ()` is either a syntax error or, rendered as `NOT IN ()`, a silently vanished filter (fail-open), and a producer cannot reach this variant with zero placeholders to fill.
 - `NotIn` - `column NOT IN (param, param, ..)` - `Self::In`'s negation, same reason for `NonEmpty`.
 - `IsTrue`
 - `IsNotNull`
@@ -6602,8 +6596,7 @@ pub const fn column(&self) -> &PlanColumn
 pub const fn param(&self) -> Option<usize>
 ```
 
-The one parameter a single-valued predicate binds. `None` for `In`/`NotIn` too, deliberately -
-a caller that reads one index off a set-valued predicate would see only its first value. See
+The one parameter a single-valued predicate binds. `None` for `In`/`NotIn` too - see
 `Self::bound_params` for the shape that covers every variant.
 
 #### Implements
