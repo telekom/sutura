@@ -11,7 +11,6 @@
 use std::collections::BTreeSet;
 
 use crate::calendar::TimeRange;
-use crate::catalog::DimensionValue;
 use crate::model::{Aggregate, DimensionName, Grain, MetricName, ModelName, RelationshipName, SourceName, TableName};
 use crate::nonempty::NonEmpty;
 use crate::pinned::Provenance;

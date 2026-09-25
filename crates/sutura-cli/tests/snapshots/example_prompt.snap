@@ -63,14 +63,12 @@ Every reason you can be given, and what to do about each:
   Use a name from the metric list below, exactly as spelled. Do not try a variant spelling, a
   plural, or a name you remember from another deployment: the list is the whole of what exists.
 - **metrics_span_different_models** - more than one metric was named, and two of them do not share a
-  model and a time column, so there is no one statement that could answer them together.
-  Ask about metrics that share a model, or ask about the mismatched one separately. Do not retry the
-  same combination unchanged: the two metrics' own definitions are what disagree, not anything about
-  how the question was phrased.
+  model and a time column, so no one statement could answer them together.
+  Ask about metrics that share a model, or ask about the mismatched one separately. The two metrics'
+  own definitions disagree; rephrasing the same combination will not.
 - **multi_metric_not_executable** - every metric named resolved and every constraint checked, but
   this deployment does not yet turn more than one metric into one answer.
-  Ask about one metric at a time for now. This is a capability this deployment has not built yet,
-  not something about the question to change.
+  Ask about one metric at a time for now - a capability gap, not the question.
 - **grain_not_supported** - the metric exists and does not declare that time resolution.
   Ask at a grain the metric lists. A finer grain is not a narrower version of the same question here
   - it is a number nobody certified, which is why it is refused rather than approximated.
