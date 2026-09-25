@@ -37,7 +37,7 @@ use sutura_domain::plan::{
 use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::ParamValue;
 
-use crate::resolve::{Resolution, ResolvedFilter};
+use crate::resolve::{Resolution, ResolvedFilter, ResolvedFilterValue};
 
 mod chain;
 mod federated;
@@ -163,6 +163,16 @@ impl From<RefusalReason> for PlanError {
 /// metric's data system after its first hop cannot be rendered by either plan shape, and neither
 /// shape would notice - see [`PlanError::ChainLeavesItsSource`].
 pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
+    // `resolve` has already checked a multi-metric question exactly as it checks a single one -
+    // every metric's grain, every dimension against every metric, every filter value against
+    // every metric's own allowlist. What it has NOT done is decide how more than one metric's
+    // measure becomes one statement's select list, which this stage does not do yet. See
+    // `RefusalReason::MultiMetricNotExecutable`'s own doc comment for the boundary.
+    if resolution.metrics.len() > 1 {
+        return Err(PlanError::Refused(RefusalReason::MultiMetricNotExecutable {
+            requested: resolution.metrics.len(),
+        }));
+    }
     let Some(measure) = resolution.metric.measure() else {
         return Err(PlanError::AuthoredSqlNotPlanned {
             metric: resolution.metric.name().clone(),
@@ -322,19 +332,55 @@ fn predicates_and_params(
     }
 
     for filter in requested {
-        let param = bind(&mut params, ParamValue::Text(filter.value.clone()));
-        filters.push(PlanFilter::new(
-            PredicateOrigin::Requested,
-            PlanPredicate::Equals {
-                column: column_of(&filter.dimension, own_table),
-                param,
-            },
-        ));
+        let column = column_of(&filter.dimension, own_table);
+        let predicate = requested_predicate(filter, column, &mut params);
+        filters.push(PlanFilter::new(PredicateOrigin::Requested, predicate));
     }
 
     PlanBindings::parse(filters, params)
 }
 
+/// One requested filter's predicate, and the parameter(s) it binds - one for `Eq`, one per value
+/// for `In`/`NotIn`, each pushed in placeholder order so [`PlanBindings::parse`] sees them
+/// consecutive.
+fn requested_predicate(filter: &ResolvedFilter<'_>, column: PlanColumn, params: &mut Vec<ParamValue>) -> PlanPredicate {
+    match filter.value {
+        ResolvedFilterValue::Eq(ref value) => {
+            let param = params.len();
+            params.push(ParamValue::Text(value.clone()));
+            PlanPredicate::Equals { column, param }
+        }
+        ResolvedFilterValue::In(ref values) => {
+            let start = params.len();
+            params.extend(values.iter().cloned().map(ParamValue::Text));
+            PlanPredicate::In {
+                column,
+                params: (start..params.len()).collect(),
+            }
+        }
+        ResolvedFilterValue::NotIn(ref values) => {
+            let start = params.len();
+            params.extend(values.iter().cloned().map(ParamValue::Text));
+            PlanPredicate::NotIn {
+                column,
+                params: (start..params.len()).collect(),
+            }
+        }
+    }
+}
+
+/// The predicates a lookup leg carries: only the caller's own remote filters, bound on the remote
+/// table.
+fn requested_for(requested: &[&ResolvedFilter<'_>], remote_table: &TableName) -> Result<PlanBindings, IncoherentBindings> {
+    let mut params: Vec<ParamValue> = Vec::new();
+    let mut filters: Vec<PlanFilter> = Vec::new();
+    for filter in requested {
+        let column = PlanColumn::new(remote_table.clone(), filter.dimension.dimension.column().clone());
+        let predicate = requested_predicate(filter, column, &mut params);
+        filters.push(PlanFilter::new(PredicateOrigin::Requested, predicate));
+    }
+    PlanBindings::parse(filters, params)
+}
 /// The three properties of a chain a plan is a function of: which table qualifies hop N's origin
 /// column, that a chain which left its data system is refused here as well as at load, and that the
 /// join order does not depend on the order the caller listed their dimensions.
@@ -483,6 +529,7 @@ mod tests {
         fn asking<'a>(&'a self, keys: Vec<ResolvedDimension<'a>>) -> Resolution<'a> {
             Resolution {
                 metric: &self.held,
+                metrics: vec![&self.held],
                 model: &self.facts,
                 grain: Grain::Month,
                 range: TimeRange::new(

@@ -42,7 +42,7 @@
 //!
 //! # What is asserted after boot
 //!
-//! One POST of `{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}`
+//! One POST of `{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}`
 //! (no dimension, so the relationship to `customers` is exercised only structurally - harvested,
 //! assembled, never joined for this question). The assertion is against `answer["rows"]`, mirroring
 //! `served.rs`'s own `recurring_revenue_june` shape byte for byte (`columns`, `rows`,
@@ -169,7 +169,7 @@ mod tests {
 
     /// The one question this file asks: `revenue`, over exactly the certified anchor's own range -
     /// see the module header for why that range is not incidental.
-    const QUESTION: &str = r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
+    const QUESTION: &str = r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
 
     #[test]
     fn a_datahub_catalog_answers_a_certified_question_from_the_served_binary() {

@@ -256,37 +256,37 @@ pub(crate) const DERIVED_QUESTIONS: &[(&str, &str)] = &[
     // row survives with a null region. Both the absent key and the orphan land in that group.
     (
         "two-source-a-null-key-and-an-orphan-key",
-        "metric: recurring_revenue\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region]\n",
+        "metrics: [recurring_revenue]\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region]\n",
     ),
     // F2: a public dimension named after the remote join target, grouped beside the remote one.
     (
         "two-source-a-dimension-named-like-the-link",
-        "metric: subscription_months_billed\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\ndimensions: [customer_key, region]\n",
+        "metrics: [subscription_months_billed]\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\ndimensions: [customer_key, region]\n",
     ),
     // A zero denominator in one subgroup, answered: July's north region churned, its south did
     // not, and the null-region group did not either.
     (
         "two-source-a-zero-denominator-in-one-subgroup",
-        "metric: revenue_per_churn_or_null\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region]\n",
+        "metrics: [revenue_per_churn_or_null]\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region]\n",
     ),
     // The same subgroup under `fails`, where both sides must fail rather than answer.
     (
         "two-source-a-zero-denominator-that-fails",
-        "metric: revenue_per_churned_subscription\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region]\n",
+        "metrics: [revenue_per_churned_subscription]\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region]\n",
     ),
     // The average, decomposed into a sum and a count in each leg and divided above them.
     (
         "two-source-an-average-decomposed-above-the-legs",
-        "metric: mean_subscription_mrr\ngrain: month\nrange:\n  start: 2026-01-01\n  end: 2026-07-01\ndimensions: [region]\n",
+        "metrics: [mean_subscription_mrr]\ngrain: month\nrange:\n  start: 2026-01-01\n  end: 2026-07-01\ndimensions: [region]\n",
     ),
     // The two extremes, re-taken above the legs.
     (
         "two-source-a-maximum-re-taken-above-the-legs",
-        "metric: largest_subscription_mrr\ngrain: month\nrange:\n  start: 2026-01-01\n  end: 2026-07-01\ndimensions: [region]\n",
+        "metrics: [largest_subscription_mrr]\ngrain: month\nrange:\n  start: 2026-01-01\n  end: 2026-07-01\ndimensions: [region]\n",
     ),
     (
         "two-source-a-minimum-re-taken-above-the-legs",
-        "metric: smallest_subscription_mrr\ngrain: month\nrange:\n  start: 2026-01-01\n  end: 2026-07-01\ndimensions: [region]\n",
+        "metrics: [smallest_subscription_mrr]\ngrain: month\nrange:\n  start: 2026-01-01\n  end: 2026-07-01\ndimensions: [region]\n",
     ),
     // **A same-source orphan beside a remote one**, which is the only question here whose fact leg
     // has an unmatched row in its OWN `JOIN`. `product_family` comes off the metric's own data
@@ -297,12 +297,12 @@ pub(crate) const DERIVED_QUESTIONS: &[(&str, &str)] = &[
     // is the disagreement `leg::dimension_join` exists to make impossible.
     (
         "two-source-a-same-source-orphan-beside-a-remote-one",
-        "metric: recurring_revenue\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region, product_family]\n",
+        "metrics: [recurring_revenue]\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region, product_family]\n",
     ),
     // A distinct value spanning join keys: refused, not answered.
     (
         "two-source-a-distinct-value-spanning-join-keys",
-        "metric: products_in_use\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\ndimensions: [region]\n",
+        "metrics: [products_in_use]\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\ndimensions: [region]\n",
     ),
     // `github.com/telekom/sutura#777`'s case 2 - the one case the splitter can produce: `region`
     // is on the SECOND data system, so the answer key reads the lookup leg and the rank cannot
@@ -311,7 +311,7 @@ pub(crate) const DERIVED_QUESTIONS: &[(&str, &str)] = &[
     // fact-side pushdown) had no reachable cell and was cut with the pushdown.
     (
         "two-source-a-case-2-combine-then-rank-top",
-        "metric: recurring_revenue\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region]\ntop: { n: 3, by: metric, direction: desc }\n",
+        "metrics: [recurring_revenue]\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region]\ntop: { n: 3, by: metric, direction: desc }\n",
     ),
 ];
 

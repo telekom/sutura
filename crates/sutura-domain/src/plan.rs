@@ -432,6 +432,22 @@ pub enum PlanPredicate {
         column: PlanColumn,
         param: usize,
     },
+    /// `column IN (param, param, ..)` - one or more values, `github.com/telekom/sutura#968`.
+    ///
+    /// `params` rather than a single `param`, because membership in a set binds more than one
+    /// value - and a `Vec` rather than [`crate::query::filter::FilterValues`] or
+    /// [`crate::nonempty::NonEmpty`]: those hold *values*, and by the time a predicate exists the
+    /// values are already parameters `PlanBindings` has accepted in placeholder order. Carrying
+    /// the domain newtype here would let a plan producer skip that acceptance.
+    In {
+        column: PlanColumn,
+        params: Vec<usize>,
+    },
+    /// `column NOT IN (param, param, ..)` - [`Self::In`]'s negation.
+    NotIn {
+        column: PlanColumn,
+        params: Vec<usize>,
+    },
     IsTrue {
         column: PlanColumn,
     },
@@ -448,11 +464,16 @@ impl PlanPredicate {
             | Self::Before { ref column, .. }
             | Self::Equals { ref column, .. }
             | Self::NotEquals { ref column, .. }
+            | Self::In { ref column, .. }
+            | Self::NotIn { ref column, .. }
             | Self::IsTrue { ref column }
             | Self::IsNotNull { ref column } => column,
         }
     }
 
+    /// The one parameter a single-valued predicate binds. `None` for `In`/`NotIn` too, deliberately -
+    /// a caller that reads one index off a set-valued predicate would see only its first value. See
+    /// [`Self::bound_params`] for the shape that covers every variant.
     #[inline]
     pub const fn param(&self) -> Option<usize> {
         match *self {
@@ -460,7 +481,44 @@ impl PlanPredicate {
             | Self::Before { param, .. }
             | Self::Equals { param, .. }
             | Self::NotEquals { param, .. } => Some(param),
-            Self::IsTrue { .. } | Self::IsNotNull { .. } => None,
+            Self::In { .. } | Self::NotIn { .. } | Self::IsTrue { .. } | Self::IsNotNull { .. } => None,
+        }
+    }
+
+    /// Every parameter index this predicate binds, in placeholder order - zero for `IsTrue`/
+    /// `IsNotNull`, one for a comparing predicate, one per value for `In`/`NotIn`.
+    ///
+    /// The one place [`bindings::PlanBindings::parse`] and every adapter that resolves a bound
+    /// value walk all eight variants without matching on which one they have.
+    #[inline]
+    pub(crate) fn bound_params(&self) -> BoundParams<'_> {
+        match *self {
+            Self::AtOrAfter { param, .. }
+            | Self::Before { param, .. }
+            | Self::Equals { param, .. }
+            | Self::NotEquals { param, .. } => BoundParams::One(Some(param)),
+            Self::In { ref params, .. } | Self::NotIn { ref params, .. } => BoundParams::Many(params.iter()),
+            Self::IsTrue { .. } | Self::IsNotNull { .. } => BoundParams::None,
+        }
+    }
+}
+
+/// The iterator [`PlanPredicate::bound_params`] returns - no allocation for any of the three
+/// shapes a predicate can bind.
+pub(crate) enum BoundParams<'a> {
+    None,
+    One(Option<usize>),
+    Many(std::slice::Iter<'a, usize>),
+}
+
+impl Iterator for BoundParams<'_> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<usize> {
+        match self {
+            Self::None => None,
+            Self::One(value) => value.take(),
+            Self::Many(iter) => iter.next().copied(),
         }
     }
 }

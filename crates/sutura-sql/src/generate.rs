@@ -468,6 +468,8 @@ fn predicate(dialect: Dialect, plan_predicate: &PlanPredicate) -> Expr {
         PlanPredicate::Before { param, .. } => col.lt(placeholder(dialect, param)),
         PlanPredicate::Equals { param, .. } => col.eq(placeholder(dialect, param)),
         PlanPredicate::NotEquals { param, .. } => col.neq(placeholder(dialect, param)),
+        PlanPredicate::In { ref params, .. } => col.in_list(params.iter().map(|&index| placeholder(dialect, index))),
+        PlanPredicate::NotIn { ref params, .. } => col.not_in(params.iter().map(|&index| placeholder(dialect, index))),
         PlanPredicate::IsTrue { .. } => col.is(builder::boolean(true)),
         PlanPredicate::IsNotNull { .. } => col.is_not_null(),
     }

@@ -128,7 +128,7 @@ Eleven metrics; five of them below, and the elision is this page's rather than t
 
 ```text
 version local-working-tree
-digest  c14afabdc65d0088523cfc6b805311547998c12ab1b540fd970b4f369b609270
+digest  16f8afb19d7fdc2f6b5bc6d9c85f9b9ba7159100baa780326e8c0f2aab7d80ad
 
 active_subscriptions
   measure    count_distinct(subscription_key)
@@ -185,7 +185,7 @@ A question is a small file. There is no field in it for SQL, a table, a predicat
 ids, so an uncertified question is not something you can write down:
 
 ```yaml
-metric: recurring_revenue
+metrics: [recurring_revenue]
 grain: month
 range:
   start: 2026-06-01
@@ -246,7 +246,7 @@ sutura query examples/single-player/catalog \
 ```
 
 ```text
--- definitions local-working-tree c14afabdc65d0088523cfc6b805311547998c12ab1b540fd970b4f369b609270
+-- definitions local-working-tree 16f8afb19d7fdc2f6b5bc6d9c85f9b9ba7159100baa780326e8c0f2aab7d80ad
 region	period	recurring_revenue
 central	2026-06-01	51739
 east	2026-06-01	32598

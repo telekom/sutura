@@ -198,7 +198,7 @@ fn ask_metric_call() -> serde_json::Value {
         "params": {
             "name": "ask_metric",
             "arguments": {
-                "metric": "revenue",
+                "metrics": ["revenue"],
                 "grain": "month",
                 "range": { "start": "2026-06-01", "end": "2026-07-01" }
             }

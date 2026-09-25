@@ -232,26 +232,29 @@ pub(crate) fn measure_expression(measure: &PlanMeasure) -> Result<Expr, DataFusi
 /// bind a different value on one path than on the other.
 pub(crate) fn predicate(params: &[ParamValue], plan_predicate: &PlanPredicate) -> Result<Expr, DataFusionError> {
     let subject = column(plan_predicate.column());
-    let bound = match plan_predicate.param() {
-        None => None,
-        Some(index) => Some(literal(params.get(index).ok_or(DataFusionError::MissingParam {
-            index,
-            count: params.len(),
-        })?)),
-    };
-    match (plan_predicate, bound) {
-        (&PlanPredicate::AtOrAfter { .. }, Some(value)) => Ok(subject.gt_eq(value)),
-        (&PlanPredicate::Before { .. }, Some(value)) => Ok(subject.lt(value)),
-        (&PlanPredicate::Equals { .. }, Some(value)) => Ok(subject.eq(value)),
-        (&PlanPredicate::NotEquals { .. }, Some(value)) => Ok(subject.not_eq(value)),
-        (&PlanPredicate::IsTrue { .. }, _) => Ok(subject.is_true()),
-        (&PlanPredicate::IsNotNull { .. }, _) => Ok(subject.is_not_null()),
-        // A comparing predicate whose parameter did not resolve. `param()` returns `Some` for
-        // exactly the four arms above, so this is the shape a change to that method would produce,
-        // and it is an error rather than a silently dropped comparison.
-        (_, None) => Err(DataFusionError::MissingParam {
-            index: usize::MAX,
-            count: params.len(),
-        }),
+    match *plan_predicate {
+        PlanPredicate::AtOrAfter { param, .. } => Ok(subject.gt_eq(literal(resolve(params, param)?))),
+        PlanPredicate::Before { param, .. } => Ok(subject.lt(literal(resolve(params, param)?))),
+        PlanPredicate::Equals { param, .. } => Ok(subject.eq(literal(resolve(params, param)?))),
+        PlanPredicate::NotEquals { param, .. } => Ok(subject.not_eq(literal(resolve(params, param)?))),
+        PlanPredicate::In { params: ref indices, .. } => Ok(subject.in_list(values_of(params, indices)?, false)),
+        PlanPredicate::NotIn { params: ref indices, .. } => Ok(subject.in_list(values_of(params, indices)?, true)),
+        PlanPredicate::IsTrue { .. } => Ok(subject.is_true()),
+        PlanPredicate::IsNotNull { .. } => Ok(subject.is_not_null()),
     }
+}
+
+/// The parameter at `index`, or the same error every arm above raises for an index the plan's own
+/// parameter list does not hold - a defect in this workspace, since `PlanBindings::parse` is the
+/// only way to build a plan and it refuses exactly this.
+fn resolve(params: &[ParamValue], index: usize) -> Result<&ParamValue, DataFusionError> {
+    params.get(index).ok_or(DataFusionError::MissingParam {
+        index,
+        count: params.len(),
+    })
+}
+
+/// Every value an `In`/`NotIn` predicate's indices resolve to, as literals - `github.com/telekom/sutura#968`.
+fn values_of(params: &[ParamValue], indices: &[usize]) -> Result<Vec<Expr>, DataFusionError> {
+    indices.iter().map(|&index| resolve(params, index).map(literal)).collect()
 }

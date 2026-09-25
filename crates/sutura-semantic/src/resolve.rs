@@ -22,7 +22,7 @@ use sutura_domain::model::{DimensionName, Grain, MetricName, ModelName};
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::RowCeiling;
-use sutura_domain::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS, Query, RefusalReason, ResultBound, Top};
+use sutura_domain::query::{Filter, MAX_DIMENSIONS, MAX_RANGE_DAYS, Query, RefusalReason, ResultBound, Top};
 
 /// A dimension, and the chain of joins needed to reach it.
 pub(crate) struct ResolvedDimension<'a> {
@@ -38,22 +38,37 @@ pub(crate) struct ResolvedJoin<'a> {
     pub(crate) model: &'a Model,
 }
 
-/// A filter whose value the bundle has already accepted.
+/// A filter's values, resolved to bind-ready text, in the shape
+/// [`Filter`](sutura_domain::query::Filter) carried them.
 ///
-/// **The one place a [`DimensionValue`](sutura_domain::catalog::DimensionValue) becomes a `String`,
-/// and it is the binding site.** A value is parsed text from here back to the wire; from here on it
-/// is a bind parameter, and `sutura_domain::warehouse::ParamValue` is the shape a value takes on
-/// its way to a data system - by which point the parsing has already happened. Converting here
-/// rather than carrying the newtype into the plan keeps the parse boundary where the check is and
-/// leaves the execution port speaking in the two things a data system binds: text and a date.
+/// **The one place a [`DimensionValue`](sutura_domain::catalog::DimensionValue) becomes a
+/// `String`, and it is the binding site.** A value is parsed text from here back to the wire; from
+/// here on it is a bind parameter, and `sutura_domain::warehouse::ParamValue` is the shape a value
+/// takes on its way to a data system - by which point the parsing has already happened. Converting
+/// here rather than carrying the newtype into the plan keeps the parse boundary where the check is
+/// and leaves the execution port speaking in the two things a data system binds: text and a date.
+pub(crate) enum ResolvedFilterValue {
+    Eq(String),
+    In(Vec<String>),
+    NotIn(Vec<String>),
+}
+
+/// One filter, every one of whose values the bundle has already accepted.
 pub(crate) struct ResolvedFilter<'a> {
     pub(crate) dimension: ResolvedDimension<'a>,
-    pub(crate) value: String,
+    pub(crate) value: ResolvedFilterValue,
 }
 
 /// A question whose every name resolved.
+///
+/// **`metric` stays the first entry of `metrics`, and nothing else.** Every plan this crate builds
+/// today reads a single metric - `metrics` beyond index 0 exists so this function can validate a
+/// multi-metric question (every metric's grain, every requested dimension against every metric,
+/// every filter value against every metric's own allowlist) before the plan stage refuses to go
+/// further with [`RefusalReason::MultiMetricNotExecutable`].
 pub(crate) struct Resolution<'a> {
     pub(crate) metric: &'a Metric,
+    pub(crate) metrics: Vec<&'a Metric>,
     pub(crate) model: &'a Model,
     pub(crate) grain: Grain,
     pub(crate) range: TimeRange,
@@ -105,10 +120,21 @@ impl From<RefusalReason> for ResolveError {
 /// Looks up everything a question names.
 pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: RowCeiling) -> Result<Resolution<'a>, ResolveError> {
     // A metric outside the view is absent HERE, which is the whole mechanism: there is no second
-    // branch downstream that could disagree about which metrics exist.
-    let metric = view.metric(query.metric()).ok_or_else(|| RefusalReason::MetricUnknown {
-        metric: query.metric().clone(),
-    })?;
+    // branch downstream that could disagree about which metrics exist. Looked up in the caller's
+    // own order - `metrics[0]` is the "first" `MetricsSpanDifferentModels`/`GrainNotSupported` (a
+    // per-metric refusal below) will ever report a mismatch against.
+    let mut metrics: Vec<&Metric> = Vec::with_capacity(query.metrics().len());
+    for name in query.metrics() {
+        let found = view
+            .metric(name)
+            .ok_or_else(|| RefusalReason::MetricUnknown { metric: name.clone() })?;
+        metrics.push(found);
+    }
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "`query.metrics()` is a `NonEmpty`, so `metrics` holds at least one entry"
+    )]
+    let metric = metrics[0];
     let definitions = view.pinned().definitions();
     let model = definitions
         .model(metric.model())
@@ -117,12 +143,29 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
             model: metric.model().clone(),
         })?;
 
-    if !metric.supports_grain(query.grain()) {
-        return Err(RefusalReason::GrainNotSupported {
-            metric: metric.name().clone(),
-            grain: query.grain(),
+    // Every later metric must share the first one's model AND its time column - two metrics on one
+    // model can still declare two different time columns, and a shared bucket over an ambiguous
+    // column is not a smaller question, it is a different one. Compared against the FIRST metric
+    // only, never pairwise among the rest, so the refusal always names one metric a caller wrote
+    // and the one metric it disagreed with, never a third metric's opinion about the other two.
+    for other in metrics.iter().skip(1) {
+        if other.model() != metric.model() || other.time_column() != metric.time_column() {
+            return Err(RefusalReason::MetricsSpanDifferentModels {
+                first: metric.name().clone(),
+                other: other.name().clone(),
+            }
+            .into());
         }
-        .into());
+    }
+
+    for named in &metrics {
+        if !named.supports_grain(query.grain()) {
+            return Err(RefusalReason::GrainNotSupported {
+                metric: named.name().clone(),
+                grain: query.grain(),
+            }
+            .into());
+        }
     }
 
     // The availability boundary. `TimeRange` guarantees two endpoints and says nothing about the
@@ -178,6 +221,17 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
         if !seen.insert(name) {
             return Err(RefusalReason::DuplicateDimension { dimension: name.clone() }.into());
         }
+        // A group-by key must be a dimension EVERY named metric declares - one metric lacking it
+        // makes the grouped answer ambiguous for that metric's own column, not merely narrower.
+        for named in &metrics {
+            if named.dimension(name).is_none() {
+                return Err(RefusalReason::DimensionNotPermitted {
+                    metric: named.name().clone(),
+                    dimension: name.clone(),
+                }
+                .into());
+            }
+        }
         keys.push(resolve_dimension(view.pinned(), metric, name)?);
     }
 
@@ -193,29 +247,52 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
             }
             .into());
         }
+        for named in &metrics {
+            let Some(declared) = named.dimension(filter.dimension()) else {
+                return Err(RefusalReason::DimensionNotPermitted {
+                    metric: named.name().clone(),
+                    dimension: filter.dimension().clone(),
+                }
+                .into());
+            };
+            if !declared.is_filterable() {
+                return Err(RefusalReason::DimensionNotFilterable {
+                    metric: named.name().clone(),
+                    dimension: filter.dimension().clone(),
+                }
+                .into());
+            }
+            // Every value in the set, not only the first - an `In`/`NotIn` filter's unlisted
+            // member is refused by the same variant a single unlisted equality value already
+            // used, reached once per value rather than once.
+            for value in filter.values() {
+                if !declared.permits(value) {
+                    return Err(RefusalReason::DimensionValueNotAllowed {
+                        metric: named.name().clone(),
+                        dimension: filter.dimension().clone(),
+                    }
+                    .into());
+                }
+            }
+        }
         let resolved = resolve_dimension(view.pinned(), metric, filter.dimension())?;
-        if !resolved.dimension.is_filterable() {
-            return Err(RefusalReason::DimensionNotFilterable {
-                metric: metric.name().clone(),
-                dimension: filter.dimension().clone(),
-            }
-            .into());
-        }
-        if !resolved.dimension.permits(filter.value()) {
-            return Err(RefusalReason::DimensionValueNotAllowed {
-                metric: metric.name().clone(),
-                dimension: filter.dimension().clone(),
-            }
-            .into());
-        }
+        let value = match filter {
+            Filter::Eq { value, .. } => ResolvedFilterValue::Eq(String::from(value.as_str())),
+            Filter::In { values, .. } => ResolvedFilterValue::In(values.iter().map(|v| String::from(v.as_str())).collect()),
+            Filter::NotIn { values, .. } => ResolvedFilterValue::NotIn(values.iter().map(|v| String::from(v.as_str())).collect()),
+        };
         filters.push(ResolvedFilter {
             dimension: resolved,
-            value: String::from(filter.value().as_str()),
+            value,
         });
     }
 
+    // Every metric named and every constraint checked against all of them - the only thing left is
+    // whether this build can turn more than one into one statement, which is the plan stage's own
+    // question. See `RefusalReason::MultiMetricNotExecutable`.
     Ok(Resolution {
         metric,
+        metrics,
         model,
         grain: query.grain(),
         range: query.range(),

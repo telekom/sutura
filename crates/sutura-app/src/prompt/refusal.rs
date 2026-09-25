@@ -43,6 +43,23 @@ const METRIC_UNKNOWN: Guide = Guide {
              whole of what exists.",
 };
 
+const METRICS_SPAN_DIFFERENT_MODELS: Guide = Guide {
+    reason: "metrics_span_different_models",
+    meaning: "more than one metric was named, and two of them do not share a model and a time \
+              column, so there is no one statement that could answer them together",
+    remedy: "Ask about metrics that share a model, or ask about the mismatched one separately. \
+             Do not retry the same combination unchanged: the two metrics' own definitions are what \
+             disagree, not anything about how the question was phrased.",
+};
+
+const MULTI_METRIC_NOT_EXECUTABLE: Guide = Guide {
+    reason: "multi_metric_not_executable",
+    meaning: "every metric named resolved and every constraint checked, but this deployment does \
+              not yet turn more than one metric into one answer",
+    remedy: "Ask about one metric at a time for now. This is a capability this deployment has not \
+             built yet, not something about the question to change.",
+};
+
 const GRAIN_NOT_SUPPORTED: Guide = Guide {
     reason: "grain_not_supported",
     meaning: "the metric exists and does not declare that time resolution",
@@ -273,6 +290,8 @@ const CROSS_MODEL_RATIO_NOT_EXECUTABLE: Guide = Guide {
 /// net rather than the first.*
 pub(super) const GUIDES: &[&Guide] = &[
     &METRIC_UNKNOWN,
+    &METRICS_SPAN_DIFFERENT_MODELS,
+    &MULTI_METRIC_NOT_EXECUTABLE,
     &GRAIN_NOT_SUPPORTED,
     &DIMENSION_NOT_PERMITTED,
     &DIMENSION_NOT_FILTERABLE,
@@ -331,6 +350,8 @@ pub(super) const GUIDES: &[&Guide] = &[
 pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
     match *reason {
         RefusalReason::MetricUnknown { .. } => &METRIC_UNKNOWN,
+        RefusalReason::MetricsSpanDifferentModels { .. } => &METRICS_SPAN_DIFFERENT_MODELS,
+        RefusalReason::MultiMetricNotExecutable { .. } => &MULTI_METRIC_NOT_EXECUTABLE,
         RefusalReason::GrainNotSupported { .. } => &GRAIN_NOT_SUPPORTED,
         RefusalReason::DimensionNotPermitted { .. } => &DIMENSION_NOT_PERMITTED,
         RefusalReason::DimensionNotFilterable { .. } => &DIMENSION_NOT_FILTERABLE,

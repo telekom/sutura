@@ -91,8 +91,10 @@ pub use raw::{MalformedStatement, RawContent, RunSqlArgs};
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AskArgs {
-    /// The metric to measure, by the name this catalog defines it under - for example `revenue`.
-    metric: String,
+    /// The metrics to measure together, at least one, by the names this catalog defines them
+    /// under - for example `["revenue"]`. Every one must share a model, a time column, a grain
+    /// and every dimension listed below - `github.com/telekom/sutura#968`.
+    metrics: Vec<String>,
     /// The time resolution to aggregate to: one of `day`, `week`, `month`, `quarter` or `year`, and
     /// only those the metric declares.
     grain: String,
@@ -101,7 +103,8 @@ pub struct AskArgs {
     /// What to group the answer by. At most four, and each must be a dimension the metric declares.
     #[serde(default)]
     dimensions: Vec<String>,
-    /// Equality filters, each on a dimension the metric declares as filterable.
+    /// Filters, each on a dimension the metric declares as filterable and each value one the
+    /// catalog allowlists - equality, or membership in an allowed set.
     #[serde(default)]
     filters: Vec<FilterArgs>,
     /// An order and a caller-chosen row limit, bounding a wide group-by instead of asking for
@@ -156,15 +159,26 @@ pub struct LastArgs {
     include_current: bool,
 }
 
-/// One equality filter.
+/// One filter: a dimension, and what it must - or must not - equal.
+///
+/// Tagged by `op`, mirroring `sutura_domain::query::Filter` - `github.com/telekom/sutura#968`. Every
+/// value, in either shape, is still checked against the metric's own allowlist; `In`/`NotIn` widen
+/// the predicate's shape and never the source of a value.
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct FilterArgs {
-    /// The dimension to filter on, by the name the metric declares it under.
-    dimension: String,
-    /// The value it must equal. Where the catalog declares an allowlist, only a declared value is
-    /// accepted.
-    value: String,
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+pub enum FilterArgs {
+    /// The dimension equals this one value.
+    Eq {
+        /// The dimension to filter on, by the name the metric declares it under.
+        dimension: String,
+        /// The value it must equal. Where the catalog declares an allowlist, only a declared
+        /// value is accepted.
+        value: String,
+    },
+    /// The dimension equals one of these values. At least one.
+    In { dimension: String, values: Vec<String> },
+    /// The dimension equals none of these values. At least one.
+    NotIn { dimension: String, values: Vec<String> },
 }
 
 /// Why an arguments object is not a question.
@@ -213,7 +227,20 @@ fn query_of(args: AskArgs, clock: &impl sutura_runtime::relative_range::WallCloc
     let filters: Vec<RawFilter<'_>> = args
         .filters
         .iter()
-        .map(|filter| RawFilter::new(&filter.dimension, &filter.value))
+        .map(|filter| match *filter {
+            FilterArgs::Eq {
+                ref dimension,
+                ref value,
+            } => RawFilter::eq(dimension, value),
+            FilterArgs::In {
+                ref dimension,
+                ref values,
+            } => RawFilter::in_set(dimension, values),
+            FilterArgs::NotIn {
+                ref dimension,
+                ref values,
+            } => RawFilter::not_in_set(dimension, values),
+        })
         .collect();
     let last = args
         .range
@@ -224,7 +251,7 @@ fn query_of(args: AskArgs, clock: &impl sutura_runtime::relative_range::WallCloc
         .top
         .as_ref()
         .map(|top| sutura_domain::question::RawTop::new(top.n, &top.by, &top.direction));
-    let query = sutura_domain::question::parse_query(&args.metric, &args.grain, &start, &end, &args.dimensions, &filters, top)?;
+    let query = sutura_domain::question::parse_query(&args.metrics, &args.grain, &start, &end, &args.dimensions, &filters, top)?;
     Ok(query)
 }
 
@@ -477,8 +504,8 @@ mod tests {
     #[test]
     fn a_well_formed_question_becomes_a_query() {
         let query = parse(
-            r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},
-                "dimensions":["region"],"filters":[{"dimension":"region","value":"north"}]}"#,
+            r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},
+                "dimensions":["region"],"filters":[{"op":"eq","dimension":"region","value":"north"}]}"#,
         )
         .expect("a well formed question is a query");
         assert_eq!(query.metric(), &MetricName::parse("revenue").expect("a name"));
@@ -494,7 +521,7 @@ mod tests {
     fn a_malformed_field_names_the_field_it_was() {
         use sutura_domain::question::MalformedQuestion as SharedMalformedQuestion;
 
-        let error = parse(r#"{"metric":"revenue","grain":"fortnight","range":{"start":"2026-06-01","end":"2026-07-01"}}"#)
+        let error = parse(r#"{"metrics":["revenue"],"grain":"fortnight","range":{"start":"2026-06-01","end":"2026-07-01"}}"#)
             .expect_err("`fortnight` is not a grain");
         let MalformedQuestion::Question(ref shared) = error else {
             panic!("expected a shared parse failure, got {error:?}");
@@ -502,7 +529,7 @@ mod tests {
         assert!(matches!(shared, SharedMalformedQuestion::Grain), "{shared:?}");
         assert!(error.to_string().contains("quarter"), "{error}");
 
-        let error = parse(r#"{"metric":"revenue","grain":"month","range":{"start":"nope","end":"2026-07-01"}}"#)
+        let error = parse(r#"{"metrics":["revenue"],"grain":"month","range":{"start":"nope","end":"2026-07-01"}}"#)
             .expect_err("`nope` is not a date");
         let MalformedQuestion::Question(SharedMalformedQuestion::Date { field, .. }) = error else {
             panic!("expected a date failure, got {error:?}");
@@ -518,8 +545,8 @@ mod tests {
         // raw string - so the source stays ASCII, which this workspace denies departing from, and
         // the JSON parser is what produces the code point.
         let error = parse(
-            r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},
-                "filters":[{"dimension":"region","value":"nor\u200Bth"}]}"#,
+            r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},
+                "filters":[{"op":"eq","dimension":"region","value":"nor\u200Bth"}]}"#,
         )
         .expect_err("a value a catalog could not declare is not a value");
         assert!(
@@ -538,7 +565,7 @@ mod tests {
     fn a_range_with_no_end_and_no_last_is_ambiguous() {
         // `start` with no `end` deserializes now - both are `Option` so a relative range can omit
         // them - and is refused one step later, by `range_choice`, rather than by serde.
-        let error = parse(r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01"}}"#)
+        let error = parse(r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01"}}"#)
             .expect_err("a range with no end and no `last` is neither shape");
         assert!(matches!(error, MalformedQuestion::Range(_)), "{error:?}");
     }
@@ -546,7 +573,7 @@ mod tests {
     #[test]
     fn a_range_naming_both_start_end_and_last_is_ambiguous() {
         let error = parse(
-            r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01",
+            r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01",
                              "last":{"count":1,"unit":"month"}}}"#,
         )
         .expect_err("both shapes at once is ambiguous");
@@ -566,14 +593,14 @@ mod tests {
 
         let clock = FixedClock(Date::parse("2026-09-16").expect("a real date"));
         let excluding_today: super::AskArgs =
-            serde_json::from_str(r#"{"metric":"revenue","grain":"month","range":{"last":{"count":1,"unit":"month"}}}"#)
+            serde_json::from_str(r#"{"metrics":["revenue"],"grain":"month","range":{"last":{"count":1,"unit":"month"}}}"#)
                 .expect("valid arguments");
         let query = super::query_of(excluding_today, &clock).expect("a fixed clock resolves a relative range");
         assert_eq!(query.range().start().to_iso(), "2026-08-01");
         assert_eq!(query.range().end().to_iso(), "2026-09-01");
 
         let including_today: super::AskArgs = serde_json::from_str(
-            r#"{"metric":"revenue","grain":"month",
+            r#"{"metrics":["revenue"],"grain":"month",
                 "range":{"last":{"count":1,"unit":"month","include_current":true}}}"#,
         )
         .expect("valid arguments");
@@ -598,7 +625,7 @@ mod tests {
         }
 
         let args: super::AskArgs =
-            serde_json::from_str(r#"{"metric":"revenue","grain":"month","range":{"last":{"count":1,"unit":"month"}}}"#)
+            serde_json::from_str(r#"{"metrics":["revenue"],"grain":"month","range":{"last":{"count":1,"unit":"month"}}}"#)
                 .expect("valid arguments");
         let error = super::query_of(args, &BrokenClock).expect_err("the clock never answers");
         assert!(

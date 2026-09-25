@@ -227,11 +227,8 @@ impl Example {
 fn question_bytes(question: &Query) -> usize {
     let dimensions = sum_bytes(question.dimensions().iter().map(|name| name.as_str().len()));
     let filters = sum_bytes(question.filters().iter().map(|filter| {
-        filter
-            .dimension()
-            .as_str()
-            .len()
-            .saturating_add(filter.value().as_str().len())
+        let values: usize = sum_bytes(filter.values().into_iter().map(|value| value.as_str().len()));
+        filter.dimension().as_str().len().saturating_add(values)
     }));
     question
         .metric()

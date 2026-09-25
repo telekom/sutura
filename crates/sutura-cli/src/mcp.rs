@@ -473,7 +473,7 @@ mod tests {
                 .call_tool(
                     rmcp::model::CallToolRequestParams::new(sutura_app::Capability::AskMetric.id()).with_arguments(
                         serde_json::json!({
-                            "metric": "recurring_revenue",
+                            "metrics": ["recurring_revenue"],
                             "grain": "month",
                             "range": { "start": "2026-01-01", "end": "2026-07-01" },
                         })

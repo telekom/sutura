@@ -812,16 +812,17 @@ impl Knowledge {
             }
         }
         for filter in question.filters() {
-            let permitted = metric
-                .dimension(filter.dimension())
-                .is_some_and(|declared| declared.permits(filter.value()));
-            if !permitted {
-                return Err(InconsistentKnowledge::ExampleValueNotAllowed {
-                    name,
-                    metric: metric_name,
-                    dimension: filter.dimension().clone(),
-                    value: filter.value().clone(),
-                });
+            let declared = metric.dimension(filter.dimension());
+            for value in filter.values() {
+                let permitted = declared.is_some_and(|declared| declared.permits(value));
+                if !permitted {
+                    return Err(InconsistentKnowledge::ExampleValueNotAllowed {
+                        name,
+                        metric: metric_name,
+                        dimension: filter.dimension().clone(),
+                        value: value.clone(),
+                    });
+                }
             }
         }
         Ok(())

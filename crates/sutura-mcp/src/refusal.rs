@@ -46,6 +46,12 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         RefusalReason::MetricUnknown { ref metric } => {
             format!("this catalog defines no metric called `{metric}`")
         }
+        RefusalReason::MetricsSpanDifferentModels { ref first, ref other } => {
+            format!("`{first}` and `{other}` do not share a model and a time column")
+        }
+        RefusalReason::MultiMetricNotExecutable { requested } => {
+            format!("this deployment does not yet answer a question naming {requested} metrics together")
+        }
         RefusalReason::GrainNotSupported { ref metric, grain } => {
             format!("`{metric}` is not defined at `{grain}` grain")
         }
@@ -243,6 +249,11 @@ mod tests {
     fn every_reason() -> Vec<RefusalReason> {
         vec![
             RefusalReason::MetricUnknown { metric: metric() },
+            RefusalReason::MetricsSpanDifferentModels {
+                first: metric(),
+                other: MetricName::parse("margin").expect("a test metric is a metric"),
+            },
+            RefusalReason::MultiMetricNotExecutable { requested: 2 },
             RefusalReason::GrainNotSupported {
                 metric: metric(),
                 grain: Grain::Week,

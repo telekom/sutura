@@ -151,7 +151,7 @@ pub(super) fn example(name: &str, question: Query) -> Example {
 }
 
 pub(super) fn question(grain: Grain, dimensions: Vec<DimensionName>, filters: Vec<Filter>) -> Query {
-    Query::new(metric_name("recurring_revenue"), grain, june(), dimensions, filters)
+    Query::single(metric_name("recurring_revenue"), grain, june(), dimensions, filters)
 }
 
 /// The one input shape every failing test varies one field of.

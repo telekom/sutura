@@ -591,7 +591,7 @@ mod tests {
         assert_ne!(composed.digest(), certified().digest());
 
         // And a question the certified source certifies is answered against the composed bundle.
-        let question = Query::new(
+        let question = Query::single(
             MetricName::parse("recurring_revenue").expect("a test metric is a name"),
             Grain::Month,
             june(),

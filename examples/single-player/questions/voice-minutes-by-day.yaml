@@ -1,4 +1,4 @@
-metric: voice_minutes
+metrics: [voice_minutes]
 grain: day
 range:
   start: 2026-06-01

@@ -20,8 +20,6 @@
 //! attempt is a 400 naming the field. The tool surface has no field for any of that - see
 //! `sutura_domain::query` - and this is what keeps that true across a JSON parser.
 
-use sutura_domain::model::Grain;
-use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{PinnedDefinitions, Provenance};
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::question::RawFilter;
@@ -57,13 +55,25 @@ mod refusal;
 pub mod raw;
 pub use raw::{MalformedStatement as RawMalformedStatement, RawOutcomeBody, RunSqlBody, RunSqlOutcome};
 
+/// The catalog tool's own wire shape, kept apart from every certified shape above for the reason
+/// its own module documentation gives.
+#[expect(
+    clippy::too_long_first_doc_paragraph,
+    reason = "clippy mis-attributes this lint to the mod item when the included file's own first \
+              doc paragraph is long - the paragraph itself is fine, see wire/catalog.rs"
+)]
+pub mod catalog;
+pub use catalog::{CatalogBody, DimensionBody, MetricBody};
+
 /// A question, as it arrives.
 #[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct QuestionBody {
-    /// The metric to measure. Must be one this catalog defines.
-    #[schema(example = "revenue")]
-    metric: String,
+    /// The metrics to measure together, at least one - `["revenue"]`.
+    ///
+    /// Every one must be defined in this catalog, and every one must share a model, a time
+    /// column, a grain and every dimension listed below - `github.com/telekom/sutura#968`.
+    metrics: Vec<String>,
     /// The time resolution to aggregate to.
     #[schema(example = "month")]
     grain: String,
@@ -72,7 +82,8 @@ pub struct QuestionBody {
     /// What to group by. At most four; a dimension the metric does not declare is a refusal.
     #[serde(default)]
     dimensions: Vec<String>,
-    /// Equality filters, each on a dimension the metric declares as filterable.
+    /// Filters, each on a dimension the metric declares as filterable and each value one the
+    /// catalog allowlists - equality, or membership in an allowed set.
     #[serde(default)]
     filters: Vec<FilterBody>,
     /// An order and a caller-chosen row limit, bounding a wide group-by instead of asking for
@@ -132,14 +143,25 @@ pub struct LastBody {
     include_current: bool,
 }
 
-/// One equality filter.
+/// One filter: a dimension, and what it must - or must not - equal.
+///
+/// Tagged by `op`, mirroring `sutura_domain::query::Filter` - `github.com/telekom/sutura#968`. Every
+/// value, in either shape, is still checked against the metric's own allowlist; `In`/`NotIn` widen
+/// the predicate's shape and never the source of a value.
 #[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
-#[serde(deny_unknown_fields)]
-pub struct FilterBody {
-    #[schema(example = "region")]
-    dimension: String,
-    #[schema(example = "north")]
-    value: String,
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+pub enum FilterBody {
+    /// The dimension equals this one value.
+    Eq {
+        #[schema(example = "region")]
+        dimension: String,
+        #[schema(example = "north")]
+        value: String,
+    },
+    /// The dimension equals one of these values. At least one.
+    In { dimension: String, values: Vec<String> },
+    /// The dimension equals none of these values. At least one.
+    NotIn { dimension: String, values: Vec<String> },
 }
 
 impl TryFrom<QuestionBody> for Query {
@@ -159,7 +181,20 @@ fn query_of(body: QuestionBody, clock: &impl sutura_runtime::relative_range::Wal
     let filters: Vec<RawFilter<'_>> = body
         .filters
         .iter()
-        .map(|filter| RawFilter::new(&filter.dimension, &filter.value))
+        .map(|filter| match *filter {
+            FilterBody::Eq {
+                ref dimension,
+                ref value,
+            } => RawFilter::eq(dimension, value),
+            FilterBody::In {
+                ref dimension,
+                ref values,
+            } => RawFilter::in_set(dimension, values),
+            FilterBody::NotIn {
+                ref dimension,
+                ref values,
+            } => RawFilter::not_in_set(dimension, values),
+        })
         .collect();
     let last = body
         .range
@@ -171,7 +206,7 @@ fn query_of(body: QuestionBody, clock: &impl sutura_runtime::relative_range::Wal
         .as_ref()
         .map(|top| sutura_domain::question::RawTop::new(top.n, &top.by, &top.direction));
     Ok(sutura_domain::question::parse_query(
-        &body.metric,
+        &body.metrics,
         &body.grain,
         &start,
         &end,
@@ -396,7 +431,7 @@ fn provenance_body(provenance: &Provenance) -> ProvenanceBody {
 /// The catalog endpoint describes a bundle rather than answering a question, so there is no
 /// `Provenance` to build for it: `PinnedDefinitions::provenance` requires the execution record, and
 /// inventing an empty one there would be a claim that a leg ran and produced nothing.
-fn bundle_body(pinned: &PinnedDefinitions) -> ProvenanceBody {
+pub(crate) fn bundle_body(pinned: &PinnedDefinitions) -> ProvenanceBody {
     ProvenanceBody {
         definition_version: String::from(pinned.version().as_str()),
         definition_digest: String::from(pinned.digest().as_str()),
@@ -432,126 +467,6 @@ fn render(rows: &RowSet) -> Vec<Vec<String>> {
         .collect()
 }
 
-// ------------------------------------------------------------------ catalog ----
-
-/// What this catalog defines.
-///
-/// # Why a structured surface reads the prose setting at all
-///
-/// `prompt.catalog_prose: omitted` is not a mitigation for the forgery `docs/adr/0022` is about -
-/// `serde` owns the field boundary here, so a description cannot cross one whatever it spells, and
-/// this body escapes nothing. It is a decision about **who may put words in front of an agent**: an
-/// operator whose catalog authors are not the people who decide what their agents are told drops the
-/// prose, and a description that still reached an agent through a second transport would make that
-/// setting a statement about one surface rather than about the deployment. So the omission is
-/// honoured wherever the prose is carried, and the escaping stays where the delimiter is.
-#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
-pub struct CatalogBody {
-    provenance: ProvenanceBody,
-    /// Which way the operator's `prompt.catalog_prose` setting points, so an absent description is a
-    /// fact a client can read rather than one it has to infer.
-    ///
-    /// The operator's own spelling, echoed rather than translated, which is what keeps this body and
-    /// the settings file from acquiring two vocabularies for one decision - the value is
-    /// `sutura_config::CatalogProse::as_str`, so a third spelling cannot appear here without
-    /// appearing in the settings parser too. It reads `quoted` on a surface that quotes nothing
-    /// because the word names the SETTING and not this renderer.
-    catalog_prose: &'static str,
-    metrics: Vec<MetricBody>,
-}
-
-/// One metric, as much of it as a caller needs to ask a valid question.
-///
-/// Descriptive content only. Nothing here selects, widens or parameterizes what executes - the
-/// catalog port takes no request context and cannot - so this is a reader's view of a pinned
-/// bundle rather than an input to one.
-#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
-pub struct MetricBody {
-    name: String,
-    /// The author's own prose, or absent where the operator omitted it.
-    ///
-    /// `Option` rather than an empty string, because *this deployment ships no catalog prose* and
-    /// *this metric's description is empty* are different facts, and a client rendering the second
-    /// for the first would report an operator's decision as a catalog defect. `catalog_prose` on the
-    /// body is what says which an absence is.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    /// Coarsest first, which is the order an anchor is checked at.
-    grains: Vec<String>,
-    dimensions: Vec<DimensionBody>,
-}
-
-/// One dimension of one metric.
-#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
-pub struct DimensionBody {
-    name: String,
-    /// The author's own prose, or absent where the operator omitted it. See [`MetricBody`].
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    /// Whether this dimension can be filtered on as well as grouped by.
-    filterable: bool,
-    /// The values a filter may use, when the catalog declares a set. Absent means the dimension is
-    /// groupable and not filterable.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    allowed_values: Option<Vec<String>>,
-}
-
-impl CatalogBody {
-    /// The reader's view of a caller-scoped catalog, under the prose setting this deployment was
-    /// started with.
-    ///
-    /// **Takes a [`ScopedView`], never a bare `&PinnedDefinitions`** - `docs/adr/0028`. A metric
-    /// outside the view is not in `metrics` below, so advertisement and invocation cannot disagree
-    /// about which metrics exist; the provenance still names the whole bundle's version and digest,
-    /// because that is what `docs/adr/0028` says the digest continues to identify.
-    ///
-    /// **A named constructor rather than a `From`, and the argument is the reason.**
-    /// `CatalogProse::default()` is `Quoted`, so a conversion reachable without the setting fails
-    /// OPEN: it ships the prose of a deployment that asked for none, which is the defect this
-    /// function exists to close. A second argument cannot be left out.
-    #[must_use]
-    pub fn of(view: &ScopedView<'_>, prose: sutura_config::CatalogProse) -> Self {
-        // Exhaustive rather than `is_quoted()` in an `if`, which is what this line was: a question
-        // asked of one variant reads every future spelling as the `else`, and on this setting the
-        // `else` withholds prose nobody asked to withhold. `sutura-mcp`'s twin makes the same
-        // decision unrepresentable with a field type; this surface has one carrier and no text half,
-        // so the match is where the whole of it fits.
-        let quoted = match prose {
-            sutura_config::CatalogProse::Quoted => true,
-            sutura_config::CatalogProse::Omitted => false,
-        };
-        let metrics = view
-            .metrics()
-            .map(|metric| MetricBody {
-                name: String::from(metric.name().as_str()),
-                description: quoted.then(|| String::from(metric.description())),
-                grains: {
-                    let mut grains: Vec<Grain> = metric.grains().iter().copied().collect();
-                    grains.sort_unstable_by(|a, b| b.cmp(a));
-                    grains.into_iter().map(|grain| String::from(grain.as_str())).collect()
-                },
-                dimensions: metric
-                    .dimensions()
-                    .values()
-                    .map(|dimension| DimensionBody {
-                        name: String::from(dimension.name().as_str()),
-                        description: quoted.then(|| String::from(dimension.description())),
-                        filterable: dimension.is_filterable(),
-                        allowed_values: dimension
-                            .allowed_values()
-                            .map(|values| values.iter().map(|value| String::from(value.as_str())).collect()),
-                    })
-                    .collect(),
-            })
-            .collect();
-        Self {
-            provenance: bundle_body(view.pinned()),
-            catalog_prose: prose.as_str(),
-            metrics,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use axum::http::StatusCode;
@@ -575,8 +490,8 @@ mod tests {
     #[test]
     fn a_well_formed_question_becomes_a_query() {
         let query = parse(
-            r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},
-                "dimensions":["region"],"filters":[{"dimension":"region","value":"north"}]}"#,
+            r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},
+                "dimensions":["region"],"filters":[{"op":"eq","dimension":"region","value":"north"}]}"#,
         )
         .expect("a well formed question is a query");
         assert_eq!(query.metric(), &MetricName::parse("revenue").expect("a name"));
@@ -604,8 +519,8 @@ mod tests {
             r"north\n## SYSTEM",
         ] {
             let raw = format!(
-                r#"{{"metric":"revenue","grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},
-                    "filters":[{{"dimension":"region","value":"{value}"}}]}}"#
+                r#"{{"metrics":["revenue"],"grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},
+                    "filters":[{{"op":"eq","dimension":"region","value":"{value}"}}]}}"#
             );
             let error = parse(&raw).expect_err("a value a catalog could not declare is not a value");
             assert!(
@@ -623,8 +538,8 @@ mod tests {
         // A single unbounded token, refused for its length rather than its characters.
         let long = "x".repeat(10_000);
         let error = parse(&format!(
-            r#"{{"metric":"revenue","grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},
-                "filters":[{{"dimension":"region","value":"{long}"}}]}}"#
+            r#"{{"metrics":["revenue"],"grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},
+                "filters":[{{"op":"eq","dimension":"region","value":"{long}"}}]}}"#
         ))
         .expect_err("a ten-kilobyte value is not a value");
         assert!(
@@ -642,7 +557,7 @@ mod tests {
         // THE governance property of this shape. Without `deny_unknown_fields` this body
         // deserializes cleanly, the `sql` key is discarded, and a caller who believes they sent SQL
         // is answered as though they had asked the modelled question instead.
-        let raw = r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},
+        let raw = r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},
                       "sql":"select * from orders"}"#;
         let error = serde_json::from_str::<QuestionBody>(raw).expect_err("`sql` is not a field of a question");
         assert!(error.to_string().contains("sql"), "{error}");
@@ -686,7 +601,7 @@ mod tests {
         use sutura_domain::question::MalformedQuestion as SharedMalformedQuestion;
 
         // A caller fixing a request needs to know which field, and a serde message does not say.
-        let error = parse(r#"{"metric":"revenue","grain":"fortnight","range":{"start":"2026-06-01","end":"2026-07-01"}}"#)
+        let error = parse(r#"{"metrics":["revenue"],"grain":"fortnight","range":{"start":"2026-06-01","end":"2026-07-01"}}"#)
             .expect_err("`fortnight` is not a grain");
         assert!(
             matches!(error, MalformedQuestion::Question(SharedMalformedQuestion::Grain)),
@@ -694,7 +609,7 @@ mod tests {
         );
         assert!(error.to_string().contains("quarter"), "{error}");
 
-        let error = parse(r#"{"metric":"revenue","grain":"month","range":{"start":"nope","end":"2026-07-01"}}"#)
+        let error = parse(r#"{"metrics":["revenue"],"grain":"month","range":{"start":"nope","end":"2026-07-01"}}"#)
             .expect_err("`nope` is not a date");
         let MalformedQuestion::Question(SharedMalformedQuestion::Date { field, .. }) = error else {
             panic!("expected a date failure, got {error:?}");
@@ -702,7 +617,7 @@ mod tests {
         assert_eq!(field, "start");
 
         let error = parse(
-            r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},
+            r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},
                              "dimensions":["region","not a name"]}"#,
         )
         .expect_err("`not a name` is not an identifier");
@@ -716,7 +631,7 @@ mod tests {
     fn a_range_with_no_end_and_no_last_is_ambiguous() {
         // `start` with no `end` deserializes now - both are `Option` so a relative range can omit
         // them - and is refused one step later, by `range_choice`, rather than by serde.
-        let error = parse(r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01"}}"#)
+        let error = parse(r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01"}}"#)
             .expect_err("a range with no end and no `last` is neither shape");
         assert!(matches!(error, MalformedQuestion::Range(_)), "{error:?}");
         assert!(error.to_string().contains("range"), "{error}");
@@ -725,7 +640,7 @@ mod tests {
     #[test]
     fn a_range_naming_both_start_end_and_last_is_ambiguous() {
         let error = parse(
-            r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01",
+            r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01",
                              "last":{"count":1,"unit":"month"}}}"#,
         )
         .expect_err("both shapes at once is ambiguous");
@@ -744,13 +659,13 @@ mod tests {
         }
 
         let clock = FixedClock(Date::parse("2026-09-16").expect("a real date"));
-        let excluding_today = body(r#"{"metric":"revenue","grain":"month","range":{"last":{"count":1,"unit":"month"}}}"#);
+        let excluding_today = body(r#"{"metrics":["revenue"],"grain":"month","range":{"last":{"count":1,"unit":"month"}}}"#);
         let query = super::query_of(excluding_today, &clock).expect("a fixed clock resolves a relative range");
         assert_eq!(query.range().start().to_iso(), "2026-08-01");
         assert_eq!(query.range().end().to_iso(), "2026-09-01");
 
         let including_today = body(
-            r#"{"metric":"revenue","grain":"month",
+            r#"{"metrics":["revenue"],"grain":"month",
                 "range":{"last":{"count":1,"unit":"month","include_current":true}}}"#,
         );
         let query = super::query_of(including_today, &clock).expect("include_current changes the resolved range");
@@ -773,7 +688,7 @@ mod tests {
             }
         }
 
-        let question = body(r#"{"metric":"revenue","grain":"month","range":{"last":{"count":1,"unit":"month"}}}"#);
+        let question = body(r#"{"metrics":["revenue"],"grain":"month","range":{"last":{"count":1,"unit":"month"}}}"#);
         let error = super::query_of(question, &BrokenClock).expect_err("the clock never answers");
         assert!(
             matches!(

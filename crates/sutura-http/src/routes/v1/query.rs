@@ -18,7 +18,7 @@
 //! retry" - a transport condition, not a status. `axios` retries nothing on its own, and
 //! `axios-retry` defaults to "a network error or a 5xx error on an idempotent request". Go's
 //! `net/http` reference documents no status-driven retry anywhere. The statuses that *are* retried by
-//! convention are `429` and `408`, and no refusal maps to either. 7 refusal reasons land on `422`,
+//! convention are `429` and `408`, and no refusal maps to either. 9 refusal reasons land on `422`,
 //! documented the other way round: "Clients that receive a `422` response should expect that
 //! repeating the request without modification will fail with the same error."
 //!
@@ -436,7 +436,7 @@ mod tests {
     use crate::testing::{bundle, catalog_of, sink, warehouse_that_can_be_held};
 
     /// A well formed question the fake will answer.
-    const QUESTION: &str = r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
+    const QUESTION: &str = r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
 
     /// A router over a warehouse whose answers can be held, and the switch that holds them.
     fn app(overlay: &str) -> (axum::Router, crate::testing::Held) {
@@ -694,7 +694,7 @@ mod tests {
         // (`harness`'s test pins that a plain `subject` IS named). A key that is not one - here, a
         // hyphenated name - must not be reflected verbatim into the 400 detail.
         let (app, _held) = app("");
-        let hostile = r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"foo-bar":1}"#;
+        let hostile = r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"foo-bar":1}"#;
         let (status, body) =
             crate::testing::call(&app, crate::testing::request("POST", "/v1/query", None, Body::from(hostile))).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "an unknown field was accepted: {body}");

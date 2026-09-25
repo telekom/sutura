@@ -5,7 +5,7 @@ asked:
   - what was the total order value on September 1st
   - wie hoch war der Bestellwert am 1. September
 question:
-  metric: orders_total
+  metrics: [orders_total]
   grain: day
   range: { start: 2026-09-01, end: 2026-09-02 }
 ---

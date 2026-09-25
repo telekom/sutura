@@ -30,7 +30,7 @@
 //!   DELETE)."
 //!
 //! Go's `net/http` reference documents no status-driven retry anywhere in `Client`, `Transport` or
-//! `RoundTripper`. 7 refusal reasons land on `422` below, documented the other way round from the
+//! `RoundTripper`. 9 refusal reasons land on `422` below, documented the other way round from the
 //! premise: "Clients that receive a `422` response should expect that repeating the request
 //! without modification will fail with the same error."
 //!
@@ -83,6 +83,20 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         RefusalReason::MetricUnknown { ref metric } => (
             StatusCode::NOT_FOUND,
             format!("this catalog defines no metric called `{metric}`"),
+        ),
+        // 422. Both metrics exist, the request is well formed, and there is no one statement that
+        // could answer both - same sense as `GrainNotSupported` below: understood, and cannot be
+        // processed as asked.
+        RefusalReason::MetricsSpanDifferentModels { ref first, ref other } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!("`{first}` and `{other}` do not share a model and a time column"),
+        ),
+        // 422. Every metric named resolved and every constraint checked - this deployment does not
+        // yet turn more than one into one statement. `requested` is a count this deployment
+        // computed, safe to say back.
+        RefusalReason::MultiMetricNotExecutable { requested } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!("this deployment does not yet answer a question naming {requested} metrics together"),
         ),
         // 422. The metric exists, the request is well formed, and the grain asked for is one nobody
         // rendered - so the content is understood and cannot be processed, which is what 422 is for.
@@ -414,6 +428,8 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
     match *reason {
         RefusalReason::BudgetExhausted { reset_after_seconds } => Some(reset_after_seconds),
         RefusalReason::MetricUnknown { .. }
+        | RefusalReason::MetricsSpanDifferentModels { .. }
+        | RefusalReason::MultiMetricNotExecutable { .. }
         | RefusalReason::GrainNotSupported { .. }
         | RefusalReason::DimensionNotPermitted { .. }
         | RefusalReason::DimensionNotFilterable { .. }
@@ -509,6 +525,19 @@ mod tests {
                 RefusalReason::MetricUnknown { metric: metric() },
                 StatusCode::NOT_FOUND,
                 "metric_unknown",
+            ),
+            (
+                RefusalReason::MetricsSpanDifferentModels {
+                    first: metric(),
+                    other: MetricName::parse("margin").expect("a test metric is a metric"),
+                },
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "metrics_span_different_models",
+            ),
+            (
+                RefusalReason::MultiMetricNotExecutable { requested: 2 },
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "multi_metric_not_executable",
             ),
             (
                 RefusalReason::GrainNotSupported {
@@ -710,7 +739,7 @@ mod tests {
 
     #[test]
     fn every_refusal_has_a_distinct_code() {
-        // The status is shared on purpose - 7 refusal reasons land on `422` - so the code is what
+        // The status is shared on purpose - 9 refusal reasons land on `422` - so the code is what
         // a client has to be able to branch on, and two variants sharing one would make that
         // impossible. THE NUMBER HERE IS PROSE: it said four while `docs/serving.md` mapped five,
         // then five while this file gained a sixth arm, and every OTHER gate stayed green both

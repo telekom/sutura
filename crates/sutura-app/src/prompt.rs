@@ -188,9 +188,10 @@ impl Tool {
                  arguments. Reading it cannot change what a question means."
             }
             Self::Query => {
-                "Answers one question. Takes a metric, a grain, a bounded period, up to four \
-                 dimensions to group by, and equality filters over declared values. Returns either \
-                 an answer with its provenance or a refusal with a typed reason."
+                "Answers one question. Takes one or more metrics sharing a model, a grain, a \
+                 bounded period, up to four dimensions to group by, and filters over declared \
+                 values - equality, or membership in an allowed set. Returns either an answer \
+                 with its provenance or a refusal with a typed reason."
             }
             Self::RunSql => {
                 "Runs one literal SQL statement against this deployment's own configured data \

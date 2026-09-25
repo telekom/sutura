@@ -171,7 +171,7 @@ mod tests {
         let path = into.join("question.yaml");
         std::fs::write(
             &path,
-            "metric: recurring_revenue\ngrain: month\nrange:\n  start: 2026-01-01\n  end: 2026-07-01\n",
+            "metrics: [recurring_revenue]\ngrain: month\nrange:\n  start: 2026-01-01\n  end: 2026-07-01\n",
         )
         .expect("a question file is writable");
         path
