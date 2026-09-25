@@ -12,8 +12,8 @@ a dictionary, and needs no network at boot"* - the cheapest kind, the on-disk vo
 and local. This record is the ADR-0016-shaped answer to the question that decides the adapter's whole
 shape: **can the Open Data Contract Standard express a complete semantic model as this repository
 defines one, or only part of one?** The answer, measured against the published JSON Schema rather than
-guessed, is *the physical model, the column prose, a target-vouched-for join and the SLA - and nothing
-of a metric layer*. It is richer than Frictionless Table Schema on the schema-object side (it names
+guessed, is *the physical model, the column prose and a target-vouched-for join - and nothing of a
+metric layer*. It is richer than Frictionless Table Schema on the schema-object side (it names
 primary keys, `required` and `unique` per column, and carries a free-text classification, and from
 v3.1.0 a foreign key whose target evidence can license a join) and just as silent on the measure as the
 OKF vocabulary - which makes the consequence the same as ADR 0016's and the OKF finding's: an adapter
@@ -114,7 +114,7 @@ target evidence, so the honest verdict follows the rdbms precedent, not Table Sc
 
 **SLA** is `slaDefaultElement` plus `slaProperties`: `property`/`value` (required), `unit`, `element`
 and `driver` (examples `regulatory`/`analytics`/`operational`) at every v3 version; `schedule`,
-`scheduler` and a human `description` join at v3.1.0 (v3.0.x has only `valueExt`). The documented
+`scheduler` and a human `description` join at v3.1.0 (v3.0.x lacks all three). The documented
 example - "99.9% of the time, data is available by 6 AM UTC" - is itself v3.1.0+. It is a service-level
 *promise* (freshness, availability), with no metric to attach it to.
 
@@ -158,9 +158,9 @@ own verdict, unchanged.
 | The semantic-model field              | What ODCS offers                                                                                             | Verdict                                                                                                                |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
 | `Model` (table + columns)             | `schema[]` `SchemaObject` + `properties[].name/physicalType/logicalType`                                     | **provides**                                                                                                           |
-| `Description`                         | `SchemaElement.description` / `businessName`, contract `description.usage/purpose/limitations`               | **provides**                                                                                                           |
-| `ColumnTypes`                         | `properties[].logicalType` (enum) + `physicalType` (free text)                                               | **provides** - a source's own dictionary spelling, `ColumnType`-parsed                                                 |
-| `ColumnDescriptions`                  | `properties[].description` / `businessName` (free text)                                                      | **provides**                                                                                                           |
+| `Description`                         | `SchemaElement.description` / `businessName`, contract `description.usage/purpose/limitations`               | **may-provide** - `description` is optional                                                                            |
+| `ColumnTypes`                         | `properties[].logicalType` (enum) + `physicalType` (free text)                                               | **may-provide** - `logicalType` is optional; `ColumnType`-parsed                                                       |
+| `ColumnDescriptions`                  | `properties[].description` / `businessName` (free text)                                                      | **may-provide** - optional per property                                                                                |
 | primary key                           | `SchemaBaseProperty.primaryKey` (+ `primaryKeyPosition` order)                                               | **provides** - evidence on `Model::with_primary_key`, and target-uniqueness evidence for the relationship rule below   |
 | `required`                            | `SchemaBaseProperty.required` (boolean, not-null)                                                            | **carried, not a declared kind** - maps onto `Column.nullable` (`Some(false)`); no `DefinitionKind` covers nullability |
 | `unique`                              | `SchemaBaseProperty.unique` (boolean)                                                                        | **no `Column`-level carrier** of its own; feeds the relationship rule below as single-column target evidence           |
@@ -190,11 +190,11 @@ is no metric here to restrict, so it stays **reported, not defined**: read and n
 **A narrower source than Wren, and the cheapest connector - by declaration.** ODCS v3 can carry the
 physical model, the column prose, column types, the primary key and (v3.1+) a non-duplicating join; it
 cannot carry a metric, a required filter, a grain, an anchor, or a dimension. An adapter over it is a
-**declaring** `SemanticCatalog` whose `capabilities()` provides `Structure`, `Descriptions`,
-`ColumnTypes` and `ColumnDescriptions`; may-provide `Relationships` on v3.1+ under the
+**declaring** `SemanticCatalog` whose `capabilities()` provides `Structure`; may-provide `Descriptions`,
+`ColumnTypes` and `ColumnDescriptions` (each optional in the schema) and `Relationships` on v3.1+ under the
 `sutura-catalog-rdbms` target-uniqueness rule, and never declares `Cardinality`; reports-not-defines the
-quality rules, the SLA and the classification; and declares `Metrics`, `RequiredFilters`, `Grains` and
-`Anchors` absent. This is precisely the shape `sutura-catalog-datahub`, `sutura-catalog-rdbms`,
+quality rules, the SLA and the classification; and declares `Metrics`, `RequiredFilters`, `Grains`,
+`AllowedValues` and `Anchors` absent. This is precisely the shape `sutura-catalog-datahub`, `sutura-catalog-rdbms`,
 `sutura-catalog-okf` and `sutura-catalog-openmetadata` already establish, and it is tested against that
 declaration in both directions (it provides what it declares, and the bundle agrees that what it does
 not declare does not arrive).
@@ -203,7 +203,7 @@ not declare does not arrive).
 a source that provides tables and descriptions but no metric is a legitimate narrow source, and
 `Definitions::assemble` refuses nothing it does not provide. Its concrete value over a bare directory of
 descriptors is that the contract already carries structure - the primary key, nullability, a
-target-vouched-for join and the SLA - that a plain dictionary does not, and it is reviewable, file-based
+target-vouched-for join - that a plain dictionary does not, and it is reviewable, file-based
 and needs no network at boot, exactly issue #973's Why. The issue's two acceptance cells follow: a
 **catalog-golden cell** (the fixture bundle measured against the adapter's declaration, the universal
 shape every `declaring` adapter gets) and a **declaration-fidelity cell**
