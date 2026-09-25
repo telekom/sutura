@@ -12,7 +12,6 @@
 //! reads it.
 
 use sutura_domain::model::{DimensionName, SourceName, TableName};
-use sutura_domain::nonempty::NonEmpty;
 use sutura_domain::plan::{PlanColumn, PlanJoin, PlanJoinKey};
 
 use crate::resolve::{Resolution, ResolvedDimension};
@@ -101,18 +100,9 @@ pub(super) fn chain_joins(resolution: &Resolution<'_>, own_table: &TableName, ow
             // One join term per declared key, in the key's order. `origin` is where this hop's
             // statement starts - the metric's table for hop 1, each previous hop's target after -
             // so every key's origin column is qualified by it and its target by the joined table.
-            // A relationship's `JoinKeys` is non-empty by construction, so the plan's key list is
-            // non-empty too - an empty `ON` cannot be built here, and the renderer's empty-list
-            // guard is as dead a branch as the type's own `EmptySet`.
-            let key_slice = hop.relationship.keys().as_slice();
-            #[expect(
-                clippy::expect_used,
-                reason = "a Relationship's JoinKeys is non-empty by construction, so its slice always splits"
-            )]
-            let (head, tail) = key_slice
-                .split_first()
-                .expect("a relationship's JoinKeys is non-empty, so its first key exists");
-            let to_plan_key = |key: &sutura_domain::catalog::JoinKey| match key {
+            // `JoinKeys::map` holds the relationship's own non-emptiness in its return type, so the
+            // plan's key list is `NonEmpty` by construction too - no `expect` needed to say so.
+            let keys = hop.relationship.keys().map(|key| match key {
                 sutura_domain::catalog::JoinKey::Equal { origin: o, target: t } => PlanJoinKey::Equal {
                     origin: PlanColumn::new(origin.clone(), o.clone()),
                     target: PlanColumn::new(target.clone(), t.clone()),
@@ -126,8 +116,7 @@ pub(super) fn chain_joins(resolution: &Resolution<'_>, own_table: &TableName, ow
                     grain: *grain,
                     target: PlanColumn::new(target.clone(), t.clone()),
                 },
-            };
-            let keys = NonEmpty::of(to_plan_key(head), tail.iter().map(to_plan_key).collect());
+            });
             chain.push(PlanJoin::new(
                 hop.relationship.name().clone(),
                 // The joined model's own path: a dimension table in another dataset is still one

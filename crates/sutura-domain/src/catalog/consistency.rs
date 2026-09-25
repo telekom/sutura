@@ -348,7 +348,7 @@ impl Definitions {
         // of the target model. A compound key is refused if any one of its columns is undeclared:
         // the join is an `AND` over the whole set, so a missing column is a statement that cannot
         // render, and the whole set is what promises the target unique.
-        for key in relationship.keys().as_slice() {
+        for key in relationship.keys().iter() {
             let (from_column, to_column) = (key.origin(), key.target());
             for (model, column) in [(from, from_column), (to, to_column)] {
                 if !model.has_column(column) {
@@ -656,7 +656,7 @@ fn column_bytes(column: &Column) -> usize {
 /// The authored bytes behind one relationship beyond its own name: every column of every key it
 /// joins on.
 fn relationship_bytes(relationship: &Relationship) -> usize {
-    relationship.keys().as_slice().iter().fold(0, |acc, key| {
+    relationship.keys().iter().fold(0, |acc, key| {
         acc.saturating_add(key.origin().as_str().len())
             .saturating_add(key.target().as_str().len())
     })

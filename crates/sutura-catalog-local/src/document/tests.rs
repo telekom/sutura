@@ -704,12 +704,27 @@ target: { model: customers, column: customer_id }
 join_type: many_to_one
 ";
 
-// A document that declares `keys:` AND a `column` on an endpoint - the conflict shape.
+// A document that declares `keys:` AND a `column` on the ORIGIN endpoint - the conflict shape.
 const RELATIONSHIP_BOTH: &str = "
 kind: relationship
 name: usage_subscription
 origin: { model: daily_usage, column: subscription_key }
 target: { model: subscriptions }
+join_type: many_to_one
+keys:
+  - { origin: subscription_key, target: subscription_key }
+  - { origin: usage_date, grain: month, target: month }
+";
+
+// The other half of the conflict shape: `keys:` AND a `column` on the TARGET endpoint instead -
+// `RelationshipDoc::into_domain`'s match has a separate alternative for this
+// (`(Some(_), _, Some(_))`), which `RELATIONSHIP_BOTH` above never exercises because its target
+// carries no column.
+const RELATIONSHIP_BOTH_TARGET_COLUMN: &str = "
+kind: relationship
+name: usage_subscription
+origin: { model: daily_usage }
+target: { model: subscriptions, column: subscription_key }
 join_type: many_to_one
 keys:
   - { origin: subscription_key, target: subscription_key }
@@ -741,7 +756,7 @@ keys: []
 fn a_compound_relationships_keys_parse() {
     let doc = relationship_doc(COMPOUND_RELATIONSHIP).expect("two well-formed keys are well-formed");
     let relationship = doc.into_domain().expect("two keys is a non-empty set");
-    assert_eq!(relationship.keys().as_slice().len(), 2);
+    assert_eq!(relationship.keys().len(), 2);
     assert_eq!(
         relationship.origin_model().as_str(),
         "daily_usage",
@@ -754,7 +769,7 @@ fn a_compound_relationships_keys_parse() {
 fn a_single_pair_relationship_still_parses_to_one_equality() {
     let doc = relationship_doc(SINGLE_PAIR_RELATIONSHIP).expect("a column pair is well-formed");
     let relationship = doc.into_domain().expect("one column pair is a non-empty set");
-    assert_eq!(relationship.keys().as_slice().len(), 1);
+    assert_eq!(relationship.keys().len(), 1);
 }
 
 /// A document that declares both a column pair and a `keys:` list is refused, naming the conflict.
@@ -765,6 +780,19 @@ fn a_relationship_declaring_both_columns_and_keys_is_refused() {
         doc.into_domain().unwrap_err(),
         InvalidRelationshipDocument::Both,
         "a document choosing both join forms must refuse rather than silently prefer one"
+    );
+}
+
+/// The `Both` refusal's other alternative: `keys:` plus a column on the TARGET endpoint, with the
+/// origin endpoint bare. `RELATIONSHIP_BOTH` above only ever puts the column on origin, so this is
+/// the twin that exercises `(Some(_), _, Some(_))` rather than `(Some(_), Some(_), _)`.
+#[test]
+fn a_relationship_declaring_keys_and_a_target_column_is_also_refused() {
+    let doc = relationship_doc(RELATIONSHIP_BOTH_TARGET_COLUMN).expect("the shape parses; the refusal is `into_domain`'s");
+    assert_eq!(
+        doc.into_domain().unwrap_err(),
+        InvalidRelationshipDocument::Both,
+        "a `keys:` list plus a column on either endpoint alone is still the same conflict"
     );
 }
 
