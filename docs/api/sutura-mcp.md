@@ -977,24 +977,30 @@ The sentence. A test asserts it is not empty; nothing asserts its wording.
 
 What this deployment measures, as the catalog tool's structured content.
 
-**A second wire type beside `sutura_http::wire::CatalogBody`, with the same fields, and that is
-the same deliberate cost `super::AskArgs` already pays.** An adapter never calls another adapter, so
-this crate cannot import that shape; what keeps the two equal is review plus the fact that both
-are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set, which is where a
-missing field would show up as a missing call rather than as a silent divergence.
+**A second wire type beside `sutura_http::wire::CatalogBody` for the metric half, and the same
+deliberate cost `super::AskArgs` already pays.** An adapter never calls another adapter, so
+this crate cannot import that shape; what keeps the metric halves equal is review plus the fact
+that both are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set.
+**The whole type is WIDER than `CatalogBody`**: it also carries the knowledge sections and the
+operator's instructions, which the HTTP `/v1/catalog` surface has no equivalent of - that surface
+is the structured half alone, rendered by a different reader.
 
 **What narrows this listing is the CALLER's identity - `docs/adr/0028` - and nothing the caller
 SENDS.** `sutura_domain::pinned::SemanticCatalog::load` takes no request context and cannot be
 given one, so no argument selects, widens or parameterizes what this returns: the caller's mapped
 audiences (which `describe` reads and this constructor takes as a `ScopedView`) decide which
-metrics the listing holds, while the bundle underneath is the same one every answer is computed
-from. Invisible means absent, and it is the transport's job to build the view, never this type's.
+metrics and which of their knowledge the listing holds, while the bundle underneath is the same
+one every answer is computed from. Invisible means absent, and it is the transport's job to build
+the view, never this type's.
 
 ### `use DescribeCatalogArgs`
 
 This tool takes no arguments. It returns the catalog of what this deployment measures, narrowed
-to what the calling principal may see: there is nothing to filter or select, so send an empty
-object.
+to what the calling principal may see - the metrics, grains, dimensions and permitted values.
+
+It also returns the catalog's own knowledge (the glossary, caveats, worked examples and terms
+recorded as undefined it carries) and the deployment operator's instructions. There is nothing to
+filter or select, so send an empty object.
 
 ### `use DimensionContent`
 
@@ -1052,8 +1058,11 @@ pub struct DescribeCatalogArgs
 ```
 
 This tool takes no arguments. It returns the catalog of what this deployment measures, narrowed
-to what the calling principal may see: there is nothing to filter or select, so send an empty
-object.
+to what the calling principal may see - the metrics, grains, dimensions and permitted values.
+
+It also returns the catalog's own knowledge (the glossary, caveats, worked examples and terms
+recorded as undefined it carries) and the deployment operator's instructions. There is nothing to
+filter or select, so send an empty object.
 
 ##### Implements
 
@@ -1067,18 +1076,21 @@ pub struct CatalogContent
 
 What this deployment measures, as the catalog tool's structured content.
 
-**A second wire type beside `sutura_http::wire::CatalogBody`, with the same fields, and that is
-the same deliberate cost `super::AskArgs` already pays.** An adapter never calls another adapter, so
-this crate cannot import that shape; what keeps the two equal is review plus the fact that both
-are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set, which is where a
-missing field would show up as a missing call rather than as a silent divergence.
+**A second wire type beside `sutura_http::wire::CatalogBody` for the metric half, and the same
+deliberate cost `super::AskArgs` already pays.** An adapter never calls another adapter, so
+this crate cannot import that shape; what keeps the metric halves equal is review plus the fact
+that both are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set.
+**The whole type is WIDER than `CatalogBody`**: it also carries the knowledge sections and the
+operator's instructions, which the HTTP `/v1/catalog` surface has no equivalent of - that surface
+is the structured half alone, rendered by a different reader.
 
 **What narrows this listing is the CALLER's identity - `docs/adr/0028` - and nothing the caller
 SENDS.** `sutura_domain::pinned::SemanticCatalog::load` takes no request context and cannot be
 given one, so no argument selects, widens or parameterizes what this returns: the caller's mapped
 audiences (which `describe` reads and this constructor takes as a `ScopedView`) decide which
-metrics the listing holds, while the bundle underneath is the same one every answer is computed
-from. Invisible means absent, and it is the transport's job to build the view, never this type's.
+metrics and which of their knowledge the listing holds, while the bundle underneath is the same
+one every answer is computed from. Invisible means absent, and it is the transport's job to build
+the view, never this type's.
 
 ##### Methods
 
@@ -1100,11 +1112,6 @@ from a bare `&PinnedDefinitions` would hand every caller the whole bundle again,
 the defect this surface shipped until it took the view. `ScopedView` borrows the bundle, so
 this builder cannot reach `SemanticCatalog::load` - the knowledge sections and the metrics
 are filtered by the caller's own grant, never by a call the renderer omits.
-
-It also asks nothing of the setting itself: `Carried::under` and `prose::notice` are the
-crate's only two readers of it, so this builder cannot fill a `description` or pick a notice
-without the operator's decision, and a third `CatalogProse` spelling is a compile error in
-both rather than an `else` arm here.
 
 ##### Implements
 

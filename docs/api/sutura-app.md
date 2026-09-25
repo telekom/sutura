@@ -1121,17 +1121,19 @@ what lets the rendering be pinned by a snapshot rather than described.
 ### `fn catalog_knowledge`
 
 ```rust
-pub fn catalog_knowledge(view: &sutura_domain::pinned::view::ScopedView<'_>, prose: CatalogProse, instructions: Option<&str>) -> String
+pub fn catalog_knowledge(view: &sutura_domain::pinned::view::ScopedView<'_>, prose: CatalogProse) -> String
 ```
 
-The knowledge sections and the operator's own text, as the `describe_catalog` tool returns them.
+The catalog's own knowledge sections, as the `describe_catalog` tool returns them.
 
 A second consumer of the knowledge kinds, one the prompt's renderer shares: the glossary, the
-caveats, the terms recorded as undefined and the worked questions, plus the operator's
-instructions - all AUDIENCE-SCOPED through the caller's own view, and descriptive only (no data
-rows). This is the half of the surface a gateway surfaces that never delivers
-`initialize.instructions`; a client over `tools/call` reads the same sections a prompt-rendered
-agent does, narrowed to what this caller may see.
+caveats, the terms recorded as undefined and the worked questions. AUDIENCE-SCOPED through the
+caller's own view, and descriptive only (no data rows). This is the half of the surface a
+gateway that surfaces only tools (and so never delivers `initialize.instructions`) still
+reaches; a client over `tools/call` reads the same sections a prompt-rendered agent does,
+narrowed to what this caller may see. The operator's own instructions are NOT here - they are
+the deployment's whole-bundle text, the same for every caller, and the MCP transport's catalog
+reply carries them under their own heading so they are not mistaken for catalog prose.
 
 **Takes a `ScopedView`, never a bare `&PinnedDefinitions`** - the same rule
 `CatalogContent` and `docs/adr/0028` state for the metric listing. A caller sees
@@ -1142,14 +1144,32 @@ visible.
 
 **The terms recorded as undefined have no metric to follow**, and the ADR names them separately:
 an unscoped absence needs an explicit catalog-wide audience and is withheld when none is granted.
-That declaration does not exist on the type today, so a caller-scoped view drops them entirely.
-The deployment's own view (`ScopedView::is_everything`) retains them, which is what keeps the
-operator-facing surfaces whole.
+`Knowledge::scoped` withdraws the absence
+declaration along with the content, so this rendering falls back to its "cannot record such a
+thing - infer NOTHING" claim rather than telling a caller a withheld list is empty. The
+deployment's own view retains the absences, which is what keeps the operator-facing surfaces
+whole.
 
 Prose is quoted under the operator's `prompt.catalog_prose` setting exactly as the prompt treats
 it - the same `CatalogProse` and the same `> ` per-line `quote` - so an operator who withholds
 catalog prose from the prompt also withholds it from the tool. The byte cap is the bundle's own:
-knowledge is bounded at load by `sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES`.
+knowledge is bounded at load by `sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES`. This is a cap on
+the knowledge alone: the operator instructions are NOT bounded here (an operator's own text has
+no authored-byte ceiling), and that limit is `CatalogContent`'s to state beside them.
+
+### `fn tool_operator_instructions`
+
+```rust
+pub fn tool_operator_instructions(text: &str) -> String
+```
+
+The operator's own text, for the catalog tool - its own section, outside the catalog-prose
+notice, with a preamble that does not point at refusal rules (the tool returns no refusals).
+
+The operator's text is DEPLOYMENT-WIDE, the same for every caller, never audience-scoped; what
+is scoped is the catalog prose this tool returns, not the deployment's own instructions. The
+preamble therefore frames it as trustworthy configuration to follow, and the one limit it names
+is the tool's own - it cannot make `ask_metric` answer a question outside the certified set.
 
 ### `use guidance`
 

@@ -339,8 +339,8 @@ pub fn render(pinned: &PinnedDefinitions, inputs: &PromptInputs<'_>) -> String {
 /// gateway that surfaces only tools (and so never delivers `initialize.instructions`) still
 /// reaches; a client over `tools/call` reads the same sections a prompt-rendered agent does,
 /// narrowed to what this caller may see. The operator's own instructions are NOT here - they are
-/// the deployment's whole-bundle text, the same for every caller, and [`CatalogContent`] carries
-/// them under their own heading so they are not mistaken for catalog prose.
+/// the deployment's whole-bundle text, the same for every caller, and the MCP transport's catalog
+/// reply carries them under their own heading so they are not mistaken for catalog prose.
 ///
 /// **Takes a [`ScopedView`], never a bare `&PinnedDefinitions`** - the same rule
 /// [`CatalogContent`](crate::prompt) and `docs/adr/0028` state for the metric listing. A caller sees
