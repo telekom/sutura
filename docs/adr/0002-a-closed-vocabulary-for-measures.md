@@ -14,7 +14,8 @@ Amended twice, and each amendment is recorded rather than rewritten away. The fi
 conditional count a *sibling* of a ratio, which left the seventh of the seven metrics below
 unsayable - [Two levels, not three siblings](#two-levels-not-three-siblings) is the correction. The
 second lets a ratio's term carry a model other than the metric's own - the section below titled
-*Second amendment* is the record, and `telekom/sutura#780` is why. The rest of this record stands.
+*Amendment, 2026-09-25* is the record, and `telekom/sutura#780` is why. The rest of this record
+stands.
 
 ## Context
 
@@ -97,37 +98,6 @@ giving the file format its own copy of the aggregate set with one extra word buy
 the problem: a set that has to be kept in step with the domain's, whose failure mode is an aggregate
 no document can express and nothing anywhere failing to say so.
 
-### Second amendment - a term carries its model
-
-`telekom/sutura#780`. A ratio whose two sides live on two fact models - a return as a share of
-sales, tickets per active subscription - was not sayable, and the workaround was worse than the
-gap: an agent asking two certified questions and dividing reports a quotient under two provenances,
-neither of which is its own. Nothing certifies that number, and nothing can be held to it - a
-certified figure no record stands behind is the exact failure this closed vocabulary exists to
-prevent, so the vocabulary grows by one shape rather than leaving the boundary undocumented.
-
-The amendment is one field, on the term rather than on the measure: `AggregatedColumn` and
-`Term::CountIf` each carry an optional `model`, absent meaning the metric's own - which is what
-every term written before this field existed already says, so a one-model metric's on-disk shape,
-and its digest, do not move. A term naming a model is checked at load exactly as the metric's own
-model is: `Definitions::assemble` refuses a name this catalog does not declare
-(`InconsistentDefinitions::UnknownTermModel`) and checks the term's column against THAT model
-rather than against the metric's own, so a churn-rate-shaped ratio whose denominator counts
-customers is checked against `customers`, not against the fact table it sits beside.
-
-**What this amendment does NOT do, stated with the claim rather than left to be discovered.** It
-does not build the second fact leg such a ratio needs to be answered. The plan stage has exactly two
-shapes today - one statement against the metric's own model, and a fact-plus-lookup federated pair
-across two data systems - and neither reads a second FACT model's own rows, aggregated on its own
-and joined above on a shared dimension, which is the mechanism the issue's own decision names for
-combining two facts without ever letting them share one `FROM`. So a metric using this vocabulary
-loads, is addressable by name, and is refused with a named, typed reason
-(`RefusalReason::CrossModelRatioNotExecutable`) the moment it is asked - a caller told plainly that
-the definition exists and this deployment cannot answer it yet, never a wrong number resolved
-against the wrong table. The plan's second fact leg, the combiner caller, the anchor at the
-coarsest shared grain and the differential's two-fact axis are the rest of the stack the issue's own
-decision names, and they are not this amendment's claim.
-
 ### The property being defended was never "one aggregate"
 
 It was **no free-text SQL**, and the distance between those two is the whole of this decision.
@@ -182,6 +152,44 @@ an entry
 here. A field that holds an expression is a different entry, and the question it has to answer is
 still not whether the expression is parsed, but what happens the first time one arrives that we
 cannot parse.
+
+## Amendment, 2026-09-25: a term carries its model
+
+`telekom/sutura#780`. A ratio whose two sides live on two fact models - a return as a share of
+sales, tickets per active subscription - was not sayable, and the workaround was worse than the
+gap: an agent asking two certified questions and dividing reports a quotient under two provenances,
+neither of which is its own. Nothing certifies that number, and nothing can be held to it - a
+certified figure no record stands behind is the exact failure this closed vocabulary exists to
+prevent, so the vocabulary grows by one shape rather than leaving the boundary undocumented.
+
+The amendment is one field, on the term rather than on the measure: `AggregatedColumn` and
+`Term::CountIf` each carry an optional `model`, absent meaning the metric's own - which is what
+every term written before this field existed already says, so a one-model metric's on-disk shape,
+and its digest, do not move. A term naming a model is checked at load exactly as the metric's own
+model is: `Definitions::assemble` refuses a name this catalog does not declare
+(`InconsistentDefinitions::UnknownTermModel`) and checks the term's column against THAT model
+rather than against the metric's own, so a churn-rate-shaped ratio whose denominator counts
+customers is checked against `customers`, not against the fact table it sits beside.
+
+**What this amendment does NOT do, stated with the claim rather than left to be discovered.** It
+does not build the second fact leg such a ratio needs to be answered. The plan stage has exactly two
+shapes today - one statement against the metric's own model, and a fact-plus-lookup federated pair
+across two data systems - and neither reads a second FACT model's own rows, aggregated on its own
+and joined above on a shared dimension, which is the mechanism the issue's own decision names for
+combining two facts without ever letting them share one `FROM`. So a metric using this vocabulary
+loads, is addressable by name, and a plain question about it is refused with a named, typed reason
+(`RefusalReason::CrossModelRatioNotExecutable`) the moment it is asked - a caller told plainly that
+the definition exists and this deployment cannot answer it yet, never a wrong number resolved
+against the wrong table. The plan's second fact leg, the combiner caller, the anchor at the
+coarsest shared grain and the differential's two-fact axis are the rest of the stack the issue's own
+decision names, and they are not this amendment's claim.
+
+**The limit "loads, is addressable by name" carries: without an anchor.** An anchor is executed at
+boot, and one on a cross-model ratio reaches this same refusal through
+`NotValidated::AnchorNotExecuted` instead - which takes the WHOLE bundle down, not only that
+metric. That fails closed, so it is not a safety defect, but it is a sharper cost than "refused
+when asked" states on its own: a catalog author who anchors such a metric loses every other metric
+in the deployment at boot, not a question at query time.
 
 ## What does not change
 

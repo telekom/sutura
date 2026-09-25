@@ -558,8 +558,12 @@ pub enum RefusalReason {
     /// **`telekom/sutura#780`'s vocabulary, and the plan half of its first slice.** The catalog
     /// admits the definition - `Definitions::assemble` proves the named model is declared and the
     /// term's column exists on it - so a metric with a cross-model ratio loads and is addressable
-    /// by name. Asking it is refused rather than mis-planned against the metric's own table: the
-    /// splitter has one plan shape per data system today, [`QueryPlan`](crate::plan::QueryPlan) and
+    /// by name, PROVIDED it declares no anchor: an anchor is executed at boot, and one on such a
+    /// metric reaches this refusal through `NotValidated::AnchorNotExecuted` instead, which takes
+    /// the whole bundle down rather than only that metric - fails closed, and stated here rather
+    /// than left for a reviewer to find by asking. Asking a plain question about it is refused
+    /// rather than mis-planned against the metric's own table: the splitter has one plan shape per
+    /// data system today, [`QueryPlan`](crate::plan::QueryPlan) and
     /// [`FederatedPlan`](crate::plan::FederatedPlan), and neither reads a second FACT model's rows,
     /// aggregated on its own and joined above - which is what a certified answer over two facts
     /// needs, per the issue's own decision record.
@@ -571,9 +575,13 @@ pub enum RefusalReason {
     /// plan SHAPE for two aggregated fact legs does not exist yet, on any adapter. Reusing either
     /// variant would misreport why the question is refused.
     ///
-    /// A [`RefusalReason`] and not a wiring defect: a caller who asks the same metric
-    /// without the cross-model term gets a different, answerable question, so this is narrowable -
-    /// unlike a wiring defect in this workspace's own splitter.
+    /// A [`RefusalReason`] rather than a wiring defect, for
+    /// [`FederationNotExecutable`](Self::FederationNotExecutable)'s own reason: this variant
+    /// means the capability and nothing else. It is NOT narrowable the way
+    /// most of this enum's questions are - the cross-model term is part of the metric's
+    /// definition, `Query` has no field that reaches it, and every caller-facing text this
+    /// variant produces says so ("nothing you can change in the question"). What changes the
+    /// answer is this workspace building the second fact leg, not a different question.
     CrossModelRatioNotExecutable { metric: MetricName, model: ModelName },
 }
 

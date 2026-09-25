@@ -363,9 +363,8 @@ impl Measure {
     /// The model each term's column is read from, in the same order as [`Self::columns`] - `None`
     /// for the metric's own model.
     ///
-    /// Positionally paired with [`Self::columns`] rather than zipped by a caller, so a term whose
-    /// column and model disagreed about which position they report in cannot happen: the consistency
-    /// check walks both lists together to know which model to check a column against.
+    /// In the same order as [`Self::columns`], so the consistency check can walk a term's column
+    /// and model together to know which model to check a column against.
     pub fn models(&self) -> Vec<Option<&ModelName>> {
         self.terms().into_iter().map(Term::model).collect()
     }
