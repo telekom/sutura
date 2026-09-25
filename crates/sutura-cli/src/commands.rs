@@ -519,8 +519,11 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
 /// Named because the concrete type is over `clippy::type_complexity`: the warehouse, the audit sink
 /// and the broker are the three collaborators every command here composes. Generic in the warehouse
 /// since the `bigquery` feature landed; the other two are this binary's own choice and never vary.
-pub(crate) type Composed<W> =
-    LocalService<W, TracingAuditSink, sutura_config::StaticCredentialBroker, sutura_exec_datafusion::DataFusionCombiner>;
+///
+/// **The same type [`crate::catalog::Started`] names with its broker generic fixed** to
+/// `StaticCredentialBroker` - this binary's own, never-varying choice - rather than a second alias
+/// over the same four collaborators that could drift from it.
+pub(crate) type Composed<W> = crate::catalog::Started<W, sutura_config::StaticCredentialBroker>;
 
 /// Starts the service over what a command opened, and refuses a bundle the engine cannot serve.
 ///

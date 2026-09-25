@@ -46,11 +46,8 @@ use sutura_app::surface::Surface;
 use sutura_config::{Settings, Sources, StaticCredentialBroker, TlsMaterial};
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
-use sutura_http::{LocalService, ServiceState};
-use sutura_runtime::{Admission, Shutdown, TracingAuditSink, banner, shutdown, telemetry};
-
-/// How a declared `catalogs:` becomes the catalog this build serves.
-mod catalog;
+use sutura_http::ServiceState;
+use sutura_runtime::{Admission, Shutdown, banner, shutdown, telemetry};
 
 /// The refusals this root makes by reading the bundle. `main.rs` keeps the ORDER they run in.
 mod boot;
@@ -185,8 +182,8 @@ pub(crate) fn run() -> Result<(), String> {
     // deployment that declares `security.outbound.transport_anchors` verifies its `datahub` catalog
     // reader against the same CA set its `bigquery` wire is verified against - never a second read
     // of the bundle (`outbound::resolve` resolved it once, above).
-    let catalogs = catalog::open_catalog(settings.catalogs(), outbound.as_ref())?;
-    let pinned = catalog::load(&catalogs)?;
+    let catalogs = crate::catalog::open_catalog(settings.catalogs(), outbound.as_ref())?;
+    let pinned = crate::catalog::load(&catalogs)?;
     // Cloned here, before `settings` moves into the state below: `refresh::drive` needs to read
     // every entry's own `refresh_seconds` from inside `serve_until_stopped`, where a runtime is
     // already running - `#975`.
@@ -521,7 +518,7 @@ async fn serve_until_stopped(
     material: Option<TlsMaterial>,
     inbound: Option<Arc<sutura_http::InboundGate>>,
     stopping: Shutdown,
-    catalogs: catalog::OpenedCatalogs,
+    catalogs: crate::catalog::OpenedCatalogs,
     pinned: PinnedDefinitions,
     declared_catalogs: sutura_config::Catalogs,
 ) -> Result<(), String> {
@@ -676,7 +673,6 @@ type Serving = Arc<dyn Surface>;
 
 /// Loads the catalogs a second time through their ports, composes them, verifies every anchor, and
 /// erases the adapter.
-///
 /// Generic in the adapter AND the broker, and the second generic is what lets the two arms below
 /// differ: a `files` deployment has no impersonating source, so its broker is the static one; a
 /// `bigquery` deployment gets `DeclaredPrincipalBroker`, presenting each subject's own verified
@@ -685,13 +681,14 @@ type Serving = Arc<dyn Surface>;
 /// was - the transport takes a trait object, so the monomorphisation ends here rather than through
 /// the router.
 ///
-/// **Also generic over which of the two monomorphic catalog vectors `catalog::OpenedCatalogs`
-/// carries**, matched once here rather than at each of this function's call sites: every arm below
-/// builds the exact same `LocalService<W, TracingAuditSink, B>`, because `start_composed`'s catalog
-/// type parameter is consumed while loading and never stored - see `catalog.rs`'s module header for
-/// why `OpenedCatalogs` is an enum of two vectors rather than one vector of a shared type.
+/// **The service itself is built by [`crate::catalog::start_composed`] - the ONE
+/// `LocalService::start_composed` match both composition roots dispatch**, and issue #970 moved
+/// it out of `serve` to the crate root so `sutura mcp` opens `catalogs:` the same way. What is
+/// left here, and what `crate::mcp` deliberately does NOT do, is the erasure `crate::serve`'s
+/// transport needs (`Arc<dyn Surface>`) and the agent surface's does not (that one is generic
+/// over a sized `S: Surface`).
 fn started<W, B>(
-    catalogs: &catalog::OpenedCatalogs,
+    catalogs: &crate::catalog::OpenedCatalogs,
     engines: sutura_app::Warehouses<W>,
     broker: B,
     settings: &Settings,
@@ -702,68 +699,7 @@ where
     B: sutura_domain::identity::CredentialBroker + Send + Sync + 'static,
     B::Error: Send + Sync,
 {
-    // Read here rather than passed in as three values, which is what collapsed the arms of the
-    // match above to one line each: the three bounds are the SAME three for every shape, so a
-    // caller that had to name them was a caller that could name them differently.
-    let working_set_bytes = settings.runtime().working_set().bytes().get() as u64;
-    let spend_budget = settings.spend_budget();
-    let row_ceiling = settings.row_ceiling();
-    // The combiner, built once for this replica - the served root's half of `docs/adr/0007`'s
-    // second driven port. Built here rather than handed in, for the reason the audit sink is: which
-    // implementor a process holds is a property of the BUILD, and this is the build.
-    let combiner = sutura_exec_datafusion::DataFusionCombiner::new()
-        .map_err(|cause| format!("{cause}\ncould not build the federation combiner"))?;
-    match catalogs {
-        catalog::OpenedCatalogs::Markdown(catalogs) => LocalService::start_composed(
-            catalogs,
-            engines,
-            TracingAuditSink::new(),
-            broker,
-            combiner,
-            working_set_bytes,
-        )
-        .map(|service| {
-            Arc::new(
-                service
-                    .with_spend_ledger(spend_ledger(spend_budget))
-                    .with_row_ceiling(row_ceiling),
-            ) as Serving
-        })
-        .map_err(flatten),
-        #[cfg(feature = "datahub")]
-        catalog::OpenedCatalogs::Datahub(catalogs) => LocalService::start_composed(
-            catalogs,
-            engines,
-            TracingAuditSink::new(),
-            broker,
-            combiner,
-            working_set_bytes,
-        )
-        .map(|service| {
-            Arc::new(
-                service
-                    .with_spend_ledger(spend_ledger(spend_budget))
-                    .with_row_ceiling(row_ceiling),
-            ) as Serving
-        })
-        .map_err(flatten),
-        catalog::OpenedCatalogs::Okf(catalogs) => LocalService::start_composed(
-            catalogs,
-            engines,
-            TracingAuditSink::new(),
-            broker,
-            combiner,
-            working_set_bytes,
-        )
-        .map(|service| {
-            Arc::new(
-                service
-                    .with_spend_ledger(spend_ledger(spend_budget))
-                    .with_row_ceiling(row_ceiling),
-            ) as Serving
-        })
-        .map_err(flatten),
-    }
+    crate::catalog::start_composed(catalogs, engines, broker, settings).map(|service| Arc::new(service) as Serving)
 }
 
 /// The service for every shape whose adapter cannot carry a per-subject credential at all.
@@ -784,7 +720,7 @@ where
 ///
 /// Whatever [`started`] refuses while loading the catalogs a second time and re-running the anchors.
 fn shared_identity_service<W>(
-    catalogs: &catalog::OpenedCatalogs,
+    catalogs: &crate::catalog::OpenedCatalogs,
     engines: sutura_app::Warehouses<W>,
     settings: &Settings,
 ) -> Result<Serving, String>
@@ -798,12 +734,6 @@ where
         StaticCredentialBroker::from_registry(settings.sources()),
         settings,
     )
-}
-
-/// The spend ledger this replica answers under: unbounded if `governance.per_replica_spend_ceiling`
-/// is absent, which is `docs/adr/0030`'s decision for every deployment before this key existed.
-fn spend_ledger(spend_budget: Option<sutura_config::SpendBudget>) -> sutura_app::SpendLedger {
-    sutura_app::SpendLedger::new(spend_budget.map(|budget| sutura_app::SpendBudget::new(budget.ceiling_bytes(), budget.window())))
 }
 
 /// Starts the engine and registers one file per model, returning what it attached.

@@ -305,9 +305,10 @@ pub enum LocalCatalogError {
 /// A catalog read from a directory of documents.
 ///
 /// Carries a declared NAME, the way a `sources:` entry or a `catalogs:` entry carries an alias: it
-/// is the key the contribution manifest records this contributor under. `sutura serve` hands it the
-/// configured `catalogs:.<key>`; `sutura query`/`sutura mcp` name their single directory a
-/// constant. The adapter can no more guess it than a data adapter can guess its source alias.
+/// is the key the contribution manifest records this contributor under. `sutura serve` and, since
+/// issue #970, `sutura mcp` hand it the configured `catalogs:.<key>`; `sutura query` still names
+/// its single directory a constant. The adapter can no more guess it than a data adapter can guess
+/// its source alias.
 #[derive(Debug, Clone)]
 pub struct LocalCatalog {
     name: SourceName,

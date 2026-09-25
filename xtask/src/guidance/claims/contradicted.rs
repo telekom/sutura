@@ -280,7 +280,7 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
             "a served deployment whose semantic catalog is DataHub",
         ],
         evidence: &[Evidence {
-            path: "crates/sutura-cli/src/serve/catalog.rs",
+            path: "crates/sutura-cli/src/catalog.rs",
             holds: "CatalogKind::Datahub =>",
         }],
         instead: "write the deployment SHAPE, whose runnable proof is test code over a recorded \
