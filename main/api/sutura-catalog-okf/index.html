@@ -1334,6 +1334,45 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#enum-invalidprimarykeyshape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        enum InvalidPrimaryKeyShape
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="enum InvalidPrimaryKeyShape">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#variants_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1966,6 +2005,45 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#enum-invalidprimarykeyshape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        enum InvalidPrimaryKeyShape
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="enum InvalidPrimaryKeyShape">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#variants_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2065,6 +2143,8 @@ sends a reader to read all of them.</p>
 <li><code>DuplicateColumn</code></li>
 <li><code>MissingDescription</code></li>
 <li><code>InvalidDescription</code></li>
+<li><code>InvalidColumnDescription</code></li>
+<li><code>InvalidPrimaryKey</code></li>
 <li><code>Inconsistent</code></li>
 <li><code>UncheckableKnowledge</code></li>
 <li><code>Empty</code></li>
@@ -2087,6 +2167,17 @@ sends a reader to read all of them.</p>
 - <code>Digest</code></p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h2 id="enum-invalidprimarykeyshape"><code>enum InvalidPrimaryKeyShape</code><a class="headerlink" href="#enum-invalidprimarykeyshape" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidPrimaryKeyShape</span>
+</span></code></pre></div>
+<p>Why a <code>primaryKey</code> value could not be read as a column name or a list of them.</p>
+<h3 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>NotAStringOrList</code> - Neither a YAML string nor a sequence of strings - the two shapes the Table Schema specification allows.</li>
+<li><code>Column</code></li>
+</ul>
+<h3 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h3>
+<p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 
 
 
