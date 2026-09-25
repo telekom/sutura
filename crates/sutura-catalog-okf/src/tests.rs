@@ -5,6 +5,7 @@
 //! writes real Table Schema descriptors to a per-process temp directory and loads through
 //! [`super::OkfCatalog::load`], so a cell asserts on what the adapter reads, not on source text.
 
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use sutura_domain::capabilities::MetadataCapabilities;
@@ -145,4 +146,51 @@ fn the_example_corpus_loads_and_digests_stably() {
     let second = catalog(root).load().expect("the example corpus loads twice");
     assert_eq!(first.digest(), second.digest(), "the same corpus pins to the same digest");
     assert!(!first.definitions().models().is_empty(), "the example corpus has models");
+}
+
+/// The `NotARegularFile` refusal is on the OPENED handle, not on a separately-stated path.
+///
+/// `/dev/null` is a character device: `File::open` succeeds on it, and the `fstat` on that handle
+/// shows a non-regular file, so [`super::read_document`] refuses it before reading a byte - the
+/// exact device half of the post-walk swap this refusal exists to close. Deleting the `is_file`
+/// check makes this cell red.
+#[test]
+fn a_non_regular_file_is_refused_on_the_opened_handle() {
+    let file = std::fs::File::open("/dev/null").expect("a character device is openable");
+    let metadata = file.metadata().expect("the opened handle has an fstat");
+    let root = PathBuf::from("/unreached"); // names the catalog only in TooLarge text; unreached here
+    let err = super::read_document(file, &metadata, Path::new("document.yaml"), &root, 0)
+        .expect_err("a device is refused as not a regular file");
+    assert!(
+        matches!(err, OkfCatalogError::NotARegularFile { .. }),
+        "the refusal is NotARegularFile, not {err:?}"
+    );
+}
+
+/// A reader that DELIVERS more than the remaining budget is refused by the post-read re-check.
+///
+/// The declared length is a real file well under the budget, so the fast path passes and the
+/// `take` cap is what stops the read; the reader then yields more than `remaining`, which only
+/// the post-read re-check ([`super::read_document`]) catches. Deleting either the `take` or the
+/// re-check makes this cell red.
+#[test]
+fn a_reader_that_delivers_more_than_the_remaining_budget_is_refused() {
+    let root = scratch("under-declared");
+    std::fs::write(root.join("document.yaml"), "description: t\nfields:\n  - name: id\n").expect("a descriptor is writable");
+    let file = std::fs::File::open(root.join("document.yaml")).expect("the descriptor is openable");
+    let metadata = file.metadata().expect("the opened handle has an fstat");
+    assert!(
+        metadata.len() < super::MAX_CATALOG_BYTES,
+        "the fixture is well under the aggregate budget"
+    );
+    let path = root.join("document.yaml");
+    // Declared at the small length above, but yields more than `remaining`: only the re-check
+    // (on top of the `take`) refuses it.
+    let lying = std::io::repeat(b'a').take(super::MAX_CATALOG_BYTES + 2);
+    let err = super::read_document(lying, &metadata, &path, &root, 0).expect_err("yielding past the remaining budget is refused");
+    assert!(
+        matches!(err, OkfCatalogError::TooLarge { .. }),
+        "the refusal is TooLarge, not {err:?}"
+    );
+    drop(std::fs::remove_dir_all(&root));
 }
