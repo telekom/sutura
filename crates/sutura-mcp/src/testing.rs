@@ -44,9 +44,7 @@ use sutura_domain::pinned::{
 };
 use sutura_domain::plan::Executable;
 use sutura_domain::query::{Query, ToolOutcome};
-use sutura_domain::source::{
-    AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture, UniformlyExecuted,
-};
+use sutura_domain::source::{AcknowledgementReason, ExecutedAs, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Value, Warehouse};
 
@@ -367,8 +365,19 @@ fn shared_posture() -> SourcePosture {
 }
 
 /// The execution record an answer from this fixture carries.
-pub(crate) fn ran_shared() -> UniformlyExecuted {
-    UniformlyExecuted::of(source(), shared_posture())
+pub(crate) fn ran_shared() -> ExecutedAs {
+    ExecutedAs::of(source(), shared_posture())
+}
+
+/// The execution record of a CROSS-POSTURE federated answer: this fixture's shared source beside an
+/// impersonating second one (`docs/adr/0040`).
+pub(crate) fn ran_two_postures() -> ExecutedAs {
+    ran_shared()
+        .and(
+            SourceName::parse("warehouse").expect("a fixture source is a source"),
+            SourcePosture::ImpersonationAtSource,
+        )
+        .expect("two distinct sources are two legs")
 }
 
 /// A registry holding one warehouse whose answer reproduces the anchor, so the bundle validates.
@@ -433,6 +442,11 @@ impl Surface for FailingSurface {
         // This fixture carries no `SpendLedger` at all.
         None
     }
+
+    fn spent_bytes_total(&self) -> Option<u64> {
+        // This fixture carries no `SpendLedger` at all.
+        None
+    }
 }
 
 /// A surface over [`bundle_with_a_restricted_metric`] that answers nothing else.
@@ -481,6 +495,11 @@ impl Surface for RestrictedSurface {
     }
 
     fn spend_headroom_bytes(&self) -> Option<u64> {
+        // This fixture proves a caller's catalog scoping, not spend - it carries no `SpendLedger`.
+        None
+    }
+
+    fn spent_bytes_total(&self) -> Option<u64> {
         // This fixture proves a caller's catalog scoping, not spend - it carries no `SpendLedger`.
         None
     }
@@ -555,6 +574,11 @@ impl Surface for RecordingSurface {
     }
 
     fn spend_headroom_bytes(&self) -> Option<u64> {
+        // This fixture carries no `SpendLedger` either - it exists to record subjects, not spend.
+        None
+    }
+
+    fn spent_bytes_total(&self) -> Option<u64> {
         // This fixture carries no `SpendLedger` either - it exists to record subjects, not spend.
         None
     }
@@ -662,6 +686,11 @@ impl Surface for HoldingSurface {
     }
 
     fn spend_headroom_bytes(&self) -> Option<u64> {
+        // The admission bound is this fixture's own concern; it carries no `SpendLedger`.
+        None
+    }
+
+    fn spent_bytes_total(&self) -> Option<u64> {
         // The admission bound is this fixture's own concern; it carries no `SpendLedger`.
         None
     }

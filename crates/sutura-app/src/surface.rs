@@ -174,6 +174,32 @@ pub trait Surface: Send + Sync + 'static {
     /// Decision 5 types a metric label as `&'static str`, so a `Subject` could not become one even
     /// if this trait tried to widen further.
     fn spend_headroom_bytes(&self) -> Option<u64>;
+
+    /// Every byte this replica has admitted since it started, or `None` where no per-replica
+    /// ceiling is configured - the same "absent rather than zero" [`Self::spend_headroom_bytes`]
+    /// already applies.
+    ///
+    /// **Monotonic, and that is why this is a sibling to headroom rather than a third name for
+    /// it.** `sutura_spend_headroom_bytes` is a gauge: it returns to the full ceiling on every
+    /// window reset, and `sum()` over N replicas is `N × ceiling − total_spend`, a number that
+    /// moves whenever the replica count does - a restart reads as budget being refunded. This
+    /// total only grows, so `sum(rate(sutura_spend_bytes_total[5m]))` is correct across restarts
+    /// and across a changing replica count - the 2026-09-18 owner decision `docs/adr/0030`'s
+    /// amendment records: aggregation belongs to the monitoring system, never to enforcement,
+    /// which stays per-replica either way. See [`crate::spend::SpendLedger::spent_bytes_total`].
+    ///
+    /// **Limit: on every deployment that can boot with a ceiling today, this series reads 0
+    /// forever.** A ledger charges a `None` estimate nothing, and the adapters that can boot under
+    /// `governance.per_replica_spend_ceiling` cannot price a dry run - a `bigquery` source beside
+    /// the ceiling is refused at boot, `DuckDB` and Postgres answer
+    /// `PreFlight::Accepted { estimated_bytes: None }`, `ClickHouse` and Oracle take the port's
+    /// default `PreFlight::NotAsked` - so a dashboard cannot tell a zero series here from "nothing
+    /// was spent". `docs/adr/0030`'s amendment states the same sentence.
+    ///
+    /// **Deployment-wide, never per-subject**, for the reason the headroom sibling states:
+    /// ADR-0015 Decision 5 types a metric label as `&'static str`, so a `Subject`'s own
+    /// identifier cannot become one here either.
+    fn spent_bytes_total(&self) -> Option<u64>;
 }
 
 /// A typed error, owned, with its type erased and its `#[source]` chain intact.
@@ -578,6 +604,10 @@ where
 
     fn spend_headroom_bytes(&self) -> Option<u64> {
         self.spend_ledger.headroom_bytes(std::time::Instant::now())
+    }
+
+    fn spent_bytes_total(&self) -> Option<u64> {
+        self.spend_ledger.spent_bytes_total()
     }
 }
 

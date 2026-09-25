@@ -1284,7 +1284,7 @@ pub fn each(&self) -> impl Iterator<Item>
 Every open data system, in source order.
 
 ```rust
-pub fn executed_on(&self, source: &SourceName) -> Option<UniformlyExecuted>
+pub fn executed_on(&self, source: &SourceName) -> Option<ExecutedAs>
 ```
 
 The execution record for an answer that ran on `source` and nowhere else.
@@ -1293,10 +1293,9 @@ The one place a mono-source answer's provenance comes from, so the posture in an
 posture the adapter that executed it was holding. `None` when nothing is open for that source,
 which is the case the caller has already turned into a refusal by the time it asks.
 
-`UniformlyExecuted` rather than `ExecutedAs`, and it needs no verdict on the way: one leg
-cannot decide identity two ways, so the mono answer path has no arm for a refusal it could
-never provoke. The federated path builds its own record from both adapters and asks
-`ExecutedAs::uniform` for the verdict.
+One leg, so one entry: `ExecutedAs` is non-empty by construction and has no `remove`. The
+federated path builds its own two-leg record from both adapters - which may name two
+different postures since `docs/adr/0040`.
 
 ```rust
 pub fn get(&self, source: &SourceName) -> Option<&W>
@@ -2294,12 +2293,28 @@ headroom.** `sutura_spend_headroom_bytes` (`#884`) cannot be summed across repli
 resets to the full ceiling on every restart, and `sum()` over N replicas is `N * ceiling -
 total_spend`, a number that moves whenever N does. This total only grows, so
 `sum(rate(sutura_spend_bytes_total[5m]))` is correct across a restart (a monitoring
-system's counter-reset handling) and across a changing replica count - `docs/adr/0030`'s
-owner decision, 2026-09-18: aggregation belongs to the monitoring system, never to
-enforcement, which stays per-replica either way.
+system's counter-reset handling) and across a changing replica count - the owner decision
+`docs/adr/0030`'s amendment records, 2026-09-18: aggregation belongs to the monitoring
+system, never to enforcement, which stays per-replica either way.
 
-**Not yet exported as a metric.** No `Surface`/`ServiceState` accessor reaches this method
-today - `sutura_spend_bytes_total`'s registration and push are sequenced behind
-`github.com/telekom/sutura#921`, which is already touching the same `ServiceState` fields
-this counter's gauge sibling lives beside. This method is the mechanism the wiring will
-call; it is proven directly, against the ledger, until that lands.
+**Exported as `sutura_spend_bytes_total` by both transports, by different routes.**
+`sutura_http::ServiceState::new` (`sutura-http`) registers the counter beside the
+`sutura_spend_headroom_bytes` gauge. `POST /v1/query`'s post-answer poll pushes it through
+the state's own `record_spend_headroom`; the agent surface raises it through the
+`SpendHeadroomPush` handle the composition root hands its `Serving` wrapper - the HTTP
+route never touches that handle. The `/metrics` scrape renders it.
+
+**Registered only where a ceiling is configured:** `Some` here is the registration
+condition, so an unconfigured deployment exports neither series - absent rather than zero,
+the same discipline the gauge applies.
+
+**Limit: on every deployment that can boot with a ceiling today, this series reads 0
+forever.** A ledger charges a `None` estimate nothing, and the adapters that can boot
+under `governance.per_replica_spend_ceiling` cannot price a dry run: a `bigquery` source
+beside the ceiling is refused at boot
+(`NotFitToServe::UnpricedSourceUnderSpendCeiling`), so no
+priced adapter can be served with one; `DuckDB` and Postgres answer
+`PreFlight::Accepted { estimated_bytes: None }`, and `ClickHouse` and Oracle take the port's
+own default `PreFlight::NotAsked`. A dashboard reading `sum(rate(...))` of zero here
+therefore cannot distinguish "nothing was spent" from "no call was ever priced" - see
+`docs/adr/0030`'s amendment for the same sentence.

@@ -316,23 +316,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
                  is a grant there, not another attempt"
             ),
         ),
-        // 409, and the same family as the three federation refusals above: the question is well
-        // formed, the metric permits it, and this deployment will not answer THIS one. Not 403 -
-        // nothing about the caller's own authorization decided it, and a caller told `forbidden`
-        // goes looking for a better token. Not 503, because retrying returns the same refusal
-        // until a deployment's own source declarations change.
-        //
-        // The sentence names the two POSTURE LABELS and nothing else. `SourcePosture` carries the
-        // operator's acknowledgement prose, so the domain variant carries labels out of a closed
-        // set of two - see [`RefusalBody`] for the general rule, which this follows for an
-        // operator's text rather than a caller's.
-        RefusalReason::LegsDecideIdentityDifferently { ref postures } => (
-            StatusCode::CONFLICT,
-            format!(
-                "answering this would combine data systems that decide who is asking differently                  ({}), and a total made of rows read under two identities is a number neither of                  them is entitled to. It is refused rather than labelled: ask the same metric                  without the dimension on the second data system, or report it to a person",
-                postures.iter().copied().collect::<Vec<&str>>().join(" and ")
-            ),
-        ),
         // 422, for `ResourcesExhausted`'s exact reason: this used to be a data-system failure and
         // leave as a retryable `503`, and a deadline is a configured bound the deployment decided
         // and the data system enforced - something WAS judged. Retrying spends the whole budget at
@@ -391,6 +374,18 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
                  range, add a filter, or ask the deployment's operator to raise this ceiling"
             ),
         ),
+        // 409, the same status `FederationNotExecutable` and `PlanTablesShareAnIdentifier` use for
+        // the same reason: the question is well formed and this deployment cannot express it as one
+        // statement yet, which is a conflict between what was asked and what the plan stage builds
+        // rather than a data system being down. Retrying it unchanged returns this same refusal.
+        RefusalReason::CrossModelRatioNotExecutable { ref metric, ref model } => (
+            StatusCode::CONFLICT,
+            format!(
+                "`{metric}` measures a ratio side on model `{model}`, and this deployment does not \
+                 yet build the second fact leg such a term needs; ask a metric whose measure reads \
+                 one model, or report it to a person"
+            ),
+        ),
     };
     (
         status,
@@ -431,9 +426,9 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::ResourcesExhausted { .. }
         | RefusalReason::CredentialUnavailable { .. }
         | RefusalReason::SourceRefused { .. }
-        | RefusalReason::LegsDecideIdentityDifferently { .. }
         | RefusalReason::DeadlineExceeded { .. }
-        | RefusalReason::TopOverUncertifiedRows { .. } => None,
+        | RefusalReason::TopOverUncertifiedRows { .. }
+        | RefusalReason::CrossModelRatioNotExecutable { .. } => None,
     }
 }
 
@@ -630,13 +625,6 @@ mod tests {
                 "source_refused",
             ),
             (
-                RefusalReason::LegsDecideIdentityDifferently {
-                    postures: sutura_domain::source::SourcePosture::NAMES.iter().copied().collect(),
-                },
-                StatusCode::CONFLICT,
-                "legs_decide_identity_differently",
-            ),
-            (
                 RefusalReason::DeadlineExceeded { budget_seconds: 29 },
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "deadline_exceeded",
@@ -650,6 +638,14 @@ mod tests {
                 RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "top_over_uncertified_rows",
+            ),
+            (
+                RefusalReason::CrossModelRatioNotExecutable {
+                    metric: metric(),
+                    model: sutura_domain::model::ModelName::parse("customers").expect("a test model is a model"),
+                },
+                StatusCode::CONFLICT,
+                "cross_model_ratio_not_executable",
             ),
         ]
     }

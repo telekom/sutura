@@ -45,6 +45,7 @@
 mod tests;
 
 use std::collections::BTreeSet;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
@@ -61,6 +62,14 @@ const DOCUMENT_EXTENSIONS: &[&str] = &["yaml", "yml"];
 
 /// The most documents a catalog root may hold - a startup bound, walk refused as soon as it crosses.
 const MAX_CATALOG_DOCUMENTS: usize = 1_000;
+/// The most bytes a catalog root's documents may sum to - a startup bound, enforced on the READ
+/// itself (each file is opened once, its `metadata()` on that handle checked for size and, before
+/// the read, for being a regular file, and the read passes through `Read::take(remaining + 1)`), so
+/// a document that crosses the aggregate bound is refused rather than allocated even if it grows or
+/// is swapped after the walk. Mirrors `sutura-catalog-local`'s `MAX_CATALOG_BYTES` for the same
+/// reason that crate has one: a served catalog directory is operator-mounted, and an unbounded
+/// aggregate read is a startup cost nobody asked to pay.
+const MAX_CATALOG_BYTES: u64 = 16 * 1024 * 1024;
 
 /// The two halves of a bundle's content, read and checked but not yet pinned.
 type Content = (Definitions, Knowledge);
@@ -238,15 +247,29 @@ impl OkfCatalog {
             .with_primary_key(primary_key)
             .map_err(|cause| OkfCatalogError::Inconsistent { cause })
     }
-
     /// Reads every descriptor and assembles the bundle.
+    ///
+    /// The byte bound is enforced on the READ itself, not on a `stat` taken separately from it -
+    /// each file is opened ONCE and everything is read through that same handle, so a document
+    /// that grows, or is swapped, between the walk and the read cannot slip past the bound. The
+    /// refusal paths and their exact reach are [`read_document`]'s contract.
     fn read_all(&self) -> Result<Content, OkfCatalogError> {
         let mut models = Vec::new();
+        let mut total_bytes: u64 = 0;
         for path in self.documents()? {
-            let text = std::fs::read_to_string(&path).map_err(|cause| OkfCatalogError::Io {
+            let mut file = std::fs::File::open(&path).map_err(|cause| OkfCatalogError::Io {
                 path: path.clone(),
                 cause,
             })?;
+            // `fstat` on the handle we are about to read from: this is the file actually being
+            // read, not a separately-named path. A non-regular file - a device, or a document
+            // swapped for one after the walk - is refused here rather than read.
+            let metadata = file.metadata().map_err(|cause| OkfCatalogError::Io {
+                path: path.clone(),
+                cause,
+            })?;
+            let ReadDocument { text, consumed } = read_document(&mut file, &metadata, &path, &self.root, total_bytes)?;
+            total_bytes += consumed;
             models.push(self.descriptor_to_model(&path, &text)?);
         }
         let definitions =
@@ -257,6 +280,78 @@ impl OkfCatalog {
             .map_err(|cause| OkfCatalogError::UncheckableKnowledge { cause })?;
         Ok((definitions, knowledge))
     }
+}
+/// The text of one descriptor, and the number of bytes it consumed from the aggregate budget.
+///
+/// A plain struct rather than a `(String, u64)` return: the two are always read together, and the
+/// named field keeps the "one document" boundary legible in [`OkfCatalog::read_all`].
+#[derive(Debug)]
+struct ReadDocument {
+    text: String,
+    consumed: u64,
+}
+
+/// Reads one descriptor's bytes against the aggregate byte bound.
+///
+/// Bounded on the OPENED HANDLE rather than a separate path-based `stat`: `declared` is the
+/// `metadata()` (an `fstat`) of the very `reader` about to be read. It is checked for being a
+/// regular file, and its `len()` against the remaining budget is the fast path that refuses a
+/// legitimately-oversized file before anything is read. The read is then capped with
+/// `Read::take(remaining + 1)` and what actually arrived is re-checked, so a file that lies
+/// about its size, or grows between the `fstat` and the read, is refused as
+/// [`OkfCatalogError::TooLarge`] rather than allocated.
+///
+/// This is the whole reach of the bound. The `fstat` refuses a document that is, or resolves
+/// through a symlink to, a NON-REGULAR file such as a device; it does NOT refuse a symlink to a
+/// regular file - [`std::fs::File::open`] follows that, and a document swapped after the walk for
+/// such a symlink is read (still bounded) and parsed - and it never sees a swapped FIFO, whose
+/// open blocks before the `fstat`. `root` is the catalog root, carried only so the `TooLarge`
+/// text can name the catalog as the other variants do.
+fn read_document(
+    mut reader: impl Read,
+    declared: &std::fs::Metadata,
+    path: &Path,
+    root: &Path,
+    total_bytes: u64,
+) -> Result<ReadDocument, OkfCatalogError> {
+    if !declared.is_file() {
+        return Err(OkfCatalogError::NotARegularFile {
+            path: path.to_path_buf(),
+        });
+    }
+    let remaining = MAX_CATALOG_BYTES - total_bytes.min(MAX_CATALOG_BYTES);
+    if declared.len() > remaining {
+        let found = total_bytes.saturating_add(declared.len());
+        return Err(OkfCatalogError::TooLarge {
+            path: root.to_path_buf(),
+            document: path.to_path_buf(),
+            found,
+            limit: MAX_CATALOG_BYTES,
+        });
+    }
+    let mut text = String::new();
+    reader
+        .by_ref()
+        .take(remaining.saturating_add(1))
+        .read_to_string(&mut text)
+        .map_err(|cause| OkfCatalogError::Io {
+            path: path.to_path_buf(),
+            cause,
+        })?;
+    // `take` caps the read; if the file actually held more than `remaining` bytes, what arrived
+    // still is - so re-check the length of what was READ, which closes the case of a file that
+    // grew between the `fstat` and the read.
+    if text.len() as u64 > remaining {
+        let found = total_bytes.saturating_add(text.len() as u64);
+        return Err(OkfCatalogError::TooLarge {
+            path: root.to_path_buf(),
+            document: path.to_path_buf(),
+            found,
+            limit: MAX_CATALOG_BYTES,
+        });
+    }
+    let consumed = text.len() as u64;
+    Ok(ReadDocument { text, consumed })
 }
 
 /// Why a directory could not be read as an OKF catalog.
@@ -330,6 +425,31 @@ pub enum OkfCatalogError {
     Empty { path: PathBuf },
     #[error("the catalog at {path} holds more than {limit} documents ({found} found before the walk stopped)")]
     TooManyDocuments { path: PathBuf, found: usize, limit: usize },
+    /// The read of this document would push the running total over `MAX_CATALOG_BYTES`.
+    ///
+    /// `path` is the catalog root, matching `TooManyDocuments` and `Empty` above - the rendered
+    /// text names "the catalog", so the path in it has to be the catalog's, not one file's.
+    /// `document` is the one whose bytes pushed the running total past `limit`. `found` is that
+    /// running total. The bound is enforced on the read itself ([`OkfCatalog::read_all`] and
+    /// [`read_document`]): the refusing total comes from the handle's own `metadata()` before the
+    /// read, or from what the capped read actually delivered if a file grew in between.
+    #[error("the catalog at {path} holds more than {limit} bytes of documents (the read stopped at {document}, {found} found)")]
+    TooLarge {
+        path: PathBuf,
+        document: PathBuf,
+        found: u64,
+        limit: u64,
+    },
+    /// The document the walk named is not a regular file when it comes to be read.
+    ///
+    /// The walk skips links and non-files; this refuses a document that became a non-regular file
+    /// after the walk. It is the handle actually about to be read, refused before any bytes are:
+    /// a document swapped for a device (or a symlink to one) after the walk would otherwise be a
+    /// zero-length file that reads forever. It does not refuse a symlink to a REGULAR file -
+    /// [`std::fs::File::open`] follows that, and such a document is read (bounded) - and a
+    /// swapped FIFO blocks its open rather than reaching this refusal.
+    #[error("the document {path} is not a regular file - refused rather than read as one")]
+    NotARegularFile { path: PathBuf },
     #[error("the definitions could not be hashed")]
     Digest {
         #[source]

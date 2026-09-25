@@ -31,13 +31,10 @@
 #
 # THE LIMIT, next to the claim. This proves the image answers and refuses ONCE, on first probe,
 # behind the readiness latch `demo/healthcheck.py` already uses for its external checks - it is a
-# smoke test, not a repeated run of the full demo. It does not prove a PRE-EXISTING service or
-# named volume in the same worktree project survives a `dev-down --only demo` alongside this one:
-# nothing here starts a second service to spare, and `demo/test_behavior.py`'s own
-# `test_dev_down_only_demo_scopes_the_docker_teardown_it_issues` states the same limit about its
-# stub. That survival property is held instead by `xtask/src/compose/teardown.rs`'s
-# `scoped_down_args` (never `--volumes`) and `xtask/src/compose/tier.rs`'s `volume_selection`
-# (exactly one project-scoped volume or a refusal), both unit-tested without docker.
+# smoke test, not a repeated run of the full demo. A lightweight neighbour and its named volume
+# are created in the same project before the demo starts; their marker must survive both startup
+# and scoped teardown. The neighbour is absent from the demo's Compose file, so this also catches
+# `up --remove-orphans` deleting a resource the demo did not create.
 name: demo-container
 
 on:
@@ -50,6 +47,10 @@ jobs:
   smoke-test:
     runs-on: rust-mcp-16core
     timeout-minutes: 30
+    # #1013: `docker info` gave no answer inside the 10s default in 3 logged WedgedDaemon failures (cause
+    # not established; 60s is unmeasured). Silence past 60s still FAILS - `compose.rs`'s `absent` veto.
+    env:
+      SUTURA_DOCKER_PROBE_TIMEOUT_SECS: "60"
     permissions:
       contents: read
     steps:
@@ -127,6 +128,30 @@ jobs:
           [ -n "$port" ]
           echo "port=$port" >> "$GITHUB_OUTPUT"
 
+      - name: Create a preexisting service and named volume
+        id: neighbour
+        run: |
+          set -eu
+          project="$(cargo run -q -p xtask -- dev-down --only demo --dry-run | awk '$1 == "xtask" && $2 == "dev-down:" { print $3; exit }')"
+          [ -n "$project" ]
+          echo "project=$project" >> "$GITHUB_OUTPUT"
+          cat > "$RUNNER_TEMP/neighbour.yaml" <<'YAML'
+          services:
+            neighbour:
+              image: alpine:3.22
+              command: sleep 3600
+              volumes:
+                - neighbour-data:/data
+          volumes:
+            neighbour-data:
+          YAML
+          docker compose --project-name "$project" --file "$RUNNER_TEMP/neighbour.yaml" up -d neighbour
+          container="$(docker compose --project-name "$project" --file "$RUNNER_TEMP/neighbour.yaml" ps -q neighbour)"
+          [ -n "$container" ]
+          docker exec "$container" sh -c 'printf preserved > /data/sentinel'
+          echo "project=$project" >> "$GITHUB_OUTPUT"
+          echo "container=$container" >> "$GITHUB_OUTPUT"
+
       # THE REAL PATH: nix builds the binary, `demo/Dockerfile` assembles the image around it, and
       # `xtask dev-up --only demo` (through `demo/start.sh --up-only`) blocks on the same
       # `HEALTHCHECK` a released image ships with - registration, an answer and a refusal, all
@@ -173,11 +198,32 @@ jobs:
       # which nothing here runs - so a failed health gate above would otherwise leave the demo
       # service, its container and its named volume behind on a runner this job does not own
       # exclusively.
-      - name: Remove the demo's own resources
+      - name: Remove the demo's own resources and check the neighbour
         if: always()
+        env:
+          NEIGHBOUR_OUTCOME: ${{ steps.neighbour.outcome }}
+          NEIGHBOUR_CONTAINER: ${{ steps.neighbour.outputs.container }}
+          NEIGHBOUR_PROJECT: ${{ steps.neighbour.outputs.project }}
         run: |
           set -eu
-          cargo run -q -p xtask -- dev-down --only demo || true
+          if [ "$NEIGHBOUR_OUTCOME" = success ]; then
+            cargo run -q -p xtask -- dev-down --only demo
+            [ "$(docker inspect --format '{{.State.Running}}' "$NEIGHBOUR_CONTAINER")" = true ]
+            [ "$(docker exec "$NEIGHBOUR_CONTAINER" cat /data/sentinel)" = preserved ]
+            docker volume inspect "${NEIGHBOUR_PROJECT}_neighbour-data" >/dev/null
+          else
+            cargo run -q -p xtask -- dev-down --only demo || true
+          fi
+
+      - name: Remove the neighbour's resources
+        if: always()
+        env:
+          NEIGHBOUR_PROJECT: ${{ steps.neighbour.outputs.project }}
+        run: |
+          set -eu
+          if [ -n "$NEIGHBOUR_PROJECT" ] && [ -f "$RUNNER_TEMP/neighbour.yaml" ]; then
+            docker compose --project-name "$NEIGHBOUR_PROJECT" --file "$RUNNER_TEMP/neighbour.yaml" down --volumes neighbour
+          fi
 
       # ALWAYS, and by PID rather than by port or by name: an orphaned probe on a long-lived
       # self-hosted runner is host load a later, unrelated job then has to contend with.

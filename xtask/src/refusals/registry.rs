@@ -23,7 +23,11 @@ const QUERY: Subject = Subject {
     allow_file: ALLOW_FILE,
     // 23: `github.com/telekom/sutura#777` added `TopNotFederated`, then replaced it with
     // `TopOverUncertifiedRows` once the two-case rule made the blanket refusal's arm unreachable -
-    // a straight substitution, so the count is unchanged.
+    // a straight substitution, so the count was unchanged. 22 since `docs/adr/0040` DELETED
+    // `LegsDecideIdentityDifferently`: a cross-posture federated answer is disclosed per leg
+    // instead, so there is no question left for that variant to refuse. 23 again since
+    // `telekom/sutura#780` ADDED `CrossModelRatioNotExecutable`: a ratio term naming another fact
+    // model loads and is refused at plan time rather than mis-planned against the wrong table.
     variants: variants(23),
 };
 

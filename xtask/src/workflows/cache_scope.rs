@@ -814,7 +814,7 @@ pub(super) mod tests {
             "the gated PR job is the write half"
         );
         assert!(
-            super::retired::retired(&[("ci.yml".into(), pr.to_owned())]).is_empty(),
+            super::retired::retired(&[(".github/workflows/ci.yml".into(), pr.to_owned())]).is_empty(),
             "the clean PR write job is the permitted shape"
         );
 
@@ -828,7 +828,7 @@ pub(super) mod tests {
             "a buried step `if:` is not the job gate"
         );
         assert!(
-            !super::retired::retired(&[("ci.yml".into(), no_job_gate.clone())]).is_empty(),
+            !super::retired::retired(&[(".github/workflows/ci.yml".into(), no_job_gate.clone())]).is_empty(),
             "job gate deleted, step `if:` left = the step is refused"
         );
 
@@ -842,8 +842,20 @@ pub(super) mod tests {
             "no gate at all is refused"
         );
         assert!(
-            !super::retired::retired(&[("ci.yml".into(), no_gate)]).is_empty(),
+            !super::retired::retired(&[(".github/workflows/ci.yml".into(), no_gate)]).is_empty(),
             "both job and step gates deleted = the step is refused"
+        );
+    }
+
+    #[test]
+    fn a_pr_writer_targeting_the_shared_cache_is_refused() {
+        let pr = "jobs:\n  pr-cache:\n    if: github.event_name == 'pull_request'\n    environment: cachix-push-pr\n    steps:\n      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n        with:\n          name: sutura\n      - name: Realise this PR's closure\n        run: nix build .#checks.x86_64-linux.nextest\n";
+        let found = super::retired::retired(&[(".github/workflows/ci.yml".into(), pr.into())]);
+        assert!(
+            found
+                .iter()
+                .any(|problem| problem.contains("job `pr-cache`") && problem.contains("[\"sutura\"]")),
+            "the PR writer must not target the shared cache: {found:#?}"
         );
     }
 

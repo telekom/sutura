@@ -60,6 +60,15 @@ impl Counter {
         self.0.fetch_add(n, Ordering::Relaxed);
     }
 
+    /// Raises the counter to `total` when `total` exceeds the current value, atomically.
+    ///
+    /// For a source that already holds a running total: pushing the same total twice adds nothing,
+    /// and an older total pushed after a newer one is refused, because `fetch_max` keeps the
+    /// counter monotonic.
+    pub fn raise_to(&self, total: u64) {
+        self.0.fetch_max(total, Ordering::Relaxed);
+    }
+
     /// The current value.
     #[must_use]
     pub fn value(&self) -> u64 {
@@ -499,6 +508,20 @@ mod tests {
         let rendered = builder.build().render();
         assert!(rendered.contains("# TYPE sutura_questions_total counter"));
         assert!(rendered.contains("sutura_questions_total 1"));
+    }
+
+    #[test]
+    fn a_counter_raises_to_a_running_total_without_double_counting() {
+        let mut builder = RegistryBuilder::default();
+        let counter = builder.counter("sutura_questions_total");
+        counter.raise_to(600);
+        assert_eq!(counter.value(), 600);
+        counter.raise_to(600);
+        assert_eq!(counter.value(), 600);
+        counter.raise_to(1200);
+        assert_eq!(counter.value(), 1200);
+        counter.raise_to(900);
+        assert_eq!(counter.value(), 1200);
     }
 
     #[test]

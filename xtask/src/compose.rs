@@ -452,6 +452,11 @@ mod tests {
             Verdict::Fail,
             "a CI run that skipped this would report green having tested nothing"
         );
+        assert_eq!(
+            absent("dev-up", crate::compose::docker::Missing::WedgedDaemon, Requirement::Optional),
+            Verdict::Fail,
+            "a silent daemon is a faulty tier, not an absent one: the optional direction must not skip it"
+        );
     }
 
     #[test]

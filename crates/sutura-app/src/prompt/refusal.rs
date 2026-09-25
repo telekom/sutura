@@ -182,17 +182,6 @@ const MEASURE_DOES_NOT_FEDERATE: Guide = Guide {
              sits on the second data system, or report it to a person.",
 };
 
-const LEGS_DECIDE_IDENTITY_DIFFERENTLY: Guide = Guide {
-    reason: "legs_decide_identity_differently",
-    meaning: "the question spans two data systems that decide who is asking differently, so one \
-              answer would add rows read under one identity to rows read under another - a total \
-              neither identity is entitled to",
-    remedy: "Ask the same metric without the dimension that sits on the second data system, and \
-             the mono-source question on each is still answered. Retrying changes nothing, and \
-             this is not an outage: it is a fact about how the two data systems are declared. If \
-             every dimension you need crosses them, say so to the person you are acting for.",
-};
-
 const SOURCE_UNAVAILABLE: Guide = Guide {
     reason: "source_unavailable",
     meaning: "the data system that metric lives in is not one this deployment opened",
@@ -259,6 +248,15 @@ const TOP_OVER_UNCERTIFIED_ROWS: Guide = Guide {
              this deployment can raise it.",
 };
 
+const CROSS_MODEL_RATIO_NOT_EXECUTABLE: Guide = Guide {
+    reason: "cross_model_ratio_not_executable",
+    meaning: "the metric measures a ratio whose two sides read from two different fact models, and \
+              this deployment does not yet build the second fact leg such a term needs",
+    remedy: "Nothing you can change in the question. Report it to the person you are acting for: \
+             it is a fact about how the metric is defined and what this deployment can execute, \
+             not something a narrower question works around.",
+};
+
 /// Every refusal a caller can be given, in the order the prompt lists them.
 ///
 /// Ordered so the ones an agent can act on come first and the two it cannot come last, because a
@@ -300,16 +298,15 @@ pub(super) const GUIDES: &[&Guide] = &[
     // configured bound rather than a missing capability - `top` DID rank the answer, it ranked a
     // set the ceiling had already cut.
     &TOP_OVER_UNCERTIFIED_ROWS,
-    // With the federation family rather than with the two an agent cannot act on, because it IS
-    // actionable and the move is the same one: drop the dimension that pulls in the second data
-    // system. An agent reading it here has just read that a refusal about the two-source shape is
-    // not one to retry.
-    &LEGS_DECIDE_IDENTITY_DIFFERENTLY,
     // Actionable, and the reason it sits after the source-count refusals rather than with the
     // narrowing ones: the move is to drop a JOIN rather than to narrow anything, and an agent
     // reaching it has already read that a refusal about the plan's shape is not one to retry
     // unchanged.
     &PLAN_TABLES_SHARE_AN_IDENTIFIER,
+    // With the plan-shape family above it, for the same reason: the move is not to narrow anything,
+    // it is to ask a different metric, and an agent reaching it has already read that a refusal
+    // about the plan's shape is not one to retry unchanged.
+    &CROSS_MODEL_RATIO_NOT_EXECUTABLE,
     &SOURCE_UNAVAILABLE,
     &SOURCE_REFUSED,
     &CREDENTIAL_UNAVAILABLE,
@@ -347,10 +344,10 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
         RefusalReason::SourceRefused { .. } => &SOURCE_REFUSED,
         RefusalReason::CredentialUnavailable { .. } => &CREDENTIAL_UNAVAILABLE,
-        RefusalReason::LegsDecideIdentityDifferently { .. } => &LEGS_DECIDE_IDENTITY_DIFFERENTLY,
         RefusalReason::DeadlineExceeded { .. } => &DEADLINE_EXCEEDED,
         RefusalReason::BudgetExhausted { .. } => &BUDGET_EXHAUSTED,
         RefusalReason::TopOverUncertifiedRows { .. } => &TOP_OVER_UNCERTIFIED_ROWS,
+        RefusalReason::CrossModelRatioNotExecutable { .. } => &CROSS_MODEL_RATIO_NOT_EXECUTABLE,
     }
 }
 

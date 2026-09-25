@@ -18,16 +18,14 @@ sutura fixes the first by construction today: definitions arrive certified and p
 surface has no field an invented query could arrive in, and every value a question carries binds
 as a parameter rather than reaching the statement as text.
 
-The second is **half built, and the missing half is the one that matters.** "Every query runs as
-the caller" needs a credential minted per request. That now exists: a request context reaches the
+The second is **built and unproven**. "Every query runs as the caller" needs a credential minted
+per request. A request context reaches the
 query path, a credential broker mints once per answer for every source a plan reads, and the
 execution port has no signature that runs without the result - so a subject with no credential at
-a source is refused rather than answered as this process. What is absent is a data system that
-evaluates the asking subject: no published adapter can carry a per-subject credential - `bigquery` is a default-off feature and the adapter behind it does. Against
-a local file the property is trivially true and worth nothing, because a file has no login.
-Against a warehouse it is still a target - what changed is that no *question* has a code path for
-a warehouse to be read as this process through. The boot path does, by design: it re-executes
-every anchor before a listener is bound, there is no caller then, and `Warehouse::verify_anchor`
+a source is refused rather than answered as this process. The published BigQuery adapter is wired
+to carry the verified caller's assertion through a declared per-subject map, but no served run has
+proven source execution as that caller. Shared sources still use their declared identity. The boot
+path re-executes every anchor before a listener is bound, there is no caller then, and `Warehouse::verify_anchor`
 takes no credential.
 
 **What bounds that path is placement made checkable, not its input type - a correction a second
@@ -57,8 +55,9 @@ sutura **retains nothing** - what a record is worth is what the deployment's sin
 the subject in the chain is only as strong as what established it: behind the shared bearer token
 alone the record names the *deployment*, because that is who asked as far as anything can tell; a
 deployment that declares `security.inbound` names the caller, from a signature. Still a design
-target is a refusal attributable to a subject whose own **access** decided it - the record can say
-which identity each leg ran under, and on this build that is never the asking subject.
+target is a refusal attributable to a subject whose own **access** decided it. BigQuery can carry
+the asking subject's assertion, but the source's acceptance is unproven; shared legs still read
+under their source's declared identity ([identity venues](where-identity-is-proven.md)).
 
 ## Why does the tool surface take no table name?
 
@@ -67,9 +66,9 @@ Because a refusal can be retried, reworded and eventually satisfied, and an abse
 does not compile. That is enforced today, and `deny_unknown_fields` means a question carrying
 `sql:` is an error naming the field rather than one silently dropped.
 
-The intended backstop - widening the surface changes a dumped schema, so the widening lands in the
-diff of the review that did it - is a **design target**. The schema dump is not written yet, so
-today the only thing catching a widened surface is review.
+The MCP wire type generates a committed schema snapshot, so widening its input changes a
+byte-compare a reviewer must accept. There is no equivalent OpenAPI dump for HTTP, and a snapshot
+cannot decide whether a new field should exist; review still owns that decision.
 
 ## Why is there no result cache?
 
@@ -81,21 +80,18 @@ read under whoever refreshed it.
 No mechanism can prove an absence, so this one is written down as a decision. Adding any cache of
 rows is an architecture change, keyed on subject first or not at all.
 
-## Why can a question not span two data systems?
+## Can a question span two data systems?
 
-A second data system is a second identity to satisfy, not a bigger version of the same query. The
-one-source rule is enforced today: the plan stage collects every source the plan reaches into a
-set and refuses unless exactly one name is in it, and a golden builds a two-source catalogue to
-provoke the refusal.
+Yes. A supported federated question splits into fact and lookup legs, executes each at its source,
+then joins the results. Each leg is presented either the asking subject's credential or that
+source's acknowledged shared identity. The answer records the posture of each leg, even when they
+differ. That record reaches the caller with the rows; it is a
+disclosure, not an authorization check (see
+`docs/adr/0040-a-cross-posture-federated-answer-is-disclosed-per-leg.md`).
 
-The *identity* half of that reasoning is a design target. There is no per-leg credential, so
-nothing asserts that two subjects get different rows, and nothing can until one exists.
-
-Federation is wanted, in this order: per-leg identity first, then federation. A predicate pushed
-into ClickHouse or Postgres is evaluated there, under the caller's own grants, so excluded rows
-never enter this process.
-[Where the parts come from](architecture.md#where-the-parts-come-from) names the projects that
-already do that part well.
+BigQuery can carry a per-subject credential, but its real two-subject venue is wired with no
+observed run. The other adapters still execute under a shared identity, and no live test has shown
+two subjects receiving different rows ([identity venues](where-identity-is-proven.md)).
 
 ## Why are definitions not editable here?
 
@@ -111,13 +107,15 @@ an attacker can make the agent emit is a different certified question over the s
 definitions - that much is enforced today by the shape of `Query`. The blast radius of a fully
 manipulated agent is the set of questions its caller could already ask.
 
-The clause "asked as the same caller, against the same authorization" is **half built.** The
-credential broker exists and `Warehouse::execute` has no signature that runs without what it
+The clause "asked as the same caller, against the same authorization" is **not a guarantee for every
+source.** The credential broker exists and `Warehouse::execute` has no signature that runs without what it
 minted, so there is no code path a question reaches a data system through as an unnamed identity.
-What is still absent is an adapter that can carry a per-subject credential, so nothing today makes
-a statement about **whose rows** come back: the bound on a manipulated agent is the tool surface
-plus, where a deployment declares `security.inbound`, the scopes that caller was granted - which
-decide which operations it may invoke and not which rows an answer contains.
+The BigQuery adapter can carry the verified caller's assertion to a declared account for that
+subject, but no hosted run has shown the source accepting either identity hop. Other adapters still
+execute under their source's shared identity. The bound demonstrated today is the tool surface
+plus, where a deployment declares `security.inbound`, the scopes that caller was granted. Those
+scopes decide which operations the caller may invoke, not which rows an answer contains; per-subject
+rows through BigQuery remain unproven ([identity venues](where-identity-is-proven.md)).
 
 ## Why do the musl builds swap the allocator?
 
@@ -130,22 +128,18 @@ single-core run; linking mimalloc brings it to 3.83s.
 
 For single-player work over local files, yes. `sutura compile` renders the statement for a
 question and `sutura query` answers it, over a catalogue of documents in git and the CSV or
-Parquet files in a directory you name. That is the honest description: **a governed single-player
-semantic compiler and executor over local files**, served either from the command line or
+Parquet files in a directory you name. That is one supported path, served from the command line or
 [over HTTP](serving.md).
 
-Not yet as the identity-aware runtime this site describes, and the gap is narrower and more
-specific than it used to be. There **is** a request context, a credential broker port with a
-static-credential implementor, an audit sink, an MCP surface, and - where a deployment declares
-`security.inbound` - a verified caller identity from a signature, with OAuth scopes deciding which
-operations that caller may invoke. What there is **not** is leg 2: no published adapter has
-anywhere for a per-subject credential to arrive, both published adapters declare so, and the broker that ships mints
-what an operator configured. So a deployment can know exactly who is asking, record it, refuse a
-subject it holds no credential for - and still read every row as one identity. There is no Arrow
-result envelope. The one data system the shipped binary opens is the in-process engine over those
-files - `sutura-exec-duckdb` renders and pushes down, and is a development dependency rather than
-something the binary links. So the governance that decides **which rows** is still the narrow tool
-surface and the pinned bundle, not identity.
+The identity-aware BigQuery path is shipped, but no served run has proven that the source executes
+as the caller. There **is** a request context, a credential broker port, an audit sink, an MCP
+surface, and - where a deployment declares `security.inbound` - a verified caller identity from a
+signature, with OAuth scopes deciding which operations that caller may invoke. Other sources use an
+acknowledged shared identity, so a deployment can know who is asking and still read rows under its
+own source identity. The Arrow result envelope is not built. The published build opens the
+in-process engine, Postgres and BigQuery;
+other adapters require their own features. The pinned bundle and source grants govern which rows
+can be read.
 [What exists today](architecture.md#what-exists-today) is the inventory.
 
 The environment, the gates and the release pipeline do work, because a mechanism is cheaper to

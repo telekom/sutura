@@ -362,8 +362,12 @@ impl Federation {
 pub fn descend(term: &Term) -> Above {
     match *term {
         // `COUNTIF` in one dialect, `SUM(CASE WHEN ..)` in another, and a count either way: it
-        // descends as written and the combine adds the leg counts.
-        Term::CountIf { ref column } => Above::Total(Carried::CountIf { column: column.clone() }),
+        // descends as written and the combine adds the leg counts. The term's `model` is not
+        // carried past this point: `sutura_semantic::plan::plan` refuses a cross-model ratio
+        // before a federated splitter is ever reached, so every term this function sees names
+        // either no model or the metric's own - `telekom/sutura#780`'s vocabulary, and the plan
+        // half that is not yet built.
+        Term::CountIf { ref column, .. } => Above::Total(Carried::CountIf { column: column.clone() }),
         Term::Aggregate(ref inner) => match Descent::of(inner.aggregate()) {
             Descent::AsWritten(pushed) => Above::Total(Carried::Aggregated {
                 pushed,

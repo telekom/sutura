@@ -286,10 +286,9 @@ fn announce_surface(settings: &Settings) {
 /// it.
 ///
 /// Both branches are `warn`, and that is not an oversight in the second one. A deployment with no
-/// inbound identity is warned that it has none; a deployment *with* one is warned about the half it
-/// still does not have - leg 1 establishes who is asking and does not make a source execute as that
-/// person - and both sentences are read from the config types rather than written here, so neither can
-/// drift into claiming the other.
+/// inbound identity is warned that it has none; a deployment *with* one is warned that leg 1 does
+/// not prove source acceptance of leg 2. The source's declared posture decides which credential it
+/// uses.
 fn announce_identity(settings: &Settings) {
     let security = settings.security();
     match security.inbound() {
@@ -297,10 +296,9 @@ fn announce_identity(settings: &Settings) {
             per_caller_identity = security.describes_identity(),
             inbound_mode = security.inbound_mode(),
             "NO PER-CALLER IDENTITY: an access token authenticates the DEPLOYMENT, not the caller. \
-             There is no verified caller and no row-level scoping - every question is answered with \
-             whatever access this process already had, whoever asked it. A credential IS minted per \
-             question, and on this deployment it is the identity this process holds for that source \
-             rather than anybody's own. `security.inbound` is the key that changes who is asking"
+             There is no verified caller to present to a per-subject source; such a source refuses \
+             the question rather than using the deployment identity. Shared-identity sources execute \
+             under their declared credentials. `security.inbound` is the key that changes who is asking"
         ),
         Some(inbound) => {
             tracing::warn!(
@@ -309,7 +307,7 @@ fn announce_identity(settings: &Settings) {
                 establishes = inbound.who_authenticated(),
                 token_class = inbound.type_check(),
                 limit = InboundIdentity::what_it_does_not_do(),
-                "PER-CALLER IDENTITY IS ESTABLISHED AND IS NOT PER-CALLER ACCESS"
+                "PER-CALLER IDENTITY IS ESTABLISHED; SOURCE ACCESS DEPENDS ON ITS DECLARED POSTURE"
             );
             announce_token_class(inbound);
         }

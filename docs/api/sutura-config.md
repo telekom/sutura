@@ -42,15 +42,13 @@ the shell are therefore unknown-field errors rather than settings that quietly d
 Every layer is checked with `deny_unknown_fields`, at every depth. A misspelled key is an error
 naming the key, not an override that silently did not happen.
 
-# There is no per-caller ACCESS, and this crate says so out loud
+# Per-caller source access is built and unproven
 
 sutura has a request context and a credential broker now, and a deployment that declares
-`security.inbound` establishes who is asking - so what is missing is narrower than it was and it is
-the part that matters: **no PUBLISHED adapter can carry a per-subject credential.** Every
-question executes with a credential a broker minted, and what that credential says is *the identity
-this process holds for that source*. `AGENTS.md` records which half is mechanised, and
-`examples/README.md` explains why single-player makes "every query runs as the calling
-principal" trivially true and worth nothing.
+`security.inbound` establishes who is asking. A published build links `BigQuery`, whose declared
+per-subject map can carry that caller's assertion to the source; no served run has proven the
+exchange. Other sources use the identity declared for that source. `AGENTS.md` records which
+half is mechanised.
 
 That is a property of the runtime, so it is a property of every deployment this crate
 configures. An `AccessToken` authenticates *the deployment*: a caller
@@ -138,9 +136,10 @@ until this type existed the settings tree carried a directory and a version and 
 operator could write to say *read the model from somewhere else* - so a second catalog kind
 could merge complete and silently remain unreachable from any binary.
 
-Two variants today. `Self::Datahub` says which and why, the way `SourceKind::BigQuery` does for
+Five variants. `Self::Datahub` says which and why, the way `SourceKind::BigQuery` does for
 data systems: the vocabulary is the vocabulary of adapters this repository has, and an adapter
 that exists in a record rather than in a linked crate is still a word an operator might write.
+`#970` added the three declaring adapters that had a crate and no composition root.
 
 ## `use CatalogSettings`
 
@@ -696,11 +695,14 @@ The deployment-wide outbound trust declaration - `security.outbound`.
 **Distinct from a per-source `transport_anchors`** (`crate::sources::transport::TrustAnchors`),
 and deliberately a second, smaller type rather than the same one reused: a per-source declaration
 is refused when the source's own kind has no dial target the anchor could attach to
-(`crate::sources::refuse_foreign_keys` on `files`/`bigquery`), and the outbound clients this
-settles - the `BigQuery` wire, the STS token exchange - dial a HOST THAT IS A COMPILE-TIME CONSTANT.
-There is no source entry a per-entry `transport_anchors` on a `bigquery` kind could mean anything
-on, which is exactly why #125 keeps that refusal rather than lifting it: a deployment-wide
-declaration is the shape that has something to attach to. See `docs/adr/0010`'s amendment.
+(`crate::sources::refuse_foreign_keys` on `files`/`bigquery`). A deployment-wide declaration is
+the shape a fixed-host client has something to attach to. See `docs/adr/0010`'s amendment.
+
+**What reads it today is the `DataHub` reader, and NOT the `BigQuery` transport.** The HTTP wire
+and its token exchange that did read it are deleted; the ADBC driver that replaced them dials with
+its own trust store and presents no client certificate. So `sutura-cli` refuses a declared bundle
+or client identity beside a `bigquery` source at startup rather than serving that source under a
+declaration it would not honour.
 
 **Anchors are required whenever the block is written; a client identity beside them is
 optional** - `github.com/telekom/sutura#911`. Every fixed-host client this covers speaks a
@@ -1382,9 +1384,10 @@ until this type existed the settings tree carried a directory and a version and 
 operator could write to say *read the model from somewhere else* - so a second catalog kind
 could merge complete and silently remain unreachable from any binary.
 
-Two variants today. `Self::Datahub` says which and why, the way `SourceKind::BigQuery` does for
+Five variants. `Self::Datahub` says which and why, the way `SourceKind::BigQuery` does for
 data systems: the vocabulary is the vocabulary of adapters this repository has, and an adapter
 that exists in a record rather than in a linked crate is still a word an operator might write.
+`#970` added the three declaring adapters that had a crate and no composition root.
 
 #### Variants
 
@@ -1395,11 +1398,27 @@ that exists in a record rather than in a linked crate is still a word an operato
   argument.
 - `Datahub` - A metadata service, read through the adapter `docs/adr/0016` specifies and #114 builds.
 
-  **A declarable kind that no binary this repository ships can open yet, and that is
-  deliberate.** The vocabulary of kinds is the vocabulary of adapters *this repository has*
-  in its records, and the composition root refuses this kind by name for exactly the reason
-  `SourceKind::BigQuery` is refused: an operator who writes the word must be told the truth
-  (the adapter is not linked) rather than sent looking for a typo.
+  **Openable behind `sutura-cli`'s default-off `datahub` feature; a build without it refuses
+  this kind by name**, for exactly the reason `SourceKind::BigQuery` is refused: an operator
+  who writes the word must be told the truth (the adapter is not linked) rather than sent
+  looking for a typo.
+- `Okf` - A directory of OKF Frictionless Table Schema descriptors, read by `sutura-catalog-okf`.
+
+  The narrowest of the three declaring adapters `#970` names, and the only one whose reader
+  needs no service: one YAML document per table, on disk, like `Self::Markdown`.
+  `sutura-catalog-okf` is an unconditional dependency of `sutura serve`, so this kind is
+  openable by every build of this binary.
+- `Openmetadata` - An `OpenMetadata` deployment, decided by `sutura-catalog-openmetadata` over its own `SnapshotReader` port.
+
+  **A declarable kind no binary this repository ships can open yet, and that is deliberate.**
+  The crate decides a whole metric against a fake reader; a reader over a real deployment is
+  the follow-up `#152` names, so the composition root refuses this kind by name until one
+  exists rather than opening the recorded fixture against a real deployment's name.
+- `Rdbms` - An RDBMS dictionary, decided by `sutura-catalog-rdbms` over a `DictionaryReader` port.
+
+  **A declarable kind no binary this repository ships can open yet, for the identical reason
+  `Self::Openmetadata` states.** The crate decides the conversion against a recorded
+  dictionary; a reader over a real socket lands with `#972`.
 
 #### Methods
 
@@ -2033,8 +2052,9 @@ optional. Those are two different absences and the difference matters:
 **What this does NOT deliver, and it must not be read as delivered:** leg 1 proves who is asking.
 It does *not* make a data source execute as that person - that is leg 2, and it needs a credential
 per leg plus a source that declares it can impersonate. A deployment with leg 1 and no leg 2 knows
-who is asking and still reads every row as one identity. `InboundIdentity::what_it_does_not_do`
-is that sentence as a value, printed at startup, for the same reason
+who is asking while a shared-identity source still reads rows as one identity. `BigQuery`'s
+per-subject path is built, but no observed served run proves source acceptance.
+`InboundIdentity::what_it_does_not_do` states that limit at startup, for the same reason
 `TlsTermination::cleartext_hop` is one: a log
 line and this documentation read the same string, so neither can drift into claiming per-user
 access because there is authentication.
@@ -3871,11 +3891,14 @@ The deployment-wide outbound trust declaration - `security.outbound`.
 **Distinct from a per-source `transport_anchors`** (`crate::sources::transport::TrustAnchors`),
 and deliberately a second, smaller type rather than the same one reused: a per-source declaration
 is refused when the source's own kind has no dial target the anchor could attach to
-(`crate::sources::refuse_foreign_keys` on `files`/`bigquery`), and the outbound clients this
-settles - the `BigQuery` wire, the STS token exchange - dial a HOST THAT IS A COMPILE-TIME CONSTANT.
-There is no source entry a per-entry `transport_anchors` on a `bigquery` kind could mean anything
-on, which is exactly why #125 keeps that refusal rather than lifting it: a deployment-wide
-declaration is the shape that has something to attach to. See `docs/adr/0010`'s amendment.
+(`crate::sources::refuse_foreign_keys` on `files`/`bigquery`). A deployment-wide declaration is
+the shape a fixed-host client has something to attach to. See `docs/adr/0010`'s amendment.
+
+**What reads it today is the `DataHub` reader, and NOT the `BigQuery` transport.** The HTTP wire
+and its token exchange that did read it are deleted; the ADBC driver that replaced them dials with
+its own trust store and presents no client certificate. So `sutura-cli` refuses a declared bundle
+or client identity beside a `bigquery` source at startup rather than serving that source under a
+declaration it would not honour.
 
 **Anchors are required whenever the block is written; a client identity beside them is
 optional** - `github.com/telekom/sutura#911`. Every fixed-host client this covers speaks a
@@ -4074,11 +4097,14 @@ The deployment-wide outbound trust declaration - `security.outbound`.
 **Distinct from a per-source `transport_anchors`** (`crate::sources::transport::TrustAnchors`),
 and deliberately a second, smaller type rather than the same one reused: a per-source declaration
 is refused when the source's own kind has no dial target the anchor could attach to
-(`crate::sources::refuse_foreign_keys` on `files`/`bigquery`), and the outbound clients this
-settles - the `BigQuery` wire, the STS token exchange - dial a HOST THAT IS A COMPILE-TIME CONSTANT.
-There is no source entry a per-entry `transport_anchors` on a `bigquery` kind could mean anything
-on, which is exactly why #125 keeps that refusal rather than lifting it: a deployment-wide
-declaration is the shape that has something to attach to. See `docs/adr/0010`'s amendment.
+(`crate::sources::refuse_foreign_keys` on `files`/`bigquery`). A deployment-wide declaration is
+the shape a fixed-host client has something to attach to. See `docs/adr/0010`'s amendment.
+
+**What reads it today is the `DataHub` reader, and NOT the `BigQuery` transport.** The HTTP wire
+and its token exchange that did read it are deleted; the ADBC driver that replaced them dials with
+its own trust store and presents no client certificate. So `sutura-cli` refuses a declared bundle
+or client identity beside a `bigquery` source at startup rather than serving that source under a
+declaration it would not honour.
 
 **Anchors are required whenever the block is written; a client identity beside them is
 optional** - `github.com/telekom/sutura#911`. Every fixed-host client this covers speaks a

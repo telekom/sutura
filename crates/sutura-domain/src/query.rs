@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 
 use crate::calendar::TimeRange;
 use crate::catalog::DimensionValue;
-use crate::model::{Aggregate, DimensionName, Grain, MetricName, SourceName, TableName};
+use crate::model::{Aggregate, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
 use crate::pinned::Provenance;
 use crate::warehouse::RowSet;
 
@@ -471,33 +471,6 @@ pub enum RefusalReason {
     /// system's to say, and echoing them would publish a foreign authorization decision into a log,
     /// a UI and an agent's context.
     SourceRefused { source: SourceName },
-    /// The legs of one answer would not all decide identity the same way.
-    ///
-    /// **Not a source count, and that distinction is the whole variant.**
-    /// [`PlanSpansTooManySources`](RefusalReason::PlanSpansTooManySources) bounds a fan-out and says
-    /// *sources*; this says what a combined number would be made of. Two sources under one posture
-    /// are answered - that is the shape that ships - and two sources deciding identity two different
-    /// ways are refused, because adding rows one identity was permitted to see to rows another
-    /// identity was permitted to see produces a total no identity is entitled to, under a certified
-    /// metric name and with valid provenance attached.
-    ///
-    /// Refused rather than disclosed, and *disclosed* is not the third option it reads as: an answer
-    /// carries `executed_as` and `rows` in one body on both transports, with no streaming and no
-    /// second message, so the only outcome that reaches a caller before the rows is a refusal. The
-    /// per-leg record still ships and is still worth having - it documents a disclosure that
-    /// happened, which is a different job from preventing one.
-    ///
-    /// **Carries the posture LABELS and never a `SourcePosture`.** That type's shared variant holds
-    /// the operator's own acknowledgement text and both are `Serialize`, so a value here would
-    /// publish operator prose to every caller, log and agent context - the same rule
-    /// [`PlanTablesShareAnIdentifier`](RefusalReason::PlanTablesShareAnIdentifier) follows when it
-    /// carries the identifier and neither path. The labels come from a closed set of two.
-    ///
-    /// **What it cannot decide, stated with the claim.** *Same posture* is decidable and *same
-    /// asker* is not: nothing in this workspace names WHICH shared identity a source is read as, so
-    /// two `shared-service-user` legs may be two different deployment-held identities and this
-    /// passes them.
-    LegsDecideIdentityDifferently { postures: BTreeSet<&'static str> },
     /// This answer ran out of the time it was given, at the data system or before it was ever
     /// asked.
     ///
@@ -579,6 +552,37 @@ pub enum RefusalReason {
     /// not [`crate::plan::MAX_ROWS`] the compiled constant. Naming a compiled constant here would be
     /// advice nobody addressed could act on.**
     TopOverUncertifiedRows { ceiling: u32 },
+    /// A ratio term names a model other than the metric's own, and this workspace does not yet
+    /// build the second fact leg such a term needs.
+    ///
+    /// **`telekom/sutura#780`'s vocabulary, and the plan half of its first slice.** The catalog
+    /// admits the definition - `Definitions::assemble` proves the named model is declared and the
+    /// term's column exists on it - so a metric with a cross-model ratio loads and is addressable
+    /// by name, PROVIDED it declares no anchor: an anchor is executed at boot, and one on such a
+    /// metric reaches this refusal through `NotValidated::AnchorNotExecuted` instead, which takes
+    /// the whole bundle down rather than only that metric - fails closed, and stated here rather
+    /// than left for a reviewer to find by asking. Asking a plain question about it is refused
+    /// rather than mis-planned against the metric's own table: the splitter has one plan shape per
+    /// data system today, [`QueryPlan`](crate::plan::QueryPlan) and
+    /// [`FederatedPlan`](crate::plan::FederatedPlan), and neither reads a second FACT model's rows,
+    /// aggregated on its own and joined above - which is what a certified answer over two facts
+    /// needs, per the issue's own decision record.
+    ///
+    /// **Distinct from [`MeasureDoesNotFederate`](Self::MeasureDoesNotFederate) and
+    /// [`FederationNotExecutable`](Self::FederationNotExecutable) on purpose.** Neither reason
+    /// applies here: the aggregate is additive (a `sum` or a `count_distinct` federates fine when
+    /// the second leg is a lookup), and a build's adapter capability is not what is missing - the
+    /// plan SHAPE for two aggregated fact legs does not exist yet, on any adapter. Reusing either
+    /// variant would misreport why the question is refused.
+    ///
+    /// A [`RefusalReason`] rather than a wiring defect, for
+    /// [`FederationNotExecutable`](Self::FederationNotExecutable)'s own reason: this variant
+    /// means the capability and nothing else. It is NOT narrowable the way
+    /// most of this enum's questions are - the cross-model term is part of the metric's
+    /// definition, `Query` has no field that reaches it, and every caller-facing text this
+    /// variant produces says so ("nothing you can change in the question"). What changes the
+    /// answer is this workspace building the second fact leg, not a different question.
+    CrossModelRatioNotExecutable { metric: MetricName, model: ModelName },
 }
 
 impl RefusalReason {
@@ -617,10 +621,10 @@ impl RefusalReason {
             Self::ResourcesExhausted { .. } => "resources_exhausted",
             Self::CredentialUnavailable { .. } => "credential_unavailable",
             Self::SourceRefused { .. } => "source_refused",
-            Self::LegsDecideIdentityDifferently { .. } => "legs_decide_identity_differently",
             Self::DeadlineExceeded { .. } => "deadline_exceeded",
             Self::BudgetExhausted { .. } => "budget_exhausted",
             Self::TopOverUncertifiedRows { .. } => "top_over_uncertified_rows",
+            Self::CrossModelRatioNotExecutable { .. } => "cross_model_ratio_not_executable",
         }
     }
 }
@@ -727,29 +731,6 @@ mod tests {
     }
 
     #[test]
-    fn a_mixed_posture_refusal_carries_the_labels_and_no_acknowledgement_text() {
-        // **The disclosure rule for OPERATOR text, which this enum's own note states for CALLER
-        // text.** `SourcePosture::SharedServiceUser` carries a `SharedIdentityDeclared` ->
-        // `AcknowledgementReason`, and both derive `Serialize` - so a posture VALUE in this variant
-        // would publish the sentence an operator wrote on a source's entry to every caller, every
-        // log and every agent's context. The variant carries labels off a closed set of two instead.
-        //
-        // Asserted on the serialized body as well as on `Debug`, because the body is what a
-        // transport hands out and `Debug` is what reaches a log by accident.
-        let reason = RefusalReason::LegsDecideIdentityDifferently {
-            postures: crate::source::SourcePosture::NAMES.iter().copied().collect(),
-        };
-        let serialized = serde_json::to_string(&reason).expect("a refusal serializes");
-        for rendered in [format!("{reason:?}"), serialized] {
-            assert!(rendered.contains("shared-service-user"), "{rendered}");
-            assert!(rendered.contains("impersonation-at-source"), "{rendered}");
-            // No route to operator prose: the type the labels came from has none in it.
-            assert!(!rendered.contains("acknowledg"), "{rendered}");
-            assert!(!rendered.contains("declared"), "{rendered}");
-        }
-    }
-
-    #[test]
     fn a_rejected_filter_value_is_not_echoed_back() {
         // Deliberate: a refusal message reaches a log, a UI and an agent's context. Reflecting the
         // caller's text into all three turns a rejected value into somebody else's input, so the
@@ -768,7 +749,7 @@ mod tests {
     /// Every variant, so the cross-transport contract is checked over the whole enum and not over
     /// whichever ones somebody remembered.
     fn every_reason() -> Vec<RefusalReason> {
-        use crate::model::{Aggregate, SourceName, TableName};
+        use crate::model::{Aggregate, ModelName, SourceName, TableName};
         vec![
             RefusalReason::MetricUnknown {
                 metric: MetricName::parse("revenue").expect("a test metric"),
@@ -824,12 +805,13 @@ mod tests {
             RefusalReason::CredentialUnavailable {
                 source: SourceName::parse("warehouse").expect("a test source"),
             },
-            RefusalReason::LegsDecideIdentityDifferently {
-                postures: crate::source::SourcePosture::NAMES.iter().copied().collect(),
-            },
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },
             RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
             RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
+            RefusalReason::CrossModelRatioNotExecutable {
+                metric: MetricName::parse("revenue_per_customer").expect("a test metric"),
+                model: ModelName::parse("customers").expect("a test model"),
+            },
         ]
     }
 

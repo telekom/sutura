@@ -1,0 +1,13 @@
+diff --git a/xtask/src/compose.rs b/xtask/src/compose.rs
+index 87329efb..63a1b5ca 100644
+--- a/xtask/src/compose.rs
++++ b/xtask/src/compose.rs
+@@ -166,7 +166,7 @@ fn require_docker(task: &str) -> Result<(), Verdict> {
+ /// green. So [`docker::Missing::may_be_skipped`] can veto the optional direction, and only that one
+ /// variant does.
+ fn absent(task: &str, missing: docker::Missing, requirement: Requirement) -> Verdict {
+-    let requirement = if missing.may_be_skipped() {
++    let requirement = if missing.may_be_skipped() || true {
+         requirement
+     } else {
+         Requirement::Required

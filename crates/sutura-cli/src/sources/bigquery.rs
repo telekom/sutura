@@ -65,9 +65,11 @@ pub(super) fn open(
     configured: &sutura_config::ConfiguredSource,
     registry: &sutura_config::SourceRegistry,
     _request_timeout: sutura_config::RequestTimeout,
-    _outbound: Option<&sutura_tls::Declared>,
+    outbound: Option<&sutura_tls::Declared>,
 ) -> Result<Opened, String> {
     use sutura_exec_bigquery::transport::{DatasetId, ProjectId};
+
+    crate::bigquery_driver::refuse_undeliverable_outbound(source, outbound)?;
 
     // Matched rather than read off accessors every kind would have to have, for the reason the files
     // arm gives at the same shape: the dispatcher has already decided which arm this is, and a second
@@ -422,6 +424,60 @@ mod tests {
         assert!(
             !error.contains("--features bigquery"),
             "this build DID link the adapter: {error}"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "bigquery")]
+    fn a_declared_outbound_bundle_beside_a_bigquery_source_is_refused_rather_than_ignored() {
+        // **The regression the ADBC adoption opened, closed.** The deleted HTTP transport read
+        // `security.outbound`: a declared bundle REPLACED the compiled-in roots. The ADBC driver
+        // takes neither a bundle nor a client identity, so serving this source under one would widen
+        // trust behind a declaration saying the opposite. Refused before the driver is resolved -
+        // which is why this reads the outbound refusal and not the missing-driver one the cell above
+        // expects from the same entry.
+        let bundle = sutura_tls::Declared::new(
+            sutura_tls::Anchors::Bundle(std::path::PathBuf::from("/nonexistent/sutura-outbound-anchors.pem")),
+            None,
+        );
+        let error = open_engine(
+            &bundle_naming("warehouse"),
+            &declaring_bigquery("shared-service-user", ""),
+            runtime(),
+            timeout(),
+            None,
+            Some(&bundle),
+        )
+        .map(|_| ())
+        .expect_err("a declared bundle the driver would not honour does not serve");
+        assert!(
+            error.contains("security.outbound"),
+            "the refusal names the declaration: {error}"
+        );
+        assert!(error.contains("trust-anchor bundle"), "it says what was declared: {error}");
+        assert!(error.contains("sources.warehouse"), "it names the source: {error}");
+        assert!(
+            !error.contains("SUTURA_BIGQUERY_ADBC_DRIVER"),
+            "refused before the driver is resolved: {error}"
+        );
+
+        // The control, and the half that stops this passing on a refuse-everything check: the
+        // host's own store with no identity promises nothing the driver does not already stand for,
+        // so the same entry goes on to the driver refusal.
+        let system = sutura_tls::Declared::new(sutura_tls::Anchors::System, None);
+        let error = open_engine(
+            &bundle_naming("warehouse"),
+            &declaring_bigquery("shared-service-user", ""),
+            runtime(),
+            timeout(),
+            None,
+            Some(&system),
+        )
+        .map(|_| ())
+        .expect_err("still no driver in this test");
+        assert!(
+            error.contains("SUTURA_BIGQUERY_ADBC_DRIVER"),
+            "the system store alone is accepted and the next refusal is the driver's: {error}"
         );
     }
 

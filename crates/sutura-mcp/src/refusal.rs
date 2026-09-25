@@ -172,18 +172,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              outage and not something asking again will change. Say so, and say that access to \
              `{source}` is what would be needed."
         ),
-        // Written for an agent: there is a narrower question, and it is a specific one - drop the
-        // dimension that pulls in the second data system. The sentence names the posture labels and
-        // never a `SourcePosture`, whose shared variant carries the operator's own acknowledgement
-        // prose; this reader is an agent's context, which is the last place that belongs.
-        RefusalReason::LegsDecideIdentityDifferently { ref postures } => format!(
-            "this question spans two data systems that decide who is asking differently ({}), \
-             so one answer would add rows read under one identity to rows read under another - \
-             a total neither is entitled to. Retrying will not help. Ask the same metric \
-             without the dimension on the second data system, or say so to the person you are \
-             acting for.",
-            postures.iter().copied().collect::<Vec<&str>>().join(" and ")
-        ),
         // Written for an agent: stop, and say why, rather than retry. This deployment decided the
         // bound and the data system enforced it - something WAS judged - so retrying unchanged
         // spends the whole budget again. A narrower question is what changes the outcome, which is
@@ -215,6 +203,14 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              rows; the top rows of that set are not the top rows of the dimension. Retrying it \
              unchanged will be refused again: narrow the range, add a filter, or report it to \
              whoever operates this deployment, who can raise this ceiling."
+        ),
+        // Written for an agent: nothing you asked was wrong, and nothing you can change fixes it -
+        // the metric names a fact model this workspace does not yet know how to join a second one
+        // against. Say so, and name the metric.
+        RefusalReason::CrossModelRatioNotExecutable { ref metric, ref model } => format!(
+            "`{metric}` measures a ratio side on model `{model}`, and this deployment does not yet \
+             build the second fact leg such a term needs. Nothing you can change in the question \
+             helps and this is not an outage to retry; report it to the person you are acting for."
         ),
     };
     (code, detail)
@@ -289,12 +285,13 @@ mod tests {
             RefusalReason::CredentialUnavailable {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
             },
-            RefusalReason::LegsDecideIdentityDifferently {
-                postures: sutura_domain::source::SourcePosture::NAMES.iter().copied().collect(),
-            },
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },
             RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
             RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
+            RefusalReason::CrossModelRatioNotExecutable {
+                metric: metric(),
+                model: sutura_domain::model::ModelName::parse("customers").expect("a test model is a model"),
+            },
         ]
     }
 

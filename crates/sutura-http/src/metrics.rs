@@ -14,9 +14,10 @@
 //!
 //! [`Metrics::install`] is the only place in this crate that registers a series, and it takes a
 //! [`sutura_runtime::metrics::RegistryBuilder`] to do it - never a built
-//! [`sutura_runtime::metrics::Registry`]. Three series whose value is the deployment rather than a
+//! [`sutura_runtime::metrics::Registry`]. Four series whose value is the deployment rather than a
 //! request - `sutura_engine_worker_threads`, `sutura_catalog_metrics` and, when a per-replica spend
-//! ceiling is configured, `sutura_spend_headroom_bytes` - are registered against the same builder by
+//! ceiling is configured, the `sutura_spend_headroom_bytes` gauge and the
+//! `sutura_spend_bytes_total` counter - are registered against the same builder by
 //! [`crate::state::ServiceState::new`], which is the one place that has both the settings and the
 //! served bundle. A built registry cannot be registered against, so the set is closed once the
 //! builder is consumed.

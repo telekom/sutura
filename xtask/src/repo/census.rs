@@ -218,7 +218,6 @@ impl Refusal {
 /// that stays: `check-warm-start` keeps its own witness deliberately (see this module's header).
 pub(crate) enum Unmigrated {
     Causality,
-    FeatureRemedies,
     Guidance,
     OneBound,
     WarmStart,
@@ -247,7 +246,7 @@ pub(crate) enum Unmigrated {
 /// Measured on the first run of this test, which reported 45 against 44 real call sites; the extra
 /// was a `check-newtype-leaks` fixture, and it is built from parts now, the way that gate's own
 /// fixtures already avoid reporting their own source.
-pub(crate) const UNMIGRATED_DOORS: usize = 27;
+pub(crate) const UNMIGRATED_DOORS: usize = 25;
 
 impl Census {
     /// Mint one. `pub(super)`, so `crate::repo` is the only caller there can be.
@@ -432,6 +431,11 @@ impl Inspected {
     /// independently, did not move.
     pub(crate) const fn judged(&self) -> usize {
         self.judged
+    }
+
+    /// Listed in-scope files that disappeared before this census could open them.
+    pub(crate) const fn absent(&self) -> usize {
+        self.absent
     }
 }
 

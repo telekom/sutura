@@ -36,9 +36,10 @@ settings crate because the identity provider it reads *is* the settings tree.
 **What the credential port did and did not buy, said here because the count above invites the
 wrong reading.** There is no longer a signature that reaches a data system with a question and no
 credential, and a subject with no credential at a source is refused rather than answered as the
-process. What is absent is the other end: no PUBLISHED adapter has anywhere for a per-subject
-credential to arrive, so a leg runs under the identity an operator declared for that source and
-`pinned::Provenance` records which. The one method that still executes with no credential is
+process. A published build now links `BigQuery`, which is wired to carry a verified caller's
+assertion to a declared per-subject principal; no served run has proven that hop. Other sources
+run under an operator-declared shared identity, and `pinned::Provenance` records each leg's
+posture. The one method that still executes with no credential is
 `warehouse::Warehouse::verify_anchor`, the boot path's; `clippy.toml` bans it everywhere else and
 `plan::AnchorPlan` says plainly that it is a self-check on that path rather than a barrier.
 
@@ -131,7 +132,7 @@ the posture each leg ran under, and the expiry the credentials carried.**
 A verified subject's question can be answered under the *deployment's* own identity on a source
 declared `shared-service-user` - that is honest, acknowledged and not impersonation - and the
 incident question is then "whose access filtered these rows". The answer is
-`crate::source::UniformlyExecuted`, which rides on the `Provenance` an answer carries, and
+`crate::source::ExecutedAs`, which rides on the `Provenance` an answer carries, and
 `CallRecord::executed_as` is the accessor: a sink writing an audit line does not have to know
 that provenance transitively holds it. It answers `None` for a refusal, because nothing executed.
 
@@ -208,7 +209,7 @@ pub const fn chain(&self) -> &PrincipalChain
 Who the call is attributable to.
 
 ```rust
-pub const fn executed_as(&self) -> Option<&UniformlyExecuted>
+pub const fn executed_as(&self) -> Option<&ExecutedAs>
 ```
 
 Which identity produced each leg, where anything executed.
@@ -4101,6 +4102,11 @@ generated count count the thing the model says it counts.
 Carries no `serde` derive. A term's on-disk shape belongs to `TermRepr` and to nothing else, so
 there is exactly one place where the format of `{ aggregate: sum, column: x }` is decided.
 
+**The third field is `telekom/sutura#780`'s vocabulary.** `None` means the metric's own model,
+which is every term written before this field existed; `Some` names a ratio side that reads its
+column from a different fact model. It lives here rather than on `Term` alone so
+`Term::CountIf`'s own column and this one carry the same kind of qualifier.
+
 #### Methods
 
 ```rust
@@ -4112,8 +4118,20 @@ pub const fn column(&self) -> &ColumnName
 ```
 
 ```rust
+pub const fn model(&self) -> Option<&ModelName>
+```
+
+The model this term's column is read from, `None` for the metric's own model.
+
+```rust
 pub const fn new(aggregate: Aggregate, column: ColumnName) -> Self
 ```
+
+```rust
+pub const fn on_model(aggregate: Aggregate, column: ColumnName, model: ModelName) -> Self
+```
+
+A term whose column is read from `model` rather than from the metric's own.
 
 #### Implements
 
@@ -4179,6 +4197,16 @@ pub const fn kind(&self) -> &'static str
 
 The name of this term, for a refusal or a description.
 
+```rust
+pub const fn model(&self) -> Option<&ModelName>
+```
+
+The model this term's column is read from, `None` for the metric's own model.
+
+Left unresolved rather than defaulted: a term alone has no metric beside it to read "the
+metric's own model" off, so whoever has the metric in hand - the consistency check at load,
+the plan stage at query time - resolves `None` against it.
+
 #### Implements
 
 `Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `PartialEq`, `Serialize`
@@ -4201,6 +4229,7 @@ line against a grammar.
 - `TwoTerms` - Both terms at once. Refused rather than resolved by precedence: a document that writes both means one of them, and picking one would certify a number the author did not ask for.
 - `NoColumn`
 - `NoAggregate`
+- `ModelWithoutTerm` - A model named beside no term word at all. `model` qualifies a column one of the other two words names, so without either of them there is nothing for it to qualify - the same mistake as `Self::NoColumn`, one field further.
 
 #### Implements
 
@@ -4287,6 +4316,16 @@ Every column this measure reads.
 
 One place, so `crate::catalog::Definitions` can check them all against the model without
 knowing the shapes, and so a shape added here cannot be forgotten there.
+
+```rust
+pub fn models(&self) -> Vec<Option<&ModelName>>
+```
+
+The model each term's column is read from, in the same order as `Self::columns` - `None`
+for the metric's own model.
+
+In the same order as `Self::columns`, so the consistency check can walk a term's column
+and model together to know which model to check a column against.
 
 ```rust
 pub const fn shape(&self) -> &'static str
@@ -5076,15 +5115,15 @@ pub const fn digest(&self) -> &DefinitionDigest
 ```
 
 ```rust
-pub const fn executed_as(&self) -> &UniformlyExecuted
+pub const fn executed_as(&self) -> &ExecutedAs
 ```
 
 What each leg of this answer ran as.
 
 Read off the posture the **adapter was handed**, never off a settings tree - see
-`crate::source`. Non-empty, because `crate::source::ExecutedAs` has no empty form, and
-uniform, because `UniformlyExecuted` is the only thing `PinnedDefinitions::provenance`
-accepts.
+`crate::source`. Non-empty, because `ExecutedAs` has no empty form. **Not uniform**: a
+federated answer whose legs decide identity differently is answered and names both postures
+here, one entry per source (`docs/adr/0040`).
 
 ```rust
 pub const fn version(&self) -> &DefinitionVersion
@@ -5250,7 +5289,7 @@ fn _pin(
 ```
 
 ```rust
-pub fn provenance(&self, executed_as: UniformlyExecuted) -> Provenance
+pub fn provenance(&self, executed_as: ExecutedAs) -> Provenance
 ```
 
 The provenance to attach to one answer produced from this bundle.
@@ -5266,37 +5305,22 @@ prompt - reads `Self::version` and `Self::digest` instead. Nothing executed for 
 `Provenance` with an empty execution record would be the one shape this argument exists to
 make unrepresentable.
 
-# And a MIXED execution record is unrepresentable the same way
+# A MIXED execution record is accepted, and names both postures
 
-The argument is `UniformlyExecuted` rather than `crate::source::ExecutedAs`, so an answer
-combining rows read under one posture with rows read under another cannot be built at all -
-not refused at a call site somebody may move, but absent from the type system. A record with
-two legs reaches this only through `crate::source::ExecutedAs::uniform`, which is where the
-verdict is made.
+The argument is `ExecutedAs`, so an answer whose legs decided identity differently is
+answered with one entry per source rather than refused - `docs/adr/0040`, taken because
+`BigQuery` is the only impersonating adapter, so a `BigQuery` leg paired with a
+shared-posture leg is cross-posture. **The record is not the control:** it travels in the
+same body as the rows, so a caller who reads it already has them. What is load-bearing is the boot acknowledgement each
+source's own entry carries, refused by `sutura_config::Settings::refusals` before a listener
+binds.
 
-**A mixed record has no way in:**
-
-```compile_fail
+```
 use sutura_domain::pinned::{PinnedDefinitions, Provenance};
 use sutura_domain::source::ExecutedAs;
 
 fn _mixed(pinned: &PinnedDefinitions, both_legs: ExecutedAs) -> Provenance {
     pinned.provenance(both_legs)
-}
-```
-
-The compiling twin, differing by exactly the one call that makes the verdict - so the block
-above cannot be passing on a typo:
-
-```
-use sutura_domain::pinned::{PinnedDefinitions, Provenance};
-use sutura_domain::source::{ExecutedAs, LegsDecideIdentityDifferently};
-
-fn _uniform(
-    pinned: &PinnedDefinitions,
-    both_legs: ExecutedAs,
-) -> Result<Provenance, LegsDecideIdentityDifferently> {
-    Ok(pinned.provenance(both_legs.uniform()?))
 }
 ```
 
@@ -6665,6 +6689,11 @@ measure's column comes from.
 
 Resolves one term at a time rather than one shape at a time, which is why a term added to the
 vocabulary is one arm here instead of one arm per shape.
+
+`resolve` reads only the column, never the term's `model`: a term naming a model other than the
+metric's own is refused before this is called - `sutura_semantic::plan::plan`'s own
+`telekom/sutura#780` check - so every column this function resolves belongs to the same table
+`resolve`'s caller already qualified everything else by.
 
 ### `fn plan_required_filter`
 
@@ -9637,32 +9666,6 @@ somebody else's input.
   Carries the source and nothing about which permission or which identity: both are the data
   system's to say, and echoing them would publish a foreign authorization decision into a log,
   a UI and an agent's context.
-- `LegsDecideIdentityDifferently` - The legs of one answer would not all decide identity the same way.
-
-  **Not a source count, and that distinction is the whole variant.**
-  `PlanSpansTooManySources` bounds a fan-out and says
-  *sources*; this says what a combined number would be made of. Two sources under one posture
-  are answered - that is the shape that ships - and two sources deciding identity two different
-  ways are refused, because adding rows one identity was permitted to see to rows another
-  identity was permitted to see produces a total no identity is entitled to, under a certified
-  metric name and with valid provenance attached.
-
-  Refused rather than disclosed, and *disclosed* is not the third option it reads as: an answer
-  carries `executed_as` and `rows` in one body on both transports, with no streaming and no
-  second message, so the only outcome that reaches a caller before the rows is a refusal. The
-  per-leg record still ships and is still worth having - it documents a disclosure that
-  happened, which is a different job from preventing one.
-
-  **Carries the posture LABELS and never a `SourcePosture`.** That type's shared variant holds
-  the operator's own acknowledgement text and both are `Serialize`, so a value here would
-  publish operator prose to every caller, log and agent context - the same rule
-  `PlanTablesShareAnIdentifier` follows when it
-  carries the identifier and neither path. The labels come from a closed set of two.
-
-  **What it cannot decide, stated with the claim.** *Same posture* is decidable and *same
-  asker* is not: nothing in this workspace names WHICH shared identity a source is read as, so
-  two `shared-service-user` legs may be two different deployment-held identities and this
-  passes them.
 - `DeadlineExceeded` - This answer ran out of the time it was given, at the data system or before it was ever asked.
 
   **A refusal rather than a failure, and `docs/adr/0029` argues both directions once rather
@@ -9738,6 +9741,35 @@ somebody else's input.
   operator - the one who can raise `crate::plan::RowCeiling`, which is a configured value and
   not `crate::plan::MAX_ROWS` the compiled constant. Naming a compiled constant here would be
   advice nobody addressed could act on.**
+- `CrossModelRatioNotExecutable` - A ratio term names a model other than the metric's own, and this workspace does not yet build the second fact leg such a term needs.
+
+  **`telekom/sutura#780`'s vocabulary, and the plan half of its first slice.** The catalog
+  admits the definition - `Definitions::assemble` proves the named model is declared and the
+  term's column exists on it - so a metric with a cross-model ratio loads and is addressable
+  by name, PROVIDED it declares no anchor: an anchor is executed at boot, and one on such a
+  metric reaches this refusal through `NotValidated::AnchorNotExecuted` instead, which takes
+  the whole bundle down rather than only that metric - fails closed, and stated here rather
+  than left for a reviewer to find by asking. Asking a plain question about it is refused
+  rather than mis-planned against the metric's own table: the splitter has one plan shape per
+  data system today, `QueryPlan` and
+  `FederatedPlan`, and neither reads a second FACT model's rows,
+  aggregated on its own and joined above - which is what a certified answer over two facts
+  needs, per the issue's own decision record.
+
+  **Distinct from `MeasureDoesNotFederate` and
+  `FederationNotExecutable` on purpose.** Neither reason
+  applies here: the aggregate is additive (a `sum` or a `count_distinct` federates fine when
+  the second leg is a lookup), and a build's adapter capability is not what is missing - the
+  plan SHAPE for two aggregated fact legs does not exist yet, on any adapter. Reusing either
+  variant would misreport why the question is refused.
+
+  A `RefusalReason` rather than a wiring defect, for
+  `FederationNotExecutable`'s own reason: this variant
+  means the capability and nothing else. It is NOT narrowable the way
+  most of this enum's questions are - the cross-model term is part of the metric's
+  definition, `Query` has no field that reaches it, and every caller-facing text this
+  variant produces says so ("nothing you can change in the question"). What changes the
+  answer is this workspace building the second fact leg, not a different question.
 
 #### Methods
 
@@ -10561,19 +10593,26 @@ cannot prevent a disclosure and does not attempt to. What keeps a shared source 
 unnoticed is the boot refusal in `sutura_config::Settings::refusals` and the cross-check above,
 both of which happen before a listener is bound.
 
-# One answer, one kind of identity - and this half IS a control
+# One answer, two kinds of identity - disclosed per leg, and the control is at boot
 
-`ExecutedAs::uniform` is the verdict, and `UniformlyExecuted` is what carrying it looks like:
-`crate::pinned::PinnedDefinitions::provenance` takes only that, so an answer whose legs decide
-identity two different ways is **unconstructible** rather than merely declined. It is a control
-and the recording beside it is not, for the reason the paragraph above gives - a refusal reaches a
-caller instead of the rows, and a record reaches them after.
+An answer whose legs decide identity differently is **answered**, and `ExecutedAs` is what says
+so: one entry per source, each carrying that leg's own posture, so a mixed answer names which leg
+came from which. `docs/adr/0040` is the record, and `BigQuery` being the only impersonating adapter
+is why it had to be: every `BigQuery` federation with a shared-posture adapter is cross-posture
+by construction, so refusing the mix prevented that pairing.
 
-Two things it does not reach, both worth having in front of a reader here. It compares the posture
-**variant** and never the value, because an acknowledgement is written per source and two ordinary
-shared legs are therefore two unequal values and one posture. And *same posture* is not *same
-asker*: nothing in this module or in `crate::identity` names WHICH shared identity a source is
-read as.
+**The reasoning that used to refuse it stays true, and is not what changed.** Rows a shared
+identity was permitted to see, added to rows the asking subject was permitted to see, make a total
+no identity is entitled to. What changed is where that is answered for: an operator declared each
+source's posture in writing on its own entry, and `sutura_config::Settings::refusals` refuses the
+deployment before a listener binds if one of them has no acknowledgement. **The disclosure below
+is not the control** - `ExecutedAs` arrives in the same body as the rows, so a caller who is told
+already has them.
+
+Two things this records and does not decide, both worth having in front of a reader here. A posture
+is a **variant** and never a value: an acknowledgement is written per source, so two ordinary
+shared legs are two unequal values and one posture. And *same posture* is not *same asker*: nothing
+in this module or in `crate::identity` names WHICH shared identity a source is read as.
 
 # Nothing here is `Deserialize`, and that is the same property `crate::identity` has
 
@@ -11056,26 +11095,6 @@ pub fn posture(&self, source: &SourceName) -> Option<&SourcePosture>
 
 What one source's leg ran as, if this answer has one.
 
-```rust
-pub fn uniform(self) -> Result<UniformlyExecuted, LegsDecideIdentityDifferently>
-```
-
-This record, if every leg in it decides identity the same way.
-
-**The predicate compares the VARIANT and never the value, and that distinction is the whole
-of what makes this shippable.** `SourcePosture` derives `PartialEq` and a shared source
-carries the operator's own acknowledgement, which is resolved per source - so two ordinary
-`shared-service-user` legs whose operators wrote different sentences are two *unequal*
-values and one posture. A `!=` here would refuse the only federating shape that ships.
-`SourcePosture::as_str` is the variant, so the set below has one member for any number of
-shared legs.
-
-What it decides is *same posture*, and what it cannot decide is *same asker*:
-`crate::identity::Presented::SharedServiceUser` carries the acknowledgement witness and no
-identity, and nothing here names WHICH shared identity a source is read as. So two
-`shared-service-user` legs may be two different deployment-held identities and this passes
-them. Stated with the claim, because the stronger reading is the one somebody will make.
-
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
@@ -11087,87 +11106,6 @@ pub struct LegAlreadyRecorded
 ```
 
 A second leg was recorded for a source that already had one.
-
-#### Implements
-
-`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-### `struct UniformlyExecuted`
-
-```rust
-pub struct UniformlyExecuted
-```
-
-An execution record whose legs all decide identity the same way.
-
-**This exists so a mixed-posture answer is unconstructible rather than refused twice.**
-`crate::pinned::PinnedDefinitions::provenance` takes one of these, `Provenance::new` is
-private, and `ToolOutcome::Answer` carries a `Provenance` - so an answer combining two postures
-has no way to be built, whatever a call site above it forgets to ask. The refusal in the
-federated answer path is what stops the legs *running*; this is what stops rows *reaching a
-caller* if that call site is ever moved below execution.
-
-The field is private and there is no `Deserialize`, for `SharedIdentityDeclared`'s reason: a
-value that reached this type without passing `ExecutedAs::uniform` would be the one state it
-exists to make unreachable. What it does **not** claim is that the constructors are unreachable
-from another crate - `Self::of` is `pub`, because one leg cannot disagree with itself and the
-mono answer path has no error arm to write.
-
-#### Methods
-
-```rust
-pub fn legs(&self) -> impl Iterator<Item>
-```
-
-Every leg, by source, in source order.
-
-```rust
-pub fn of(source: SourceName, posture: SourcePosture) -> Self
-```
-
-One leg, which is uniform by construction.
-
-The mono answer path's door, and it returns no `Result` deliberately: a single-leg record has
-one posture, so an `Err` arm there would be a refusal nothing can provoke sitting on the path
-every question takes. Two doors, one property - the other is `ExecutedAs::uniform`.
-
-```rust
-pub fn posture(&self, source: &SourceName) -> Option<&SourcePosture>
-```
-
-What one source's leg ran as, if this answer has one.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
-
-### `struct LegsDecideIdentityDifferently`
-
-```rust
-pub struct LegsDecideIdentityDifferently
-```
-
-The legs of one answer would not all decide identity the same way.
-
-Carries the posture LABELS and never a `SourcePosture`, and that is a disclosure decision
-rather than a convenience: the shared variant holds `SharedIdentityDeclared` ->
-`AcknowledgementReason`, both `Serialize`, so a value here would publish the operator's own
-prose to whatever reads the refusal this becomes - a caller, a log, an agent's context. The
-labels come from `SourcePosture::NAMES`' closed set and say the whole of what a reader needs.
-
-#### Methods
-
-```rust
-pub fn into_postures(self) -> BTreeSet<&'static str>
-```
-
-The labels, for a refusal that carries them onward.
-
-```rust
-pub const fn postures(&self) -> &BTreeSet<&'static str>
-```
-
-The posture labels this answer would have combined, in name order.
 
 #### Implements
 

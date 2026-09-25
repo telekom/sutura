@@ -335,6 +335,10 @@ fn priced_overlay(issuer: &MockIssuer, key_set_path: &str) -> String {
 struct PricedAgentSurface {
     app: axum::Router,
     gauge: sutura_runtime::Gauge,
+    /// The state's own metrics registry - the same one the router's `/metrics` route renders, and
+    /// what `sutura_spend_bytes_total` is read off: the gauge handle alone cannot see the counter,
+    /// because the declaration carries only the gauge out and the state is consumed in here.
+    registry: Arc<sutura_runtime::metrics::Registry>,
     issuer: MockIssuer,
 }
 
@@ -366,9 +370,15 @@ fn priced_agent_surface(key_set_id: &str) -> PricedAgentSurface {
     let mount = super::super::agent_mount(&state)
         .expect("the agent mount builds")
         .expect("the priced overlay enabled the agent surface");
+    let registry = Arc::clone(&state.registry());
     let state = state.with_inbound_identity(Arc::new(gate)).with_agent_surface(mount);
     let app = sutura_http::router(&state).expect("the test router assembles");
-    PricedAgentSurface { app, gauge, issuer }
+    PricedAgentSurface {
+        app,
+        gauge,
+        registry,
+        issuer,
+    }
 }
 
 /// A mount declaring there is no ceiling, attached to a state that registered the gauge, is refused
@@ -474,7 +484,7 @@ fn priced_state(key_set_id: &str) -> PricedState {
 
 #[tokio::test]
 async fn a_served_agent_surface_pushes_spend_headroom_after_an_answer() {
-    let PricedAgentSurface { app, gauge, issuer } = priced_agent_surface("agent-spend");
+    let PricedAgentSurface { app, gauge, issuer, .. } = priced_agent_surface("agent-spend");
 
     let untouched = gauge.value();
     assert_eq!(untouched, 1_000, "the boot reading is the full ceiling");
@@ -519,7 +529,7 @@ fn run_sql_call(statement: &str, id: i64) -> serde_json::Value {
 /// `run_sql` stopped pushing leaves the tampered value and reddens this cell.
 #[tokio::test]
 async fn a_served_agent_surface_pushes_spend_headroom_after_a_run_sql_call() {
-    let PricedAgentSurface { app, gauge, issuer } = priced_agent_surface("agent-spend-run-sql");
+    let PricedAgentSurface { app, gauge, issuer, .. } = priced_agent_surface("agent-spend-run-sql");
 
     let token = issuer.mint(&accepted_by(ASKING_SUBJECT)).expect("the issuer signs a token");
     drop(post(app.clone(), &token, initialize(1)).await);
@@ -547,5 +557,72 @@ async fn a_served_agent_surface_pushes_spend_headroom_after_a_run_sql_call() {
         gauge.value(),
         500,
         "the /mcp run_sql push corrected the stale gauge to the current headroom"
+    );
+}
+
+/// The running `sutura_spend_bytes_total` counter must move when a served AGENT surface answers -
+/// the counter half of the seam the gauge cells above exercise. The agent surface answers through
+/// the same `Surface` and charges the same ledger as `POST /v1/query`, so `Serving`'s post-answer
+/// push has to raise the counter to the ledger's fresh reading too, or it stays frozen at its boot
+/// zero while the ledger drains. Reached through the composition root's own `agent_mount(&state)`
+/// helper, the same real seam the headroom cells ride, and asserted on the RENDERED exposition the
+/// `/metrics` route serves, not on a registry-internal handle - a push onto a differently-named
+/// series no scrape would show reddens this cell like a stopped one.
+///
+/// Red against a tree with no series and no push. It makes TWO priced calls on the same fixture
+/// and asserts 500 then 1000, which is what holds `raise_to` at this site: with only ONE priced
+/// call from the zero boot reading, `0 + 500 == max(0, 500)` and an `add`-shaped push would read
+/// the same 500 this cell asserts, indistinguishable from `raise_to`. Two calls make an
+/// `add`-shaped double-counting push read 1500 and redden it, because the reading the push
+/// carries already sums every byte admitted so far.
+#[tokio::test]
+async fn a_served_agent_surface_raises_spend_bytes_total_after_an_answer() {
+    fn counter(exposition: &str) -> u64 {
+        exposition
+            .lines()
+            .find_map(|line| line.strip_prefix("sutura_spend_bytes_total "))
+            .unwrap_or_else(|| panic!("the exposition has no sutura_spend_bytes_total sample: {exposition}"))
+            .parse()
+            .expect("the spend total is an integer sample")
+    }
+
+    let PricedAgentSurface {
+        app, registry, issuer, ..
+    } = priced_agent_surface("agent-spend-total");
+
+    let token = issuer.mint(&accepted_by(ASKING_SUBJECT)).expect("the issuer signs a token");
+    drop(post(app.clone(), &token, initialize(1)).await);
+
+    // Boot reading: zero - the untouched total genuinely is zero, unlike the headroom gauge, whose
+    // boot reading is the ceiling.
+    assert_eq!(counter(&registry.render()), 0, "{}", registry.render());
+
+    // One priced `ask_metric` call admits `PRICE_BYTES`; the push must raise the counter to that
+    // reading. A `Serving` whose answer stopped pushing leaves it at zero and reddens this cell.
+    let answered = post(app.clone(), &token, ask_metric_call()).await;
+    assert!(
+        answered.get("error").is_none(),
+        "the ask_metric call must be answered, not refused: {answered}"
+    );
+    assert_eq!(
+        counter(&registry.render()),
+        500,
+        "the /mcp answer raised the spend total to the post-call reading"
+    );
+
+    // A SECOND priced call, admitted exactly at the 1000 ceiling, is what makes this cell hold
+    // `raise_to` rather than merely "a push happened": one call from the zero boot reading is
+    // indistinguishable between `raise_to` and `add` (`0 + 500 == max(0, 500)`). Two calls pin
+    // the sequence 500 then 1000 - an `add`-shaped push reads 1500 here and reddens this cell,
+    // as does a push that stopped (which would freeze at 500).
+    let answered = post(app, &token, ask_metric_call()).await;
+    assert!(
+        answered.get("error").is_none(),
+        "the second ask_metric call must be answered, not refused: {answered}"
+    );
+    assert_eq!(
+        counter(&registry.render()),
+        1_000,
+        "the second /mcp answer raised the spend total to 1000, not 1500: the push is raise_to, not add"
     );
 }

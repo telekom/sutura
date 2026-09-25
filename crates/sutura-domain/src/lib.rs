@@ -28,9 +28,10 @@
 //! **What the credential port did and did not buy, said here because the count above invites the
 //! wrong reading.** There is no longer a signature that reaches a data system with a question and no
 //! credential, and a subject with no credential at a source is refused rather than answered as the
-//! process. What is absent is the other end: no PUBLISHED adapter has anywhere for a per-subject
-//! credential to arrive, so a leg runs under the identity an operator declared for that source and
-//! [`pinned::Provenance`] records which. The one method that still executes with no credential is
+//! process. A published build now links `BigQuery`, which is wired to carry a verified caller's
+//! assertion to a declared per-subject principal; no served run has proven that hop. Other sources
+//! run under an operator-declared shared identity, and [`pinned::Provenance`] records each leg's
+//! posture. The one method that still executes with no credential is
 //! [`warehouse::Warehouse::verify_anchor`], the boot path's; `clippy.toml` bans it everywhere else and
 //! [`plan::AnchorPlan`] says plainly that it is a self-check on that path rather than a barrier.
 //!

@@ -38,7 +38,7 @@
 use std::collections::BTreeMap;
 
 use sutura_domain::model::SourceName;
-use sutura_domain::source::{SourcePosture, UniformlyExecuted};
+use sutura_domain::source::{ExecutedAs, SourcePosture};
 use sutura_domain::warehouse::Warehouse;
 
 /// The data systems this process opened.
@@ -191,15 +191,14 @@ where
     /// posture the adapter that executed it was holding. `None` when nothing is open for that source,
     /// which is the case the caller has already turned into a refusal by the time it asks.
     ///
-    /// [`UniformlyExecuted`] rather than `ExecutedAs`, and it needs no verdict on the way: one leg
-    /// cannot decide identity two ways, so the mono answer path has no arm for a refusal it could
-    /// never provoke. The federated path builds its own record from both adapters and asks
-    /// `ExecutedAs::uniform` for the verdict.
+    /// One leg, so one entry: [`ExecutedAs`] is non-empty by construction and has no `remove`. The
+    /// federated path builds its own two-leg record from both adapters - which may name two
+    /// different postures since `docs/adr/0040`.
     #[must_use]
-    pub fn executed_on(&self, source: &SourceName) -> Option<UniformlyExecuted> {
+    pub fn executed_on(&self, source: &SourceName) -> Option<ExecutedAs> {
         self.by_source
             .get(source)
-            .map(|warehouse| UniformlyExecuted::of(source.clone(), warehouse.posture().clone()))
+            .map(|warehouse| ExecutedAs::of(source.clone(), warehouse.posture().clone()))
     }
 }
 

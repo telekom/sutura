@@ -80,6 +80,14 @@ mod keycloak_test;
 #[path = "served/datahub.rs"]
 mod datahub;
 
+// `catalog.kind: okf`, served: `#970`'s served-binary "boots and lists" cell - see
+// `served/okf.rs`'s module header. `#[cfg(test)]` for the same `allow-expect-in-tests` reason
+// `datahub` above carries one.
+#[cfg(unix)]
+#[cfg(test)]
+#[path = "served/okf.rs"]
+mod okf;
+
 // The agent-surface cells (`/mcp` hidden behind leg 1, the boot refusal, two callers), split into
 // their own file for the same `max-lines` reason; `#[path]` keeps them next to the harness they
 // share. `cfg(feature = "agent")` as its own attribute so the default build has no `/mcp` at all,
@@ -98,6 +106,13 @@ mod agent;
 #[cfg(feature = "bigquery")]
 #[path = "served/bigquery.rs"]
 mod bigquery;
+
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "bigquery")]
+#[cfg(feature = "datahub")]
+#[path = "served/e2e_adbc.rs"]
+mod e2e_adbc;
 
 // The four startup refusals (`github.com/telekom/sutura#302`), split out of `mod tests` below by
 // the same 1000-line cap - a pure relocation, no `#[cfg(unix)]`/`#[cfg(feature)]` of its own
@@ -304,8 +319,7 @@ mod tests {
             "an answer arrived with no definition digest: {}",
             reply.body
         );
-        // And which identity produced the one leg. `shared-service-user` is the truth for this
-        // deployment: no source a shipped binary serves executes as the asking subject.
+        // This deployment's local source executes under its declared shared identity.
         assert_eq!(
             body["executed_as"],
             serde_json::json!([{ "source": "local", "posture": "shared-service-user" }])

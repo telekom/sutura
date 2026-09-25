@@ -622,6 +622,16 @@ pub fn inc(&self)
 Adds one.
 
 ```rust
+pub fn raise_to(&self, total: u64)
+```
+
+Raises the counter to `total` when `total` exceeds the current value, atomically.
+
+For a source that already holds a running total: pushing the same total twice adds nothing,
+and an older total pushed after a newer one is refused, because `fetch_max` keeps the
+counter monotonic.
+
+```rust
 pub fn value(&self) -> u64
 ```
 
