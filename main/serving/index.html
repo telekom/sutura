@@ -3733,6 +3733,11 @@ selects which file is layered, so a file that could change it would be self-refe
 <td>absent</td>
 <td><code>datahub</code> only. Absent means <code>sutura_catalog_datahub::http::DEFAULT_MAX_RESPONSE_BYTES</code>. Read before decode; a declared zero is refused</td>
 </tr>
+<tr>
+<td><code>catalogs[].refresh_seconds</code></td>
+<td>absent</td>
+<td>Every kind, not <code>datahub</code> alone. Absent means never re-read. A declared <code>0</code> is refused. <strong><code>sutura serve</code> polls on this interval and re-pins a changed digest</strong> (<code>github.com/telekom/sutura#975</code>) - and no further: the swap does not reach a request already deciding what to compute, and <code>sutura mcp</code>/<code>sutura query</code> never poll at all, so a value here has no effect on those two commands</td>
+</tr>
 </tbody>
 </table>
 <h3 id="sources">Sources<a class="headerlink" href="#sources" title="Permanent link">&para;</a></h3>
