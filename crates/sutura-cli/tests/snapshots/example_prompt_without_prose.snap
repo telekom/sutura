@@ -148,6 +148,12 @@ Every reason you can be given, and what to do about each:
   Try a dimension that does not need that join - it is the join that puts both tables in one
   statement, so a question without it is still answered. If every dimension you need goes through
   it, report it to a person: it is a fact about where the tables live, not about how you asked.
+- **cross_model_ratio_not_executable** - the metric measures a ratio whose two sides read from two
+  different fact models, and this deployment does not yet build the second fact leg such a term
+  needs.
+  Nothing you can change in the question. Report it to the person you are acting for: it is a fact
+  about how the metric is defined and what this deployment can execute, not something a narrower
+  question works around.
 - **source_unavailable** - the data system that metric lives in is not one this deployment opened.
   Nothing you can change. Report it to a person. This is the one refusal that looks like an outage
   and is still not one to retry: the answer will not become available by asking again.

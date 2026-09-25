@@ -10,10 +10,12 @@ Status: accepted. It widens the measure vocabulary of
 argument. That record is still right that no free-text SQL may reach a statement. This one is a
 correction about which sentence in it was load-bearing.
 
-Amended once, and the amendment is recorded rather than rewritten away: the first version of this
-decision made a conditional count a *sibling* of a ratio, which left the seventh of the seven
-metrics below unsayable. [Two levels, not three siblings](#two-levels-not-three-siblings) is the
-correction and the rest of the record stands.
+Amended twice, and each amendment is recorded rather than rewritten away. The first made a
+conditional count a *sibling* of a ratio, which left the seventh of the seven metrics below
+unsayable - [Two levels, not three siblings](#two-levels-not-three-siblings) is the correction. The
+second lets a ratio's term carry a model other than the metric's own - the section below titled
+*Amendment, 2026-09-25* is the record, and `telekom/sutura#780` is why. The rest of this record
+stands.
 
 ## Context
 
@@ -151,20 +153,58 @@ here. A field that holds an expression is a different entry, and the question it
 still not whether the expression is parsed, but what happens the first time one arrives that we
 cannot parse.
 
+## Amendment, 2026-09-25: a term carries its model
+
+`telekom/sutura#780`. A ratio whose two sides live on two fact models - a return as a share of
+sales, tickets per active subscription - was not sayable, and the workaround was worse than the
+gap: an agent asking two certified questions and dividing reports a quotient under two provenances,
+neither of which is its own. Nothing certifies that number, and nothing can be held to it - a
+certified figure no record stands behind is the exact failure this closed vocabulary exists to
+prevent, so the vocabulary grows by one shape rather than leaving the boundary undocumented.
+
+The amendment is one field, on the term rather than on the measure: `AggregatedColumn` and
+`Term::CountIf` each carry an optional `model`, absent meaning the metric's own - which is what
+every term written before this field existed already says, so a one-model metric's on-disk shape,
+and its digest, do not move. A term naming a model is checked at load exactly as the metric's own
+model is: `Definitions::assemble` refuses a name this catalog does not declare
+(`InconsistentDefinitions::UnknownTermModel`) and checks the term's column against THAT model
+rather than against the metric's own, so a churn-rate-shaped ratio whose denominator counts
+customers is checked against `customers`, not against the fact table it sits beside.
+
+**What this amendment does NOT do, stated with the claim rather than left to be discovered.** It
+does not build the second fact leg such a ratio needs to be answered. The plan stage has exactly two
+shapes today - one statement against the metric's own model, and a fact-plus-lookup federated pair
+across two data systems - and neither reads a second FACT model's own rows, aggregated on its own
+and joined above on a shared dimension, which is the mechanism the issue's own decision names for
+combining two facts without ever letting them share one `FROM`. So a metric using this vocabulary
+loads, is addressable by name, and a plain question about it is refused with a named, typed reason
+(`RefusalReason::CrossModelRatioNotExecutable`) the moment it is asked - a caller told plainly that
+the definition exists and this deployment cannot answer it yet, never a wrong number resolved
+against the wrong table. The plan's second fact leg, the combiner caller, the anchor at the
+coarsest shared grain and the differential's two-fact axis are the rest of the stack the issue's own
+decision names, and they are not this amendment's claim.
+
+**The limit "loads, is addressable by name" carries: without an anchor.** An anchor is executed at
+boot, and one on a cross-model ratio reaches this same refusal through
+`NotValidated::AnchorNotExecuted` instead - which takes the WHOLE bundle down, not only that
+metric. That fails closed, so it is not a safety defect, but it is a sharper cost than "refused
+when asked" states on its own: a catalog author who anchors such a metric loses every other metric
+in the deployment at boot, not a question at query time.
+
 ## What does not change
 
 Every guarantee the earlier record listed still has the same mechanism behind it. These are the ones
 this decision could plausibly have broken:
 
-| Guarantee                                                   | Still held by                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A catalog holds no free-text SQL                            | Every shape, every term and every operator is an enum variant, with `deny_unknown_fields` at every depth. An unrecognised shape or term is an error naming what it found, and a misspelled key is a load failure rather than a field silently dropped. A term is read through a `try_from` struct rather than by an external tag, because the tag word and the field word would be the same word; `#[serde(untagged)]` is refused for the reason it always was - it reports "data did not match any variant", which names nothing |
-| No value from a question reaches the statement as text      | Unchanged, and now wider than the question: a definitional filter's value is bound too, so the generator has one path for a value rather than two                                                                                                                                                                                                                                                                                                                                                                                 |
-| Every column a measure reads is a column its model declares | `Measure::columns()` reports all of them in one place and the consistency check walks it - now as `Term::column` mapped over `Measure::terms`, so a term cannot be reported by one shape and forgotten by another. A shape whose second column went unreported would let a metric name a column its model does not have, which is why the ratio shape reporting both is a test rather than a convention                                                                                                                           |
-| A join cannot silently change a measure                     | A relationship declares its cardinality, and a dimension reached through one that may duplicate rows is refused. The ratio shape raises the stakes without changing the mechanism: fan-out corrupts a denominator as readily as a sum                                                                                                                                                                                                                                                                                             |
-| Two result columns cannot share a label                     | Unchanged. A measure is projected under the metric's own name, and a dimension may not take that label or the time bucket's                                                                                                                                                                                                                                                                                                                                                                                                       |
-| A definition cannot change meaning between two invocations  | The digest is over the canonical form of the parsed definitions, so a new shape or an added required filter moves it, and it travels with the answer                                                                                                                                                                                                                                                                                                                                                                              |
-| No SQL, table, predicate or row id on the tool surface      | `Query` still has no field for one. This decision widens what a *catalog* may say and nothing about what a *caller* may say - and a required filter is the sharpest case of that, being a predicate the caller can neither express, see, nor remove                                                                                                                                                                                                                                                                               |
+| Guarantee                                                   | Still held by                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A catalog holds no free-text SQL                            | Every shape, every term and every operator is an enum variant, with `deny_unknown_fields` at every depth. An unrecognised shape or term is an error naming what it found, and a misspelled key is a load failure rather than a field silently dropped. A term is read through a `try_from` struct rather than by an external tag, because the tag word and the field word would be the same word; `#[serde(untagged)]` is refused for the reason it always was - it reports "data did not match any variant", which names nothing                                                                                                                      |
+| No value from a question reaches the statement as text      | Unchanged, and now wider than the question: a definitional filter's value is bound too, so the generator has one path for a value rather than two                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Every column a measure reads is a column its model declares | `Measure::columns()` reports all of them in one place and the consistency check walks it - now as `Term::column` mapped over `Measure::terms`, so a term cannot be reported by one shape and forgotten by another. A shape whose second column went unreported would let a metric name a column its model does not have, which is why the ratio shape reporting both is a test rather than a convention. Since the second amendment, "its model" is the term's OWN model where one is named (`Measure::models()`, positionally paired with `Measure::columns()`) and the metric's otherwise, checked against `Definitions` at load rather than assumed |
+| A join cannot silently change a measure                     | A relationship declares its cardinality, and a dimension reached through one that may duplicate rows is refused. The ratio shape raises the stakes without changing the mechanism: fan-out corrupts a denominator as readily as a sum                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Two result columns cannot share a label                     | Unchanged. A measure is projected under the metric's own name, and a dimension may not take that label or the time bucket's                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| A definition cannot change meaning between two invocations  | The digest is over the canonical form of the parsed definitions, so a new shape or an added required filter moves it, and it travels with the answer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| No SQL, table, predicate or row id on the tool surface      | `Query` still has no field for one. This decision widens what a *catalog* may say and nothing about what a *caller* may say - and a required filter is the sharpest case of that, being a predicate the caller can neither express, see, nor remove                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 One new check arrives with the decision, and it is mechanical rather than argued: **a definitional
 predicate is in the plan for every question about its metric, and its value is in the parameter list

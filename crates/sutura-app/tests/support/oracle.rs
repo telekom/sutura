@@ -494,6 +494,7 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         ModelName::parse("subscriptions").expect("a name"),
         Measure::Simple(Term::CountIf {
             column: column("churned_in_month"),
+            model: None,
         }),
         Vec::new(),
         column("month"),
@@ -536,6 +537,7 @@ fn the_ratios() -> Vec<Metric> {
         Measure::Ratio {
             numerator: Term::CountIf {
                 column: column("churned_in_month"),
+                model: None,
             },
             denominator: Term::Aggregate(AggregatedColumn::new(Aggregate::CountDistinct, column("subscription_key"))),
             zero_denominator: ZeroDenominator::Null,
@@ -622,6 +624,7 @@ fn the_ratios() -> Vec<Metric> {
             numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("mrr_cents"))),
             denominator: Term::CountIf {
                 column: column("churned_in_month"),
+                model: None,
             },
             zero_denominator: ZeroDenominator::Fail,
         },

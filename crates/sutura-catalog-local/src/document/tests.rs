@@ -238,6 +238,7 @@ fn a_count_if_term_has_a_word_of_its_own_in_the_format() {
         metric.measure(),
         Some(&Measure::Simple(Term::CountIf {
             column: column("churned_in_month"),
+            model: None,
         }))
     );
 }
@@ -288,6 +289,7 @@ fn a_conditional_count_can_be_written_as_a_ratio_numerator() {
         Some(&Measure::Ratio {
             numerator: Term::CountIf {
                 column: column("churned_in_month"),
+                model: None,
             },
             denominator: aggregated(Aggregate::CountDistinct, "subscription_key"),
             zero_denominator: ZeroDenominator::Null,

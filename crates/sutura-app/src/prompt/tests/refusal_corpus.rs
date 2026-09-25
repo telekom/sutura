@@ -11,7 +11,7 @@
 //! live where the refusals are produced. What this list buys is the second net the function below
 //! documents.
 
-use sutura_domain::model::{Aggregate, Grain, SourceName, TableName};
+use sutura_domain::model::{Aggregate, Grain, ModelName, SourceName, TableName};
 use sutura_domain::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS, RefusalReason, ResultBound};
 
 use super::{dimension_name, metric_name};
@@ -88,6 +88,10 @@ pub(super) fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::DeadlineExceeded { budget_seconds: 29 },
         RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
         RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
+        RefusalReason::CrossModelRatioNotExecutable {
+            metric: metric_name("revenue_per_customer"),
+            model: ModelName::parse("customers").expect("a test model is a model"),
+        },
     ]
 }
 
@@ -140,7 +144,8 @@ fn guide_key_carries_every_variant() {
             | RefusalReason::CredentialUnavailable { .. }
             | RefusalReason::DeadlineExceeded { .. }
             | RefusalReason::BudgetExhausted { .. }
-            | RefusalReason::TopOverUncertifiedRows { .. } => {}
+            | RefusalReason::TopOverUncertifiedRows { .. }
+            | RefusalReason::CrossModelRatioNotExecutable { .. } => {}
         }
         assert_eq!(
             key,

@@ -374,6 +374,18 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
                  range, add a filter, or ask the deployment's operator to raise this ceiling"
             ),
         ),
+        // 409, the same status `FederationNotExecutable` and `PlanTablesShareAnIdentifier` use for
+        // the same reason: the question is well formed and this deployment cannot express it as one
+        // statement yet, which is a conflict between what was asked and what the plan stage builds
+        // rather than a data system being down. Retrying it unchanged returns this same refusal.
+        RefusalReason::CrossModelRatioNotExecutable { ref metric, ref model } => (
+            StatusCode::CONFLICT,
+            format!(
+                "`{metric}` measures a ratio side on model `{model}`, and this deployment does not \
+                 yet build the second fact leg such a term needs; ask a metric whose measure reads \
+                 one model, or report it to a person"
+            ),
+        ),
     };
     (
         status,
@@ -415,7 +427,8 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::CredentialUnavailable { .. }
         | RefusalReason::SourceRefused { .. }
         | RefusalReason::DeadlineExceeded { .. }
-        | RefusalReason::TopOverUncertifiedRows { .. } => None,
+        | RefusalReason::TopOverUncertifiedRows { .. }
+        | RefusalReason::CrossModelRatioNotExecutable { .. } => None,
     }
 }
 
@@ -625,6 +638,14 @@ mod tests {
                 RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "top_over_uncertified_rows",
+            ),
+            (
+                RefusalReason::CrossModelRatioNotExecutable {
+                    metric: metric(),
+                    model: sutura_domain::model::ModelName::parse("customers").expect("a test model is a model"),
+                },
+                StatusCode::CONFLICT,
+                "cross_model_ratio_not_executable",
             ),
         ]
     }
