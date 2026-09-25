@@ -96,6 +96,7 @@ pub struct AskArgs {
     /// column, a grain and every dimension listed below (`github.com/telekom/sutura#968`), and
     /// even then this deployment executes just one metric at a time today, so a set of more than
     /// one is always refused - ask about each metric separately.
+    #[schemars(length(min = 1))]
     metrics: Vec<String>,
     /// The time resolution to aggregate to: one of `day`, `week`, `month`, `quarter` or `year`, and
     /// only those the metric declares.

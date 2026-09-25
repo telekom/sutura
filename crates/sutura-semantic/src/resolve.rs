@@ -287,9 +287,11 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
         });
     }
 
-    // Every metric named and every constraint checked against all of them - the only thing left is
-    // whether this build can turn more than one into one statement, which is the plan stage's own
-    // question. See `RefusalReason::MultiMetricNotExecutable`.
+    // Every name, grain, dimension and filter value checked - `metric`'s own resolution above,
+    // plus every later metric's model/time-column agreement and every metric's grain/dimension/
+    // filter-value checks in the loops above. The only thing left is whether this build can turn
+    // more than one into one statement, which is the plan stage's own question. See
+    // `RefusalReason::MultiMetricNotExecutable`.
     Ok(Resolution {
         metric,
         metrics,

@@ -200,6 +200,7 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
       "items": {
         "type": "string"
       },
+      "minItems": 1,
       "type": "array"
     },
     "range": {

@@ -45,8 +45,8 @@ const METRIC_UNKNOWN: Guide = Guide {
 
 const METRICS_SPAN_DIFFERENT_MODELS: Guide = Guide {
     reason: "metrics_span_different_models",
-    meaning: "more than one metric was named, and two of them do not share a model, a time \
-              column, a grain or a dimension, so no one statement could answer them together",
+    meaning: "more than one metric was named, and two of them do not share a model or a time \
+              column, so no one statement could answer them together",
     remedy: "Ask about each metric separately - this deployment executes one metric at a time.",
 };
 

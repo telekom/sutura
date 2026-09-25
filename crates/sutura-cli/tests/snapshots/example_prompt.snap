@@ -63,7 +63,7 @@ Every reason you can be given, and what to do about each:
   Use a name from the metric list below, exactly as spelled. Do not try a variant spelling, a
   plural, or a name you remember from another deployment: the list is the whole of what exists.
 - **metrics_span_different_models** - more than one metric was named, and two of them do not share a
-  model, a time column, a grain or a dimension, so no one statement could answer them together.
+  model or a time column, so no one statement could answer them together.
   Ask about each metric separately - this deployment executes one metric at a time.
 - **multi_metric_not_executable** - every metric named shares a model, time column, grain and
   dimensions, but this deployment does not yet turn more than one metric into one answer.

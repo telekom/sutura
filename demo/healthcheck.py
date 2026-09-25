@@ -39,12 +39,12 @@ OPERATIONS = (("/v1/catalog", "get"), ("/v1/query", "post"))
 # neither question is invented for this file: an answer and a refusal the demo already claims to
 # produce. Deterministic and local - no model, no network beyond the server this container runs.
 _A_REAL_QUESTION = {
-    "metric": "active_subscriptions",
+    "metrics": ["active_subscriptions"],
     "grain": "month",
     "range": {"start": "2026-01-01", "end": "2026-07-01"},
 }
 _AN_UNANSWERABLE_QUESTION = {
-    "metric": "customer_lifetime_value",
+    "metrics": ["customer_lifetime_value"],
     "grain": "month",
     "range": {"start": "2026-06-01", "end": "2026-07-01"},
 }
