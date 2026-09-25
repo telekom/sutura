@@ -1,0 +1,22 @@
+diff --git a/.github/serve-smoke.sh b/.github/serve-smoke.sh
+index 1437ba6e..f53b39da 100755
+--- a/.github/serve-smoke.sh
++++ b/.github/serve-smoke.sh
+@@ -97,7 +97,7 @@ answer="$(mktemp)"
+ status="$(curl -s -o "$answer" -w '%{http_code}' --max-time 20 \
+   -X POST "${base}/v1/query" \
+   -H 'content-type: application/json' \
+-  -d '{"metrics":["recurring_revenue"],"grain":"month","range":{"start":"2026-01-01","end":"2026-07-01"}}')"
++  -d '{"metric":"recurring_revenue","grain":"month","range":{"start":"2026-01-01","end":"2026-07-01"}}')"
+ echo "serve-smoke: POST /v1/query -> ${status}"
+ cat "$answer"
+ echo
+@@ -120,7 +120,7 @@ refusal="$(mktemp)"
+ status="$(curl -s -o "$refusal" -w '%{http_code}' --max-time 20 \
+   -X POST "${base}/v1/query" \
+   -H 'content-type: application/json' \
+-  -d '{"metrics":["recurring_revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"filters":[{"op":"eq","dimension":"region","value":"offshore"}]}')"
++  -d '{"metric":"recurring_revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"filters":[{"dimension":"region","value":"offshore"}]}')"
+ echo "serve-smoke: a refused question -> ${status}"
+ cat "$refusal"
+ echo

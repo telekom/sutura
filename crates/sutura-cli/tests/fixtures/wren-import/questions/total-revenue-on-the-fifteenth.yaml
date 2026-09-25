@@ -1,4 +1,4 @@
-metric: sales_summary_total_revenue
+metrics: [sales_summary_total_revenue]
 grain: day
 range:
   start: 2026-01-15

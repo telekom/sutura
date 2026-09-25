@@ -92,8 +92,7 @@ pub(crate) fn bundle() -> PinnedDefinitions {
 /// The same bundle with no anchor, so it validates against a data system that answers nothing.
 ///
 /// **Only for tests about what happens AFTER startup.** Not the default fixture - see the module
-/// documentation for why - but what lets a service start over a warehouse that then fails every
-/// question.
+/// documentation for why - but what lets a service start over a warehouse that then fails every question.
 pub(crate) fn unanchored_bundle() -> PinnedDefinitions {
     pinned(None)
 }
@@ -914,10 +913,9 @@ pub(crate) fn declared_inbound(settings: &sutura_config::Settings) -> sutura_con
 
 // ---------------------------------------------------- driving the real router ----
 
-/// A well formed question the fakes above answer.
-///
-/// One literal, because four test modules were each carrying their own copy and a question that
-/// stopped being answerable in one of them would have gone on passing in the other three.
+/// A well formed question the fakes above answer. One literal, because four test modules were
+/// each carrying their own copy and a question that stopped being answerable in one of them would
+/// have gone on passing in the other three.
 pub(crate) const A_QUESTION: &str =
     r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
 

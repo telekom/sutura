@@ -11,14 +11,11 @@
 
 use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::measure::Measure;
-use sutura_domain::model::TableName;
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
-    FederatedPlan, IncoherentBindings, InternalLabel, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate,
-    PlanTerm, PredicateOrigin, ResultLabel, StatementTables, labels,
+    FederatedPlan, InternalLabel, PlanBucket, PlanColumn, PlanKey, PlanTerm, ResultLabel, StatementTables, labels,
 };
 use sutura_domain::query::RefusalReason;
-use sutura_domain::warehouse::ParamValue;
 
 use super::PlanError;
 use super::chain::{chain_joins, column_of, every_remote_dimension, is_remote};
@@ -146,7 +143,7 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
 
     let time_column = PlanColumn::new(own_table.clone(), metric.time_column().clone());
     let fact_bindings = super::predicates_and_params(resolution, &local_filters, own_table, &time_column)?;
-    let lookup_bindings = requested_for(&remote_filters, remote_table)?;
+    let lookup_bindings = super::requested_for(&remote_filters, remote_table)?;
 
     // The fact leg's terms, projected under the one labelling rule the combiner reads back - in the
     // same reserved namespace as the link, for the same reason: `metric__{n}` is a legal dimension
@@ -259,23 +256,4 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
         Some(top) => plan.with_top(top),
         None => plan,
     })
-}
-
-/// The predicates a lookup leg carries: only the caller's own remote filters, bound on the remote
-/// table.
-fn requested_for(requested: &[&ResolvedFilter<'_>], remote_table: &TableName) -> Result<PlanBindings, IncoherentBindings> {
-    let mut params: Vec<ParamValue> = Vec::new();
-    let mut filters: Vec<PlanFilter> = Vec::new();
-    for filter in requested {
-        let bind = params.len();
-        params.push(ParamValue::Text(filter.value.clone()));
-        filters.push(PlanFilter::new(
-            PredicateOrigin::Requested,
-            PlanPredicate::Equals {
-                column: PlanColumn::new(remote_table.clone(), filter.dimension.dimension.column().clone()),
-                param: bind,
-            },
-        ));
-    }
-    PlanBindings::parse(filters, params)
 }

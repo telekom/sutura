@@ -45,15 +45,13 @@ const METRIC_UNKNOWN: Guide = Guide {
 
 const METRICS_SPAN_DIFFERENT_MODELS: Guide = Guide {
     reason: "metrics_span_different_models",
-    meaning: "more than one metric was named, and two of them do not share a model or a time \
-              column, so no one statement could answer them together",
-    remedy: "Ask about each metric separately - this deployment executes one metric at a time.",
+    meaning: "two named metrics do not share a model or a time column",
+    remedy: "Ask about each metric separately - one at a time executes.",
 };
 
 const MULTI_METRIC_NOT_EXECUTABLE: Guide = Guide {
     reason: "multi_metric_not_executable",
-    meaning: "every metric named shares a model, time column, grain and dimensions, but this \
-              deployment does not yet turn more than one metric into one answer",
+    meaning: "every metric agreed, but this build runs only one",
     remedy: "Ask about each metric separately - a capability gap, not the question.",
 };
 
@@ -61,15 +59,14 @@ const GRAIN_NOT_SUPPORTED: Guide = Guide {
     reason: "grain_not_supported",
     meaning: "the metric exists and does not declare that time resolution",
     remedy: "Ask at a grain the metric lists. A finer grain is not a narrower version of the same \
-             question here - it is a number nobody certified, which is why it is refused rather \
-             than approximated.",
+             question - it is a number nobody certified, so it is refused rather than approximated.",
 };
 
 const DIMENSION_NOT_PERMITTED: Guide = Guide {
     reason: "dimension_not_permitted",
     meaning: "the metric does not declare that dimension",
-    remedy: "Use one of the dimensions listed under that metric. There is no way to reach an \
-             attribute a metric did not declare, so do not substitute a similar-sounding name.",
+    remedy: "Use one of the dimensions listed under that metric - do not substitute a \
+             similar-sounding name for one it did not declare.",
 };
 
 const DIMENSION_NOT_FILTERABLE: Guide = Guide {
@@ -82,7 +79,7 @@ const DIMENSION_NOT_FILTERABLE: Guide = Guide {
 
 const DIMENSION_VALUE_NOT_ALLOWED: Guide = Guide {
     reason: "dimension_value_not_allowed",
-    meaning: "the dimension is filterable and the value is not one the definitions declare",
+    meaning: "the value is not one the definitions declare for that dimension",
     remedy: "Use a value from that dimension's list below. The refusal does not repeat your value \
              back to you, on purpose, so compare against the list rather than expecting a \
              correction.",
@@ -91,8 +88,8 @@ const DIMENSION_VALUE_NOT_ALLOWED: Guide = Guide {
 const DUPLICATE_DIMENSION: Guide = Guide {
     reason: "duplicate_dimension",
     meaning: "the same dimension was sent twice in one question",
-    remedy: "Send it once. It is refused rather than de-duplicated because a caller who sent it \
-             twice believed something about the result that is not true.",
+    remedy: "Send it once - refused rather than de-duplicated, since a caller sending it twice \
+             believed something about the result that is not true.",
 };
 
 const TOO_MANY_DIMENSIONS: Guide = Guide {

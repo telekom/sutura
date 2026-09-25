@@ -47,6 +47,7 @@ pub(crate) struct ResolvedJoin<'a> {
 /// takes on its way to a data system - by which point the parsing has already happened. Converting
 /// here rather than carrying the newtype into the plan keeps the parse boundary where the check is
 /// and leaves the execution port speaking in the two things a data system binds: text and a date.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ResolvedFilterValue {
     Eq(String),
     In(sutura_domain::nonempty::NonEmpty<String>),

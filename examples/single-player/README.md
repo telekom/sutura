@@ -26,7 +26,7 @@ cargo run -p sutura-cli -- \
 ```
 
 ```
--- definitions local-working-tree 1b856d2ba2cd17144ba90385177b06df2fae865723d582ed91daeface85c3e98
+-- definitions local-working-tree b0e74ef1b790cff7171094fec4b9389913e7940bf7c9a2abdec2269c3e29e538
 period	recurring_revenue
 2026-01-01	237320
 2026-02-01	232822
@@ -219,7 +219,7 @@ cargo run -p sutura-cli -- \
 
 ```
 refused: DimensionValueNotAllowed
-  the dimension is filterable and the value is not one the definitions declare
+  the value is not one the definitions declare for that dimension
   metric: recurring_revenue
   dimension: region
   remedy: Use a value from that dimension's list below. The refusal does not repeat your value back to you, on purpose, so compare against the list rather than expecting a correction.

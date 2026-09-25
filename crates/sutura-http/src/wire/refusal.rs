@@ -218,69 +218,23 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             StatusCode::CONFLICT,
             format!("answering this would read from {sources} data systems, and a plan runs against {limit} at most"),
         ),
-        // A question that would need federation execution this deployment cannot do yet, and a link
-        // shape the combiner does not express - both 409, because neither is a data system being down
-        // and a caller must not retry either as an outage.
-        RefusalReason::FederationNotExecutable => (
-            StatusCode::CONFLICT,
-            String::from("this deployment has no adapter that can execute one half of a question spanning two data systems"),
-        ),
-        RefusalReason::FederationLinkAmbiguous { ref source } => (
-            StatusCode::CONFLICT,
-            format!("the dimensions on `{source}` join through more than one relationship"),
-        ),
+        // A question that would need federation execution this deployment cannot do yet, a link shape
+        // the combiner does not express, a measure that cannot recombine, an ill-formed federated
+        // answer, or two tables sharing an identifier - all 409, because none of them is a data system
+        // being down and a caller must not retry any of them as an outage. Each sentence is built by
+        // its own small function below `refused` - split out once `github.com/telekom/sutura#967`'s
+        // `FederationLinkCompound` pushed this match over `clippy::too_many_lines`.
+        RefusalReason::FederationNotExecutable => (StatusCode::CONFLICT, federation_not_executable()),
+        RefusalReason::FederationLinkAmbiguous { ref source } => (StatusCode::CONFLICT, federation_link_ambiguous(source)),
         RefusalReason::FederationLinkCompound {
             ref source,
             ref relationship,
-        } => (
-            StatusCode::CONFLICT,
-            format!("`{relationship}` crossing into `{source}` declares more than one join key"),
-        ),
-        // The same 409 - a question this deployment will not answer - for a measure that would have
-        // to be recombined into a number it cannot make.
-        RefusalReason::MeasureDoesNotFederate { ref metric, aggregate } => (
-            StatusCode::CONFLICT,
-            format!(
-                "`{metric}` cannot be combined across two data systems: its {aggregate} aggregate is \
-                 not additive"
-            ),
-        ),
-        // 409, and D19 + A4's own reason: a non-finite ratio or an ambiguous join is the SAME plan
-        // against the SAME rows failing again, which is what 409 says and what the `503` this used
-        // to leave as - "worth retrying" - does not. Carries no cell: see
-        // `FederatedAnswerRefusal`'s own note on why a join key or a float value never reaches this
-        // far.
-        RefusalReason::FederatedAnswerNotWellFormed { .. } => (
-            StatusCode::CONFLICT,
-            String::from(
-                "answering this across two data systems hit a division by zero, a join key that \
-                 matched more than one row, or a join key that can never match because the two \
-                 data systems store it as two different types; asking again unchanged returns this \
-                 same refusal. Ask the same metric without the dimension on the second data system, \
-                 or report it to a person",
-            ),
-        ),
-        // 409, and the same reasoning `PlanSpansTooManySources` above carries: the question is well
-        // formed,
-        // the metric permits it, and this deployment cannot express it as one statement. That is a
-        // conflict between what was asked and how the tables it reads are named, which is what 409 says
-        // and what no status about the request's own content would.
-        //
-        // D7: the sentence names NEITHER the identifier NOR either path. A schema identifier reaching
-        // this surface reaches an agent's own context exactly as a table name in the generated prompt
-        // would - `sutura_app::prompt`'s own rule - and this refusal is a TOOL OUTPUT an agent reads,
-        // not the prompt itself, so the same rule applies here even though the identifier is only the
-        // bare table name and not a project or dataset path. It says what else to try, because unlike
-        // the two-source refusal there usually IS another question: a dimension that needs no join is
-        // still answered.
-        RefusalReason::PlanTablesShareAnIdentifier { .. } => (
-            StatusCode::CONFLICT,
-            String::from(
-                "answering this would read two different tables that answer to one identifier, and one \
-                 statement cannot tell them apart; ask for a dimension that does not need that join, or \
-                 report it to a person",
-            ),
-        ),
+        } => (StatusCode::CONFLICT, federation_link_compound(source, relationship)),
+        RefusalReason::MeasureDoesNotFederate { ref metric, aggregate } => {
+            (StatusCode::CONFLICT, measure_does_not_federate(metric, aggregate))
+        }
+        RefusalReason::FederatedAnswerNotWellFormed { .. } => (StatusCode::CONFLICT, federated_answer_not_well_formed()),
+        RefusalReason::PlanTablesShareAnIdentifier { .. } => (StatusCode::CONFLICT, plan_tables_share_an_identifier()),
         // 503, and the only refusal where retrying is a reasonable thing for a caller to do. It is
         // the variant an identity failure will use, and today it is raised by a name comparison -
         // the plan's data system against the adapter this process opened - so today's cause is a
@@ -417,6 +371,65 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
     )
 }
 
+// The six sentences for the federation/plan-shape 409 group above, one function each - split out
+// of [`refused`] once `github.com/telekom/sutura#967`'s `FederationLinkCompound` pushed that match
+// over `clippy::too_many_lines`. Each is well formed and cannot be expressed as one statement yet,
+// which is a conflict between what was asked and what this deployment can build rather than a
+// data system being down, so none of them is worth retrying as an outage.
+
+fn federation_not_executable() -> String {
+    String::from("this deployment has no adapter that can execute one half of a question spanning two data systems")
+}
+
+fn federation_link_ambiguous(source: &sutura_domain::model::SourceName) -> String {
+    format!("the dimensions on `{source}` join through more than one relationship")
+}
+
+fn federation_link_compound(
+    source: &sutura_domain::model::SourceName,
+    relationship: &sutura_domain::model::RelationshipName,
+) -> String {
+    format!("`{relationship}` crossing into `{source}` declares more than one join key")
+}
+
+/// A measure that would have to be recombined into a number it cannot make.
+fn measure_does_not_federate(metric: &sutura_domain::model::MetricName, aggregate: sutura_domain::model::Aggregate) -> String {
+    format!("`{metric}` cannot be combined across two data systems: its {aggregate} aggregate is not additive")
+}
+
+/// D19 + A4's own reason: a non-finite ratio or an ambiguous join is the SAME plan against the
+/// SAME rows failing again, which is what 409 says and what the `503` this used to leave as -
+/// "worth retrying" - does not. Carries no cell: see `FederatedAnswerRefusal`'s own note on why a
+/// join key or a float value never reaches this far.
+fn federated_answer_not_well_formed() -> String {
+    String::from(
+        "answering this across two data systems hit a division by zero, a join key that matched \
+         more than one row, or a join key that can never match because the two data systems \
+         store it as two different types; asking again unchanged returns this same refusal. Ask \
+         the same metric without the dimension on the second data system, or report it to a \
+         person",
+    )
+}
+
+/// The same reasoning `PlanSpansTooManySources` uses: the question is well formed, the metric
+/// permits it, and this deployment cannot express it as one statement. That is a conflict between
+/// what was asked and how the tables it reads are named.
+///
+/// D7: the sentence names NEITHER the identifier NOR either path. A schema identifier reaching
+/// this surface reaches an agent's own context exactly as a table name in the generated prompt
+/// would - `sutura_app::prompt`'s own rule - and this refusal is a TOOL OUTPUT an agent reads, not
+/// the prompt itself, so the same rule applies here even though the identifier is only the bare
+/// table name and not a project or dataset path. It says what else to try, because unlike the
+/// two-source refusal there usually IS another question: a dimension that needs no join is still
+/// answered.
+fn plan_tables_share_an_identifier() -> String {
+    String::from(
+        "answering this would read two different tables that answer to one identifier, and one \
+         statement cannot tell them apart; ask for a dimension that does not need that join, or \
+         report it to a person",
+    )
+}
+
 /// How long until a refusal's own window makes the same question answerable again, where that is a
 /// fact this replica can name rather than a guess.
 ///
@@ -519,8 +532,11 @@ mod tests {
     /// A list rather than one test per variant, and it is the same list the exhaustive match above
     /// is checked against: a variant added to `RefusalReason` breaks the compile in `refused`, and
     /// this is where somebody then writes down what they decided.
+    ///
+    /// Split across two halves once `github.com/telekom/sutura#967` added a variant and pushed
+    /// this list over `clippy::too_many_lines` - [`every_reason_the_second_half`] carries the rest.
     fn every_reason() -> Vec<Expected> {
-        vec![
+        let mut reasons = vec![
             (
                 RefusalReason::MetricUnknown { metric: metric() },
                 StatusCode::NOT_FOUND,
@@ -605,6 +621,14 @@ mod tests {
                 StatusCode::CONFLICT,
                 "plan_spans_too_many_sources",
             ),
+        ];
+        reasons.extend(every_reason_the_second_half());
+        reasons
+    }
+
+    /// The rest of [`every_reason`]'s list, split out for the same reason.
+    fn every_reason_the_second_half() -> Vec<Expected> {
+        vec![
             (
                 RefusalReason::FederationNotExecutable,
                 StatusCode::CONFLICT,

@@ -183,16 +183,13 @@ impl Tool {
     pub const fn summary(self) -> &'static str {
         match self {
             Self::Catalog => {
-                "Returns every metric this deployment defines, with its grains, its dimensions and \
-                 the values a filter may use, plus the version and digest of the snapshot. Takes no \
-                 arguments. Reading it cannot change what a question means."
+                "Returns every metric this deployment defines - grains, dimensions, filter values, \
+                 the version and digest. Takes no arguments and cannot change what a question means."
             }
             Self::Query => {
-                "Answers one question. Takes a bounded period, up to four dimensions to group \
-                 by, and filters over declared values - equality, or membership in an allowed \
-                 set. Takes one metric, or a matching set of them, but this deployment executes \
-                 only one metric at a time today, so a set of more than one is always refused. \
-                 Returns either an answer with its provenance or a refusal with a typed reason."
+                "Answers one question. Takes a period, up to four dimensions, and filters - \
+                 equality or a set. One metric or a matching set - only one executes. Returns an \
+                 answer or a refusal."
             }
             Self::RunSql => {
                 "Runs one literal SQL statement against this deployment's own configured data \

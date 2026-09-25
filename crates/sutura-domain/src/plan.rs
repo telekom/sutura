@@ -433,12 +433,9 @@ pub enum PlanPredicate {
         param: usize,
     },
     /// `column IN (param, param, ..)` - one or more values, `github.com/telekom/sutura#968`.
-    ///
-    /// `params` rather than a single `param`, because membership in a set binds more than one
-    /// value - and [`crate::nonempty::NonEmpty`] rather than a plain `Vec`, unlike the index list
-    /// a predicate normally carries: an empty `IN ()` is either a syntax error or, rendered as
-    /// `NOT IN ()`, a silently vanished filter (fail-open), and both are worse than refusing the
-    /// question earlier. A producer cannot reach this variant with zero placeholders to fill.
+    /// [`crate::nonempty::NonEmpty`] rather than a plain `Vec`: an empty `IN ()` is either a
+    /// syntax error or, rendered as `NOT IN ()`, a silently vanished filter (fail-open), and a
+    /// producer cannot reach this variant with zero placeholders to fill.
     In {
         column: PlanColumn,
         params: crate::nonempty::NonEmpty<usize>,
@@ -471,8 +468,7 @@ impl PlanPredicate {
         }
     }
 
-    /// The one parameter a single-valued predicate binds. `None` for `In`/`NotIn` too, deliberately -
-    /// a caller that reads one index off a set-valued predicate would see only its first value. See
+    /// The one parameter a single-valued predicate binds. `None` for `In`/`NotIn` too - see
     /// [`Self::bound_params`] for the shape that covers every variant.
     #[inline]
     pub const fn param(&self) -> Option<usize> {
@@ -486,10 +482,8 @@ impl PlanPredicate {
     }
 
     /// Every parameter index this predicate binds, in placeholder order - zero for `IsTrue`/
-    /// `IsNotNull`, one for a comparing predicate, one per value for `In`/`NotIn`.
-    ///
-    /// The one place [`bindings::PlanBindings::parse`] and every adapter that resolves a bound
-    /// value walk all eight variants without matching on which one they have.
+    /// `IsNotNull`, one for a comparing predicate, one per value for `In`/`NotIn`. The one place
+    /// [`bindings::PlanBindings::parse`] walks all eight variants without matching on which one.
     #[inline]
     pub(crate) fn bound_params(&self) -> BoundParams<'_> {
         match *self {
@@ -503,25 +497,8 @@ impl PlanPredicate {
     }
 }
 
-/// The iterator [`PlanPredicate::bound_params`] returns - no allocation for any of the three
-/// shapes a predicate can bind.
-pub(crate) enum BoundParams<'a> {
-    None,
-    One(Option<usize>),
-    Many(<&'a crate::nonempty::NonEmpty<usize> as IntoIterator>::IntoIter),
-}
-
-impl Iterator for BoundParams<'_> {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<usize> {
-        match self {
-            Self::None => None,
-            Self::One(value) => value.take(),
-            Self::Many(iter) => iter.next().copied(),
-        }
-    }
-}
+mod bound_params;
+pub(crate) use bound_params::BoundParams;
 
 /// Where a predicate came from.
 ///
