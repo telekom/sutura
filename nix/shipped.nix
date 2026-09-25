@@ -31,9 +31,6 @@
 # The per-triple ADBC BigQuery driver derivations, from `nix/bigquery-adbc-drivers.nix`. Read for
 # their `c-archive` half only - see `adbcArchiveFor`.
 , adbcDrivers
-# The per-triple ADBC PostgreSQL driver derivations, from `nix/postgres-adbc-drivers.nix`; its
-# archive directory is exported beside BigQuery's, and no build script reads it yet.
-, postgresAdbcDrivers
 , version
 }:
 
@@ -58,13 +55,9 @@ let
   # relinking because a driver revision moved. The build script that reads this belongs to a
   # workspace member, which only the real build compiles.
   adbcArchiveFor = target:
-    let
-      drv = adbcDrivers."adbc-driver-bigquery-${target}" or null;
-      pg = postgresAdbcDrivers."adbc-driver-postgresql-${target}" or null;
+    let drv = adbcDrivers."adbc-driver-bigquery-${target}" or null;
     in pkgs.lib.optionalAttrs (drv != null) {
       SUTURA_ADBC_BIGQUERY_ARCHIVE_DIR = "${drv}/lib";
-    } // pkgs.lib.optionalAttrs (pg != null) {
-      SUTURA_ADBC_POSTGRES_ARCHIVE_DIR = "${pg}/lib";
     };
 
   # Targets we CROSS-build. Deliberately excludes the host architecture: on an x86_64 builder
