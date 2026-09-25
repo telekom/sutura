@@ -98,6 +98,7 @@ mod catalog;
 #[cfg(feature = "clickhouse")]
 mod clickhouse;
 mod commands;
+mod import;
 mod mcp;
 /// The ONE Oracle composition, reached by both composition roots below - `clickhouse`'s shape.
 #[cfg(feature = "oracle")]
@@ -219,6 +220,12 @@ const COMMANDS: &[Cmd] = &[
         args: "<catalog-dir> <question.yaml> [data-dir]",
         description: "check the anchors, then answer",
         run: commands::query,
+    },
+    Cmd {
+        name: "import",
+        args: "<kind> <catalog-dir> <out-dir>",
+        description: "convert a foreign project into catalog documents, plus a refusal report - kinds: wren",
+        run: import::import,
     },
     Cmd {
         name: "mcp",

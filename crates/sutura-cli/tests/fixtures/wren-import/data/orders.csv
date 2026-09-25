@@ -1,0 +1,5 @@
+id,customer_id,amount_cents,order_date,status
+1,1,1000,2026-01-15,active
+2,1,2000,2026-01-15,active
+3,2,500,2026-01-15,active
+4,2,1500,2026-01-16,active
