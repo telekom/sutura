@@ -1,11 +1,19 @@
+use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::{Definitions, Description, Model, Relationship};
 use sutura_domain::model::Aggregate;
-use sutura_domain::model::{ColumnName, Grain, JoinType, ModelName, RelationshipName, SourceName, TableName};
-use sutura_domain::plan::{PlanBucket, PlanColumn, ResultLabel};
+use sutura_domain::model::{ColumnName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName};
+use sutura_domain::plan::{
+    PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
+    ResultLabel, StatementTables,
+};
+use sutura_domain::query::{Top, TopBy, TopDirection, TopN};
+use sutura_domain::warehouse::ParamValue;
 
 use polyglot_sql::builder;
 
-use super::{DISTINCT_LABEL, DeclaredKey, ROWS_LABEL, bucket_expression, generate_key_probe, ordered_nulls_last, render};
+use super::{
+    DISTINCT_LABEL, DeclaredKey, ROWS_LABEL, bucket_expression, generate, generate_key_probe, ordered_nulls_last, render,
+};
 use crate::dialect::{ALL, Dialect};
 
 fn bucket(grain: Grain) -> PlanBucket {
@@ -347,4 +355,92 @@ fn a_key_probe_renders_and_parses_for_every_dialect_it_declares() {
             parsed.err()
         );
     }
+}
+
+/// A one-metric plan at month grain, bounded by the row cap: `top` is unset.
+fn month_plan() -> QueryPlan {
+    let col = |name: &str| {
+        PlanColumn::new(
+            TableName::parse("orders").expect("a test table is a table"),
+            ColumnName::parse(name).expect("a test column is a column"),
+        )
+    };
+    let date = |raw: &str| Date::parse(raw).expect("a test date is a date");
+    let metric = MetricName::parse("revenue").expect("a test metric is a metric");
+    let bindings = PlanBindings::parse(
+        vec![
+            PlanFilter::new(
+                PredicateOrigin::Definition,
+                PlanPredicate::AtOrAfter {
+                    column: col("order_date"),
+                    param: 0,
+                },
+            ),
+            PlanFilter::new(
+                PredicateOrigin::Definition,
+                PlanPredicate::Before {
+                    column: col("order_date"),
+                    param: 1,
+                },
+            ),
+        ],
+        vec![ParamValue::Date(date("2026-06-01")), ParamValue::Date(date("2026-07-01"))],
+    )
+    .expect("two range bounds bind in placeholder order");
+    QueryPlan::new(
+        SourceName::parse("local").expect("a test source is a source"),
+        metric.clone(),
+        StatementTables::parse(TableName::parse("orders").expect("a test table is a table"), Vec::new())
+            .expect("one table is unambiguous"),
+        PlanBucket::new(ResultLabel::bucket(), Grain::Month, col("order_date")),
+        Vec::new(),
+        PlanMeasure::Simple {
+            term: PlanTerm::Aggregate {
+                aggregate: Aggregate::Sum,
+                column: col("amount_cents"),
+            },
+        },
+        ResultLabel::measure(&metric),
+        bindings,
+        TimeRange::new(date("2026-06-01"), date("2026-07-01")).expect("a test range is a range"),
+    )
+}
+
+/// Oracle ends in `FETCH FIRST n ROWS ONLY` and carries no `LIMIT`; every other dialect ends in
+/// `LIMIT n` and carries no `FETCH FIRST`.
+fn assert_row_limit_clause(plan: &QueryPlan, n: u32) {
+    for &dialect in ALL {
+        let query = generate(plan, dialect).unwrap_or_else(|e| panic!("a plan renders for {dialect}: {e}"));
+        let sql = query.sql();
+        if dialect == Dialect::Oracle {
+            assert!(
+                sql.ends_with(&format!("FETCH FIRST {n} ROWS ONLY")),
+                "Oracle takes FETCH FIRST {n}:\n{sql}"
+            );
+            assert!(!sql.contains("LIMIT"), "Oracle refuses LIMIT:\n{sql}");
+        } else {
+            assert!(sql.ends_with(&format!("LIMIT {n}")), "{dialect} keeps LIMIT {n}:\n{sql}");
+            assert!(!sql.contains("FETCH FIRST"), "{dialect} takes no FETCH FIRST:\n{sql}");
+        }
+    }
+}
+
+/// Oracle refuses `LIMIT n` (`ORA-03049`), so the row cap's one-past limit renders as
+/// `FETCH FIRST`. Red on the base tree, where every whole-plan statement ends in `LIMIT n`.
+/// `github.com/telekom/sutura#127`.
+#[test]
+fn oracle_caps_a_whole_plan_with_fetch_first_not_limit() {
+    assert_row_limit_clause(&month_plan(), 10_001);
+}
+
+/// The `top` arm sets its own count through the same limit, so it renders as `FETCH FIRST` too.
+/// `github.com/telekom/sutura#127`.
+#[test]
+fn oracle_caps_a_top_plan_with_fetch_first_not_limit() {
+    let top = Top::new(
+        TopN::parse(3).expect("three is a row count"),
+        TopBy::Metric,
+        TopDirection::Desc,
+    );
+    assert_row_limit_clause(&month_plan().with_top(top), 3);
 }
