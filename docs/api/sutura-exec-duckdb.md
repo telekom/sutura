@@ -38,6 +38,7 @@ Why this data system could not answer.
 - `Open`
 - `Prepare`
 - `Execute`
+- `Poisoned` - The connection's guard was poisoned by a panic. Under `panic = "abort"` this is unshakeable; in unwind test builds refusing it as a typed error keeps a poisoned connection from being handed to anything else.
 - `UnsupportedType` - A column came back as a type this adapter does not map.
 
   An error rather than a stringified fallback. A `LIST` or a `STRUCT` rendered with `Debug`

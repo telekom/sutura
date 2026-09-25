@@ -5,7 +5,7 @@ use crate::Warehouses;
 use crate::spend::SpendLedger;
 use crate::tests::{asked_by_a_person, bundle, june, metric, shared, test_deadline};
 use crate::tests_support::{
-    AdapterFailure, DryRunOutcome, FixedBroker, LegDeadlineExceededWarehouse, LegPreflightWarehouse, RecordingLegsWarehouse,
+    AdapterFailure, DryRunOutcome, FixedBroker, LegDeadlineExceededWarehouse, LegPreflightWarehouse, SlowDryRunLegsWarehouse,
 };
 use sutura_domain::identity::Presented;
 use sutura_domain::model::{Grain, SourceName};
@@ -257,6 +257,12 @@ fn a_federated_answer_sums_both_legs_estimates_before_charging_the_ledger_once()
 /// `docs/adr/0029` decision 3's own RED cell - split out so this file stays under the
 /// `max-lines` cap it was already at before this record.
 mod deadline_test;
+
+/// The concurrency evidence - two legs waiting on one barrier, and provenance order under a
+/// lookup-first finish - split out for the same `max-lines` reason `deadline_test` was. Its own
+/// header states why `#[cfg(test)]` is redundant under this file's gate and kept anyway.
+#[cfg(test)]
+mod concurrent_test;
 
 /// Three leg-level refusals, split out for the same `max-lines` reason `deadline_test` was.
 ///

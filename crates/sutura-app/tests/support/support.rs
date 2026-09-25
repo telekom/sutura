@@ -41,7 +41,6 @@ pub(crate) use oracle::{
     oracle_definitions, oracle_knowledge, same_name_tables_catalog, stated_knowledge, two_source_catalog,
 };
 
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use sutura_domain::identity::Presented;
@@ -141,25 +140,37 @@ fn whole_plan(executable: Executable<'_>) -> &QueryPlan {
 /// What lets every refusal be checked with no database. It is a fake rather than a mock of a wire
 /// protocol: the port is a Rust trait, so the honest stand-in is a type that implements it. A test
 /// asserting on the text of an HTTP request would prove something about the test.
+#[expect(
+    clippy::disallowed_types,
+    reason = "a synchronous test fake's recorder: append-and-read on the calling thread with no async awaiting the lock, so the executor-deadlock this ban exists for cannot arise; std Mutex (not tokio) because the fake is synchronous - and it keeps this `W` `Sync` for `sutura_app::answer`"
+)]
 pub(crate) struct RecordingWarehouse {
     source: SourceName,
-    seen: RefCell<Vec<String>>,
+    seen: std::sync::Mutex<Vec<String>>,
 }
 
 impl RecordingWarehouse {
+    #[expect(
+        clippy::disallowed_types,
+        reason = "a synchronous test fake's recorder: see the struct field's own license - std Mutex because the fake is synchronous"
+    )]
     pub(crate) fn new() -> Self {
         Self {
             source: source(),
-            seen: RefCell::new(Vec::new()),
+            seen: std::sync::Mutex::new(Vec::new()),
         }
     }
 
     /// A warehouse claiming to be some other data system, for the refusal that checks the plan's
     /// source against the adapter it is about to run on.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "a synchronous test fake's recorder: see the struct field's own license - std Mutex because the fake is synchronous"
+    )]
     pub(crate) fn pretending_to_be(name: &str) -> Self {
         Self {
             source: SourceName::parse(name).expect("a test source is a source"),
-            seen: RefCell::new(Vec::new()),
+            seen: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -169,10 +180,12 @@ impl RecordingWarehouse {
     /// now and this adapter never renders one. What the tests need from it is "was it reached at
     /// all", which a metric name answers and a statement would only answer more verbosely.
     pub(crate) fn asked_about(&self) -> Vec<String> {
-        self.seen.borrow().clone()
+        self.seen
+            .lock()
+            .expect("a deadlocked or poisoned test recorder is a failure")
+            .clone()
     }
 }
-
 impl Warehouse for RecordingWarehouse {
     type Error = Never;
 
@@ -201,7 +214,10 @@ impl Warehouse for RecordingWarehouse {
         _deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
         let plan = whole_plan(executable);
-        self.seen.borrow_mut().push(String::from(plan.metric().as_str()));
+        self.seen
+            .lock()
+            .expect("a deadlocked or poisoned test recorder is a failure")
+            .push(String::from(plan.metric().as_str()));
         // One row of nothing, shaped so `RowSet::new` accepts it. A fake that returned plausible
         // numbers would invite a test to assert on them, and those numbers would be this file's
         // opinion rather than a data system's.
@@ -327,25 +343,36 @@ impl Warehouse for CertifiedNumbers {
 /// It records `QueryPlan::row_limit`, which is the other half of the mechanism: the cap can only be
 /// enforced if the adapter was asked for one row MORE than it, because a result of exactly the cap is
 /// otherwise indistinguishable from one the cap cut short.
+#[expect(
+    clippy::disallowed_types,
+    reason = "a synchronous test fake's recorder: append-and-read on the calling thread with no async awaiting the lock, so the executor-deadlock this ban exists for cannot arise; std Mutex (not tokio) because the fake is synchronous - and it keeps this `W` `Sync` for `sutura_app::answer`"
+)]
 pub(crate) struct WideResult {
     source: SourceName,
     rows: usize,
-    asked_for: RefCell<Vec<u32>>,
+    asked_for: std::sync::Mutex<Vec<u32>>,
 }
 
 impl WideResult {
     /// A data system whose every answer carries `rows` rows.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "a synchronous test fake's recorder: see the struct field's own license - std Mutex because the fake is synchronous"
+    )]
     pub(crate) fn of(rows: usize) -> Self {
         Self {
             source: source(),
             rows,
-            asked_for: RefCell::new(Vec::new()),
+            asked_for: std::sync::Mutex::new(Vec::new()),
         }
     }
 
     /// The row limits this data system was asked for, in order.
     pub(crate) fn asked_for(&self) -> Vec<u32> {
-        self.asked_for.borrow().clone()
+        self.asked_for
+            .lock()
+            .expect("a deadlocked or poisoned test recorder is a failure")
+            .clone()
     }
 }
 
@@ -377,7 +404,10 @@ impl Warehouse for WideResult {
         _deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
         let plan = whole_plan(executable);
-        self.asked_for.borrow_mut().push(plan.row_limit());
+        self.asked_for
+            .lock()
+            .expect("a deadlocked or poisoned test recorder is a failure")
+            .push(plan.row_limit());
         // One column, so the shape is trivially rectangular and the only thing the test reads is how
         // many rows there are. The values are all the same on purpose: a fake that returned
         // plausible numbers would invite an assertion about them.
