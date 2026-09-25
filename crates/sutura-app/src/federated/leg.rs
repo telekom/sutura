@@ -81,9 +81,12 @@ pub(crate) fn run_leg<W, B, C>(
     deadline: Deadline,
 ) -> LegAnswer<W, B, C>
 where
-    W: Warehouse,
+    W: Warehouse + Sync,
+    W::Error: Send,
     B: CredentialBroker,
+    B::Error: Send,
     C: FederationCombiner,
+    C::Error: Send,
 {
     let presented = credentials
         .presented_for(leg.source())

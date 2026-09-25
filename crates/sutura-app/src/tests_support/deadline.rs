@@ -82,91 +82,6 @@ impl Warehouse for NeverAskedWarehouse {
     }
 }
 
-/// A leg-executing fake that records the [`Deadline`] each `execute` call was handed, in order.
-///
-/// **The instrument for `docs/adr/0029`'s decision 3** - one shared instant across a federated
-/// answer's legs, never divided - which a value equality on two recorded deadlines proves and a row
-/// count cannot. `Rc<RefCell<..>>` rather than a field this type owns, so ONE recorder is shared by
-/// the two instances a federated test opens (one per source).
-pub(crate) struct RecordingLegsWarehouse {
-    source: SourceName,
-    posture: SourcePosture,
-    result: RowSet,
-    seen: std::rc::Rc<std::cell::RefCell<Vec<Deadline>>>,
-    /// How long this fake's `execute` takes before it answers.
-    ///
-    /// **For the one test that needs a budget to be spent BETWEEN two legs without a real clock
-    /// deciding it by chance.** `tests_support::FixedWarehouse::pre_flight_takes` is the precedent:
-    /// a fake that returns instantly cannot make a real-time deadline check fail deterministically,
-    /// so the leg that must still run sleeps well past the tiny budget the test opens, and the leg
-    /// that must never run is handed [`Duration::ZERO`] - it is never reached at all.
-    delay: std::time::Duration,
-}
-
-impl RecordingLegsWarehouse {
-    pub(crate) fn answering(
-        source: SourceName,
-        posture: SourcePosture,
-        result: RowSet,
-        seen: std::rc::Rc<std::cell::RefCell<Vec<Deadline>>>,
-    ) -> Self {
-        Self {
-            source,
-            posture,
-            result,
-            seen,
-            delay: std::time::Duration::ZERO,
-        }
-    }
-
-    /// The same, taking `delay` before it answers - see the field's own documentation.
-    pub(crate) fn answering_after(
-        source: SourceName,
-        posture: SourcePosture,
-        result: RowSet,
-        seen: std::rc::Rc<std::cell::RefCell<Vec<Deadline>>>,
-        delay: std::time::Duration,
-    ) -> Self {
-        Self {
-            source,
-            posture,
-            result,
-            seen,
-            delay,
-        }
-    }
-}
-
-impl Warehouse for RecordingLegsWarehouse {
-    type Error = AdapterFailure;
-
-    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
-    const EXECUTES_LEGS: bool = true;
-
-    fn source(&self) -> &SourceName {
-        &self.source
-    }
-
-    fn posture(&self) -> &SourcePosture {
-        &self.posture
-    }
-
-    fn execute(
-        &self,
-        _executable: Executable<'_>,
-        _presented: &Presented,
-        deadline: Deadline,
-    ) -> Result<ResultBatches, Self::Error> {
-        std::thread::sleep(self.delay);
-        self.seen.borrow_mut().push(deadline);
-        Ok(crate::tests_support::canned(&self.result))
-    }
-
-    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        Ok(AnchorRows::of(self.result.clone()))
-    }
-}
-
 /// A data system whose `execute` fails with what it reports as the deadline having fired.
 ///
 /// The mono-path sibling `RefusingSourceWarehouse` is modelled on: `answer` (and, when
@@ -224,6 +139,93 @@ impl<const EXECUTES_LEGS: bool> Warehouse for DeadlineExceededWarehouse<EXECUTES
 
     fn deadline_exceeded(&self, error: &Self::Error) -> bool {
         matches!(error, AdapterFailure::TimedOut)
+    }
+}
+
+/// A leg-executing fake whose `dry_run` takes a chosen time before it accepts.
+///
+/// **The instrument for the federated half of the pre-`execute` re-check**, on the `dry_run` side
+/// rather than the `execute` side: `answer_federated` dry-runs BOTH legs (sequentially, before
+/// either `execute` runs) and only then runs either leg, so a budget spent while the FACT leg's
+/// pre-flight sleeps is found spent by the LOOKUP leg's own pre-call check inside `dry_run_leg` -
+/// and neither leg is ever executed. `FixedWarehouse::answering_after` gives the mono path the same
+/// shape; this type declares `EXECUTES_LEGS` so the federated path reaches it.
+pub(crate) struct SlowDryRunLegsWarehouse {
+    source: SourceName,
+    posture: SourcePosture,
+    result: RowSet,
+    /// How long this fake's `dry_run` sleeps before it accepts - see the struct's own note.
+    dry_run_takes: std::time::Duration,
+    dry_runs: std::sync::atomic::AtomicUsize,
+    executions: std::sync::atomic::AtomicUsize,
+}
+
+impl SlowDryRunLegsWarehouse {
+    /// Answers `result`, its `dry_run` taking `dry_run_takes` before accepting.
+    pub(crate) fn answering_after(
+        source: SourceName,
+        posture: SourcePosture,
+        result: RowSet,
+        dry_run_takes: std::time::Duration,
+    ) -> Self {
+        Self {
+            source,
+            posture,
+            result,
+            dry_run_takes,
+            dry_runs: std::sync::atomic::AtomicUsize::new(0),
+            executions: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+
+    /// How many times `dry_run` was reached.
+    pub(crate) fn dry_runs(&self) -> usize {
+        self.dry_runs.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// How many times `execute` was reached - the count a dry-run overrun must keep at zero.
+    pub(crate) fn executions(&self) -> usize {
+        self.executions.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl Warehouse for SlowDryRunLegsWarehouse {
+    type Error = AdapterFailure;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+    const EXECUTES_LEGS: bool = true;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
+        self.dry_runs.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        std::thread::sleep(self.dry_run_takes);
+        Ok(PreFlight::NotAsked)
+    }
+
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
+        self.executions.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(crate::tests_support::canned(&self.result))
+    }
+
+    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Ok(AnchorRows::of(self.result.clone()))
     }
 }
 

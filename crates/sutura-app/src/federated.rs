@@ -118,9 +118,12 @@ pub(crate) fn answer_federated<W, B, C>(
     row_ceiling: RowCeiling,
 ) -> Answering<W, B, C>
 where
-    W: Warehouse,
+    W: Warehouse + Sync,
+    W::Error: Send,
     B: CredentialBroker,
+    B::Error: Send,
     C: FederationCombiner,
+    C::Error: Send,
 {
     // Both data systems, so a missing one is the same refusal the mono path gives before any
     // credential is minted. `FederatedPlan::new` guarantees the two sources are DISTINCT, so the two
@@ -241,19 +244,90 @@ where
             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
         }
     }
-
     // **The legs' results never become rows, and that is `docs/adr/0039` step 2's whole point
     // meeting step 3's.** Each `LegResult` is tagged with the side its own `LegPlan` names, so the
     // pair the combiner receives cannot have the two legs swapped - which would group the fact
     // leg's measure by the lookup leg's keys and answer a wrong number under a certified name.
-    let fact = match run_leg::<_, B, C>(fact_warehouse, &credentials, plan.fact(), deadline) {
+    //
+    // **The two legs run CONCURRENTLY, and that is the whole of this change.** `answer_federated`
+    // runs on the ONE blocking task a transport already spawned through
+    // `sutura_runtime::spawn_carrying_span` - a request already holds a blocking-pool thread, so
+    // two more pool tasks would triple the admission cost and, at the configured ceiling, deadlock
+    // on each other's slots (a parent waiting on a child slot the pool has no thread to fill; the
+    // issue's "run them as two blocking tasks" wording is superseded for that reason). So no pool
+    // task is spawned at all: the fact leg runs INLINE on the request's own thread, and the lookup
+    // leg runs on ONE scoped OS thread ([`std::thread::Builder::spawn_scoped`]) inside a
+    // [`std::thread::scope`]. Scoped threads borrow non-`'static` data, so the warehouses, the
+    // credential and the legs need no `Arc`, no clone, no new `'static` bound and no new
+    // dependency edge - and the pool is not touched, so an admitted federated request cannot
+    // deadlock it.
+    //
+    // **A failed fact leg no longer cancels the lookup leg.** The lookup thread is spawned before
+    // the fact leg runs inline, so when the fact leg refuses or fails the lookup leg has already
+    // started and still executes - billed at the source and under the caller's identity. On the
+    // sequential path it never started. The [`std::thread::scope`] below always joins it, so its
+    // outcome is still inspected; a fact-leg failure simply wins for the caller, exactly as it did
+    // when sequential.
+    //
+    // **One `Deadline`, shared by both legs, exactly as the sequential path shared it**
+    // (`docs/adr/0029` decision 3): `Deadline` is `Copy`, so both closures hold the same instant
+    // and both compare it against the same budget. A leg ages the deadline out at its own
+    // `still_usable_at`/`run_leg` check; the scope still joins the slower one, because a started
+    // scoped thread cannot be aborted.
+    //
+    // Captured on THIS thread, before the scoped thread starts - `Span::current()` reads the
+    // request's own span here; called inside the new OS thread it would see no context at all,
+    // since a bare `std::thread` carries none across by itself. `Span` is `Sync`, so the scoped
+    // thread below borrows it (no move, no clone) the same way it borrows the warehouses, the
+    // credentials and the plan. Bound to a local rather than entered inline, because `enter()`
+    // borrows `self` and a call-expression's own temporary does not outlive the statement that
+    // creates it (`rustc --explain E0716`).
+    let leg_span = tracing::Span::current();
+    let (fact, lookup) = std::thread::scope(|scope| {
+        let lookup_thread = std::thread::Builder::new()
+            .name(String::from("federated-lookup-leg"))
+            .spawn_scoped(scope, || {
+                // Carry the request's tracing span onto the scoped thread so this leg's log lines
+                // stay attributable to the same question - the same reason
+                // `sutura_runtime::spawn_carrying_span` exists, done by hand here because no pool
+                // task is being spawned and the ban is on `spawn_blocking`, not on `std::thread`.
+                let _entered = leg_span.enter();
+                run_leg::<_, B, C>(lookup_warehouse, &credentials, plan.lookup(), deadline)
+            });
+        // The fact leg runs INLINE, on this thread, while the lookup thread runs beside it.
+        let fact = run_leg::<_, B, C>(fact_warehouse, &credentials, plan.fact(), deadline);
+        match lookup_thread {
+            // Joining here, inside the scope, so the borrows the scope held outlive the join.
+            Ok(thread) => match thread.join() {
+                Ok(lookup) => (fact, lookup),
+                // A panicking lookup leg aborts the process under `panic = "abort"`; this arm is
+                // reachable only in unwind test builds. Re-panicking propagates the failure rather
+                // than fabricating a leg outcome, because there is none: the leg did not answer.
+                Err(panic) => std::panic::resume_unwind(panic),
+            },
+            // The OS refused a thread - not the data system. Fall back to running the lookup leg
+            // sequentially after the fact leg (which already ran), so a question that could have
+            // been answered is not dropped for want of a thread.
+            Err(error) => {
+                tracing::warn!(
+                    error = ?error,
+                    "federated lookup leg: OS refused a scoped thread, running it sequentially after the fact leg"
+                );
+                (
+                    fact,
+                    run_leg::<_, B, C>(lookup_warehouse, &credentials, plan.lookup(), deadline),
+                )
+            }
+        }
+    });
+    let fact = match fact {
         Ok(batches) => LegResult::of(plan.fact(), batches),
         Err(LegError::Refusal(reason)) => {
             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
         }
         Err(LegError::Failure(error)) => return Err(error),
     };
-    let lookup = match run_leg::<_, B, C>(lookup_warehouse, &credentials, plan.lookup(), deadline) {
+    let lookup = match lookup {
         Ok(batches) => LegResult::of(plan.lookup(), batches),
         Err(LegError::Refusal(reason)) => {
             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
@@ -263,7 +337,6 @@ where
     let legs = Legs::of(&fact, &lookup).map_err(|cause| ServiceError::Miswired {
         cause: crate::FederationMiswired::LegsAreNotOneOfEach { cause },
     })?;
-
     // **The combine, through the port.** The row cap applies to the ANSWER and not to a leg - a leg
     // carries none - and the two governance outcomes are taken off the combiner's error FIRST, in
     // the order the mono path asks its own adapter: the ceiling, then a deterministic refusal about

@@ -1,6 +1,6 @@
 //! [`PricedWarehouse`], split out of `super` for that file's own `max-lines` cap.
 
-use std::cell::Cell;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use sutura_domain::identity::Presented;
 use sutura_domain::model::SourceName;
@@ -23,7 +23,7 @@ pub(crate) struct PricedWarehouse {
     posture: SourcePosture,
     result: RowSet,
     estimated_bytes: Option<u64>,
-    executions: Cell<usize>,
+    executions: AtomicUsize,
 }
 
 impl PricedWarehouse {
@@ -39,13 +39,13 @@ impl PricedWarehouse {
             posture,
             result,
             estimated_bytes,
-            executions: Cell::new(0),
+            executions: AtomicUsize::new(0),
         }
     }
 
     /// How many times `execute` was reached.
     pub(crate) fn executions(&self) -> usize {
-        self.executions.get()
+        self.executions.load(Ordering::SeqCst)
     }
 }
 
@@ -82,7 +82,7 @@ impl Warehouse for PricedWarehouse {
         _presented: &Presented,
         _deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
-        self.executions.set(self.executions.get().saturating_add(1));
+        self.executions.fetch_add(1, Ordering::SeqCst);
         Ok(crate::tests_support::canned(&self.result))
     }
 

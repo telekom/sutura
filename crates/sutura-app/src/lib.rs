@@ -436,9 +436,12 @@ pub fn answer<W, B, C>(
     row_ceiling: RowCeiling,
 ) -> Answering<W, B, C>
 where
-    W: Warehouse,
+    W: Warehouse + Sync,
+    W::Error: Send,
     B: CredentialBroker,
+    B::Error: Send,
     C: FederationCombiner,
+    C::Error: Send,
 {
     let pinned = definitions.get();
     let view = scoped_for(pinned, context);

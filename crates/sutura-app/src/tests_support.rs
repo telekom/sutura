@@ -70,7 +70,7 @@ impl sutura_domain::audit::AuditSink for DiscardingAuditSink {
 /// Two more fakes for `docs/adr/0029`'s own RED cells - split out for this file's own reason, below.
 mod deadline;
 pub(crate) use deadline::{
-    LegDeadlineExceededWarehouse, MonoDeadlineExceededWarehouse, NeverAskedWarehouse, RecordingLegsWarehouse,
+    LegDeadlineExceededWarehouse, MonoDeadlineExceededWarehouse, NeverAskedWarehouse, SlowDryRunLegsWarehouse,
 };
 
 /// The driver's own complaint, one level below the adapter's.
@@ -154,7 +154,7 @@ pub(crate) struct FixedWarehouse {
     /// [`Self::answering_after`]'s slow pre-flight: what proves a budget spent DURING a pre-flight
     /// round trip stops the call before `execute` - not merely that the outcome looks like a
     /// refusal - is that this counter stays zero.
-    executions: Cell<usize>,
+    executions: std::sync::atomic::AtomicUsize,
 }
 
 /// What a fake answers when the boot path asks whether a declared key is really unique.
@@ -180,7 +180,7 @@ impl FixedWarehouse {
             result: None,
             pre_flight_takes: std::time::Duration::ZERO,
             counts: CountsBack::NotAsked,
-            executions: Cell::new(0),
+            executions: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -192,7 +192,7 @@ impl FixedWarehouse {
             result: Some(result),
             pre_flight_takes: std::time::Duration::ZERO,
             counts: CountsBack::NotAsked,
-            executions: Cell::new(0),
+            executions: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -209,7 +209,7 @@ impl FixedWarehouse {
             result: Some(result),
             pre_flight_takes: std::time::Duration::ZERO,
             counts,
-            executions: Cell::new(0),
+            executions: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -226,13 +226,13 @@ impl FixedWarehouse {
             result: Some(result),
             pre_flight_takes,
             counts: CountsBack::NotAsked,
-            executions: Cell::new(0),
+            executions: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
     /// How many times `execute` was reached.
     pub(crate) fn executions(&self) -> usize {
-        self.executions.get()
+        self.executions.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Refuses credential material this fake has nowhere to put, as shared-identity adapters do.
@@ -279,7 +279,7 @@ impl Warehouse for FixedWarehouse {
         presented: &Presented,
         _deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
-        self.executions.set(self.executions.get().saturating_add(1));
+        self.executions.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.deliverable(presented)?;
         self.result
             .as_ref()
@@ -325,7 +325,7 @@ pub(crate) struct PreflightWarehouse<const EXECUTES_LEGS: bool> {
     posture: SourcePosture,
     result: RowSet,
     dry_run: DryRunOutcome,
-    executions: Cell<usize>,
+    executions: std::sync::atomic::AtomicUsize,
 }
 
 impl<const EXECUTES_LEGS: bool> PreflightWarehouse<EXECUTES_LEGS> {
@@ -335,12 +335,12 @@ impl<const EXECUTES_LEGS: bool> PreflightWarehouse<EXECUTES_LEGS> {
             posture,
             result,
             dry_run,
-            executions: Cell::new(0),
+            executions: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
     pub(crate) fn executions(&self) -> usize {
-        self.executions.get()
+        self.executions.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -378,7 +378,7 @@ impl<const EXECUTES_LEGS: bool> Warehouse for PreflightWarehouse<EXECUTES_LEGS> 
         _presented: &Presented,
         _deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
-        self.executions.set(self.executions.get().saturating_add(1));
+        self.executions.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(canned(&self.result))
     }
 
@@ -403,7 +403,8 @@ pub(crate) type LegPreflightWarehouse = PreflightWarehouse<true>;
 /// `xtask test-causality`'s scan reads as a test.
 #[cfg(test)]
 mod legs;
-pub(crate) use legs::{LegsWarehouse, PageBoundLegsWarehouse};
+#[cfg(test)]
+pub(crate) use legs::{LegsWarehouse, PageBoundLegsWarehouse, TransientlyFailingLegsWarehouse};
 
 /// The catalog-authored-SQL fake and its bundle - split out for this file's own `max-lines` reason.
 mod authored;
@@ -773,7 +774,7 @@ fn subject_leg() -> Presented {
 /// thread, and the workspace bans `std::sync::Mutex`.
 #[derive(Debug, Default)]
 pub(crate) struct CountingBroker {
-    asked: std::cell::Cell<usize>,
+    asked: Cell<usize>,
 }
 
 impl CountingBroker {

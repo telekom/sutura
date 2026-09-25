@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-app/src/federated/leg.rs b/crates/sutura-app/src/federated/leg.rs
+--- a/crates/sutura-app/src/federated/leg.rs
++++ b/crates/sutura-app/src/federated/leg.rs
+@@ -42,10 +42,6 @@ where
+     presented
+         .agrees_with(warehouse.posture(), leg.source())
+         .map_err(|cause| ServiceError::Posture { cause })?;
+-    // What the shared `Deadline` has left (`docs/adr/0029` decision 3), asked before every leg.
+-    if deadline.remaining_at(Instant::now()).is_none() {
+-        return Err(LegError::Refusal(deadline_exceeded(deadline)));
+-    }
+     // The same refusal a leg's `execute` can carry, asked of the pre-flight for the same reason
+     // (see `sutura_app::answer`): a data system may refuse the statement as this identity while it
+     // prepares, and that refusal must reach the caller as `SourceRefused` - the leg refusing as it

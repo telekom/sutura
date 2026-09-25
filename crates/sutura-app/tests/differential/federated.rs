@@ -389,7 +389,8 @@ fn answered<W>(
     combiner: &sutura_exec_datafusion::DataFusionCombiner,
 ) -> Result<ToolOutcome, String>
 where
-    W: sutura_domain::warehouse::Warehouse,
+    W: sutura_domain::warehouse::Warehouse + Sync,
+    W::Error: Send,
 {
     match sutura_app::answer(
         &side.bundle,
@@ -489,7 +490,8 @@ fn two_sources_of_two_kinds_answer_the_same_rows_as_one_source_over_the_same_dat
 /// adapter held its legs.
 fn differential<W>(one: &Side<sutura_exec_datafusion::DataFusionWarehouse>, two: &Side<W>, topology: &str)
 where
-    W: sutura_domain::warehouse::Warehouse,
+    W: sutura_domain::warehouse::Warehouse + Sync,
+    W::Error: Send,
 {
     let mut reached: Vec<(String, Reached)> = Vec::new();
     let mut found: Vec<String> = Vec::new();
