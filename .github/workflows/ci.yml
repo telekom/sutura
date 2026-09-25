@@ -192,7 +192,8 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}-ci
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-    # SKIPPED ON THE RELEASE COMMIT, and the three jobs below `needs: [ci]` so they skip with it.
+    # SKIPPED ON THE RELEASE COMMIT, and the jobs below `needs: [ci]` so they skip with it -
+    # `bigquery-driver-check` too, which no longer needs `ci` and repeats this test in its own `if:`.
     # version-bump.yml pushes `chore(release): vX.Y.Z` to `main` under a GitHub App installation
     # token, because the `main` ruleset requires a pull request and GITHUB_TOKEN cannot be given
     # a bypass without bypassing every workflow here. An App token's push DOES start workflow
@@ -1632,6 +1633,14 @@ jobs:
   # THE TWO CLASSIFICATIONS CAN DISAGREE, AND THAT IS SAFE BY CONSTRUCTION: `ci-aggregate` reads
   # `needs.ci.outputs.identity` (unchanged) to decide whether it must see this leg SUCCEED, so this
   # job's own verdict only ever widens what runs below, never narrows what the aggregate demands.
+  # A disagreement the other way - `ci` selects, this job does not - skips a leg `ci-aggregate`
+  # then requires, which is a RED run, not a silent pass.
+  #
+  # `data_source_bigquery` IS PUBLISHED HERE TOO, for `bigquery-driver-check` and for the same
+  # reason: that leg needs nothing from `ci` but the flag, and waiting for `ci` put its whole run -
+  # ~7.3 min, measured as the merge queue's critical path after `ci` over the 2026-09-25 runs -
+  # behind `ci`'s. `ci-aggregate` reads the flag off `ci`, as it does `identity`, so the argument
+  # above holds for it unchanged.
   identity-classify:
     runs-on: rust-mcp-16core
     # 20 minutes: real margin over the measured worst case (488s realise + 62s setup = 550s), not
@@ -1642,6 +1651,7 @@ jobs:
       contents: read
     outputs:
       identity: ${{ steps.classify.outputs.identity }}
+      data_source_bigquery: ${{ steps.classify.outputs.data_source_bigquery }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1865,9 +1875,14 @@ jobs:
   #
   # It reads no secret and needs no environment, so a fork's pull request can run it - the same
   # reason `keycloak-served-test` carries no event exception.
+  #
+  # `needs: [identity-classify]`, NOT `[ci]`, on `keycloak-served-test`'s reasoning (#983) - that
+  # job's header says why the two classifications may disagree and why that fails closed. The
+  # release-commit test is `ci`'s own, repeated because this job no longer inherits `ci`'s skip:
+  # `release.yml` runs this check against the published build, so a release commit loses nothing.
   bigquery-driver-check:
-    needs: [ci]
-    if: needs.ci.outputs.data_source_bigquery == 'true'
+    needs: [identity-classify]
+    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.data_source_bigquery == 'true' }}
     runs-on: rust-mcp-16core
     timeout-minutes: 45
     permissions:
@@ -1957,7 +1972,9 @@ jobs:
           # `ci` is normally the always-required base context. It is skipped in EXACTLY one
           # situation: the release commit, whose `chore(release):` message skips the whole belt
           # below `ci` (see `ci`'s own `if:`, top of the file) - `bigquery-driver-check` included,
-          # since it still `needs: [ci]`. `keycloak-served-test` (#983) does NOT any more - it
+          # whose own `if:` repeats that test now that it `needs: [identity-classify]` rather than
+          # `[ci]`, and whose `BQ_SELECTED` reads `ci`'s `''` exactly as `KC_SELECTED` does below.
+          # `keycloak-served-test` (#983) does NOT skip any more - it
           # `needs: [identity-classify]`, which carries no such `if:`, so it runs on a release
           # commit independently of `ci`'s skip and its own result is `success` or `failure`, not
           # `skipped`. What still keeps a release commit green either way is `KC_SELECTED`: it

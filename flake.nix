@@ -491,6 +491,17 @@
           # closure - `pr-cache`'s PR-scoped publish, the main-push writer - names it directly.
           deps = ciArtifacts;
 
+          # The dependency closures under what the jobs after `ci` build, each on its own so
+          # `cachix-push.yml`'s `downstream-deps` job publishes them without compiling a
+          # first-party crate on top: the native `-ci` one `bigquery-driver-check` links, the
+          # native release one under `.#oci` that `kind-smoke` loads, and the musl release one the
+          # demo container runs. Nothing published them before, so each of those jobs compiled its
+          # closure from source on every run. `.cargoArtifacts` of a real package rather than a
+          # second `buildDepsOnly`, so each is that package's own input by construction.
+          deps-native-ci = crossPackages."sutura-${shipped.hostRustTarget}-ci".cargoArtifacts;
+          deps-native-release = shipped.nativeBinaries.sutura.cargoArtifacts;
+          deps-musl-release = crossPackages.sutura-x86_64-unknown-linux-musl.cargoArtifacts;
+
           # The gate binary on its own, so CI can run `nix run .#xtask -- classify` with
           # nothing but `nix` on the runner.
           #
