@@ -168,10 +168,14 @@ const FEDERATION_NOT_EXECUTABLE: Guide = Guide {
 
 const FEDERATION_LINK_AMBIGUOUS: Guide = Guide {
     reason: "federation_link_ambiguous",
-    meaning: "the question's dimensions on the second data system join the metric through more than \
-              one relationship, and the two legs link on a single column",
-    remedy: "Nothing you can change about the question. Report it to a person: it is a fact about how \
-             the metric is defined.",
+    meaning: "a remote dimension joins through more than one relationship",
+    remedy: "Nothing you can change. Report it: it is a fact about how the metric is defined.",
+};
+
+const FEDERATION_LINK_COMPOUND: Guide = Guide {
+    reason: "federation_link_compound",
+    meaning: "the crossing relationship declares more than one join key",
+    remedy: "Nothing you can change. Report it: it is a fact about how the relationship is defined.",
 };
 
 const MEASURE_DOES_NOT_FEDERATE: Guide = Guide {
@@ -290,6 +294,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     &PLAN_SPANS_TOO_MANY_SOURCES,
     &FEDERATION_NOT_EXECUTABLE,
     &FEDERATION_LINK_AMBIGUOUS,
+    &FEDERATION_LINK_COMPOUND,
     &MEASURE_DOES_NOT_FEDERATE,
     // With the federation family, for the same reason: the move is to drop the second-source
     // dimension, and it is not a passing outage.
@@ -338,6 +343,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::PlanSpansTooManySources { .. } => &PLAN_SPANS_TOO_MANY_SOURCES,
         RefusalReason::FederationNotExecutable => &FEDERATION_NOT_EXECUTABLE,
         RefusalReason::FederationLinkAmbiguous { .. } => &FEDERATION_LINK_AMBIGUOUS,
+        RefusalReason::FederationLinkCompound { .. } => &FEDERATION_LINK_COMPOUND,
         RefusalReason::MeasureDoesNotFederate { .. } => &MEASURE_DOES_NOT_FEDERATE,
         RefusalReason::FederatedAnswerNotWellFormed { .. } => &FEDERATED_ANSWER_NOT_WELL_FORMED,
         RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,

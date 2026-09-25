@@ -4343,6 +4343,7 @@ dependencies = [
  "rcgen",
  "rmcp",
  "rustls",
+ "serde",
  "serde_json",
  "serde_norway",
  "sutura-app",

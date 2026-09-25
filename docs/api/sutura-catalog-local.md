@@ -70,6 +70,7 @@ finer split is a cheap change if a caller ever needs the branch.
 - `IdentifyKind`
 - `Metric`
 - `Model` - A model's own column or its `primary_key:` is not usable.
+- `Relationship`
 - `Description` - The prose of a definition document is not a usable description.
 
   **The variant that did not exist, and its absence was the hole.** A model's and a metric's
@@ -378,7 +379,25 @@ Why a model document could not become a domain `Model`.
 pub struct EndpointDoc
 ```
 
-One end of a relationship.
+One end of a relationship, and the grain an origin is truncated to when a join key's
+`grain` is present, making it a truncated equality rather than a plain one.
+
+#### Implements
+
+`Debug`, `Deserialize<'de>`
+
+### `struct JoinKeyDoc`
+
+```rust
+pub struct JoinKeyDoc
+```
+
+One term of a compound join, as the document spells it.
+
+A single column pair keeps the byte shape every existing relationship document has:
+`origin: { model, column }` / `target: { model, column }` outside a `keys:` list stays a plain
+equality. A compound join declares a `keys:` list, each entry `{ origin, target }` or
+`{ origin, grain, target }` - the origin column, truncated to `grain` for a truncated key.
 
 #### Implements
 
@@ -393,7 +412,7 @@ pub struct RelationshipDoc
 #### Methods
 
 ```rust
-pub fn into_domain(self) -> Relationship
+pub fn into_domain(self) -> Result<Relationship, InvalidJoinKeys>
 ```
 
 #### Implements

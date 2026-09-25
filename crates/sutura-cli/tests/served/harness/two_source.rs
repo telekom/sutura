@@ -51,9 +51,9 @@ pub(crate) fn settings_spanning_two_sources(case: &str) -> String {
 /// `sutura_domain::catalog` refuses that bundle by name, so `sutura serve` would stop at boot
 /// rather than answer, which is exactly what it did before this call existed.
 ///
-/// Applied only here, and not inside [`derived_catalog`]: `two_kind`'s deployment moves
-/// `daily_usage`, which is on no chain, so its catalog keeps the dimension and its boot check
-/// still reads it.
+/// Applied only here, and not inside [`derived_catalog`]: `two_kind`'s and `bigquery.rs`'s
+/// deployments move `daily_usage` instead, and [`without_the_product_family_dimension`] is their
+/// own strip, for the chain `daily_usage` is now the root of.
 ///
 /// A block that no longer matches PANICS, for [`derived_catalog`]'s reason: a strip that silently
 /// stopped applying would leave this deployment refusing to start and the diagnosis somewhere else.
@@ -72,6 +72,35 @@ fn without_the_chained_dimension(root: &Path) {
 
 /// The block [`without_the_chained_dimension`] removes, as `examples/single-player` writes it.
 const CHAINED_DIMENSION: &str = "  - name: sales_area\n    column: sales_area\n    via: [subscription_customer, customer_region]\n    values: [central, north_east, south_west]\n    description: >\n      Which sales area the customer's region rolls up into. The one dimension here\n      reached through a chain of two relationships rather than one.\n";
+
+/// Drops `voice_minutes`'s one chained dimension, for [`without_the_chained_dimension`]'s reason
+/// applied to `daily_usage` instead of `customers`.
+///
+/// **`daily_usage` is no longer the model with no `via` relationship at all.** Since
+/// `usage_subscription` landed, `product_family` reaches through it and then
+/// `subscription_product` - hop 1 crosses into whichever source `daily_usage` moves to, and hop 2
+/// stays on `subscriptions`'s own source. Moving `daily_usage` off [`LOCAL_SOURCE`] (`bigquery.rs`'s
+/// and `two_kind`'s own deployments both do) makes hop 2 cross AGAIN, back onto the model's own
+/// source - `sutura_domain::catalog::Definitions::assemble` refuses that bundle by name, the same
+/// shape [`without_the_chained_dimension`] exists for. Called wherever `daily_usage.md` moves.
+#[cfg(feature = "postgres")]
+pub(crate) fn without_the_product_family_dimension(root: &Path) {
+    let metric = root.join("metrics").join("voice_minutes.md");
+    let text = std::fs::read_to_string(&metric).expect("the derived catalog carries the metric this case edits");
+    let stripped = text.replace(PRODUCT_FAMILY_VIA_USAGE, "");
+    assert_ne!(
+        stripped,
+        text,
+        "{} no longer declares the chained dimension this fixture strips, so a corpus edit has \
+         left this deployment describing something else",
+        metric.display()
+    );
+    std::fs::write(&metric, stripped).expect("the derived metric document is writable");
+}
+
+/// The block [`without_the_product_family_dimension`] removes, as `examples/single-player` writes it.
+#[cfg(feature = "postgres")]
+const PRODUCT_FAMILY_VIA_USAGE: &str = "dimensions:\n  - name: product_family\n    column: product_family\n    via: [usage_subscription, subscription_product]\n    values: [convergent, fixed_internet, mobile, tv]\n    description: >\n      The kind of product the subscription that used the minutes belongs to. Reached through\n      `usage_subscription` - the compound join from a usage day to the monthly snapshot -\n      and then on to the product. Grouping by it does not multiply the minutes, because the\n      compound key stops every usage day from joining every month that subscription existed.\n";
 
 /// The example catalog, copied, with one model moved off [`LOCAL_SOURCE`] onto `moved_to`.
 ///

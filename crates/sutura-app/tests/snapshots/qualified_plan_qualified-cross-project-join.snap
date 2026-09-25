@@ -9,12 +9,14 @@ joins:
   - relationship: orders_customer
     table: reference-data.crm.customers
     join_type: many_to_one
-    origin:
-      table: orders
-      column: customer_id
-    target:
-      table: customers
-      column: id
+    keys:
+      - Equal:
+          origin:
+            table: orders
+            column: customer_id
+          target:
+            table: customers
+            column: id
 bucket:
   label: period
   grain: month

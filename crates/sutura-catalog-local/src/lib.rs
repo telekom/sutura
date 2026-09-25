@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Definitions, Description, InconsistentDefinitions, InvalidDescription, Metric, Model, Relationship,
+    Definitions, Description, InconsistentDefinitions, InvalidDescription, InvalidJoinKeys, Metric, Model, Relationship,
 };
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{
@@ -209,6 +209,12 @@ pub enum LocalCatalogError {
         path: PathBuf,
         #[source]
         cause: InvalidModelDocument,
+    },
+    #[error("{path} is not a usable relationship")]
+    Relationship {
+        path: PathBuf,
+        #[source]
+        cause: InvalidJoinKeys,
     },
     /// The prose of a definition document is not a usable description.
     ///
@@ -595,7 +601,11 @@ impl Collected {
             }
             DocumentKind::Relationship => {
                 let doc: RelationshipDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
-                self.relationships.push(doc.into_domain());
+                self.relationships
+                    .push(doc.into_domain().map_err(|cause| LocalCatalogError::Relationship {
+                        path: PathBuf::from(path),
+                        cause,
+                    })?);
             }
             // Every other kind is a note, and `absorb` is what decides which of the two this is. A
             // wildcard rather than four unreachable arms, because the exhaustiveness that matters is

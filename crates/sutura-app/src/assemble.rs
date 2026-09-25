@@ -439,7 +439,7 @@ mod tests {
 
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-    use sutura_domain::catalog::{Audience, Definitions, Description, Metric, Model, Relationship};
+    use sutura_domain::catalog::{Audience, Definitions, Description, JoinKey, JoinKeys, Metric, Model, Relationship};
     use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
     use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
@@ -773,10 +773,13 @@ mod tests {
             let relationship = Relationship::new(
                 RelationshipName::parse("fulfillment").expect("a test relationship is a name"),
                 ModelName::parse(format!("orders_{suffix}")).expect("a test model is a model"),
-                column("customer_id"),
                 ModelName::parse(format!("customers_{suffix}")).expect("a test model is a model"),
-                column("id"),
                 JoinType::ManyToOne,
+                JoinKeys::of(vec![JoinKey::Equal {
+                    origin: column("customer_id"),
+                    target: column("id"),
+                }])
+                .expect("a test relationship declares one key"),
             );
             let definitions =
                 Definitions::assemble(vec![origin, target], vec![relationship], vec![]).expect("one relationship holds together");

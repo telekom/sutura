@@ -1,0 +1,123 @@
+---
+source: crates/sutura-cli/tests/import_wren.rs
+assertion_line: 105
+expression: snapshot
+---
+=== metrics/sales_summary_average_order_value.md ===
+---
+kind: metric
+name: sales_summary_average_order_value
+model: orders
+measure:
+  ratio:
+    numerator: { aggregate: sum, column: amount_cents }
+    denominator: { aggregate: count_distinct, column: customer_id }
+    zero_denominator: yields_null
+time_column: order_date
+grains: [day]
+dimensions:
+  - name: status
+    column: status
+audience: open
+---
+
+Imported from the WrenAI cube `sales_summary`'s measure `average_order_value`. The grain and the ratio's zero-denominator policy are this converter's own defaults - wren declares neither - and are the first two things to review before committing.
+=== metrics/sales_summary_total_revenue.md ===
+---
+kind: metric
+name: sales_summary_total_revenue
+model: orders
+measure:
+  simple: { aggregate: sum, column: amount_cents }
+time_column: order_date
+grains: [day]
+dimensions:
+  - name: status
+    column: status
+audience: open
+---
+
+Imported from the WrenAI cube `sales_summary`'s measure `total_revenue`. The grain and the ratio's zero-denominator policy are this converter's own defaults - wren declares neither - and are the first two things to review before committing.
+=== models/customers.md ===
+---
+kind: model
+name: customers
+source: wren
+table: customers
+columns:
+  - name: id
+    type: BIGINT
+    nullable: false
+  - name: name
+    type: VARCHAR
+    nullable: false
+  - name: region_code
+    type: VARCHAR
+    nullable: false
+primary_key: [id]
+---
+
+Imported from the WrenAI model `customers`.
+=== models/orders.md ===
+---
+kind: model
+name: orders
+source: wren
+table: orders
+columns:
+  - name: id
+    type: BIGINT
+    nullable: false
+  - name: customer_id
+    type: BIGINT
+    nullable: false
+  - name: amount_cents
+    type: BIGINT
+    nullable: false
+  - name: order_date
+    type: DATE
+    nullable: false
+  - name: status
+    type: VARCHAR
+    nullable: false
+primary_key: [id]
+---
+
+Imported from the WrenAI model `orders`.
+=== relationships/orders_customer.md ===
+---
+kind: relationship
+name: orders_customer
+origin:
+  model: orders
+  column: customer_id
+target:
+  model: customers
+  column: id
+join_type: many_to_one
+---
+
+Imported from the WrenAI relationship `orders_customer`.
+=== report.txt ===
+sutura import wren
+
+mapped
+  models         2
+  relationships  1
+  metrics        2
+
+refused 10
+  row_access_control           orders.regional_only           a row-level access control has no sutura equivalent
+  calculated_column            orders.amount_dollars          a calculated column carries a SQL expression sutura's column metadata cannot hold
+  column_access_control        orders.notes                   a column-level access control has no sutura equivalent
+  ref_sql_model                recent_orders                  a model with `refSql` set is a SQL view; conversion never parses foreign SQL
+  unrecognised_join_condition  orders_customer_legacy         the condition is not a plain equality between two declared columns
+  many_to_many_relationship    customer_products_history      MANY_TO_MANY has no JoinType in sutura's closed vocabulary
+  sql_view                     recent_orders_view             a wren view is a named SQL statement; conversion never parses foreign SQL
+  cube_hierarchy               sales_summary: calendar        a cube hierarchy has no sutura equivalent
+  free_sql_dimension           sales_summary.region_shout     the expression is not a bare column name
+  free_sql_measure             sales_summary.inflated_revenue the expression is not one of the closed-vocabulary shapes
+
+notes
+  orders.customer is a relationship-navigation column; represented by the `orders_customer` relationship document instead of a model column
+  every mapped model was written with `source: wren`; rename it to match this deployment's own `sources:` declaration before committing

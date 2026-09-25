@@ -18,10 +18,13 @@ fn three_models() -> ModelsAndJoins {
     relationships.push(Relationship::new(
         relationship_name("customers_regions"),
         model_name("customers"),
-        column("region_code"),
         model_name("regions"),
-        column("code"),
         JoinType::ManyToOne,
+        JoinKeys::of(vec![JoinKey::Equal {
+            origin: column("region_code"),
+            target: column("code"),
+        }])
+        .expect("a test relationship declares one key"),
     ));
     (models, relationships)
 }
@@ -95,10 +98,13 @@ fn a_chain_hop_that_could_duplicate_rows_is_refused_naming_the_hop() {
     relationships[1] = Relationship::new(
         relationship_name("customers_regions"),
         model_name("customers"),
-        column("region_code"),
         model_name("regions"),
-        column("code"),
         JoinType::OneToMany,
+        JoinKeys::of(vec![JoinKey::Equal {
+            origin: column("region_code"),
+            target: column("code"),
+        }])
+        .expect("a test relationship declares one key"),
     );
     let m = chain_metric();
     assert_eq!(
@@ -121,10 +127,13 @@ fn a_chain_whose_hop_does_not_start_at_the_previous_target_is_refused() {
     relationships[1] = Relationship::new(
         relationship_name("customers_regions"),
         model_name("regions"),
-        column("code"),
         model_name("customers"),
-        column("region_code"),
         JoinType::ManyToOne,
+        JoinKeys::of(vec![JoinKey::Equal {
+            origin: column("code"),
+            target: column("region_code"),
+        }])
+        .expect("a test relationship declares one key"),
     );
     let m = chain_metric();
     assert_eq!(

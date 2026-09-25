@@ -28,7 +28,11 @@ const QUERY: Subject = Subject {
     // instead, so there is no question left for that variant to refuse. 23 again since
     // `telekom/sutura#780` ADDED `CrossModelRatioNotExecutable`: a ratio term naming another fact
     // model loads and is refused at plan time rather than mis-planned against the wrong table.
-    variants: variants(23),
+    // 24 since `telekom/sutura#967` ADDED `FederationLinkCompound`: a relationship crossing into a
+    // remote data system with more than one join key is refused under its own name rather than
+    // under `FederationLinkAmbiguous`, which means two RELATIONSHIPS crossing at once and would
+    // tell a caller something untrue about one correctly declared compound key.
+    variants: variants(24),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

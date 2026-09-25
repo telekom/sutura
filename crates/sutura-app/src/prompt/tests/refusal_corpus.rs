@@ -66,6 +66,11 @@ pub(super) fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::FederationLinkAmbiguous {
             source: SourceName::parse("geo").expect("a test source is a source"),
         },
+        RefusalReason::FederationLinkCompound {
+            source: SourceName::parse("geo").expect("a test source is a source"),
+            relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
+                .expect("a test relationship is a relationship"),
+        },
         RefusalReason::MeasureDoesNotFederate {
             metric: metric_name("active_subscriptions"),
             aggregate: Aggregate::CountDistinct,
@@ -135,6 +140,7 @@ fn guide_key_carries_every_variant() {
             | RefusalReason::PlanSpansTooManySources { .. }
             | RefusalReason::FederationNotExecutable
             | RefusalReason::FederationLinkAmbiguous { .. }
+            | RefusalReason::FederationLinkCompound { .. }
             | RefusalReason::MeasureDoesNotFederate { .. }
             | RefusalReason::FederatedAnswerNotWellFormed { .. }
             | RefusalReason::PlanTablesShareAnIdentifier { .. }

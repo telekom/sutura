@@ -9,7 +9,9 @@ use std::collections::BTreeSet;
 
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::capabilities::MetadataCapabilities;
-use sutura_domain::catalog::{Anchor, AnchorValue, Audience, Definitions, Description, Metric, Model, Relationship};
+use sutura_domain::catalog::{
+    Anchor, AnchorValue, Audience, Definitions, Description, JoinKey, JoinKeys, Metric, Model, Relationship,
+};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{Aggregate, ColumnName, Grain, JoinType, ModelName, RelationshipName, SourceName, TableName};
@@ -56,10 +58,13 @@ fn bundle_joined(anchor_range: TimeRange) -> PinnedDefinitions {
     let joined = Relationship::new(
         relationship(),
         named("orders"),
-        column("customer_key"),
         named("customers"),
-        column("customer_key"),
         JoinType::ManyToOne,
+        JoinKeys::of(vec![JoinKey::Equal {
+            origin: column("customer_key"),
+            target: column("customer_key"),
+        }])
+        .expect("a test relationship declares one key"),
     );
     let revenue = Metric::new(
         metric(),
@@ -122,7 +127,7 @@ fn a_declared_key_the_data_contradicts_is_not_a_validated_bundle() {
     assert_eq!(violation.relationship(), &relationship());
     assert_eq!(violation.model(), &named("customers"));
     assert_eq!(violation.table().to_string(), "dim_customer");
-    assert_eq!(violation.column(), &column("customer_key"));
+    assert_eq!(violation.keys().first().unwrap(), &column("customer_key"));
     assert_eq!(violation.counts().rows(), 41);
     assert_eq!(violation.counts().distinct(), 40);
     assert_eq!(violation.counts().duplicated(), 1);
