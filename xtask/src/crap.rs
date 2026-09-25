@@ -116,21 +116,8 @@ use report::{AllowEntry, Entry, POLICY_FILE, Report, offenders, parse_policy, re
 /// WHAT THAT MISSES, stated plainly: every dialect renderer, the resolver, the planner, the
 /// catalog loader and both adapters. This gate covers the invariant core and nothing else.
 ///
-/// A THIRD GAP, MEASURED AND INTENTIONALLY LEFT UNFIXED: `cargo crap` prints a non-failing
-/// "source/LCOV scope mismatch" naming `catalog/tests/chain.rs`,
-/// `plan/federated/tests/fixtures.rs` and `plan/federated/tests/ranking.rs`. Every `#[cfg(test)]`
-/// module in this crate is absent from `cargo llvm-cov`'s LCOV by the same rule - `catalog/tests.rs`
-/// and `plan/federated/tests.rs` are missing too - but `cargo crap`'s own skip rule recognises only
-/// the literal filename `tests.rs`, so a file split out of one for `max-lines` and given a concept
-/// name (this crate's usual shape, see `AGENTS.md`) is invisible to it and gets analysed as
-/// production code with nothing to match. Its eighteen functions - `chain_metric`, `three_models`,
-/// every builder `fixtures.rs` exists to hold, `ranked` and `families` - score the formula's answer
-/// for 0% coverage at cyclomatic complexity 1, even though all three files carry real `#[test]`
-/// functions that run under `just test`: there is no LCOV record to read a true number
-/// from. Harmless at that complexity; a future branchy function landing in one of these three files would
-/// score as an offender for a coverage figure nobody measured. `cargo crap` has no flag to extend
-/// its skip rule to a path, so this is stated rather than silenced - there is no gate behind this
-/// paragraph, and it goes stale the moment the tool's rule, or these three files, change under it.
+/// A nested test-helper file used to score as uncovered production code; `.cargo-crap.toml`'s
+/// `exclude` now covers the whole `tests/` subtree, not just `tests.rs` itself.
 pub(crate) const SCOPE: &[&str] = &["sutura-domain"];
 
 /// Where the two tool versions are pinned. One file, imported by flake.nix and devenv.nix.

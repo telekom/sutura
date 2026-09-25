@@ -66,6 +66,12 @@ missing = "pessimistic"
 exclude = [
   "**/tests.rs",
   "**/*_tests.rs",
+  # The two globs above only match a `tests.rs` FILE, not a nested `tests/` directory: the
+  # built-in default `tests/**` is rooted at `--path` and does not reach `src/**/tests/**`
+  # either. Without this, a helper split out of `tests.rs` for `max-lines` and given a concept
+  # name scores as uncovered production code - measured for `catalog/tests/chain.rs`,
+  # `plan/federated/tests/fixtures.rs` and `plan/federated/tests/ranking.rs`.
+  "**/tests/**",
 ]
 
 # Functions and files exempt from the score.
