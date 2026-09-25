@@ -1118,6 +1118,39 @@ Deterministic in its inputs: every collection walked here is a `BTreeMap` or a `
 the grains are sorted explicitly. Two calls with the same bundle produce the same bytes, which is
 what lets the rendering be pinned by a snapshot rather than described.
 
+### `fn catalog_knowledge`
+
+```rust
+pub fn catalog_knowledge(view: &sutura_domain::pinned::view::ScopedView<'_>, prose: CatalogProse, instructions: Option<&str>) -> String
+```
+
+The knowledge sections and the operator's own text, as the `describe_catalog` tool returns them.
+
+A second consumer of the knowledge kinds, one the prompt's renderer shares: the glossary, the
+caveats, the terms recorded as undefined and the worked questions, plus the operator's
+instructions - all AUDIENCE-SCOPED through the caller's own view, and descriptive only (no data
+rows). This is the half of the surface a gateway surfaces that never delivers
+`initialize.instructions`; a client over `tools/call` reads the same sections a prompt-rendered
+agent does, narrowed to what this caller may see.
+
+**Takes a `ScopedView`, never a bare `&PinnedDefinitions`** - the same rule
+`CatalogContent` and `docs/adr/0028` state for the metric listing. A caller sees
+only the knowledge that belongs to the metrics it is granted: glossary entries, caveats and worked
+examples stay with their metric, and an entry whose metric is invisible is withheld. The caveat
+all-referents rule is the ADR's own: a caveat survives only when every metric it refers to is
+visible.
+
+**The terms recorded as undefined have no metric to follow**, and the ADR names them separately:
+an unscoped absence needs an explicit catalog-wide audience and is withheld when none is granted.
+That declaration does not exist on the type today, so a caller-scoped view drops them entirely.
+The deployment's own view (`ScopedView::is_everything`) retains them, which is what keeps the
+operator-facing surfaces whole.
+
+Prose is quoted under the operator's `prompt.catalog_prose` setting exactly as the prompt treats
+it - the same `CatalogProse` and the same `> ` per-line `quote` - so an operator who withholds
+catalog prose from the prompt also withholds it from the tool. The byte cap is the bundle's own:
+knowledge is bounded at load by `sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES`.
+
 ### `use guidance`
 
 What a refusal means and what to do about it: `(meaning, remedy)`, in the order the prompt renders
