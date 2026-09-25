@@ -240,7 +240,8 @@ ci:
     # adbc-driver-bigquery IS in this list: it is the one venue that realises the four cross
     # `libadbc_driver_bigquery.so` builds (review telekom/sutura#913 round 1 found no gate built the
     # driver), so a broken driver triple reds this task like any other gate check.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery; do
+    # adbc-driver-postgresql is in it for the same reason, over the four C++ driver builds.
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L
     done
@@ -335,6 +336,25 @@ e2e-datahub-adbc *args:
 # The finishing sequence, over the committed branch diff. Needs a clean tree.
 ship-check:
     devenv shell ship-check
+
+# READ-ONLY, unlike `just api`: regenerates into a temp directory and byte-compares against the
+# committed pages, so a stale page fails here rather than getting silently rewritten. `ship-check`'s
+# own surface task for a Rust diff (#987) - `checks.api-docs` is a required nix check but no commit
+# hook reaches it, which is how 11 of 87 studied red PR/queue runs were a stale API page nobody
+# caught before pushing.
+check-api-docs:
+    cargo run -q -p xtask -- check-api-docs
+
+# The default-feature lane alone, without the rest of `just gates` - `ship-check`'s own surface
+# task for a Rust diff (#987). Every other compiling gate passes `--all-features`; this is the one
+# that compiles AND runs the tests `nix/shipped.nix`'s default set actually ships, and per
+# `AGENTS.md` it is not one of `just validate`'s eleven nix checks either - 7 of 87 studied red
+# PR/queue runs were exactly this failure, uncaught until CI.
+check-default-features:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo run -q -p xtask -- check-default-features
+    cargo run -q -p xtask -- check-default-feature-tests
 
 # Through `nix/run-gate.sh`: local tools when the dev shell is active, the pinned Nix route when not.
 # Every run leaves `target/crap/baseline.json`, which `just crap-delta` compares. Scope, cost and

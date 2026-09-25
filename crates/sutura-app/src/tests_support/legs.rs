@@ -131,3 +131,66 @@ impl Warehouse for PageBoundLegsWarehouse {
         matches!(error, AdapterFailure::TooMuchData)
     }
 }
+
+/// A leg-executing fake whose `execute` fails transiently - not a refusal, not a bound, not a
+/// deadline - as `NoPlaceForASubject` naming its own source.
+///
+/// **The instrument for the precedence pin when BOTH legs fail transiently.** Both legs run in the
+/// concurrent scope, so both produce a `LegError::Failure`; the fact leg is inspected first in
+/// `answer_federated`, so ITS warehouse error must be the one surfaced. The error carries the
+/// failing source's name (this fake's `source`), so whichever leg won is distinguishable - and
+/// `NoPlaceForASubject` satisfies none of `run_leg`'s governance predicates, so both failures leave
+/// as `Err` rather than a `ToolOutcome::Refusal`.
+pub(crate) struct TransientlyFailingLegsWarehouse {
+    source: SourceName,
+    posture: SourcePosture,
+}
+
+impl TransientlyFailingLegsWarehouse {
+    pub(crate) fn new(source: SourceName, posture: SourcePosture) -> Self {
+        Self { source, posture }
+    }
+}
+
+impl Warehouse for TransientlyFailingLegsWarehouse {
+    type Error = AdapterFailure;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+    const EXECUTES_LEGS: bool = true;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
+        Ok(PreFlight::NotAsked)
+    }
+
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
+        Err(AdapterFailure::NoPlaceForASubject {
+            at: String::from(self.source.as_str()),
+            presented: "a-leg-executing-fake",
+        })
+    }
+
+    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Err(AdapterFailure::NoPlaceForASubject {
+            at: String::from(self.source.as_str()),
+            presented: "a-leg-executing-fake",
+        })
+    }
+}

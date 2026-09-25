@@ -187,7 +187,7 @@ throw away the only description of the fault that exists.
 ## `fn serve_stdio`
 
 ```rust
-pub async fn serve_stdio<S>(service: std::sync::Arc<S>, permitted: sutura_app::Permitted, prose: sutura_app::prompt::CatalogProse, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, instructions: std::sync::Arc<str>) -> Result<(), NotServed>
+pub async fn serve_stdio<S>(service: std::sync::Arc<S>, permitted: sutura_app::Permitted, prose: sutura_app::prompt::CatalogProse, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, instructions: std::sync::Arc<str>, operator_instructions: Option<std::sync::Arc<str>>) -> Result<(), NotServed>
 ```
 
 Serves the agent surface over standard input and output, until the client disconnects.
@@ -360,7 +360,7 @@ re-resolved per request out of each request's `Asked`, never out of a session.
 ### `fn service`
 
 ```rust
-pub fn service<S>(surface: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, instructions: std::sync::Arc<str>) -> rmcp::transport::StreamableHttpService<crate::AgentSurface<S>, rmcp::transport::streamable_http_server::session::local::LocalSessionManager>
+pub fn service<S>(surface: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, instructions: std::sync::Arc<str>, operator_instructions: Option<std::sync::Arc<str>>) -> rmcp::transport::StreamableHttpService<crate::AgentSurface<S>, rmcp::transport::streamable_http_server::session::local::LocalSessionManager>
 ```
 
 Builds the streamable-HTTP transport over one `Surface`, as a plain `tower_service::Service`
@@ -570,7 +570,7 @@ port has to outlive the future that started the call.
 #### Methods
 
 ```rust
-pub const fn new(service: Arc<S>, asking: Asking, prose: sutura_app::prompt::CatalogProse, admission: Admission, reply: RequestTimeout, instructions: Arc<str>) -> Self
+pub const fn new(service: Arc<S>, asking: Asking, prose: sutura_app::prompt::CatalogProse, admission: Admission, reply: RequestTimeout, instructions: Arc<str>, operator_instructions: Option<Arc<str>>) -> Self
 ```
 
 Wraps a service, and states what the peer may do and how catalog prose is treated.
@@ -845,13 +845,23 @@ dates - `telekom/sutura#778`.
 
 `Debug`, `Deserialize<'de>`, `JsonSchema`
 
-### `struct FilterArgs`
+### `enum FilterArgs`
 
 ```rust
-pub struct FilterArgs
+pub enum FilterArgs
 ```
 
-One equality filter.
+One filter: a dimension, and what it must - or must not - equal.
+
+Tagged by `op`, mirroring `sutura_domain::query::Filter` - `github.com/telekom/sutura#968`. Every
+value, in either shape, is still checked against the metric's own allowlist; `In`/`NotIn` widen
+the predicate's shape and never the source of a value.
+
+#### Variants
+
+- `Eq` - The dimension equals this one value.
+- `In` - The dimension equals one of these values. At least one.
+- `NotIn` - The dimension equals none of these values. At least one. A row whose value for this dimension is unmatched/NULL (an unresolved join key) is excluded, not included.
 
 #### Implements
 
@@ -977,24 +987,30 @@ The sentence. A test asserts it is not empty; nothing asserts its wording.
 
 What this deployment measures, as the catalog tool's structured content.
 
-**A second wire type beside `sutura_http::wire::CatalogBody`, with the same fields, and that is
-the same deliberate cost `super::AskArgs` already pays.** An adapter never calls another adapter, so
-this crate cannot import that shape; what keeps the two equal is review plus the fact that both
-are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set, which is where a
-missing field would show up as a missing call rather than as a silent divergence.
+**A second wire type beside `sutura_http::wire::CatalogBody` for the metric half, and the same
+deliberate cost `super::AskArgs` already pays.** An adapter never calls another adapter, so
+this crate cannot import that shape; what keeps the metric halves equal is review plus the fact
+that both are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set.
+**The whole type is WIDER than `CatalogBody`**: it also carries the knowledge sections and the
+operator's instructions, which the HTTP `/v1/catalog` surface has no equivalent of - that surface
+is the structured half alone, rendered by a different reader.
 
 **What narrows this listing is the CALLER's identity - `docs/adr/0028` - and nothing the caller
 SENDS.** `sutura_domain::pinned::SemanticCatalog::load` takes no request context and cannot be
 given one, so no argument selects, widens or parameterizes what this returns: the caller's mapped
 audiences (which `describe` reads and this constructor takes as a `ScopedView`) decide which
-metrics the listing holds, while the bundle underneath is the same one every answer is computed
-from. Invisible means absent, and it is the transport's job to build the view, never this type's.
+metrics and which of their knowledge the listing holds, while the bundle underneath is the same
+one every answer is computed from. Invisible means absent, and it is the transport's job to build
+the view, never this type's.
 
 ### `use DescribeCatalogArgs`
 
 This tool takes no arguments. It returns the catalog of what this deployment measures, narrowed
-to what the calling principal may see: there is nothing to filter or select, so send an empty
-object.
+to what the calling principal may see - the metrics, grains, dimensions and permitted values.
+
+It also returns the catalog's own knowledge (the glossary, caveats, worked examples and terms
+recorded as undefined it carries) and the deployment operator's instructions. There is nothing to
+filter or select, so send an empty object.
 
 ### `use DimensionContent`
 
@@ -1052,8 +1068,11 @@ pub struct DescribeCatalogArgs
 ```
 
 This tool takes no arguments. It returns the catalog of what this deployment measures, narrowed
-to what the calling principal may see: there is nothing to filter or select, so send an empty
-object.
+to what the calling principal may see - the metrics, grains, dimensions and permitted values.
+
+It also returns the catalog's own knowledge (the glossary, caveats, worked examples and terms
+recorded as undefined it carries) and the deployment operator's instructions. There is nothing to
+filter or select, so send an empty object.
 
 ##### Implements
 
@@ -1067,23 +1086,26 @@ pub struct CatalogContent
 
 What this deployment measures, as the catalog tool's structured content.
 
-**A second wire type beside `sutura_http::wire::CatalogBody`, with the same fields, and that is
-the same deliberate cost `super::AskArgs` already pays.** An adapter never calls another adapter, so
-this crate cannot import that shape; what keeps the two equal is review plus the fact that both
-are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set, which is where a
-missing field would show up as a missing call rather than as a silent divergence.
+**A second wire type beside `sutura_http::wire::CatalogBody` for the metric half, and the same
+deliberate cost `super::AskArgs` already pays.** An adapter never calls another adapter, so
+this crate cannot import that shape; what keeps the metric halves equal is review plus the fact
+that both are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set.
+**The whole type is WIDER than `CatalogBody`**: it also carries the knowledge sections and the
+operator's instructions, which the HTTP `/v1/catalog` surface has no equivalent of - that surface
+is the structured half alone, rendered by a different reader.
 
 **What narrows this listing is the CALLER's identity - `docs/adr/0028` - and nothing the caller
 SENDS.** `sutura_domain::pinned::SemanticCatalog::load` takes no request context and cannot be
 given one, so no argument selects, widens or parameterizes what this returns: the caller's mapped
 audiences (which `describe` reads and this constructor takes as a `ScopedView`) decide which
-metrics the listing holds, while the bundle underneath is the same one every answer is computed
-from. Invisible means absent, and it is the transport's job to build the view, never this type's.
+metrics and which of their knowledge the listing holds, while the bundle underneath is the same
+one every answer is computed from. Invisible means absent, and it is the transport's job to build
+the view, never this type's.
 
 ##### Methods
 
 ```rust
-pub fn of(view: &ScopedView<'_>, prose: CatalogProse) -> Self
+pub fn of(view: &ScopedView<'_>, prose: CatalogProse, instructions: Option<&str>) -> Self
 ```
 
 The reader's view of one pinned bundle, under the prose setting this deployment was started
@@ -1098,13 +1120,8 @@ here. A second argument cannot be left out.
 exists to close.** A caller may see only the metrics its granted audiences name; rendering
 from a bare `&PinnedDefinitions` would hand every caller the whole bundle again, which is
 the defect this surface shipped until it took the view. `ScopedView` borrows the bundle, so
-this builder cannot reach `SemanticCatalog::load` - a per-caller filter stays off the
-request path as a property of the type, never a call the renderer happens to omit.
-
-It also asks nothing of the setting itself: `Carried::under` and `prose::notice` are the
-crate's only two readers of it, so this builder cannot fill a `description` or pick a notice
-without the operator's decision, and a third `CatalogProse` spelling is a compile error in
-both rather than an `else` arm here.
+this builder cannot reach `SemanticCatalog::load` - the knowledge sections and the metrics
+are filtered by the caller's own grant, never by a call the renderer omits.
 
 ##### Implements
 

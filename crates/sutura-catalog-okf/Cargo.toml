@@ -13,6 +13,7 @@ sutura-domain = { workspace = true }
 serde = { workspace = true }
 serde_norway = { workspace = true }
 thiserror = { workspace = true }
+rustix = { workspace = true }
 
 [lints]
 workspace = true

@@ -24,7 +24,8 @@ use crate::shared::{chain, question, settings, stable};
 /// between two of them is exactly what a one-sided anchor check cannot see.
 fn reproduces_every_declared_anchor<W>()
 where
-    W: DataSystemUnderTest,
+    W: DataSystemUnderTest + Sync,
+    W::Error: Send,
 {
     // A network adapter with no provisioned tier to run against is SKIPPED (the notice is already
     // on stderr) rather than failed; the skip-or-fail direction is `SUTURA_DEV_REQUIRE_TIER`.
@@ -64,7 +65,8 @@ where
 /// `Real: inf` under the metric's own certified name, and the snapshot read as coverage.
 fn runs_the_corpus_and_pins_the_rows<W>()
 where
-    W: DataSystemUnderTest,
+    W: DataSystemUnderTest + Sync,
+    W::Error: Send,
 {
     if !W::available() {
         return;
@@ -120,7 +122,8 @@ where
 /// resolution still happens, on the one pass it makes.
 fn accepts_every_plan_before_running_it<W>()
 where
-    W: DataSystemUnderTest,
+    W: DataSystemUnderTest + Sync,
+    W::Error: Send,
 {
     if !W::available() {
         return;
@@ -195,7 +198,8 @@ fn total(rows: &RowSet, label: &str) -> f64 {
 /// reconcile here and not there.
 fn partitions_the_measure_rather_than_filtering_it<W>()
 where
-    W: DataSystemUnderTest,
+    W: DataSystemUnderTest + Sync,
+    W::Error: Send,
 {
     if !W::available() {
         return;
@@ -283,7 +287,8 @@ where
 /// cause the server never sent.
 fn fails_a_zero_denominator_that_declares_it_fails<W>()
 where
-    W: DataSystemUnderTest,
+    W: DataSystemUnderTest + Sync,
+    W::Error: Send,
 {
     if !W::available() {
         return;
@@ -380,7 +385,8 @@ where
 /// `.agents/skills/sutura/invariants` and in `SECURITY.md` rather than implied by a green run here.
 fn counts_every_declared_join_key<W>()
 where
-    W: DataSystemUnderTest,
+    W: DataSystemUnderTest + Sync,
+    W::Error: Send,
 {
     if !W::available() {
         return;
@@ -399,6 +405,10 @@ where
                 relationship.name()
             )
         });
+        let column = key
+            .target_columns()
+            .next()
+            .expect("a declared key has at least one target column");
         // The registry cell is the second of the two call sites `clippy.toml` permits for a port
         // method that executes with no credential - the boot path holds the other. It is here rather
         // than nowhere because a capability nothing measures is a capability that can vanish.
@@ -409,13 +419,13 @@ where
         )]
         let answered = warehouse
             .declared_key(key)
-            .unwrap_or_else(|e| panic!("{} could not count {} on {}: {e}", W::NAME, key.column(), key.table()));
+            .unwrap_or_else(|e| panic!("{} could not count {} on {}: {e}", W::NAME, column, key.table()));
         let KeyUniqueness::Counted(counts) = answered else {
             panic!(
                 "{} did not count {}, so every cardinality declaration on it is unchecked and nothing \
                  else in this suite would have said so",
                 W::NAME,
-                key.column()
+                column
             );
         };
         let rows = rows_in_fixture(&key);
@@ -425,13 +435,13 @@ where
             "{} counted {} values of {} where the fixture holds {rows}",
             W::NAME,
             counts.rows(),
-            key.column()
+            column
         );
         assert!(
             counts.is_unique(),
             "{} says {} is not unique in {}, which would make the example corpus unservable: {counts:?}",
             W::NAME,
-            key.column(),
+            column,
             key.table()
         );
     }

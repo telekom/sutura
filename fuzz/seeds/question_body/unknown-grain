@@ -1,1 +1,1 @@
-{"metric":"revenue","grain":"fortnight"}
+{"metrics":["revenue"],"grain":"fortnight"}

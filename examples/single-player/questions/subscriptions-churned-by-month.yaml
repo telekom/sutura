@@ -1,4 +1,4 @@
-metric: subscriptions_churned
+metrics: [subscriptions_churned]
 grain: month
 range:
   start: 2026-01-01

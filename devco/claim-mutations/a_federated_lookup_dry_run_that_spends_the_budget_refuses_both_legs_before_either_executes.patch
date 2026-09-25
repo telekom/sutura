@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-app/src/federated/leg.rs b/crates/sutura-app/src/federated/leg.rs
+--- a/crates/sutura-app/src/federated/leg.rs
++++ b/crates/sutura-app/src/federated/leg.rs
+@@ -94,9 +94,6 @@ where
+     credentials
+         .still_usable_at(now_in_unix_seconds())
+         .map_err(|cause| ServiceError::Credentials { cause })?;
+-    if deadline.remaining_at(Instant::now()).is_none() {
+-        return Err(LegError::Refusal(deadline_exceeded(deadline)));
+-    }
+     match warehouse.execute(Executable::Leg(leg), presented, deadline) {
+         Ok(rows) => Ok(rows),
+         Err(cause) => {

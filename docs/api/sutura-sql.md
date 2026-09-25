@@ -240,11 +240,13 @@ Renders a plan as one statement, paired with its parameters.
 
 Renders one declared join key's uniqueness probe as one statement.
 
-**Two counts over one column of one table, and nothing else.** `COUNT(col)` beside
-`COUNT(DISTINCT col)` is the whole question a `many_to_one` declaration can be contradicted by,
-and the pair is equal exactly when the declaration holds. There is no `WHERE`, no `GROUP BY`, no
-`HAVING` and no `LIMIT`: the declaration is unconditional, so a probe carrying a filter would
-answer a narrower question than the one the join path spends.
+**Two counts over the target side of a whole key set, and nothing else.** A row count beside
+`COUNT(DISTINCT key_1, key_2, …)` is the whole question a `many_to_one` declaration can be
+contradicted by, and the pair is equal exactly when the declaration holds over the WHOLE set -
+the one shape a compound key can be proved by, because no single column of a compound key need
+identify a row on its own. There is no `WHERE`, no `GROUP BY`, no `HAVING` and no `LIMIT`: the
+declaration is unconditional, so a probe carrying a filter would answer a narrower question than
+the one the join path spends.
 
 **No parameter, and nothing from a question.** A `DeclaredKey` is built out of a pinned
 bundle's own parsed names, so the statement has nowhere for a caller's value to arrive; the
@@ -253,6 +255,17 @@ returned `GeneratedQuery` carries an empty parameter list rather than one this c
 **No key value is projected**, which is the same decision the answer type makes and for the same
 reason: what comes back reaches a boot log, and a duplicated dimension key printed there is
 source data copied into a sink nobody scoped for it.
+
+The distinct count is over a TUPLE of the target columns for `DuckDb`, `Postgres` and
+`ClickHouse` (the allowlist `GenerateError::CompoundKeyProbeUnsupported`'s rustdoc argues
+for), and Oracle and `BigQuery` refuse a compound probe by name instead. Only
+`sutura-domain`'s own parse-check family measures the rendered tuple text, over the three
+allowed dialects; this comment does not claim Oracle or `BigQuery`. The row count stays
+`COUNT(col)` for one key, unchanged, so an existing single-pair golden keeps its rendered
+text, and for a compound key becomes `COUNT(CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN 1
+END)`: a row null in ANY column of the set cannot match on either side of a join, the same
+reason a single null key is excluded, so `rows` and `distinct` stay comparable under
+`COUNT(DISTINCT …)`'s own per-tuple null exclusion.
 
 Shared with `generate` and `generate_leg`: `qualified`, `aliased`, `table_path` and
 `render`, so identifier quoting, column qualification and path depth cannot be one thing here
@@ -1157,6 +1170,22 @@ differently. A plan that will not render is a bug here or upstream.
   variant is what a caller matches on - and worded exactly as `sutura_exec_datafusion`'s
   `NoPredicate`, so the SQL path and the engine name one condition identically rather than
   describing it twice.
+- `CompoundKeyProbeUnsupported` - A compound declared key's fan-out probe, for a dialect this crate has no null-safe multi-column `DISTINCT` rendering for.
+
+  **An allowlist (`DuckDb`, `Postgres`, `ClickHouse`), not a denylist.** `Tuple` renders as a
+  plain argument list, `DISTINCT a, b`, on every dialect this crate does not special-case -
+  which is the tuple `DuckDB` and Postgres read (polyglot 0.12.0's generator rewrites it to
+  the null-safe `CASE WHEN a IS NULL THEN NULL … ELSE (a, b) END` for both, `multi_arg_distinct:
+  false`) and the shape `ClickHouse`'s own multi-argument `DISTINCT` already treats as one,
+  null-safely, without any rewrite. Oracle and `BigQuery` both document `DISTINCT` as taking one
+  expression, and `Tuple` there is `DISTINCT a, b` - a plain argument list neither grammar
+  means by it, not the tuple this crate intends. **Not reproduced against a live instance of
+  either** - stated from each dialect's documented `DISTINCT` syntax, not from an observed
+  rejection. Refused here, at generation time, rather than handed to the data system as SQL
+  that may be rejected: the boot-time probe for a `many_to_one` relationship declaring more
+  than one join key is the only caller, so this is reachable only from a compound key on one
+  of these dialects, and a caller cannot narrow a catalog document out of it - an operator
+  changes the relationship or the dialect.
 
 #### Implements
 
@@ -1226,11 +1255,13 @@ pub fn generate_key_probe(key: &sutura_domain::warehouse::cardinality::DeclaredK
 
 Renders one declared join key's uniqueness probe as one statement.
 
-**Two counts over one column of one table, and nothing else.** `COUNT(col)` beside
-`COUNT(DISTINCT col)` is the whole question a `many_to_one` declaration can be contradicted by,
-and the pair is equal exactly when the declaration holds. There is no `WHERE`, no `GROUP BY`, no
-`HAVING` and no `LIMIT`: the declaration is unconditional, so a probe carrying a filter would
-answer a narrower question than the one the join path spends.
+**Two counts over the target side of a whole key set, and nothing else.** A row count beside
+`COUNT(DISTINCT key_1, key_2, …)` is the whole question a `many_to_one` declaration can be
+contradicted by, and the pair is equal exactly when the declaration holds over the WHOLE set -
+the one shape a compound key can be proved by, because no single column of a compound key need
+identify a row on its own. There is no `WHERE`, no `GROUP BY`, no `HAVING` and no `LIMIT`: the
+declaration is unconditional, so a probe carrying a filter would answer a narrower question than
+the one the join path spends.
 
 **No parameter, and nothing from a question.** A `DeclaredKey` is built out of a pinned
 bundle's own parsed names, so the statement has nowhere for a caller's value to arrive; the
@@ -1239,6 +1270,17 @@ returned `GeneratedQuery` carries an empty parameter list rather than one this c
 **No key value is projected**, which is the same decision the answer type makes and for the same
 reason: what comes back reaches a boot log, and a duplicated dimension key printed there is
 source data copied into a sink nobody scoped for it.
+
+The distinct count is over a TUPLE of the target columns for `DuckDb`, `Postgres` and
+`ClickHouse` (the allowlist `GenerateError::CompoundKeyProbeUnsupported`'s rustdoc argues
+for), and Oracle and `BigQuery` refuse a compound probe by name instead. Only
+`sutura-domain`'s own parse-check family measures the rendered tuple text, over the three
+allowed dialects; this comment does not claim Oracle or `BigQuery`. The row count stays
+`COUNT(col)` for one key, unchanged, so an existing single-pair golden keeps its rendered
+text, and for a compound key becomes `COUNT(CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN 1
+END)`: a row null in ANY column of the set cannot match on either side of a join, the same
+reason a single null key is excluded, so `rows` and `distinct` stay comparable under
+`COUNT(DISTINCT …)`'s own per-tuple null exclusion.
 
 Shared with `generate` and `generate_leg`: `qualified`, `aliased`, `table_path` and
 `render`, so identifier quoting, column qualification and path depth cannot be one thing here

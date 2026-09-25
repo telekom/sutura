@@ -320,3 +320,47 @@ fn a_federated_answer_whose_legs_disagree_on_link_column_type_is_refused_under_a
         "two legs whose link columns can never match must be refused, not {outcome:?}"
     );
 }
+
+/// When BOTH legs fail transiently, the FACT leg's warehouse error wins.
+///
+/// Both legs run in the concurrent scope and both produce a `LegError::Failure`; `answer_federated`
+/// inspects them in plan order - the fact leg first - so its `ServiceError::Warehouse` is the one
+/// surfaced, never the lookup leg's and never whichever happened to be scheduled later. Each fake's
+/// error names its own source, so which leg won is distinguishable rather than assumed. This pins
+/// the same fact-first precedence the sequential path held and the concurrent path must preserve.
+#[test]
+fn when_both_legs_fail_the_fact_legs_error_is_the_one_surfaced() {
+    let shared = shared();
+    let warehouses = Warehouses::of(crate::tests_support::TransientlyFailingLegsWarehouse::new(
+        SourceName::parse("facts").expect("a test source"),
+        shared.clone(),
+    ))
+    .and(crate::tests_support::TransientlyFailingLegsWarehouse::new(
+        SourceName::parse("geo").expect("a test source"),
+        shared,
+    ))
+    .expect("two sources, one registry");
+
+    let failure = answer_federated(
+        &bundle(),
+        &federated_plan(),
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
+        FEDERATED_BUDGET,
+        test_deadline(),
+        &SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeiling::DEFAULT,
+    )
+    .expect_err("two transient failures leave as a warehouse error, not a refusal");
+    assert!(
+        matches!(
+            failure,
+            crate::ServiceError::Warehouse {
+                cause: AdapterFailure::NoPlaceForASubject { ref at, .. }
+            } if at == "facts"
+        ),
+        "the FACT leg's transient failure wins, not {failure:?}"
+    );
+}

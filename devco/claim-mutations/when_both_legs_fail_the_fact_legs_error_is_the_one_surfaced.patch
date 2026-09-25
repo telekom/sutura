@@ -1,0 +1,23 @@
+diff --git a/crates/sutura-app/src/federated.rs b/crates/sutura-app/src/federated.rs
+--- a/crates/sutura-app/src/federated.rs
++++ b/crates/sutura-app/src/federated.rs
+@@ -320,15 +320,15 @@ where
+             }
+         }
+     });
+-    let fact = match fact {
+-        Ok(batches) => LegResult::of(plan.fact(), batches),
++    let lookup = match lookup {
++        Ok(batches) => LegResult::of(plan.lookup(), batches),
+         Err(LegError::Refusal(reason)) => {
+             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
+         }
+         Err(LegError::Failure(error)) => return Err(error),
+     };
+-    let lookup = match lookup {
+-        Ok(batches) => LegResult::of(plan.lookup(), batches),
++    let fact = match fact {
++        Ok(batches) => LegResult::of(plan.fact(), batches),
+         Err(LegError::Refusal(reason)) => {
+             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
+         }

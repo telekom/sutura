@@ -128,7 +128,7 @@ Eleven metrics; five of them below, and the elision is this page's rather than t
 
 ```text
 version local-working-tree
-digest  73e20e0dd80199d97431ec9ff9543afc520b334e39fe06b9b3b5cd1da3b81f76
+digest  b0e74ef1b790cff7171094fec4b9389913e7940bf7c9a2abdec2269c3e29e538
 
 active_subscriptions
   measure    count_distinct(subscription_key)
@@ -185,7 +185,7 @@ A question is a small file. There is no field in it for SQL, a table, a predicat
 ids, so an uncertified question is not something you can write down:
 
 ```yaml
-metric: recurring_revenue
+metrics: [recurring_revenue]
 grain: month
 range:
   start: 2026-06-01
@@ -246,7 +246,7 @@ sutura query examples/single-player/catalog \
 ```
 
 ```text
--- definitions local-working-tree 73e20e0dd80199d97431ec9ff9543afc520b334e39fe06b9b3b5cd1da3b81f76
+-- definitions local-working-tree b0e74ef1b790cff7171094fec4b9389913e7940bf7c9a2abdec2269c3e29e538
 region	period	recurring_revenue
 central	2026-06-01	51739
 east	2026-06-01	32598
@@ -275,7 +275,7 @@ sutura query examples/single-player/catalog \
 
 ```text
 refused: DimensionValueNotAllowed
-  the dimension is filterable and the value is not one the definitions declare
+  the value is not one the definitions declare for that dimension
   metric: recurring_revenue
   dimension: region
   remedy: Use a value from that dimension's list below. The refusal does not repeat your value back to you, on purpose, so compare against the list rather than expecting a correction.
@@ -310,6 +310,26 @@ columns: [month, subscription_key, customer_key, status, mrr_cents, churned_in_m
 
 One row per subscription per month. Money in minor units, so a total is exact.
 ```
+
+Each entry in `columns:` may be the bare name above, or a mapping when a column has something more
+to say - a type, a description or whether it may hold null. Both forms may mix in one list, and
+plainly naming a column is always enough:
+
+```yaml
+columns:
+  - month
+  - name: mrr_cents
+    type: NUMERIC
+    description: Recurring revenue for the month, in minor units.
+    nullable: false
+primary_key: [subscription_key, month]
+```
+
+A type is text quoted from wherever the model's own source spells it - never a cast, and nothing
+here checks it against a data system. `primary_key:` is the same: evidence a source's own dictionary
+(or, here, an author) supplied, never checked against the data itself - a real primary key is
+whichever columns are actually unique together in the rows, and this repository has no way to
+check that from a catalogue alone.
 
 `source:` is the data system this model's table lives in, and `local` above is not a keyword - it is
 the name of the one data system the `sutura` command declares for itself: a directory of CSV or

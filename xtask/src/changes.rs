@@ -32,6 +32,25 @@ use crate::repo;
 #[path = "affected.rs"]
 mod affected;
 
+/// Every input `nix-store-cache`'s `primary-key` must hash for the dependency generation,
+/// because each one moves `.#deps` (`ciArtifacts`, `flake.nix`) without moving `Cargo.lock`.
+///
+/// **The single canonical list**, so `workflows::cache_scope::KEY_INPUTS` - which checks the
+/// committed `primary-key:` text names every one of these - and the `deps_closure` area below -
+/// which decides when a job may skip building `.#deps` - read the same set rather than two that
+/// can drift. `pub(crate)` for exactly that import; `xtask/src/workflows/cache_scope.rs` carries
+/// the measured bug this list exists for (`[profile.ci]`, `.cargo/config.toml` and a `[features]`
+/// change each moved the derivation while a lock-only key stayed identical).
+pub(crate) const DEPS_CLOSURE_INPUTS: [&str; 7] = [
+    "flake.lock",
+    "Cargo.lock",
+    "rust-toolchain.toml",
+    "flake.nix",
+    "nix/**",
+    ".cargo/config.toml",
+    "**/Cargo.toml",
+];
+
 /// One area of the repo, and what depends on it.
 struct Area {
     /// Output name. CI gates steps on these.
@@ -81,9 +100,22 @@ const AREAS: &[Area] = &[
         consumers: &["rust", "build"],
     },
     Area {
-        // Supply-chain policy and the lock it judges.
+        // Supply-chain policy and the lock it judges. NOT "the dependency derivation moved" -
+        // that is `deps_closure` below, a different axis with different patterns. Review found
+        // `pr-cache` (`ci.yml`) reading this one for that question: a `crates/*/Cargo.toml`
+        // feature edit, `rust-toolchain.toml`, `.cargo/config.toml` and `flake.{nix,lock}` all
+        // move `.#deps` while classify wrote `deps=false` for every one of them.
         name: "deps",
         patterns: &["deny.toml", "Cargo.lock"],
+        consumers: &[],
+    },
+    Area {
+        // #980 review: EXACTLY the inputs `nix-store-cache`'s own `primary-key` hashes for the
+        // dependency generation (`workflows::cache_scope::KEY_INPUTS`, moved here so the two
+        // stay one list rather than two that can drift) - so `pr-cache`'s skip is gated on the
+        // same property the cache key already keys on: did `.#deps` move.
+        name: "deps_closure",
+        patterns: &DEPS_CLOSURE_INPUTS,
         consumers: &[],
     },
     Area {
@@ -662,6 +694,30 @@ mod tests {
         let r = classify(&paths(&["Cargo.lock"]));
         assert!(r.needs("rust"));
         assert!(r.needs("deps"));
+    }
+
+    #[test]
+    fn every_input_that_moves_the_deps_derivation_selects_deps_closure_and_the_supply_chain_axis_does_not_follow() {
+        // #980 review, measured on the pre-fix tree: `deps` (supply-chain: `deny.toml`,
+        // `Cargo.lock`) answered `false` for every one of these but `Cargo.lock` itself, while
+        // every one of them moves `nix-store-cache`'s own key (`DEPS_CLOSURE_INPUTS`) and
+        // therefore `.#deps`. A crate's own `Cargo.toml` is the case the owner named directly.
+        for path in [
+            "crates/sutura-domain/Cargo.toml",
+            "Cargo.toml",
+            "rust-toolchain.toml",
+            ".cargo/config.toml",
+            "flake.lock",
+            "flake.nix",
+            "nix/postgres-tier.nix",
+        ] {
+            let r = classify(&paths(&[path]));
+            assert!(r.needs("deps_closure"), "{path} must select deps_closure");
+        }
+        // The supply-chain axis is narrower on purpose and must stay that way: a
+        // rust-toolchain/`.cargo`/nix-only change is not a `cargo deny` question.
+        let r = classify(&paths(&["rust-toolchain.toml"]));
+        assert!(!r.needs("deps"), "rust-toolchain.toml is not the supply-chain axis");
     }
 
     #[test]

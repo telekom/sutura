@@ -101,6 +101,7 @@ sends a reader to read all of them.
 
 - `NotADirectory`
 - `Io`
+- `Open` - An open or `fstat` of a descriptor failed in a way the OS described but `Self::Io`'s wording does not: a swapped symlink refuses with `ELOOP` and a swapped FIFO with `ENXIO`, and neither is "could not read".
 - `Malformed`
 - `Unnamed`
 - `InvalidName`
@@ -108,6 +109,8 @@ sends a reader to read all of them.
 - `DuplicateColumn`
 - `MissingDescription`
 - `InvalidDescription`
+- `InvalidColumnDescription`
+- `InvalidPrimaryKey`
 - `Inconsistent`
 - `UncheckableKnowledge`
 - `Empty`
@@ -124,12 +127,30 @@ sends a reader to read all of them.
 
   The walk skips links and non-files; this refuses a document that became a non-regular file
   after the walk. It is the handle actually about to be read, refused before any bytes are:
-  a document swapped for a device (or a symlink to one) after the walk would otherwise be a
-  zero-length file that reads forever. It does not refuse a symlink to a REGULAR file -
-  `std::fs::File::open` follows that, and such a document is read (bounded) - and a
-  swapped FIFO blocks its open rather than reaching this refusal.
+  a device node opens under `O_NONBLOCK` without blocking and is refused here rather than
+  read. A symlink swapped in after the walk - to a regular file or anything else - never
+  reaches this check at all: `O_NOFOLLOW` on the open refuses it with `ELOOP` first. A
+  swapped FIFO is refused the same way a device is - `O_NONBLOCK` makes its open return
+  rather than block, and this check then refuses the non-regular handle.
 - `Digest`
 
 ### Implements
 
 `Debug`, `Display`, `Error`
+
+## `enum InvalidPrimaryKeyShape`
+
+```rust
+pub enum InvalidPrimaryKeyShape
+```
+
+Why a `primaryKey` value could not be read as a column name or a list of them.
+
+### Variants
+
+- `NotAStringOrList` - Neither a YAML string nor a sequence of strings - the two shapes the Table Schema specification allows.
+- `Column`
+
+### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`

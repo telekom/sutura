@@ -37,7 +37,7 @@ concurrency:
 permissions:
   contents: read
 
-# WHY ALL THREE JOB KEYS (FOUR RUNS: `cross-build` HAS A TWO-ENTRY MATRIX) USE THE 16-CORE RUNNER,
+# WHY ALL FOUR JOB KEYS (FIVE RUNS: `cross-build` HAS A TWO-ENTRY MATRIX) USE THE 16-CORE RUNNER,
 # AND WHAT THAT IS *NOT* PROVEN BY. #614 moved the
 # mostly-cached jobs at identical medians, and that measurement does NOT transfer here: every job
 # below ends in a realise that must genuinely RE-COMPILE, which is the whole publish mechanism
@@ -45,7 +45,7 @@ permissions:
 # `runner-probe.yml`: one cold, one-root crane closure realise on the 32-core host ran at 22.3% /
 # 22.8% MEAN utilisation with 92-96% peaks - about 7 of 32 cores busy on average. That says 16 cores
 # would clip that probe's peaks, not its mean. It is a lower bound for `push`'s three-root realise,
-# not a measurement of that workload; the other two job keys realise different roots too. Latency
+# not a measurement of that workload; the other three job keys realise different roots too. Latency
 # here buys nothing anyone waits for: this workflow reports no
 # status-check context (see the `push` job), so a faster publish is read only by the next run.
 #
@@ -64,7 +64,7 @@ permissions:
 # IS READ AS OUTSIDE IT: a cache writer is not a release build. Those three are `fuzz.yml`,
 # `release.yml` and `release-performance.yml`, they keep the 32-core label, and nothing here is a
 # released artifact. That reading is the decision rather than an oversight - a release push does
-# run these four job runs (the matrix is why three keys become four) on 16 cores, at the cost
+# run these five job runs (the matrix is why four keys become five) on 16 cores, at the cost
 # recorded above as unmeasured.
 #
 # THE EXPOSURE IF THE REALISE DOES SCALE WITH CORES is the `concurrency` group above, not the bill:
@@ -128,42 +128,38 @@ jobs:
           # which would upload every substituted upstream path back to a cache that does not need it.
           pushFilter: "(-source$|nixpkgs)"
 
-      # Realise the closure the cache is FOR: the dependency artifacts every check shares. Naming the
-      # checks rather than the whole flake keeps the publish to what a later run actually restores.
-      # Publish `.#xtask` too (#562): it is the binary several ci steps `nix run` (classify,
-      # check-attribution, crap-delta) and is BUILT afresh in 5/5 observed runs (~25 s) because it
-      # sits in no nitro push list. Realising it into the shared `sutura` cache lets those steps
-      # substitute instead of rebuild. It is a package output, not a release binary - the reference
-      # gate ignores non-`checks` packages by design.
+      # #981: PUBLISH THE DEPENDENCY AND TOOL CLOSURES EXPLICITLY, NOT THE FIRST-PARTY CHECKS.
+      # Measured over 102 cachix-push runs: PR logs substitute only dependency closures and tool
+      # helpers from the main caches - never a first-party check OUTPUT, which is keyed on the
+      # commit that built it and is consumed (if at all) only by that same commit's own `push` run
+      # racing this one. Realising `nextest`/`clippy`/`hygiene` here bought a shared cache nothing a
+      # pull request could read, at real cost: 13 of 102 runs were cancelled mid-publish, and this
+      # job carried the closures that DO cross to a PR anyway as a side effect of building them.
       #
-      # **`hygiene` IS REALISED FIRST AND ALONE, AND THAT IS A RACE, NOT A TIDYING (#600).** The
-      # daemon's post-build hook publishes each path AS IT IS BUILT, so what decides whether a
-      # consumer substitutes this derivation or builds its own copy is the wall-clock moment it
-      # lands. `docs.yml` has two `publish` legs that realise the same `hygiene` derivation, and at
-      # v0.5.1 the main leg started building its own copy at 08:39:02 - 18 s BEFORE this hook
-      # published it at 08:39:20 - which is why those two legs measured 246 s and 70 s for one
-      # identical derivation. In a merged graph nix decides when `hygiene` finishes; in its own
-      # invocation it finishes as early as it can. The tag leg is out of reach either way (it
-      # evaluated at 08:34:03, 34 s before this step started), so the prize is three realises of
-      # that derivation per release becoming two, not one.
+      # So this now names them directly instead: `.#deps` (`ciArtifacts`, every check's shared
+      # dependency closure), `.#xtask` (#562 - the binary several `ci` steps `nix run`, built afresh
+      # in 5/5 observed runs because it sat in no push list before), `.#jscpd` (the copy/paste
+      # detector's own dependency closure, rebuilt 35-59 s wherever the Actions cache does not carry
+      # it), and the three tier helpers: the Postgres and ClickHouse tiers `checks.nextest`'s
+      # sandbox starts (its `nativeCheckInputs`), and the Keycloak tier `just keycloak-served-test`
+      # depends on. None of these is keyed on this commit's own source the way `nextest`/`clippy`
+      # output is, so every one of them is exactly what a LATER commit's PR run can substitute.
       #
-      # The cost is real and is paid in the right place: `hygiene` no longer overlaps the other
-      # roots, so this step's own wall clock can rise by most of that derivation. This workflow
-      # reports no status-check context and can gate no merge (see the job comment above), so
-      # runner time here is the cheapest kind in the repository.
-      #
-      # A CACHE HIT ON THIS OUTPUT IS PROOF THE GATE PASSED ON THAT TREE, which is why publishing it
-      # earlier needs no `if:`, no extra permission and no soundness argument: the derivation IS the
-      # check. Whether it changes any wall clock is a HYPOTHESIS until a release shows it - the two
-      # docs legs share one concurrency group, so they are serialized and no figure is promised.
-      - name: Realise and publish the shared closure
+      # WHAT THIS GIVES UP, STATED RATHER THAN OMITTED: the race with `docs.yml`'s `publish` leg for
+      # the SAME `hygiene` derivation (#600) is gone along with the derivation itself, so that leg no
+      # longer has a chance to substitute a copy this job built moments earlier. It has to build its
+      # own now. This workflow reports no status-check context (see the job comment above), so the
+      # cost sits entirely off the merge path.
+      - name: Realise and publish the dependency and tool closures
         run: |
           set -eu
-          nix build --print-build-logs .#checks.x86_64-linux.hygiene
           nix build --print-build-logs \
-            .#checks.x86_64-linux.nextest \
-            .#checks.x86_64-linux.clippy \
-            .#xtask
+            .#deps \
+            .#xtask \
+            .#jscpd \
+            .#checks.x86_64-linux.keycloak-tier \
+            .#checks.x86_64-linux.postgres-tier \
+            .#checks.x86_64-linux.clickhouse-tier
 
   # PER-CONSUMER PUBLISH. Each consumer's closure goes to its OWN cache
   # (`sutura-cross-build` / `sutura-connectors`), each with its own 5 GB bucket, so one consumer's
@@ -182,7 +178,8 @@ jobs:
   #
   # THE TOKENS LIVE IN ENV `cachix-push-mixed`: each job declares it and spends exactly its own
   # secret. The `push` job above keeps the shared closure and its token in env `cachix-push`
-  # untouched. All three jobs share one runner size, for the reason recorded above `jobs:`;
+  # untouched, as does `downstream-deps` below, which writes the same shared store. Every job here
+  # shares one runner size, for the reason recorded above `jobs:`;
   # realising these closures (the cross build most of all) is the disc-heavy half of a publish,
   # and disc is not what the runner size buys.
   #
@@ -292,6 +289,50 @@ jobs:
         run: |
           set -eu
           nix build --print-build-logs .#checks.x86_64-linux.nextest
+
+  # THE DEPENDENCY CLOSURES THE JOBS AFTER `ci` COMPILE - `bigquery-driver-check`'s native `-ci`
+  # one, `kind-smoke`'s native release one and the demo container's musl release one, which
+  # `flake.nix` names as `deps-native-ci`, `deps-native-release` and `deps-musl-release`. Nothing
+  # published them, so each of those jobs compiled its closure from source on every run: 127 s
+  # (`kind-smoke`) and 232 s (the demo) in `ci.yml` run 36160021247, and the driver check's gnu
+  # chain waited on its own.
+  #
+  # A JOB OF ITS OWN RATHER THAN THREE MORE LINES IN `push`, because `push` restores and may SAVE
+  # the Actions store entry scope `ci`, which the `ci` job restores on every event: realising these
+  # there would grow that entry by every closure below for a job that never reads them. No store
+  # restore here, so `nix build` either substitutes a closure `sutura` already holds - nothing to
+  # push, nothing lost - or builds one it does not, and the daemon publishes it.
+  #
+  # WHAT IT COSTS: a substitution of the three closures on every push to `main` even when nothing
+  # moved, and space in the shared `sutura` bucket - about 0.4 GB per closure, going by the one
+  # `-ci` musl closure `sutura-cross-build` already holds, which is the number to watch against
+  # its 5 GB.
+  downstream-deps:
+    name: push the downstream dependency closures
+    runs-on: rust-mcp-16core
+    environment: cachix-push
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: sutura
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          pushFilter: "(-source$|nixpkgs)"
+      - name: Realise and publish the downstream dependency closures
+        run: |
+          set -eu
+          nix build --print-build-logs .#deps-native-ci .#deps-native-release .#deps-musl-release
 
   # NO `fuzz` JOB, AND THAT IS THE HONEST RESOLUTION, NOT AN OMISSION. The `sutura-fuzzing` cache
   # has nothing unique store-worthy to publish. The fuzz harness is a RUNTIME cargo build into

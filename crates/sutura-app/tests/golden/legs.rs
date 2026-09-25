@@ -50,8 +50,8 @@ use sutura_domain::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName,
 };
 use sutura_domain::plan::{
-    InternalLabel, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate,
-    PlanTerm, PredicateOrigin, ResultLabel, StatementTables,
+    InternalLabel, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanJoinKey, PlanKey,
+    PlanPredicate, PlanTerm, PredicateOrigin, ResultLabel, StatementTables,
 };
 use sutura_domain::warehouse::ParamValue;
 use sutura_sql::{Dialect, generate_leg};
@@ -66,6 +66,9 @@ const REMOTE_TABLE: &str = "dim_customer";
 
 /// A same-source dimension model, so a hop that stays a join is covered too.
 const LOCAL_DIMENSION_TABLE: &str = "dim_product";
+
+/// The month-grain snapshot a usage fact joins through the compound key.
+const MONTHLY_TABLE: &str = "dim_monthly";
 
 fn source(name: &str) -> SourceName {
     SourceName::parse(name).expect("a fixture source is a source")
@@ -204,8 +207,10 @@ fn fact_sum_over_a_local_join() -> LegPlan {
                 RelationshipName::parse("subscription_product").expect("a fixture relationship is a relationship"),
                 table(LOCAL_DIMENSION_TABLE),
                 JoinType::ManyToOne,
-                column(FACT_TABLE, "product_key"),
-                column(LOCAL_DIMENSION_TABLE, "product_key"),
+                vec![PlanJoinKey::Equal {
+                    origin: column(FACT_TABLE, "product_key"),
+                    target: column(LOCAL_DIMENSION_TABLE, "product_key"),
+                }],
             )],
         )
         .expect("two differently named fixture tables are distinguishable"),
@@ -215,6 +220,46 @@ fn fact_sum_over_a_local_join() -> LegPlan {
             link_key(FACT_TABLE),
         ],
         terms: vec![term(Aggregate::Sum, "mrr_cents", 0)],
+        bindings: definitional_bindings(),
+        range: june(),
+    }
+}
+
+/// A usage fact joined to a month-grain snapshot through a COMPOUND key.
+///
+/// The shape `daily_usage`'s model document describes and the reason `Relationship` became a key
+/// set: on `subscription_key` alone the join multiplies each usage row by every month that
+/// subscription existed, so this fixture's second key truncates the fact's `usage_date` to a month
+/// and compares it against the snapshot's `month`. The rendered `ON` carries both `=` terms - the
+/// truncated one through the same date-truncation a time bucket uses - which is what a one-column
+/// relationship cannot say.
+fn fact_compound_join() -> LegPlan {
+    LegPlan::Fact {
+        source: source("local"),
+        metric: metric("voice_minutes"),
+        tables: StatementTables::parse(
+            table(FACT_TABLE),
+            vec![PlanJoin::new(
+                RelationshipName::parse("usage_subscription").expect("a fixture relationship is a relationship"),
+                table(MONTHLY_TABLE),
+                JoinType::ManyToOne,
+                vec![
+                    PlanJoinKey::Equal {
+                        origin: column(FACT_TABLE, "subscription_key"),
+                        target: column(MONTHLY_TABLE, "subscription_key"),
+                    },
+                    PlanJoinKey::TruncatedEqual {
+                        origin: column(FACT_TABLE, "usage_date"),
+                        grain: Grain::Month,
+                        target: column(MONTHLY_TABLE, "month"),
+                    },
+                ],
+            )],
+        )
+        .expect("two differently named fixture tables are distinguishable"),
+        bucket: month_bucket(),
+        keys: vec![key("product_family", MONTHLY_TABLE, "product_family")],
+        terms: vec![term(Aggregate::Sum, "voice_min", 0)],
         bindings: definitional_bindings(),
         range: june(),
     }
@@ -272,7 +317,6 @@ fn lookup_unfiltered() -> LegPlan {
         bindings: PlanBindings::none(),
     }
 }
-
 /// The same lookup with the question's own filter pushed into it: `region = 'north'`.
 ///
 /// The value is the CALLER's, which is what makes this fixture worth having: a new entry point is a
@@ -304,6 +348,7 @@ fn lookup_filtered() -> LegPlan {
 fn shapes() -> Vec<(&'static str, LegPlan)> {
     vec![
         ("fact-sum-over-a-local-join", fact_sum_over_a_local_join()),
+        ("fact-compound-join", fact_compound_join()),
         ("fact-decomposed-average", fact_decomposed_average()),
         ("fact-distinct-keys", fact_distinct_keys()),
         ("lookup-unfiltered", lookup_unfiltered()),

@@ -136,7 +136,7 @@ fn bundle(catalog: &Path) -> PinnedDefinitions {
 /// Compile only: these topology witnesses open no execution adapter.
 fn compiled_dimensions(pinned: &PinnedDefinitions, dimensions: &str) -> Compiled {
     let query = serde_norway::from_str(&format!(
-        "metric: recurring_revenue\ngrain: month\nrange: {{ start: 2026-06-01, end: 2026-07-01 }}\n\
+        "metrics: [recurring_revenue]\ngrain: month\nrange: {{ start: 2026-06-01, end: 2026-07-01 }}\n\
          dimensions: [{dimensions}]\n"
     ))
     .expect("the topology question is valid");
@@ -213,7 +213,7 @@ fn top_on_a_federated_plan_ranks_the_combine_when_a_key_is_lookup_side() {
     let one = bundle(&corpus.one_source);
     let two = bundle(&corpus.two_source);
     let case_2: Query = serde_norway::from_str(
-        "metric: recurring_revenue\ngrain: month\nrange: { start: 2026-07-01, end: 2026-08-01 }\n\
+        "metrics: [recurring_revenue]\ngrain: month\nrange: { start: 2026-07-01, end: 2026-08-01 }\n\
          dimensions: [region]\ntop: { n: 3, by: metric, direction: desc }\n",
     )
     .expect("a top question is a question");
@@ -389,7 +389,8 @@ fn answered<W>(
     combiner: &sutura_exec_datafusion::DataFusionCombiner,
 ) -> Result<ToolOutcome, String>
 where
-    W: sutura_domain::warehouse::Warehouse,
+    W: sutura_domain::warehouse::Warehouse + Sync,
+    W::Error: Send,
 {
     match sutura_app::answer(
         &side.bundle,
@@ -489,7 +490,8 @@ fn two_sources_of_two_kinds_answer_the_same_rows_as_one_source_over_the_same_dat
 /// adapter held its legs.
 fn differential<W>(one: &Side<sutura_exec_datafusion::DataFusionWarehouse>, two: &Side<W>, topology: &str)
 where
-    W: sutura_domain::warehouse::Warehouse,
+    W: sutura_domain::warehouse::Warehouse + Sync,
+    W::Error: Send,
 {
     let mut reached: Vec<(String, Reached)> = Vec::new();
     let mut found: Vec<String> = Vec::new();
@@ -846,7 +848,7 @@ fn a_violated_cardinality_declaration_is_refused_by_both_topologies() {
             panic!("{topology}: a violated declaration is refused as one, not as {refused:?}");
         };
         assert_eq!(violation.relationship().as_str(), "subscription_customer", "{topology}");
-        assert_eq!(violation.column().as_str(), "customer_key", "{topology}");
+        assert_eq!(violation.keys().first().unwrap().as_str(), "customer_key", "{topology}");
         // Forty customers and one of them twice, which is the corpus this derivation makes.
         assert_eq!(violation.counts().rows(), 41, "{topology}");
         assert_eq!(violation.counts().distinct(), 40, "{topology}");

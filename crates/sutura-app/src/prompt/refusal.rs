@@ -43,19 +43,30 @@ const METRIC_UNKNOWN: Guide = Guide {
              whole of what exists.",
 };
 
+const METRICS_SPAN_DIFFERENT_MODELS: Guide = Guide {
+    reason: "metrics_span_different_models",
+    meaning: "two named metrics do not share a model or a time column",
+    remedy: "Ask about each metric separately - one at a time executes.",
+};
+
+const MULTI_METRIC_NOT_EXECUTABLE: Guide = Guide {
+    reason: "multi_metric_not_executable",
+    meaning: "every metric agreed, but this build runs only one",
+    remedy: "Ask about each metric separately - a capability gap, not the question.",
+};
+
 const GRAIN_NOT_SUPPORTED: Guide = Guide {
     reason: "grain_not_supported",
     meaning: "the metric exists and does not declare that time resolution",
     remedy: "Ask at a grain the metric lists. A finer grain is not a narrower version of the same \
-             question here - it is a number nobody certified, which is why it is refused rather \
-             than approximated.",
+             question - it is a number nobody certified, so it is refused rather than approximated.",
 };
 
 const DIMENSION_NOT_PERMITTED: Guide = Guide {
     reason: "dimension_not_permitted",
     meaning: "the metric does not declare that dimension",
-    remedy: "Use one of the dimensions listed under that metric. There is no way to reach an \
-             attribute a metric did not declare, so do not substitute a similar-sounding name.",
+    remedy: "Use one of the dimensions listed under that metric - do not substitute a \
+             similar-sounding name for one it did not declare.",
 };
 
 const DIMENSION_NOT_FILTERABLE: Guide = Guide {
@@ -68,7 +79,7 @@ const DIMENSION_NOT_FILTERABLE: Guide = Guide {
 
 const DIMENSION_VALUE_NOT_ALLOWED: Guide = Guide {
     reason: "dimension_value_not_allowed",
-    meaning: "the dimension is filterable and the value is not one the definitions declare",
+    meaning: "the value is not one the definitions declare for that dimension",
     remedy: "Use a value from that dimension's list below. The refusal does not repeat your value \
              back to you, on purpose, so compare against the list rather than expecting a \
              correction.",
@@ -77,8 +88,8 @@ const DIMENSION_VALUE_NOT_ALLOWED: Guide = Guide {
 const DUPLICATE_DIMENSION: Guide = Guide {
     reason: "duplicate_dimension",
     meaning: "the same dimension was sent twice in one question",
-    remedy: "Send it once. It is refused rather than de-duplicated because a caller who sent it \
-             twice believed something about the result that is not true.",
+    remedy: "Send it once - refused rather than de-duplicated, since a caller sending it twice \
+             believed something about the result that is not true.",
 };
 
 const TOO_MANY_DIMENSIONS: Guide = Guide {
@@ -168,10 +179,14 @@ const FEDERATION_NOT_EXECUTABLE: Guide = Guide {
 
 const FEDERATION_LINK_AMBIGUOUS: Guide = Guide {
     reason: "federation_link_ambiguous",
-    meaning: "the question's dimensions on the second data system join the metric through more than \
-              one relationship, and the two legs link on a single column",
-    remedy: "Nothing you can change about the question. Report it to a person: it is a fact about how \
-             the metric is defined.",
+    meaning: "a remote dimension joins through more than one relationship",
+    remedy: "Nothing you can change. Report it: it is a fact about how the metric is defined.",
+};
+
+const FEDERATION_LINK_COMPOUND: Guide = Guide {
+    reason: "federation_link_compound",
+    meaning: "the crossing relationship declares more than one join key",
+    remedy: "Nothing you can change. Report it: it is a fact about how the relationship is defined.",
 };
 
 const MEASURE_DOES_NOT_FEDERATE: Guide = Guide {
@@ -269,6 +284,8 @@ const CROSS_MODEL_RATIO_NOT_EXECUTABLE: Guide = Guide {
 /// net rather than the first.*
 pub(super) const GUIDES: &[&Guide] = &[
     &METRIC_UNKNOWN,
+    &METRICS_SPAN_DIFFERENT_MODELS,
+    &MULTI_METRIC_NOT_EXECUTABLE,
     &GRAIN_NOT_SUPPORTED,
     &DIMENSION_NOT_PERMITTED,
     &DIMENSION_NOT_FILTERABLE,
@@ -290,6 +307,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     &PLAN_SPANS_TOO_MANY_SOURCES,
     &FEDERATION_NOT_EXECUTABLE,
     &FEDERATION_LINK_AMBIGUOUS,
+    &FEDERATION_LINK_COMPOUND,
     &MEASURE_DOES_NOT_FEDERATE,
     // With the federation family, for the same reason: the move is to drop the second-source
     // dimension, and it is not a passing outage.
@@ -326,6 +344,8 @@ pub(super) const GUIDES: &[&Guide] = &[
 pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
     match *reason {
         RefusalReason::MetricUnknown { .. } => &METRIC_UNKNOWN,
+        RefusalReason::MetricsSpanDifferentModels { .. } => &METRICS_SPAN_DIFFERENT_MODELS,
+        RefusalReason::MultiMetricNotExecutable { .. } => &MULTI_METRIC_NOT_EXECUTABLE,
         RefusalReason::GrainNotSupported { .. } => &GRAIN_NOT_SUPPORTED,
         RefusalReason::DimensionNotPermitted { .. } => &DIMENSION_NOT_PERMITTED,
         RefusalReason::DimensionNotFilterable { .. } => &DIMENSION_NOT_FILTERABLE,
@@ -338,6 +358,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::PlanSpansTooManySources { .. } => &PLAN_SPANS_TOO_MANY_SOURCES,
         RefusalReason::FederationNotExecutable => &FEDERATION_NOT_EXECUTABLE,
         RefusalReason::FederationLinkAmbiguous { .. } => &FEDERATION_LINK_AMBIGUOUS,
+        RefusalReason::FederationLinkCompound { .. } => &FEDERATION_LINK_COMPOUND,
         RefusalReason::MeasureDoesNotFederate { .. } => &MEASURE_DOES_NOT_FEDERATE,
         RefusalReason::FederatedAnswerNotWellFormed { .. } => &FEDERATED_ANSWER_NOT_WELL_FORMED,
         RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,

@@ -472,8 +472,8 @@ fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], rea
 /// inside an EXISTING test, in a file whose production code did not change, reached
 /// `Plan::NotRequired` untouched. `super::edited` now names that test too, from the PRE-existing
 /// attribute rather than an added one, so it reaches this same arm. What is still not reached: a
-/// pure DELETION of an assertion, which adds no line either extractor can find - `super::edited`'s
-/// own header states why that is not casually fixed.
+/// pure DELETION of an assertion, which adds no line either extractor can find, and an edit inside
+/// a `#[cfg(test)]` helper a test calls - `super::edited`'s own header states both.
 fn tests_only(
     root: &Path,
     at: &Commit,

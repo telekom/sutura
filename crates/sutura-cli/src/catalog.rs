@@ -4,6 +4,12 @@
 //! `sutura-config` (which cannot see which adapter a binary links). What kind each entry is and
 //! whether this build can open it is a property of the composition root, so it lives here.
 //!
+//! **It is the ONE opener, shared by both composition roots** - `crate::serve` and `crate::mcp`
+//! each call `open_catalog`/`load` rather than keeping a second, parallel version, and this
+//! module lives at the crate root (moved out of `serve` in issue #970) so nothing below one root
+//! can drift from what the other serves. `sutura mcp` used to open only a directory argument and
+//! ignore `catalogs:`.
+//!
 //! **Since issue #202's HTTP reader, a deployment may declare `catalog.kind: datahub` instead of
 //! `markdown` - never both in one deployment, and the reason is a type-system one rather than a
 //! preference.** `sutura_app::Surface::start_composed` takes `&[C]` for one `C: SemanticCatalog`,
@@ -13,7 +19,7 @@
 //! markdown catalog OR a datahub catalog": an enum wrapping both could not answer its own `KIND` or
 //! `capabilities()` without an instance to match on, which the trait's shape does not allow. What
 //! this module does instead is decide, from the declared catalogs' SHARED kind, which of several
-//! monomorphic vectors to open - [`crate::serve::catalog::OpenedCatalogs`] carries that choice and refuses a mix by name
+//! monomorphic vectors to open - [`crate::catalog::OpenedCatalogs`] carries that choice and refuses a mix by name
 //! rather than picking one silently.
 //!
 //! **State the limit next to the claim: a heterogeneous catalog set - one deployment serving BOTH a
@@ -27,6 +33,15 @@ use std::path::PathBuf;
 use sutura_app::assemble;
 use sutura_catalog_local::LocalCatalog;
 use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
+use sutura_http::LocalService;
+
+/// The service either composition root builds over one opened catalog kind.
+///
+/// Named because the concrete type is over `clippy::type_complexity`: the warehouse and the broker
+/// stay generic - `crate::serve` erases both behind `Arc<dyn Surface>`, `crate::mcp` keeps the
+/// concrete type over one warehouse - and the sink and the combiner are this binary's own fixed
+/// choice, the same split `crate::commands::Composed` makes for the broker `serve` never varies.
+pub(crate) type Started<W, B> = LocalService<W, sutura_runtime::TracingAuditSink, B, sutura_exec_datafusion::DataFusionCombiner>;
 
 /// Which monomorphic vector of catalogs this build opened - see the module header for why this is
 /// not one generic catalog type the way `OpenedSources` is one generic `Warehouse`.
@@ -106,9 +121,100 @@ pub(crate) fn load(catalogs: &OpenedCatalogs) -> Result<PinnedDefinitions, Strin
     }
 }
 
+/// The single place either composition root turns [`OpenedCatalogs`] into a serving
+/// [`sutura_http::LocalService`].
+///
+/// **Moved here so `crate::serve` (whose `started` erases the adapter to `Arc<dyn Surface>`)
+/// and `crate::mcp` (whose transport wants the concrete type over one warehouse) dispatch the
+/// SAME `LocalService::start_composed` match rather than two copies that could diverge.**
+/// `sutura-app` genericises over the catalog type parameter; the adapter `W` and the broker `B`
+/// stay this fn's own generics, because the two roots differ on the broker exactly where serve's
+/// `shared_identity_service` does - a `bigquery` build attaches the principal-presenting broker
+/// and every other shape the static one.
+///
+/// The working-set bytes, the spend ledger, the row ceiling and the combiner are read from the
+/// settings here, the same values each root read before, so neither caller names a number the
+/// other could pick differently. The combiner is always the datafusion one this binary links, and
+/// the sink is always [`sutura_runtime::TracingAuditSink`] - this process installs no subscriber,
+/// so a record is written onto a dispatcher that discards it until a composition installs one,
+/// the same limit `commands::started` states.
+///
+/// **It returns the CONCRETE service, not an erased object, and each root decides how far to
+/// erase.** `serve` needs `Arc<dyn Surface>` for the transport; `mcp`'s `serve_stdio` is generic
+/// over a sized `S: Surface` and keeps the concrete type. What is shared - and what cannot drift -
+/// is the `start_composed` match that builds the service from whichever catalog kind was opened.
+///
+/// # Errors
+///
+/// Whatever `LocalService::start_composed` refuses while loading the catalogs a second time and
+/// re-running the anchors.
+#[expect(
+    clippy::type_complexity,
+    reason = "the lint fires on this function's two-generic SIGNATURE (W and B, each with its own \
+              bound), not on the return type the Started<W, B> alias already names - so the alias \
+              does not silence it, and the expectation must still be here for -D warnings to pass"
+)]
+pub(crate) fn start_composed<W, B>(
+    catalogs: &OpenedCatalogs,
+    engines: sutura_app::Warehouses<W>,
+    broker: B,
+    settings: &sutura_config::Settings,
+) -> Result<Started<W, B>, String>
+where
+    W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
+    W::Error: Send + Sync,
+    B: sutura_domain::identity::CredentialBroker + Send + Sync + 'static,
+    B::Error: Send + Sync,
+{
+    let working_set_bytes = settings.runtime().working_set().bytes().get() as u64;
+    let spend_ledger = sutura_app::SpendLedger::new(
+        settings
+            .spend_budget()
+            .map(|budget| sutura_app::SpendBudget::new(budget.ceiling_bytes(), budget.window())),
+    );
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new()
+        .map_err(|cause| format!("{cause}\ncould not build the federation combiner"))?;
+    let service = match catalogs {
+        OpenedCatalogs::Markdown(catalogs) => LocalService::start_composed(
+            catalogs,
+            engines,
+            sutura_runtime::TracingAuditSink::new(),
+            broker,
+            combiner,
+            working_set_bytes,
+        ),
+        #[cfg(feature = "datahub")]
+        OpenedCatalogs::Datahub(catalogs) => LocalService::start_composed(
+            catalogs,
+            engines,
+            sutura_runtime::TracingAuditSink::new(),
+            broker,
+            combiner,
+            working_set_bytes,
+        ),
+        OpenedCatalogs::Okf(catalogs) => LocalService::start_composed(
+            catalogs,
+            engines,
+            sutura_runtime::TracingAuditSink::new(),
+            broker,
+            combiner,
+            working_set_bytes,
+        ),
+    }
+    .map(|service| {
+        service
+            .with_spend_ledger(spend_ledger)
+            .with_row_ceiling(settings.row_ceiling())
+    });
+    service.map_err(|cause| flatten(&cause))
+}
+
 /// One kind's worth of catalogs, loaded and composed - the body `load` used to be, generic now
 /// because it runs over either monomorphic vector [`OpenedCatalogs`] carries.
-fn load_each<C>(catalogs: &[C]) -> Result<PinnedDefinitions, String>
+///
+/// `pub(super)` since `#975`: `serve::refresh::Refresher` re-runs exactly this over a declared
+/// `refresh_seconds` interval, so a re-read composes the SAME way the boot-time one does.
+pub(super) fn load_each<C>(catalogs: &[C]) -> Result<PinnedDefinitions, String>
 where
     C: SemanticCatalog,
 {

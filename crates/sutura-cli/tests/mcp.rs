@@ -71,6 +71,7 @@ mod tests {
     use std::io::{BufRead as _, BufReader, Write as _};
     use std::path::{Path, PathBuf};
     use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
+    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
     use std::time::{Duration, Instant};
 
@@ -159,7 +160,46 @@ mod tests {
         reaped: bool,
     }
 
-    /// Starts the agent surface over the documented example.
+    /// A settings tree declaring the documented example as a deployment does: one `markdown`
+    /// catalog over `examples/single-player/catalog`, one `files` source over its `data`.
+    ///
+    /// Issue #970 dropped `mcp`'s directory arguments - it reads `catalogs:`/`sources:` the way
+    /// `sutura serve` does - so every spawn here needs a settings tree that declares both, the way
+    /// `served.rs`'s `deployment` helper builds one. The directory paths are canonicalised (via
+    /// [`example_root`]) so the subprocess resolves them wherever it starts.
+    ///
+    /// `overlay` is appended after the catalog and source declarations, for the tests that vary a
+    /// bound or a prompt setting: it arrives the way an operator's own `base.yaml` would layer
+    /// them.
+    fn example_settings(case: &str, overlay: &str) -> PathBuf {
+        let example = example_root();
+        let catalog = example.join("catalog");
+        let data = example.join("data");
+        settings_tree(
+            case,
+            &format!(
+                "security:\n  identity: \"single-user\"\n  single_user_because: \"an end-to-end \
+                 test reads its own fixture files as one identity\"\n\
+                 catalogs:\n  \
+                   - name: \"model\"\n    \
+                     kind: \"markdown\"\n    \
+                     dir: \"{}\"\n    \
+                     data_dir: \"{}\"\n    \
+                     version: \"{VERSION}\"\n\
+                 sources:\n  \
+                   {SOURCE}:\n    \
+                     kind: \"files\"\n    \
+                     data_dir: \"{}\"\n    \
+                     posture: \"shared-service-user\"\n\
+                 {overlay}",
+                catalog.display(),
+                data.display(),
+                data.display(),
+            ),
+        )
+    }
+
+    /// Starts the agent surface over the documented example, declared in a settings tree.
     ///
     /// No `#[expect(clippy::zombie_processes)]`, unlike `crates/sutura-cli/tests/served.rs`'s
     /// `start`, and that is measured rather than assumed: the lint does not fire here, and an
@@ -167,39 +207,37 @@ mod tests {
     /// either way - every path out of an [`Agent`], a clean [`Agent::close`] or a panicking
     /// assertion, waits on the child.
     fn spawn() -> Agent {
-        spawn_configured(None)
+        spawn_configured(&example_settings("mcp-example", ""))
     }
 
     /// The same, over a deployment's own settings tree.
     ///
-    /// **`Some(dir)` is the only way to test a value this command READS rather than one a test
+    /// **`config_dir` is the only way to test a value this command READS rather than one a test
     /// hands it.** `crate::sources::configured` resolves `SUTURA_CONFIG_DIR` inside the spawned
     /// process, so a setting supplied here arrives the way an operator writes it - through
-    /// `base.yaml`, `Settings::load`, `serve` and the wire - and a fix that moved the defect one
-    /// frame out would be red. That is `#266`'s `H1` reviewed: the first attempt passed the setting
-    /// to the function under test, which proves the argument.
-    fn spawn_configured(config_dir: Option<&Path>) -> Agent {
-        let example = example_root();
+    /// `base.yaml`, `Settings::load` and the wire - and a fix that moved the defect one frame out
+    /// would be red. That is `#266`'s `H1` reviewed: the first attempt passed the setting to the
+    /// function under test, which proves the argument.
+    ///
+    /// The two directory arguments are GONE since issue #970: this command reads `catalogs:` and
+    /// `sources:` from the settings tree, so the spawned binary takes no catalogue/data path at
+    /// all - the deployment is the whole of what it serves.
+    fn spawn_configured(config_dir: &Path) -> Agent {
         let mut command = Command::new(env!("CARGO_BIN_EXE_sutura"));
         command
             .arg("mcp")
-            .arg(example.join("catalog"))
-            .arg(example.join("data"))
-            // **REMOVED, not merely unset by convention**, and `SUTURA_CONFIG_DIR` below for the same
-            // reason. This command reads the deployment's settings tree since #121, so a developer's
+            // **REMOVED, not merely unset by convention**, and `SUTURA_CONFIG_DIR` below for the
+            // same reason. This command reads the deployment's settings tree, so a developer's
             // exported `SUTURA_CONFIG_DIR` - the one an operator running `sutura serve` on the same
-            // machine has - reached this child and turned six passing tests red on "two answers to
-            // one question", and `SUTURA_ENVIRONMENT=production` turned them red on an access token.
+            // machine has - reached this child and turned passing tests red on "two answers to one
+            // question", and `SUTURA_ENVIRONMENT=production` turned them red on an access token.
             // Found by review. `env_remove` because `std::env::set_var` is `unsafe` in this edition
             // and this crate's root forbids it: what a test can do is decide what the CHILD sees.
             .env_remove(sutura_config::ENVIRONMENT_VARIABLE)
+            .env(sutura_config::CONFIG_DIR_VARIABLE, config_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        match config_dir {
-            None => command.env_remove(sutura_config::CONFIG_DIR_VARIABLE),
-            Some(dir) => command.env(sutura_config::CONFIG_DIR_VARIABLE, dir),
-        };
         let mut child = command.spawn().expect("the composed binary starts");
 
         let stdin = child.stdin.take().expect("standard input was piped");
@@ -441,7 +479,7 @@ mod tests {
             );
         }
         serde_json::json!({
-            "metric": metric,
+            "metrics": [metric],
             "grain": GRAIN,
             "range": { "start": start, "end": end },
         })
@@ -510,8 +548,8 @@ mod tests {
         // Spawned with `tools.run_sql.enabled: true` so every capability - the raw tool included -
         // is on this list; `#129`'s own `the_raw_tool_is_absent_unless_this_deployment_turned_it_on`
         // is the test that a DEFAULT deployment does not advertise it.
-        let dir = settings_tree("mcp-every-tool-advertised", "tools:\n  run_sql:\n    enabled: true\n");
-        let mut agent = spawn_configured(Some(&dir));
+        let dir = example_settings("mcp-every-tool-advertised", "tools:\n  run_sql:\n    enabled: true\n");
+        let mut agent = spawn_configured(&dir);
         drop(agent.initialize());
         let result = agent.request("tools/list", &serde_json::json!({}));
         let listed = result["tools"].as_array().cloned().unwrap_or_default();
@@ -700,8 +738,8 @@ mod tests {
         assert!(agent.close().success(), "the process did not exit cleanly");
 
         // And turned on, it is listed - the schema test above proves what it is listed AS.
-        let dir = settings_tree("mcp-run-sql-enabled-listing", "tools:\n  run_sql:\n    enabled: true\n");
-        let mut agent = spawn_configured(Some(&dir));
+        let dir = example_settings("mcp-run-sql-enabled-listing", "tools:\n  run_sql:\n    enabled: true\n");
+        let mut agent = spawn_configured(&dir);
         drop(agent.initialize());
         let listed = agent.request("tools/list", &serde_json::json!({}));
         assert!(
@@ -721,8 +759,14 @@ mod tests {
     /// `CARGO_TARGET_TMPDIR` is defined for an integration target and lives inside `target/`, which
     /// is the same choice `tests/declared_source.rs` makes: the file a subprocess reads is under the
     /// directory a build already owns rather than in a shared system temporary.
+    ///
+    /// **One directory per CALL**: a path shared by case let one test's `fs::write` truncate
+    /// `base.yaml` under another's reading child, which fell back to the defaults' relative `catalog`
+    /// root and refused. The pid separates nextest's processes, the counter `cargo test`'s threads.
     fn settings_tree(case: &str, base_yaml: &str) -> PathBuf {
-        let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(case);
+        static CALLS: AtomicU32 = AtomicU32::new(0);
+        let call = CALLS.fetch_add(1, Ordering::Relaxed);
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{case}-{}-{call}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("a directory under the target dir is creatable");
         std::fs::write(dir.join("base.yaml"), base_yaml).expect("the settings file is writable");
         dir
@@ -733,7 +777,7 @@ mod tests {
     /// The text block is the first content block; `sutura_mcp::wire::CatalogContent` sends both and
     /// this suite reads both, because `#266`'s `H1` was one half honouring a setting the other half
     /// had never been given.
-    fn described_catalog(config_dir: Option<&Path>) -> (serde_json::Value, String) {
+    fn described_catalog(config_dir: &Path) -> (serde_json::Value, String) {
         let mut agent = spawn_configured(config_dir);
         drop(agent.initialize());
         let result = agent.call(Capability::DescribeCatalog, &serde_json::json!({}));
@@ -767,9 +811,11 @@ mod tests {
         // omission that withheld everything whatever the operator asked for would be an outage, and
         // a test that only checked the omission would pass against a catalog with no prose in it.
 
-        // The default: no settings tree at all, so `prompt.catalog_prose` resolves to its embedded
-        // default and the catalog's own words reach the agent on both halves.
-        let (structured, text) = described_catalog(None);
+        // The default: the example declared with no extra reading, so `prompt.catalog_prose`
+        // resolves to its embedded default and the catalog's own words reach the agent on both
+        // halves. `example_settings` declares the catalog and the source this command now reads -
+        // there is no argument left for it to take.
+        let (structured, text) = described_catalog(&example_settings("mcp-catalog-prose-default", ""));
         assert_eq!(structured["catalog_prose"], "quoted", "{structured}");
         let flat = structured.to_string();
         assert!(
@@ -779,9 +825,8 @@ mod tests {
         // Quoted, not spliced - `docs/adr/0022`'s text half, asserted through the process.
         assert!(text.contains(&format!("> {EXAMPLE_PROSE}")), "{text}");
 
-        // And the operator's own file, which is the half that shipped every description.
-        let dir = settings_tree("mcp-catalog-prose-omitted", "prompt:\n  catalog_prose: omitted\n");
-        let (structured, text) = described_catalog(Some(&dir));
+        let dir = example_settings("mcp-catalog-prose-omitted", "prompt:\n  catalog_prose: omitted\n");
+        let (structured, text) = described_catalog(&dir);
         assert_eq!(structured["catalog_prose"], "omitted", "{structured}");
         let flat = structured.to_string();
         // FLAT rather than an index into `metrics[0].description`: an index steps over a
@@ -818,7 +863,8 @@ mod tests {
             .runtime()
             .max_concurrent_queries()
             .count();
-        let mut agent = spawn_configured(None);
+        let example = example_settings("mcp-admission-embedded", "");
+        let mut agent = spawn_configured(&example);
         let notice = agent.expect_log("grants every capability");
         assert!(
             notice.contains(&format!("at most {embedded} questions")),
@@ -831,9 +877,8 @@ mod tests {
         assert!(agent.close().success(), "the process did not exit cleanly");
 
         // And a deployment that says something else gets what it said. Three, which no default
-        // carries, so a root that read nothing fails this half.
-        let dir = settings_tree("mcp-admission-bound", "runtime:\n  max_concurrent_queries: 3\n");
-        let mut agent = spawn_configured(Some(&dir));
+        let dir = example_settings("mcp-admission-bound", "runtime:\n  max_concurrent_queries: 3\n");
+        let mut agent = spawn_configured(&dir);
         let notice = agent.expect_log("grants every capability");
         assert!(
             notice.contains("at most 3 questions"),
@@ -860,7 +905,8 @@ mod tests {
             .server()
             .request_timeout()
             .seconds();
-        let mut agent = spawn_configured(None);
+        let example = example_settings("mcp-reply-embedded", "");
+        let mut agent = spawn_configured(&example);
         let notice = agent.expect_log("grants every capability");
         assert!(
             notice.contains(&format!("after {embedded} seconds")),
@@ -870,9 +916,8 @@ mod tests {
         assert!(agent.close().success(), "the process did not exit cleanly");
 
         // And a deployment that says something else gets what it said. Seven, which no default
-        // carries, so a root that read nothing fails this half.
-        let dir = settings_tree("mcp-reply-deadline", "server:\n  request_timeout_seconds: 7\n");
-        let mut agent = spawn_configured(Some(&dir));
+        let dir = example_settings("mcp-reply-deadline", "server:\n  request_timeout_seconds: 7\n");
+        let mut agent = spawn_configured(&dir);
         let notice = agent.expect_log("grants every capability");
         assert!(
             notice.contains("after 7 seconds"),
@@ -901,6 +946,54 @@ mod tests {
         assert!(
             status.success(),
             "the process exited with {status} when its peer closed the pipe; standard error:\n{}",
+            agent.drain_log().join("\n")
+        );
+    }
+
+    /// A declared catalog kind with no reader on ANY build (`rdbms`, `openmetadata`) refuses this
+    /// process the same way it refuses `sutura serve` - the operator-facing message issue #970
+    /// asks for, since both composition roots dispatch the SAME `crate::catalog::open_catalog`.
+    /// Before #970, this command ignored `catalogs:` entirely and opened only its directory
+    /// arguments, so a settings tree declaring `catalog.kind: rdbms` was never read at all - a
+    /// deployment like this one served the example catalog regardless of what `catalogs:` named.
+    #[test]
+    fn a_declared_catalog_kind_without_a_reader_refuses_the_process_naming_the_same_follow_up_serve_gives() {
+        let example = example_root();
+        let dir = settings_tree(
+            "mcp-rdbms-refused",
+            &format!(
+                "security:\n  identity: \"single-user\"\n  single_user_because: \"a unit test reads its \
+                 own fixture files as one identity\"\n\
+                 catalogs:\n  \
+                   - name: \"model\"\n    \
+                     kind: \"rdbms\"\n    \
+                     dir: \"{}\"\n    \
+                     data_dir: \"{}\"\n    \
+                     version: \"{VERSION}\"\n\
+                 sources:\n  \
+                   {SOURCE}:\n    \
+                     kind: \"files\"\n    \
+                     data_dir: \"{}\"\n    \
+                     posture: \"shared-service-user\"\n",
+                example.join("catalog").display(),
+                example.join("data").display(),
+                example.join("data").display(),
+            ),
+        );
+        let mut agent = spawn_configured(&dir);
+        // Blocking reads, not `drain_log` - the process refuses and exits before this test asks
+        // anything, so there is a race between that exit and the background thread finishing its
+        // forward of standard error; `expect_log` waits for each line rather than snapshotting
+        // whatever has arrived so far.
+        let refusal = agent.expect_log("catalog.kind: rdbms");
+        assert!(
+            refusal.contains("#972"),
+            "the refusal did not name the follow-up issue - the same message `sutura serve` gives: {refusal}"
+        );
+        let status = agent.close();
+        assert!(
+            !status.success(),
+            "a deployment declaring catalog.kind: rdbms must refuse rather than serve; standard error:\n{}",
             agent.drain_log().join("\n")
         );
     }

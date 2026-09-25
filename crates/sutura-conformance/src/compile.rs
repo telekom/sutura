@@ -224,7 +224,7 @@ where
 /// own words for what the mono half of this pack demonstrates, and a question any of the four
 /// refusal agents below trips a different guard on.
 fn plan_question() -> Result<Query, FixtureError> {
-    Ok(Query::new(
+    Ok(Query::single(
         metric_name("revenue")?,
         Grain::Month,
         june()?,
@@ -267,15 +267,15 @@ impl RefusalAgent {
 fn refusal_agents() -> Result<Vec<RefusalAgent>, FixtureError> {
     Ok(vec![
         RefusalAgent::new(
-            Query::new(metric_name("does_not_exist")?, Grain::Month, june()?, Vec::new(), Vec::new()),
+            Query::single(metric_name("does_not_exist")?, Grain::Month, june()?, Vec::new(), Vec::new()),
             "MetricUnknown",
         ),
         RefusalAgent::new(
-            Query::new(metric_name("revenue")?, Grain::Week, june()?, Vec::new(), Vec::new()),
+            Query::single(metric_name("revenue")?, Grain::Week, june()?, Vec::new(), Vec::new()),
             "GrainNotSupported",
         ),
         RefusalAgent::new(
-            Query::new(
+            Query::single(
                 metric_name("revenue")?,
                 Grain::Month,
                 june()?,
@@ -285,7 +285,7 @@ fn refusal_agents() -> Result<Vec<RefusalAgent>, FixtureError> {
             "DimensionNotPermitted",
         ),
         RefusalAgent::new(
-            Query::new(
+            Query::single(
                 metric_name("revenue")?,
                 Grain::Month,
                 june()?,

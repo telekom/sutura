@@ -12,7 +12,7 @@
 //! reads it.
 
 use sutura_domain::model::{DimensionName, SourceName, TableName};
-use sutura_domain::plan::{PlanColumn, PlanJoin};
+use sutura_domain::plan::{PlanColumn, PlanJoin, PlanJoinKey};
 
 use crate::resolve::{Resolution, ResolvedDimension};
 
@@ -97,6 +97,30 @@ pub(super) fn chain_joins(resolution: &Resolution<'_>, own_table: &TableName, ow
                 break;
             }
             let target = hop.model.table_name();
+            // One join term per declared key, in the key's order. `origin` is where this hop's
+            // statement starts - the metric's table for hop 1, each previous hop's target after -
+            // so every key's origin column is qualified by it and its target by the joined table.
+            let keys = hop
+                .relationship
+                .keys()
+                .as_slice()
+                .iter()
+                .map(|key| match key {
+                    sutura_domain::catalog::JoinKey::Equal { origin: o, target: t } => PlanJoinKey::Equal {
+                        origin: PlanColumn::new(origin.clone(), o.clone()),
+                        target: PlanColumn::new(target.clone(), t.clone()),
+                    },
+                    sutura_domain::catalog::JoinKey::TruncatedEqual {
+                        origin: o,
+                        grain,
+                        target: t,
+                    } => PlanJoinKey::TruncatedEqual {
+                        origin: PlanColumn::new(origin.clone(), o.clone()),
+                        grain: *grain,
+                        target: PlanColumn::new(target.clone(), t.clone()),
+                    },
+                })
+                .collect();
             chain.push(PlanJoin::new(
                 hop.relationship.name().clone(),
                 // The joined model's own path: a dimension table in another dataset is still one
@@ -104,8 +128,7 @@ pub(super) fn chain_joins(resolution: &Resolution<'_>, own_table: &TableName, ow
                 // `mono_plan`'s `own_table` gives.
                 hop.model.table().clone(),
                 hop.relationship.join_type(),
-                PlanColumn::new(origin.clone(), hop.relationship.origin_column().clone()),
-                PlanColumn::new(target.clone(), hop.relationship.target_column().clone()),
+                keys,
             ));
             origin = target;
         }

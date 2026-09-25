@@ -8,28 +8,61 @@ models:
     source: local
     table: dim_customer
     columns:
-      - customer_id
-      - segment
+      customer_id:
+        name: customer_id
+        data_type: ~
+        description: ""
+        nullable: ~
+      segment:
+        name: segment
+        data_type: ~
+        description: ""
+        nullable: ~
+    primary_key: []
     description: The customer dimension.
   orders:
     name: orders
     source: local
     table: fct_order
     columns:
-      - amount_cents
-      - customer_id
-      - order_date
+      amount_cents:
+        name: amount_cents
+        data_type: NUMERIC
+        description: "The order total, in minor units."
+        nullable: ~
+      customer_id:
+        name: customer_id
+        data_type: ~
+        description: ""
+        nullable: ~
+      order_date:
+        name: order_date
+        data_type: ~
+        description: ""
+        nullable: ~
+      order_id:
+        name: order_id
+        data_type: ~
+        description: ""
+        nullable: ~
+      status:
+        name: status
+        data_type: ~
+        description: ""
+        nullable: ~
+    primary_key:
       - order_id
-      - status
     description: "Net revenue orders, in minor units."
 relationships:
   orders_to_customer:
     name: orders_to_customer
     origin_model: orders
-    origin_column: customer_id
     target_model: customers
-    target_column: customer_id
     join_type: many_to_one
+    keys:
+      - Equal:
+          origin: customer_id
+          target: customer_id
 metrics:
   revenue:
     name: revenue

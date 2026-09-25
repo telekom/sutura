@@ -62,11 +62,15 @@ finer split is a cheap change if a caller ever needs the branch.
 
 - `NotADirectory`
 - `Io`
+- `Open` - An open, stat or read of a document through its descriptor failed in a way the OS described but `Self::Io`'s wording does not: a swapped symlink refuses with `ELOOP` and a swapped FIFO with `ENXIO`, and neither is "could not read".
+- `NotARegularFile` - The document opened is not a regular file - a device node, for one, is refused by the regular-file check on the handle that was opened, not by the walk, which only saw the entry that was there before the swap.
 - `Malformed`
 - `Frontmatter`
 - `MalformedFrontmatter`
 - `IdentifyKind`
 - `Metric`
+- `Model` - A model's own column or its `primary_key:` is not usable.
+- `Relationship`
 - `Description` - The prose of a definition document is not a usable description.
 
   **The variant that did not exist, and its absence was the hole.** A model's and a metric's
@@ -103,9 +107,10 @@ finer split is a cheap change if a caller ever needs the branch.
 
   `path` is the catalog root, matching `TooManyDocuments` and `Empty` above - the rendered
   text names "the catalog", so the path in it has to be the catalog's, not one file's.
-  `document` is the one whose metadata pushed the running total over `limit` - checked from
-  its own size and INCLUDING it, before it is read into memory, not after. `found` is that
-  running total.
+  `document` is the one whose size pushed the running total over `limit` - checked on the
+  handle that is then read, and INCLUDING it, before it is read into memory, not after. A
+  document that outgrew that check while being read refuses here too. `found` is the
+  running total the refusal saw.
 - `Digest` - The domain could not hash the definitions.
 
   One variant rather than the two this used to have. Those two - the canonical form failing to
@@ -126,9 +131,10 @@ pub struct LocalCatalog
 A catalog read from a directory of documents.
 
 Carries a declared NAME, the way a `sources:` entry or a `catalogs:` entry carries an alias: it
-is the key the contribution manifest records this contributor under. `sutura serve` hands it the
-configured `catalogs:.<key>`; `sutura query`/`sutura mcp` name their single directory a
-constant. The adapter can no more guess it than a data adapter can guess its source alias.
+is the key the contribution manifest records this contributor under. `sutura serve` and, since
+issue #970, `sutura mcp` hand it the configured `catalogs:.<key>`; `sutura query` still names
+its single directory a constant. The adapter can no more guess it than a data adapter can guess
+its source alias.
 
 ### Methods
 
@@ -288,6 +294,48 @@ error in place of a typed cause.
 
 `Clone`, `Debug`, `Deserialize<'de>`
 
+### `enum ColumnEntryDoc`
+
+```rust
+pub enum ColumnEntryDoc
+```
+
+One entry of a model's `columns:` list: a bare name, or a name with a type, a description and
+whether it may hold null.
+
+**Untagged, the same shape `AnchorLiteral` uses and for the same reason: every document
+already on disk writes the short form, so it must keep loading byte for byte.** A document
+writes the long form only for a column it has something more to say about; the two may mix
+freely in one list. The same cost `AnchorLiteral`'s own doc states applies here too: a
+misspelled key inside the long form is refused, but `untagged` cannot say which variant a
+mapping was attempting or which key was wrong - the message names neither.
+
+**`type` and `description` are read as bare text, not as `ColumnType`/`Description`
+directly, and that is deliberate.** `serde(try_from)` has no escape hatch: a `ColumnType` that
+failed to parse would refuse the WHOLE document, for text nothing renders - the same defect
+found in review over `DataHub`'s HTTP reader, and `ColumnType`'s own doc argues why a type
+this crate cannot represent should be dropped instead. Reading the raw text here and converting
+through `Column::from_metadata` in `Self::into_domain` is what gives this format the same
+"a type is dropped, a description still refuses" rule every other catalog adapter now has.
+
+**What this does not check: two entries naming one column.** `Model::new` collects columns
+into a map keyed by name, so a repeated name keeps whichever entry was last in the list rather
+than refusing - the same silent collapse a `BTreeSet<ColumnName>` already gave every identical
+bare-name repeat before this type existed. Two long-form entries that repeat a name with
+DIFFERENT metadata are now representable and not caught: unlike `super::MetricDoc`'s
+dimensions, which the domain refuses a duplicate of, a model's columns are not checked for one
+here or in `sutura_domain::catalog::Definitions::assemble`. Stated as a limit rather than
+silently accepted.
+
+#### Variants
+
+- `Short`
+- `Long`
+
+#### Implements
+
+`Debug`, `Deserialize<'de>`
+
 ### `struct ModelDoc`
 
 ```rust
@@ -297,12 +345,33 @@ pub struct ModelDoc
 #### Methods
 
 ```rust
-pub fn into_domain(self, description: Description) -> Model
+pub fn into_domain(self, description: Description) -> Result<Model, InvalidModelDocument>
 ```
 
 #### Implements
 
 `Debug`, `Deserialize<'de>`
+
+### `enum InvalidModelDocument`
+
+```rust
+pub enum InvalidModelDocument
+```
+
+Why a model document could not become a domain `Model`.
+
+#### Variants
+
+- `ColumnDescription` - One column's own `description:` is not usable prose.
+- `PrimaryKey` - The model's own `primary_key:` names a column it does not declare.
+
+  Transparent and boxed, for the reason `InvalidMetricDocument::Inconsistent` gives: the
+  domain's own message already names the model and the column, and the box is what keeps
+  `LocalCatalogError` under `clippy::result_large_err`'s threshold.
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ### `struct EndpointDoc`
 
@@ -310,7 +379,25 @@ pub fn into_domain(self, description: Description) -> Model
 pub struct EndpointDoc
 ```
 
-One end of a relationship.
+One end of a relationship, and the grain an origin is truncated to when a join key's
+`grain` is present, making it a truncated equality rather than a plain one.
+
+#### Implements
+
+`Debug`, `Deserialize<'de>`
+
+### `struct JoinKeyDoc`
+
+```rust
+pub struct JoinKeyDoc
+```
+
+One term of a compound join, as the document spells it.
+
+A single column pair keeps the byte shape every existing relationship document has:
+`origin: { model, column }` / `target: { model, column }` outside a `keys:` list stays a plain
+equality. A compound join declares a `keys:` list, each entry `{ origin, target }` or
+`{ origin, grain, target }` - the origin column, truncated to `grain` for a truncated key.
 
 #### Implements
 
@@ -325,7 +412,7 @@ pub struct RelationshipDoc
 #### Methods
 
 ```rust
-pub fn into_domain(self) -> Relationship
+pub fn into_domain(self) -> Result<Relationship, InvalidJoinKeys>
 ```
 
 #### Implements

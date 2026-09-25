@@ -6,66 +6,6 @@
 use super::*;
 
 #[test]
-fn a_federated_answer_shares_one_instant_and_the_second_leg_sees_what_is_left() {
-    // `docs/adr/0029` decision 3: ONE `Deadline`, never divided. The fact leg's own fake takes one
-    // second to answer - deterministically longer than the 250ms budget, rather than a race against
-    // however long two in-memory calls happen to take - so the lookup leg's pre-call check finds it
-    // spent and never asks its adapter at all. The RATIO is what matters (4x), not the absolute
-    // numbers: an earlier 5ms budget / 200ms delay pair left the FIRST leg's own pre-call check (run
-    // after broker agreement, `Warehouses::get`, `presented` and `agrees_with`, all before any
-    // sleep) needing to complete inside 5ms of `Instant::now()` - a margin a scheduling stall under
-    // a parallel, thousands-of-tests run could cross for a reason that has nothing to do with this
-    // change. 250ms leaves that same preamble a wide margin.
-    let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
-    let warehouses = Warehouses::of(RecordingLegsWarehouse::answering_after(
-        SourceName::parse("facts").expect("a test source"),
-        shared(),
-        federated_fact_rows(),
-        std::rc::Rc::clone(&seen),
-        std::time::Duration::from_secs(1),
-    ))
-    .and(RecordingLegsWarehouse::answering(
-        SourceName::parse("geo").expect("a test source"),
-        shared(),
-        federated_lookup_rows(),
-        std::rc::Rc::clone(&seen),
-    ))
-    .expect("two sources");
-    let almost_spent = Deadline::opened_at(
-        Instant::now(),
-        Budget::parse(std::time::Duration::from_millis(250)).expect("250ms"),
-    );
-    let outcome = answer_federated(
-        &bundle(),
-        &federated_plan(),
-        &asked_by_a_person(),
-        &FixedBroker::GrantsShared,
-        &warehouses,
-        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
-        FEDERATED_BUDGET,
-        almost_spent,
-        &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeiling::DEFAULT,
-    )
-    .expect("a refusal is an Ok")
-    .into_outcome();
-    assert!(
-        matches!(
-            outcome,
-            ToolOutcome::Refusal {
-                reason: RefusalReason::DeadlineExceeded { .. }
-            }
-        ),
-        "a spent budget must refuse the second leg, not {outcome:?}"
-    );
-    assert_eq!(
-        *seen.borrow(),
-        vec![almost_spent],
-        "only the fact leg should run, seeing the SAME deadline"
-    );
-}
-
-#[test]
 fn a_federated_leg_that_times_out_is_refused_not_a_503() {
     // `docs/adr/0029` D2's federated call site: `run_leg` must map an `execute` failure that
     // satisfies `deadline_exceeded` to `RefusalReason::DeadlineExceeded`, the same as the mono
@@ -149,5 +89,88 @@ fn a_federated_legs_pre_flight_that_times_out_is_refused_not_a_503() {
             }
         ),
         "a leg pre-flight the data system reports as timed out must be refused, not {outcome:?}"
+    );
+}
+
+/// `docs/adr/0029` decision 3 - ONE `Deadline`, never divided - through the dry-run overrun.
+///
+/// Under the concurrent path both legs now run in parallel, so "the second leg sees what the first
+/// left" (an ordering over `execute` calls) no longer exists to pin. What the shared instant must
+/// still mean is that a budget spent by ONE leg's pre-flight is spent for BOTH legs: `answer_federated`
+/// dry-runs both legs (sequentially, before either `execute` runs) under the same `Deadline`, so a
+/// fact-leg pre-flight that sleeps past the tiny budget leaves the LOOKUP leg's own pre-call check
+/// finding it spent and refusing `DeadlineExceeded` - and neither leg is ever asked to execute.
+///
+/// The fact leg's fake takes one second to dry-run - deterministically longer than the 250ms
+/// budget, rather than a race against however long two in-memory calls happen to take. The RATIO is
+/// what matters (4x), not the absolute numbers: an earlier 5ms budget / 200ms delay pair left the
+/// LOOKUP leg's pre-call check needing to catch the instant the fact leg's dry run crossed, a margin
+/// a scheduling stall under a parallel, thousands-of-tests run could cross. 250ms leaves that same
+/// preamble a wide margin.
+#[test]
+fn a_federated_dry_run_that_spends_the_budget_refuses_both_legs_before_either_executes() {
+    let fact = SlowDryRunLegsWarehouse::answering_after(
+        SourceName::parse("facts").expect("a test source"),
+        shared(),
+        federated_fact_rows(),
+        std::time::Duration::from_secs(1),
+    );
+    let lookup = SlowDryRunLegsWarehouse::answering_after(
+        SourceName::parse("geo").expect("a test source"),
+        shared(),
+        federated_lookup_rows(),
+        std::time::Duration::ZERO,
+    );
+    let warehouses = Warehouses::of(fact).and(lookup).expect("two sources");
+    let almost_spent = Deadline::opened_at(
+        Instant::now(),
+        Budget::parse(std::time::Duration::from_millis(250)).expect("250ms"),
+    );
+    let outcome = answer_federated(
+        &bundle(),
+        &federated_plan(),
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
+        FEDERATED_BUDGET,
+        almost_spent,
+        &SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeiling::DEFAULT,
+    )
+    .expect("a refusal is an Ok")
+    .into_outcome();
+    assert!(
+        matches!(
+            outcome,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::DeadlineExceeded { .. }
+            }
+        ),
+        "a budget spent by one leg's dry run must refuse the shared answer, not {outcome:?}"
+    );
+    assert_eq!(
+        warehouses
+            .get(&SourceName::parse("facts").expect("a test source"))
+            .expect("facts is registered")
+            .executions(),
+        0,
+        "the fact leg's own dry run spent the budget, so even it must never execute"
+    );
+    assert_eq!(
+        warehouses
+            .get(&SourceName::parse("geo").expect("a test source"))
+            .expect("geo is registered")
+            .executions(),
+        0,
+        "the lookup leg's pre-call check finds the shared budget spent, so it never executes"
+    );
+    assert_eq!(
+        warehouses
+            .get(&SourceName::parse("geo").expect("a test source"))
+            .expect("geo is registered")
+            .dry_runs(),
+        0,
+        "the lookup leg is refused by the pre-call check before it is even asked to dry-run"
     );
 }

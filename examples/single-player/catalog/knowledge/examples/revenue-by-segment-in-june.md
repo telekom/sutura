@@ -5,7 +5,7 @@ asked:
   - how much recurring revenue did each segment bring in June
   - wie viel wiederkehrender Umsatz kam im Juni pro Segment
 question:
-  metric: recurring_revenue
+  metrics: [recurring_revenue]
   grain: month
   range: { start: 2026-06-01, end: 2026-07-01 }
   dimensions: [segment]

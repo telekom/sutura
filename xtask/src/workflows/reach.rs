@@ -320,6 +320,16 @@ impl Closure {
 /// missing manifest a failed `nix build` rather than a green run over nothing.
 const PROBE_MANIFEST: &str = "feature-probes-";
 
+/// The one literal non-`checks.` `nix build` NAME ordinary CI may build directly (#980, #981).
+///
+/// `packages.deps` is `ciArtifacts` (`flake.nix`) - built under `ciArgs`, the CI profile, exactly
+/// like every `checks.*` entry already inherits it. It installs no `bin/` and is not a release
+/// package by the property this heuristic otherwise uses that word for: nothing here ships it.
+/// Naming it lets a cache-only job realise and publish the shared dependency closure without also
+/// compiling a first-party check nobody downstream can reuse - see `pr-cache` in `ci.yml` and
+/// `push` in `cachix-push.yml` (the latter outside this closure, but the SAME name).
+const DEPS_PACKAGE: &str = "deps";
+
 /// What the walk opened, by label, for a verdict to print.
 ///
 /// A verdict that names no set cannot be told from one over a smaller set, which is this gate's own
@@ -329,14 +339,34 @@ pub(super) fn walked(closure: &Closure) -> Vec<&str> {
     closure.inspected().iter().map(|file| file.label.as_str()).collect()
 }
 
+/// Does `flake.nix`'s `packages` block still bind `packages.deps` to `ciArtifacts`?
+///
+/// #980 review: the exemption for [`DEPS_PACKAGE`] matched the NAME `deps` and nothing else, so
+/// rebinding `flake.nix`'s `deps = ciArtifacts;` to `deps = shipped.nativeBinaries.sutura;` - a
+/// release output under a name this refusal already trusted - still reported `ok`. This reads the
+/// block's own RAW source (`nix_block::block_source`, not the comment/string-blanked code
+/// projection - the exact RHS text is the whole question) and asks whether the one line binding
+/// `deps` still says `ciArtifacts` verbatim. `false` on any read failure or desync: the exemption
+/// must not survive a parse it cannot complete.
+fn deps_is_the_dependency_closure(root: &Path) -> bool {
+    let Ok(flake) = std::fs::read_to_string(root.join("flake.nix")) else {
+        return false;
+    };
+    let Some(block) = super::nix_block::block_source(&flake, "packages = ") else {
+        return false;
+    };
+    block.lines().any(|line| line.trim() == "deps = ciArtifacts;")
+}
+
 /// Every literal release output ordinary CI builds, and the file and line that builds it.
 ///
 /// Over the whole closure and not over one file name, which is the widening this module exists
 /// for: the refusal has to reach wherever a step can move, and a line cap moves steps.
-pub(super) fn release_outputs(closure: &Closure) -> Vec<String> {
+pub(super) fn release_outputs(root: &Path, closure: &Closure) -> Vec<String> {
+    let deps_exempt = deps_is_the_dependency_closure(root);
     let mut out = Vec::new();
     for file in closure.inspected() {
-        for (line, output) in literal_release_builds(&file.text) {
+        for (line, output) in literal_release_builds(&file.text, deps_exempt) {
             out.push(format!("{}:{line}  {output}", file.label));
         }
     }
@@ -344,7 +374,13 @@ pub(super) fn release_outputs(closure: &Closure) -> Vec<String> {
 }
 
 /// Every literal `nix build .#<output>` in one file that names a release output.
-fn literal_release_builds(text: &str) -> Vec<(usize, String)> {
+///
+/// **Every `.#` TOKEN on the line, not just the first one** - #980 review: reading only the first
+/// non-flag token let `nix build --print-build-logs .#deps .#sutura` report `ok`, because the
+/// exempt token at the head of the line hid every real release output written after it on the
+/// SAME line. A continuation line (`nix build … \` then `.#x` below) is still not read - that gap
+/// predates this change and is not fixed here.
+fn literal_release_builds(text: &str, deps_exempt: bool) -> Vec<(usize, String)> {
     let mut found = Vec::new();
     for (index, line) in text.lines().enumerate() {
         if line.trim_start().starts_with('#') {
@@ -357,26 +393,29 @@ fn literal_release_builds(text: &str) -> Vec<(usize, String)> {
         // `nix build -L .#sutura-serve` - an ordinary spelling - walked past the refusal at exit 0.
         // That it did not bite was a property of this tree's text (flags written after the
         // installable everywhere) rather than of the rule.
-        let after = after
-            .split_whitespace()
-            .find(|token| !token.starts_with('-'))
-            .unwrap_or_default();
-        let after = after.trim_start_matches('"');
-        let Some(after) = after.strip_prefix(".#") else {
-            continue;
-        };
-        let output: String = after
-            .chars()
-            .take_while(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.'))
-            .collect();
-        if output.is_empty() || output.starts_with(PROBE_MANIFEST) {
-            continue;
-        }
-        // Anything not a `checks.` output is a release PACKAGE; a `checks.` one is ordinary
-        // CI's to build, except the two the release path owns.
-        let release_check = output.ends_with(".one-binary") || output.ends_with(".shipped-features");
-        if !output.starts_with("checks.") || release_check {
-            found.push((index.saturating_add(1), output));
+        for token in after.split_whitespace().filter(|token| !token.starts_with('-')) {
+            let token = token.trim_start_matches('"').trim_end_matches('"');
+            let Some(token) = token.strip_prefix(".#") else {
+                continue;
+            };
+            let output: String = token
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.'))
+                .collect();
+            if output.is_empty() || output.starts_with(PROBE_MANIFEST) {
+                continue;
+            }
+            // The exemption is EXACTLY this one token, not "the rest of the line" - and it holds
+            // only while `packages.deps` still IS the dependency closure (`deps_exempt`).
+            if output == DEPS_PACKAGE && deps_exempt {
+                continue;
+            }
+            // Anything not a `checks.` output is a release PACKAGE; a `checks.` one is ordinary
+            // CI's to build, except the two the release path owns.
+            let release_check = output.ends_with(".one-binary") || output.ends_with(".shipped-features");
+            if !output.starts_with("checks.") || release_check {
+                found.push((index.saturating_add(1), output));
+            }
         }
     }
     found
@@ -685,11 +724,14 @@ mod tests {
         // `nix build -L .#sutura-serve` is an ordinary spelling. The scan required the installable
         // to be the very next token, so it passed at exit 0 - and that it never bit was a property
         // of this tree's text rather than of the rule.
-        let found = super::literal_release_builds(concat!(
-            "          nix build -L .#sutura-serve\n",
-            "          nix build --no-link \".#oci\"\n",
-            "          nix build -L .#checks.x86_64-linux.hygiene\n",
-        ));
+        let found = super::literal_release_builds(
+            concat!(
+                "          nix build -L .#sutura-serve\n",
+                "          nix build --no-link \".#oci\"\n",
+                "          nix build -L .#checks.x86_64-linux.hygiene\n",
+            ),
+            true,
+        );
         assert_eq!(found, vec![(1, String::from("sutura-serve")), (2, String::from("oci"))]);
     }
 
@@ -756,7 +798,7 @@ mod tests {
         let closure = walk(&at, CALLER);
         assert!(closure.drift().is_empty(), "{:?}", closure.drift());
         assert_eq!(
-            super::release_outputs(&closure),
+            super::release_outputs(&at, &closure),
             vec![String::from("leg.yml:6  sutura-serve")]
         );
         std::fs::remove_dir_all(&at).expect("the scratch tree");
@@ -764,13 +806,16 @@ mod tests {
 
     #[test]
     fn literal_release_outputs_are_kept_out_of_ordinary_ci() {
-        let found = super::literal_release_builds(concat!(
-            "          nix build .#checks.x86_64-linux.hygiene -L\n",
-            "          nix build .#checks.x86_64-linux.one-binary -L\n",
-            "          nix build .#sutura-serve -L\n",
-            "          nix build \".#oci\" -L\n",
-            "          nix build \".#${bin}-${TARGET}-ci\" -L\n",
-        ));
+        let found = super::literal_release_builds(
+            concat!(
+                "          nix build .#checks.x86_64-linux.hygiene -L\n",
+                "          nix build .#checks.x86_64-linux.one-binary -L\n",
+                "          nix build .#sutura-serve -L\n",
+                "          nix build \".#oci\" -L\n",
+                "          nix build \".#${bin}-${TARGET}-ci\" -L\n",
+            ),
+            true,
+        );
         assert_eq!(
             found,
             vec![
@@ -787,12 +832,73 @@ mod tests {
         // build instead of a green run over an empty set - and it installs no `bin/`, so it cannot
         // become a published asset. Everything else keeps failing, including a literal that merely
         // starts the same way.
-        let found = super::literal_release_builds(concat!(
-            "          nix build \".#feature-probes-${TARGET}\" --no-link\n",
-            "          nix build .#feature-probes-x86_64-unknown-linux-musl\n",
-            "          nix build .#feature-probesque -L\n",
-        ));
+        let found = super::literal_release_builds(
+            concat!(
+                "          nix build \".#feature-probes-${TARGET}\" --no-link\n",
+                "          nix build .#feature-probes-x86_64-unknown-linux-musl\n",
+                "          nix build .#feature-probesque -L\n",
+            ),
+            true,
+        );
         assert_eq!(found, vec![(3, String::from("feature-probesque"))]);
+    }
+
+    #[test]
+    fn deps_is_the_one_bare_package_ordinary_ci_may_build_and_only_by_its_exact_name() {
+        // #980/#981: `pr-cache` and the main-push writer now build `.#deps` directly to realise
+        // and publish the shared dependency closure, without pulling a first-party check along
+        // with it. It is the CI-profile `ciArtifacts` (`flake.nix`), not a release package, so it
+        // must not trip this refusal - but only under its own exact name; anything merely
+        // beginning with it still does, the same shape `feature-probesque` holds one test up.
+        let found = super::literal_release_builds(
+            concat!(
+                "          nix build --print-build-logs .#deps\n",
+                "          nix build .#deps-extra -L\n",
+            ),
+            true,
+        );
+        assert_eq!(found, vec![(2, String::from("deps-extra"))]);
+    }
+
+    #[test]
+    fn the_deps_exemption_covers_only_its_own_token_on_the_line() {
+        // #980 review, RED before this fix: reading only the first non-flag token per line meant
+        // `.#deps` at the head of a line hid every release output written after it on the SAME
+        // line - `nix build --print-build-logs .#deps .#sutura` reported `ok`. Every `.#` token
+        // is read now, so the exempt one changes nothing about the ones beside it.
+        let found = super::literal_release_builds("          nix build --print-build-logs .#deps .#sutura\n", true);
+        assert_eq!(found, vec![(1, String::from("sutura"))], "{found:?}");
+        // The reverse order must refuse identically - the control the review named.
+        let found = super::literal_release_builds("          nix build --print-build-logs .#sutura .#deps\n", true);
+        assert_eq!(found, vec![(1, String::from("sutura"))], "{found:?}");
+    }
+
+    #[test]
+    fn the_deps_exemption_does_not_hold_once_deps_exempt_is_false() {
+        // The caller's half of the same finding: the exemption is conditional on
+        // `deps_is_the_dependency_closure`, so a rebound `packages.deps` (measured in review:
+        // `deps = shipped.nativeBinaries.sutura;`) must lose it. This is the flag that function
+        // computes; its own test below covers reading the real binding.
+        let found = super::literal_release_builds("          nix build --print-build-logs .#deps\n", false);
+        assert_eq!(found, vec![(1, String::from("deps"))], "{found:?}");
+    }
+
+    #[test]
+    fn deps_is_the_dependency_closure_reads_the_real_binding_and_refuses_a_rebound_one() {
+        let at = scratch("deps-binding");
+        let flake =
+            |rhs: &str| format!("{{\n  outputs = {{ }}: {{\n    packages = {{\n      deps = {rhs};\n    }};\n  }};\n}}\n");
+        std::fs::write(at.join("flake.nix"), flake("ciArtifacts")).expect("the flake");
+        assert!(super::deps_is_the_dependency_closure(&at), "the real shape must hold");
+
+        // #980 review's exact probe: rebinding the name to a release output.
+        std::fs::write(at.join("flake.nix"), flake("shipped.nativeBinaries.sutura")).expect("the flake");
+        assert!(
+            !super::deps_is_the_dependency_closure(&at),
+            "a rebound packages.deps must not keep the exemption"
+        );
+
+        std::fs::remove_dir_all(&at).expect("the scratch tree");
     }
 
     #[test]
@@ -816,7 +922,7 @@ mod tests {
         );
         assert!(labels.len() > 2, "the walk read its roots and nothing they call: {labels:?}");
         assert!(
-            super::release_outputs(ci.closure()).is_empty(),
+            super::release_outputs(&root, ci.closure()).is_empty(),
             "the walked workflows name no release outputs"
         );
     }

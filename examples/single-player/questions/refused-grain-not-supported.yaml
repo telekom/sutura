@@ -1,4 +1,4 @@
-metric: recurring_revenue
+metrics: [recurring_revenue]
 grain: day
 range:
   start: 2026-06-01

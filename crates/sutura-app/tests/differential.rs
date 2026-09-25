@@ -55,6 +55,12 @@ mod adapters;
 #[path = "differential/federated.rs"]
 mod federated;
 
+// The mono half of the same evidence: one relationship, a single-column key and a compound one,
+// over one real embedded database. `#[path]` for the reason `federated` above needs it.
+#[cfg(test)]
+#[path = "differential/compound_join.rs"]
+mod compound_join;
+
 #[cfg(test)]
 mod tests {
     use sutura_app::{answer, verify_anchors};
@@ -179,7 +185,8 @@ mod tests {
         name: &str,
         metric: &dyn core::fmt::Display,
     ) where
-        W: DataSystemUnderTest,
+        W: DataSystemUnderTest + Sync,
+        W::Error: Send,
     {
         let expected = format!("column {metric}");
         let rendered_engine = chain(engine_error);
@@ -218,7 +225,8 @@ mod tests {
     /// entry that renamed itself into the reference's name would be a bigger problem than this.
     fn is_the_reference<W>() -> bool
     where
-        W: DataSystemUnderTest,
+        W: DataSystemUnderTest + Sync,
+        W::Error: Send,
     {
         W::NAME == <Engine as DataSystemUnderTest>::NAME
     }
@@ -245,7 +253,8 @@ mod tests {
     // `refused_together` did, or the expectation comes back.
     fn agrees_with_the_engine_on_every_question<W>()
     where
-        W: DataSystemUnderTest,
+        W: DataSystemUnderTest + Sync,
+        W::Error: Send,
     {
         if !W::available() {
             return;
@@ -367,7 +376,8 @@ mod tests {
     /// - exactly the class of thing a one-sided anchor check cannot see.
     fn reproduces_every_anchor_the_engine_does<W>()
     where
-        W: DataSystemUnderTest,
+        W: DataSystemUnderTest + Sync,
+        W::Error: Send,
     {
         if !W::available() {
             return;

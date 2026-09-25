@@ -17,7 +17,7 @@ adapter will execute **unless the deployment defines the metric itself**, no rel
 no definitional filter, no grain, no value allowlist and no anchor. That is the shape of a
 **declaring** adapter, and it is measured against its own declaration rather than against the
 golden adapters' oracle. **The excluded half is the knowledge kinds, declared empty below** -
-every one of the nine `DefinitionKind`s is covered, either provided unconditionally or as a
+every one of the eleven `DefinitionKind`s is covered, either provided unconditionally or as a
 declared-and-empty may-provide kind, so there is no definition kind this adapter declares itself
 out of.
 
@@ -147,6 +147,7 @@ reader back to all of them.
 - `Identifier` - A name on a snapshot did not parse as the identifier kind it claims to be.
 - `Sutura` - The `sutura` structured property's scalar value is not the metric content it claims to be.
 - `Description` - Prose on a snapshot is not a usable description.
+- `ColumnDescription` - A column's own description did not pass the authored-prose rule.
 - `Inconsistent` - The models, relationships and columns did not hold together.
 - `Knowledge` - The bundle's knowledge does not hold together.
 
@@ -260,6 +261,42 @@ pub fn relationships(&self) -> &[RelationshipAspect]
 
 `Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`
 
+### `struct ColumnMetadata`
+
+```rust
+pub struct ColumnMetadata
+```
+
+What `schemaMetadata.fields[]` says about one column beyond its `fieldPath`: its
+`nativeDataType` and its own `description`, both optional per field.
+
+A canonical, flat shape rather than `DataHub`'s own tagged `SchemaFieldDataType` union - the
+same simplification `DatasetAspect` already makes for the aspect as a whole, and the reason is
+the same: a real `nativeDataType` is already the flat string a dictionary's own `data_type`
+would be (`"VARCHAR(255)"`, `"BIGINT"`), so nothing here needs the union to read it.
+
+Identical in shape to `openmetadata::document::ColumnMetadata` and `rdbms::ColumnMetadata`,
+and kept separate for the reason the latter's own doc gives: each is one adapter's reading of
+a wire shape none of the others should depend on.
+
+#### Methods
+
+```rust
+pub fn data_type(&self) -> Option<&str>
+```
+
+```rust
+pub fn description(&self) -> Option<&str>
+```
+
+```rust
+pub const fn new(data_type: Option<String>, description: Option<String>) -> Self
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Default`, `Deserialize<'de>`, `Eq`, `PartialEq`
+
 ### `struct DatasetAspect`
 
 ```rust
@@ -269,7 +306,18 @@ pub struct DatasetAspect
 What a `dataset` entity supplies a model: a table, its columns, the platform it lives on, and a
 description.
 
+`column_metadata` and `primary_key` are both additive - see `Self::with_column_metadata` and
+`Self::with_primary_key` - rather than `Self::new` parameters, so every existing fixture and
+test in this crate keeps compiling. Both are `#[serde(default)]`, so a recorded document that
+predates either still deserializes.
+
 #### Methods
+
+```rust
+pub fn column_metadata(&self, column: &str) -> Option<&ColumnMetadata>
+```
+
+One column's type/description evidence, by `fieldPath`.
 
 ```rust
 pub fn columns(&self) -> &[String]
@@ -294,8 +342,28 @@ pub fn platform(&self) -> &str
 ```
 
 ```rust
+pub fn primary_key(&self) -> &[String]
+```
+
+Which fields `schemaMetadata` marks `isPartOfKey`.
+
+```rust
 pub fn table(&self) -> &str
 ```
+
+```rust
+pub fn with_column_metadata(self, metadata: impl IntoIterator<Item>) -> Self
+```
+
+Attaches per-column `nativeDataType`/`description` evidence, keyed by `fieldPath`.
+
+```rust
+pub fn with_primary_key(self, primary_key: Vec<String>) -> Self
+```
+
+Declares which fields `schemaMetadata` marks `isPartOfKey` - evidence only, the same as
+`sutura_domain::catalog::Model::with_primary_key`, which is where this arrives once
+converted.
 
 #### Implements
 

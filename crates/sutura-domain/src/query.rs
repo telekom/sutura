@@ -11,16 +11,23 @@
 use std::collections::BTreeSet;
 
 use crate::calendar::TimeRange;
-use crate::catalog::DimensionValue;
-use crate::model::{Aggregate, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
+use crate::model::{Aggregate, DimensionName, Grain, MetricName, ModelName, RelationshipName, SourceName, TableName};
+use crate::nonempty::NonEmpty;
 use crate::pinned::Provenance;
 use crate::warehouse::RowSet;
 
+pub mod filter;
 pub mod limits;
 pub mod top;
 
+pub use filter::Filter;
 pub use limits::{InvalidResponseByteLimit, ResponseByteLimit, ResultBound};
 pub use top::{InvalidTopN, Top, TopBy, TopDirection, TopN};
+
+/// One or more certified metric names a question asks about together - see
+/// `github.com/telekom/sutura#968` for the shape and [`crate::nonempty::NonEmpty`] for why the
+/// invariant is the type rather than a check.
+pub type MetricNames = NonEmpty<MetricName>;
 
 /// The most dimensions one question may group by.
 ///
@@ -67,60 +74,11 @@ pub const MAX_DIMENSIONS: usize = 4;
 /// scanned, which needs something from the data system that no port asks for yet.
 pub const MAX_RANGE_DAYS: i32 = 3653;
 
-/// One equality filter: a dimension, and a value the pinned bundle declares.
-///
-/// The value is a [`DimensionValue`] here and a bind parameter by the time it reaches a statement. It
-/// is checked against the metric's allowlist first, so the parameterisation is the second line of
-/// defence rather than the only one.
-///
-/// # Why a caller's value is parsed by the type a catalog author's value is parsed by
-///
-/// It was a `String`, and the review that gave `DimensionValue` to the catalog side asked whether the
-/// request side wanted it too. It does, for four reasons, and the last one is the decisive one:
-///
-/// * **It refuses nothing a request could have been answered.** The two are compared for equality
-///   against the metric's allowlist, and every entry in that allowlist is a `DimensionValue`. Text
-///   that cannot be one cannot be in there, so parsing here turns a `DimensionValueNotAllowed`
-///   refusal into a `400` naming the field and loses no answerable question.
-/// * **The precedent is already here and is older than this type.** A caller's `metric` and
-///   `dimension` arrive as text and are parsed by [`MetricName`] and [`DimensionName`] - the same
-///   types the catalog loader uses, at the same boundary, by the same constructor. A value being the
-///   one field held to a laxer rule was the asymmetry, not the fix.
-/// * **It bounds what a request may carry before anything allocates it.** A ten-megabyte filter value
-///   used to be compared against the allowlist and refused, having been read, cloned into
-///   [`Query::literals`] and rendered into whatever an audit sink keeps.
-/// * **A second character rule is a rule nothing compares against the first.** [`crate::text`] exists
-///   because one such rule was written down twice and the copies drifted. A request-side value type
-///   with its own idea of what a value may hold would be that mistake, deliberately, in a place where
-///   one side of the comparison is content and the other is a caller.
-///
-/// **What does NOT follow is that a refusal may name the text.** `sutura_http::wire` parses the value
-/// and reports `filters[i].value` without the parse error underneath it, because
-/// [`InvalidDimensionValue`](crate::catalog::InvalidDimensionValue) carries the offending input and
-/// [`RefusalReason`]'s own rule is that caller-supplied text is never reflected into a message that
-/// reaches a log, a UI and an agent's context.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Filter {
-    dimension: DimensionName,
-    value: DimensionValue,
-}
-
-impl Filter {
-    pub const fn new(dimension: DimensionName, value: DimensionValue) -> Self {
-        Self { dimension, value }
-    }
-
-    #[inline]
-    pub const fn dimension(&self) -> &DimensionName {
-        &self.dimension
-    }
-
-    #[inline]
-    pub const fn value(&self) -> &DimensionValue {
-        &self.value
-    }
-}
+// `Filter` and its non-empty value set moved to `filter` - see that module for why a caller's
+// value is parsed by the type a catalog author's value is parsed by, and for what a rejected
+// value's refusal does not carry. A caller's value is checked against the metric's allowlist
+// first, so the parameterisation `crate::warehouse::ParamValue` performs is the second line of
+// defence rather than the only one.
 
 /// A modelled question.
 ///
@@ -131,7 +89,7 @@ impl Filter {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Query {
-    metric: MetricName,
+    metrics: MetricNames,
     grain: Grain,
     range: TimeRange,
     #[serde(default)]
@@ -146,20 +104,35 @@ pub struct Query {
 
 impl Query {
     pub const fn new(
-        metric: MetricName,
+        metrics: MetricNames,
         grain: Grain,
         range: TimeRange,
         dimensions: Vec<DimensionName>,
         filters: Vec<Filter>,
     ) -> Self {
         Self {
-            metric,
+            metrics,
             grain,
             range,
             dimensions,
             filters,
             top: None,
         }
+    }
+
+    /// One metric, the shape every question asked before `github.com/telekom/sutura#968`. A
+    /// convenience over [`Self::new`] for the overwhelmingly common case, so a caller asking about
+    /// one metric writes one name rather than building a one-element [`MetricNames`].
+    #[inline]
+    #[must_use]
+    pub const fn single(
+        metric: MetricName,
+        grain: Grain,
+        range: TimeRange,
+        dimensions: Vec<DimensionName>,
+        filters: Vec<Filter>,
+    ) -> Self {
+        Self::new(MetricNames::one(metric), grain, range, dimensions, filters)
     }
 
     /// Attaches a `top` clause. A builder rather than a sixth constructor argument, so every
@@ -172,9 +145,18 @@ impl Query {
         self
     }
 
+    /// Every metric this question asks about, in the order the caller listed them. At least one:
+    /// see [`MetricNames`].
+    #[inline]
+    pub const fn metrics(&self) -> &MetricNames {
+        &self.metrics
+    }
+
+    /// The first metric named - the whole of [`Self::metrics`] for a single-metric question, and
+    /// what a caller who has not yet widened for multiple metrics reads.
     #[inline]
     pub const fn metric(&self) -> &MetricName {
-        &self.metric
+        self.metrics.first()
     }
 
     #[inline]
@@ -209,7 +191,12 @@ impl Query {
     /// first time a field is added.
     pub fn literals(&self) -> BTreeSet<String> {
         let mut out = BTreeSet::from([self.range.start().to_iso(), self.range.end().to_iso()]);
-        out.extend(self.filters.iter().map(|f| String::from(f.value().as_str())));
+        out.extend(
+            self.filters
+                .iter()
+                .flat_map(Filter::values)
+                .map(|value| String::from(value.as_str())),
+        );
         out
     }
 }
@@ -238,6 +225,27 @@ impl Query {
 pub enum RefusalReason {
     /// No metric of that name is in the pinned bundle.
     MetricUnknown { metric: MetricName },
+    /// A question named more than one metric, and two of them do not declare the same model or
+    /// the same time column.
+    ///
+    /// **A mixed-model set is unrepresentable as one grouped statement.** Two metrics over two
+    /// physical tables have no shared `FROM`, and two metrics on one table but two different time
+    /// columns would group by an ambiguous bucket - `sutura_semantic::resolve` compares every
+    /// metric named against the first, so the pair reported is always the first metric and the
+    /// first one that disagreed with it, never a third-party guess at which is "wrong".
+    MetricsSpanDifferentModels { first: MetricName, other: MetricName },
+    /// A question named more than one metric, and every one of them resolved: same model, time
+    /// column, grain and dimensions.
+    ///
+    /// **The boundary this build has not moved past yet.** `sutura_semantic::resolve` validates a
+    /// whole [`crate::query::MetricNames`] set exactly as it validates one - every metric's grain,
+    /// every requested dimension against every metric, every filter value against every metric's
+    /// own allowlist - but the plan stage does not yet decompose more than one metric into one
+    /// statement's select list, so a fully valid multi-metric question is refused here rather than
+    /// answered under a shape nothing has certified. `requested` is the count, a number this
+    /// deployment computed and safe to log - not any of the metric names, which the two refusals
+    /// above already report where they are the reason.
+    MultiMetricNotExecutable { requested: usize },
     /// The metric exists and does not declare that grain. Not a narrower question: a grain the
     /// author did not render is a number nobody certified.
     GrainNotSupported { metric: MetricName, grain: Grain },
@@ -330,6 +338,18 @@ pub enum RefusalReason {
     /// guess a link, and named as a link ambiguity rather than a source count: it is not that too
     /// many sources are involved.
     FederationLinkAmbiguous { source: SourceName },
+    /// The relationship crossing into the remote data system declares more than one join key.
+    ///
+    /// **Distinct from [`FederationLinkAmbiguous`](Self::FederationLinkAmbiguous), which names two
+    /// relationships crossing at once.** This is one relationship, correctly declared - a compound
+    /// key is exactly what `telekom/sutura#967` exists to allow inside one data system - but the
+    /// combiner links two legs on a single column, and a compound key would need one per column,
+    /// which the lookup leg's shape does not carry. Named for what is actually true rather than
+    /// reused from the ambiguity case, so a caller is not told two relationships exist when one does.
+    FederationLinkCompound {
+        source: SourceName,
+        relationship: RelationshipName,
+    },
     /// The question's measure cannot be decomposed into one leg per source.
     ///
     /// A measure federates only when its aggregate can be recomputed above the legs. A distinct count
@@ -603,6 +623,8 @@ impl RefusalReason {
     pub const fn code(&self) -> &'static str {
         match self {
             Self::MetricUnknown { .. } => "metric_unknown",
+            Self::MetricsSpanDifferentModels { .. } => "metrics_span_different_models",
+            Self::MultiMetricNotExecutable { .. } => "multi_metric_not_executable",
             Self::GrainNotSupported { .. } => "grain_not_supported",
             Self::DimensionNotPermitted { .. } => "dimension_not_permitted",
             Self::DimensionNotFilterable { .. } => "dimension_not_filterable",
@@ -614,6 +636,7 @@ impl RefusalReason {
             Self::PlanSpansTooManySources { .. } => "plan_spans_too_many_sources",
             Self::FederationNotExecutable => "federation_not_executable",
             Self::FederationLinkAmbiguous { .. } => "federation_link_ambiguous",
+            Self::FederationLinkCompound { .. } => "federation_link_compound",
             Self::MeasureDoesNotFederate { .. } => "measure_does_not_federate",
             Self::FederatedAnswerNotWellFormed { .. } => "federated_answer_not_well_formed",
             Self::PlanTablesShareAnIdentifier { .. } => "plan_tables_share_an_identifier",
@@ -660,7 +683,7 @@ mod tests {
     use super::{Filter, Query, RefusalReason, ResultBound, ToolOutcome};
     use crate::calendar::{Date, TimeRange};
     use crate::catalog::DimensionValue;
-    use crate::model::{DimensionName, Grain, MetricName};
+    use crate::model::{DimensionName, Grain, MetricName, RelationshipName};
 
     fn june() -> TimeRange {
         TimeRange::new(
@@ -671,7 +694,7 @@ mod tests {
     }
 
     fn query_with_filter(value: &str) -> Query {
-        Query::new(
+        Query::single(
             MetricName::parse("revenue").expect("a test metric is a metric"),
             Grain::Month,
             june(),
@@ -714,7 +737,35 @@ mod tests {
         drop(DimensionValue::parse("nor\u{200B}th").unwrap_err());
         drop(DimensionValue::parse("x".repeat(10_000)).unwrap_err());
         // And the value that would have been answered still is.
-        assert_eq!(query_with_filter("north").filters()[0].value().as_str(), "north");
+        let query = query_with_filter("north");
+        let values = query.filters()[0].values();
+        assert_eq!(
+            values,
+            vec![&DimensionValue::parse("north").expect("a test value is a value")]
+        );
+    }
+
+    #[test]
+    fn an_in_filter_s_values_all_reach_literals() {
+        // `In`/`NotIn` widen the shape of a filter, not the source of a value - every value in the
+        // set is still a literal the no-injection golden must be able to see.
+        let query = Query::single(
+            MetricName::parse("revenue").expect("a test metric is a metric"),
+            Grain::Month,
+            june(),
+            Vec::new(),
+            vec![Filter::in_set(
+                DimensionName::parse("region").expect("a test dimension is a dimension"),
+                crate::nonempty::NonEmpty::parse(vec![
+                    DimensionValue::parse("north").expect("a test value is a value"),
+                    DimensionValue::parse("south").expect("a test value is a value"),
+                ])
+                .expect("two values is a set"),
+            )],
+        );
+        let literals = query.literals();
+        assert!(literals.contains("north"), "{literals:?}");
+        assert!(literals.contains("south"), "{literals:?}");
     }
 
     #[test]
@@ -754,6 +805,11 @@ mod tests {
             RefusalReason::MetricUnknown {
                 metric: MetricName::parse("revenue").expect("a test metric"),
             },
+            RefusalReason::MetricsSpanDifferentModels {
+                first: MetricName::parse("revenue").expect("a test metric"),
+                other: MetricName::parse("margin").expect("a test metric"),
+            },
+            RefusalReason::MultiMetricNotExecutable { requested: 2 },
             RefusalReason::GrainNotSupported {
                 metric: MetricName::parse("revenue").expect("a test metric"),
                 grain: Grain::Week,
@@ -782,6 +838,10 @@ mod tests {
             RefusalReason::FederationNotExecutable,
             RefusalReason::FederationLinkAmbiguous {
                 source: SourceName::parse("warehouse").expect("a test source"),
+            },
+            RefusalReason::FederationLinkCompound {
+                source: SourceName::parse("warehouse").expect("a test source"),
+                relationship: RelationshipName::parse("usage_subscription").expect("a test relationship"),
             },
             RefusalReason::MeasureDoesNotFederate {
                 metric: MetricName::parse("active_subscriptions").expect("a test metric"),

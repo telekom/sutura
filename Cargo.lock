@@ -4271,6 +4271,7 @@ dependencies = [
  "sutura-semantic",
  "sutura-sql",
  "thiserror 2.0.20",
+ "tracing",
 ]
 
 [[package]]
@@ -4294,6 +4295,7 @@ dependencies = [
 name = "sutura-catalog-local"
 version = "0.5.1"
 dependencies = [
+ "rustix 0.38.44",
  "serde",
  "serde_norway",
  "sutura-domain",
@@ -4304,6 +4306,7 @@ dependencies = [
 name = "sutura-catalog-okf"
 version = "0.5.1"
 dependencies = [
+ "rustix 0.38.44",
  "serde",
  "serde_norway",
  "sutura-domain",
@@ -4340,6 +4343,7 @@ dependencies = [
  "rcgen",
  "rmcp",
  "rustls",
+ "serde",
  "serde_json",
  "serde_norway",
  "sutura-app",

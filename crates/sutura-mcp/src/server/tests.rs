@@ -83,6 +83,7 @@ where
             admission,
             reply,
             testing::instructions(),
+            testing::operator_instructions(),
         ),
         server_side,
     );
@@ -200,7 +201,7 @@ fn describe() -> CallToolRequestParams {
 
 fn a_certified_question() -> serde_json::Value {
     serde_json::json!({
-        "metric": "revenue",
+        "metrics": ["revenue"],
         "grain": "month",
         "range": { "start": "2026-06-01", "end": "2026-07-01" },
     })
@@ -355,6 +356,51 @@ async fn the_catalog_tool_lists_the_metrics_this_deployment_measures() {
     drop(client.cancel().await);
 }
 
+/// **Issue #971's acceptance, half one: a client over the in-memory pipe reads the glossary and the
+/// operator instructions through `tools/call` alone.**
+///
+/// A gateway of the shape this product runs behind surfaces tools and never delivers
+/// `initialize.instructions`; the catalog tool must therefore carry the knowledge sections the
+/// prompt renders (the glossary here) and the operator's own text, so an onboarding deployment tells
+/// the agent what it needs without ever reading a resource. Both halves of the reply carry them - the
+/// text block most clients render and the structured `knowledge` field a program reads.
+#[tokio::test]
+async fn a_client_reads_glossary_and_operator_instructions_through_tools_call_alone() {
+    let client = connected(testing::RestrictedKnowledgeSurface::new()).await;
+    let result = client.call_tool(describe()).await.expect("the catalog tool answers");
+    assert_ne!(result.is_error, Some(true), "{result:?}");
+
+    // The structured half: a `knowledge` field carrying the glossary the bundle declares, and a
+    // separate `instructions` field carrying the operator's text in its own section.
+    let structured = result
+        .structured_content
+        .as_ref()
+        .expect("the catalog carries structured content");
+    let knowledge = structured
+        .get("knowledge")
+        .and_then(serde_json::Value::as_str)
+        .expect("the catalog carries a knowledge section");
+    assert!(
+        knowledge.contains("capital expense"),
+        "a client over tools/call must read the glossary, got: {knowledge}"
+    );
+    let instructions = structured
+        .get("instructions")
+        .and_then(serde_json::Value::as_str)
+        .expect("the catalog carries the operator instructions");
+    assert!(
+        instructions.contains("Instructions from this deployment's operator"),
+        "the operator instructions arrive in their own section, got: {instructions}"
+    );
+
+    // The text half a plain client renders reaches the same two - the glossary and the operator text
+    // in its own section, never folded into the catalog prose.
+    let text = text_of(&result);
+    assert!(text.contains("capital expense"), "{text}");
+    assert!(text.contains("test fixture operator instructions"), "{text}");
+    drop(client.cancel().await);
+}
+
 /// `prompt.catalog_prose: omitted` is honoured by the TOOL, end to end - on BOTH halves of the reply.
 ///
 /// The catalog tool answers with a text block a plain client renders and structured content a
@@ -490,7 +536,7 @@ async fn every_answered_call_over_this_transport_writes_one_record() {
     drop(
         client
             .call_tool(ask(&serde_json::json!({
-                "metric": "headcount",
+                "metrics": ["headcount"],
                 "grain": "month",
                 "range": { "start": "2026-06-01", "end": "2026-07-01" },
             })))
@@ -553,7 +599,7 @@ async fn an_uncertified_question_is_refused_as_a_RESULT_rather_than_an_error() {
     let client = connected(certified_service()).await;
     let result = client
         .call_tool(ask(&serde_json::json!({
-            "metric": "headcount",
+            "metrics": ["headcount"],
             "grain": "month",
             "range": { "start": "2026-06-01", "end": "2026-07-01" },
         })))
@@ -593,7 +639,7 @@ async fn a_question_outside_the_metrics_grains_is_also_a_RESULT() {
     let client = connected(certified_service()).await;
     let result = client
         .call_tool(ask(&serde_json::json!({
-            "metric": "revenue",
+            "metrics": ["revenue"],
             "grain": "week",
             "range": { "start": "2026-06-01", "end": "2026-07-01" },
         })))
@@ -623,7 +669,7 @@ async fn a_query_field_the_domain_does_not_declare_is_a_named_parse_error() {
     let client = connected(certified_service()).await;
     let error = client
         .call_tool(ask(&serde_json::json!({
-            "metric": "revenue",
+            "metrics": ["revenue"],
             "grain": "month",
             "range": { "start": "2026-06-01", "end": "2026-07-01" },
             "sql": "select * from orders",

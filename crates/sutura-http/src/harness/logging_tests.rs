@@ -64,7 +64,7 @@ fn a_body_that_states_its_own_subject_is_not_a_question() {
     const IMPERSONATED: &str = "victim@example.com";
     let app = app(settings(Environment::Development, ""));
     let claiming = format!(
-        r#"{{"metric":"revenue","grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},"subject":"{IMPERSONATED}"}}"#
+        r#"{{"metrics":["revenue"],"grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},"subject":"{IMPERSONATED}"}}"#
     );
     let (status, body, rendered) = captured(
         sutura_config::LogFormat::Bunyan,
@@ -130,7 +130,7 @@ fn a_filter_value_never_reaches_the_log() {
     const SENTINEL: &str = "SENTINEL-MUST-NOT-BE-LOGGED";
     let app = app(settings(Environment::Development, ""));
     let question = format!(
-        r#"{{"metric":"revenue","grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},"filters":[{{"dimension":"region","value":"{SENTINEL}"}}]}}"#
+        r#"{{"metrics":["revenue"],"grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},"filters":[{{"op":"eq","dimension":"region","value":"{SENTINEL}"}}]}}"#
     );
     for format in [sutura_config::LogFormat::Bunyan, sutura_config::LogFormat::Pretty] {
         let (status, body, rendered) = captured(format, &app, request("POST", "/v1/query", None, Body::from(question.clone())));

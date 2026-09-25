@@ -70,8 +70,49 @@ impl Snapshot {
     }
 }
 
+/// What `OpenMetadata`'s `Column` schema COULD supply a reader beyond a column's name.
+///
+/// Its `dataType`, its own `description`, and (via [`Table::primary_key`]) whether its
+/// `constraint` is `PRIMARY_KEY`. This adapter's own canonical shape for it - no
+/// [`super::SnapshotReader`] but the fixture and a test stub exists today, so nothing yet maps a real
+/// `constraint` value into [`Table::primary_key`]; see the crate header's "What is built here,
+/// and what is NOT".
+///
+/// Identical in shape to `datahub::document::ColumnMetadata` and `rdbms::ColumnMetadata`, and
+/// kept separate for the reason the latter's own doc gives: each is one adapter's reading of a
+/// wire shape none of the others should depend on.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ColumnMetadata {
+    #[serde(default)]
+    data_type: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+}
+
+impl ColumnMetadata {
+    pub const fn new(data_type: Option<String>, description: Option<String>) -> Self {
+        Self { data_type, description }
+    }
+
+    #[inline]
+    pub fn data_type(&self) -> Option<&str> {
+        self.data_type.as_deref()
+    }
+
+    #[inline]
+    pub fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+}
+
 /// What a `Table` entity supplies a model: a table, its columns, the service it lives on, and a
 /// description.
+///
+/// `column_metadata` and `primary_key` are both `#[serde(default)]`, so a recorded document that
+/// predates either still deserializes - the same reason every field here has no `pub` constructor:
+/// a document arrives only through `Deserialize`, and a struct literal would let a caller build a
+/// `Table` the load path never checked.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Table {
@@ -83,6 +124,13 @@ pub struct Table {
     columns: Vec<String>,
     /// Free-text prose about the table, if any.
     description: Option<String>,
+    /// Per-column `dataType`/`description`, keyed by column name.
+    #[serde(default)]
+    column_metadata: BTreeMap<String, ColumnMetadata>,
+    /// Columns a reader found with `constraint: PRIMARY_KEY` - evidence only, and, as of this
+    /// writing, populated by nothing but the recorded fixture and a test stub.
+    #[serde(default)]
+    primary_key: Vec<String>,
 }
 
 impl Table {
@@ -104,6 +152,16 @@ impl Table {
     /// Free-text prose about the table, if any.
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
+    }
+
+    /// One column's `dataType`/`description` evidence, by name.
+    pub fn column_metadata(&self, column: &str) -> Option<&ColumnMetadata> {
+        self.column_metadata.get(column)
+    }
+
+    /// Which columns carry a `PRIMARY_KEY` constraint.
+    pub fn primary_key(&self) -> &[String] {
+        &self.primary_key
     }
 }
 

@@ -52,6 +52,10 @@ pub enum DuckDbError {
         #[source]
         cause: duckdb::Error,
     },
+    /// The connection's guard was poisoned by a panic. Under `panic = "abort"` this is unshakeable;
+    /// in unwind test builds refusing it as a typed error keeps a poisoned connection from being handed to anything else.
+    #[error("the connection's lock was poisoned by an earlier panic")]
+    Poisoned,
     /// A column came back as a type this adapter does not map.
     ///
     /// An error rather than a stringified fallback. A `LIST` or a `STRUCT` rendered with `Debug`
@@ -208,7 +212,13 @@ pub struct DuckDbWarehouse {
     /// The deployment declares the posture and the adapter declares its *capability* - see
     /// `Warehouse::IMPERSONATION` below. Kept so provenance is read off the thing that executed.
     posture: sutura_domain::source::SourcePosture,
-    connection: Connection,
+    /// The duckdb [`Connection`], behind a [`std::sync::Mutex`] so this adapter is `Sync` - what
+    /// a federated answer's scoped lookup leg needs to borrow it across a thread
+    /// (`crates/sutura-app/src/federated.rs`); a single-flight `Connection` is `Send` but not
+    /// `Sync`. `std` because every query is taken and dropped inside one synchronous call, so it
+    /// cannot deadlock an executor. A poisoned guard refuses as [`DuckDbError::Poisoned`].
+    #[expect(clippy::disallowed_types, reason = "the one Mutex field; see its own note")]
+    connection: std::sync::Mutex<Connection>,
 }
 
 impl core::fmt::Debug for DuckDbWarehouse {
@@ -222,6 +232,15 @@ impl core::fmt::Debug for DuckDbWarehouse {
 }
 
 impl DuckDbWarehouse {
+    /// Wraps a raw connection in the adapter's own synchronous guard - see the field's own note.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the one place a Mutex is named as a type outside the field declaration itself"
+    )]
+    const fn guarded(connection: Connection) -> std::sync::Mutex<Connection> {
+        std::sync::Mutex::new(connection)
+    }
+
     /// Opens a database file.
     pub fn open(
         source: sutura_domain::model::SourceName,
@@ -235,7 +254,7 @@ impl DuckDbWarehouse {
         Ok(Self {
             source,
             posture,
-            connection,
+            connection: Self::guarded(connection),
         })
     }
 
@@ -256,8 +275,14 @@ impl DuckDbWarehouse {
         Ok(Self {
             source,
             posture,
-            connection,
+            connection: Self::guarded(connection),
         })
+    }
+
+    /// The single-flight connection, its guard live for the whole of one synchronous call. A
+    /// panic while held poisons it, refused as [`DuckDbError::Poisoned`] rather than reused.
+    fn connection(&self) -> Result<std::sync::MutexGuard<'_, Connection>, DuckDbError> {
+        self.connection.lock().map_err(|_poisoned| DuckDbError::Poisoned)
     }
 
     /// Exposes a CSV file as a table.
@@ -272,7 +297,7 @@ impl DuckDbWarehouse {
             "CREATE OR REPLACE VIEW \"{}\" AS SELECT * FROM read_csv_auto('{literal}')",
             table.as_str()
         );
-        self.connection
+        self.connection()?
             .execute_batch(&statement)
             .map_err(|cause| DuckDbError::Attach {
                 table: String::from(table.as_str()),
@@ -297,7 +322,7 @@ impl DuckDbWarehouse {
             table.as_str(),
             duck_types(path)?,
         );
-        self.connection
+        self.connection()?
             .execute_batch(&statement)
             .map_err(|cause| DuckDbError::Attach {
                 table: String::from(table.as_str()),
@@ -457,9 +482,13 @@ impl DuckDbWarehouse {
     /// documentation says so - because the schema arrives with the result rather than with the
     /// prepare. Asking first is a panic reachable from any question, which is what
     /// `panic = "abort"` on the shipped profiles turns into a dead process.
+    #[expect(
+        clippy::significant_drop_tightening,
+        reason = "the guard is held for the whole read: `statement` and `rows` borrow the connection it dereferences, so dropping it right after `prepare` would be E0716; a panic while it is held is refused as DuckDbError::Poisoned by Self::connection, never silently reused"
+    )]
     fn run(&self, query: &GeneratedQuery) -> Result<RowSet, DuckDbError> {
-        let mut statement = self
-            .connection
+        let connection = self.connection()?;
+        let mut statement = connection
             .prepare(query.sql())
             .map_err(|cause| DuckDbError::Prepare { cause })?;
         let bound = Self::bind(query.params());
@@ -538,7 +567,7 @@ impl Warehouse for DuckDbWarehouse {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
         drop(
-            self.connection
+            self.connection()?
                 .prepare(query.sql())
                 .map_err(|cause| DuckDbError::Prepare { cause })?,
         );

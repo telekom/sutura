@@ -66,11 +66,13 @@ use crate::wire::{AskArgs, DescribeCatalogArgs, RunSqlArgs};
 pub(crate) const fn description(capability: Capability) -> &'static str {
     match capability {
         Capability::DescribeCatalog => {
-            "List what this deployment measures: every certified metric, the time grains it supports, \
-             the dimensions it can be grouped by or filtered on, and the exact values a filter may use. \
-             Read this before asking a question - it is the only way to know what a valid question is, \
-             and every answer carries the same definition version and digest this listing does. It \
-             returns definitions, never data rows."
+            "List what this deployment measures and what it knows about those measures: every \
+             certified metric, the time grains it supports, the dimensions it can be grouped by or \
+             filtered on, and the exact values a filter may use - plus the glossary of phrases that \
+             name these metrics, any worked examples, caveats, and the deployment operator's own \
+             instructions. Read this before asking a question - it is the only way to know what a \
+             valid question is, and every answer carries the same definition version and digest this \
+             listing does. It returns definitions and catalog knowledge, never data rows."
         }
         Capability::AskMetric => {
             "Answer one governed question about a certified metric. \
@@ -248,7 +250,7 @@ mod tests {
         names.sort_unstable();
         assert_eq!(
             names,
-            ["dimensions", "filters", "grain", "metric", "range", "top"],
+            ["dimensions", "filters", "grain", "metrics", "range", "top"],
             "{names:?}"
         );
         // Named explicitly rather than left to the equality above, so the failure says what went wrong

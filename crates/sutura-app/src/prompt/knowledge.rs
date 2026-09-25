@@ -74,6 +74,36 @@ use sutura_domain::query::Query;
 
 use super::{CatalogProse, quote, wrap};
 
+/// Which document a knowledge section is being rendered into.
+///
+/// The two callers - `render`'s whole-bundle prompt and `catalog_knowledge`'s tool reply - share this
+/// module's text, but not every sentence in it is true in both: a position word like "below" or "at
+/// the end" is true only of the document that actually puts the section there, and the prompt alone
+/// has a refusal-reason table for an absence declaration to point at. A caller passing the wrong
+/// variant is exactly how round 2 of #971's review found the tool pointing "below" at a glossary
+/// rendered above it, and "above, after the refusal section" at a section the tool never renders.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Audience {
+    /// `render`'s own document, in its fixed section order, with a refusal-reason table above the
+    /// knowledge sections.
+    Prompt,
+    /// `catalog_knowledge`'s reply. `scoped` is `false` for the deployment's own, unscoped read (the
+    /// stdio operator and every operator-side command) and `true` for a caller narrowed by
+    /// `docs/adr/0028` - an empty collection then cannot be told apart from one merely invisible to
+    /// this caller, which is what licenses "empty" instead of "none visible to you".
+    Tool { scoped: bool },
+}
+
+impl Audience {
+    const fn is_tool(self) -> bool {
+        matches!(self, Self::Tool { .. })
+    }
+
+    const fn is_scoped(self) -> bool {
+        matches!(self, Self::Tool { scoped: true })
+    }
+}
+
 /// What one capability licenses this document to say, and what its absence licenses instead.
 ///
 /// Three sentences per capability rather than one, because the interesting halves are the second and
@@ -97,33 +127,58 @@ struct Claim {
 /// nothing and is noticed by nobody. `Capability::next` in the domain is the same trick for the same
 /// reason, and the two are deliberately separate: what a capability IS belongs to the domain, and what
 /// it licenses a prompt to say does not.
-const fn claim(capability: Capability) -> Claim {
+const fn claim(capability: Capability, audience: Audience) -> Claim {
     match capability {
         Capability::Glossary => Claim {
             declared: "**A glossary** - the words people use for these metrics, and the one thing each of them means. It \
                        is listed below. Turning a question's wording into a metric name is YOUR step and worth naming in \
                        your answer.",
-            empty: "**A glossary**, and nothing is recorded in it yet. This deployment keeps one, so the section below \
-                    is empty rather than missing - match the user's words against the metric names and their \
-                    descriptions, and say which one you chose and why.",
+            empty: if audience.is_scoped() {
+                "**A glossary**, and none of it is visible to you. This deployment keeps one; whether it holds an \
+                 entry beyond what your own grant covers is not something this reply can tell you - match the \
+                 user's words against the metric names and descriptions you can see, and say which one you chose \
+                 and why."
+            } else {
+                "**A glossary**, and nothing is recorded in it yet. This deployment keeps one, so the section below \
+                 is empty rather than missing - match the user's words against the metric names and their \
+                 descriptions, and say which one you chose and why."
+            },
             absent: "**No glossary.** Nothing here maps a phrase to a metric, so match the user's words against the \
                      metric names and their descriptions, and say which one you chose and why.",
         },
         Capability::Caveats => Claim {
             declared: "**Caveats** - things to know before trusting a number. Each one is printed under the metric it is \
                        about and applies to every question about that metric.",
-            empty: "**Caveats**, and none is recorded yet. This deployment keeps them, printed under the metric each \
-                    one is about, and today no metric has one - which is not a statement that there are no traps.",
+            empty: if audience.is_scoped() {
+                "**Caveats**, and none is visible to you. This deployment keeps them; a caveat about a metric you \
+                 cannot see is withheld along with that metric - which is not a statement that no trap exists for \
+                 what you CAN ask about."
+            } else {
+                "**Caveats**, and none is recorded yet. This deployment keeps them, printed under the metric each \
+                 one is about, and today no metric has one - which is not a statement that there are no traps."
+            },
             absent: "**No caveats.** Nothing here records a trap in a definition, which is not a statement that there \
                      are none.",
         },
         Capability::Absences => Claim {
-            declared: "**A reviewed list of terms that are deliberately NOT defined here**, above, after the refusal \
-                       section. It is authoritative for what it names: a question about one of those terms is to be \
-                       declined with the reason given, not approximated from the metrics that are defined.",
-            empty: "**A reviewed list of terms that are deliberately NOT defined here**, above, after the refusal \
-                    section, with nothing on it. Somebody keeps that list and it is empty, so there is no term you are \
-                    being asked to decline on that ground.",
+            declared: if audience.is_tool() {
+                "**A reviewed list of terms that are deliberately NOT defined here**, in its own section below. It \
+                 is authoritative for what it names: a question about one of those terms is to be declined with the \
+                 reason given, not approximated from the metrics that are defined."
+            } else {
+                "**A reviewed list of terms that are deliberately NOT defined here**, above, after the refusal \
+                 section. It is authoritative for what it names: a question about one of those terms is to be \
+                 declined with the reason given, not approximated from the metrics that are defined."
+            },
+            empty: if audience.is_tool() {
+                "**A reviewed list of terms that are deliberately NOT defined here**, in its own section below, with \
+                 nothing on it. Somebody keeps that list and it is empty, so there is no term you are being asked to \
+                 decline on that ground."
+            } else {
+                "**A reviewed list of terms that are deliberately NOT defined here**, above, after the refusal \
+                 section, with nothing on it. Somebody keeps that list and it is empty, so there is no term you are \
+                 being asked to decline on that ground."
+            },
             absent: "**No record of what is deliberately undefined.** This deployment cannot tell you which terms were \
                      considered and rejected, so infer NOTHING from a term being absent from this document. The metric \
                      list is the only authority on what may be asked.",
@@ -131,9 +186,22 @@ const fn claim(capability: Capability) -> Claim {
         Capability::Examples => Claim {
             declared: "**Worked questions** - real questions with the request that answers each, at the end of this \
                        document. They are the shape to copy.",
-            empty: "**Worked questions**, and none is recorded yet. This deployment keeps them, at the end of this \
-                    document, and today there are none - so compose from the metric list and the bounds above.",
-            absent: "**No worked questions.** Compose from the metric list and the bounds above.",
+            empty: if audience.is_scoped() {
+                "**Worked questions**, and none is visible to you. This deployment keeps them; whether it holds one \
+                 beyond what your own grant covers is not something this reply can tell you - compose from the \
+                 metric list you can see."
+            } else if audience.is_tool() {
+                "**Worked questions**, and none is recorded yet. This deployment keeps them, at the end of this \
+                 document, and today there are none - so compose from the metric list above."
+            } else {
+                "**Worked questions**, and none is recorded yet. This deployment keeps them, at the end of this \
+                 document, and today there are none - so compose from the metric list and the bounds above."
+            },
+            absent: if audience.is_tool() {
+                "**No worked questions.** Compose from the metric list this reply carries."
+            } else {
+                "**No worked questions.** Compose from the metric list and the bounds above."
+            },
         },
     }
 }
@@ -144,7 +212,7 @@ const fn claim(capability: Capability) -> Claim {
 /// section at all, which is the honest rendering: there is no distinction to draw, and four lines
 /// saying "not recorded" would be noise rather than information. The document then claims nothing
 /// about any of the four, which is exactly what an undeclared capability licenses.
-pub(super) fn declaration(knowledge: &Knowledge) -> String {
+pub(super) fn declaration(knowledge: &Knowledge, audience: Audience) -> String {
     if knowledge.declares().is_empty() {
         return String::new();
     }
@@ -163,7 +231,7 @@ pub(super) fn declaration(knowledge: &Knowledge) -> String {
     // the domain appears here without this function being edited - and `claim` is what fails to
     // compile until somebody decides what it licenses.
     for capability in Capability::every() {
-        let entry = claim(capability);
+        let entry = claim(capability, audience);
         let text = if !knowledge.declares().declares(capability) {
             entry.absent
         } else if recorded(knowledge, capability) == 0 {
@@ -207,10 +275,15 @@ fn section(heading: &str, nothing: &str, declared: bool, is_empty: bool) -> Opti
 }
 
 /// The glossary, rendered from the structure.
-pub(super) fn glossary(knowledge: &Knowledge, prose: CatalogProse) -> String {
+pub(super) fn glossary(knowledge: &Knowledge, prose: CatalogProse, audience: Audience) -> String {
+    let nothing = if audience.is_scoped() {
+        NONE_VISIBLE_GLOSSARY
+    } else {
+        NO_GLOSSARY_RECORDED
+    };
     let Some(mut lines) = section(
         GLOSSARY_HEADING,
-        NO_GLOSSARY_RECORDED,
+        nothing,
         knowledge.supports(Capability::Glossary),
         knowledge.glossary().is_empty(),
     ) else {
@@ -244,15 +317,33 @@ const NO_GLOSSARY_RECORDED: &str = "None. This deployment keeps a glossary and t
                                     below this line has been given a meaning here. Match the user's words against the \
                                     metric names and their descriptions, and say which one you chose and why.";
 
+/// The scoped counterpart of [`NO_GLOSSARY_RECORDED`]: this caller's grant, not the deployment's own
+/// records, is why the section below is empty. "Nothing is recorded" would be false whenever scoping,
+/// not an empty glossary, is the reason - see [`Audience::Tool`].
+const NONE_VISIBLE_GLOSSARY: &str = "None visible to you. This deployment keeps a glossary; whether it holds an entry \
+                                     beyond what your own grant covers is not something this reply can tell you. Match \
+                                     the user's words against the metric names and descriptions you can see, and say \
+                                     which one you chose and why.";
+
 /// The terms recorded as deliberately undefined.
 ///
 /// Three renderings, and the difference between the second and the third is the whole reason the
 /// capability is declared rather than inferred: an empty list somebody keeps is a fact, and an empty
 /// list nobody keeps is nothing at all.
-pub(super) fn not_defined(knowledge: &Knowledge, prose: CatalogProse) -> String {
+pub(super) fn not_defined(knowledge: &Knowledge, prose: CatalogProse, audience: Audience) -> String {
+    // Never reached with `audience.is_scoped()`: `Knowledge::scoped` withdraws `Capability::Absences`
+    // for a narrowed caller, so `knowledge.supports(Capability::Absences)` is false and `section`
+    // returns `None` before either constant below is chosen. Both still branch on `is_tool` alone -
+    // the tool has no refusal-reason table for `MetricUnknown` or "the refusal above" to point at,
+    // whether or not this particular read was scoped.
+    let nothing = if audience.is_tool() {
+        TOOL_NOTHING_RECORDED
+    } else {
+        NOTHING_RECORDED
+    };
     let Some(mut lines) = section(
         NOT_DEFINED_HEADING,
-        NOTHING_RECORDED,
+        nothing,
         knowledge.supports(Capability::Absences),
         knowledge.absences().is_empty(),
     ) else {
@@ -261,7 +352,12 @@ pub(super) fn not_defined(knowledge: &Knowledge, prose: CatalogProse) -> String 
     if knowledge.absences().is_empty() {
         return lines.join("\n");
     }
-    lines.push(wrap("", NOT_DEFINED_INTRO, ""));
+    let intro = if audience.is_tool() {
+        TOOL_NOT_DEFINED_INTRO
+    } else {
+        NOT_DEFINED_INTRO
+    };
+    lines.push(wrap("", intro, ""));
     lines.push(String::new());
     for note in knowledge.absences().values() {
         lines.push(wrap("- ", &phrases(note.phrases()), "  "));
@@ -276,12 +372,27 @@ const NOTHING_RECORDED: &str = "None. This deployment keeps such a list and ther
                                 you are being asked to decline on that ground. `MetricUnknown` above is still the whole \
                                 of what does not exist here.";
 
+/// The tool's own counterpart: no refusal-reason table exists in `catalog_knowledge`'s reply for
+/// `MetricUnknown` to be "above" in.
+const TOOL_NOTHING_RECORDED: &str = "None. This deployment keeps such a list and there is nothing on it, so there is no \
+                                     term you are being asked to decline on that ground. A metric not named anywhere in \
+                                     this reply still does not exist here.";
+
 const NOT_DEFINED_INTRO: &str = "These terms were considered and deliberately have no definition here. A question about one of them is to be \
      DECLINED, with the reason below, and never approximated out of the metrics that are defined: a plausible number \
      under a name nobody certified is the failure this entire surface is arranged to prevent. Say what is missing and \
      that adding it is a decision for a person. The list is authoritative for what it names and is not a complete \
      inventory of everything undefined - a term that is on neither this list nor the metric list is simply not \
      answerable, which the refusal above already covers.";
+
+/// The tool's own counterpart of [`NOT_DEFINED_INTRO`]: `catalog_knowledge` never renders a refusal
+/// section for "the refusal above" to point at.
+const TOOL_NOT_DEFINED_INTRO: &str = "These terms were considered and deliberately have no definition here. A question about one of them is to be \
+     DECLINED, with the reason below, and never approximated out of the metrics that are defined: a plausible number \
+     under a name nobody certified is the failure this entire surface is arranged to prevent. Say what is missing and \
+     that adding it is a decision for a person. The list is authoritative for what it names and is not a complete \
+     inventory of everything undefined - a term that is on neither this list nor the metric list is simply not \
+     answerable.";
 
 /// The caveats about one metric, for the block that metric is rendered in.
 ///
@@ -360,10 +471,17 @@ fn scope(note: &Caveat, metric: &MetricName) -> String {
 }
 
 /// The worked questions.
-pub(super) fn examples(knowledge: &Knowledge, prose: CatalogProse) -> String {
+pub(super) fn examples(knowledge: &Knowledge, prose: CatalogProse, audience: Audience) -> String {
+    let nothing = if audience.is_scoped() {
+        NONE_VISIBLE_EXAMPLES
+    } else if audience.is_tool() {
+        TOOL_NO_EXAMPLES_RECORDED
+    } else {
+        NO_EXAMPLES_RECORDED
+    };
     let Some(mut lines) = section(
         EXAMPLES_HEADING,
-        NO_EXAMPLES_RECORDED,
+        nothing,
         knowledge.supports(Capability::Examples),
         knowledge.examples().is_empty(),
     ) else {
@@ -372,7 +490,12 @@ pub(super) fn examples(knowledge: &Knowledge, prose: CatalogProse) -> String {
     if knowledge.examples().is_empty() {
         return lines.join("\n");
     }
-    lines.push(wrap("", EXAMPLES_INTRO, ""));
+    let intro = if audience.is_tool() {
+        TOOL_EXAMPLES_INTRO
+    } else {
+        EXAMPLES_INTRO
+    };
+    lines.push(wrap("", intro, ""));
     for note in knowledge.examples().values() {
         lines.push(String::new());
         lines.push(format!("### {}\n", note.name()));
@@ -391,8 +514,27 @@ const EXAMPLES_INTRO: &str = "Questions somebody actually asked, with the reques
                               does not load. So a question below is one this deployment answers rather than one it \
                               would decline.";
 
+/// The tool's own counterpart of [`EXAMPLES_INTRO`]: `catalog_knowledge` renders no "bounds" section
+/// for "the bounds above" to point at.
+const TOOL_EXAMPLES_INTRO: &str = "Questions somebody actually asked, with the request that answers each. Copy the \
+                                   shape. Every value in them is one this snapshot declares, and every one of them is \
+                                   within this deployment's own limits on period length, dimension count and result \
+                                   size, because a bundle carrying one that is not does not load. So a question below \
+                                   is one this deployment answers rather than one it would decline.";
+
 const NO_EXAMPLES_RECORDED: &str = "None. This deployment keeps worked questions and none is recorded yet, so there is \
                                     no shape here to copy - compose from the metric list and the bounds above.";
+
+/// The tool's own counterpart of [`NO_EXAMPLES_RECORDED`], for the deployment's own (unscoped) read.
+const TOOL_NO_EXAMPLES_RECORDED: &str = "None. This deployment keeps worked questions and none is recorded yet, so \
+                                         there is no shape here to copy - compose from the metric list this reply \
+                                         carries.";
+
+/// The scoped counterpart: this caller's grant, not the deployment's own records, is why the section
+/// below is empty - see [`Audience::Tool`].
+const NONE_VISIBLE_EXAMPLES: &str = "None visible to you. This deployment keeps worked questions; whether it holds \
+                                     one beyond what your own grant covers is not something this reply can tell you - \
+                                     compose from the metric list you can see.";
 
 /// One question, as the fields a caller sends.
 ///
@@ -415,9 +557,23 @@ fn request(question: &Query) -> String {
         parts.push(format!("grouped by {}", names.join(", ")));
     }
     for filter in question.filters() {
-        parts.push(format!("`{}` = `{}`", filter.dimension(), filter.value()));
+        parts.push(filter_phrase(filter));
     }
     parts.join(", ")
+}
+
+/// One filter as a phrase, in the shape [`Filter`](sutura_domain::query::Filter) carries it -
+/// `github.com/telekom/sutura#968`.
+fn filter_phrase(filter: &sutura_domain::query::Filter) -> String {
+    use sutura_domain::query::Filter;
+    let values = |values: &[&sutura_domain::catalog::DimensionValue]| -> String {
+        values.iter().map(|value| format!("`{value}`")).collect::<Vec<_>>().join(", ")
+    };
+    match *filter {
+        Filter::Eq { ref value, .. } => format!("`{}` = `{value}`", filter.dimension()),
+        Filter::In { .. } => format!("`{}` in ({})", filter.dimension(), values(&filter.values())),
+        Filter::NotIn { .. } => format!("`{}` not in ({})", filter.dimension(), values(&filter.values())),
+    }
 }
 
 /// A run of phrases, quoted and comma-separated.

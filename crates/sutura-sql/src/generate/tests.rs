@@ -1,11 +1,20 @@
-use sutura_domain::catalog::{Definitions, Description, Model, Relationship};
+use sutura_domain::calendar::{Date, TimeRange};
+use sutura_domain::catalog::{Definitions, Description, JoinKey, JoinKeys, Model, Relationship};
 use sutura_domain::model::Aggregate;
-use sutura_domain::model::{ColumnName, Grain, JoinType, ModelName, RelationshipName, SourceName, TableName};
-use sutura_domain::plan::{PlanBucket, PlanColumn, ResultLabel};
+use sutura_domain::model::{ColumnName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName};
+use sutura_domain::plan::{
+    PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
+    ResultLabel, StatementTables,
+};
+use sutura_domain::query::{Top, TopBy, TopDirection, TopN};
+use sutura_domain::warehouse::ParamValue;
 
 use polyglot_sql::builder;
 
-use super::{DISTINCT_LABEL, DeclaredKey, ROWS_LABEL, bucket_expression, generate_key_probe, ordered_nulls_last, render};
+use super::{
+    DISTINCT_LABEL, DeclaredKey, GenerateError, ROWS_LABEL, bucket_expression, generate, generate_key_probe, ordered_nulls_last,
+    render,
+};
 use crate::dialect::{ALL, Dialect};
 
 fn bucket(grain: Grain) -> PlanBucket {
@@ -296,10 +305,13 @@ fn a_key_probe_renders_and_parses_for_every_dialect_it_declares() {
     let relationship = Relationship::new(
         RelationshipName::parse("orders_customer").expect("a test relationship is a relationship"),
         ModelName::parse("orders").expect("a test model is a model"),
-        ColumnName::parse("customer_key").expect("a test column is a column"),
         ModelName::parse("customers").expect("a test model is a model"),
-        ColumnName::parse("customer_key").expect("a test column is a column"),
         JoinType::ManyToOne,
+        JoinKeys::of(vec![JoinKey::Equal {
+            origin: ColumnName::parse("customer_key").expect("a test column is a column"),
+            target: ColumnName::parse("customer_key").expect("a test column is a column"),
+        }])
+        .expect("a test relationship declares one key"),
     );
     let definitions = Definitions::assemble(
         vec![
@@ -307,18 +319,14 @@ fn a_key_probe_renders_and_parses_for_every_dialect_it_declares() {
                 ModelName::parse("orders").expect("a test model is a model"),
                 SourceName::parse("local").expect("a test source is a source"),
                 TableName::parse("orders").expect("a test table is a table"),
-                std::iter::once("customer_key")
-                    .map(|c| ColumnName::parse(c).expect("a test column is a column"))
-                    .collect(),
+                std::iter::once("customer_key").map(|c| ColumnName::parse(c).expect("a test column is a column")),
                 Description::default(),
             ),
             Model::new(
                 ModelName::parse("customers").expect("a test model is a model"),
                 SourceName::parse("local").expect("a test source is a source"),
                 TableName::parse("dim_customer").expect("a test table is a table"),
-                std::iter::once("customer_key")
-                    .map(|c| ColumnName::parse(c).expect("a test column is a column"))
-                    .collect(),
+                std::iter::once("customer_key").map(|c| ColumnName::parse(c).expect("a test column is a column")),
                 Description::default(),
             ),
         ],
@@ -348,6 +356,188 @@ fn a_key_probe_renders_and_parses_for_every_dialect_it_declares() {
         assert!(
             parsed.is_ok(),
             "{dialect} did not parse its own probe: {:?}\n{sql}",
+            parsed.err()
+        );
+    }
+}
+
+/// A one-metric plan at month grain, bounded by the row cap: `top` is unset.
+fn month_plan() -> QueryPlan {
+    let col = |name: &str| {
+        PlanColumn::new(
+            TableName::parse("orders").expect("a test table is a table"),
+            ColumnName::parse(name).expect("a test column is a column"),
+        )
+    };
+    let date = |raw: &str| Date::parse(raw).expect("a test date is a date");
+    let metric = MetricName::parse("revenue").expect("a test metric is a metric");
+    let bindings = PlanBindings::parse(
+        vec![
+            PlanFilter::new(
+                PredicateOrigin::Definition,
+                PlanPredicate::AtOrAfter {
+                    column: col("order_date"),
+                    param: 0,
+                },
+            ),
+            PlanFilter::new(
+                PredicateOrigin::Definition,
+                PlanPredicate::Before {
+                    column: col("order_date"),
+                    param: 1,
+                },
+            ),
+        ],
+        vec![ParamValue::Date(date("2026-06-01")), ParamValue::Date(date("2026-07-01"))],
+    )
+    .expect("two range bounds bind in placeholder order");
+    QueryPlan::new(
+        SourceName::parse("local").expect("a test source is a source"),
+        metric.clone(),
+        StatementTables::parse(TableName::parse("orders").expect("a test table is a table"), Vec::new())
+            .expect("one table is unambiguous"),
+        PlanBucket::new(ResultLabel::bucket(), Grain::Month, col("order_date")),
+        Vec::new(),
+        PlanMeasure::Simple {
+            term: PlanTerm::Aggregate {
+                aggregate: Aggregate::Sum,
+                column: col("amount_cents"),
+            },
+        },
+        ResultLabel::measure(&metric),
+        bindings,
+        TimeRange::new(date("2026-06-01"), date("2026-07-01")).expect("a test range is a range"),
+    )
+}
+
+/// Oracle ends in `FETCH FIRST n ROWS ONLY` and carries no `LIMIT`; every other dialect ends in
+/// `LIMIT n` and carries no `FETCH FIRST`.
+fn assert_row_limit_clause(plan: &QueryPlan, n: u32) {
+    for &dialect in ALL {
+        let query = generate(plan, dialect).unwrap_or_else(|e| panic!("a plan renders for {dialect}: {e}"));
+        let sql = query.sql();
+        if dialect == Dialect::Oracle {
+            assert!(
+                sql.ends_with(&format!("FETCH FIRST {n} ROWS ONLY")),
+                "Oracle takes FETCH FIRST {n}:\n{sql}"
+            );
+            assert!(!sql.contains("LIMIT"), "Oracle refuses LIMIT:\n{sql}");
+        } else {
+            assert!(sql.ends_with(&format!("LIMIT {n}")), "{dialect} keeps LIMIT {n}:\n{sql}");
+            assert!(!sql.contains("FETCH FIRST"), "{dialect} takes no FETCH FIRST:\n{sql}");
+        }
+    }
+}
+
+/// Oracle refuses `LIMIT n` (`ORA-03049`), so the row cap's one-past limit renders as
+/// `FETCH FIRST`. Red on the base tree, where every whole-plan statement ends in `LIMIT n`.
+/// `github.com/telekom/sutura#127`.
+#[test]
+fn oracle_caps_a_whole_plan_with_fetch_first_not_limit() {
+    assert_row_limit_clause(&month_plan(), 10_001);
+}
+
+/// The `top` arm sets its own count through the same limit, so it renders as `FETCH FIRST` too.
+/// `github.com/telekom/sutura#127`.
+#[test]
+fn oracle_caps_a_top_plan_with_fetch_first_not_limit() {
+    let top = Top::new(
+        TopN::parse(3).expect("three is a row count"),
+        TopBy::Metric,
+        TopDirection::Desc,
+    );
+    assert_row_limit_clause(&month_plan().with_top(top), 3);
+}
+
+/// A compound (two-column) declared key probe parses on `DuckDb`, `Postgres` and `ClickHouse`, and
+/// Oracle and `BigQuery` both refuse it by name - the negative half of
+/// `a_key_probe_renders_and_parses_for_every_dialect_it_declares`, which only ever built a one-key
+/// probe and so never reached the tuple `DISTINCT`.
+#[test]
+fn a_compound_key_probe_renders_only_where_a_null_safe_tuple_distinct_exists() {
+    let relationship = Relationship::new(
+        RelationshipName::parse("usage_subscription").expect("a test relationship is a relationship"),
+        ModelName::parse("daily_usage").expect("a test model is a model"),
+        ModelName::parse("subscription_snapshot").expect("a test model is a model"),
+        JoinType::ManyToOne,
+        JoinKeys::of(vec![
+            JoinKey::Equal {
+                origin: ColumnName::parse("subscription_key").expect("a test column is a column"),
+                target: ColumnName::parse("subscription_key").expect("a test column is a column"),
+            },
+            JoinKey::TruncatedEqual {
+                origin: ColumnName::parse("usage_date").expect("a test column is a column"),
+                grain: Grain::Month,
+                target: ColumnName::parse("month").expect("a test column is a column"),
+            },
+        ])
+        .expect("two keys is a non-empty set"),
+    );
+    let definitions = Definitions::assemble(
+        vec![
+            Model::new(
+                ModelName::parse("daily_usage").expect("a test model is a model"),
+                SourceName::parse("local").expect("a test source is a source"),
+                TableName::parse("daily_usage").expect("a test table is a table"),
+                ["subscription_key", "usage_date"]
+                    .into_iter()
+                    .map(|c| ColumnName::parse(c).expect("a test column is a column")),
+                Description::default(),
+            ),
+            Model::new(
+                ModelName::parse("subscription_snapshot").expect("a test model is a model"),
+                SourceName::parse("local").expect("a test source is a source"),
+                TableName::parse("subscription_snapshot").expect("a test table is a table"),
+                ["subscription_key", "month"]
+                    .into_iter()
+                    .map(|c| ColumnName::parse(c).expect("a test column is a column")),
+                Description::default(),
+            ),
+        ],
+        vec![relationship.clone()],
+        Vec::new(),
+    )
+    .expect("two models and one compound join are consistent");
+    let key = DeclaredKey::promised_by(&relationship, &definitions).expect("a many-to-one promises a unique target");
+
+    for &dialect in ALL {
+        let outcome = generate_key_probe(&key, dialect);
+        if matches!(dialect, Dialect::Oracle | Dialect::BigQuery) {
+            assert!(
+                matches!(outcome, Err(GenerateError::CompoundKeyProbeUnsupported { dialect: refused }) if refused == dialect),
+                "{dialect} must refuse a compound probe by name, not render one: {outcome:?}"
+            );
+            continue;
+        }
+        let query = outcome.unwrap_or_else(|e| panic!("a compound key probe would not render for {dialect}: {e}"));
+        let sql = query.sql();
+        assert!(
+            query.params().is_empty(),
+            "{dialect} bound a parameter into a compound probe: {sql}"
+        );
+        assert!(sql.contains(ROWS_LABEL), "{dialect} did not alias the row count: {sql}");
+        assert!(
+            sql.contains(DISTINCT_LABEL),
+            "{dialect} did not alias the distinct count: {sql}"
+        );
+        // Both key columns must appear beside DISTINCT, not just the origin's: a probe that
+        // dropped the second column would silently validate a plain-equality's worth of
+        // uniqueness under a compound key's name.
+        assert!(
+            sql.contains("subscription_key"),
+            "{dialect} dropped the first key column: {sql}"
+        );
+        assert!(sql.contains("month"), "{dialect} dropped the second key column: {sql}");
+        for absent in ["WHERE", "GROUP BY", "HAVING", "LIMIT"] {
+            assert!(
+                !sql.contains(absent),
+                "{dialect} narrowed the compound probe with {absent}: {sql}"
+            );
+        }
+        let parsed = polyglot_sql::parse(sql, super::dialect_type(dialect));
+        assert!(
+            parsed.is_ok(),
+            "{dialect} did not parse its own compound probe: {:?}\n{sql}",
             parsed.err()
         );
     }

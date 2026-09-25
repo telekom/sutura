@@ -271,7 +271,8 @@ pub(crate) fn prompt(args: &[String]) -> ExitCode {
         // never found is the failure it exists to make visible.
         eprintln!("sutura: configuration from {}", settings.layers());
         let pinned = load(Path::new(&root))?;
-        print!("{}", agent_instructions(&pinned, &settings)?);
+        let (rendered, _operator) = agent_instructions(&pinned, &settings)?;
+        print!("{rendered}");
         Ok(())
     })())
 }
@@ -294,21 +295,33 @@ fn agent_tools(settings: &sutura_config::Settings) -> Vec<Tool> {
     tools
 }
 
-/// The whole rendered agent prompt - what `prompt` prints, and since `telekom/sutura#776` what a
-/// served MCP transport's `initialize.instructions` carries too, so a served agent actually
-/// receives the bundle's knowledge instead of a fixed sentence naming none of it.
+/// The whole rendered agent prompt and the operator's own text, read ONCE.
+///
+/// What `prompt` prints, and since `telekom/sutura#776` what a served MCP transport's
+/// `initialize.instructions` carries too, so a served agent actually receives the bundle's knowledge
+/// instead of a fixed sentence naming none of it. The second element is the raw operator text, read
+/// from the same file and same settings by the same call - so a composition root that renders the
+/// prompt and carries the operator text to the catalog tool never reads the file twice, and the two
+/// cannot disagree.
 ///
 /// Shared rather than reimplemented per composition root - `crate::mcp` and `crate::serve::agent`
 /// both call this - for the reason `#266`'s `H1` already named for `catalog_prose`: two roots
 /// resolving one document separately is how a later change to either stops matching what this
 /// command prints for the same settings.
-pub(crate) fn agent_instructions(pinned: &PinnedDefinitions, settings: &sutura_config::Settings) -> Result<String, String> {
-    let (prose, instructions) = prompt_inputs(settings.prompt())?;
+pub(crate) fn agent_instructions(
+    pinned: &PinnedDefinitions,
+    settings: &sutura_config::Settings,
+) -> Result<RenderedPromptWithOperator, String> {
+    let (prose, operator) = prompt_inputs(settings.prompt())?;
     let tools = agent_tools(settings);
-    let inputs = PromptInputs::new(&tools, prose, instructions.as_deref());
-    Ok(sutura_app::prompt::render(pinned, &inputs))
+    let inputs = PromptInputs::new(&tools, prose, operator.as_deref());
+    Ok((sutura_app::prompt::render(pinned, &inputs), operator))
 }
-
+/// The rendered prompt and the operator's own text, returned together by [`agent_instructions`].
+///
+/// A named alias because the inline tuple is over the complexity threshold in `clippy.toml` - the
+/// same reason [`ResolvedPromptText`] is named.
+type RenderedPromptWithOperator = (String, Option<String>);
 /// How the catalog's prose is treated, and the operator's own text if a path was configured.
 ///
 /// A named alias because the inline tuple is over the complexity threshold in `clippy.toml`, and
@@ -506,8 +519,11 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
 /// Named because the concrete type is over `clippy::type_complexity`: the warehouse, the audit sink
 /// and the broker are the three collaborators every command here composes. Generic in the warehouse
 /// since the `bigquery` feature landed; the other two are this binary's own choice and never vary.
-pub(crate) type Composed<W> =
-    LocalService<W, TracingAuditSink, sutura_config::StaticCredentialBroker, sutura_exec_datafusion::DataFusionCombiner>;
+///
+/// **The same type [`crate::catalog::Started`] names with its broker generic fixed** to
+/// `StaticCredentialBroker` - this binary's own, never-varying choice - rather than a second alias
+/// over the same four collaborators that could drift from it.
+pub(crate) type Composed<W> = crate::catalog::Started<W, sutura_config::StaticCredentialBroker>;
 
 /// Starts the service over what a command opened, and refuses a bundle the engine cannot serve.
 ///

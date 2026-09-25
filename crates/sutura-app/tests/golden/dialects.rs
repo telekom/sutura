@@ -174,7 +174,7 @@ fn quotes_every_identifier(dialect: Dialect) {
     let mut names: BTreeSet<String> = BTreeSet::from([String::from(TIME_BUCKET_LABEL)]);
     for model in definitions.models().values() {
         names.insert(String::from(model.table_name().as_str()));
-        names.extend(model.columns().iter().map(|column| String::from(column.as_str())));
+        names.extend(model.columns().map(|column| String::from(column.name().as_str())));
     }
     for metric in definitions.metrics().values() {
         names.insert(String::from(metric.name().as_str()));

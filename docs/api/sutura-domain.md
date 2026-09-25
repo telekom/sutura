@@ -600,9 +600,11 @@ One kind of thing a catalog's *definitions* can carry.
 A closed set, for the reason `crate::knowledge::Capability` is one: the alternative is a string,
 and a provider that declared `"metrics "` would silently declare nothing at all.
 
-**Nine kinds, and the test for whether one belongs here is whether a real source can be missing it
-on its own:** a metadata service can have tables and no metrics, metrics and no definitional
-filters, joins whose cardinality it does not vouch for, and dimensions with no reviewed value list.
+**Eleven kinds, and the test for whether one belongs here is whether a real source can be missing
+it on its own:** a metadata service can have tables and no metrics, metrics and no definitional
+filters, joins whose cardinality it does not vouch for, dimensions with no reviewed value list,
+and - the two most recent - columns with no declared type and columns with no per-column prose,
+independently of whether it describes the model itself.
 
 **`Grains` is the exception and it is stated rather than smoothed over.**
 `Definitions::assemble` refuses a metric declaring no grain as `NoGrains`, so a bundle cannot
@@ -631,6 +633,8 @@ through a relationship. `MetadataCapabilities::produced` observes exactly that.
 - `Grains` - The time resolutions a metric may be asked at. Declarable, and not independently observable - see this enum's own doc comment for why, and do not read a green fidelity test as covering it.
 - `AllowedValues` - The reviewed set of values a dimension may be filtered on.
 - `Anchors` - The number a metric produced when it was certified.
+- `ColumnTypes` - A column's data type, as a source's own dictionary spells it.
+- `ColumnDescriptions` - Prose about one column - kept apart from `Self::Descriptions` because a source can carry model, metric or dimension prose with no column prose, or the reverse.
 
 #### Methods
 
@@ -931,7 +935,7 @@ collections and never from `crate::knowledge::Knowledge::declares`, which is wha
 `Self::checked_against` catch a bundle whose own declaration and content disagree rather
 than comparing one claim against a copy of itself.
 
-Two of the nine definition kinds are read through their consequence rather than their field,
+Two of the eleven definition kinds are read through their consequence rather than their field,
 and both are worth stating because a reader will otherwise look for the field:
 
 - **`Cardinality`** is observed as *some dimension is reached through a relationship*. Every
@@ -965,6 +969,81 @@ the compile that would validate it lives in `sutura-sql`, and nothing published 
 bundle carrying such a metric is refused at boot. See `docs/adr/0001-first-party-semantic-models.md`
 and `docs/adr/0004-a-named-escape-hatch-for-authored-sql.md`.
 
+### `struct Column`
+
+```rust
+pub struct Column
+```
+
+One column a `Model` exposes: its name, and what a source's own dictionary says about it.
+
+`data_type` and `description` are independent of each other and both optional - a database
+dictionary types every column and comments few of them, a Table Schema descriptor may type a
+field and describe none. `nullable` is likewise a source's own claim, read and stored, never
+derived from anything else here.
+
+**`data_type` is descriptive text.** It is a quote of what the source called the column -
+`"STRING"`, `"character varying"`, `"NUMERIC(38,9)"` - for a person reading the catalog. At HEAD
+nothing branches on it - `sutura_sql` has its own closed vocabulary for what a statement may
+execute - but that is an absence rather than a mechanism: `ColumnType`'s own doc names review
+as what holds "never a cast", not the type system, because nothing here stops a future reader of
+`Self::data_type` from treating it as one.
+
+**Column prose is parsed and pinned, and reaches no rendering surface today.** No composition
+root's prompt, tool result or HTTP body names a column - `sutura_app::prompt`'s own header states
+that as a deliberate absence - so this type has nothing to gate behind `prompt.catalog_prose` yet.
+If a future surface renders it, it goes through that same gate, the way every other quoted
+description does.
+
+#### Methods
+
+```rust
+pub const fn data_type(&self) -> Option<&ColumnType>
+```
+
+```rust
+pub fn description(&self) -> &str
+```
+
+```rust
+pub fn from_metadata(name: ColumnName, data_type: Option<&str>, description: Option<&str>, nullable: Option<bool>) -> Result<Self, InvalidDescription>
+```
+
+Builds a column from raw type/description text an adapter read off its own source, so the
+"a type is dropped rather than refused, a description still refuses" rule lives once rather
+than once per catalog adapter.
+
+**The two fields are held to different rules on purpose, and this is where that shows.** A
+type that fails `ColumnType::parse` is dropped - `data_type` becomes `None`, the load
+continues - per that type's own doc: nothing renders it, so refusing the whole catalog over
+text nothing reads would cost more than it protects. A description that fails
+`Description::parse` still refuses: it is prose a person or an agent may eventually read,
+held to the same rule every other quoted description in this crate is.
+
+`nullable` is carried through unchanged - there is nothing to parse or drop, only
+`sutura-catalog-local`'s long column form has a source for it, and every other caller passes
+`None`.
+
+# Errors
+
+`InvalidDescription`, if `description` is `Some` and not usable.
+
+```rust
+pub const fn name(&self) -> &ColumnName
+```
+
+```rust
+pub const fn new(name: ColumnName, data_type: Option<ColumnType>, description: Description, nullable: Option<bool>) -> Self
+```
+
+```rust
+pub const fn nullable(&self) -> Option<bool>
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
 ### `struct Model`
 
 ```rust
@@ -973,16 +1052,27 @@ pub struct Model
 
 One physical table, and what the catalog knows about it.
 
-`columns` is the whole set the model exposes, and it is a set rather than a list because it is
-only ever asked "does this column exist?". Declaring it at all is what lets a dimension naming a
-column that is not there be a refusal from the pinned bundle instead of an error from the data
-system, which is the difference between a governed answer and a stack trace.
+`columns` is keyed by name because it is only ever asked "does this column exist, and what does
+it look like" - declaring it at all is what lets a dimension naming a column that is not there be
+a refusal from the pinned bundle instead of an error from the data system, which is the difference
+between a governed answer and a stack trace.
+
+`primary_key` is evidence a source's own dictionary supplied, not a cardinality rule: no join
+type is inferred from it, and `Relationship`'s own `JoinType` is unaffected either way.
 
 #### Methods
 
 ```rust
-pub const fn columns(&self) -> &BTreeSet<ColumnName>
+pub fn column(&self, name: &ColumnName) -> Option<&Column>
 ```
+
+One column by name, if this model declares it.
+
+```rust
+pub fn columns(&self) -> impl ExactSizeIterator<Item>
+```
+
+Every column this model exposes, each with whatever a source claimed about it.
 
 ```rust
 pub fn description(&self) -> &str
@@ -997,7 +1087,7 @@ pub const fn name(&self) -> &ModelName
 ```
 
 ```rust
-pub fn new(name: ModelName, source: SourceName, table: impl Into<QualifiedTable>, columns: BTreeSet<ColumnName>, description: Description) -> Self
+pub fn new<C>(name: ModelName, source: SourceName, table: impl Into<QualifiedTable>, columns: impl IntoIterator<Item>, description: Description) -> Self
 ```
 
 A model over one physical table, wherever that table lives.
@@ -1007,6 +1097,20 @@ rather than a convenience.** `From<TableName>` yields an unqualified path, so ev
 caller - a catalog document naming only a table, and every fixture in this workspace - passes
 a `TableName` and compiles unchanged, meaning exactly what it used to. It costs the `const`
 this constructor used to be, which nothing depended on.
+
+**`columns` takes anything a `Column` comes from, not a `Vec<Column>`.** A
+`BTreeSet<ColumnName>` is still what most callers here have, and `Column`'s `From<ColumnName>`
+is what lets it keep compiling unchanged. A duplicate column name silently keeps the last
+entry rather than refusing - unlike `Metric::new`'s dimensions, a model's columns come from a
+physical dictionary rather than an author's declaration, and a real table cannot have two
+columns with one name.
+
+```rust
+pub const fn primary_key(&self) -> &BTreeSet<ColumnName>
+```
+
+Which of this model's columns a source's own dictionary marked as its primary key. Evidence
+only - see `Self::with_primary_key`.
 
 ```rust
 pub const fn source(&self) -> &SourceName
@@ -1028,6 +1132,29 @@ pub const fn table_name(&self) -> &TableName
 
 The table's own name, without whatever sits above it.
 
+```rust
+pub fn with_primary_key(self, primary_key: impl IntoIterator<Item>) -> Result<Self, InconsistentDefinitions>
+```
+
+Declares which of this model's columns a source's own dictionary marks as its primary key.
+
+Evidence only, per the type's own doc: refused if it names a column this model does not
+declare, checked here rather than later in `Definitions::assemble` so a `Model` with a
+dangling key cannot be built at all - the same "unrepresentable over checked" argument
+`Metric::new`'s own duplicate-dimension check makes, applied one level down.
+
+**What this does NOT check: that the key is actually unique in the source's data.** A
+database dictionary's own constraint is checked by the database; an author writing this by
+hand in a markdown document is not, and never was - a key can name real columns and still be
+wrong about which of them are unique together. `crates/sutura-domain` opens no data system
+and reads no rows, so there is nothing here that could check that, and stating so is the
+whole of what this note can do about it.
+
+# Errors
+
+`InconsistentDefinitions::UnknownPrimaryKeyColumn`, naming the first column that is not
+one of this model's own.
+
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
@@ -1038,11 +1165,16 @@ The table's own name, without whatever sits above it.
 pub struct Relationship
 ```
 
-A declared join between two models: two columns and a cardinality.
+A declared join between two models: an ordered, non-empty set of keys and a cardinality.
 
-A pair of columns rather than a condition string. The condition form is what the reference
-modelling languages use, and it is an escape hatch: `a.x = b.y OR 1 = 1` is a valid condition.
-Equality on one column each is the whole of what a model needs to say here.
+An ordered set of typed keys rather than a condition string. The condition form is what the
+reference modelling languages use, and it is an escape hatch: `a.x = b.y OR 1 = 1` is a valid
+condition, and a string can say that but nothing in the shape of it refuses it. A daily fact
+joined to a monthly snapshot needs `key = key AND month_of(day) = month` - two keys, the second
+truncated to a month - so a relationship declares as many `JoinKey`s as the join needs, in
+order, each a closed typed shape. Every target side of the whole set must be provably unique,
+or the relationship is refused: the fan-out check reasons over the set, because no single
+column of a compound key need identify a row on its own.
 
 #### Methods
 
@@ -1051,23 +1183,21 @@ pub const fn join_type(&self) -> JoinType
 ```
 
 ```rust
+pub const fn keys(&self) -> &JoinKeys
+```
+
+The keys, in declared order, that together link one origin row to at most one target row.
+
+```rust
 pub const fn name(&self) -> &RelationshipName
 ```
 
 ```rust
-pub const fn new(name: RelationshipName, origin_model: ModelName, origin_column: ColumnName, target_model: ModelName, target_column: ColumnName, join_type: JoinType) -> Self
-```
-
-```rust
-pub const fn origin_column(&self) -> &ColumnName
+pub const fn new(name: RelationshipName, origin_model: ModelName, target_model: ModelName, join_type: JoinType, keys: JoinKeys) -> Self
 ```
 
 ```rust
 pub const fn origin_model(&self) -> &ModelName
-```
-
-```rust
-pub const fn target_column(&self) -> &ColumnName
 ```
 
 ```rust
@@ -1077,6 +1207,109 @@ pub const fn target_model(&self) -> &ModelName
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum JoinKey`
+
+```rust
+pub enum JoinKey
+```
+
+One term of a compound join: how one pair of columns links, never a free condition.
+
+`Equal` joins `origin = target`; `TruncatedEqual`
+joins the origin truncated to a `Grain` against the target - `month_of(a.x) = b.y` - rendered
+through the same time-bucket code that buckets a question's time column. Both carry parsed
+names only: there is no condition string, no `OR` and no free expression, so a catalog cannot
+write `a.x = b.y OR 1 = 1`.
+
+#### Variants
+
+- `Equal` - The origin column equals the target column.
+- `TruncatedEqual` - The origin column truncated to a grain equals the target column.
+
+#### Methods
+
+```rust
+pub const fn grain(&self) -> Option<Grain>
+```
+
+The grain a `JoinKey::TruncatedEqual` truncates its origin to.
+
+```rust
+pub const fn origin(&self) -> &ColumnName
+```
+
+The origin column, truncated to its grain when this is `JoinKey::TruncatedEqual`.
+
+```rust
+pub const fn target(&self) -> &ColumnName
+```
+
+The target column the origin (or its truncation) is compared against.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct JoinKeys`
+
+```rust
+pub struct JoinKeys
+```
+
+The ordered, non-empty set of `JoinKey`s one relationship joins on.
+
+**Non-empty by construction and ordered by construction.** `JoinKeys::of` refuses an empty
+list, and the private `Vec` keeps the order it was handed - the order the planner renders the
+`ON` terms in. No `Deref` or `Borrow`; `as_slice` is the only way to lend
+the keys, which also keeps this crate's no-indexing rule honest.
+
+#### Methods
+
+```rust
+pub fn as_slice(&self) -> &[JoinKey]
+```
+
+The keys, in declared order. The whole set - not any one of them - promises the target unique.
+
+```rust
+pub fn of(keys: Vec<JoinKey>) -> Result<Self, InvalidJoinKeys>
+```
+
+A key set in the order given, refusing the empty set.
+
+One constructor rather than a constructor plus an `is_valid`: an empty key set cannot be
+minted, so no downstream code re-checks it and no relationship can hold a join of nothing.
+
+```rust
+pub fn single(key: JoinKey) -> Self
+```
+
+A one-key set, which is never empty and so needs no refusal.
+
+The shape every adapter that reads a single-column source produces; a single key is always a
+valid non-empty set, so this constructor is infallible where `Self::of` has to be a
+`Result`.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum InvalidJoinKeys`
+
+```rust
+pub enum InvalidJoinKeys
+```
+
+Why a set of join keys cannot be a relationship's keys.
+
+#### Variants
+
+- `Empty`
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ### `struct ViaChain`
 
@@ -1460,6 +1693,27 @@ depend on how two languages happen to print the same bits - the argument
 the text reads as a number, and a check that did would be this type refusing an anchor over a
 string measure.
 
+### `use ColumnType`
+
+A `super::Column`'s data type, as a source's own dictionary spells it: `"STRING"`,
+`"character varying"`, `"NUMERIC(38,9)"`.
+
+**Descriptive text, never a cast BY ANYTHING THAT EXISTS TODAY.** Nothing in this crate branches
+on it, and `sutura_sql` has its own closed vocabulary for what a statement may execute - but that
+is an absence rather than a mechanism: nothing stops a future reader of `Column::data_type` from
+treating it as one, and review is what holds this claim, not a type-level guarantee. Stated
+rather than asserted, per this repository's own rule that an overstated control is itself the
+defect.
+
+**Normalised, unlike `DimensionValue` or `AnchorValue`, and that is a deliberate departure.**
+A run of whitespace - including a newline, however the source pretty-printed a nested type -
+collapses to one plain space before anything else is checked. Two spellings that differ only in
+that whitespace are the same type, and a source's own formatting choice must not move the digest.
+This is safe here specifically because there is no rendering surface for it to disagree with:
+`Description`'s "refuse at load, never alter at render" rule exists because a renderer and a
+digest could see two different texts; a value nothing renders cannot have that defect, so
+normalising it is not the mistake normalising a description would be.
+
 ### `use Description`
 
 The prose that travels with a definition: what a model, a metric or a dimension means.
@@ -1532,6 +1786,15 @@ types; a value is compared byte for byte against what a data system holds and is
 parameter, so a stored value that differed from the authored text would make the digest certify
 something other than what the statement compares against. Where a phrase folds, this refuses.
 
+### `use InvalidColumnType`
+
+Why a column type could not be read.
+
+Its own type rather than `InvalidDimensionValue` - the earlier choice, which left every
+message reading "a dimension value" for a field that is not one, confusing an operator reading a
+refusal about a type. No `Spacing` variant: normalisation is what `ColumnType::parse` does
+with unreadable spacing instead of refusing it.
+
 ### `use InvalidDescription`
 
 Why a description was rejected.
@@ -1565,6 +1828,20 @@ filter value and reports the field and the index without the cause, for the reas
 `crate::query::RefusalReason` gives: reflecting a caller's text into a message that reaches a
 log, a UI and an agent's context is how a rejected value becomes somebody else's input. The text
 is here for the author of a catalog, which is read by a person and loaded by an operator.
+
+### `use MAX_COLUMN_TYPE_CHARS`
+
+The longest declared column type, in characters, once collapsed to one line.
+
+**Generous, and NOT tied to `MAX_DIMENSION_VALUE_CHARS` - that sharing was this type's own
+defect, found in review.** A real composite type - a `STRUCT` or `ARRAY` with several nested
+fields - routinely runs past a dimension value's 64 characters: a `DataHub` field measured in
+review, `STRUCT<street STRING, city STRING, postal_code STRING, country STRING>`, is 70. Reusing
+the dimension bound meant that one legal type spelling refused the WHOLE catalog load, for text
+nothing in this crate branches on. 512 is deliberately far past the 70 observed rather than tight
+around it: unlike a dimension value, nothing renders a column type into a document a person or an
+agent reads today (`super::Column`'s own doc states that), so generosity here costs
+store-and-forget bytes rather than prompt real estate.
 
 ### `use MAX_DESCRIPTION_BYTES`
 
@@ -1684,16 +1961,23 @@ holds. Per-item caps alone let N conforming declarations do what one oversized d
 cannot, the same argument `crate::knowledge::MAX_KNOWLEDGE_BYTES` makes for a bundle of notes,
 applied to the catalog that bundle is checked against.
 
-**Measured before it was chosen.** This repository's shipped `single-player` catalog - the larger
-of the two example catalogs - is the reference: its widest model (`subscriptions`) declares 8
-columns, no metric declares more than one required filter, and its columns, required filters and
-dimension values together sum under 1 KiB. Descriptions are the rest of it, at about 18 KiB across
-eleven metrics and four models - each individually inside `MAX_DESCRIPTION_BYTES`, and it is
-their COUNT that was uncapped.
+**Measured before it was chosen, and re-measured for issue #966's column type and column
+description, which this bound did not cover before either existed.** This repository's shipped
+`single-player` catalog - the larger of the two example catalogs - is the reference: its widest
+model (`subscriptions`) declares 8 columns, no metric declares more than one required filter, and
+its columns (now including one declared type), required filters and dimension values together
+sum to 922 bytes - one column (`subscriptions.mrr_cents`) carries a declared type and a
+description, and that is what moved this half from the earlier column-blind measurement's
+under-1-KiB figure at all, not past any round number. Descriptions are the rest of it, at 24053
+bytes (~23.5 KiB) across eleven metrics and five models - each individually inside
+`MAX_DESCRIPTION_BYTES`, and it is their COUNT that was uncapped. `Definitions::authored_bytes`
+over the loaded corpus reads 24975 bytes, ~24.4 KiB in total.
 
-`MAX_DEFINITIONS_BYTES` is 128 KiB: about 6.5 times that reference catalog's ~19 KiB, more
-headroom than `crate::knowledge::MAX_KNOWLEDGE_BYTES`'s five times its own reference, because a
-definitions bundle also carries the identifiers a knowledge bundle does not. Argued the way
+`MAX_DEFINITIONS_BYTES` is 128 KiB: about 5.25 times that reference catalog's ~24.4 KiB, less
+headroom than the ~6.5 times an earlier, column-blind measurement claimed - restated here rather
+than left to say a smaller bundle than the corpus now is. Still more than
+`crate::knowledge::MAX_KNOWLEDGE_BYTES`'s five times its own reference, because a definitions
+bundle also carries the identifiers a knowledge bundle does not. Argued the way
 `crate::query::MAX_RANGE_DAYS` is: what it bounds is the size of the document, not whether what
 is in it is worth reading.
 
@@ -4814,6 +5098,104 @@ thing any data system names, so a project without a dataset is *unrepresentable*
 refused by a check somebody has to remember to run. There is no constructor that takes a project
 alone and no field a caller could leave out.
 
+## Module `nonempty`
+
+A list that cannot be empty, because the constructor that would produce one does not exist.
+
+**Unrepresentable over checked**, the same argument `secure-by-design` makes for the rest of this
+crate's newtypes: a `Vec` that a caller happens to always check for emptiness is a rule enforced
+by discipline at every read site, and a set with no elements is a valid `Vec` that means nothing
+for a caller who asked for one or more metrics, or one or more values to filter on. `NonEmpty`
+makes the empty case not exist rather than exist and be refused - there is no `Default`, no
+`new()`, and `NonEmpty::parse` is the only fallible entry point, returning `EmptySet` for the
+one thing that can go wrong.
+
+### `struct NonEmpty`
+
+```rust
+pub struct NonEmpty<T>
+```
+
+One or more `T`, with no way to construct zero.
+
+#### Methods
+
+```rust
+pub const fn first(&self) -> &T
+```
+
+The first element - the one every `NonEmpty` is guaranteed to have.
+
+```rust
+pub const fn is_empty(&self) -> bool
+```
+
+Never true - a method anyway, because clippy's `len_without_is_empty` lint does not know
+this type's whole point is that the answer is always the same.
+
+```rust
+pub fn iter(&self) -> impl Iterator<Item>
+```
+
+Every element, in the order it was given.
+
+```rust
+pub const fn len(&self) -> usize
+```
+
+The number of elements. Never zero.
+
+```rust
+pub fn map<U>(&self, f: impl FnMut(&T) -> U) -> NonEmpty<U>
+```
+
+Every element transformed, infallibly: a `NonEmpty` mapped one-to-one is still a
+`NonEmpty`, with no `EmptySet` to check and no `expect`/`unwrap` for a caller who has
+one of these and needs another shape of it - `crate::plan`'s bind-order indices, built
+from a resolved filter's `NonEmpty` of values, is why this exists.
+
+```rust
+pub const fn of(head: T, tail: Vec<T>) -> Self
+```
+
+One element plus every one of `tail`, infallible because a caller who already has one in
+hand needs no `EmptySet` to check - the reason this exists beside `Self::parse`, whose
+only source of failure is a caller who does not.
+
+```rust
+pub const fn one(head: T) -> Self
+```
+
+Exactly one element.
+
+```rust
+pub fn parse(items: Vec<T>) -> Result<Self, EmptySet>
+```
+
+Every element of `items`, or `EmptySet` if there were none.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `IntoIterator`, `PartialEq`, `Serialize`
+
+### `struct EmptySet`
+
+```rust
+pub struct EmptySet
+```
+
+`NonEmpty::parse` was handed a list with nothing in it.
+
+Declared with an explicit empty body (`{}`) rather than the plain `;` a unit struct usually
+takes: `cargo xtask check-boundaries`'s pub-field scan closes a struct's body on the line that
+opens it only when it sees a brace there, and a bare `;` instead leaves it scanning for the
+NEXT one - which would otherwise be `NonEmpty`'s own inherent `impl` block below, whose
+`pub fn`s the scan would misread as this struct's fields.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 ## Module `pinned`
 
 The snapshot a question is answered against, and the port it arrives through.
@@ -5772,6 +6154,16 @@ pub const fn granted_by(pinned: &'a PinnedDefinitions, granted: GrantedAudiences
 A caller mapped to this set.
 
 ```rust
+pub const fn is_everything(&self) -> bool
+```
+
+Whether this is the whole-bundle view - `docs/adr/0028`'s "explicit whole-bundle" case,
+the `TheDeploymentItself` caller and every operator-side command. A caller-scoped knowledge
+read needs to know it, because not every knowledge kind has a metric to inherit visibility
+from: an unscoped absence has no referent, and per the ADR is withheld unless a catalog-wide
+audience is granted, which only this view represents.
+
+```rust
 pub fn metric(&self, name: &MetricName) -> Option<&'a Metric>
 ```
 
@@ -5935,7 +6327,13 @@ pub const fn join_type(&self) -> JoinType
 ```
 
 ```rust
-pub fn new(relationship: RelationshipName, table: impl Into<QualifiedTable>, join_type: JoinType, origin: PlanColumn, target: PlanColumn) -> Self
+pub fn keys(&self) -> &[PlanJoinKey]
+```
+
+The keys this join links on, each qualified by the tables it reads.
+
+```rust
+pub fn new(relationship: RelationshipName, table: impl Into<QualifiedTable>, join_type: JoinType, keys: Vec<PlanJoinKey>) -> Self
 ```
 
 One join to a table, wherever that table lives.
@@ -5948,10 +6346,6 @@ so where a source count decides between one statement, a split and
 `PlanSpansTooManySources`.
 
 `impl Into<QualifiedTable>` for the reason `Model::new` gives.
-
-```rust
-pub const fn origin(&self) -> &PlanColumn
-```
 
 ```rust
 pub const fn relationship(&self) -> &RelationshipName
@@ -5969,9 +6363,46 @@ pub const fn table_name(&self) -> &TableName
 
 The joined table's own name, which is what its columns are qualified by.
 
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum PlanJoinKey`
+
+```rust
+pub enum PlanJoinKey
+```
+
+One term of a planned join, as the renderer will make it.
+
+The same two shapes the catalog's `crate::catalog::JoinKey` declares, but with each column
+resolved to the table-qualified `PlanColumn` the statement will read - the origin from the
+table the join starts at, the target from the joined table.
+
+#### Variants
+
+- `Equal` - The origin column equals the target column.
+- `TruncatedEqual` - The origin column, truncated to a grain, equals the target column.
+
+#### Methods
+
+```rust
+pub const fn grain(&self) -> Option<Grain>
+```
+
+The grain a `PlanJoinKey::TruncatedEqual` truncates its origin to.
+
+```rust
+pub const fn origin(&self) -> &PlanColumn
+```
+
+The origin column, truncated to its grain when this is `PlanJoinKey::TruncatedEqual`.
+
 ```rust
 pub const fn target(&self) -> &PlanColumn
 ```
+
+The target column the origin (or its truncation) is compared against.
 
 #### Implements
 
@@ -6150,6 +6581,8 @@ renderer and no executor. `crate::plan::bindings` carries the argument and the l
 - `Before` - `column < param`, the exclusive end.
 - `Equals`
 - `NotEquals`
+- `In` - `column IN (param, param, ..)` - one or more values, `github.com/telekom/sutura#968`. `crate::nonempty::NonEmpty` rather than a plain `Vec`: an empty `IN ()` is either a syntax error or, rendered as `NOT IN ()`, a silently vanished filter (fail-open), and a producer cannot reach this variant with zero placeholders to fill.
+- `NotIn` - `column NOT IN (param, param, ..)` - `Self::In`'s negation, same reason for `NonEmpty`.
 - `IsTrue`
 - `IsNotNull`
 
@@ -6162,6 +6595,9 @@ pub const fn column(&self) -> &PlanColumn
 ```rust
 pub const fn param(&self) -> Option<usize>
 ```
+
+The one parameter a single-valued predicate binds. `None` for `In`/`NotIn` too - see
+`Self::bound_params` for the shape that covers every variant.
 
 #### Implements
 
@@ -9127,63 +9563,6 @@ cannot.
 
 Widening this is a governance change. `AGENTS.md` says which mechanism has to still hold.
 
-### `struct Filter`
-
-```rust
-pub struct Filter
-```
-
-One equality filter: a dimension, and a value the pinned bundle declares.
-
-The value is a `DimensionValue` here and a bind parameter by the time it reaches a statement. It
-is checked against the metric's allowlist first, so the parameterisation is the second line of
-defence rather than the only one.
-
-# Why a caller's value is parsed by the type a catalog author's value is parsed by
-
-It was a `String`, and the review that gave `DimensionValue` to the catalog side asked whether the
-request side wanted it too. It does, for four reasons, and the last one is the decisive one:
-
-* **It refuses nothing a request could have been answered.** The two are compared for equality
-  against the metric's allowlist, and every entry in that allowlist is a `DimensionValue`. Text
-  that cannot be one cannot be in there, so parsing here turns a `DimensionValueNotAllowed`
-  refusal into a `400` naming the field and loses no answerable question.
-* **The precedent is already here and is older than this type.** A caller's `metric` and
-  `dimension` arrive as text and are parsed by `MetricName` and `DimensionName` - the same
-  types the catalog loader uses, at the same boundary, by the same constructor. A value being the
-  one field held to a laxer rule was the asymmetry, not the fix.
-* **It bounds what a request may carry before anything allocates it.** A ten-megabyte filter value
-  used to be compared against the allowlist and refused, having been read, cloned into
-  `Query::literals` and rendered into whatever an audit sink keeps.
-* **A second character rule is a rule nothing compares against the first.** `crate::text` exists
-  because one such rule was written down twice and the copies drifted. A request-side value type
-  with its own idea of what a value may hold would be that mistake, deliberately, in a place where
-  one side of the comparison is content and the other is a caller.
-
-**What does NOT follow is that a refusal may name the text.** `sutura_http::wire` parses the value
-and reports `filters[i].value` without the parse error underneath it, because
-`InvalidDimensionValue` carries the offending input and
-`RefusalReason`'s own rule is that caller-supplied text is never reflected into a message that
-reaches a log, a UI and an agent's context.
-
-#### Methods
-
-```rust
-pub const fn dimension(&self) -> &DimensionName
-```
-
-```rust
-pub const fn new(dimension: DimensionName, value: DimensionValue) -> Self
-```
-
-```rust
-pub const fn value(&self) -> &DimensionValue
-```
-
-#### Implements
-
-`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
-
 ### `struct Query`
 
 ```rust
@@ -9225,13 +9604,31 @@ first time a field is added.
 pub const fn metric(&self) -> &MetricName
 ```
 
+The first metric named - the whole of `Self::metrics` for a single-metric question, and
+what a caller who has not yet widened for multiple metrics reads.
+
 ```rust
-pub const fn new(metric: MetricName, grain: Grain, range: TimeRange, dimensions: Vec<DimensionName>, filters: Vec<Filter>) -> Self
+pub const fn metrics(&self) -> &MetricNames
+```
+
+Every metric this question asks about, in the order the caller listed them. At least one:
+see `MetricNames`.
+
+```rust
+pub const fn new(metrics: MetricNames, grain: Grain, range: TimeRange, dimensions: Vec<DimensionName>, filters: Vec<Filter>) -> Self
 ```
 
 ```rust
 pub const fn range(&self) -> TimeRange
 ```
+
+```rust
+pub const fn single(metric: MetricName, grain: Grain, range: TimeRange, dimensions: Vec<DimensionName>, filters: Vec<Filter>) -> Self
+```
+
+One metric, the shape every question asked before `github.com/telekom/sutura#968`. A
+convenience over `Self::new` for the overwhelmingly common case, so a caller asking about
+one metric writes one name rather than building a one-element `MetricNames`.
 
 ```rust
 pub const fn top(&self) -> Option<Top>
@@ -9279,6 +9676,23 @@ somebody else's input.
 #### Variants
 
 - `MetricUnknown` - No metric of that name is in the pinned bundle.
+- `MetricsSpanDifferentModels` - A question named more than one metric, and two of them do not declare the same model or the same time column.
+
+  **A mixed-model set is unrepresentable as one grouped statement.** Two metrics over two
+  physical tables have no shared `FROM`, and two metrics on one table but two different time
+  columns would group by an ambiguous bucket - `sutura_semantic::resolve` compares every
+  metric named against the first, so the pair reported is always the first metric and the
+  first one that disagreed with it, never a third-party guess at which is "wrong".
+- `MultiMetricNotExecutable` - A question named more than one metric, and every one of them resolved: same model, time column, grain and dimensions.
+
+  **The boundary this build has not moved past yet.** `sutura_semantic::resolve` validates a
+  whole `crate::query::MetricNames` set exactly as it validates one - every metric's grain,
+  every requested dimension against every metric, every filter value against every metric's
+  own allowlist - but the plan stage does not yet decompose more than one metric into one
+  statement's select list, so a fully valid multi-metric question is refused here rather than
+  answered under a shape nothing has certified. `requested` is the count, a number this
+  deployment computed and safe to log - not any of the metric names, which the two refusals
+  above already report where they are the reason.
 - `GrainNotSupported` - The metric exists and does not declare that grain. Not a narrower question: a grain the author did not render is a number nobody certified.
 - `DimensionNotPermitted` - The metric does not declare that dimension. A dimension a metric did not declare is a name that does not resolve, not a filter to apply anyway.
 - `DimensionNotFilterable` - The dimension exists but declares no value allowlist, so it can be grouped by and not filtered.
@@ -9355,6 +9769,14 @@ somebody else's input.
   system would need two link columns, which the lookup leg does not carry. Refused rather than
   guess a link, and named as a link ambiguity rather than a source count: it is not that too
   many sources are involved.
+- `FederationLinkCompound` - The relationship crossing into the remote data system declares more than one join key.
+
+  **Distinct from `FederationLinkAmbiguous`, which names two
+  relationships crossing at once.** This is one relationship, correctly declared - a compound
+  key is exactly what `telekom/sutura#967` exists to allow inside one data system - but the
+  combiner links two legs on a single column, and a compound key would need one per column,
+  which the lookup leg's shape does not carry. Named for what is actually true rather than
+  reused from the ambiguity case, so a caller is not told two relationships exist when one does.
 - `MeasureDoesNotFederate` - The question's measure cannot be decomposed into one leg per source.
 
   A measure federates only when its aggregate can be recomputed above the legs. A distinct count
@@ -9650,6 +10072,23 @@ The refusal reason, if this is one. Convenience for tests and for an audit sink.
 
 `Clone`, `Debug`, `PartialEq`, `Serialize`
 
+### `use Filter`
+
+One clause of a question's filter: a dimension, and what it must - or must not - equal.
+
+**Every value is still a parsed `DimensionValue` from the same allowlist an equality filter is
+checked against.** `In`/`NotIn` do not open a second, laxer path for a caller's text: each value
+in the set is checked against the metric's declared allowlist exactly as `Self::Eq`'s single
+value is, and an unlisted member of the set is
+`RefusalReason::DimensionValueNotAllowed` - the
+same refusal, reused, because a set's member and a single equality's value are the same kind of
+thing to the allowlist that checks them.
+
+**No comparison operator reaches this type**, deliberately: there is no `Gt`, `Lt` or `Like`
+variant, and none is planned. A comparison against free text is exactly the shape a certified
+number cannot come from - the allowlist is what makes a filter value bounded and enumerable, and
+a range or a pattern match has no allowlist to check against.
+
 ### `use InvalidResponseByteLimit`
 
 Why a response byte ceiling is not one.
@@ -9715,6 +10154,12 @@ Which way `TopBy` ranks.
 
 A positive row count. Zero asks for nothing, which is not what a caller who wrote `top` meant.
 
+### `type_alias MetricNames`
+
+One or more certified metric names a question asks about together - see
+`github.com/telekom/sutura#968` for the shape and `crate::nonempty::NonEmpty` for why the
+invariant is the type rather than a check.
+
 ### `constant MAX_DIMENSIONS`
 
 The most dimensions one question may group by.
@@ -9761,6 +10206,95 @@ bounding the work that produced it: the groups are built, and then the answer is
 refusal is not a budget. A day count is also only a proxy for rows: ten years of a small table and
 ten years of a large one are the same number here. A real budget is expressed in rows or bytes
 scanned, which needs something from the data system that no port asks for yet.
+
+### Module `filter`
+
+`Filter`: one dimension's worth of what a question may filter by.
+
+Split out of `query.rs` because the parent module is near its line limit, and because the three
+variants below - equality, and a set the caller allows or excludes - are one cohesive idea with
+its own doc comment, not three loose fields. See `query.rs`'s own header for why the value is a
+`DimensionValue` and not a `String`; that argument is unchanged by there now being a set of
+them.
+
+#### `enum Filter`
+
+```rust
+pub enum Filter
+```
+
+One clause of a question's filter: a dimension, and what it must - or must not - equal.
+
+**Every value is still a parsed `DimensionValue` from the same allowlist an equality filter is
+checked against.** `In`/`NotIn` do not open a second, laxer path for a caller's text: each value
+in the set is checked against the metric's declared allowlist exactly as `Self::Eq`'s single
+value is, and an unlisted member of the set is
+`RefusalReason::DimensionValueNotAllowed` - the
+same refusal, reused, because a set's member and a single equality's value are the same kind of
+thing to the allowlist that checks them.
+
+**No comparison operator reaches this type**, deliberately: there is no `Gt`, `Lt` or `Like`
+variant, and none is planned. A comparison against free text is exactly the shape a certified
+number cannot come from - the allowlist is what makes a filter value bounded and enumerable, and
+a range or a pattern match has no allowlist to check against.
+
+##### Variants
+
+- `Eq` - The dimension equals this one value.
+- `In` - The dimension equals one of these values - "segment A or segment B".
+- `NotIn` - The dimension equals none of these values.
+
+  **A row whose dimension value is NULL is excluded, not included.** A dimension reached by a
+  LEFT JOIN groups an unmatched fact row under a null key rather than dropping it (see
+  `crate::plan`'s join doc), and SQL `col NOT IN (..)` is unknown - neither true nor false -
+  for a NULL `col`, so `WHERE` drops the row exactly as it would for a comparison it could not
+  evaluate. This is the *narrower* filter, on purpose: "not north" is a claim about a value a
+  row has, and a row with no value to compare cannot be shown to hold it. `DuckDB`, Postgres,
+  `DataFusion` and `ClickHouse` (under this deployment's default `transform_null_in`) agree on
+  this: the executed corpus's `region not_in [north]` cell pins the same four rows on all four,
+  none of them the unmatched-customer row `region in [..]` also drops - `github.com/telekom/sutura#968`.
+
+##### Methods
+
+```rust
+pub const fn dimension(&self) -> &DimensionName
+```
+
+The dimension every variant filters on.
+
+```rust
+pub const fn in_set(dimension: DimensionName, values: NonEmpty<DimensionValue>) -> Self
+```
+
+A membership filter: the dimension must equal one of `values`.
+
+```rust
+pub const fn new(dimension: DimensionName, value: DimensionValue) -> Self
+```
+
+An equality filter - the constructor every existing caller of the old two-field struct
+already spells, unchanged, because the type it built kept its name and its meaning.
+
+```rust
+pub const fn not_in_set(dimension: DimensionName, values: NonEmpty<DimensionValue>) -> Self
+```
+
+An exclusion filter: the dimension must equal none of `values`.
+
+```rust
+pub fn values(&self) -> Vec<&DimensionValue>
+```
+
+Every value this filter carries, in declared order. One for `Self::Eq`, the whole set for
+`Self::In`/`Self::NotIn`.
+
+The one place a caller who does not care which variant this is reads every value it holds -
+`super::Query::literals` uses it so a field added here is a field the no-injection golden
+sees without a second edit.
+
+##### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
 
 ### Module `limits`
 
@@ -10052,26 +10586,48 @@ stack and which therefore has no analogue here. `parse_query` takes the six fiel
 extracted, as borrowed strings and one optional `RawTop`, so it carries no serde of its own
 and no framework.
 
-### `struct RawFilter`
+### `enum RawFilter`
 
 ```rust
-pub struct RawFilter<'a>
+pub enum RawFilter<'a>
 ```
 
-One filter, before parsing: a caller's raw dimension name and value, borrowed out of whichever
-wire struct a transport deserialized.
+One filter, before parsing: a caller's raw dimension name and operator, borrowed out of
+whichever wire struct a transport deserialized.
 
 Fields are private - a `pub` field on a `pub struct` fails `cargo xtask check-boundaries` in
-this crate - even though nothing here is validated yet: the two strings are exactly what a
-transport extracted, unchanged, and `new` is the only way to pair them.
+this crate - even though nothing here is validated yet: the strings are exactly what a
+transport extracted, unchanged, and each constructor is the only way to build a variant.
+
+Mirrors `Filter`'s own three shapes - `github.com/telekom/sutura#968` - so a transport that
+deserialized a tagged `op` field hands this module the same three shapes back, rather than one
+flat struct with fields that only make sense for some values of `op`.
+
+#### Variants
+
+- `Eq`
+- `In`
+- `NotIn`
 
 #### Methods
 
 ```rust
-pub const fn new(dimension: &'a str, value: &'a str) -> Self
+pub const fn eq(dimension: &'a str, value: &'a str) -> Self
 ```
 
 Pairs a caller's raw dimension name and value, as a transport extracted them.
+
+```rust
+pub const fn in_set(dimension: &'a str, values: &'a [String]) -> Self
+```
+
+A membership filter, before parsing.
+
+```rust
+pub const fn not_in_set(dimension: &'a str, values: &'a [String]) -> Self
+```
+
+An exclusion filter, before parsing.
 
 #### Implements
 
@@ -10132,6 +10688,7 @@ parser never carried.
 #### Variants
 
 - `Metric`
+- `Metrics` - The list named nothing - `github.com/telekom/sutura#968`. Carries no field, for the same reason `Self::Grain` does not: there is no offending entry to point at.
 - `Grain` - **Carries no field, and that is on purpose.** The accepted set is fixed and finite, so the sentence names all five instead of echoing back the one that did not match - the caller's text would otherwise sit in a `Debug` rendering unread by any transport, the shape `MalformedQuestion` is elsewhere careful never to carry.
 - `Date`
 - `Range`
@@ -10148,6 +10705,7 @@ parser never carried.
   field and the index are reported and the cause is dropped rather than reported and trusted:
   the same answer `DimensionValueNotAllowed` gives, at the boundary that now catches it
   earlier.
+- `FilterValues` - An `In`/`NotIn` filter named no values, or more than `crate::catalog::MAX_VALUES_PER_DIMENSION` of them - `github.com/telekom/sutura#968`. Carries only the filter's own index, for `Self::FilterValue`'s own reason: there is no single offending value to point at, and the list itself is not caller text worth echoing. The upper bound is checked BEFORE any value in the set is parsed - the same order-of-checks argument `crate::catalog::DimensionValue`'s own length check makes: an oversized list is bounded at the edge rather than allocated and then found impossible to satisfy in full, since no dimension's own allowlist can hold more entries than this.
 - `TopN`
 - `TopBy` - Carries no field, for `Self::Grain`'s own reason: the accepted set is fixed and finite.
 - `TopDirection` - Carries no field, for `Self::Grain`'s own reason: the accepted set is fixed and finite.
@@ -10159,7 +10717,7 @@ parser never carried.
 ### `fn parse_query`
 
 ```rust
-pub fn parse_query(metric: &str, grain: &str, range_start: &str, range_end: &str, dimensions: &[String], filters: &[RawFilter<'_>], top: Option<RawTop<'_>>) -> Result<crate::query::Query, MalformedQuestion>
+pub fn parse_query(metrics: &[String], grain: &str, range_start: &str, range_end: &str, dimensions: &[String], filters: &[RawFilter<'_>], top: Option<RawTop<'_>>) -> Result<crate::query::Query, MalformedQuestion>
 ```
 
 Parses a caller's raw question fields into a `Query`.
@@ -12094,10 +12652,13 @@ holding, and a probe outlives nothing.
 ##### Methods
 
 ```rust
-pub const fn column(&self) -> &'a ColumnName
+pub const fn keys(&self) -> &'a [JoinKey]
 ```
 
-The column whose values are meant to be distinct.
+The whole key set whose target side is meant to be distinct.
+
+The fan-out check counts distinct over every target column in this set - never over one of
+them alone - because a compound key determines a row only as a whole.
 
 ```rust
 pub const fn model(&self) -> &'a ModelName
@@ -12109,12 +12670,14 @@ The model the operator opens to fix it.
 pub fn promised_by(relationship: &'a Relationship, definitions: &'a Definitions) -> Result<Self, NoDeclaredKey>
 ```
 
-The key one relationship promises is unique, or why it promises none.
+The key set one relationship promises is unique, or why it promises none.
 
 **The whole of the join-type decision is here**, so no adapter and no boot path repeats it:
 `JoinType::may_duplicate_rows` is the one question, and both `one_to_one` and `many_to_one`
-answer it the same way - each of them says the target column identifies at most one row.
-`one_to_one` promises the origin column does too, and **this does not check that half**; see
+answer it the same way - each of them says the TARGET side of the key set identifies at most
+one row. The fan-out check reasons over the whole set: a compound key whose columns no single
+one of them determines is still a key, and the probe counts distinct over all of them.
+`one_to_one` promises the origin side does too, and **this does not check that half**; see
 the module header's limits.
 
 ```rust
@@ -12135,6 +12698,12 @@ pub const fn table(&self) -> &'a QualifiedTable
 
 The table to count over.
 
+```rust
+pub fn target_columns(&self) -> impl Iterator<Item>
+```
+
+The ordered target columns the probe counts distinct over.
+
 ##### Implements
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
@@ -12153,7 +12722,7 @@ as an unchecked one.
 
 ##### Variants
 
-- `MayDuplicateRows` - The join type promises nothing about the target column.
+- `MayDuplicateRows` - The join type promises nothing about the target side.
 
   `one_to_many` is the only one: it is the direction that MAY duplicate rows, which is why
   `Definitions` already refuses to reach a dimension through one. A probe over it would refuse
@@ -12163,7 +12732,7 @@ as an unchecked one.
   Unreachable through a loaded bundle - `Definitions` refuses a relationship naming a model it
   does not carry - and reported rather than panicked for the reason every self-check in this
   domain is: the input is a catalog document, and a panic reachable from one is a defect.
-- `ColumnNotOnModel` - The target model does not declare the column the relationship joins on. Unreachable for `ModelUndefined`'s reason, and reported for it.
+- `ColumnNotOnModel` - A target model does not declare one of the columns a key joins on. Unreachable for `ModelUndefined`'s reason, and reported for it.
 
 ##### Implements
 
@@ -12276,12 +12845,6 @@ nobody scoped for it. The counts locate the table; the operator queries it.
 ##### Methods
 
 ```rust
-pub const fn column(&self) -> &ColumnName
-```
-
-The column that was meant to identify at most one row.
-
-```rust
 pub const fn counts(&self) -> KeyCounts
 ```
 
@@ -12292,6 +12855,12 @@ pub fn found(key: &DeclaredKey<'_>, counts: KeyCounts) -> Option<Self>
 ```
 
 The violation these counts show, or `None` where they hold the declaration up.
+
+```rust
+pub fn keys(&self) -> &[ColumnName]
+```
+
+The ordered key set that was meant to identify at most one target row.
 
 ```rust
 pub const fn model(&self) -> &ModelName

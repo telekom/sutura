@@ -26,8 +26,8 @@ mod consistency;
 
 pub use audience::{Audience, AudienceGrant, GrantedAudiences, InvalidAudienceGrant};
 pub use authored::{
-    AnchorValue, Description, DimensionValue, InvalidDescription, InvalidDimensionValue, MAX_DESCRIPTION_BYTES,
-    MAX_DESCRIPTION_LINES, MAX_DIMENSION_VALUE_CHARS,
+    AnchorValue, ColumnType, Description, DimensionValue, InvalidColumnType, InvalidDescription, InvalidDimensionValue,
+    MAX_COLUMN_TYPE_CHARS, MAX_DESCRIPTION_BYTES, MAX_DESCRIPTION_LINES, MAX_DIMENSION_VALUE_CHARS,
 };
 pub use consistency::{Definitions, InconsistentDefinitions};
 
@@ -83,32 +83,140 @@ pub const MAX_VALUES_PER_DIMENSION: usize = 64;
 /// cannot, the same argument [`crate::knowledge::MAX_KNOWLEDGE_BYTES`] makes for a bundle of notes,
 /// applied to the catalog that bundle is checked against.
 ///
-/// **Measured before it was chosen.** This repository's shipped `single-player` catalog - the larger
-/// of the two example catalogs - is the reference: its widest model (`subscriptions`) declares 8
-/// columns, no metric declares more than one required filter, and its columns, required filters and
-/// dimension values together sum under 1 KiB. Descriptions are the rest of it, at about 18 KiB across
-/// eleven metrics and four models - each individually inside [`MAX_DESCRIPTION_BYTES`], and it is
-/// their COUNT that was uncapped.
+/// **Measured before it was chosen, and re-measured for issue #966's column type and column
+/// description, which this bound did not cover before either existed.** This repository's shipped
+/// `single-player` catalog - the larger of the two example catalogs - is the reference: its widest
+/// model (`subscriptions`) declares 8 columns, no metric declares more than one required filter, and
+/// its columns (now including one declared type), required filters and dimension values together
+/// sum to 922 bytes - one column (`subscriptions.mrr_cents`) carries a declared type and a
+/// description, and that is what moved this half from the earlier column-blind measurement's
+/// under-1-KiB figure at all, not past any round number. Descriptions are the rest of it, at 24053
+/// bytes (~23.5 KiB) across eleven metrics and five models - each individually inside
+/// [`MAX_DESCRIPTION_BYTES`], and it is their COUNT that was uncapped. `Definitions::authored_bytes`
+/// over the loaded corpus reads 24975 bytes, ~24.4 KiB in total.
 ///
-/// [`MAX_DEFINITIONS_BYTES`] is 128 KiB: about 6.5 times that reference catalog's ~19 KiB, more
-/// headroom than [`crate::knowledge::MAX_KNOWLEDGE_BYTES`]'s five times its own reference, because a
-/// definitions bundle also carries the identifiers a knowledge bundle does not. Argued the way
+/// [`MAX_DEFINITIONS_BYTES`] is 128 KiB: about 5.25 times that reference catalog's ~24.4 KiB, less
+/// headroom than the ~6.5 times an earlier, column-blind measurement claimed - restated here rather
+/// than left to say a smaller bundle than the corpus now is. Still more than
+/// [`crate::knowledge::MAX_KNOWLEDGE_BYTES`]'s five times its own reference, because a definitions
+/// bundle also carries the identifiers a knowledge bundle does not. Argued the way
 /// [`crate::query::MAX_RANGE_DAYS`] is: what it bounds is the size of the document, not whether what
 /// is in it is worth reading.
 pub const MAX_DEFINITIONS_BYTES: usize = 128 * 1024;
 
+/// One column a [`Model`] exposes: its name, and what a source's own dictionary says about it.
+///
+/// `data_type` and `description` are independent of each other and both optional - a database
+/// dictionary types every column and comments few of them, a Table Schema descriptor may type a
+/// field and describe none. `nullable` is likewise a source's own claim, read and stored, never
+/// derived from anything else here.
+///
+/// **`data_type` is descriptive text.** It is a quote of what the source called the column -
+/// `"STRING"`, `"character varying"`, `"NUMERIC(38,9)"` - for a person reading the catalog. At HEAD
+/// nothing branches on it - `sutura_sql` has its own closed vocabulary for what a statement may
+/// execute - but that is an absence rather than a mechanism: [`ColumnType`]'s own doc names review
+/// as what holds "never a cast", not the type system, because nothing here stops a future reader of
+/// [`Self::data_type`] from treating it as one.
+///
+/// **Column prose is parsed and pinned, and reaches no rendering surface today.** No composition
+/// root's prompt, tool result or HTTP body names a column - `sutura_app::prompt`'s own header states
+/// that as a deliberate absence - so this type has nothing to gate behind `prompt.catalog_prose` yet.
+/// If a future surface renders it, it goes through that same gate, the way every other quoted
+/// description does.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Column {
+    name: ColumnName,
+    data_type: Option<ColumnType>,
+    description: Description,
+    nullable: Option<bool>,
+}
+
+impl Column {
+    pub const fn new(name: ColumnName, data_type: Option<ColumnType>, description: Description, nullable: Option<bool>) -> Self {
+        Self {
+            name,
+            data_type,
+            description,
+            nullable,
+        }
+    }
+
+    #[inline]
+    pub const fn name(&self) -> &ColumnName {
+        &self.name
+    }
+
+    #[inline]
+    pub const fn data_type(&self) -> Option<&ColumnType> {
+        self.data_type.as_ref()
+    }
+
+    #[inline]
+    pub fn description(&self) -> &str {
+        self.description.as_str()
+    }
+
+    #[inline]
+    pub const fn nullable(&self) -> Option<bool> {
+        self.nullable
+    }
+
+    /// Builds a column from raw type/description text an adapter read off its own source, so the
+    /// "a type is dropped rather than refused, a description still refuses" rule lives once rather
+    /// than once per catalog adapter.
+    ///
+    /// **The two fields are held to different rules on purpose, and this is where that shows.** A
+    /// type that fails [`ColumnType::parse`] is dropped - `data_type` becomes `None`, the load
+    /// continues - per that type's own doc: nothing renders it, so refusing the whole catalog over
+    /// text nothing reads would cost more than it protects. A description that fails
+    /// [`Description::parse`] still refuses: it is prose a person or an agent may eventually read,
+    /// held to the same rule every other quoted description in this crate is.
+    ///
+    /// `nullable` is carried through unchanged - there is nothing to parse or drop, only
+    /// `sutura-catalog-local`'s long column form has a source for it, and every other caller passes
+    /// `None`.
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidDescription`], if `description` is `Some` and not usable.
+    pub fn from_metadata(
+        name: ColumnName,
+        data_type: Option<&str>,
+        description: Option<&str>,
+        nullable: Option<bool>,
+    ) -> Result<Self, InvalidDescription> {
+        let data_type = data_type.and_then(|raw| ColumnType::parse(raw).ok());
+        let description = description.map(Description::parse).transpose()?.unwrap_or_default();
+        Ok(Self::new(name, data_type, description, nullable))
+    }
+}
+
+/// A bare column: a name with no type, no prose and no nullability claim.
+///
+/// What every caller that has only ever named a column set means, and what lets [`Model::new`]
+/// accept a plain `BTreeSet<ColumnName>` unchanged.
+impl From<ColumnName> for Column {
+    fn from(name: ColumnName) -> Self {
+        Self::new(name, None, Description::default(), None)
+    }
+}
+
 /// One physical table, and what the catalog knows about it.
 ///
-/// `columns` is the whole set the model exposes, and it is a set rather than a list because it is
-/// only ever asked "does this column exist?". Declaring it at all is what lets a dimension naming a
-/// column that is not there be a refusal from the pinned bundle instead of an error from the data
-/// system, which is the difference between a governed answer and a stack trace.
+/// `columns` is keyed by name because it is only ever asked "does this column exist, and what does
+/// it look like" - declaring it at all is what lets a dimension naming a column that is not there be
+/// a refusal from the pinned bundle instead of an error from the data system, which is the difference
+/// between a governed answer and a stack trace.
+///
+/// `primary_key` is evidence a source's own dictionary supplied, not a cardinality rule: no join
+/// type is inferred from it, and [`Relationship`]'s own `JoinType` is unaffected either way.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Model {
     name: ModelName,
     source: SourceName,
     table: QualifiedTable,
-    columns: BTreeSet<ColumnName>,
+    columns: BTreeMap<ColumnName, Column>,
+    primary_key: BTreeSet<ColumnName>,
     description: Description,
 }
 
@@ -120,20 +228,70 @@ impl Model {
     /// caller - a catalog document naming only a table, and every fixture in this workspace - passes
     /// a [`TableName`] and compiles unchanged, meaning exactly what it used to. It costs the `const`
     /// this constructor used to be, which nothing depended on.
-    pub fn new(
+    ///
+    /// **`columns` takes anything a [`Column`] comes from, not a `Vec<Column>`.** A
+    /// `BTreeSet<ColumnName>` is still what most callers here have, and [`Column`]'s `From<ColumnName>`
+    /// is what lets it keep compiling unchanged. A duplicate column name silently keeps the last
+    /// entry rather than refusing - unlike [`Metric::new`]'s dimensions, a model's columns come from a
+    /// physical dictionary rather than an author's declaration, and a real table cannot have two
+    /// columns with one name.
+    pub fn new<C>(
         name: ModelName,
         source: SourceName,
         table: impl Into<QualifiedTable>,
-        columns: BTreeSet<ColumnName>,
+        columns: impl IntoIterator<Item = C>,
         description: Description,
-    ) -> Self {
+    ) -> Self
+    where
+        C: Into<Column>,
+    {
         Self {
             name,
             source,
             table: table.into(),
-            columns,
+            columns: columns
+                .into_iter()
+                .map(Into::into)
+                .map(|column: Column| (column.name.clone(), column))
+                .collect(),
+            primary_key: BTreeSet::new(),
             description,
         }
+    }
+
+    /// Declares which of this model's columns a source's own dictionary marks as its primary key.
+    ///
+    /// Evidence only, per the type's own doc: refused if it names a column this model does not
+    /// declare, checked here rather than later in [`Definitions::assemble`] so a `Model` with a
+    /// dangling key cannot be built at all - the same "unrepresentable over checked" argument
+    /// [`Metric::new`]'s own duplicate-dimension check makes, applied one level down.
+    ///
+    /// **What this does NOT check: that the key is actually unique in the source's data.** A
+    /// database dictionary's own constraint is checked by the database; an author writing this by
+    /// hand in a markdown document is not, and never was - a key can name real columns and still be
+    /// wrong about which of them are unique together. `crates/sutura-domain` opens no data system
+    /// and reads no rows, so there is nothing here that could check that, and stating so is the
+    /// whole of what this note can do about it.
+    ///
+    /// # Errors
+    ///
+    /// [`InconsistentDefinitions::UnknownPrimaryKeyColumn`], naming the first column that is not
+    /// one of this model's own.
+    pub fn with_primary_key(
+        mut self,
+        primary_key: impl IntoIterator<Item = ColumnName>,
+    ) -> Result<Self, InconsistentDefinitions> {
+        let primary_key: BTreeSet<ColumnName> = primary_key.into_iter().collect();
+        for column in &primary_key {
+            if !self.has_column(column) {
+                return Err(InconsistentDefinitions::UnknownPrimaryKeyColumn {
+                    model: self.name,
+                    column: column.clone(),
+                });
+            }
+        }
+        self.primary_key = primary_key;
+        Ok(self)
     }
 
     #[inline]
@@ -162,9 +320,23 @@ impl Model {
         self.table.name()
     }
 
+    /// Every column this model exposes, each with whatever a source claimed about it.
     #[inline]
-    pub const fn columns(&self) -> &BTreeSet<ColumnName> {
-        &self.columns
+    pub fn columns(&self) -> impl ExactSizeIterator<Item = &Column> {
+        self.columns.values()
+    }
+
+    /// One column by name, if this model declares it.
+    #[inline]
+    pub fn column(&self, name: &ColumnName) -> Option<&Column> {
+        self.columns.get(name)
+    }
+
+    /// Which of this model's columns a source's own dictionary marked as its primary key. Evidence
+    /// only - see [`Self::with_primary_key`].
+    #[inline]
+    pub const fn primary_key(&self) -> &BTreeSet<ColumnName> {
+        &self.primary_key
     }
 
     #[inline]
@@ -174,41 +346,43 @@ impl Model {
 
     #[inline]
     pub fn has_column(&self, column: &ColumnName) -> bool {
-        self.columns.contains(column)
+        self.columns.contains_key(column)
     }
 }
 
-/// A declared join between two models: two columns and a cardinality.
+/// A declared join between two models: an ordered, non-empty set of keys and a cardinality.
 ///
-/// A pair of columns rather than a condition string. The condition form is what the reference
-/// modelling languages use, and it is an escape hatch: `a.x = b.y OR 1 = 1` is a valid condition.
-/// Equality on one column each is the whole of what a model needs to say here.
+/// An ordered set of typed keys rather than a condition string. The condition form is what the
+/// reference modelling languages use, and it is an escape hatch: `a.x = b.y OR 1 = 1` is a valid
+/// condition, and a string can say that but nothing in the shape of it refuses it. A daily fact
+/// joined to a monthly snapshot needs `key = key AND month_of(day) = month` - two keys, the second
+/// truncated to a month - so a relationship declares as many [`JoinKey`]s as the join needs, in
+/// order, each a closed typed shape. Every target side of the whole set must be provably unique,
+/// or the relationship is refused: the fan-out check reasons over the set, because no single
+/// column of a compound key need identify a row on its own.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Relationship {
     name: RelationshipName,
     origin_model: ModelName,
-    origin_column: ColumnName,
     target_model: ModelName,
-    target_column: ColumnName,
     join_type: JoinType,
+    keys: JoinKeys,
 }
 
 impl Relationship {
     pub const fn new(
         name: RelationshipName,
         origin_model: ModelName,
-        origin_column: ColumnName,
         target_model: ModelName,
-        target_column: ColumnName,
         join_type: JoinType,
+        keys: JoinKeys,
     ) -> Self {
         Self {
             name,
             origin_model,
-            origin_column,
             target_model,
-            target_column,
             join_type,
+            keys,
         }
     }
 
@@ -223,23 +397,108 @@ impl Relationship {
     }
 
     #[inline]
-    pub const fn origin_column(&self) -> &ColumnName {
-        &self.origin_column
-    }
-
-    #[inline]
     pub const fn target_model(&self) -> &ModelName {
         &self.target_model
     }
 
     #[inline]
-    pub const fn target_column(&self) -> &ColumnName {
-        &self.target_column
-    }
-
-    #[inline]
     pub const fn join_type(&self) -> JoinType {
         self.join_type
+    }
+
+    /// The keys, in declared order, that together link one origin row to at most one target row.
+    #[inline]
+    pub const fn keys(&self) -> &JoinKeys {
+        &self.keys
+    }
+}
+
+/// One term of a compound join: how one pair of columns links, never a free condition.
+///
+/// [`Equal`](JoinKey::Equal) joins `origin = target`; [`TruncatedEqual`](JoinKey::TruncatedEqual)
+/// joins the origin truncated to a [`Grain`] against the target - `month_of(a.x) = b.y` - rendered
+/// through the same time-bucket code that buckets a question's time column. Both carry parsed
+/// names only: there is no condition string, no `OR` and no free expression, so a catalog cannot
+/// write `a.x = b.y OR 1 = 1`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub enum JoinKey {
+    /// The origin column equals the target column.
+    Equal { origin: ColumnName, target: ColumnName },
+    /// The origin column truncated to a grain equals the target column.
+    TruncatedEqual {
+        origin: ColumnName,
+        grain: Grain,
+        target: ColumnName,
+    },
+}
+
+impl JoinKey {
+    /// The origin column, truncated to its grain when this is [`JoinKey::TruncatedEqual`].
+    #[inline]
+    pub const fn origin(&self) -> &ColumnName {
+        match self {
+            Self::Equal { origin, .. } | Self::TruncatedEqual { origin, .. } => origin,
+        }
+    }
+
+    /// The target column the origin (or its truncation) is compared against.
+    #[inline]
+    pub const fn target(&self) -> &ColumnName {
+        match self {
+            Self::Equal { target, .. } | Self::TruncatedEqual { target, .. } => target,
+        }
+    }
+
+    /// The grain a [`JoinKey::TruncatedEqual`] truncates its origin to.
+    #[inline]
+    pub const fn grain(&self) -> Option<Grain> {
+        match self {
+            Self::Equal { .. } => None,
+            Self::TruncatedEqual { grain, .. } => Some(*grain),
+        }
+    }
+}
+
+/// The ordered, non-empty set of [`JoinKey`]s one relationship joins on.
+///
+/// **Non-empty by construction and ordered by construction.** [`JoinKeys::of`] refuses an empty
+/// list, and the private `Vec` keeps the order it was handed - the order the planner renders the
+/// `ON` terms in. No `Deref` or `Borrow`; [`as_slice`](JoinKeys::as_slice) is the only way to lend
+/// the keys, which also keeps this crate's no-indexing rule honest.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct JoinKeys(Vec<JoinKey>);
+
+/// Why a set of join keys cannot be a relationship's keys.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidJoinKeys {
+    #[error("a relationship must declare at least one join key")]
+    Empty,
+}
+
+impl JoinKeys {
+    /// A key set in the order given, refusing the empty set.
+    ///
+    /// One constructor rather than a constructor plus an `is_valid`: an empty key set cannot be
+    /// minted, so no downstream code re-checks it and no relationship can hold a join of nothing.
+    pub fn of(keys: Vec<JoinKey>) -> Result<Self, InvalidJoinKeys> {
+        if keys.is_empty() {
+            return Err(InvalidJoinKeys::Empty);
+        }
+        Ok(Self(keys))
+    }
+
+    /// A one-key set, which is never empty and so needs no refusal.
+    ///
+    /// The shape every adapter that reads a single-column source produces; a single key is always a
+    /// valid non-empty set, so this constructor is infallible where [`Self::of`] has to be a
+    /// `Result`.
+    pub fn single(key: JoinKey) -> Self {
+        Self(vec![key])
+    }
+
+    /// The keys, in declared order. The whole set - not any one of them - promises the target unique.
+    pub fn as_slice(&self) -> &[JoinKey] {
+        &self.0
     }
 }
 

@@ -44,7 +44,7 @@
 //! **The links here are `crate::`-prefixed** for the reason [`preflight`](crate::warehouse::preflight)'s header
 //! gives: the API reference pages are generated from these comments verbatim.
 
-use crate::catalog::{Definitions, Relationship};
+use crate::catalog::{Definitions, JoinKey, Relationship};
 use crate::model::{ColumnName, JoinType, ModelName, QualifiedTable, RelationshipName, SourceName};
 use crate::warehouse::{RowSet, Value};
 
@@ -77,7 +77,7 @@ pub struct DeclaredKey<'a> {
     model: &'a ModelName,
     source: &'a SourceName,
     table: &'a QualifiedTable,
-    column: &'a ColumnName,
+    keys: &'a [JoinKey],
 }
 
 /// Why a declared relationship yields no key to probe.
@@ -87,12 +87,12 @@ pub struct DeclaredKey<'a> {
 /// as an unchecked one.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NoDeclaredKey {
-    /// The join type promises nothing about the target column.
+    /// The join type promises nothing about the target side.
     ///
     /// `one_to_many` is the only one: it is the direction that MAY duplicate rows, which is why
     /// `Definitions` already refuses to reach a dimension through one. A probe over it would refuse
     /// a bundle for holding exactly the shape it declared.
-    #[error("a `{}` relationship promises nothing about its target column being unique", .join_type.as_str())]
+    #[error("a `{}` relationship promises nothing about its target side being unique", .join_type.as_str())]
     MayDuplicateRows { join_type: JoinType },
     /// The target model is not in these definitions.
     ///
@@ -101,19 +101,21 @@ pub enum NoDeclaredKey {
     /// domain is: the input is a catalog document, and a panic reachable from one is a defect.
     #[error("the target model `{model}` is not defined")]
     ModelUndefined { model: ModelName },
-    /// The target model does not declare the column the relationship joins on. Unreachable for
+    /// A target model does not declare one of the columns a key joins on. Unreachable for
     /// [`ModelUndefined`](NoDeclaredKey::ModelUndefined)'s reason, and reported for it.
     #[error("the target model `{model}` declares no column `{column}`")]
     ColumnNotOnModel { model: ModelName, column: ColumnName },
 }
 
 impl<'a> DeclaredKey<'a> {
-    /// The key one relationship promises is unique, or why it promises none.
+    /// The key set one relationship promises is unique, or why it promises none.
     ///
     /// **The whole of the join-type decision is here**, so no adapter and no boot path repeats it:
     /// [`JoinType::may_duplicate_rows`] is the one question, and both `one_to_one` and `many_to_one`
-    /// answer it the same way - each of them says the target column identifies at most one row.
-    /// `one_to_one` promises the origin column does too, and **this does not check that half**; see
+    /// answer it the same way - each of them says the TARGET side of the key set identifies at most
+    /// one row. The fan-out check reasons over the whole set: a compound key whose columns no single
+    /// one of them determines is still a key, and the probe counts distinct over all of them.
+    /// `one_to_one` promises the origin side does too, and **this does not check that half**; see
     /// the module header's limits.
     pub fn promised_by(relationship: &'a Relationship, definitions: &'a Definitions) -> Result<Self, NoDeclaredKey> {
         let join_type = relationship.join_type();
@@ -124,19 +126,22 @@ impl<'a> DeclaredKey<'a> {
         let target = definitions
             .model(model)
             .ok_or_else(|| NoDeclaredKey::ModelUndefined { model: model.clone() })?;
-        let column = relationship.target_column();
-        if !target.has_column(column) {
-            return Err(NoDeclaredKey::ColumnNotOnModel {
-                model: model.clone(),
-                column: column.clone(),
-            });
+        let keys = relationship.keys().as_slice();
+        for key in keys {
+            let column = key.target();
+            if !target.has_column(column) {
+                return Err(NoDeclaredKey::ColumnNotOnModel {
+                    model: model.clone(),
+                    column: column.clone(),
+                });
+            }
         }
         Ok(Self {
             relationship: relationship.name(),
             model,
             source: target.source(),
             table: target.table(),
-            column,
+            keys,
         })
     }
 
@@ -168,11 +173,19 @@ impl<'a> DeclaredKey<'a> {
         self.table
     }
 
-    /// The column whose values are meant to be distinct.
+    /// The whole key set whose target side is meant to be distinct.
+    ///
+    /// The fan-out check counts distinct over every target column in this set - never over one of
+    /// them alone - because a compound key determines a row only as a whole.
     #[inline]
     #[must_use]
-    pub const fn column(&self) -> &'a ColumnName {
-        self.column
+    pub const fn keys(&self) -> &'a [JoinKey] {
+        self.keys
+    }
+
+    /// The ordered target columns the probe counts distinct over.
+    pub fn target_columns(&self) -> impl Iterator<Item = &'a ColumnName> {
+        self.keys.iter().map(JoinKey::target)
     }
 }
 
@@ -279,7 +292,7 @@ pub struct KeyNotUnique {
     relationship: RelationshipName,
     model: ModelName,
     table: QualifiedTable,
-    column: ColumnName,
+    keys: Vec<ColumnName>,
     counts: KeyCounts,
 }
 
@@ -291,7 +304,7 @@ impl KeyNotUnique {
             relationship: key.relationship().clone(),
             model: key.model().clone(),
             table: key.table().clone(),
-            column: key.column().clone(),
+            keys: key.target_columns().cloned().collect(),
             counts,
         })
     }
@@ -317,13 +330,12 @@ impl KeyNotUnique {
         &self.table
     }
 
-    /// The column that was meant to identify at most one row.
+    /// The ordered key set that was meant to identify at most one target row.
     #[inline]
     #[must_use]
-    pub const fn column(&self) -> &ColumnName {
-        &self.column
+    pub fn keys(&self) -> &[ColumnName] {
+        &self.keys
     }
-
     /// What the data system counted.
     #[inline]
     #[must_use]
@@ -334,12 +346,12 @@ impl KeyNotUnique {
 
 impl core::fmt::Display for KeyNotUnique {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let keys = self.keys.iter().map(ColumnName::as_str).collect::<Vec<_>>().join(", ");
         write!(
             f,
-            "relationship {} declares that {} identifies at most one row of {}, and {} holds {} \
-             non-null values under {} distinct ones",
+            "relationship {} declares that ({keys}) identifies at most one row of {}, and {} holds \
+             {} non-null values under {} distinct ones",
             self.relationship,
-            self.column,
             self.model,
             self.table,
             self.counts.rows(),

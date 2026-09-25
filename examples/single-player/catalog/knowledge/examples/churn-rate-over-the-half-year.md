@@ -5,7 +5,7 @@ asked:
   - how has the churn rate developed this year
   - wie hat sich die Abwanderungsrate entwickelt
 question:
-  metric: churn_rate
+  metrics: [churn_rate]
   grain: month
   range: { start: 2026-01-01, end: 2026-07-01 }
 ---

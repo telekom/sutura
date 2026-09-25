@@ -192,6 +192,11 @@ release)
     ;;
 esac
 
+# ONE REALISE FOR BOTH, so the musl chain (its own Go toolchain, driver and crate) builds beside the
+# gnu one instead of after it. The two resolutions below are the lines that always stood here and
+# now find both outputs present; resolving by name rather than by the order `--print-out-paths`
+# prints in is what keeps a gnu path from ever being asked the musl question.
+nix build --no-link ".#${gnu_attr}" ".#${musl_attr}"
 gnu="$(nix build --no-link --print-out-paths ".#${gnu_attr}")/bin/sutura"
 musl="$(nix build --no-link --print-out-paths ".#${musl_attr}")/bin/sutura"
 echo "bigquery-driver-check: scope - .#${gnu_attr} and the static .#${musl_attr}, each asked with"

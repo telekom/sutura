@@ -46,6 +46,12 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         RefusalReason::MetricUnknown { ref metric } => {
             format!("this catalog defines no metric called `{metric}`")
         }
+        RefusalReason::MetricsSpanDifferentModels { ref first, ref other } => {
+            format!("`{first}` and `{other}` do not share a model and a time column")
+        }
+        RefusalReason::MultiMetricNotExecutable { requested } => {
+            format!("this deployment does not yet answer a question naming {requested} metrics together")
+        }
         RefusalReason::GrainNotSupported { ref metric, grain } => {
             format!("`{metric}` is not defined at `{grain}` grain")
         }
@@ -115,6 +121,13 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         RefusalReason::FederationLinkAmbiguous { ref source } => format!(
             "the dimensions on `{source}` join through more than one relationship, and the two \
              legs link on a single column"
+        ),
+        RefusalReason::FederationLinkCompound {
+            ref source,
+            ref relationship,
+        } => format!(
+            "the relationship `{relationship}` crossing into `{source}` declares more than one join \
+             key, and the two legs link on a single column"
         ),
         RefusalReason::MeasureDoesNotFederate { ref metric, aggregate } => format!(
             "`{metric}` cannot be computed across two data systems because its {aggregate} \
@@ -236,6 +249,11 @@ mod tests {
     fn every_reason() -> Vec<RefusalReason> {
         vec![
             RefusalReason::MetricUnknown { metric: metric() },
+            RefusalReason::MetricsSpanDifferentModels {
+                first: metric(),
+                other: MetricName::parse("margin").expect("a test metric is a metric"),
+            },
+            RefusalReason::MultiMetricNotExecutable { requested: 2 },
             RefusalReason::GrainNotSupported {
                 metric: metric(),
                 grain: Grain::Week,
@@ -265,6 +283,11 @@ mod tests {
             RefusalReason::FederationNotExecutable,
             RefusalReason::FederationLinkAmbiguous {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
+            },
+            RefusalReason::FederationLinkCompound {
+                source: SourceName::parse("warehouse").expect("a test source is a source"),
+                relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
+                    .expect("a test relationship is a relationship"),
             },
             RefusalReason::MeasureDoesNotFederate {
                 metric: metric(),

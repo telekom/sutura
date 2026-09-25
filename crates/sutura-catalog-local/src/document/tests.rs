@@ -3,7 +3,9 @@
 
 use std::collections::BTreeSet;
 
-use super::{Description, DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc};
+use super::{
+    Description, DocumentKind, InvalidMetricDocument, InvalidModelDocument, KindProbe, MetricDoc, ModelDoc, RelationshipDoc,
+};
 use sutura_domain::catalog::{
     Audience, AudienceGrant, DimensionValue, InconsistentDefinitions, InvalidDimensionValue, InvalidViaChain,
 };
@@ -163,7 +165,8 @@ columns: [amount_cents]
     for path in ["orders", "sales.orders", "analytics-prod.sales.orders"] {
         let model = doc(path)
             .unwrap_or_else(|e| panic!("{path} is a table a document may name: {e}"))
-            .into_domain(description("Orders."));
+            .into_domain(description("Orders."))
+            .expect("no primary key here to be inconsistent");
         assert_eq!(model.table().to_string(), path);
         assert_eq!(
             model.table_name().as_str(),
@@ -176,6 +179,115 @@ columns: [amount_cents]
     // generator relies on; a fourth part names nothing.
     drop(doc("a.b.c.d").expect_err("nothing names a table four deep"));
     drop(doc("'sales'.orders").expect_err("a quote is not part of a name"));
+}
+
+#[test]
+fn a_column_s_long_form_carries_a_type_a_description_and_nullability_and_may_mix_with_the_short_form() {
+    let yaml = "
+kind: model
+name: orders
+source: local
+table: orders
+columns:
+  - name: amount_cents
+    type: NUMERIC
+    description: The order total, in minor units.
+    nullable: false
+  - order_date
+primary_key: [order_date]
+";
+    let model = serde_norway::from_str::<ModelDoc>(yaml)
+        .expect("a mixed short/long column list parses")
+        .into_domain(description("Orders."))
+        .expect("order_date is one of the declared columns");
+    let amount = model.column(&column("amount_cents")).expect("amount_cents is declared");
+    assert_eq!(
+        amount.data_type().map(sutura_domain::catalog::ColumnType::as_str),
+        Some("NUMERIC")
+    );
+    assert_eq!(amount.description(), "The order total, in minor units.");
+    assert_eq!(amount.nullable(), Some(false));
+    // The short form still writes a bare column, with none of the three.
+    let date = model.column(&column("order_date")).expect("order_date is declared");
+    assert_eq!(date.data_type(), None);
+    assert_eq!(date.description(), "");
+    assert_eq!(date.nullable(), None);
+    assert_eq!(model.primary_key(), &BTreeSet::from([column("order_date")]));
+}
+
+/// A `type:` this crate cannot represent - here, over `MAX_COLUMN_TYPE_CHARS` - is dropped, not
+/// refused: the document still loads and the column carries no type.
+#[test]
+fn a_column_type_too_long_to_represent_is_dropped_rather_than_refusing_the_load() {
+    let long_type = format!("STRUCT<{}z STRING>", "a STRING, ".repeat(80));
+    assert!(long_type.len() > sutura_domain::catalog::MAX_COLUMN_TYPE_CHARS);
+    let yaml = format!(
+        "
+kind: model
+name: orders
+source: local
+table: orders
+columns:
+  - name: amount_cents
+    type: \"{long_type}\"
+"
+    );
+    let model = serde_norway::from_str::<ModelDoc>(&yaml)
+        .expect("a long type still parses as text")
+        .into_domain(description("Orders."))
+        .expect("dropping an unrepresentable type is not a refusal");
+    assert_eq!(
+        model
+            .column(&column("amount_cents"))
+            .expect("amount_cents is declared")
+            .data_type(),
+        None
+    );
+}
+
+#[test]
+fn a_column_s_long_form_still_refuses_an_unknown_key() {
+    // `untagged` cannot name WHICH key was wrong - `ColumnEntryDoc`'s own doc names this the same
+    // limit `AnchorLiteral` already states: every variant failed, and the message says only that a
+    // mapping matched neither the bare-name form nor the long form. What matters here is that it
+    // refuses at all rather than silently dropping `typo`.
+    let yaml = "
+kind: model
+name: orders
+source: local
+table: orders
+columns:
+  - name: amount_cents
+    typo: NUMERIC
+";
+    drop(serde_norway::from_str::<ModelDoc>(yaml).expect_err("a misspelled long-form key matches no column shape"));
+}
+
+#[test]
+fn a_primary_key_naming_a_column_the_model_does_not_declare_is_refused() {
+    // Checked at construction (`Model::with_primary_key`), against this model's own columns only -
+    // there is no map of models here for a key to be checked against the wrong one of.
+    let yaml = "
+kind: model
+name: orders
+source: local
+table: orders
+columns: [amount_cents]
+primary_key: [order_id]
+";
+    let doc = serde_norway::from_str::<ModelDoc>(yaml).expect("the document itself parses");
+    let err = doc
+        .into_domain(description("Orders."))
+        .expect_err("order_id is not one of the declared columns");
+    assert_eq!(
+        err,
+        InvalidModelDocument::PrimaryKey(Box::new(
+            sutura_domain::catalog::InconsistentDefinitions::UnknownPrimaryKeyColumn {
+                model: sutura_domain::model::ModelName::parse("orders").expect("a test model is a model"),
+                column: column("order_id"),
+            }
+        ))
+    );
 }
 
 #[test]
@@ -561,6 +673,53 @@ fn a_via_chain_with_no_relationship_in_it_is_refused() {
             dimension: DimensionName::parse("region").expect("a name"),
             cause: InvalidViaChain::Empty,
         }
+    );
+}
+
+fn relationship_doc(yaml: &str) -> Result<RelationshipDoc, serde_norway::Error> {
+    serde_norway::from_str(yaml)
+}
+
+const COMPOUND_RELATIONSHIP: &str = "
+kind: relationship
+name: usage_subscription
+origin: { model: daily_usage, column: subscription_key }
+target: { model: subscriptions, column: subscription_key }
+join_type: many_to_one
+keys:
+  - { origin: subscription_key, target: subscription_key }
+  - { origin: usage_date, grain: month, target: month }
+";
+
+/// A compound join's keys parse into the typed `TruncatedEqual`/`Equal` pair, not the legacy
+/// `origin`/`target` pair alone.
+#[test]
+fn a_compound_relationships_keys_parse() {
+    let doc = relationship_doc(COMPOUND_RELATIONSHIP).expect("two well-formed keys are well-formed");
+    let relationship = doc.into_domain().expect("two keys is a non-empty set");
+    assert_eq!(relationship.keys().as_slice().len(), 2);
+}
+
+/// **The measurement `#[serde(deny_unknown_fields)]` on `JoinKeyDoc` exists for.** Before it, a
+/// typo'd `grian:` in place of `grain:` parsed silently - serde drops a field it does not
+/// recognise unless the struct demands otherwise - and the entry fell through to
+/// `JoinKeyDoc::into_domain`'s `None` arm, becoming a plain `JoinKey::Equal { origin: usage_date,
+/// target: month }` instead of the truncated key the document meant. That key is still a legal
+/// declaration - `usage_date = month` just never matches - so nothing downstream would have
+/// caught it: no parse error, no consistency-check refusal, only a relationship that silently
+/// answers nothing for the dimension it was meant to unlock. Red before `deny_unknown_fields` was
+/// added: this parse used to be `Ok`.
+#[test]
+fn a_typo_in_a_compound_keys_grain_field_is_refused_rather_than_silently_dropped() {
+    let yaml = COMPOUND_RELATIONSHIP.replace("grain: month", "grian: month");
+    assert_ne!(
+        yaml, COMPOUND_RELATIONSHIP,
+        "the replacement must have found the field it means to typo"
+    );
+    let error = relationship_doc(&yaml).expect_err("an unknown field inside a compound key must not parse");
+    assert!(
+        error.to_string().contains("grian"),
+        "the parse error must name the field it could not place: {error}"
     );
 }
 

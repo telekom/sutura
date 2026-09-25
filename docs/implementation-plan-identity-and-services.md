@@ -813,8 +813,8 @@ one is built:
 - **An MCP server, and the crate now SHIPS in the binary.** `sutura-mcp` is built: two tools, one per
   `Surface` operation, each schema generated from a wire type and committed as a snapshot.
   `serve_stdio`'s composition root is the single-player binary's `mcp` subcommand -
-  `sutura mcp <catalog-dir> <data-dir>` - which is what #110 asked for. So this is the better route,
-  and the demo must still not wait for it.
+  `sutura mcp <catalog-dir> <data-dir>` (until #970 - it reads `catalogs:`/`sources:` since) -
+  which is what #110 asked for. So this is the better route, and the demo must still not wait for it.
 
 **And the part that cannot be waved away: a chat interface needs a MODEL.** Either a hosted provider,
 which means a key and egress from the demo environment, or a local one, which is heavy. Say which the
@@ -883,6 +883,17 @@ attestation, and a signature - **and when verification is exercised in CI rather
 attestation nobody verifies is a file. The smoke test is the deliverable, not the generation.
 
 ## The CI cost of a prose change
+
+**SUPERSEDED BY #982.** Every "deferred to the `main` push" claim below assumed `ci.yml` skips a
+prose-only PULL REQUEST the way it skips a prose-only PUSH. It does not: `ci.yml`'s own
+`pull_request` trigger carries no path filter at all, so its `Structural gates` step already builds
+the identical `hygiene` derivation, unconditionally, on every pull request - including the
+prose-only ones this section is about. `verify`'s own copy was buying a pull request nothing the
+required `ci` context did not already give it, on the SAME pull request rather than after the
+merge - so the residual table further down misdescribes what was actually deferred, and `verify` no
+longer runs `hygiene` at all now. The measurement immediately below is real and stands; the
+conclusion drawn from it (a conditional skip, replaced by a citation check) is the part #982 found
+wrong.
 
 **Measured before touching anything**, on a real run, because the intuitive answer was wrong:
 

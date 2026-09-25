@@ -13,6 +13,7 @@ mod injection_corpus;
 mod physical_schema;
 mod refusal_corpus;
 mod run_sql;
+mod tool_audience;
 
 use std::collections::BTreeSet;
 
@@ -277,7 +278,7 @@ fn notes(definitions: &Definitions, declares: KnowledgeCapabilities) -> Knowledg
         vec![Example::new(
             note_name("revenue_in_june"),
             vec![phrase("how much revenue in June")],
-            Query::new(
+            Query::single(
                 metric_name("revenue"),
                 Grain::Month,
                 range,
@@ -876,7 +877,7 @@ fn notes_carrying(definitions: &Definitions, term: &str, prose: &str) -> Knowled
             vec![Example::new(
                 note_name("leaky_example"),
                 vec![phrase("how was it asked")],
-                Query::new(metric_name("revenue"), Grain::Month, range, Vec::new(), Vec::new()),
+                Query::single(metric_name("revenue"), Grain::Month, range, Vec::new(), Vec::new()),
                 note_body(prose),
             )],
         ),

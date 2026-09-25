@@ -95,6 +95,7 @@ entities and "invalid identifier" with no name sends a reader back to all of the
 - `UnknownSource`
 - `MissingDescription`
 - `Description`
+- `ColumnDescription`
 - `CardinalityUnrepresentable`
 - `Inconsistent`
 - `Knowledge`
@@ -208,6 +209,42 @@ The tables this snapshot carries.
 
 `Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`
 
+### `struct ColumnMetadata`
+
+```rust
+pub struct ColumnMetadata
+```
+
+What `OpenMetadata`'s `Column` schema COULD supply a reader beyond a column's name.
+
+Its `dataType`, its own `description`, and (via `Table::primary_key`) whether its
+`constraint` is `PRIMARY_KEY`. This adapter's own canonical shape for it - no
+`super::SnapshotReader` but the fixture and a test stub exists today, so nothing yet maps a real
+`constraint` value into `Table::primary_key`; see the crate header's "What is built here,
+and what is NOT".
+
+Identical in shape to `datahub::document::ColumnMetadata` and `rdbms::ColumnMetadata`, and
+kept separate for the reason the latter's own doc gives: each is one adapter's reading of a
+wire shape none of the others should depend on.
+
+#### Methods
+
+```rust
+pub fn data_type(&self) -> Option<&str>
+```
+
+```rust
+pub fn description(&self) -> Option<&str>
+```
+
+```rust
+pub const fn new(data_type: Option<String>, description: Option<String>) -> Self
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Default`, `Deserialize<'de>`, `Eq`, `PartialEq`
+
 ### `struct Table`
 
 ```rust
@@ -217,7 +254,18 @@ pub struct Table
 What a `Table` entity supplies a model: a table, its columns, the service it lives on, and a
 description.
 
+`column_metadata` and `primary_key` are both `#[serde(default)]`, so a recorded document that
+predates either still deserializes - the same reason every field here has no `pub` constructor:
+a document arrives only through `Deserialize`, and a struct literal would let a caller build a
+`Table` the load path never checked.
+
 #### Methods
+
+```rust
+pub fn column_metadata(&self, column: &str) -> Option<&ColumnMetadata>
+```
+
+One column's `dataType`/`description` evidence, by name.
 
 ```rust
 pub fn columns(&self) -> &[String]
@@ -236,6 +284,12 @@ pub fn name(&self) -> &str
 ```
 
 The table (and model) name.
+
+```rust
+pub fn primary_key(&self) -> &[String]
+```
+
+Which columns carry a `PRIMARY_KEY` constraint.
 
 ```rust
 pub fn service(&self) -> &str

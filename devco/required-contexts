@@ -151,9 +151,22 @@ ci.yml:crap-comment
 # would leave it permanently pending.
 ci.yml:pr-cache
 
-# The provisioned-Keycloak leg-1 venue: `if: needs.ci.outputs.identity == 'true'`, so it reports
-# nothing at all on a pull request whose diff does not touch the `identity` category - the same
-# reason `format.yml:format` below is advisory rather than the reason the since-removed
+# `keycloak-served-test`'s and `bigquery-driver-check`'s own classification (#983), so neither
+# leg's START waits for the full `ci` job to finish. It carries no `if:` at all - it reports on every pull request, push and
+# merge-group entry - and it reads no secret, so there is nothing here for a fork's pull request
+# to be denied. Advisory for the same reason `pr-cache` above is: nothing downstream needs its
+# result to be `[required]` for the leg it gates to stay covered - `ci-aggregate` (unchanged)
+# still decides what it demands of `keycloak-served-test` from `needs.ci.outputs.identity`, its
+# OWN read, never from this job's. This job's own `identity` output only ever WIDENS which pull
+# requests boot the JVM (`keycloak-served-test` reads it directly, see that entry below), never
+# narrows what `ci-aggregate` requires. Its `data_source_bigquery` output is the same shape: read
+# by `bigquery-driver-check`, never by `ci-aggregate`.
+ci.yml:identity-classify
+
+# The provisioned-Keycloak leg-1 venue: `if: needs.identity-classify.outputs.identity == 'true'`
+# (#983 moved it off `needs.ci.outputs.identity`, see `ci.yml:identity-classify` above), so it
+# reports nothing at all on a pull request whose diff does not touch the `identity` category - the
+# same reason `format.yml:format` below is advisory rather than the reason the since-removed
 # `bigquery-acceptance` leg was - that entry is gone from this file with the job. Unlike it this one
 # reads no secret and needs no environment, so a fork's pull request can run
 # it when the paths select it; what still rules out `[required]` is that most pull requests do not
@@ -161,8 +174,10 @@ ci.yml:pr-cache
 # permanently-pending merge this file's header warns about.
 ci.yml:keycloak-served-test
 
-# The ADBC driver, executed rather than built: `if: needs.ci.outputs.data_source_bigquery ==
-# 'true'`, so it reports nothing on a pull request whose diff does not touch that category - the
+# The ADBC driver, executed rather than built: `if:` on
+# `needs.identity-classify.outputs.data_source_bigquery` (moved off `ci`'s copy of the flag the
+# way #983 moved `keycloak-served-test`; `ci-aggregate` still reads `ci`'s), so it reports nothing
+# on a pull request whose diff does not touch that category - the
 # same reason `keycloak-served-test` above is advisory rather than required, and the same reason it
 # is nonetheless GATED: `ci-aggregate` holds run-or-fail for it, and `ci-aggregate` is a required
 # context. It reads no secret and needs no environment, so a fork's pull request can run it when
