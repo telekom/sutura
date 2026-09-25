@@ -85,7 +85,7 @@ pub(crate) enum Plan {
 /// two-source corpus question may get is `MeasureDoesNotFederate`.
 ///
 /// [`NotBound`](PlanError::NotBound) is the fourth arm and carries the same argument for the same
-/// reason. [`predicates_and_params`] and [`requested_for`] mint every parameter index from the
+/// reason. [`predicates_and_params`] and `federated::requested_for` mint every parameter index from the
 /// position the value was pushed to, so neither can build a set
 /// [`PlanBindings::parse`](sutura_domain::plan::PlanBindings::parse) refuses, and no test provokes
 /// this arm either. What it buys is that a producer which stops minting - a hand-written index, a
@@ -120,7 +120,7 @@ pub(crate) enum PlanError {
     /// **The plan-time half of a refusal that used to exist only at load, and the reason for two is
     /// that the load one was wrong in a way nothing downstream could see.** It compared each hop's
     /// TARGET against the metric's source, so a chain crossing at hop 1 and returning at hop 2 was
-    /// accepted; [`is_remote`] then read that chain off its last hop, called it local, and
+    /// accepted; [`chain::is_remote`] then read that chain off its last hop, called it local, and
     /// [`mono_plan`] rendered the other system's table into one statement under a certified metric
     /// name. `sutura_domain::catalog::Definitions::assemble` compares both ends of every later hop
     /// now, which is the mechanism - and this is what holds if a bundle ever reaches the plan stage

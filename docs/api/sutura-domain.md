@@ -9688,6 +9688,14 @@ somebody else's input.
   system would need two link columns, which the lookup leg does not carry. Refused rather than
   guess a link, and named as a link ambiguity rather than a source count: it is not that too
   many sources are involved.
+- `FederationLinkCompound` - The relationship crossing into the remote data system declares more than one join key.
+
+  **Distinct from `FederationLinkAmbiguous`, which names two
+  relationships crossing at once.** This is one relationship, correctly declared - a compound
+  key is exactly what `telekom/sutura#967` exists to allow inside one data system - but the
+  combiner links two legs on a single column, and a compound key would need one per column,
+  which the lookup leg's shape does not carry. Named for what is actually true rather than
+  reused from the ambiguity case, so a caller is not told two relationships exist when one does.
 - `MeasureDoesNotFederate` - The question's measure cannot be decomposed into one leg per source.
 
   A measure federates only when its aggregate can be recomputed above the legs. A distinct count
