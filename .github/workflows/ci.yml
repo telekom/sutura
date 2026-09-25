@@ -1630,7 +1630,8 @@ jobs:
     permissions:
       contents: read
     environment: bq-test
-    # #1013: a freshly assigned runner's daemon can stay silent past 10s; a wedge still fails, never skips.
+    # #1013: `docker info` gave no answer inside the 10s default in 3 logged WedgedDaemon failures (cause
+    # not established; 60s is unmeasured). Silence past 60s still FAILS - `compose.rs`'s `absent` veto.
     env:
       SUTURA_DOCKER_PROBE_TIMEOUT_SECS: "60"
     concurrency:
