@@ -62,15 +62,15 @@ type Served<W> = (
 /// [`crate::sources::open_engine`] refuses for the declared `sources:` tree. Serving never begins
 /// before all three have succeeded, so a refusal is a message on standard error and a non-zero
 /// exit, never a surface a peer has been told it can ask questions through.
-pub(crate) fn mcp(_args: &[String]) -> ExitCode {
+pub(crate) fn mcp() -> ExitCode {
     report((|| {
         let settings = configured()?;
         // Read ONCE - `security.outbound`, `github.com/telekom/sutura#125` - and shared with every
         // `WireAgent` this surface's `bigquery` arm builds.
         let outbound = crate::sources::resolve_outbound_anchors(&settings)?;
         // **The declared catalog, through the ONE opener `sutura serve` uses.** A deployment that
-        // names `catalog.kind: okf` on a build that did not link the `okf` feature is refused here
-        // with the same operator-facing message `serve` gives - both roots call
+        // names `catalog.kind: openmetadata` or `rdbms` - the two kinds no reader opens yet - is
+        // refused here with the same operator-facing message `serve` gives - both roots call
         // `crate::catalog::open_catalog`, so the refusal cannot drift.
         let catalogs = crate::catalog::open_catalog(settings.catalogs(), outbound.as_ref())?;
         // The bundle the engine must attach for. `crate::catalog::load` composes the opened
@@ -217,7 +217,10 @@ where
 /// the place this binary builds a service from the declared catalogs - the constructor that takes
 /// an audit sink and re-runs every anchor, plus the unattached-table check that closes the gap its
 /// second catalog load leaves. Issue #970 is what moved that one constructor to the crate root so
-/// `sutura mcp` uses it the way `sutura serve` and `sutura query` (`commands::started`) do.
+/// `sutura mcp` uses it the way `sutura serve` does. `sutura query` still goes through
+/// `commands::started` (`LocalService::start`, not `start_composed`) - a third, simpler
+/// composition over a single directory argument rather than declared `catalogs:`, unchanged by
+/// this issue.
 ///
 /// A locally launched process installs no subscriber either way, so those records go nowhere for the
 /// whole session - the honest default rather than a claim that a record was kept when none was, and

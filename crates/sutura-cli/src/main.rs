@@ -222,9 +222,13 @@ const COMMANDS: &[Cmd] = &[
     },
     Cmd {
         name: "mcp",
-        args: "<catalog-dir> [data-dir]",
+        // Takes no arguments, for `serve`'s reason: `catalogs:`/`sources:` is the whole of what
+        // this reads (issue #970), so there is no directory left for `vet` to enforce - and a
+        // caller's old `<catalog-dir> [data-dir]` now surfaces as `` `<dir>` is not an argument of
+        // `mcp` `` rather than being silently ignored.
+        args: "",
         description: "serve the agent surface over stdin/stdout",
-        run: mcp::mcp,
+        run: |_args| mcp::mcp(),
     },
     Cmd {
         name: "serve",
@@ -529,10 +533,14 @@ mod tests {
                 code: None,
                 says: "query cat q.yaml",
             },
+            // `mcp` used to take `<catalog-dir> [data-dir]`; issue #970 made it read
+            // `catalogs:`/`sources:` instead and dropped both, so an argument here is refused
+            // rather than routed through and silently ignored - the same shape `doctor --json`
+            // above already covers for a command that never took one.
             Case {
                 argv: &["mcp", "cat"],
-                code: None,
-                says: "mcp cat",
+                code: Some(2),
+                says: "`cat` is not an argument of `mcp`",
             },
             // THE FOLD's own case: `serve` used to be a second binary's name, not a command this
             // table listed at all - `requested(&["serve".into()])` was
@@ -640,7 +648,10 @@ mod tests {
             .iter()
             .find(|c| c.name == "mcp")
             .expect("mcp is listed in every build");
-        assert_eq!(mcp.args, "<catalog-dir> [data-dir]");
+        assert_eq!(
+            mcp.args, "",
+            "mcp takes no arguments on any build; it reads catalogs:/sources: instead"
+        );
     }
 
     /// The allocator this crate LINKS on Linux is the major series `doctor` REPORTS. `ALLOCATOR`

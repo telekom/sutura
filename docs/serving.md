@@ -396,8 +396,21 @@ It is served by the `sutura` binary's `mcp` command, not by this one, and that i
 split: MCP-over-stdio is a locally launched, single-player surface, so it belongs with the command-line
 tool that composes the in-process engine over a data directory rather than with the HTTP service.
 
+**Since issue #970 `mcp` takes no directory arguments** - `sutura mcp examples/single-player/catalog
+examples/single-player/data` now fails with `` `examples/single-player/catalog` is not an argument
+of `mcp` `` - it reads `catalogs:`/`sources:` the way `sutura serve` does, over the same opener. The
+built-in defaults already declare `catalogs: [{name: model, kind: markdown, dir: catalog, data_dir:
+data}]` relative to the working directory, which is why the fence below needs no `catalogs:`
+override, only the same `sources:` declaration `serve`'s own fence above gives:
+
 ```bash
-sutura mcp examples/single-player/catalog examples/single-player/data
+cd examples/single-player
+SUTURA__SECURITY__IDENTITY=single-user \
+SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
+SUTURA__SOURCES__LOCAL__KIND=files \
+SUTURA__SOURCES__LOCAL__DATA_DIR="$PWD/data" \
+SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
+  sutura mcp
 ```
 
 An agent client launches that process and speaks the protocol on its pipes - the same two tools this

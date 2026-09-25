@@ -150,9 +150,9 @@ pub(crate) fn load(catalogs: &OpenedCatalogs) -> Result<PinnedDefinitions, Strin
 /// re-running the anchors.
 #[expect(
     clippy::type_complexity,
-    reason = "Started<W, B> is already the named alias for this service; two independently-varying \
-              generics - the warehouse and the broker - is what a shared root over both compositions \
-              needs, and the alias does not lower this crate's tightened threshold under it"
+    reason = "the lint fires on this function's two-generic SIGNATURE (W and B, each with its own \
+              bound), not on the return type the Started<W, B> alias already names - so the alias \
+              does not silence it, and the expectation must still be here for -D warnings to pass"
 )]
 pub(crate) fn start_composed<W, B>(
     catalogs: &OpenedCatalogs,
