@@ -47,7 +47,7 @@ mod tests {
 
     use crate::harness::{
         LOCAL_SOURCE, LOOPBACK, SINGLE_USER, TOKEN, derived_catalog, example_root, files_source, refused_to_start, settings_over,
-        written,
+        without_the_product_family_dimension, written,
     };
 
     /// The source alias the moved model is pointed at.
@@ -55,9 +55,9 @@ mod tests {
 
     /// The one model this fixture moves off the `files` source and onto the `bigquery` one.
     ///
-    /// `daily_usage.md` for `harness::two_kind`'s recorded reason: it is the one model the example
-    /// catalog declares with no `via` relationship, so moving it changes which adapter answers and
-    /// never how many legs a plan has.
+    /// `daily_usage.md`, moved onto [`BQ_SOURCE`]: moving it changes which adapter answers and
+    /// never how many legs a plan has, EXCEPT for `product_family` - `derived_catalog`'s caller
+    /// below strips it, for [`without_the_product_family_dimension`]'s own reason.
     const MOVED_MODEL: &str = "daily_usage.md";
 
     /// A `bigquery` source entry, with every key `sutura_config` requires of one.
@@ -82,6 +82,7 @@ mod tests {
         let example = example_root();
         let data = example.join("data");
         let catalog = derived_catalog(case, &example.join("catalog"), MOVED_MODEL, BQ_SOURCE);
+        without_the_product_family_dimension(&catalog);
         settings_over(
             &catalog,
             &data,

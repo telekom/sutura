@@ -1,4 +1,4 @@
-use sutura_domain::catalog::{Definitions, Description, Model, Relationship};
+use sutura_domain::catalog::{Definitions, Description, JoinKey, JoinKeys, Model, Relationship};
 use sutura_domain::model::Aggregate;
 use sutura_domain::model::{ColumnName, Grain, JoinType, ModelName, RelationshipName, SourceName, TableName};
 use sutura_domain::plan::{PlanBucket, PlanColumn, ResultLabel};
@@ -296,10 +296,13 @@ fn a_key_probe_renders_and_parses_for_every_dialect_it_declares() {
     let relationship = Relationship::new(
         RelationshipName::parse("orders_customer").expect("a test relationship is a relationship"),
         ModelName::parse("orders").expect("a test model is a model"),
-        ColumnName::parse("customer_key").expect("a test column is a column"),
         ModelName::parse("customers").expect("a test model is a model"),
-        ColumnName::parse("customer_key").expect("a test column is a column"),
         JoinType::ManyToOne,
+        JoinKeys::of(vec![JoinKey::Equal {
+            origin: ColumnName::parse("customer_key").expect("a test column is a column"),
+            target: ColumnName::parse("customer_key").expect("a test column is a column"),
+        }])
+        .expect("a test relationship declares one key"),
     );
     let definitions = Definitions::assemble(
         vec![

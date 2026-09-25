@@ -19,7 +19,7 @@
 
 use datafusion::arrow::datatypes::DataType;
 use datafusion::common::{Column, ScalarValue, TableReference};
-use datafusion::functions::expr_fn::{date_trunc, nullif};
+use datafusion::functions::expr_fn::{date_trunc, named_struct, nullif};
 use datafusion::functions_aggregate::expr_fn::{avg, count, count_distinct, max, min, sum};
 use datafusion::logical_expr::{Expr, cast, lit, when};
 use sutura_domain::measure::ZeroDenominator;
@@ -51,12 +51,32 @@ pub(crate) fn column(plan_column: &PlanColumn) -> Expr {
 /// the same one-definition argument the SQL renderer makes for the same pair. Nulls are excluded by
 /// `COUNT` on both halves, which is the arithmetic the probe's own module argues for: a null key
 /// matches nothing, so two null rows duplicate nothing.
+///
+/// The distinct count runs over the WHOLE target key set, never one column alone: a compound key
+/// determines a target row only as a whole, so the fan-out check counts distinct over every target
+/// column at once - the same tuple the SQL path renders as `COUNT(DISTINCT a, b, …)`.
 pub(crate) fn key_counts(key: &DeclaredKey<'_>) -> Vec<Expr> {
-    let over = Expr::Column(Column::new(Some(table_reference(key.table().name())), key.column().as_str()));
-    vec![
-        count(over.clone()).alias(ROWS_LABEL),
-        count_distinct(over).alias(DISTINCT_LABEL),
-    ]
+    let over: Vec<Expr> = key
+        .target_columns()
+        .map(|column| Expr::Column(Column::new(Some(table_reference(key.table().name())), column.as_str())))
+        .collect();
+    let Some(first) = over.first().cloned() else {
+        return Vec::new();
+    };
+    let distinct = if over.len() == 1 {
+        count_distinct(first.clone())
+    } else {
+        // `COUNT(DISTINCT a, b, …)` is not a single-expr aggregate; DataFusion receives it as a
+        // struct of the columns and de-duplicates on the whole tuple. That is the engine's shape of
+        // the same probe the SQL path renders.
+        let fields = over
+            .iter()
+            .enumerate()
+            .flat_map(|(i, expr)| vec![lit(format!("k{i}")), expr.clone()])
+            .collect::<Vec<_>>();
+        count_distinct(named_struct(fields))
+    };
+    vec![count(first).alias(ROWS_LABEL), distinct.alias(DISTINCT_LABEL)]
 }
 
 /// A table name, as the engine's reference type, without normalisation.

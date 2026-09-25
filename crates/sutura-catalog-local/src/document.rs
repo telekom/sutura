@@ -20,7 +20,7 @@ use std::collections::BTreeSet;
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::catalog::{
     Anchor, AnchorValue, Column, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidDescription,
-    InvalidDimensionValue, InvalidViaChain, Metric, Model, Relationship, ViaChain,
+    InvalidDimensionValue, InvalidJoinKeys, InvalidViaChain, JoinKey, JoinKeys, Metric, Model, Relationship, ViaChain,
 };
 use sutura_domain::expression::{AuthoredSql, Computation, InvalidComputation};
 use sutura_domain::measure::{Measure, RequiredFilter};
@@ -280,12 +280,44 @@ impl ModelDoc {
     }
 }
 
-/// One end of a relationship.
+/// One end of a relationship, and the grain an origin is truncated to when a join key is
+/// [`JoinKeyDoc::TruncatedEqual`].
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EndpointDoc {
     model: ModelName,
     column: ColumnName,
+}
+
+/// One term of a compound join, as the document spells it.
+///
+/// A single column pair keeps the byte shape every existing relationship document has:
+/// `origin: { model, column }` / `target: { model, column }` outside a `keys:` list stays a plain
+/// equality. A compound join declares a `keys:` list, each entry `{ origin, target }` or
+/// `{ origin, grain, target }` - the origin column, truncated to `grain` for a truncated key.
+#[derive(Debug, serde::Deserialize)]
+pub struct JoinKeyDoc {
+    origin: ColumnName,
+    /// The grain an origin is truncated to. Absent means a plain equality.
+    #[serde(default)]
+    grain: Option<Grain>,
+    target: ColumnName,
+}
+
+impl JoinKeyDoc {
+    fn into_domain(self) -> JoinKey {
+        match self.grain {
+            Some(grain) => JoinKey::TruncatedEqual {
+                origin: self.origin,
+                grain,
+                target: self.target,
+            },
+            None => JoinKey::Equal {
+                origin: self.origin,
+                target: self.target,
+            },
+        }
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -300,19 +332,31 @@ pub struct RelationshipDoc {
     name: RelationshipName,
     origin: EndpointDoc,
     target: EndpointDoc,
+    /// A compound join's ordered keys. Absent means the single `origin`/`target` pair, which is the
+    /// shape every existing document has.
+    #[serde(default)]
+    keys: Option<Vec<JoinKeyDoc>>,
     join_type: JoinType,
 }
 
 impl RelationshipDoc {
-    pub fn into_domain(self) -> Relationship {
-        Relationship::new(
+    pub fn into_domain(self) -> Result<Relationship, InvalidJoinKeys> {
+        let keys = self.keys.map_or_else(
+            || {
+                JoinKeys::of(vec![JoinKey::Equal {
+                    origin: self.origin.column,
+                    target: self.target.column,
+                }])
+            },
+            |keys| JoinKeys::of(keys.into_iter().map(JoinKeyDoc::into_domain).collect()),
+        )?;
+        Ok(Relationship::new(
             self.name,
             self.origin.model,
-            self.origin.column,
             self.target.model,
-            self.target.column,
             self.join_type,
-        )
+            keys,
+        ))
     }
 }
 

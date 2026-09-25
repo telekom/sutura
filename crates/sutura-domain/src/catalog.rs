@@ -350,37 +350,39 @@ impl Model {
     }
 }
 
-/// A declared join between two models: two columns and a cardinality.
+/// A declared join between two models: an ordered, non-empty set of keys and a cardinality.
 ///
-/// A pair of columns rather than a condition string. The condition form is what the reference
-/// modelling languages use, and it is an escape hatch: `a.x = b.y OR 1 = 1` is a valid condition.
-/// Equality on one column each is the whole of what a model needs to say here.
+/// An ordered set of typed keys rather than a condition string. The condition form is what the
+/// reference modelling languages use, and it is an escape hatch: `a.x = b.y OR 1 = 1` is a valid
+/// condition, and a string can say that but nothing in the shape of it refuses it. A daily fact
+/// joined to a monthly snapshot needs `key = key AND month_of(day) = month` - two keys, the second
+/// truncated to a month - so a relationship declares as many [`JoinKey`]s as the join needs, in
+/// order, each a closed typed shape. Every target side of the whole set must be provably unique,
+/// or the relationship is refused: the fan-out check reasons over the set, because no single
+/// column of a compound key need identify a row on its own.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Relationship {
     name: RelationshipName,
     origin_model: ModelName,
-    origin_column: ColumnName,
     target_model: ModelName,
-    target_column: ColumnName,
     join_type: JoinType,
+    keys: JoinKeys,
 }
 
 impl Relationship {
     pub const fn new(
         name: RelationshipName,
         origin_model: ModelName,
-        origin_column: ColumnName,
         target_model: ModelName,
-        target_column: ColumnName,
         join_type: JoinType,
+        keys: JoinKeys,
     ) -> Self {
         Self {
             name,
             origin_model,
-            origin_column,
             target_model,
-            target_column,
             join_type,
+            keys,
         }
     }
 
@@ -395,23 +397,108 @@ impl Relationship {
     }
 
     #[inline]
-    pub const fn origin_column(&self) -> &ColumnName {
-        &self.origin_column
-    }
-
-    #[inline]
     pub const fn target_model(&self) -> &ModelName {
         &self.target_model
     }
 
     #[inline]
-    pub const fn target_column(&self) -> &ColumnName {
-        &self.target_column
-    }
-
-    #[inline]
     pub const fn join_type(&self) -> JoinType {
         self.join_type
+    }
+
+    /// The keys, in declared order, that together link one origin row to at most one target row.
+    #[inline]
+    pub const fn keys(&self) -> &JoinKeys {
+        &self.keys
+    }
+}
+
+/// One term of a compound join: how one pair of columns links, never a free condition.
+///
+/// [`Equal`](JoinKey::Equal) joins `origin = target`; [`TruncatedEqual`](JoinKey::TruncatedEqual)
+/// joins the origin truncated to a [`Grain`] against the target - `month_of(a.x) = b.y` - rendered
+/// through the same time-bucket code that buckets a question's time column. Both carry parsed
+/// names only: there is no condition string, no `OR` and no free expression, so a catalog cannot
+/// write `a.x = b.y OR 1 = 1`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub enum JoinKey {
+    /// The origin column equals the target column.
+    Equal { origin: ColumnName, target: ColumnName },
+    /// The origin column truncated to a grain equals the target column.
+    TruncatedEqual {
+        origin: ColumnName,
+        grain: Grain,
+        target: ColumnName,
+    },
+}
+
+impl JoinKey {
+    /// The origin column, truncated to its grain when this is [`JoinKey::TruncatedEqual`].
+    #[inline]
+    pub const fn origin(&self) -> &ColumnName {
+        match self {
+            Self::Equal { origin, .. } | Self::TruncatedEqual { origin, .. } => origin,
+        }
+    }
+
+    /// The target column the origin (or its truncation) is compared against.
+    #[inline]
+    pub const fn target(&self) -> &ColumnName {
+        match self {
+            Self::Equal { target, .. } | Self::TruncatedEqual { target, .. } => target,
+        }
+    }
+
+    /// The grain a [`JoinKey::TruncatedEqual`] truncates its origin to.
+    #[inline]
+    pub const fn grain(&self) -> Option<Grain> {
+        match self {
+            Self::Equal { .. } => None,
+            Self::TruncatedEqual { grain, .. } => Some(*grain),
+        }
+    }
+}
+
+/// The ordered, non-empty set of [`JoinKey`]s one relationship joins on.
+///
+/// **Non-empty by construction and ordered by construction.** [`JoinKeys::of`] refuses an empty
+/// list, and the private `Vec` keeps the order it was handed - the order the planner renders the
+/// `ON` terms in. No `Deref` or `Borrow`; [`as_slice`](JoinKeys::as_slice) is the only way to lend
+/// the keys, which also keeps this crate's no-indexing rule honest.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct JoinKeys(Vec<JoinKey>);
+
+/// Why a set of join keys cannot be a relationship's keys.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidJoinKeys {
+    #[error("a relationship must declare at least one join key")]
+    Empty,
+}
+
+impl JoinKeys {
+    /// A key set in the order given, refusing the empty set.
+    ///
+    /// One constructor rather than a constructor plus an `is_valid`: an empty key set cannot be
+    /// minted, so no downstream code re-checks it and no relationship can hold a join of nothing.
+    pub fn of(keys: Vec<JoinKey>) -> Result<Self, InvalidJoinKeys> {
+        if keys.is_empty() {
+            return Err(InvalidJoinKeys::Empty);
+        }
+        Ok(Self(keys))
+    }
+
+    /// A one-key set, which is never empty and so needs no refusal.
+    ///
+    /// The shape every adapter that reads a single-column source produces; a single key is always a
+    /// valid non-empty set, so this constructor is infallible where [`Self::of`] has to be a
+    /// `Result`.
+    pub fn single(key: JoinKey) -> Self {
+        Self(vec![key])
+    }
+
+    /// The keys, in declared order. The whole set - not any one of them - promises the target unique.
+    pub fn as_slice(&self) -> &[JoinKey] {
+        &self.0
     }
 }
 

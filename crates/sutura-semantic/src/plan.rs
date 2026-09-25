@@ -338,6 +338,12 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
     // answer. `InternalLabel` is a namespace a question cannot spell into; the dimension stays legal.
     let link_label = ResultLabel::internal(InternalLabel::Link);
 
+    // The combiner links the two legs on ONE column under ONE label. A single-key crossing
+    // relationship projects that one key on each side; a compound crossing one would need a label
+    // per key, which the lookup leg does not carry - so it is refused rather than guessed, the same
+    // answer `FederationLinkAmbiguous` gives for two relationships on one remote system.
+    let crossing_key = relationship.keys().as_slice().first().ok_or(PlanError::NoRemoteJoin)?;
+
     // The fact leg groups by its local dimension keys plus the join origin, so the lookup leg can be
     // joined to it above.
     let mut fact_keys: Vec<PlanKey> = Vec::new();
@@ -347,17 +353,21 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
             column_of(key, own_table),
         ));
     }
+    if relationship.keys().as_slice().len() != 1 {
+        return Err(PlanError::Refused(RefusalReason::FederationLinkAmbiguous {
+            source: remote_source.clone(),
+        }));
+    }
     fact_keys.push(PlanKey::new(
         link_label.clone(),
-        PlanColumn::new(own_table.clone(), relationship.origin_column().clone()),
+        PlanColumn::new(own_table.clone(), crossing_key.origin().clone()),
     ));
 
     // The lookup leg projects the join target plus the remote dimension keys.
-    let mut lookup_keys: Vec<PlanKey> = Vec::new();
-    lookup_keys.push(PlanKey::new(
+    let mut lookup_keys: Vec<PlanKey> = vec![PlanKey::new(
         link_label,
-        PlanColumn::new(remote_table.clone(), relationship.target_column().clone()),
-    ));
+        PlanColumn::new(remote_table.clone(), crossing_key.target().clone()),
+    )];
     for key in resolution.keys.iter().filter(|key| is_remote(key, model.source())) {
         lookup_keys.push(PlanKey::new(
             ResultLabel::dimension(key.dimension.name()),
@@ -596,7 +606,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     use sutura_domain::calendar::{Date, TimeRange};
-    use sutura_domain::catalog::{Audience, Description, Dimension, Metric, Model, Relationship, ViaChain};
+    use sutura_domain::catalog::{Audience, Description, Dimension, JoinKey, JoinKeys, Metric, Model, Relationship, ViaChain};
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{
         Aggregate, ColumnName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
@@ -630,10 +640,13 @@ mod tests {
         Relationship::new(
             RelationshipName::parse(name).expect("a test relationship is a relationship"),
             ModelName::parse(from.0).expect("a test model is a model"),
-            column(from.1),
             ModelName::parse(to.0).expect("a test model is a model"),
-            column(to.1),
             JoinType::ManyToOne,
+            JoinKeys::of(vec![JoinKey::Equal {
+                origin: column(from.1),
+                target: column(to.1),
+            }])
+            .expect("a test relationship declares one key"),
         )
     }
 
@@ -771,7 +784,10 @@ mod tests {
         let clauses: Vec<(String, String)> = planned
             .joins()
             .iter()
-            .map(|join| (join.origin().table().to_string(), join.target().table().to_string()))
+            .map(|join| {
+                let first = join.keys().first().expect("a hop declares at least one key");
+                (first.origin().table().to_string(), first.target().table().to_string())
+            })
             .collect();
         assert_eq!(
             clauses,

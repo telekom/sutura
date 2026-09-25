@@ -22,7 +22,7 @@
 use std::collections::BTreeSet;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Audience, Definitions, Description, Metric, Model, Relationship};
+use sutura_domain::catalog::{Audience, Definitions, Description, JoinKey, JoinKeys, Metric, Model, Relationship};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{
@@ -116,10 +116,13 @@ impl SemanticCatalog for TwoSourceCatalog {
         let joins = vec![Relationship::new(
             RelationshipName::parse("subscription_customer").expect("a name"),
             ModelName::parse("subscriptions").expect("a name"),
-            column("customer_key"),
             ModelName::parse("customers").expect("a name"),
-            column("customer_key"),
             JoinType::ManyToOne,
+            JoinKeys::of(vec![JoinKey::Equal {
+                origin: column("customer_key"),
+                target: column("customer_key"),
+            }])
+            .expect("a test relationship declares one key"),
         )];
         let recurring_revenue = Metric::new(
             MetricName::parse("recurring_revenue").expect("a name"),
@@ -227,10 +230,13 @@ impl SemanticCatalog for SameNameTablesCatalog {
         let joins = vec![Relationship::new(
             RelationshipName::parse("order_crm").expect("a name"),
             ModelName::parse("sales_orders").expect("a name"),
-            column("customer_id"),
             ModelName::parse("crm_orders").expect("a name"),
-            column("customer_id"),
             JoinType::ManyToOne,
+            JoinKeys::of(vec![JoinKey::Equal {
+                origin: column("customer_id"),
+                target: column("customer_id"),
+            }])
+            .expect("a test relationship declares one key"),
         )];
         let revenue = Metric::new(
             MetricName::parse("revenue").expect("a name"),
@@ -342,18 +348,24 @@ impl SemanticCatalog for FederatedSameNameTablesCatalog {
             Relationship::new(
                 RelationshipName::parse("order_crm").expect("a name"),
                 ModelName::parse("sales_orders").expect("a name"),
-                column("customer_id"),
                 ModelName::parse("crm_orders").expect("a name"),
-                column("customer_id"),
                 JoinType::ManyToOne,
+                JoinKeys::of(vec![JoinKey::Equal {
+                    origin: column("customer_id"),
+                    target: column("customer_id"),
+                }])
+                .expect("a test relationship declares one key"),
             ),
             Relationship::new(
                 RelationshipName::parse("order_geo").expect("a name"),
                 ModelName::parse("sales_orders").expect("a name"),
-                column("customer_id"),
                 ModelName::parse("geo").expect("a name"),
-                column("customer_id"),
                 JoinType::ManyToOne,
+                JoinKeys::of(vec![JoinKey::Equal {
+                    origin: column("customer_id"),
+                    target: column("customer_id"),
+                }])
+                .expect("a test relationship declares one key"),
             ),
         ];
         let revenue = Metric::new(

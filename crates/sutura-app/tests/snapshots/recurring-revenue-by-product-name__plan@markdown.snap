@@ -9,12 +9,14 @@ joins:
   - relationship: subscription_product
     table: dim_product
     join_type: many_to_one
-    origin:
-      table: fct_subscription_monthly
-      column: product_key
-    target:
-      table: dim_product
-      column: product_key
+    keys:
+      - Equal:
+          origin:
+            table: fct_subscription_monthly
+            column: product_key
+          target:
+            table: dim_product
+            column: product_key
 bucket:
   label: period
   grain: month
