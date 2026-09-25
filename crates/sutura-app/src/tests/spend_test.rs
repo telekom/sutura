@@ -18,7 +18,7 @@ use crate::tests_support::{FixedBroker, PricedWarehouse};
 fn a_configured_ceiling_refuses_when_the_dry_runs_own_price_exceeds_it() {
     let warehouses = Warehouses::of(PricedWarehouse::pricing(source(), shared(), certified(), Some(2_000)));
     let validated = verify_and_validate(bundle(), &warehouses).expect("the anchors hold");
-    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
     let ledger = SpendLedger::new(Some(SpendBudget::new(1_000, std::time::Duration::from_secs(60))));
     let outcome = crate::answer(
         &validated,
@@ -66,7 +66,7 @@ fn an_adapter_that_did_not_price_is_never_refused_for_spend() {
     // charging zero against any valid (non-zero) ceiling can never itself cause a refusal.
     let warehouses = Warehouses::of(PricedWarehouse::pricing(source(), shared(), certified(), None));
     let validated = verify_and_validate(bundle(), &warehouses).expect("the anchors hold");
-    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
     let ledger = SpendLedger::new(Some(SpendBudget::new(1, std::time::Duration::from_secs(60))));
     let outcome = crate::answer(
         &validated,
@@ -95,7 +95,7 @@ fn two_subjects_are_isolated_through_answer_not_only_in_the_ledger() {
     // a claim about `crate::answer`'s own wiring, held by nothing until now.
     let warehouses = Warehouses::of(PricedWarehouse::pricing(source(), shared(), certified(), Some(600)));
     let validated = verify_and_validate(bundle(), &warehouses).expect("the anchors hold");
-    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
     let ledger = SpendLedger::new(Some(SpendBudget::new(1_000, std::time::Duration::from_secs(60))));
     let subject_a = RequestContext::of(PrincipalChain::of(
         Subject::verified("one@example.com").expect("a test subject id parses"),
@@ -146,7 +146,7 @@ fn an_agent_acting_for_a_subject_spends_that_subjects_own_budget() {
     // that human's own next direct question is refused by what the agent already spent for them.
     let warehouses = Warehouses::of(PricedWarehouse::pricing(source(), shared(), certified(), Some(600)));
     let validated = verify_and_validate(bundle(), &warehouses).expect("the anchors hold");
-    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
     let ledger = SpendLedger::new(Some(SpendBudget::new(1_000, std::time::Duration::from_secs(60))));
     let subject = Subject::verified("one@example.com").expect("a test subject id parses");
     let acting_for_the_subject = RequestContext::of(

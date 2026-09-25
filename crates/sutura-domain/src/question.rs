@@ -20,25 +20,50 @@
 use crate::calendar::{Date, InvalidDate, InvalidTimeRange, TimeRange};
 use crate::catalog::DimensionValue;
 use crate::model::{DimensionName, Grain, InvalidIdentifier, MetricName};
-use crate::query::{Filter, InvalidTopN, Query, Top, TopBy, TopDirection, TopN};
+use crate::nonempty::NonEmpty;
+use crate::query::{Filter, InvalidTopN, MetricNames, Query, Top, TopBy, TopDirection, TopN};
 
-/// One filter, before parsing: a caller's raw dimension name and value, borrowed out of whichever
-/// wire struct a transport deserialized.
+/// One filter, before parsing: a caller's raw dimension name and operator, borrowed out of
+/// whichever wire struct a transport deserialized.
 ///
 /// Fields are private - a `pub` field on a `pub struct` fails `cargo xtask check-boundaries` in
-/// this crate - even though nothing here is validated yet: the two strings are exactly what a
-/// transport extracted, unchanged, and [`new`](Self::new) is the only way to pair them.
+/// this crate - even though nothing here is validated yet: the strings are exactly what a
+/// transport extracted, unchanged, and each constructor is the only way to build a variant.
+///
+/// Mirrors [`Filter`]'s own three shapes - `github.com/telekom/sutura#968` - so a transport that
+/// deserialized a tagged `op` field hands this module the same three shapes back, rather than one
+/// flat struct with fields that only make sense for some values of `op`.
 #[derive(Debug, Clone, Copy)]
-pub struct RawFilter<'a> {
-    dimension: &'a str,
-    value: &'a str,
+pub enum RawFilter<'a> {
+    Eq { dimension: &'a str, value: &'a str },
+    In { dimension: &'a str, values: &'a [String] },
+    NotIn { dimension: &'a str, values: &'a [String] },
 }
 
 impl<'a> RawFilter<'a> {
     /// Pairs a caller's raw dimension name and value, as a transport extracted them.
     #[inline]
-    pub const fn new(dimension: &'a str, value: &'a str) -> Self {
-        Self { dimension, value }
+    pub const fn eq(dimension: &'a str, value: &'a str) -> Self {
+        Self::Eq { dimension, value }
+    }
+
+    /// A membership filter, before parsing.
+    #[inline]
+    pub const fn in_set(dimension: &'a str, values: &'a [String]) -> Self {
+        Self::In { dimension, values }
+    }
+
+    /// An exclusion filter, before parsing.
+    #[inline]
+    pub const fn not_in_set(dimension: &'a str, values: &'a [String]) -> Self {
+        Self::NotIn { dimension, values }
+    }
+
+    #[inline]
+    const fn dimension(&self) -> &'a str {
+        match *self {
+            Self::Eq { dimension, .. } | Self::In { dimension, .. } | Self::NotIn { dimension, .. } => dimension,
+        }
     }
 }
 
@@ -86,11 +111,16 @@ impl<'a> RawTop<'a> {
 /// parser never carried.
 #[derive(Debug, thiserror::Error)]
 pub enum MalformedQuestion {
-    #[error("`metric` is not a metric name")]
+    #[error("`metrics[{index}]` is not a metric name")]
     Metric {
+        index: usize,
         #[source]
         cause: InvalidIdentifier,
     },
+    /// The list named nothing - `github.com/telekom/sutura#968`. Carries no field, for the same
+    /// reason [`Self::Grain`] does not: there is no offending entry to point at.
+    #[error("`metrics` must name at least one metric")]
+    Metrics,
     /// **Carries no field, and that is on purpose.** The accepted set is fixed and finite, so the
     /// sentence names all five instead of echoing back the one that did not match - the caller's
     /// text would otherwise sit in a `Debug` rendering unread by any transport, the shape
@@ -135,6 +165,16 @@ pub enum MalformedQuestion {
     /// earlier.
     #[error("`filters[{index}].value` is not a value this catalog could declare")]
     FilterValue { index: usize },
+    /// An `In`/`NotIn` filter named no values, or more than
+    /// [`crate::catalog::MAX_VALUES_PER_DIMENSION`] of them - `github.com/telekom/sutura#968`.
+    /// Carries only the filter's own index, for [`Self::FilterValue`]'s own reason: there is no
+    /// single offending value to point at, and the list itself is not caller text worth echoing.
+    /// The upper bound is checked BEFORE any value in the set is parsed - the same
+    /// order-of-checks argument `crate::catalog::DimensionValue`'s own length check makes: an
+    /// oversized list is bounded at the edge rather than allocated and then found impossible to
+    /// satisfy in full, since no dimension's own allowlist can hold more entries than this.
+    #[error("`filters[{index}].values` must name between 1 and {limit} value(s)")]
+    FilterValues { index: usize, limit: usize },
     #[error("`top.n` is not a positive row count")]
     TopN {
         #[source]
@@ -156,7 +196,7 @@ pub enum MalformedQuestion {
 /// `sutura_app::compile`'s job, against the pinned catalog this function never sees and cannot
 /// widen.
 pub fn parse_query(
-    metric: &str,
+    metrics: &[String],
     grain: &str,
     range_start: &str,
     range_end: &str,
@@ -164,7 +204,11 @@ pub fn parse_query(
     filters: &[RawFilter<'_>],
     top: Option<RawTop<'_>>,
 ) -> Result<Query, MalformedQuestion> {
-    let metric = MetricName::parse(metric).map_err(|cause| MalformedQuestion::Metric { cause })?;
+    let mut parsed_metrics = Vec::with_capacity(metrics.len());
+    for (index, raw) in metrics.iter().enumerate() {
+        parsed_metrics.push(MetricName::parse(raw).map_err(|cause| MalformedQuestion::Metric { index, cause })?);
+    }
+    let metrics: MetricNames = NonEmpty::parse(parsed_metrics).map_err(|_empty| MalformedQuestion::Metrics)?;
     let grain = grain_of(grain)?;
     let range = range_of(range_start, range_end)?;
     let mut parsed_dimensions = Vec::with_capacity(dimensions.len());
@@ -173,26 +217,61 @@ pub fn parse_query(
     }
     let mut parsed_filters = Vec::with_capacity(filters.len());
     for (index, raw) in filters.iter().enumerate() {
-        let dimension =
-            DimensionName::parse(raw.dimension).map_err(|cause| MalformedQuestion::FilterDimension { index, cause })?;
-        // The discard IS the control, so it is spelled out rather than lint-silenced by accident:
-        // `DimensionValue`'s own parse error carries the offending text because it exists for the
-        // author of a catalog, and this error becomes a transport error that reaches a log, a UI
-        // and an agent's context. `RefusalReason` is explicit that a caller's own text must not
-        // arrive there.
-        #[expect(
-            clippy::map_err_ignore,
-            reason = "the parse error carries the caller's own text, and a transport error must not \
-                      reflect it back - see MalformedQuestion::FilterValue"
-        )]
-        let value = DimensionValue::parse(raw.value).map_err(|_| MalformedQuestion::FilterValue { index })?;
-        parsed_filters.push(Filter::new(dimension, value));
+        parsed_filters.push(filter_of(index, raw)?);
     }
-    let query = Query::new(metric, grain, range, parsed_dimensions, parsed_filters);
+    let query = Query::new(metrics, grain, range, parsed_dimensions, parsed_filters);
     match top {
         None => Ok(query),
         Some(raw) => Ok(query.with_top(top_of(raw)?)),
     }
+}
+
+/// One filter, parsed - the dimension, then every value it carries against the same rule a
+/// catalog's own allowlist entries are held to.
+fn filter_of(index: usize, raw: &RawFilter<'_>) -> Result<Filter, MalformedQuestion> {
+    let dimension = DimensionName::parse(raw.dimension()).map_err(|cause| MalformedQuestion::FilterDimension { index, cause })?;
+    match *raw {
+        RawFilter::Eq { value, .. } => Ok(Filter::new(dimension, value_of(index, value)?)),
+        RawFilter::In { values, .. } => Ok(Filter::in_set(dimension, values_of(index, values)?)),
+        RawFilter::NotIn { values, .. } => Ok(Filter::not_in_set(dimension, values_of(index, values)?)),
+    }
+}
+
+/// One value, parsed against the same character rule and length a catalog author's allowlist entry
+/// is held to.
+///
+/// The discard IS the control, so it is spelled out rather than lint-silenced by accident:
+/// `DimensionValue`'s own parse error carries the offending text because it exists for the author
+/// of a catalog, and this error becomes a transport error that reaches a log, a UI and an agent's
+/// context. `RefusalReason` is explicit that a caller's own text must not arrive there.
+#[expect(
+    clippy::map_err_ignore,
+    reason = "the parse error carries the caller's own text, and a transport error must not \
+              reflect it back - see MalformedQuestion::FilterValue"
+)]
+fn value_of(index: usize, raw: &str) -> Result<DimensionValue, MalformedQuestion> {
+    DimensionValue::parse(raw).map_err(|_| MalformedQuestion::FilterValue { index })
+}
+
+/// Every value of an `In`/`NotIn` filter, parsed in order - `github.com/telekom/sutura#968`.
+///
+/// The size bound is checked first, before a single value is parsed: `raw.len()` is free to read
+/// and a list past the limit is refused without allocating or parsing anything proportional to it.
+fn values_of(index: usize, raw: &[String]) -> Result<NonEmpty<DimensionValue>, MalformedQuestion> {
+    if raw.len() > crate::catalog::MAX_VALUES_PER_DIMENSION {
+        return Err(MalformedQuestion::FilterValues {
+            index,
+            limit: crate::catalog::MAX_VALUES_PER_DIMENSION,
+        });
+    }
+    let mut parsed = Vec::with_capacity(raw.len());
+    for value in raw {
+        parsed.push(value_of(index, value)?);
+    }
+    NonEmpty::parse(parsed).map_err(|_empty| MalformedQuestion::FilterValues {
+        index,
+        limit: crate::catalog::MAX_VALUES_PER_DIMENSION,
+    })
 }
 
 fn top_of(raw: RawTop<'_>) -> Result<Top, MalformedQuestion> {
@@ -236,15 +315,19 @@ mod tests {
     use super::{MalformedQuestion, RawFilter, parse_query};
     use crate::model::{DimensionName, Grain, MetricName};
 
+    fn revenue() -> Vec<String> {
+        vec![String::from("revenue")]
+    }
+
     #[test]
     fn a_well_formed_question_becomes_a_query() {
         let query = parse_query(
-            "revenue",
+            &revenue(),
             "month",
             "2026-06-01",
             "2026-07-01",
             &[String::from("region")],
-            &[RawFilter::new("region", "north")],
+            &[RawFilter::eq("region", "north")],
             None,
         )
         .expect("a well formed question is a query");
@@ -258,8 +341,71 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_metrics_list_names_the_field() {
+        let error =
+            parse_query(&[], "month", "2026-06-01", "2026-07-01", &[], &[], None).expect_err("no metric is nothing to measure");
+        assert!(matches!(error, MalformedQuestion::Metrics), "{error:?}");
+    }
+
+    #[test]
+    fn several_metrics_all_reach_the_query() {
+        let metrics = vec![String::from("revenue"), String::from("margin")];
+        let query = parse_query(&metrics, "month", "2026-06-01", "2026-07-01", &[], &[], None).expect("two metrics is a set");
+        assert_eq!(query.metrics().len(), 2);
+    }
+
+    #[test]
+    fn an_in_filter_carries_every_value() {
+        let values = vec![String::from("north"), String::from("south")];
+        let query = parse_query(
+            &revenue(),
+            "month",
+            "2026-06-01",
+            "2026-07-01",
+            &[],
+            &[RawFilter::in_set("region", &values)],
+            None,
+        )
+        .expect("an in-set filter over allowlisted-shaped values parses");
+        assert_eq!(query.filters()[0].values().len(), 2);
+    }
+
+    #[test]
+    fn an_empty_in_set_names_the_filter() {
+        let error = parse_query(
+            &revenue(),
+            "month",
+            "2026-06-01",
+            "2026-07-01",
+            &[],
+            &[RawFilter::in_set("region", &[])],
+            None,
+        )
+        .expect_err("an in-set filter with no values names nothing to match");
+        assert!(matches!(error, MalformedQuestion::FilterValues { index: 0, .. }), "{error:?}");
+    }
+
+    #[test]
+    fn an_in_set_past_the_dimension_allowlist_ceiling_names_the_filter() {
+        let too_many: Vec<String> = (0..(crate::catalog::MAX_VALUES_PER_DIMENSION.saturating_add(1)))
+            .map(|n| format!("v{n}"))
+            .collect();
+        let error = parse_query(
+            &revenue(),
+            "month",
+            "2026-06-01",
+            "2026-07-01",
+            &[],
+            &[RawFilter::in_set("region", &too_many)],
+            None,
+        )
+        .expect_err("a set past the ceiling no allowlist could ever hold names nothing answerable");
+        assert!(matches!(error, MalformedQuestion::FilterValues { index: 0, .. }), "{error:?}");
+    }
+
+    #[test]
     fn an_unknown_grain_names_the_field_and_the_accepted_set() {
-        let error = parse_query("revenue", "fortnight", "2026-06-01", "2026-07-01", &[], &[], None)
+        let error = parse_query(&revenue(), "fortnight", "2026-06-01", "2026-07-01", &[], &[], None)
             .expect_err("`fortnight` is not a grain");
         assert!(matches!(error, MalformedQuestion::Grain), "{error:?}");
         assert!(error.to_string().contains("quarter"), "{error}");
@@ -267,7 +413,7 @@ mod tests {
 
     #[test]
     fn a_malformed_date_names_which_end_of_the_range() {
-        let error = parse_query("revenue", "month", "nope", "2026-07-01", &[], &[], None).expect_err("`nope` is not a date");
+        let error = parse_query(&revenue(), "month", "nope", "2026-07-01", &[], &[], None).expect_err("`nope` is not a date");
         let MalformedQuestion::Date { field, .. } = error else {
             panic!("{error:?} is not a Date error");
         };
@@ -276,7 +422,7 @@ mod tests {
 
     #[test]
     fn a_reversed_range_is_refused_rather_than_reordered() {
-        let error = parse_query("revenue", "month", "2026-07-01", "2026-06-01", &[], &[], None)
+        let error = parse_query(&revenue(), "month", "2026-07-01", "2026-06-01", &[], &[], None)
             .expect_err("an end before its start is not a period");
         assert!(matches!(error, MalformedQuestion::Range { .. }), "{error:?}");
     }
@@ -284,12 +430,12 @@ mod tests {
     #[test]
     fn a_filter_value_this_catalog_could_not_declare_names_no_caller_text() {
         let error = parse_query(
-            "revenue",
+            &revenue(),
             "month",
             "2026-06-01",
             "2026-07-01",
             &[],
-            &[RawFilter::new("region", "line one\nline two")],
+            &[RawFilter::eq("region", "line one\nline two")],
             None,
         )
         .expect_err("a multi-line value is not one this catalog could declare");
@@ -300,7 +446,7 @@ mod tests {
     #[test]
     fn a_well_formed_top_attaches_to_the_query() {
         let query = parse_query(
-            "revenue",
+            &revenue(),
             "month",
             "2026-06-01",
             "2026-07-01",
@@ -316,7 +462,7 @@ mod tests {
     #[test]
     fn a_zero_top_n_names_the_field() {
         let error = parse_query(
-            "revenue",
+            &revenue(),
             "month",
             "2026-06-01",
             "2026-07-01",
@@ -331,7 +477,7 @@ mod tests {
     #[test]
     fn an_unknown_top_by_names_the_accepted_set() {
         let error = parse_query(
-            "revenue",
+            &revenue(),
             "month",
             "2026-06-01",
             "2026-07-01",
@@ -346,7 +492,7 @@ mod tests {
     #[test]
     fn an_unknown_top_direction_names_the_accepted_set() {
         let error = parse_query(
-            "revenue",
+            &revenue(),
             "month",
             "2026-06-01",
             "2026-07-01",

@@ -1,4 +1,4 @@
-metric: customer_lifetime_value
+metrics: [customer_lifetime_value]
 grain: month
 range:
   start: 2026-06-01

@@ -26,6 +26,11 @@ pub(super) fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::MetricUnknown {
             metric: metric_name("revenue"),
         },
+        RefusalReason::MetricsSpanDifferentModels {
+            first: metric_name("revenue"),
+            other: metric_name("margin"),
+        },
+        RefusalReason::MultiMetricNotExecutable { requested: 2 },
         RefusalReason::GrainNotSupported {
             metric: metric_name("revenue"),
             grain: Grain::Year,
@@ -129,6 +134,8 @@ fn guide_key_carries_every_variant() {
         // ONE arm, an or-pattern: a new `RefusalReason` variant fails to compile here until named.
         match &reason {
             RefusalReason::MetricUnknown { .. }
+            | RefusalReason::MetricsSpanDifferentModels { .. }
+            | RefusalReason::MultiMetricNotExecutable { .. }
             | RefusalReason::GrainNotSupported { .. }
             | RefusalReason::DimensionNotPermitted { .. }
             | RefusalReason::DimensionNotFilterable { .. }

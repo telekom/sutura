@@ -1,0 +1,9 @@
+metrics: [recurring_revenue]
+grain: month
+range:
+  start: 2026-06-01
+  end: 2026-07-01
+filters:
+  - op: in
+    dimension: region
+    values: [north, offshore]

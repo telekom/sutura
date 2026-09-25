@@ -73,7 +73,7 @@ where
 
     // No dimensions and no filters: an anchor is the metric's own number, not a slice of it. No
     // `top` either, so the compiled default row ceiling is exact rather than a stand-in.
-    let question = Query::new(metric.clone(), grain, anchor.range(), Vec::new(), Vec::new());
+    let question = Query::single(metric.clone(), grain, anchor.range(), Vec::new(), Vec::new());
     let compiled = match compile(&question, &ScopedView::everything(pinned), RowCeiling::DEFAULT) {
         Ok(compiled) => compiled,
         Err(cause) => {

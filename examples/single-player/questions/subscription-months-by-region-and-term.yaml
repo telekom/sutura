@@ -1,4 +1,4 @@
-metric: subscription_months_billed
+metrics: [subscription_months_billed]
 grain: month
 range:
   start: 2026-01-01

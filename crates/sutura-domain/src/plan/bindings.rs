@@ -128,7 +128,10 @@ impl PlanBindings {
     pub fn parse(filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> Result<Self, IncoherentBindings> {
         let mut placeholder: usize = 0;
         for filter in &filters {
-            if let Some(index) = filter.predicate().param() {
+            // One index for a comparing predicate, one per value for `In`/`NotIn`, none for
+            // `IsTrue`/`IsNotNull` - `bound_params` is the one place that walks all eight variants,
+            // so a predicate shape added there is checked here without a second match to update.
+            for index in filter.predicate().bound_params() {
                 if index >= params.len() {
                     return Err(IncoherentBindings::OutOfRange {
                         index,

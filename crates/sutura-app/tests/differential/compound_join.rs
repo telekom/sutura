@@ -203,7 +203,7 @@ fn warehouse() -> sutura_exec_duckdb::DuckDbWarehouse {
 
 fn question() -> Query {
     serde_norway::from_str(
-        "metric: voice_minutes_fixture\ngrain: month\nrange: { start: 2026-06-01, end: 2026-07-01 }\n\
+        "metrics: [voice_minutes_fixture]\ngrain: month\nrange: { start: 2026-06-01, end: 2026-07-01 }\n\
          dimensions: [product_family]\n",
     )
     .expect("the fixture question is a question")

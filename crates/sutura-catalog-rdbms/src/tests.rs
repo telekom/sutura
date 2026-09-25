@@ -59,7 +59,7 @@ fn foreign_key(
 fn question_about(metric: &str) -> Query {
     let start = Date::parse("2026-06-01").expect("the start is a date");
     let end = Date::parse("2026-07-01").expect("the end is a date");
-    Query::new(
+    Query::single(
         MetricName::parse(metric).expect("a metric name is a name"),
         Grain::Month,
         TimeRange::new(start, end).expect("the range is a range"),

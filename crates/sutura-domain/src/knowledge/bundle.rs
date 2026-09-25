@@ -267,6 +267,15 @@ pub enum InconsistentKnowledge {
     },
     #[error("example {name} asks about metric {metric}, which is not defined")]
     ExampleUnknownMetric { name: NoteName, metric: MetricName },
+    /// The example's question names more than one metric. `github.com/telekom/sutura#968` lets a
+    /// question NAME a set, but every such question is refused at plan time
+    /// (`RefusalReason::MultiMetricNotExecutable`) - loading it anyway would check only
+    /// `crate::query::Query::metric`'s first name (this module reads the compiler's own numbers,
+    /// not the compiler, and has no second-metric check to run) and then render it under
+    /// `EXAMPLES_INTRO`'s promise that a worked question is "one this deployment answers", which is
+    /// false for every one of these.
+    #[error("example {name} names {requested} metrics, and this deployment executes only one at a time")]
+    ExampleNamesMultipleMetrics { name: NoteName, requested: usize },
     #[error("example {name} asks metric {metric} at the {grain} grain, which it does not declare")]
     ExampleGrainNotSupported {
         name: NoteName,
@@ -771,6 +780,12 @@ impl Knowledge {
     fn check_question(definitions: &Definitions, note: &Example) -> Result<(), InconsistentKnowledge> {
         let question = note.question();
         let name = note.name().clone();
+        if question.metrics().len() > 1 {
+            return Err(InconsistentKnowledge::ExampleNamesMultipleMetrics {
+                name,
+                requested: question.metrics().len(),
+            });
+        }
         let metric_name = question.metric().clone();
         let Some(metric) = definitions.metric(&metric_name) else {
             return Err(InconsistentKnowledge::ExampleUnknownMetric {
@@ -812,16 +827,17 @@ impl Knowledge {
             }
         }
         for filter in question.filters() {
-            let permitted = metric
-                .dimension(filter.dimension())
-                .is_some_and(|declared| declared.permits(filter.value()));
-            if !permitted {
-                return Err(InconsistentKnowledge::ExampleValueNotAllowed {
-                    name,
-                    metric: metric_name,
-                    dimension: filter.dimension().clone(),
-                    value: filter.value().clone(),
-                });
+            let declared = metric.dimension(filter.dimension());
+            for value in filter.values() {
+                let permitted = declared.is_some_and(|declared| declared.permits(value));
+                if !permitted {
+                    return Err(InconsistentKnowledge::ExampleValueNotAllowed {
+                        name,
+                        metric: metric_name,
+                        dimension: filter.dimension().clone(),
+                        value: value.clone(),
+                    });
+                }
             }
         }
         Ok(())

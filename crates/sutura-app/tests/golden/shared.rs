@@ -116,6 +116,13 @@ pub(crate) const PROVOKED: &[(&str, &str)] = &[
     ("refused-dimension-not-permitted", "DimensionNotPermitted"),
     ("refused-dimension-not-filterable", "DimensionNotFilterable"),
     ("refused-value-not-allowed", "DimensionValueNotAllowed"),
+    // An unlisted value inside an `In` set - `github.com/telekom/sutura#968`. Same variant as the
+    // `Eq` case above, reached once per value rather than once - see `sutura_semantic::resolve`.
+    ("refused-value-not-allowed-in-set", "DimensionValueNotAllowed"),
+    ("refused-metrics-span-different-models", "MetricsSpanDifferentModels"),
+    // Every constraint the multi-metric set can be checked for holds; this build does not yet
+    // decompose more than one metric into one statement - `github.com/telekom/sutura#968`.
+    ("refused-multi-metric-not-executable", "MultiMetricNotExecutable"),
     ("refused-duplicate-dimension", "DuplicateDimension"),
     ("refused-too-many-dimensions", "TooManyDimensions"),
     ("refused-range-too-long", "TimeRangeTooLong"),

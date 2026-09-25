@@ -719,7 +719,7 @@ mod tests {
         let pinned = authored_bundle(metric(), source());
         verify_and_validate(pinned.clone(), &Warehouses::of(AuthoredWarehouse::new(source(), shared())))
             .expect("the declaring fake passes startup because this bundle has no anchors");
-        let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+        let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
         let error = sutura_semantic::compile(
             &question,
             &ScopedView::everything(&pinned),
