@@ -22,6 +22,27 @@ client and no `sutura-config` - joins no existing prefix's rules and starts in n
 construction; `sutura-sql` is the precedent for a shared, adapter-facing library with its own prefix,
 and this is the same shape one size smaller.
 
+**`sutura-http-client` is the same shape one layer up, and it is NOT licensed by the paragraph
+above - state that explicitly rather than reusing the sentence.** It exists so
+`sutura-catalog-datahub` and `sutura-catalog-openmetadata` (both "metadata providers", the SAME
+`xtask/src/boundaries/adapters.rs` class) can share their `Endpoint` parser, `ReadBounds`/`Budget`,
+TLS-rotating `ureq::Agent` construction and loopback test fakes without one becoming the other's
+library - `github.com/telekom/sutura#970`'s review measured the two crates' own copies
+byte-for-byte identical (`cargo xtask check-jscpd`). Unlike `sutura-tls`, it carries `ureq` -
+a network client - which is exactly what the `sutura-tls` paragraph's "no crypto provider, no
+network client" clause excludes. Joining no `adapters::CLASSES` entry means [`adapter_classes`]
+cannot see an edge FROM this crate either, the identical gap `github.com/telekom/sutura#929` found
+for `sutura-app` and closed with a THIRD boundary shape (one named crate against a class, neither a
+`FORBIDDEN_EDGES` denylist row nor an intra-class comparison) - `xtask/src/boundaries/application.rs`.
+`xtask/src/boundaries/shared_client.rs` is the identical mechanism for this crate:
+`sutura-http-client`'s own normal tree may never reach `sutura-exec-*`, `sutura-catalog-*`,
+`sutura-app` or `sutura-config`, walked with `Edges::Normal` so a differential dev-dependency
+comparing this crate against a reader's own behaviour stays exempt, the same reasoning
+`application.rs`'s header gives. **The general rule this makes explicit:** an unprefixed crate
+avoids `check-boundaries` by construction only for the read `sutura-tls` performs; a network client
+shared between two adapters of the same class needs its OWN named-crate-against-a-class row, not a
+reused sentence.
+
 Rules that are not visible from a manifest:
 
 - **`sutura-domain`'s dependency list is an allowlist walked over the whole resolve graph**, so a

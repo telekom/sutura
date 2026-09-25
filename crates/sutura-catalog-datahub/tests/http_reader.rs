@@ -10,11 +10,13 @@
 //! only a test one. What stays HERE is this crate's own test-local scaffolding (a token, a source
 //! name, the reader constructor, the cause-downcast helper) and every `#[test]`.
 //!
-//! `#[cfg(all(test, feature = "http"))]` on the whole file for two reasons: the `http` feature gates
-//! the reader itself, and wrapping the body in `#[cfg(test)] mod tests` is what lets
+//! `#[cfg(all(test, feature = "http", feature = "fake"))]` on the whole file for three
+//! reasons: the `http` feature gates the reader itself, `fake` gates the loopback fake
+//! this suite builds against (issue #970's review moved it out of `http` so a shipped binary
+//! never carries it), and wrapping the body in `#[cfg(test)] mod tests` is what lets
 //! `allow-expect-in-tests`/`allow-panic-in-tests` apply here - the same shape
 //! `tests/provisioned.rs`'s own header explains.
-#![cfg(all(test, feature = "http"))]
+#![cfg(all(test, feature = "http", feature = "fake"))]
 
 #[cfg(test)]
 mod tests {

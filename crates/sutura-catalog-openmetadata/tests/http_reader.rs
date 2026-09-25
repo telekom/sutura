@@ -10,11 +10,13 @@
 //! concern and not only a test one. What stays HERE is this crate's own test-local scaffolding (a
 //! token, a source name, the snapshot-output helpers) and every `#[test]`.
 //!
-//! `#[cfg(all(test, feature = "http"))]` on the whole file for two reasons: the `http` feature gates
-//! the reader itself, and wrapping the body in `#[cfg(test)] mod tests` is what lets
+//! `#[cfg(all(test, feature = "http", feature = "fake"))]` on the whole file for three
+//! reasons: the `http` feature gates the reader itself, `fake` gates the loopback fake
+//! this suite builds against (issue #970's review moved it out of `http` so a shipped binary never
+//! carries it), and wrapping the body in `#[cfg(test)] mod tests` is what lets
 //! `allow-expect-in-tests`/`allow-panic-in-tests` apply here - the same shape `sutura-catalog-datahub`'s
 //! `tests/http_reader.rs` explains.
-#![cfg(all(test, feature = "http"))]
+#![cfg(all(test, feature = "http", feature = "fake"))]
 
 #[cfg(test)]
 mod tests {
@@ -243,6 +245,30 @@ mod tests {
         );
     }
 
+    /// **A page carrying a non-empty `after` cursor is refused even when `total` matches exactly
+    /// what it returned** - the `after` arm of `page_signals_more` fires independently of the
+    /// `total` arm, so a surface that answers a short page's `total` correctly but still carries a
+    /// cursor is not read as complete.
+    ///
+    /// RED/GREEN mutation: delete `page_signals_more`'s `after`-cursor check on its own (leaving the
+    /// `total` check standing) - this page's `total` already equals what it returned, so only the
+    /// `after` arm can catch it, and this assertion goes red without it.
+    #[test]
+    fn a_page_carrying_only_an_after_cursor_is_refused() {
+        let mut page = tables_page();
+        page["paging"]["after"] = serde_json::json!("page-2");
+        let server = FakeServer::start(vec![Scripted::ok(&page)]);
+        let error = reader(&server, 10, GENEROUS_CAP)
+            .read()
+            .expect_err("an after cursor with no more total is still refused");
+        drop(server.finish());
+        assert!(
+            matches!(http_cause(&error), HttpReaderError::MorePages { entity: "tables" }),
+            "expected MorePages{{entity: \"tables\"}}, got: {}",
+            http_cause(&error)
+        );
+    }
+
     /// **A page that signals more results than the one page this reader reads is refused, not
     /// silently truncated.** A `paging.total` above what it returned (or an `after` cursor) is a
     /// page that has more to it, and this reader reads one page.
@@ -267,29 +293,32 @@ mod tests {
         );
     }
 
-    /// **A foreign key missing a referenced table is refused BY NAME, not read as a dangling join.**
+    /// **A foreign key whose `referredColumns` entry cannot be split into a table and a column is
+    /// refused BY NAME, not read as a dangling join.** `referredColumns` carries a fully qualified
+    /// name (`service.schema.table.column`); a bare column name with no `.` has no table to derive.
     ///
-    /// RED/GREEN mutation: replace the `.ok_or(UnexpectedShape { field: "...referencedTable.name" })?`
-    /// in `harvest_relationship` with `.unwrap_or_default()` - a foreign key with no referenced
-    /// table would decode into a relationship with an empty target, and this assertion goes red.
+    /// RED/GREEN mutation: replace `split_fqn_tail`'s `.ok_or(UnexpectedShape { field:
+    /// "tableConstraints[].referredColumns[0]" })?` in `harvest_relationship` with
+    /// `.unwrap_or_default()` - an unparseable referred column would decode into a relationship
+    /// with an empty target, and this assertion goes red.
     #[test]
-    fn a_relationship_with_no_referenced_table_is_refused() {
+    fn a_relationship_whose_referred_column_has_no_table_is_refused() {
         let mut page = tables_page();
-        page["data"][0]["foreignKeys"][0]["referencedTable"] = serde_json::json!({});
+        page["data"][0]["tableConstraints"][0]["referredColumns"] = serde_json::json!(["customer_id"]);
         let server = FakeServer::start(vec![Scripted::ok(&page)]);
         let error = reader(&server, 10, GENEROUS_CAP)
             .read()
-            .expect_err("a foreign key with no referenced table is refused");
+            .expect_err("a referred column with no table segment is refused");
         drop(server.finish());
         assert!(
             matches!(
                 http_cause(&error),
                 HttpReaderError::UnexpectedShape {
                     entity: "tables",
-                    field: "foreignKeys[].referencedTable.name"
+                    field: "tableConstraints[].referredColumns[0]"
                 }
             ),
-            "expected UnexpectedShape{{entity: \"tables\", field: \"foreignKeys[].referencedTable.name\"}}, got: {}",
+            "expected UnexpectedShape{{entity: \"tables\", field: \"tableConstraints[].referredColumns[0]\"}}, got: {}",
             http_cause(&error)
         );
     }
@@ -300,7 +329,7 @@ mod tests {
     #[test]
     fn a_relationship_with_more_than_one_column_per_side_is_refused() {
         let mut page = tables_page();
-        page["data"][0]["foreignKeys"][0]["columns"] = serde_json::json!(["a", "b"]);
+        page["data"][0]["tableConstraints"][0]["columns"] = serde_json::json!(["a", "b"]);
         let server = FakeServer::start(vec![Scripted::ok(&page)]);
         let error = reader(&server, 10, GENEROUS_CAP)
             .read()

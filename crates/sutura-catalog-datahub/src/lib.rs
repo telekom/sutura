@@ -90,7 +90,7 @@ pub mod document;
 pub mod fixture;
 #[cfg(feature = "http")]
 pub mod http;
-#[cfg(feature = "http")]
+#[cfg(feature = "fake")]
 pub mod test_support;
 
 use std::collections::BTreeMap;

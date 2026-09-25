@@ -13,10 +13,16 @@ description = "A SemanticCatalog adapter over an OpenMetadata deployment - the r
 # an outbound TLS stack, and no published binary links one it did not ask for -
 # `.agents/skills/sutura/crate-map/SKILL.md`'s "Why a networked adapter hides behind a default-off
 # feature". `dep:ureq` rather than a plain feature name, so the optional dependency below has no
-# feature of its own a caller could enable without meaning to. `sutura-http-client/test`
-# rides along - its own `pub` loopback fake, the same "dead code in a shipped --features http
-# binary" trade `sutura-catalog-datahub` already made.
-http = ["dep:ureq", "dep:sutura-tls", "dep:sutura-http-client", "sutura-http-client/test"]
+# feature of its own a caller could enable without meaning to.
+http = ["dep:ureq", "dep:sutura-tls", "dep:sutura-http-client"]
+# The loopback fake (`sutura_http_client::test_support`, re-exported as `crate::test_support`) a
+# reader's own tests AND `sutura-cli`'s served-binary suite need - kept OUT of `http` on purpose
+# (issue #970's review), unlike the trade `sutura-catalog-datahub`'s first cut made: a release
+# build asks for `--features openmetadata` only, never this one, so the fake never reaches a
+# shipped binary at all rather than riding along as dead code in it. `sutura-cli`'s own
+# `[dev-dependencies]` is the only place this is enabled outside this crate's own `--all-features`
+# test run.
+fake = ["sutura-http-client/test"]
 
 [dependencies]
 sutura-domain = { workspace = true }

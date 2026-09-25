@@ -58,7 +58,7 @@ pub mod document;
 pub mod fixture;
 #[cfg(feature = "http")]
 pub mod http;
-#[cfg(feature = "http")]
+#[cfg(feature = "fake")]
 pub mod test_support;
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{

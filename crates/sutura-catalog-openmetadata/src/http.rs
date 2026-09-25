@@ -6,17 +6,21 @@
 //!
 //! # What is measured, and what is NOT
 //!
-//! **The `Table` and `Metric` wire shapes are read from `docs/what-openmetadata-can-carry.md`'s
-//! field-by-field table**, which was itself read out of the published `Table`/`Metric` entity
-//! schemas against this repository's `SemanticCatalog` port - not against a provisioned instance
-//! (the nix sandbox has no network; the finding states that as an open live check). So the mapping
-//! functions here are a **first claim** this crate has made about `OpenMetadata`'s served envelope,
-//! the same way `sutura-catalog-datahub`'s `dataset` mapping was before its provisioned tier
-//! measured it. Each mapping refuses an unexpected shape as a typed
-//! [`HttpReaderError::UnexpectedShape`] naming the entity and the field, rather than reading past a
-//! missing or mistyped key with a default - a guess that happened to be wrong would otherwise
-//! certify a bundle silently missing a model, a join or a metric. **Do not cite this reader as proof
-//! the `OpenMetadata` half works against a real instance until an acceptance leg measures it.**
+//! **The `Table` and `Metric` wire shapes are read against the published JSON Schema**
+//! (`open-metadata/OpenMetadata`'s `openmetadata-spec`, `table.json`/`metric.json` on `main`) and
+//! the `TableResource`/`MetricResource` Java sources for which fields the list endpoint returns
+//! unconditionally versus only behind `?fields=` - not against a provisioned instance (the nix
+//! sandbox has no network; this is a schema read, not a live one). `docs/what-openmetadata-can-carry.md`
+//! was corrected against the same schema read (its `foreignKeys`/`referencedTable` shape was a
+//! first-draft invention no real deployment serves; `harvest_relationship` below reads
+//! `tableConstraints` instead). So the mapping functions here are a **first claim** this crate has
+//! made about `OpenMetadata`'s served envelope, the same way `sutura-catalog-datahub`'s `dataset`
+//! mapping was before its provisioned tier measured it. Each mapping refuses an unexpected shape as
+//! a typed [`HttpReaderError::UnexpectedShape`] naming the entity and the field, rather than
+//! reading past a missing or mistyped key with a default - a guess that happened to be wrong would
+//! otherwise certify a bundle silently missing a model, a join or a metric. **Do not cite this
+//! reader as proof the `OpenMetadata` half works against a real instance until an acceptance leg
+//! measures it - the schema read is not that leg.**
 //!
 //! # What every read is bounded by
 //!
@@ -27,6 +31,13 @@
 //! makes up to two requests (tables, then metrics) and shares ONE deadline across them - opened
 //! once, and what is left after the first is what the second gets - the same shape
 //! `sutura_domain::warehouse::deadline::Deadline` and `sutura-catalog-datahub`'s own reader hold.
+//! **The aggregate byte cost of one `read()` is bounded by construction, not by a third check**:
+//! two requests at `cap` each is at most `2×cap` read into memory before either response is
+//! checked, and `fetch`'s own `ureq` backstop (`limit(2×cap)` per request, ahead of the precise
+//! `len > cap` refusal) makes the true per-request ceiling `2×cap` rather than `cap` - so a single
+//! `read()` never holds more than `4×cap` at once across both in-flight bodies. Stated here rather
+//! than measured, because nothing enforces a THIRD, aggregate ceiling; a future third request would
+//! raise this number and this sentence would have to move with it.
 //!
 //! # Auth
 //!
@@ -209,7 +220,13 @@ impl HttpSnapshotReader {
 
     /// Requests one entity kind's page, checked as far as *the service answered and it fits the
     /// cap*. Everything past that - the envelope, the entities inside it - is the caller's job.
-    fn fetch(&self, budget: Budget, entity: &'static str) -> Result<Value, HttpReaderError> {
+    ///
+    /// `fields` is the list endpoint's own `?fields=` query parameter - `TableResource.FIELDS`
+    /// (`openmetadata-service`'s Java source, measured against `main`) shows `columns` and
+    /// `tableConstraints` are relationship-backed and populated only when named there; an empty
+    /// slice omits the parameter entirely, for entity kinds (`metrics`) whose fields this reader
+    /// needs are always returned.
+    fn fetch(&self, budget: Budget, entity: &'static str, fields: &[&str]) -> Result<Value, HttpReaderError> {
         let left = budget.remaining().ok_or(HttpReaderError::DeadlineSpent {
             entity,
             budget_seconds: self.bounds.timeout().as_secs(),
@@ -217,7 +234,12 @@ impl HttpSnapshotReader {
         // A generous, fixed count rather than a configured one: raising it does not change the
         // shape of the read, only how large a deployment can be before `MorePages` fires - and a
         // deployment past this needs a different reader (real paging), not a bigger number here.
-        let url = format!("{}/api/v1/{entity}?limit=1000", self.endpoint.as_str());
+        let fields_param = if fields.is_empty() {
+            String::new()
+        } else {
+            format!("&fields={}", fields.join(","))
+        };
+        let url = format!("{}/api/v1/{entity}?limit=1000{fields_param}", self.endpoint.as_str());
         let mut response = self
             .agent
             .current()
@@ -290,7 +312,7 @@ impl HttpSnapshotReader {
     /// same entities' constraints.
     fn read_tables(&self, budget: Budget) -> TablesRead {
         const ENTITY: &str = "tables";
-        let page = self.fetch(budget, ENTITY)?;
+        let page = self.fetch(budget, ENTITY, &["columns", "tableConstraints"])?;
         let entities = Self::entities(&page, ENTITY)?;
         if Self::page_signals_more(&page, entities.len()) {
             return Err(HttpReaderError::MorePages { entity: ENTITY });
@@ -319,7 +341,10 @@ impl HttpSnapshotReader {
     /// free-text binding is reported-not-defined by the crate's declaration.
     fn read_metrics(&self, budget: Budget) -> Result<Vec<crate::document::Metric>, HttpReaderError> {
         const ENTITY: &str = "metrics";
-        let page = self.fetch(budget, ENTITY)?;
+        // `MetricResource.FIELDS` (measured against `main`) lists neither `metricType`,
+        // `granularity`, `metricExpression` nor `measures` - these are core fields the resource
+        // always returns, so unlike `tables` this list needs no `?fields=`.
+        let page = self.fetch(budget, ENTITY, &[])?;
         let entities = Self::entities(&page, ENTITY)?;
         if Self::page_signals_more(&page, entities.len()) {
             return Err(HttpReaderError::MorePages { entity: ENTITY });
@@ -335,8 +360,8 @@ impl SnapshotReader for HttpSnapshotReader {
         let budget = Budget::opened(self.bounds.timeout());
         let snapshot = (|| -> Result<Snapshot, HttpReaderError> {
             let (tables, table_relationships) = self.read_tables(budget)?;
-            // Relationships are nested on the table entities themselves (`tableConstraints` /
-            // `foreignKeys`), so the table read supplies both the models and the joins - the crate's
+            // Relationships are nested on the table entities themselves (`tableConstraints`), so
+            // the table read supplies both the models and the joins - the crate's
             // own `Snapshot` keys them by name, so duplicates collapse and a later constraint
             // overwrites an earlier same-named one the same way deserialization of a JSON map would.
             let mut relationships = std::collections::BTreeMap::new();
@@ -432,8 +457,8 @@ fn harvest_table(entity: &Value) -> Result<crate::document::Table, HttpReaderErr
         .map_err(|cause| HttpReaderError::NotTheCanonicalShape { entity: ENTITY, cause })
 }
 
-/// All declared relationships a `table` entity carries, out of its `foreignKeys` and its
-/// `tableConstraints` (a `FOREIGN_KEY` constraint carries the same structural shape).
+/// All declared relationships a `table` entity carries, out of its `tableConstraints`' own
+/// `FOREIGN_KEY` entries.
 ///
 /// One `(name, StructuralRelationship)` join, named because the pair recurs across this module's
 /// harvest functions and is over `clippy::type_complexity`'s threshold spelled out in full.
@@ -448,22 +473,28 @@ type TablesRead = Result<(Vec<crate::document::Table>, HarvestedRelationships), 
 /// map, so a later same-named constraint overwrites an earlier one the way JSON map deserialization
 /// would.
 ///
-/// `origin_model` is the enclosing table's model name: `OpenMetadata` nests a foreign key ON the
-/// table that owns it, so the join's origin is that table and the target is the table it references.
+/// **The published wire shape has no `foreignKeys` array and no per-constraint `name`.**
+/// `TableConstraint` (`table.json`, measured against `open-metadata/OpenMetadata@main`) is exactly
+/// `{constraintType, columns, referredColumns, relationshipType}` with `additionalProperties:
+/// false` - this crate's first draft invented a `foreignKeys` array carrying `name` and a nested
+/// `referencedTable.name`, which no real deployment ever serves; fixed here to read
+/// `tableConstraints` only.
+///
+/// `origin_model` is the enclosing table's model name: a foreign key constraint is nested ON the
+/// table that owns it, so the join's origin is that table and the target is the table
+/// `referredColumns` names.
 fn harvest_relationships(
     entity: &Value,
     origin_model: &str,
     entity_kind: &'static str,
 ) -> Result<HarvestedRelationships, HttpReaderError> {
+    let Some(list) = entity.get("tableConstraints").and_then(Value::as_array) else {
+        return Ok(Vec::new());
+    };
     let mut out = Vec::new();
-    for list_name in ["tableConstraints", "foreignKeys"] {
-        let Some(list) = entity.get(list_name).and_then(Value::as_array) else {
-            continue;
-        };
-        for element in list {
-            if let Some(relationship) = harvest_relationship(element, origin_model, entity_kind)? {
-                out.push(relationship);
-            }
+    for element in list {
+        if let Some(relationship) = harvest_relationship(element, origin_model, entity_kind)? {
+            out.push(relationship);
         }
     }
     Ok(out)
@@ -478,37 +509,29 @@ fn harvest_relationship(
 ) -> Result<Option<HarvestedRelationship>, HttpReaderError> {
     // A non-foreign table constraint (a `PRIMARY_KEY`/`UNIQUE` uniqueness constraint) declares no
     // join between two tables, so it contributes nothing. Only a `FOREIGN_KEY` constraint combines
-    // two endpoints.
-    let constraint = element.get("constraintType").and_then(Value::as_str);
-    if constraint.is_some_and(|kind| kind != "FOREIGN_KEY") {
+    // two endpoints; a constraint carrying no `constraintType` at all names none either.
+    if element.get("constraintType").and_then(Value::as_str) != Some("FOREIGN_KEY") {
         return Ok(None);
     }
-    let name = element
-        .get("name")
-        .and_then(Value::as_str)
-        .ok_or(HttpReaderError::UnexpectedShape {
-            entity,
-            field: "foreignKeys[].name",
-        })?
-        .to_owned();
     // Cardinality, named when present. `MANY_TO_MANY` is carried (the crate's conversion refuses it)
     // and an absent one is carried as silent - both faithful, matching `RelationshipType`'s closed
     // `Deserialize` and the finding's "declares when present, silent when not".
     let relationship_type = element.get("relationshipType").and_then(Value::as_str).map(str::to_owned);
-    // The origin is the enclosing table's own column set; the target is the referenced table. The
-    // crate's own shape carries one column per side, so a side declaring more than one is refused
-    // by name rather than narrowed.
+    // The origin is the enclosing table's own column set. The crate's own shape carries one column
+    // per side, so a side declaring more than one is refused by name rather than narrowed.
     let origin_column = one_referenced(element, "columns", entity)?;
-    let target_model = element
-        .get("referencedTable")
-        .and_then(|referenced| referenced.get("name"))
-        .and_then(Value::as_str)
-        .ok_or(HttpReaderError::UnexpectedShape {
-            entity,
-            field: "foreignKeys[].referencedTable.name",
-        })?
-        .to_owned();
-    let target_column = one_referenced(element, "referencedColumns", entity)?;
+    // `referredColumns` carries a fully qualified column name (`service.schema.table.column`,
+    // possibly quoted where a segment holds its own `.`), never a bare column name and never a
+    // separate `referencedTable` field - there is no such field on the wire. The target table and
+    // column are its last two unquoted segments.
+    let referred = one_referenced(element, "referredColumns", entity)?;
+    let (target_model, target_column) = split_fqn_tail(&referred).ok_or(HttpReaderError::UnexpectedShape {
+        entity,
+        field: "tableConstraints[].referredColumns[0]",
+    })?;
+    // No per-constraint `name` exists on the wire, so this crate synthesises a stable one from the
+    // join it describes.
+    let name = format!("{origin_model}_{origin_column}_fk");
     let mut document = serde_json::Map::new();
     drop(document.insert(String::from("origin_model"), Value::String(origin_model.to_owned())));
     drop(document.insert(String::from("origin_column"), Value::String(origin_column)));
@@ -522,7 +545,7 @@ fn harvest_relationship(
     Ok(Some((name, relationship)))
 }
 
-/// A single-column array field, refused when it holds anything but exactly one column - the same
+/// A single-element array field, refused when it holds anything but exactly one entry - the same
 /// "one column per side" rule `sutura-catalog-datahub`'s `one_column` holds.
 fn one_referenced(element: &Value, field: &'static str, entity: &'static str) -> Result<String, HttpReaderError> {
     element
@@ -533,6 +556,30 @@ fn one_referenced(element: &Value, field: &'static str, entity: &'static str) ->
         .and_then(Value::as_str)
         .map(str::to_owned)
         .ok_or(HttpReaderError::UnexpectedShape { entity, field })
+}
+
+/// Splits a fully qualified name (`service.schema.table.column`) into its last two segments - the
+/// table and the column `referredColumns` names - respecting `OpenMetadata`'s own quoting: a
+/// segment containing a literal `.` is wrapped in double quotes there, so a dot inside a quoted
+/// span is never a separator. `None` when fewer than two segments are present.
+fn split_fqn_tail(fqn: &str) -> Option<(String, String)> {
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    for ch in fqn.chars() {
+        match ch {
+            '"' => quoted = !quoted,
+            '.' if !quoted => segments.push(core::mem::take(&mut current)),
+            other => current.push(other),
+        }
+    }
+    segments.push(current);
+    if segments.len() < 2 {
+        return None;
+    }
+    let column = segments.pop()?;
+    let table = segments.pop()?;
+    Some((table, column))
 }
 
 /// One `metric` entity into this crate's own [`crate::document::Metric`] shape.

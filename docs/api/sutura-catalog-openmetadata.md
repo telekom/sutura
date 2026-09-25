@@ -472,17 +472,21 @@ build that does not ask for this reader links no outbound TLS stack.
 
 # What is measured, and what is NOT
 
-**The `Table` and `Metric` wire shapes are read from `docs/what-openmetadata-can-carry.md`'s
-field-by-field table**, which was itself read out of the published `Table`/`Metric` entity
-schemas against this repository's `SemanticCatalog` port - not against a provisioned instance
-(the nix sandbox has no network; the finding states that as an open live check). So the mapping
-functions here are a **first claim** this crate has made about `OpenMetadata`'s served envelope,
-the same way `sutura-catalog-datahub`'s `dataset` mapping was before its provisioned tier
-measured it. Each mapping refuses an unexpected shape as a typed
-`HttpReaderError::UnexpectedShape` naming the entity and the field, rather than reading past a
-missing or mistyped key with a default - a guess that happened to be wrong would otherwise
-certify a bundle silently missing a model, a join or a metric. **Do not cite this reader as proof
-the `OpenMetadata` half works against a real instance until an acceptance leg measures it.**
+**The `Table` and `Metric` wire shapes are read against the published JSON Schema**
+(`open-metadata/OpenMetadata`'s `openmetadata-spec`, `table.json`/`metric.json` on `main`) and
+the `TableResource`/`MetricResource` Java sources for which fields the list endpoint returns
+unconditionally versus only behind `?fields=` - not against a provisioned instance (the nix
+sandbox has no network; this is a schema read, not a live one). `docs/what-openmetadata-can-carry.md`
+was corrected against the same schema read (its `foreignKeys`/`referencedTable` shape was a
+first-draft invention no real deployment serves; `harvest_relationship` below reads
+`tableConstraints` instead). So the mapping functions here are a **first claim** this crate has
+made about `OpenMetadata`'s served envelope, the same way `sutura-catalog-datahub`'s `dataset`
+mapping was before its provisioned tier measured it. Each mapping refuses an unexpected shape as
+a typed `HttpReaderError::UnexpectedShape` naming the entity and the field, rather than
+reading past a missing or mistyped key with a default - a guess that happened to be wrong would
+otherwise certify a bundle silently missing a model, a join or a metric. **Do not cite this
+reader as proof the `OpenMetadata` half works against a real instance until an acceptance leg
+measures it - the schema read is not that leg.**
 
 # What every read is bounded by
 
@@ -493,6 +497,13 @@ function per optional key, not a value baked into this type. `read`
 makes up to two requests (tables, then metrics) and shares ONE deadline across them - opened
 once, and what is left after the first is what the second gets - the same shape
 `sutura_domain::warehouse::deadline::Deadline` and `sutura-catalog-datahub`'s own reader hold.
+**The aggregate byte cost of one `read()` is bounded by construction, not by a third check**:
+two requests at `cap` each is at most `2×cap` read into memory before either response is
+checked, and `fetch`'s own `ureq` backstop (`limit(2×cap)` per request, ahead of the precise
+`len > cap` refusal) makes the true per-request ceiling `2×cap` rather than `cap` - so a single
+`read()` never holds more than `4×cap` at once across both in-flight bodies. Stated here rather
+than measured, because nothing enforces a THIRD, aggregate ceiling; a future third request would
+raise this number and this sentence would have to move with it.
 
 # Auth
 

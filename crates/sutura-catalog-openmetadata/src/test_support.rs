@@ -51,12 +51,11 @@ pub fn tables_page() -> serde_json::Value {
                     {"name": "order_date", "dataType": "DATE"},
                     {"name": "status", "dataType": "STRING"},
                 ],
-                "foreignKeys": [
+                "tableConstraints": [
                     {
-                        "name": "orders_to_customer",
+                        "constraintType": "FOREIGN_KEY",
                         "columns": ["customer_id"],
-                        "referencedColumns": ["customer_id"],
-                        "referencedTable": {"name": "customers"},
+                        "referredColumns": ["warehouse.sales.customers.customer_id"],
                         "relationshipType": "ONE_TO_MANY",
                     }
                 ],
