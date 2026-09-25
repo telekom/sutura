@@ -1895,9 +1895,10 @@ root's exhaustive match with no wildcard arm; a METADATA source has exactly the 
 until this type existed the settings tree carried a directory and a version and no word an
 operator could write to say <em>read the model from somewhere else</em> - so a second catalog kind
 could merge complete and silently remain unreachable from any binary.</p>
-<p>Two variants today. <code>Self::Datahub</code> says which and why, the way <code>SourceKind::BigQuery</code> does for
+<p>Five variants. <code>Self::Datahub</code> says which and why, the way <code>SourceKind::BigQuery</code> does for
 data systems: the vocabulary is the vocabulary of adapters this repository has, and an adapter
-that exists in a record rather than in a linked crate is still a word an operator might write.</p>
+that exists in a record rather than in a linked crate is still a word an operator might write.
+<code>#970</code> added the three declaring adapters that had a crate and no composition root.</p>
 <h2 id="use-catalogsettings"><code>use CatalogSettings</code><a class="headerlink" href="#use-catalogsettings" title="Permanent link">&para;</a></h2>
 <p>Where the definitions and the data are, and what the resulting bundle is called.</p>
 <p>Each catalog carries a declared NAME, the way a <code>sources:</code> entry carries an alias: the
@@ -2772,9 +2773,10 @@ root's exhaustive match with no wildcard arm; a METADATA source has exactly the 
 until this type existed the settings tree carried a directory and a version and no word an
 operator could write to say <em>read the model from somewhere else</em> - so a second catalog kind
 could merge complete and silently remain unreachable from any binary.</p>
-<p>Two variants today. <code>Self::Datahub</code> says which and why, the way <code>SourceKind::BigQuery</code> does for
+<p>Five variants. <code>Self::Datahub</code> says which and why, the way <code>SourceKind::BigQuery</code> does for
 data systems: the vocabulary is the vocabulary of adapters this repository has, and an adapter
-that exists in a record rather than in a linked crate is still a word an operator might write.</p>
+that exists in a record rather than in a linked crate is still a word an operator might write.
+<code>#970</code> added the three declaring adapters that had a crate and no composition root.</p>
 <h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Markdown</code> - A directory of markdown documents with YAML frontmatter, read by <code>sutura-catalog-local</code>.</li>
@@ -2783,11 +2785,24 @@ that exists in a record rather than in a linked crate is still a word an operato
   linked by <code>sutura serve</code> and is what <code>sutura query</code>/<code>sutura mcp</code> put behind its directory
   argument.
 - <code>Datahub</code> - A metadata service, read through the adapter <code>docs/adr/0016</code> specifies and #114 builds.</p>
-<p><strong>A declarable kind that no binary this repository ships can open yet, and that is
-  deliberate.</strong> The vocabulary of kinds is the vocabulary of adapters <em>this repository has</em>
-  in its records, and the composition root refuses this kind by name for exactly the reason
-  <code>SourceKind::BigQuery</code> is refused: an operator who writes the word must be told the truth
-  (the adapter is not linked) rather than sent looking for a typo.</p>
+<p><strong>Openable behind <code>sutura-cli</code>'s default-off <code>datahub</code> feature; a build without it refuses
+  this kind by name</strong>, for exactly the reason <code>SourceKind::BigQuery</code> is refused: an operator
+  who writes the word must be told the truth (the adapter is not linked) rather than sent
+  looking for a typo.
+- <code>Okf</code> - A directory of OKF Frictionless Table Schema descriptors, read by <code>sutura-catalog-okf</code>.</p>
+<p>The narrowest of the three declaring adapters <code>#970</code> names, and the only one whose reader
+  needs no service: one YAML document per table, on disk, like <code>Self::Markdown</code>.
+  <code>sutura-catalog-okf</code> is an unconditional dependency of <code>sutura serve</code>, so this kind is
+  openable by every build of this binary.
+- <code>Openmetadata</code> - An <code>OpenMetadata</code> deployment, decided by <code>sutura-catalog-openmetadata</code> over its own <code>SnapshotReader</code> port.</p>
+<p><strong>A declarable kind no binary this repository ships can open yet, and that is deliberate.</strong>
+  The crate decides a whole metric against a fake reader; a reader over a real deployment is
+  the follow-up <code>#152</code> names, so the composition root refuses this kind by name until one
+  exists rather than opening the recorded fixture against a real deployment's name.
+- <code>Rdbms</code> - An RDBMS dictionary, decided by <code>sutura-catalog-rdbms</code> over a <code>DictionaryReader</code> port.</p>
+<p><strong>A declarable kind no binary this repository ships can open yet, for the identical reason
+  <code>Self::Openmetadata</code> states.</strong> The crate decides the conversion against a recorded
+  dictionary; a reader over a real socket lands with <code>#972</code>.</p>
 <h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>

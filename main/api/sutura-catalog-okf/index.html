@@ -2069,8 +2069,22 @@ sends a reader to read all of them.</p>
 <li><code>UncheckableKnowledge</code></li>
 <li><code>Empty</code></li>
 <li><code>TooManyDocuments</code></li>
-<li><code>Digest</code></li>
+<li><code>TooLarge</code> - The read of this document would push the running total over <code>MAX_CATALOG_BYTES</code>.</li>
 </ul>
+<p><code>path</code> is the catalog root, matching <code>TooManyDocuments</code> and <code>Empty</code> above - the rendered
+  text names "the catalog", so the path in it has to be the catalog's, not one file's.
+  <code>document</code> is the one whose bytes pushed the running total past <code>limit</code>. <code>found</code> is that
+  running total. The bound is enforced on the read itself (<code>OkfCatalog::read_all</code> and
+  <code>read_document</code>): the refusing total comes from the handle's own <code>metadata()</code> before the
+  read, or from what the capped read actually delivered if a file grew in between.
+- <code>NotARegularFile</code> - The document the walk named is not a regular file when it comes to be read.</p>
+<p>The walk skips links and non-files; this refuses a document that became a non-regular file
+  after the walk. It is the handle actually about to be read, refused before any bytes are:
+  a document swapped for a device (or a symlink to one) after the walk would otherwise be a
+  zero-length file that reads forever. It does not refuse a symlink to a REGULAR file -
+  <code>std::fs::File::open</code> follows that, and such a document is read (bounded) - and a
+  swapped FIFO blocks its open rather than reaching this refusal.
+- <code>Digest</code></p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 

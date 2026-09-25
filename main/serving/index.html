@@ -3691,17 +3691,17 @@ selects which file is layered, so a file that could change it would be self-refe
 <tr>
 <td><code>catalogs[].kind</code></td>
 <td><code>markdown</code></td>
-<td>Which adapter opens this catalog. <code>markdown</code> or <code>datahub</code>; a build without <code>--features datahub</code> refuses the latter by name, naming the feature. <strong>A deployment declares catalogs of ONE kind</strong> - a <code>markdown</code> and a <code>datahub</code> entry together are refused, not merged; see <code>docs/adr/0016</code></td>
+<td>Which adapter opens this catalog. <code>markdown</code>, <code>datahub</code>, <code>okf</code>, <code>openmetadata</code> or <code>rdbms</code>. <code>datahub</code> opens behind its default-off <code>--features datahub</code>; a build without the feature refuses the kind by name, naming it. <code>okf</code> opens on EVERY build (<code>sutura-catalog-okf</code> is an unconditional dependency of the binary). <code>openmetadata</code>/<code>rdbms</code> are declarable and refused by name on every build (no reader over a real deployment yet - see the follow-up to <code>github.com/telekom/sutura#152</code> and <code>#972</code>). <strong>A deployment declares catalogs of ONE kind</strong> - a <code>markdown</code> and a <code>datahub</code> entry together are refused, not merged; see <code>docs/adr/0016</code></td>
 </tr>
 <tr>
 <td><code>catalogs[].dir</code></td>
 <td><code>catalog</code></td>
-<td><code>markdown</code> only for its meaning; <strong>required non-empty for every kind, including <code>datahub</code></strong>, which does not read it - a stated limit of the settings surface rather than a per-kind field. At most 1,000 documents / 16 MiB of documents in total; more is a startup refusal naming the bound; raising it is a source change, not a setting</td>
+<td><code>markdown</code>/<code>okf</code> only for its meaning; <strong>required non-empty for every kind, including <code>datahub</code></strong>, which does not read it - a stated limit of the settings surface rather than a per-kind field. For <code>markdown</code>/<code>okf</code>, at most 1,000 documents / 16 MiB of documents in total; more is a startup refusal naming the bound; raising it is a source change, not a setting</td>
 </tr>
 <tr>
 <td><code>catalogs[].data_dir</code></td>
 <td><code>data</code></td>
-<td><code>markdown</code> only for its meaning; <strong>printed by the startup banner and read by nothing that opens a data system</strong> even for a <code>markdown</code> catalog - a served source's files come from its own <code>sources.&lt;alias&gt;.data_dir</code>, and the <code>sutura</code> command reads that same entry or else the directory on its command line. Required non-empty for <code>datahub</code> too, unread, the same stated limit as <code>dir</code> above</td>
+<td><code>markdown</code> only for its meaning; <strong>printed by the startup banner and read by nothing that opens a data system</strong> even for a <code>markdown</code> catalog - a served source's files come from its own <code>sources.&lt;alias&gt;.data_dir</code>, and the <code>sutura</code> command reads that same entry or else the directory on its command line. Required non-empty for <code>datahub</code> and <code>okf</code> too, unread by both, the same stated limit as <code>dir</code> above</td>
 </tr>
 <tr>
 <td><code>catalogs[].version</code></td>
