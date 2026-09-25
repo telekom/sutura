@@ -47,6 +47,9 @@ jobs:
   smoke-test:
     runs-on: rust-mcp-16core
     timeout-minutes: 30
+    # #1013: a freshly assigned runner's daemon can stay silent past 10s; a wedge still fails, never skips.
+    env:
+      SUTURA_DOCKER_PROBE_TIMEOUT_SECS: "60"
     permissions:
       contents: read
     steps:

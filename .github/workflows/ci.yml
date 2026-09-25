@@ -1630,6 +1630,9 @@ jobs:
     permissions:
       contents: read
     environment: bq-test
+    # #1013: a freshly assigned runner's daemon can stay silent past 10s; a wedge still fails, never skips.
+    env:
+      SUTURA_DOCKER_PROBE_TIMEOUT_SECS: "60"
     concurrency:
       group: e2e-datahub-adbc-${{ vars.SUTURA_BQ_DATASET }}
       queue: max
