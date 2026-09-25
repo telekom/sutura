@@ -274,7 +274,11 @@ impersonation it has no way to perform.
 - **What of this record is scheduled, and what is not** - and the data half is now past scheduling:
   `feat/source-registry` landed, so the per-source mode and its boot check exist rather than being
   queued. `docs/implementation-plan.md` carries
-  `feat/conformance-packs` for the declaration that selects packs, and that row is still open. The
+  `feat/conformance-packs` for the declaration that selects packs, and that row is still open.
+  **Corrected, 2026-09-25:** the declaration itself landed - `docs/implementation-plan.md`'s row 11
+  reads "partly built", naming `crates/sutura-conformance` and `cargo xtask
+  check-conformance-bindings` as built; what remains open there is `#116`'s corpus-case-as-file
+  question, not the declaration this record is about. The
   metadata half - a second metadata connector, the assembler over several of them, and the contribution
   manifest the digest section decides - is in **no branch in that stack**, and the plan's own thesis
   table says so: the connectors are decided and not built. That matters for two claims in this record

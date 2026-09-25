@@ -115,6 +115,9 @@ use report::{AllowEntry, Entry, POLICY_FILE, Report, offenders, parse_policy, re
 ///
 /// WHAT THAT MISSES, stated plainly: every dialect renderer, the resolver, the planner, the
 /// catalog loader and both adapters. This gate covers the invariant core and nothing else.
+///
+/// A nested test-helper file used to score as uncovered production code; `.cargo-crap.toml`'s
+/// `exclude` now covers the whole `tests/` subtree, not just `tests.rs` itself.
 pub(crate) const SCOPE: &[&str] = &["sutura-domain"];
 
 /// Where the two tool versions are pinned. One file, imported by flake.nix and devenv.nix.
