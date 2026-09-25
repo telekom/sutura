@@ -4391,6 +4391,7 @@ dependencies = [
  "serde_json",
  "sutura-dev",
  "sutura-domain",
+ "sutura-exec-datafusion",
  "sutura-semantic",
  "sutura-sql",
  "thiserror 2.0.20",

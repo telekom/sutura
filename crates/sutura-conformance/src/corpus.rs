@@ -28,7 +28,9 @@
 //!
 //! - **The three cases `docs/adr/0012` names** - a filter on a remote dimension over an orphan key,
 //!   a ratio whose denominator is zero for one subgroup, and a `CountDistinct` spanning two join
-//!   keys. Each needs a second table and a federated plan; none is here.
+//!   keys. [`federated_cases`] holds one federated plan, a plain sum over a second table, and none
+//!   of the three. It is a value in this module, not a file: the `.case` loader reads no federated
+//!   plan.
 //!
 //! # Null placement in a group key: decided, and what the null row does and does NOT detect
 //!
@@ -101,21 +103,27 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use sutura_domain::calendar::{Date, TimeRange};
+use sutura_domain::federation::Federation;
 use sutura_domain::identity::Presented;
-use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
+use sutura_domain::measure::{AggregatedColumn, Measure, Term};
+use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, QualifiedTable, SourceName, TableName};
 use sutura_domain::plan::{
-    LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin,
-    QueryPlan, ResultLabel, StatementTables,
+    AnswerKey, FederatedPlan, InternalLabel, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey,
+    PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
 };
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
-use sutura_domain::warehouse::{ParamValue, RowSet};
+use sutura_domain::warehouse::{ParamValue, RowSet, Value};
 
 /// The data system name every plan in this corpus resolves to.
 const SOURCE: &str = "conformance";
 
 /// The one table every case reads.
 pub const TABLE: &str = "conformance_events";
+
+/// The second source a federated case's lookup leg reads, and its one table.
+const LOOKUP_SOURCE: &str = "conformance_lookup";
+const LOOKUP_TABLE: &str = "conformance_regions";
 
 /// One question, and the answer to it.
 ///
@@ -289,17 +297,38 @@ pub const fn csv() -> &'static str {
 /// file. Those processes write identical bytes - which is the claim the old path could not make.
 #[must_use]
 pub fn on_disk() -> PathBuf {
-    static WRITTEN: LazyLock<PathBuf> = LazyLock::new(materialise);
+    static WRITTEN: LazyLock<PathBuf> = LazyLock::new(|| materialise(TABLE, csv()));
     WRITTEN.clone()
 }
 
-/// Writes the corpus where an adapter can attach it.
-fn materialise() -> PathBuf {
+/// The federated lookup table on a filesystem, written as [`on_disk`] writes the corpus.
+#[must_use]
+pub fn lookup_on_disk() -> PathBuf {
+    static WRITTEN: LazyLock<PathBuf> =
+        LazyLock::new(|| materialise(LOOKUP_TABLE, include_str!("../corpus/conformance_regions.csv")));
+    WRITTEN.clone()
+}
+
+/// The source a federated case's lookup leg resolves to - never [`source`], because
+/// `FederatedPlan::new` refuses two legs on one source.
+#[must_use]
+pub fn lookup_source() -> SourceName {
+    SourceName::parse(LOOKUP_SOURCE).expect("the lookup source name is a name")
+}
+
+/// The table a federated case's lookup leg reads.
+#[must_use]
+pub fn lookup_table() -> TableName {
+    TableName::parse(LOOKUP_TABLE).expect("the lookup table name is a name")
+}
+
+/// Writes `bytes` as `<table>.csv` where an adapter can attach it.
+fn materialise(table: &str, bytes: &str) -> PathBuf {
     let dir = state_dir().join(PURPOSE);
     std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("could not create {}: {e}", dir.display()));
-    let staged = dir.join(format!("{TABLE}.{}.csv", std::process::id()));
-    let final_path = dir.join(format!("{TABLE}.csv"));
-    std::fs::write(&staged, csv()).unwrap_or_else(|e| panic!("could not write {}: {e}", staged.display()));
+    let staged = dir.join(format!("{table}.{}.csv", std::process::id()));
+    let final_path = dir.join(format!("{table}.csv"));
+    std::fs::write(&staged, bytes).unwrap_or_else(|e| panic!("could not write {}: {e}", staged.display()));
     std::fs::rename(&staged, &final_path).unwrap_or_else(|e| panic!("could not rename onto {}: {e}", final_path.display()));
     final_path
 }
@@ -451,6 +480,115 @@ fn range_bindings() -> PlanBindings {
     ];
     PlanBindings::parse(filters, vec![ParamValue::Date(day(1)), ParamValue::Date(day(3))])
         .expect("the corpus range binds its two bounds in placeholder order")
+}
+
+/// One question over two sources, and the answer to it.
+///
+/// Separate from [`Case`] because the executable is a [`FederatedPlan`] - two legs and the combine
+/// above them - rather than one [`QueryPlan`].
+#[derive(Debug)]
+pub struct FederatedCase {
+    name: &'static str,
+    plan: FederatedPlan,
+    expected: RowSet,
+}
+
+impl FederatedCase {
+    #[inline]
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    #[inline]
+    pub const fn plan(&self) -> &FederatedPlan {
+        &self.plan
+    }
+
+    #[inline]
+    pub const fn expected(&self) -> &RowSet {
+        &self.expected
+    }
+}
+
+/// Every federated question in the corpus: one, hand-built.
+///
+/// `total-by-region-and-day`'s sum, with the region's display name read off a lookup table on a
+/// second source. The null region has no lookup row and survives the join because the plan
+/// includes unmatched fact rows.
+#[must_use]
+pub fn federated_cases() -> Vec<FederatedCase> {
+    let region = DimensionName::parse("region").expect("a corpus dimension is a dimension");
+    let lookup_table = QualifiedTable::parse(LOOKUP_TABLE).expect("the lookup table is a table");
+    let lookup_column = |name: &str| {
+        PlanColumn::new(
+            lookup_table.name().clone(),
+            ColumnName::parse(name).expect("a lookup column name is a name"),
+        )
+    };
+    let link = ResultLabel::internal(InternalLabel::Link);
+    let fact = LegPlan::Fact {
+        source: source(),
+        metric: metric("amount_total"),
+        tables: StatementTables::only(table()),
+        bucket: bucket(),
+        keys: vec![PlanKey::new(link.clone(), column("region"))],
+        terms: vec![LegTerm::new(
+            PlanTerm::Aggregate {
+                aggregate: Aggregate::Sum,
+                column: column("amount_cents"),
+            },
+            ResultLabel::internal(InternalLabel::Leaf(0)),
+        )],
+        bindings: range_bindings(),
+        range: range(),
+    };
+    let lookup = LegPlan::Lookup {
+        source: lookup_source(),
+        keys: vec![
+            PlanKey::new(link, lookup_column("region")),
+            PlanKey::new(ResultLabel::dimension(&region), lookup_column("region_name")),
+        ],
+        table: lookup_table,
+        bindings: PlanBindings::none(),
+    };
+    let measure = Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+        Aggregate::Sum,
+        ColumnName::parse("amount_cents").expect("a corpus column name is a name"),
+    )));
+    let plan = FederatedPlan::new(
+        metric("amount_total"),
+        ResultLabel::measure(&metric("amount_total")),
+        bucket(),
+        fact,
+        lookup,
+        true,
+        Federation::of(&measure),
+        vec![AnswerKey::lookup(ResultLabel::dimension(&region))],
+    )
+    .expect("the hand-built federated plan is a plan");
+    let row = |name: Option<&str>, of_january: u8, cents: i64| {
+        vec![
+            name.map_or(Value::Null, |n| Value::Text(String::from(n))),
+            Value::Text(day(of_january).to_iso()),
+            Value::Integer(cents),
+        ]
+    };
+    let expected = RowSet::new(
+        vec![String::from("region"), String::from("period"), String::from("amount_total")],
+        vec![
+            row(Some("Eastern"), 1, 350),
+            row(Some("Eastern"), 2, 150),
+            row(Some("Northern"), 1, 400),
+            row(Some("Northern"), 2, 1300),
+            row(None, 1, 50),
+        ],
+    )
+    .expect("the expected rows are well-formed");
+    vec![FederatedCase {
+        name: "total-by-region-name-and-day-over-two-sources",
+        plan,
+        expected,
+    }]
 }
 
 #[cfg(test)]

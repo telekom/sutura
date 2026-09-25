@@ -53,8 +53,8 @@
 //!   never called, so *held to the same test bodies* is a statement about two methods and not about
 //!   `Warehouse`. Three of those five carry guarantees of their own in
 //!   `.agents/skills/sutura/invariants`, held by other mechanisms.
-//! - **That the corpus is exhaustive.** It is eight questions over one table; [`corpus`] names the
-//!   federated cases that still belong to another suite.
+//! - **That the corpus is exhaustive.** It is eight questions over one table and one over two
+//!   sources; [`corpus`] names the federated cases that still belong to another suite.
 //! - **That every adapter is held IS held now, and not by anything in this crate.** A pack is bound
 //!   where an adapter's own crate binds it, so which adapters conform used to be a reading of which
 //!   crates carry a `tests/conformance.rs` - deleting one left `just validate` green.
@@ -848,6 +848,39 @@ macro_rules! execute_packs {
                 $crate::declared_here().as_deref(),
                 $open,
             );
+        }
+    };
+
+    // Two warehouses and a combiner, told apart from the arms above by their keywords. One
+    // behaviour, content, over `corpus::federated_cases`; both warehouses must execute legs, since a
+    // federated answer is two legs.
+    (
+        adapter: $name:ident,
+        fact_warehouse: $fact:ty,
+        lookup_warehouse: $lookup:ty,
+        open_fact: $open_fact:path,
+        open_lookup: $open_lookup:path,
+        combiner: $combiner:path $(,)?
+    ) => {
+        // `#[cfg(test)]`, for the reason the first arm gives.
+        #[cfg(test)]
+        mod $name {
+            const _: () = assert!(
+                <$fact as $crate::sutura_domain::warehouse::Warehouse>::EXECUTES_LEGS
+                    && <$lookup as $crate::sutura_domain::warehouse::Warehouse>::EXECUTES_LEGS,
+                "both warehouses of a federated binding must declare `EXECUTES_LEGS`"
+            );
+
+            #[test]
+            fn the_combined_rows_are_the_reference_rows() {
+                $crate::conduct(
+                    stringify!($name),
+                    $crate::Behaviour::Content,
+                    $crate::declared_here().as_deref(),
+                    || $crate::Fixture::federated($open_fact(), $open_lookup(), $combiner),
+                    $crate::execute::federated_content_agrees,
+                );
+            }
         }
     };
 }
