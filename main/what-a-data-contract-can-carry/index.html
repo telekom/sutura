@@ -6,17 +6,17 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+        <meta name="description" content="A research spike in the method of ADR 0016, measured against the SemanticCatalog port - the Open Data Contract Standard (ODCS, the Bitol project, version 3) carries a contract's tables and columns with type, description, nullability, primary-key and a free-text classification, and an SLA block, but no metric or semantic-role entity at all, so an adapter over it is a declaring source that provides the physical model and descriptions, may-provide a foreign key with single-column target-uniqueness evidence as a non-duplicating join, reports-not-defines the quality rules, the SLA and the classification, and declares the metric, the grain and the anchor absent.">
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/what-openmetadata-can-carry/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/what-a-data-contract-can-carry/">
       
       
-        <link rel="prev" href="../what-okf-can-carry/">
+        <link rel="prev" href="../what-openmetadata-can-carry/">
       
       
-        <link rel="next" href="../what-a-data-contract-can-carry/">
+        <link rel="next" href="../changelog/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>What an OpenMetadata catalog can carry - sutura</title>
+        <title>What an Open Data Contract Standard catalog can carry, and the measure it cannot - sutura</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#what-an-openmetadata-catalog-can-carry" class="md-skip">
+        <a href="#what-an-open-data-contract-standard-catalog-can-carry" class="md-skip">
           Skip to content
         </a>
       
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              What an OpenMetadata catalog can carry
+              What an Open Data Contract Standard catalog can carry, and the measure it cannot
             
           </span>
         </div>
@@ -763,6 +763,34 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../what-openmetadata-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What an OpenMetadata catalog can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -782,7 +810,7 @@
   <span class="md-ellipsis">
     
   
-    What an OpenMetadata catalog can carry
+    What an Open Data Contract Standard catalog can carry
   
 
     
@@ -800,7 +828,7 @@
   <span class="md-ellipsis">
     
   
-    What an OpenMetadata catalog can carry
+    What an Open Data Contract Standard catalog can carry
   
 
     
@@ -837,10 +865,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-model-this-names-and-its-version" class="md-nav__link">
+  <a href="#the-specification-this-names-and-its-version" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The model this names, and its version
+        The specification this names, and its version
       
     </span>
   </a>
@@ -859,10 +887,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-two-half-a-definition-spots" class="md-nav__link">
+  <a href="#the-three-absent-things-that-decide" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The two half-a-definition spots
+        The three absent things that decide
       
     </span>
   </a>
@@ -874,6 +902,17 @@
     <span class="md-ellipsis">
       
         The mapping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-classification-question-stated-honestly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The classification question, stated honestly
       
     </span>
   </a>
@@ -917,34 +956,6 @@
   
 </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../what-a-data-contract-can-carry/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    What an Open Data Contract Standard catalog can carry
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -1938,10 +1949,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-model-this-names-and-its-version" class="md-nav__link">
+  <a href="#the-specification-this-names-and-its-version" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The model this names, and its version
+        The specification this names, and its version
       
     </span>
   </a>
@@ -1960,10 +1971,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-two-half-a-definition-spots" class="md-nav__link">
+  <a href="#the-three-absent-things-that-decide" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The two half-a-definition spots
+        The three absent things that decide
       
     </span>
   </a>
@@ -1975,6 +1986,17 @@
     <span class="md-ellipsis">
       
         The mapping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-classification-question-stated-honestly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The classification question, stated honestly
       
     </span>
   </a>
@@ -2034,25 +2056,26 @@
   
 
 
-<hr />
-<p>title: What an OpenMetadata catalog can carry, and the two half-a-definition spots it keeps
-description: A research spike in the method of ADR 0016, measured against the SemanticCatalog port - OpenMetadata is the DataHub shape with a richer entity model: a typed Metric entity (decidable aggregation, granularity and dimensions) and declared relationship cardinality, but with the measure-to-column binding and the filter left as free-text SQL and expression strings, so an adapter over it is a declaring source that provides the physical model, descriptions, typed metrics, a declared grain and non-duplicating joins, and reports-not-defines the free-text half.</p>
-<hr />
-<h1 id="what-an-openmetadata-catalog-can-carry">What an OpenMetadata catalog can carry<a class="headerlink" href="#what-an-openmetadata-catalog-can-carry" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>a finding, and the first deliverable</strong> of issue #152's plan. The roadmap lists OpenMetadata
-among the metadata connectors, and the issue is explicit that it is <em>"the DataHub shape with a
-different API - the cheapest of the remaining four that need a service"</em>, with #114's HTTP-client +
-bearer-credential + typed-declaration template. This record is the ADR-0016-shaped answer to the
-question that decides the adapter's whole shape: <strong>can an OpenMetadata deployment express a complete
-semantic model as this repository defines one, or only part of one?</strong> The answer, measured against the
-published entity schema rather than guessed, is <em>most of one but with two slots that stay
-half-a-definition</em> - which is a different and richer answer than ADR 0016 gave DataHub or the OKF
-finding gave Frictionless Table Schema.</p>
+<h1 id="what-an-open-data-contract-standard-catalog-can-carry">What an Open Data Contract Standard catalog can carry<a class="headerlink" href="#what-an-open-data-contract-standard-catalog-can-carry" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>a finding, and the first deliverable</strong> of issue #973's plan. The issue lists data-contract
+documents - the <em>"interface catalogues are often exported as data-contract YAML"</em> shape - among the
+metadata connectors, and it is explicit that this one is <em>"reviewable, file-based metadata richer than
+a dictionary, and needs no network at boot"</em> - the cheapest kind, the on-disk vocabulary next to OKF
+and local. This record is the ADR-0016-shaped answer to the question that decides the adapter's whole
+shape: <strong>can the Open Data Contract Standard express a complete semantic model as this repository
+defines one, or only part of one?</strong> The answer, measured against the published JSON Schema rather than
+guessed, is <em>the physical model, the column prose and a target-vouched-for join - and nothing of a
+metric layer</em>. It is richer than Frictionless Table Schema on the schema-object side (it names
+primary keys, <code>required</code> and <code>unique</code> per column, and carries a free-text classification, and from
+v3.1.0 a foreign key whose target evidence can license a join) and just as silent on the measure as the
+OKF vocabulary - which makes the consequence the same as ADR 0016's and the OKF finding's: an adapter
+that <strong>declares</strong> which kinds it provides and which it does not, and is tested against that
+declaration, rather than an adapter held to the golden contract.</p>
 <h2 id="what-was-measured-against">What was measured against<a class="headerlink" href="#what-was-measured-against" title="Permanent link">&para;</a></h2>
-<p>Read out of the port, exactly as ADR 0016 and the OKF finding do. <code>SemanticCatalog::load</code> returns a
-<code>PinnedDefinitions</code>; its halves are a <code>Definitions</code> and a <code>Knowledge</code>, and <code>Definitions::assemble</code> is
-the only constructor of the first. So <em>can an OpenMetadata source express our model</em> is really <em>can it
-fill these fields and survive these checks</em>:</p>
+<p>Read out of the port, exactly as ADR 0016 and the OKF/OpenMetadata findings do. <code>SemanticCatalog::load</code>
+returns a <code>PinnedDefinitions</code>; its halves are a <code>Definitions</code> and a <code>Knowledge</code>, and
+<code>Definitions::assemble</code> is the only constructor of the first. So <em>can an ODCS source express our model</em>
+is really <em>can it fill these fields and survive these checks</em>:</p>
 <table>
 <thead>
 <tr>
@@ -2071,11 +2094,11 @@ fill these fields and survive these checks</em>:</p>
 </tr>
 <tr>
 <td>what a metric measures</td>
-<td><code>Measure</code> - <code>Simple(Term)</code> or <code>Ratio { numerator, denominator, zero_denominator }</code>, over a <code>Term</code> of <code>Aggregate(AggregatedColumn)</code> or <code>CountIf { column }</code></td>
+<td><code>Measure</code> - <code>Simple(Term)</code> or <code>Ratio { numerator, denominator, zero_denominator }</code>, over a <code>Term</code> of <code>Aggregate(AggregatedColumn)</code> or <code>CountIf { column }</code>, where <code>Aggregate</code> is the closed set <code>sum</code>, <code>count</code>, <code>count_distinct</code>, <code>avg</code>, <code>min</code>, <code>max</code></td>
 </tr>
 <tr>
-<td>a predicate that is part of what the metric means</td>
-<td><code>Vec&lt;RequiredFilter&gt;</code> - <code>Equals</code>, <code>NotEquals</code>, <code>IsTrue</code>, <code>IsNotNull</code></td>
+<td>a predicate that is part of what the metric MEANS</td>
+<td><code>Vec&lt;RequiredFilter&gt;</code> - <code>Equals</code>, <code>NotEquals</code>, <code>IsTrue</code>, <code>IsNotNull</code>, values typed as <code>DimensionValue</code></td>
 </tr>
 <tr>
 <td>when, and at what resolution</td>
@@ -2090,163 +2113,271 @@ fill these fields and survive these checks</em>:</p>
 <td><code>Option&lt;Anchor&gt;</code> - a <code>TimeRange</code> and a value as text</td>
 </tr>
 <tr>
+<td>who may see a metric</td>
+<td><code>Audience</code> - <code>Open</code>, or <code>Restricted(AudienceGrant)</code> of mapped identifiers, carried on <code>Metric</code> under <code>docs/adr/0028</code></td>
+</tr>
+<tr>
 <td>what a reader has to know</td>
-<td><code>Knowledge</code> - phrases, caveats, reviewed absences and worked examples, each with a <code>Referent</code></td>
+<td><code>Knowledge</code> - phrases, caveats, reviewed absences and worked examples, each carrying a <code>Referent</code></td>
 </tr>
 </tbody>
 </table>
-<p><code>Definitions::assemble</code> refuses a dimension reached through a relationship whose declared cardinality
-may duplicate rows, as <code>JoinWouldDuplicateRows</code>; and <code>Measure</code> has no free-text SQL at any depth - its
-<code>Term</code> is <code>Aggregate</code> or <code>CountIf</code> over a validated column, never an <code>expression:</code> string.</p>
-<h2 id="the-model-this-names-and-its-version">The model this names, and its version<a class="headerlink" href="#the-model-this-names-and-its-version" title="Permanent link">&para;</a></h2>
-<p>OpenMetadata is a hosted metadata-management platform (<code>open-metadata.org</code>). This record reads the
-entity model it serves as its own source of truth - the published JSON Schema under
-<code>openmetadata-spec/src/main/resources/json/schema</code>, at the <code>main</code> revision of 2026-09-18: the <code>Table</code>
-entity (<code>entity/data/table.json</code>, <code>title: "Table"</code>) and the <code>Metric</code> entity (<code>entity/data/metric.json</code>,
-<code>title: "Metric"</code>). A version tag is deliberately not pinned the way a file-spec vocabulary would be:
-OpenMetadata ships as a service whose served schema is whatever the running server carries, so <em>the
-deployment is the spec</em> - the same reason the read path below treats a drifted instance as the finding's
-limit rather than as an error in the record. Two entity kinds carry the whole answer.</p>
+<p>Two of those are the checks rather than the fields. <code>Definitions::assemble</code> <strong>refuses</strong> a dimension
+reached through a relationship whose declared cardinality may duplicate rows, as
+<code>JoinWouldDuplicateRows</code>. And every field above is a type with no free-text SQL in it: <code>Measure</code> has
+no <code>expression:</code> key and no <code>Option&lt;String&gt;</code> at any depth, which is the load-bearing half of
+<code>docs/adr/0001-first-party-semantic-models.md</code>. The <code>Audience</code> row is new to
+this finding versus the OKF record - ODCS is the first of the two on-disk vocabularies (OKF and this
+one) to carry a free-text per-column classification, so it is the first with anything to say about
+who may see a metric.</p>
+<h2 id="the-specification-this-names-and-its-version">The specification this names, and its version<a class="headerlink" href="#the-specification-this-names-and-its-version" title="Permanent link">&para;</a></h2>
+<p>The issue's <em>data-contract documents</em> are the <strong>Open Data Contract Standard (ODCS)</strong>, the Bitol
+project's open specification for data contracts. Every field below was read out of the published JSON
+Schema, <code>schema/odcs-json-schema-latest.json</code> in <code>bitol-io/open-data-contract-standard</code>, at the
+<code>v3.0.0</code>, <code>v3.0.2</code> (the last 3.0 patch), <code>v3.1.0</code> and <code>v3.2.0</code> tags, attributing each feature to the
+version that introduced it rather than to the schema as a whole. <code>apiVersion</code> carries the answer in the
+contract itself: at the <code>v3.2.0</code> tag its enum is <code>v3.2.0</code>/<code>v3.1.0</code>/<code>v3.0.2</code>/<code>v3.0.1</code>/<code>v3.0.0</code> plus three
+<code>v2.2.x</code> backward-compat values, and a contract stamps the version it was written against. This
+record's ground truth is version <strong>3</strong> as a line, with the patches and minors called out where they
+change a verdict: relationships arrive at v3.1.0, and <code>enum</code>, the semantic role, <code>context</code> and
+<code>synonyms</code> do not exist before v3.2.0 - the differences are part of the decision, not noise to smooth
+over.</p>
 <h2 id="what-the-model-actually-carries-field-by-field">What the model actually carries, field by field<a class="headerlink" href="#what-the-model-actually-carries-field-by-field" title="Permanent link">&para;</a></h2>
-<p><strong><code>Table</code></strong> (<code>entity/data/table.json</code>): <code>name</code> / <code>fullyQualifiedName</code> (the model name and service path),
-<code>columns: [Column]</code>, <code>tableConstraints: [TableConstraint]</code>, <code>foreignKeys</code>, <code>description</code>, <code>owners</code>,
-<code>tags</code>. Each <code>Column</code> carries <code>name</code>, a <code>description</code>, a <code>constraint</code> (<code>NULL</code>, <code>NOT_NULL</code>, <code>UNIQUE</code>,
-<code>PRIMARY_KEY</code>) and - the notable part - a <code>dataType</code> whose enum is a <strong>column type system that already
-contains the semantic kinds</strong>: <code>NUMBER</code>, <code>STRING</code>, …, but also <code>MEASURE</code>, <code>MEASURE VISIBLE</code>,
-<code>MEASURE HIDDEN</code> and <code>KPI</code>. A <code>TableConstraint</code> carries <code>constraintType</code> (<code>UNIQUE</code>, <code>PRIMARY_KEY</code>,
-<code>FOREIGN_KEY</code>, …) and a <code>relationshipType</code> that <strong>enumerates cardinality</strong>: <code>ONE_TO_ONE</code>, <code>ONE_TO_MANY</code>,
-<code>MANY_TO_ONE</code>, <code>MANY_TO_MANY</code>.</p>
-<p><strong><code>Metric</code></strong> (<code>entity/data/metric.json</code>): <code>name</code>, <code>description</code> (markdown), <code>metricType</code>
-(<code>COUNT</code>, <code>SUM</code>, <code>AVERAGE</code>, <code>RATIO</code>, <code>PERCENTAGE</code>, <code>MIN</code>, <code>MAX</code>, <code>MEDIAN</code>, <code>MODE</code>,
-<code>STANDARD_DEVIATION</code>, <code>VARIANCE</code>, <code>SIMPLE</code>, <code>CUMULATIVE</code>, <code>DERIVED</code>, <code>CONVERSION</code>, <code>OTHER</code>),
-<code>metricExpression: { language: SQL|Java|JavaScript|Python|External, code: string }</code>,
-<code>unitOfMeasurement</code> / <code>customUnitOfMeasurement</code>, <code>granularity</code>
-(<code>SECOND</code>, <code>MINUTE</code>, <code>HOUR</code>, <code>DAY</code>, <code>WEEK</code>, <code>MONTH</code>, <code>QUARTER</code>, <code>YEAR</code>), <code>dimensions: [{
-name, type: CATEGORICAL|TIME, expression: string }]</code>, <code>measures: [{ name, aggregation: string,
-description, expression: string }]</code>, <code>filters: [{ where: SQL }]</code>, <code>relatedMetrics</code>, <code>assets</code>.</p>
-<h2 id="the-two-half-a-definition-spots">The two half-a-definition spots<a class="headerlink" href="#the-two-half-a-definition-spots" title="Permanent link">&para;</a></h2>
-<p><strong>A measure is carried - richer than OKF - but the aggregation-to-column binding is free text.</strong>
-<code>metricType</code> is a decidable aggregation kind and <code>granularity</code>/<code>dimensions[].type</code> are typed, which is
-already more than DataHub (<code>MetricInfo.expression</code>, a raw string with no aggregation function) and
-immeasurably more than Frictionless Table Schema (no metric entity at all). But the domain's <code>Measure</code>
-is not a bare aggregation kind: its <code>Term</code> is <code>Aggregate(AggregatedColumn)</code> or <code>CountIf { column }</code>, a
-<em>column-bound</em> aggregation. In OpenMetadata that binding lives in the loose layer - <code>measures[].name</code>
-plus <code>measures[].aggregation</code> and <code>measures[].expression</code> as free strings, and <code>metricExpression.code</code>
-in a dialect set (<code>SQL</code>/<code>Java</code>/<code>JavaScript</code>/<code>Python</code>/<code>External</code>) that does not intersect the typed
-<code>Term</code>. ADR 0016's refusal fires here, once: <em>a measure carried as a raw expression string in a foreign
-dialect is half a definition</em>. Taking <code>metricType</code> supplies the aggregation but not a validated column;
-taking the expression certifies a foreign dialect's free text. So the honest <code>capabilities()</code> is
-<strong>provides <code>Measure</code> from the typed <code>metricType</code> + granularity where a column binding also resolves</strong>,
-and <strong>reports-not-defines</strong> the expression/aggregation strings - the shape of issue #152's own cell
-name, <em>a metric whose measure is an expression string is reported and not defined</em>.</p>
-<p><strong>The filter is a raw SQL <code>where</code>, not a typed predicate.</strong> <code>metricFilter</code> carries only <code>where: string</code>.
-There is no <code>Equals</code> / <code>IsTrue</code> / <code>IsNotNull</code> vocabulary to map onto <code>RequiredFilter</code>; a <code>where</code> is a
-predicate fragment in a dialect this repository does not parse. <strong>Declared, not provided</strong> - loaded or
-ignored, but never minted into a <code>RequiredFilter</code> without executing it.</p>
-<p>And cardinality, the third thing ADR 0016 taught us to check, is the pleasant surprise: it is <strong>declared
-when present, never defaulted</strong>. <code>TableConstraint.relationshipType</code> explicitly distinguishes
-<code>ONE_TO_ONE</code> / <code>MANY_TO_ONE</code> / <code>ONE_TO_MANY</code> (non-duplicating, license a <code>JoinType</code>) from
-<code>MANY_TO_MANY</code> (row-duplicating, refused by <code>JoinWouldDuplicateRows</code>). DataHub defaulted a cardinality
-(<code>N_N</code>) that the assembler had to refuse; Frictionless Table Schema omitted the property entirely
-(licenses nothing); OpenMetadata names it when it is there and stays silent when it is not - the case a
-deployment leaves a relationship unconstrained licenses no dimension, exactly as the assembler demands.</p>
+<p><strong>The contract's top level</strong> (optional except where noted) is <code>version</code>, <code>kind</code> (required
+<code>DataContract</code>), <code>apiVersion</code> (required), <code>id</code> (required), <code>name</code>, <code>tenant</code>, <code>tags</code>, <code>status</code>, <code>servers</code>
+(where the data physically lives - the model's <code>SourceName</code>), <code>dataProduct</code> (<code>deprecated</code> since v3.1.0),
+<code>domain</code>, <code>description</code> (<code>usage</code>/<code>purpose</code>/<code>limitations</code>), <code>price</code>, <code>contractCreatedTs</code>,
+<code>authoritativeDefinitions</code> (v3.0.2+), <code>context</code> (v3.2.0), <code>schema</code> (an array of <code>SchemaObject</code>s),
+<code>team</code>, <code>roles</code>, <code>support</code>, the SLA surface (<code>slaDefaultElement</code> + <code>slaProperties</code>), and
+<code>customProperties</code>. <code>required</code> is <code>version</code>, <code>apiVersion</code>, <code>kind</code>, <code>id</code> (3.0/3.1 also require <code>status</code>;
+v3.2.0 drops it). <code>additionalProperties: false</code> at the top - an unknown property at the contract level
+is <strong>invalid</strong> at every version, the fidelity a <code>deny_unknown_fields</code> adapter enforces.</p>
+<p><strong><code>schema</code> is an array of <code>SchemaObject</code>s</strong> - in practice the contract's physical tables. A
+<code>SchemaObject</code> carries <code>name</code> (required), <code>logicalType</code> (a constant <code>object</code>), <code>physicalName</code> (the
+physical table name, e.g. <code>table_1_2_0</code>), <code>dataGranularityDescription</code> (free text), <code>properties</code>
+(an array of <code>SchemaProperty</code>, one per column), <code>quality</code> (an array of data-quality rules), and - from
+v3.1.0 - a <code>relationships</code> array. Its <code>SchemaElement</code> base adds <code>description</code>, <code>businessName</code>,
+<code>authoritativeDefinitions</code>, <code>tags</code>, and <code>customProperties</code>. So <strong>the table/column split is present and
+explicit</strong>: the <code>SchemaObject</code> is the model, its <code>properties[].name</code> is the column set.</p>
+<p><strong>Each <code>SchemaProperty</code></strong> (through the <code>SchemaBaseProperty</code> base, present across all of v3) carries
+<code>name</code> (required); <code>logicalType</code> - a <strong>data type, not a measure</strong>, version-dependent: <code>string</code>, <code>date</code>,
+<code>number</code>, <code>integer</code>, <code>object</code>, <code>array</code>, <code>boolean</code> in v3.0.0, <code>timestamp</code>/<code>time</code> joining at v3.1.0,
+<code>map</code>/<code>vector</code> at v3.2.0; <code>physicalType</code> (the source dialect's type); <code>primaryKey</code> +
+<code>primaryKeyPosition</code>; <code>required</code> (not-null) and <code>unique</code> (booleans); <code>partitioned</code> +
+<code>partitionKeyPosition</code>; <code>classification</code> - a free-text string, <em>"can be anything, like confidential,
+restricted, and public"</em>; transform metadata (<code>encryptedName</code>, <code>transformSourceObjects</code>,
+<code>transformLogic</code>, <code>transformDescription</code>); <code>examples</code>, <code>criticalDataElement</code>; and <code>quality</code> (a
+per-column <code>DataQualityChecks</code> array).</p>
+<p><strong>v3.2.0</strong> (the latest tag) adds four things, none present before it. <code>enum</code> is an array of
+<code>EnumValue</code>s (a <code>value</code> plus optional <code>label</code>/<code>description</code>/<code>tags</code>) - <strong>allowed values</strong> for the
+column. <code>semanticType</code> is <code>column</code>/<code>measure</code>/<code>dimension</code> (default <code>column</code>), where <code>measure</code> is
+documented as <em>an aggregated value whose aggregation expression is held in <code>transformLogic</code></em>. <code>synonyms</code>
+(RFC-0041) helps tools resolve business vocabulary, and <code>context</code> (RFC-0038, contract and
+<code>SchemaObject</code> level) carries <code>instructions</code>, <code>verifiedStatements</code> Q&amp;A and <code>constraints</code> for AI agents.
+<code>context</code> and <code>synonyms</code> are the closest thing ODCS has to this repository's <code>Knowledge</code>, but every
+<code>Referent</code> here is metric-anchored and ODCS has none - so they stay prose that travels rather than
+referent-bearing knowledge, the same limit <code>enum</code> and <code>semanticType: dimension</code> hit.</p>
+<p><strong>Relationships.</strong> No relationship construct exists in the 3.0 line. v3.1.0 adds a <code>relationships</code>
+array at both levels together - schema-level on <code>SchemaObject</code>, property-level on <code>SchemaBaseProperty</code>
+(<code>from</code> implicit) - v3.2.0 unchanged bar an optional <code>id</code>. A relationship carries <code>type</code> (constant
+<code>foreignKey</code>), <code>from</code>/<code>to</code> (single or arrayed for composite keys) and <code>customProperties</code>. <strong>It carries
+no cardinality marker of its own</strong>, but a single-column <code>from</code>/<code>to</code> pair resolves to two
+<code>SchemaProperty</code> records, and <code>sutura-catalog-rdbms</code> already has the rule for exactly this shape: a
+foreign key whose single-column target carries <code>primaryKey</code> or <code>unique</code> evidence maps to
+<code>JoinType::ManyToOne</code>, refusing (<code>TargetUniquenessUnknown</code>) otherwise. ODCS v3.1+ carries that same
+target evidence, so the honest verdict follows the rdbms precedent, not Table Schema's.</p>
+<p><strong>SLA</strong> is <code>slaDefaultElement</code> plus <code>slaProperties</code>: <code>property</code>/<code>value</code> (required), <code>unit</code>, <code>element</code>
+and <code>driver</code> (examples <code>regulatory</code>/<code>analytics</code>/<code>operational</code>) at every v3 version; <code>schedule</code>,
+<code>scheduler</code> and a human <code>description</code> join at v3.1.0 (v3.0.x lacks all three). The documented
+example - "99.9% of the time, data is available by 6 AM UTC" - is itself v3.1.0+. It is a service-level
+<em>promise</em> (freshness, availability), with no metric to attach it to.</p>
+<p><strong>Data quality</strong> is a first-class, per-schema-object and per-column surface: <code>DataQualityChecks</code>, an
+array of <code>DataQuality</code> rules, each with a <code>dimension</code> (KPI enum: <code>accuracy</code>, <code>completeness</code>,
+<code>conformity</code>, <code>consistency</code>, <code>coverage</code>, <code>timeliness</code>, <code>uniqueness</code>), a <code>type</code> (<code>text</code>/<code>library</code>/<code>sql</code>/
+<code>custom</code>), and a closed threshold family (<code>mustBe</code>, <code>mustNotBe</code>, six <code>mustBe*Than</code>/<code>Between</code>
+comparisons) across all of v3. The <code>library</code> type's own metric is version-dependent: a closed enum
+(<code>nullValues</code>, <code>missingValues</code>, <code>invalidValues</code>, <code>duplicateValues</code>, <code>rowCount</code>) from v3.1.0, a free
+<code>rule</code> string at v3.0.x. <code>sql</code> carries a raw <code>query</code> string. <strong>There is no metric entity anywhere.</strong></p>
+<h2 id="the-three-absent-things-that-decide">The three absent things that decide<a class="headerlink" href="#the-three-absent-things-that-decide" title="Permanent link">&para;</a></h2>
+<p><strong>Metric is absent entirely - there is nothing to refuse, and that is the stricter statement.</strong> The
+word <code>metric</code> appears in the schema only inside the data-quality library enum and <code>slaProperties</code>'s
+free-text property names - no <code>Measure</code>, no <code>Metric</code> entity, and no metric-level computation at any
+depth or version. v3.2.0's <code>semanticType: measure</code> is documented as <em>an aggregated value whose
+aggregation expression is held in <code>transformLogic</code></em> - a free string in a dialect nothing parses, the
+exact half-a-definition ADR 0016's refusal names - but <code>Definitions::assemble</code>'s refusal of that shape
+cannot even fire the way it does for DataHub, because there is no metric slot to carry the string in.
+The honest <code>capabilities()</code> statement is a <strong>declared absence</strong>, the same "nothing to refuse because
+there is no slot" verdict as the OKF finding.</p>
+<p><strong>Quality rules and SLA are reported, not defined.</strong> Even where a rule crosses onto <code>RequiredFilter</code>'s
+operator family (<code>mustBe</code>, <code>mustNotBe</code>), it is a scalar check on the column's own values at check time,
+attached to a column or table, never to a metric - there is no metric to condition. The SLA is
+explicitly a temporal/availability promise with no semantic content: issue #973's own constraint says
+<em>service levels read and ignored, by declaration</em>. Both are read and ignored rather than minted into a
+<code>RequiredFilter</code>.</p>
+<p><strong><code>Cardinality</code> is never declared, by the same reasoning <code>sutura-catalog-rdbms</code> gives.</strong> A single-column
+foreign key with <code>primaryKey</code>/<code>unique</code> target evidence licenses <code>Relationships</code> may-provide, but
+<code>Cardinality</code> is a separate kind with nothing here to reach: <code>Definitions::assemble</code> refuses a
+<em>dimension</em> reached through an under-licensed join, and ODCS has no metric to own a dimension in the
+first place. A relationship loads as a non-duplicating join with no dimension ever asking to be reached
+through it, so <code>produced</code> observes <code>Cardinality</code> absent and the declaration agrees - the rdbms adapter's
+own verdict, unchanged.</p>
 <h2 id="the-mapping">The mapping<a class="headerlink" href="#the-mapping" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
 <th>The semantic-model field</th>
-<th>What OpenMetadata offers</th>
+<th>What ODCS offers</th>
 <th>Verdict</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>Model</code> (table + columns)</td>
-<td><code>Table</code> + <code>columns[]</code> (<code>name</code>, <code>dataType</code>, <code>description</code>)</td>
+<td><code>schema[]</code> <code>SchemaObject</code> + <code>properties[].name/physicalType/logicalType</code></td>
 <td><strong>provides</strong></td>
 </tr>
 <tr>
 <td><code>Description</code></td>
-<td><code>description</code> markdown on Table, Column, Metric</td>
-<td><strong>provides</strong></td>
+<td><code>SchemaElement.description</code> / <code>businessName</code>, contract <code>description.usage/purpose/limitations</code></td>
+<td><strong>may-provide</strong> - <code>description</code> is optional</td>
+</tr>
+<tr>
+<td><code>ColumnTypes</code></td>
+<td><code>properties[].logicalType</code> (enum) + <code>physicalType</code> (free text)</td>
+<td><strong>may-provide</strong> - <code>logicalType</code> is optional; <code>ColumnType</code>-parsed</td>
+</tr>
+<tr>
+<td><code>ColumnDescriptions</code></td>
+<td><code>properties[].description</code> / <code>businessName</code> (free text)</td>
+<td><strong>may-provide</strong> - optional per property</td>
+</tr>
+<tr>
+<td>primary key</td>
+<td><code>SchemaBaseProperty.primaryKey</code> (+ <code>primaryKeyPosition</code> order)</td>
+<td><strong>provides</strong> - evidence on <code>Model::with_primary_key</code>, and target-uniqueness evidence for the relationship rule below</td>
+</tr>
+<tr>
+<td><code>required</code></td>
+<td><code>SchemaBaseProperty.required</code> (boolean, not-null)</td>
+<td><strong>carried, not a declared kind</strong> - maps onto <code>Column.nullable</code> (<code>Some(false)</code>); no <code>DefinitionKind</code> covers nullability</td>
+</tr>
+<tr>
+<td><code>unique</code></td>
+<td><code>SchemaBaseProperty.unique</code> (boolean)</td>
+<td><strong>no <code>Column</code>-level carrier</strong> of its own; feeds the relationship rule below as single-column target evidence</td>
 </tr>
 <tr>
 <td><code>Relationship</code> (join)</td>
-<td><code>tableConstraints</code> / <code>foreignKeys</code> with a <code>relationshipType</code></td>
-<td><strong>provides</strong> where cardinality is declared <code>ONE_TO_ONE</code>/<code>MANY_TO_ONE</code>/<code>ONE_TO_MANY</code>; declares-and-does-not-license where absent or <code>MANY_TO_MANY</code></td>
+<td><code>schema[].relationships[]</code> (v3.1+): foreignKey, from/to, single-column <code>primaryKey</code>/<code>unique</code> target evidence</td>
+<td><strong>may-provide</strong> on v3.1+ under the <code>sutura-catalog-rdbms</code> target-uniqueness rule (absent in the 3.0 line)</td>
 </tr>
 <tr>
 <td><code>Measure</code></td>
-<td><code>Metric.metricType</code> (decidable) + <code>granularity</code>, with a loose <code>expression</code>/<code>aggregation</code> string layer</td>
-<td><strong>provides from the typed enum; reports-not-defines the expression strings</strong></td>
-</tr>
-<tr>
-<td><code>RequiredFilter</code></td>
-<td><code>metricFilter.where</code>: raw SQL</td>
-<td><strong>declared, not provided</strong></td>
-</tr>
-<tr>
-<td><code>Grain</code> + time</td>
-<td><code>Metric.granularity</code> enum (<code>SECOND</code>..<code>YEAR</code>)</td>
-<td><strong>provides</strong></td>
-</tr>
-<tr>
-<td><code>Dimension</code> with <code>via</code> / allowlist</td>
-<td><code>Metric.dimensions[]</code> (<code>name</code>, <code>type</code> <code>CATEGORICAL</code>|<code>TIME</code>, <code>expression</code>)</td>
-<td><strong>partial</strong> - a typed dimension name and kind, but no allowlist and no resolved <code>via</code>-relationship</td>
-</tr>
-<tr>
-<td><code>Anchor</code></td>
-<td>none in the metric or table entities</td>
+<td>none (v3.2's <code>semanticType: measure</code> is a transform string, absent in 3.0)</td>
 <td><strong>absent, declared</strong></td>
 </tr>
 <tr>
+<td><code>RequiredFilter</code></td>
+<td><code>quality</code> rules (<code>mustBe</code> family) - data-quality thresholds, not definitional</td>
+<td><strong>reported, not defined</strong></td>
+</tr>
+<tr>
+<td><code>Grain</code> + time</td>
+<td><code>dataGranularityDescription</code> free text only</td>
+<td><strong>absent, declared</strong></td>
+</tr>
+<tr>
+<td><code>Dimension</code> with <code>via</code> / allowlist</td>
+<td><code>semanticType: dimension</code> (v3.2+) names a column's role; no <code>via</code>, no metric to own a <code>Dimension</code></td>
+<td><strong>absent, declared</strong> - a <code>Dimension</code> is only ever built inside a <code>Metric</code> (<code>Metric::new</code>), and there is none here</td>
+</tr>
+<tr>
+<td><code>AllowedValues</code> (dimension allowlist)</td>
+<td><code>properties[].enum</code> <code>EnumValue[]</code> (v3.2+)</td>
+<td><strong>absent, declared</strong> - <code>enum</code> has no <code>Dimension</code> to attach to, same reason as <code>Audience</code> below</td>
+</tr>
+<tr>
+<td><code>Anchor</code></td>
+<td>none</td>
+<td><strong>absent, declared</strong></td>
+</tr>
+<tr>
+<td><code>Audience</code> (who may see a metric)</td>
+<td><code>properties[].classification</code> - a free-text string, e.g. <code>confidential</code> / <code>restricted</code> / <code>public</code></td>
+<td><strong>reported, not defined</strong> - see the classification paragraph</td>
+</tr>
+<tr>
+<td>SLA</td>
+<td><code>slaProperties[]</code> + <code>slaDefaultElement</code></td>
+<td><strong>reported, ignored by declaration</strong> (issue #973's own constraint)</td>
+</tr>
+<tr>
 <td><code>Knowledge</code> with <code>Referent</code></td>
-<td><code>description</code>, <code>owners</code>, <code>tags</code> free text</td>
-<td><strong>partial</strong> - prose travels; referent-bearing phrases/caveats/worked examples do not</td>
+<td><code>description</code> / <code>businessName</code> free text, <code>context</code> (v3.2.0, RFC-0038) and <code>synonyms</code> (v3.2.0, RFC-0041)</td>
+<td><strong>partial</strong> - prose travels; every <code>Referent</code> is metric-anchored and there is no metric to anchor it to</td>
 </tr>
 </tbody>
 </table>
+<h2 id="the-classification-question-stated-honestly">The classification question, stated honestly<a class="headerlink" href="#the-classification-question-stated-honestly" title="Permanent link">&para;</a></h2>
+<p>The issue's Where names <em>"classification → <code>Audience</code> where a metric exists"</em> - and the qualification
+is the whole finding. <code>Audience</code> is carried <strong>on <code>Metric</code></strong> in this repository
+(<code>catalog::Metric.audience</code>, under <code>docs/adr/0028</code>); ODCS's <code>classification</code> is a free-text per-column
+string with published examples <code>confidential</code>, <code>restricted</code>, <code>public</code> - <strong>not</strong> a closed scheme and
+<strong>not</strong> attached to any metric. Classification only means something <em>for what it restricts</em>, and there
+is no metric here to restrict, so it stays <strong>reported, not defined</strong>: read and never minted into an
+<code>Audience</code>.</p>
 <h2 id="conclusion-and-what-it-costs">Conclusion, and what it costs<a class="headerlink" href="#conclusion-and-what-it-costs" title="Permanent link">&para;</a></h2>
-<p><strong>The richest of the three measured sources, and still a <code>declaring</code> source - because it keeps two
-half-a-definition slots rather than eliminating them.</strong> OpenMetadata is not strictly narrower than
-Wren the way Table Schema is, nor raw the way DataHub's metric is: it carries a typed metric layer and
-declared cardinality, and the two spots that stay unresolved are the measure's free-text binding and the
-SQL filter - exactly the places ADR 0016 found half-a-definition in DataHub. An adapter over it is a
-<code>declaring</code> <code>SemanticCatalog</code> that provides the physical model, descriptions, typed metrics (with a
-decidable <code>metricType</code> and <code>granularity</code>), and non-duplicating declared joins, and <strong>reports-not-defines</strong>
-the expression strings and the <code>where</code> filters, exactly as issue #152's cell anticipates. Because it
-needs a service, the cost is #114/#886's HTTP-client + bearer-credential arm plus a recorded-document
-fixture - the "cheapest of the remaining four that need a service", with a richer model to show for it
-than DataHub.</p>
+<p><strong>A narrower source than Wren, and the cheapest connector - by declaration.</strong> ODCS v3 can carry the
+physical model, the column prose, column types, the primary key and (v3.1+) a non-duplicating join; it
+cannot carry a metric, a required filter, a grain, an anchor, or a dimension. An adapter over it is a
+<strong>declaring</strong> <code>SemanticCatalog</code> whose <code>capabilities()</code> provides <code>Structure</code>; may-provide <code>Descriptions</code>,
+<code>ColumnTypes</code> and <code>ColumnDescriptions</code> (each optional in the schema) and <code>Relationships</code> on v3.1+ under the
+<code>sutura-catalog-rdbms</code> target-uniqueness rule, and never declares <code>Cardinality</code>; reports-not-defines the
+quality rules, the SLA and the classification; and declares <code>Metrics</code>, <code>RequiredFilters</code>, <code>Grains</code>,
+<code>AllowedValues</code> and <code>Anchors</code> absent. This is precisely the shape <code>sutura-catalog-datahub</code>, <code>sutura-catalog-rdbms</code>,
+<code>sutura-catalog-okf</code> and <code>sutura-catalog-openmetadata</code> already establish, and it is tested against that
+declaration in both directions (it provides what it declares, and the bundle agrees that what it does
+not declare does not arrive).</p>
+<p><strong>Whether it is worth shipping</strong>. Yes, for the reason any <code>declaring</code> catalog's describing half exists:
+a source that provides tables and descriptions but no metric is a legitimate narrow source, and
+<code>Definitions::assemble</code> refuses nothing it does not provide. Its concrete value over a bare directory of
+descriptors is that the contract already carries structure - the primary key, nullability, a
+target-vouched-for join - that a plain dictionary does not, and it is reviewable, file-based
+and needs no network at boot, exactly issue #973's Why. The issue's two acceptance cells follow: a
+<strong>catalog-golden cell</strong> (the fixture bundle measured against the adapter's declaration, the universal
+shape every <code>declaring</code> adapter gets) and a <strong>declaration-fidelity cell</strong>
+(<code>MetadataCapabilities::checked_against</code> over a real fixture), each narrower than an adapter that could
+offer the metric layer.</p>
 <h2 id="alternatives-considered">Alternatives considered<a class="headerlink" href="#alternatives-considered" title="Permanent link">&para;</a></h2>
-<p><strong>Was the <code>MEASURE</code> column <code>dataType</code> a metric?</strong> No. A column typed <code>MEASURE</code>/<code>KPI</code> marks a column
-as measuring something but carries no aggregation kind, no expression and no grounding - it is a tag on a
-column in the physical layer, not the <code>Metric.metricType</code> of the semantic entity, and a <code>declaring</code>
-adapter would treat column-level <code>MEASURE</code>/<code>KPI</code> types as the same reported-not-defined slot rather than
-as a supplied <code>Measure</code>.</p>
-<p><strong>Should the <code>Metric</code> entity be loaded at all if its binding is loose?</strong> Yes, for the same reason any
-declared provisioning is worth shipping: <code>metricType</code> + <code>granularity</code> + <code>dimensions[].type</code> are
-decidable and validate, the bundle agrees that the free-text half never becomes a <code>Measure</code>, and the
-cost is a bounded parse - while refusing the whole entity would throw away the only typed metric layer
-of the three sources measured.</p>
+<p><strong>Which version to pin.</strong> The 3.0 line is where the shape that decides the adapter settles: the
+physical model, the prose, <code>primaryKey</code>/<code>required</code>/<code>unique</code> and the SLA all exist there, and none of the
+kinds that change verdict by version do. <code>Relationships</code> reads whatever <code>apiVersion</code> the document
+declares and may-provides only where that version carries a <code>relationships</code> array (v3.1+) - <code>of_may_provide</code>
+is the mechanism for exactly this. <code>enum</code> and <code>semanticType</code> (v3.2+) never turn into a <strong>provides</strong>,
+because <code>AllowedValues</code> and <code>Dimension</code> need a metric this schema never has at any version, so pinning to
+v3.2.0 would buy nothing a v3.0.0 contract does not already offer.</p>
 <h2 id="limits-stated">Limits, stated<a class="headerlink" href="#limits-stated" title="Permanent link">&para;</a></h2>
-<p>Written read-only, against the published OpenMetadata entity schema at the <code>main</code> revision read on
-2026-09-18 and the <code>SemanticCatalog</code>/<code>Definitions</code> port in this repository, <strong>not</strong> against a
-provisioned instance (the nix sandbox has no network, and no instance was booted for this record). Two
-claims are open to a live check and should be before an adapter ships: (a) the metric entity is new to
-the served surface and a real deployment's <code>/api/v1/metrics</code> may not be populated at all - the
-"what does a real instance actually populate" question issue #152 names - which only strengthens the
-narrow/normal case (Structure + Descriptions) and the declared-not-provided verdict; and (b) the read
-path's cost (#114's own first question): how many <code>GET</code>s a whole bundle takes against the REST API when
-metric-to-asset references are followed, which the finding does not measure. Neither changes the shape
-decision this record makes.</p>
+<p>Written read-only, against the published ODCS JSON Schema at the <code>v3.0.0</code>, <code>v3.0.2</code>, <code>v3.1.0</code> and
+<code>v3.2.0</code> tags and the <code>SemanticCatalog</code>/<code>Definitions</code> port in this repository, <strong>not</strong> against any
+provisioned instance (no catalog of real contracts was opened for this record). Three things are open
+to a live check and should be before an adapter ships, and none of them changes the shape decision: (a)
+whether real contracts in the wild attach the data-quality <code>mustBe</code>/<code>mustNotBe</code> rules densely enough to
+make "reported-not-defined" more than a formality, (b) whether a real deployment's contracts carry
+single-column <code>primaryKey</code>/<code>unique</code> target evidence densely enough for the <code>Relationships</code> may-provide
+turn to fire in practice rather than fall to <code>TargetUniquenessUnknown</code>, and (c) as with the OKF finding,
+whether the free-text <code>description</code> is dense enough to load as <code>Knowledge</code> or better left to the
+consuming prompt. The classification "reported, not defined" is the strongest claim here and the one a
+reviewer should test first, because it is the only row that depends on an <em>absence of a metric entity</em>
+rather than on a field's own shape.</p>
 
 
 
 
 
 
+
+  
+  
 
 
 
