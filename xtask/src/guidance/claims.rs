@@ -66,8 +66,8 @@ impl Evidence {
     /// **An unreadable evidence file retires the rule rather than refusing, and the mechanism that
     /// catches it is a test rather than this gate**: `tests::every_live_rule_still_has_its_evidence`
     /// asserts `stands` for every row, so a row whose file cannot be opened is a red `just test`
-    /// while `check-guidance` itself stays green. Deliberately not migrated to
-    /// `repo::read_subject`: the evidence set is DECLARED and small, and a retired rule forbids
+    /// while `check-guidance` itself stays green. Deliberately not migrated to the census's text
+    /// closure: the evidence set is DECLARED and small, and a retired rule forbids
     /// nothing rather than mis-measuring the tree. The limit is that `just hygiene` alone sees
     /// neither - only `just validate` runs the gate and this test together.
     fn stands(&self, root: &Path) -> bool {
@@ -216,7 +216,7 @@ fn wording_lines(text: &str, wording: &str) -> Vec<usize> {
     found
 }
 
-pub(super) fn contradicted_claims(root: &Path, files: &[String]) -> Vec<String> {
+pub(super) fn contradicted_claims(root: &Path, read: &crate::causality::regions::PostImage<'_>, files: &[String]) -> Vec<String> {
     let mut problems = Vec::new();
     for rule in CONTRADICTED {
         // `github.com/telekom/sutura#603`: a shape check on the TABLE itself, ahead of
@@ -241,7 +241,7 @@ pub(super) fn contradicted_claims(root: &Path, files: &[String]) -> Vec<String> 
             if crate::repo::matches_any(rule.except, rel) {
                 continue;
             }
-            let Some(text) = crate::repo::read_subject(root, rel, &mut problems) else {
+            let Some(text) = read(rel) else {
                 continue;
             };
             for wording in rule.wordings {
@@ -263,7 +263,7 @@ pub(super) fn contradicted_claims(root: &Path, files: &[String]) -> Vec<String> 
             if crate::repo::matches_any(rule.except, rel) {
                 continue;
             }
-            let Some(text) = crate::repo::read_subject(root, rel, &mut problems) else {
+            let Some(text) = read(rel) else {
                 continue;
             };
             for wording in rule.wordings {
@@ -411,7 +411,11 @@ mod tests {
             )],
         );
         let files = vec![String::from("docs/example.md")];
-        let found = contradicted_claims(tree.root(), &files);
+        let found = contradicted_claims(
+            tree.root(),
+            &|rel: &str| std::fs::read_to_string(tree.root().join(rel)).ok(),
+            &files,
+        );
         assert!(
             found.iter().any(|problem| problem.contains("was withdrawn")),
             "a withdrawn wording must be refused with no evidence anywhere in the tree: {found:?}"
@@ -575,9 +579,15 @@ mod tests {
             also_stated_in: &[],
             marker: "",
         };
-        let mut unreadable = Vec::new();
         // Three before the boundary, a fourth after it that must not count.
-        assert_eq!(tally(tree.root(), &files, &counted, &mut unreadable), 3);
+        assert_eq!(
+            tally(
+                &|rel: &str| std::fs::read_to_string(tree.root().join(rel)).ok(),
+                &files,
+                &counted
+            ),
+            3
+        );
     }
 
     #[test]
@@ -610,7 +620,13 @@ mod tests {
             ],
         );
         let mut agree = Vec::new();
-        mismatches_for(agreeing.root(), &all, &all, &counted, &mut agree);
+        mismatches_for(
+            &|rel: &str| std::fs::read_to_string(agreeing.root().join(rel)).ok(),
+            &all,
+            &all,
+            &counted,
+            &mut agree,
+        );
         assert!(agree.is_empty(), "{agree:?}");
 
         // Wrong in the comment alone - `mentioned_in` (the doc) still agrees, so this is caught
@@ -626,7 +642,13 @@ mod tests {
             ],
         );
         let mut found = Vec::new();
-        mismatches_for(wrong.root(), &all, &all, &counted, &mut found);
+        mismatches_for(
+            &|rel: &str| std::fs::read_to_string(wrong.root().join(rel)).ok(),
+            &all,
+            &all,
+            &counted,
+            &mut found,
+        );
         assert!(
             found.iter().any(|p| p.contains("src/wire.rs") && p.contains('4')),
             "a wrong count in the allow-listed Rust file must be reported: {found:?}"
@@ -650,9 +672,7 @@ mod tests {
         // demanding the page keep quoting it would turn tidying that quote red for a rule that is
         // no longer there. Both predicates, or this test and the check disagree about what a rule is.
         let root = crate::repo::root().expect("the repo root");
-        let (_root, files) = crate::repo::all_files()
-            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
-            .expect("could not list the repo");
+        let (files, _texts, _witness) = super::super::inspect_listing(crate::repo::all_files()).expect("could not list the repo");
         for rule in CONTRADICTED
             .iter()
             .filter(|rule| !rule.except.is_empty() && rule.is_live(&root))
@@ -719,27 +739,19 @@ SQL goldens read the cap";
     fn a_count_entry_measures_something() {
         // Same argument as `every_live_rule_still_has_its_evidence`, for the other table: a glob
         // matching nothing would make the check pass vacuously. Caught here, not on a branch.
-        let root = crate::repo::root().expect("the repo root");
-        let (_root, files) = crate::repo::all_files()
-            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
-            .expect("could not list the repo");
-        // The `unreadable` vec is asserted on, not discarded: on a clean checkout a subject this
-        // walk cannot open is a defect in the venue, and a test that threw the vec away would be
-        // the visible discard `repo::read_subject` exists to make somebody write out.
-        let mut unreadable = Vec::new();
+        // Through the census, so a subject this walk cannot open on a clean checkout is a refusal
+        // here rather than a lowered tally.
+        let (files, texts, _witness) = super::super::inspect_listing(crate::repo::all_files()).expect("could not list the repo");
+        let read = |rel: &str| texts.get(rel).cloned();
         for counted in COUNTS {
             assert!(
-                super::counts::tally(&root, &files, counted, &mut unreadable) > 0,
+                super::counts::tally(&read, &files, counted) > 0,
                 "the {} count matches nothing - `{}` under {:?}",
                 counted.name,
                 counted.holds,
                 counted.over
             );
         }
-        assert!(
-            unreadable.is_empty(),
-            "a subject this tally walks could not be read: {unreadable:?}"
-        );
 
         // Pinned rather than merely non-zero: `grep -c StatusCode::UNPROCESSABLE_ENTITY` on the
         // whole file answers fourteen - #676's own "counting these by grep is a trap" - because
@@ -749,7 +761,7 @@ SQL goldens read the cap";
             .iter()
             .find(|counted| counted.name == "refusal reasons that land on `422`")
             .expect("the entry stays registered");
-        assert_eq!(super::counts::tally(&root, &files, entry, &mut unreadable), 7);
+        assert_eq!(super::counts::tally(&read, &files, entry), 7);
     }
 
     #[test]
@@ -759,21 +771,17 @@ SQL goldens read the cap";
         // table into `.agents/skills/`, `mentioned_in` stayed as it was, and the gate went on
         // counting 93 goldens against a number no page stated any more. A count nobody writes
         // down is not a gate - it is a walk of the tree whose verdict is always agreement.
-        let root = crate::repo::root().expect("the repo root");
-        let (_root, files) = crate::repo::all_files()
-            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
-            .expect("could not list the repo");
-        let mut unreadable = Vec::new();
+        let (files, texts, _witness) = super::super::inspect_listing(crate::repo::all_files()).expect("could not list the repo");
+        let read = |rel: &str| texts.get(rel).cloned();
         for counted in COUNTS {
             assert!(
-                !super::counts::statements(&root, &files, counted.mentioned_in, counted, &mut unreadable).is_empty(),
+                !super::counts::statements(&read, &files, counted.mentioned_in, counted).is_empty(),
                 "no page under {:?} states the {} count before `{}`",
                 counted.mentioned_in,
                 counted.name,
                 counted.marker
             );
         }
-        assert!(unreadable.is_empty(), "a subject this walk could not be read: {unreadable:?}");
     }
 
     #[test]
