@@ -34,7 +34,10 @@ use sutura_domain::catalog::{Anchor, AnchorValue, Audience, Definitions, Descrip
 use sutura_domain::identity::{
     CredentialBroker, CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Minted, Presented, RequestContext, SourceSet,
 };
-use sutura_domain::knowledge::Knowledge;
+use sutura_domain::knowledge::{
+    Absence, Capability, Caveat, Example, GlossaryEntry, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, NoteName,
+    Phrase, Referent,
+};
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{
     Aggregate, AudienceId, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName,
@@ -58,6 +61,20 @@ pub(crate) const ANCHORED_VALUE: i64 = 197_122;
 /// here needs only *a* value, not the rendered one.
 pub(crate) fn instructions() -> Arc<str> {
     Arc::from("test fixture instructions")
+}
+
+/// A fixture for [`crate::AgentSurface`]'s `operator_instructions` field - the operator's own text
+/// the catalog tool carries, distinct from the full rendered document [`instructions`] holds.
+///
+/// `Option` rather than a bare `Arc<str>` because it is threaded into `AgentSurface::new`'s
+/// `Option<Arc<str>>` slot; the wrap is the shape the production signature demands, not a fixture
+/// accident.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the fixture feeds AgentSurface::new's Option<Arc<str>> slot and must keep that shape"
+)]
+pub(crate) fn operator_instructions() -> Option<Arc<str>> {
+    Some(Arc::from("test fixture operator instructions"))
 }
 
 pub(crate) fn source() -> SourceName {
@@ -200,6 +217,119 @@ pub(crate) fn bundle_with_a_restricted_metric() -> PinnedDefinitions {
         ContributionManifest::single(
             source(),
             Contribution::of(MetadataCapabilities::produced(&definitions, &Knowledge::none())),
+        ),
+    )
+    .expect("the test definitions hash")
+}
+
+/// [`bundle_with_a_restricted_metric`], plus a glossary entry that names the `finance_only` metric
+/// and an operator instructions file - the fixture issue #971's audience-scoped knowledge test needs.
+///
+/// One bundle carries the two metrics and one glossary entry pointing at the RESTRICTED one, so a
+/// caller who may not see `finance_only` must not receive the entry either, while the deployment's
+/// own view keeps both.
+pub(crate) fn bundle_with_restricted_metric_and_glossary() -> PinnedDefinitions {
+    let column = |raw: &str| ColumnName::parse(raw).expect("a test column is a column");
+    let model = Model::new(
+        ModelName::parse("orders").expect("a test model is a model"),
+        source(),
+        TableName::parse("orders").expect("a test table is a table"),
+        BTreeSet::from([column("amount_cents"), column("order_date"), column("region")]),
+        description("Orders, one row per order."),
+    );
+    let revenue = Metric::new(
+        MetricName::parse("revenue").expect("a test metric is a metric"),
+        ModelName::parse("orders").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Day, Grain::Month]),
+        Vec::new(),
+        None,
+        description("Revenue, in minor units."),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate");
+    let restricted_to_finance = Audience::Restricted(
+        sutura_domain::catalog::AudienceGrant::parse(BTreeSet::from([
+            AudienceId::parse("finance").expect("a test audience id is one")
+        ]))
+        .expect("one id grants"),
+    );
+    let finance_only = Metric::new(
+        MetricName::parse("finance_only").expect("a test metric is a metric"),
+        ModelName::parse("orders").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        None,
+        description("Only a finance-granted caller may see this."),
+        restricted_to_finance,
+    )
+    .expect("no dimensions to duplicate");
+    let definitions = sutura_domain::catalog::Definitions::assemble(vec![model], vec![], vec![revenue, finance_only])
+        .expect("the test bundle is consistent");
+    let finance_only_name = MetricName::parse("finance_only").expect("a restricted metric is a metric");
+    let finance_only_referent = Referent::Metric {
+        metric: finance_only_name.clone(),
+    };
+    let knowledge = Knowledge::assemble(
+        &definitions,
+        KnowledgeInput::new(
+            KnowledgeCapabilities::of([
+                Capability::Glossary,
+                Capability::Caveats,
+                Capability::Examples,
+                Capability::Absences,
+            ]),
+            vec![GlossaryEntry::new(
+                Phrase::parse("capital expense").expect("a test phrase is a phrase"),
+                BTreeSet::new(),
+                finance_only_referent.clone(),
+                NoteBody::parse("the finance-only meaning of capex").expect("a test body is a body"),
+            )],
+            vec![Caveat::new(
+                NoteName::parse("finance_only_caveat").expect("a test note name is a name"),
+                // About BOTH the open `revenue` and the restricted `finance_only`, so the
+                // all-referents rule is the thing under test: a caller who may see only
+                // `revenue` still loses this caveat because one of its referents is invisible.
+                vec![
+                    finance_only_referent,
+                    Referent::Metric {
+                        metric: MetricName::parse("revenue").expect("a test metric is a metric"),
+                    },
+                ],
+                NoteBody::parse("only a finance-granted caller should trust this number").expect("a test body is a body"),
+            )],
+            vec![Absence::new(
+                Phrase::parse("customer lifetime value").expect("a test phrase is a phrase"),
+                BTreeSet::new(),
+                NoteBody::parse("CLV is deliberately undefined here").expect("a test body is a body"),
+            )],
+            vec![Example::new(
+                NoteName::parse("finance_only_example").expect("a test note name is a name"),
+                vec![Phrase::parse("finance example").expect("a test phrase is a phrase")],
+                Query::new(
+                    finance_only_name,
+                    Grain::Month,
+                    crate::testing::june(),
+                    Vec::new(),
+                    Vec::new(),
+                ),
+                NoteBody::parse("ask exactly this").expect("a test body is a body"),
+            )],
+        ),
+    )
+    .expect("every note names a declared metric");
+    PinnedDefinitions::pin(
+        DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        definitions.clone(),
+        knowledge.clone(),
+        ContributionManifest::single(
+            source(),
+            Contribution::of(MetadataCapabilities::produced(&definitions, &knowledge)),
         ),
     )
     .expect("the test definitions hash")
@@ -501,6 +631,60 @@ impl Surface for RestrictedSurface {
 
     fn spent_bytes_total(&self) -> Option<u64> {
         // This fixture proves a caller's catalog scoping, not spend - it carries no `SpendLedger`.
+        None
+    }
+}
+
+/// The metadata-visibility fixture with the knowledge half issue #971 introduces: an open metric, a
+/// `finance`-restricted one, and a glossary entry naming the restricted one.
+///
+/// Answers nothing, like [`RestrictedSurface`]; what the scoping test reads is the `describe_catalog`
+/// listing and its audience-scoped `knowledge` section.
+pub(crate) struct RestrictedKnowledgeSurface {
+    definitions: PinnedDefinitions,
+}
+
+impl RestrictedKnowledgeSurface {
+    pub(crate) fn new() -> Self {
+        Self {
+            definitions: bundle_with_restricted_metric_and_glossary(),
+        }
+    }
+}
+
+impl Surface for RestrictedKnowledgeSurface {
+    fn definitions(&self) -> &PinnedDefinitions {
+        &self.definitions
+    }
+
+    fn answer(
+        &self,
+        _context: &sutura_domain::identity::RequestContext,
+        _query: &Query,
+        _deadline: Deadline,
+    ) -> Result<ToolOutcome, SurfaceFailure> {
+        Err(SurfaceFailure::Warehouse {
+            cause: Box::new(ConnectionRefused),
+        })
+    }
+
+    fn run_sql(
+        &self,
+        _context: &sutura_domain::identity::RequestContext,
+        _statement: &sutura_domain::raw::RawStatement,
+    ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
+        Err(SurfaceFailure::Warehouse {
+            cause: Box::new(ConnectionRefused),
+        })
+    }
+
+    fn spend_headroom_bytes(&self) -> Option<u64> {
+        None
+    }
+
+    fn spent_bytes_total(&self) -> Option<u64> {
+        // This fixture carries no `SpendLedger` at all; `#993` added the trait method and this
+        // metadata-visibility fixture must satisfy it like its sibling surfaces do.
         None
     }
 }

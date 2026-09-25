@@ -5772,6 +5772,16 @@ pub const fn granted_by(pinned: &'a PinnedDefinitions, granted: GrantedAudiences
 A caller mapped to this set.
 
 ```rust
+pub const fn is_everything(&self) -> bool
+```
+
+Whether this is the whole-bundle view - `docs/adr/0028`'s "explicit whole-bundle" case,
+the `TheDeploymentItself` caller and every operator-side command. A caller-scoped knowledge
+read needs to know it, because not every knowledge kind has a metric to inherit visibility
+from: an unscoped absence has no referent, and per the ADR is withheld unless a catalog-wide
+audience is granted, which only this view represents.
+
+```rust
 pub fn metric(&self, name: &MetricName) -> Option<&'a Metric>
 ```
 
