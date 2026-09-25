@@ -194,7 +194,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         eprintln!("  rather than the workflows, and every rule below would pass over nothing");
         return Verdict::Fail;
     }
-    let release_builds = reach::release_outputs(ordinary.closure());
+    let release_builds = reach::release_outputs(&root, ordinary.closure());
     if !release_builds.is_empty() {
         eprintln!("xtask check-workflows: ordinary CI builds release outputs");
         for found in &release_builds {

@@ -291,6 +291,15 @@ jobs:
       catalog_okf: ${{ steps.classify.outputs.catalog_okf }}
       catalog_openmetadata: ${{ steps.classify.outputs.catalog_openmetadata }}
       catalog_rdbms: ${{ steps.classify.outputs.catalog_rdbms }}
+      # AREA axis, not category - published only because `pr-cache` (below) needs to know whether
+      # a dependency input moved, to skip its own realise when nothing did (#980). NOT `deps` -
+      # that area is the supply-chain axis (`deny.toml`, `Cargo.lock`) the `Supply chain` step
+      # below reads, which is a different question from "did `.#deps` move" and was measured
+      # answering it wrong: a crate `Cargo.toml` feature edit, `rust-toolchain.toml`,
+      # `.cargo/config.toml` and `flake.{nix,lock}` all move the dependency derivation while
+      # `deps` stayed `false` for every one of them. `deps_closure`'s patterns are exactly
+      # `nix-store-cache`'s own `primary-key` inputs (`crate::changes::DEPS_CLOSURE_INPUTS`).
+      deps_closure: ${{ steps.classify.outputs.deps_closure }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -310,7 +319,14 @@ jobs:
         with:
           minimum-gb: "25"
 
+      # EXACTLY ONE INSTALLER PER EVENT (#980). This step is now gated OFF `pull_request`: run on
+      # both, the PR-gated four-store step below found Nix already installed and exited in 18 ms
+      # with "Aborting: Nix is already installed" - measured on 76/76 PR `ci` logs, 2026-09-16..23
+      # - so the config that names `sutura-prs` was written and never applied, and a PR's own
+      # commits never substituted from their own cache. `cache_scope::installers` refuses two
+      # installers admitting the same event in one job, so removing this `if:` again is red.
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        if: github.event_name != 'pull_request'
         with:
           # The flag that makes nix honour settings from flake.nix itself is deliberately
           # absent: with it, a pull request could add a substituter and a trusted key and have
@@ -335,11 +351,13 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      # HALF (a): the pull-request path also trusts the PR's OWN additive cache, on top of the
-      # published set above. That list is SELF-CONTAINED on purpose: a second install must not depend
-      # on the first config surviving, so whichever nix.conf wins, a PR run ends trusting all of
-      # them. It is gated to exactly `pull_request`, so a merged main run and a merge-queue entry
-      # read only the published set. Removing or fuzzing this `if:` reopens main = the gate reddens.
+      # HALF (a): the pull-request path also trusts the PR's OWN additive cache. THE ONLY INSTALLER
+      # THAT ACTUALLY RUNS ON `pull_request` NOW (#980) - the step above is gated off this event, so
+      # this one is not "on top of" a prior install any more, it IS the install. Its list is
+      # SELF-CONTAINED regardless: a second install must not depend on a first one's config
+      # surviving, so whichever nix.conf ships, a PR run ends trusting every store named here. It is
+      # gated to exactly `pull_request`, so a merged main run and a merge-queue entry read only the
+      # published set. Removing or fuzzing this `if:` reopens main = the gate reddens.
       # A PR still restores the published closures AND reads its own branch cache: nix verifies a
       # signature against the intersection of signer and trusted keys, so every key must be named.
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
@@ -1394,7 +1412,18 @@ jobs:
     # THE TOKEN ORDER IS LOAD-BEARING: `cache_scope`'s PR-writer pairing reads this job's `if:`
     # with `github.event_name == 'pull_request'` as a pinned PREFIX and refuses the reversed
     # spelling and a `${{ }}` wrapping alike.
-    if: github.event_name == 'pull_request' && !cancelled()
+    #
+    # `&& needs.ci.outputs.deps_closure == 'true'` (#980, corrected in review): the realise below
+    # now publishes the dependency closure ONLY, and only a commit moving one of
+    # `crate::changes::DEPS_CLOSURE_INPUTS` - the exact set `nix-store-cache`'s own `primary-key`
+    # hashes - can move it. That is NOT the `deps` (supply-chain) axis: the first version of this
+    # line read `needs.ci.outputs.deps`, which is `deny.toml`/`Cargo.lock` only, so a
+    # `rust-toolchain.toml`, `.cargo/config.toml`, `flake.{nix,lock}` or crate-`Cargo.toml` change
+    # moved `.#deps` while classify wrote `deps=false` and this job skipped anyway - #980's own
+    # defect surviving for that whole class. A commit that moves none of those inputs has nothing
+    # this job can usefully build, so it skips rather than spending a runner on a restore that
+    # finds its own write already there.
+    if: github.event_name == 'pull_request' && !cancelled() && needs.ci.outputs.deps_closure == 'true'
     runs-on: rust-mcp-16core
     environment: cachix-push-pr
     steps:
@@ -1449,20 +1478,17 @@ jobs:
           # Same self-restraint the main publish uses: push what THIS run realised, not the whole store.
           pushFilter: "(-source$|nixpkgs)"
 
-      # Realise and publish the PR's own realised paths. cachix-action's post-build hook publishes
-      # ONLY paths nix BUILDS while its daemon is alive - a job that merely restored scope `ci` and
-      # re-derived it would fire the hook nothing. Scope `ci` is keyed on the lockfiles, which are
-      # unchanged across a PR's commits, but the checks' own outputs are derived from the PR's
-      # source, so this realise RE-COMPILES the workspace crates into fresh store paths for this PR,
-      # the hook fires, and they land in `sutura-prs` for the next commit on this branch to
-      # substitute - the same three-check closure the shared `push` job publishes to `sutura`.
-      - name: Realise and publish this PR's shared closure
+      # #980: PUBLISH THE DEPENDENCY CLOSURE ONLY, NOT THE THREE CHECKS. Measured: 76/76 PR `ci`
+      # logs substituted zero paths from `sutura-prs`, and what this step used to build -
+      # `nextest`/`clippy`/`hygiene` - is keyed on THIS PR's own source, so no later commit on the
+      # same branch can reuse it; only `.#deps` (`ciArtifacts`) is keyed on the lockfiles and
+      # manifests and survives to the next commit. The job's own `if:` above already skipped this
+      # when `deps` did not move, so reaching here means it did - the realise below is genuinely a
+      # cache miss to fill, not a hit to rebuild for no reason.
+      - name: Realise and publish this PR's dependency closure
         run: |
           set -eu
-          nix build --print-build-logs \
-            .#checks.x86_64-linux.nextest \
-            .#checks.x86_64-linux.clippy \
-            .#checks.x86_64-linux.hygiene
+          nix build --print-build-logs .#deps
 
   # THE ONLY JOB IN THIS REPOSITORY THAT HOLDS A WRITE SCOPE, and it exists as a separate job for
   # exactly that reason.
@@ -1571,6 +1597,125 @@ jobs:
             gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --input payload.json > /dev/null
             echo "posted a new comment on pull request $PR_NUMBER"
           fi
+  # #983: THE IDENTITY LEG'S OWN CLASSIFICATION, DECOUPLED FROM `ci`'s FINISH. `needs: [ci]` used
+  # to gate `keycloak-served-test` on the FULL `ci` job's own outputs, which meant the JVM boot
+  # below could not even START until `ci` - the long pole, median ~590s - had entirely finished,
+  # although the leg reads no secret and needs nothing from `ci` but one category flag. Measured
+  # over 112 merge-queue runs: starting the leg alongside `ci` instead of after it moves the
+  # queue's full-signal path from a median of 11.4 to 8.6 minutes (p90 17.9 -> 12.9).
+  #
+  # This job pays the SAME `nix run .#xtask -- classify` cost `ci`'s own "Classify the change"
+  # step does (median 24s, p90 238s over the same window) but in parallel with `ci` rather than
+  # behind it, so it is not a free lunch - it is a second, independent classification, cheap
+  # enough that duplicating it beats waiting for the first one to finish.
+  #
+  # TIMEOUT AND CACHE, CORRECTED IN REVIEW: `.#xtask` inherits `ciArtifacts`, and the first
+  # version of this job read no PR cache at all, so a PR that moves dependencies built the whole
+  # closure cold here every time - measured over the last 300 `ci` runs (the same two steps this
+  # job repeats), the slowest realise was 488s after 62s of setup, against a 10-minute timeout:
+  # about 50s of margin, and a timeout here SKIPS keycloak-served-test and turns `ci-aggregate` RED
+  # rather than just running slow. So this job now trusts `sutura-prs` on `pull_request` exactly
+  # the way `ci` does (below), and the timeout has real margin over the measured worst case.
+  #
+  # DELIBERATELY NOT A COPY OF `ci`'s OWN base resolution: `ci`'s durable-marker eviction handling
+  # (see its "Resolve the base to compare against" step) exists for `ci`'s OWN concurrency group
+  # and causality gate, neither of which this job has - so there is no evicted-run gap for a plain
+  # `github.event.before` to fall into on a push. THAT is a CORRECTION, not the original design:
+  # a push checks out that push's own tip, so `git merge-base origin/main HEAD` measured an EMPTY
+  # diff on every push and made this job select `identity` on every push to main, `chore(release):`
+  # included - a real cost (121-174s each), not the "occasional unneeded boot" this comment used to
+  # claim. `merge_group` still diffs against `origin/main`, which for THAT event genuinely is an
+  # ancestor rather than the ref this event just moved, so it stays wider than `ci`'s own base
+  # rather than wrong - classify already fails open to "run everything" on a wide or unmapped
+  # diff, so that one remaining simplification still costs only an occasional unneeded JVM boot.
+  #
+  # THE TWO CLASSIFICATIONS CAN DISAGREE, AND THAT IS SAFE BY CONSTRUCTION: `ci-aggregate` reads
+  # `needs.ci.outputs.identity` (unchanged) to decide whether it must see this leg SUCCEED, so this
+  # job's own verdict only ever widens what runs below, never narrows what the aggregate demands.
+  identity-classify:
+    runs-on: rust-mcp-16core
+    # 20 minutes: real margin over the measured worst case (488s realise + 62s setup = 550s), not
+    # a near-miss - see the header. A timeout here skips keycloak-served-test and turns
+    # ci-aggregate RED with no cause, so this errs wide rather than tight.
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      identity: ${{ steps.classify.outputs.identity }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      # EXACTLY ONE INSTALLER PER EVENT, `ci`'s own pattern: gated OFF `pull_request` so the
+      # PR-additive step below is the only one that runs there.
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        if: github.event_name != 'pull_request'
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      # PR-ADDITIVE (#980 review, finding 3): trusts `sutura-prs` too, so a PR that already
+      # published its own `.#xtask`/`ciArtifacts` (from a previous commit's `pr-cache` run, or
+      # this job's own on an earlier push) substitutes instead of building cold. No local
+      # `nix-store-cache` restore here on purpose (finding 7) - this job needs only `.#xtask`,
+      # which `cachix-push.yml` already publishes to the shared stores, so the cachix
+      # substituters this step names are enough; a local store restore would also make this job a
+      # THIRD writer of scope `ci` on a main push, ahead of `ci` and `cachix-push` themselves.
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        if: github.event_name == 'pull_request'
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
+
+      # #980 review, finding 6: a PUSH to main checks out that push's own tip, so `origin/main`
+      # IS `HEAD` at this point - `git merge-base origin/main HEAD` measured an EMPTY diff on
+      # every push, which `classify` (correctly) reads as "cannot tell, run everything" and
+      # therefore selected `identity` on every push to main, including the `chore(release):`
+      # commit `ci` itself skips on purpose. `github.event.before` is the actual previous tip;
+      # this job has no concurrency group of its own (unlike `ci`, whose durable-marker eviction
+      # handling this file deliberately does not copy - see the job header), so there is no
+      # evicted-run gap for `before` to fall into. `merge_group` is untouched: `origin/main`
+      # there is genuinely an ancestor, not the ref this event just moved.
+      - name: Base for this leg's own classification
+        id: base
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -eu
+          if [ "$EVENT" = "pull_request" ]; then
+            base="$(git merge-base "$PR_BASE" HEAD || true)"
+          elif [ "$EVENT" = "push" ]; then
+            base="$BEFORE"
+          else
+            base="$(git merge-base origin/main HEAD || true)"
+          fi
+          case "$base" in 0000000000000000000000000000000000000000|"") base="" ;; esac
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+
+      - name: Classify the change
+        id: classify
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+        run: |
+          set -eu
+          if [ -n "$BASE" ]; then
+            nix run .#xtask -- classify --since "$BASE"
+          else
+            nix run .#xtask -- classify
+          fi
+
   # The one cell that needs a REAL identity provider rather than the mock -
   # `crates/sutura-cli/tests/served/keycloak_test.rs`'s `#[ignore]`d
   # `a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused`.
@@ -1587,10 +1732,12 @@ jobs:
   # the inbound transport) - accepted rather than deferred, because an `#[ignore]`d cell with no
   # venue proves nothing.
   keycloak-served-test:
-    needs: [ci]
-    # No fork/push distinction, unlike e2e-datahub-adbc: no secret is read below, so there is
-    # nothing this condition needs to withhold from a fork's pull request.
-    if: needs.ci.outputs.identity == 'true'
+    needs: [identity-classify]
+    # `needs: [identity-classify]`, NOT `[ci]` (#983) - see that job's own header for why the two
+    # classifications are independent and why disagreeing between them is safe. No fork/push
+    # distinction, unlike `e2e-datahub-adbc`: no secret is read below, so there is nothing this
+    # condition needs to withhold from a fork's pull request.
+    if: needs.identity-classify.outputs.identity == 'true'
     runs-on: rust-mcp-16core
     timeout-minutes: 30
     permissions:
@@ -1809,9 +1956,14 @@ jobs:
           fail() { echo "ci-aggregate: RED - $*"; exit 1; }
           # `ci` is normally the always-required base context. It is skipped in EXACTLY one
           # situation: the release commit, whose `chore(release):` message skips the whole belt
-          # below `ci` (see `ci`'s own `if`, top of the file). That skip propagates to every leg
-          # that `needs: [ci]` here - keycloak-served-test included - so a skipped `ci` means the
-          # release belt intentionally skipped together, and the aggregate is validly green. Every
+          # below `ci` (see `ci`'s own `if:`, top of the file) - `bigquery-driver-check` included,
+          # since it still `needs: [ci]`. `keycloak-served-test` (#983) does NOT any more - it
+          # `needs: [identity-classify]`, which carries no such `if:`, so it runs on a release
+          # commit independently of `ci`'s skip and its own result is `success` or `failure`, not
+          # `skipped`. What still keeps a release commit green either way is `KC_SELECTED`: it
+          # reads `needs.ci.outputs.identity`, and a SKIPPED `ci` publishes no outputs at all, so
+          # that renders `''` rather than `true` - the check below places no requirement on
+          # `KC_RESULT` regardless of what `identity-classify` decided about the same diff. Every
           # other non-`success` `ci` is a real failure, and the checks below are untouched: a
           # selected-but-skipped leg still fails, whatever `ci` reported.
           if [ "$CI_RESULT" != "success" ] && [ "$CI_RESULT" != "skipped" ]; then
