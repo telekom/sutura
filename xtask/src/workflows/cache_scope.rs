@@ -66,12 +66,6 @@ use crate::changes::DEPS_CLOSURE_INPUTS as KEY_INPUTS;
 /// the event a writer's own gate admits. Its own file for the same 1000-line reason the other two
 /// siblings split off.
 mod installers;
-/// WHICH SHARED CACHE A WRITER MAY TARGET (issue #1000): a third question again - `installers`
-/// holds whether an INSTALLER admits an event, this holds whether a `cachix/cachix-action`
-/// PUBLISH step's own `name:` may be written from the events its job can run on. Its own file for
-/// the same 1000-line reason the other two siblings split off; it reuses `installers`'s
-/// job-admission reader rather than a second one.
-mod publish_scope;
 mod realise;
 mod retired;
 
@@ -143,7 +137,6 @@ pub(super) fn problems(root: &Path, closure: &Closure) -> Vec<String> {
     let files: Vec<(&str, &str)> = closure.inspected().iter().map(|file| (file.label(), file.text())).collect();
     let mut out = judge(&files);
     out.extend(installers::problems(root));
-    out.extend(publish_scope::problems(root));
     out.extend(retired::problems(root));
     out
 }
