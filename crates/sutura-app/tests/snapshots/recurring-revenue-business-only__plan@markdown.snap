@@ -1,5 +1,6 @@
 ---
 source: crates/sutura-app/tests/golden/catalogs.rs
+assertion_line: 169
 expression: plan
 ---
 source: local
@@ -9,12 +10,14 @@ joins:
   - relationship: subscription_customer
     table: dim_customer
     join_type: many_to_one
-    origin:
-      table: fct_subscription_monthly
-      column: customer_key
-    target:
-      table: dim_customer
-      column: customer_key
+    keys:
+      - Equal:
+          origin:
+            table: fct_subscription_monthly
+            column: customer_key
+          target:
+            table: dim_customer
+            column: customer_key
 bucket:
   label: period
   grain: month

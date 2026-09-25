@@ -1,0 +1,8 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+assertion_line: 95
+expression: stable(rows)
+---
+contract_term	period	data_per_subscription
+Text(annual)	Text(2026-06-01)	Real(1.232755555556e2)
+Text(monthly)	Text(2026-06-01)	Real(1.016552500000e2)

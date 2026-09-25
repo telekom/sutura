@@ -29,7 +29,7 @@ pub use authored::{
     AnchorValue, Description, DimensionValue, InvalidDescription, InvalidDimensionValue, MAX_DESCRIPTION_BYTES,
     MAX_DESCRIPTION_LINES, MAX_DIMENSION_VALUE_CHARS,
 };
-pub use consistency::{Definitions, InconsistentDefinitions};
+pub use consistency::{CrossSourceLink, Definitions, InconsistentDefinitions};
 
 use crate::calendar::TimeRange;
 use crate::expression::Computation;

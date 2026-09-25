@@ -1,5 +1,6 @@
 ---
 source: crates/sutura-cli/tests/example.rs
+assertion_line: 192
 expression: pinned.digest().as_str()
 ---
-73e20e0dd80199d97431ec9ff9543afc520b334e39fe06b9b3b5cd1da3b81f76
+bb528ce2a9461f5afc7165d7f72d19603b5282793c305870e4887319435f2b5c

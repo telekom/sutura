@@ -1,5 +1,6 @@
 ---
 source: crates/sutura-app/tests/golden/catalogs.rs
+assertion_line: 36
 expression: pinned.definitions()
 ---
 models:
@@ -26,9 +27,11 @@ relationships:
   orders_to_customer:
     name: orders_to_customer
     origin_model: orders
-    origin_column: customer_id
     target_model: customers
-    target_column: customer_id
+    keys:
+      - Equal:
+          origin: customer_id
+          target: customer_id
     join_type: many_to_one
 metrics:
   revenue:

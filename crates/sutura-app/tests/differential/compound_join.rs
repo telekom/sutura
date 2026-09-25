@@ -13,15 +13,15 @@
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::identity::Presented;
-use sutura_domain::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName};
 use sutura_domain::measure::ZeroDenominator;
+use sutura_domain::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName};
 use sutura_domain::plan::{
     Executable, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanJoinKey, PlanMeasure, PlanPredicate, PlanTerm,
     PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
 };
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::source::SourcePosture;
-use sutura_domain::warehouse::{ParamValue, Value, Warehouse};
+use sutura_domain::warehouse::{ParamValue, Value, Warehouse as _};
 use sutura_exec_duckdb::DuckDbWarehouse;
 
 use crate::adapters::{ReferenceCatalog, a_caller, data_root, deadline, load, posture, shared_credential, source};
@@ -54,7 +54,13 @@ fn bindings() -> PlanBindings {
                     param: 0,
                 },
             ),
-            PlanFilter::new(PredicateOrigin::Definition, PlanPredicate::Before { column: usage_date, param: 1 }),
+            PlanFilter::new(
+                PredicateOrigin::Definition,
+                PlanPredicate::Before {
+                    column: usage_date,
+                    param: 1,
+                },
+            ),
         ],
         vec![
             ParamValue::Date(Date::parse("2026-06-01").expect("a test date is a date")),
@@ -80,7 +86,11 @@ fn plan_with_keys(keys: Vec<PlanJoinKey>) -> QueryPlan {
         SourceName::parse("local").expect("a test source is a source"),
         metric.clone(),
         StatementTables::parse(fact.clone(), vec![join]).expect("two differently named tables are distinguishable"),
-        PlanBucket::new(ResultLabel::bucket(), Grain::Month, PlanColumn::new(fact.clone(), column("usage_date"))),
+        PlanBucket::new(
+            ResultLabel::bucket(),
+            Grain::Month,
+            PlanColumn::new(fact.clone(), column("usage_date")),
+        ),
         Vec::new(),
         PlanMeasure::Ratio {
             numerator: PlanTerm::Aggregate {
@@ -146,6 +156,21 @@ fn engine() -> DuckDbWarehouse {
     warehouse
 }
 
+/// The full corpus's own engine - one CSV per model in the bundle, [`crate::adapters`]'s own
+/// `fixture_tables` shape - for the served side, which `verify_and_validate` runs its boot check
+/// against every relationship in, not only the two this file is about.
+fn full_engine(pinned: &sutura_domain::pinned::PinnedDefinitions) -> DuckDbWarehouse {
+    let warehouse = DuckDbWarehouse::in_memory(source(), posture()).expect("an in-memory database opens");
+    for model in pinned.definitions().models().values() {
+        let name = model.table_name();
+        let csv = data_root().join(format!("{name}.csv"));
+        warehouse
+            .attach_csv(name, &csv)
+            .unwrap_or_else(|e| panic!("could not attach {}: {e}", csv.display()));
+    }
+    warehouse
+}
+
 /// Runs one hand-built plan directly against the port, bypassing every governance ceremony above
 /// it - the same layer `sutura-exec-duckdb`'s own unit tests execute at, and the layer this file's
 /// comparison is actually about.
@@ -171,7 +196,7 @@ fn ratio_of(warehouse: &DuckDbWarehouse, plan: &QueryPlan) -> f64 {
 /// so this cannot share the caller's.
 fn served_ratio() -> f64 {
     let pinned = load::<ReferenceCatalog>();
-    let registry = sutura_app::Warehouses::of(engine());
+    let registry = sutura_app::Warehouses::of(full_engine(&pinned));
     let validated = sutura_app::verify_and_validate(pinned, &registry).expect("the anchors hold");
     let query = Query::new(
         MetricName::parse("data_per_subscription").expect("a test metric is a metric"),

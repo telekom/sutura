@@ -1037,11 +1037,17 @@ The table's own name, without whatever sits above it.
 pub struct Relationship
 ```
 
-A declared join between two models: two columns and a cardinality.
+A declared join between two models: an ordered, non-empty set of typed key terms and a
+cardinality.
 
-A pair of columns rather than a condition string. The condition form is what the reference
+**Typed terms rather than a condition string.** The condition form is what the reference
 modelling languages use, and it is an escape hatch: `a.x = b.y OR 1 = 1` is a valid condition.
-Equality on one column each is the whole of what a model needs to say here.
+`JoinKey` is the whole vocabulary a term may take - an equality on one column each, or that
+same equality with the origin side truncated to a `Grain` first - so a relationship still
+cannot spell an `OR`, a free expression, or a predicate that is not one of those two shapes. A
+daily fact joined to a monthly snapshot needs more than one column pair -
+`subscription_key = subscription_key AND month = month_of(usage_date)` - and `JoinKeys` is
+the ordered list that says so without widening what one term can be.
 
 #### Methods
 
@@ -1050,23 +1056,21 @@ pub const fn join_type(&self) -> JoinType
 ```
 
 ```rust
+pub fn keys(&self) -> &[JoinKey]
+```
+
+The key terms this relationship joins on, in declared order. Never empty.
+
+```rust
 pub const fn name(&self) -> &RelationshipName
 ```
 
 ```rust
-pub const fn new(name: RelationshipName, origin_model: ModelName, origin_column: ColumnName, target_model: ModelName, target_column: ColumnName, join_type: JoinType) -> Self
-```
-
-```rust
-pub const fn origin_column(&self) -> &ColumnName
+pub const fn new(name: RelationshipName, origin_model: ModelName, target_model: ModelName, keys: JoinKeys, join_type: JoinType) -> Self
 ```
 
 ```rust
 pub const fn origin_model(&self) -> &ModelName
-```
-
-```rust
-pub const fn target_column(&self) -> &ColumnName
 ```
 
 ```rust
@@ -1076,6 +1080,98 @@ pub const fn target_model(&self) -> &ModelName
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum JoinKey`
+
+```rust
+pub enum JoinKey
+```
+
+One term of a relationship's join condition.
+
+**The whole vocabulary, and nothing that would widen it.** `Self::Equal` is `origin =
+target`; `Self::TruncatedEqual` is `origin` truncated to `grain`, compared to `target`. The
+truncation is always on the ORIGIN side, never the target: this exists for a fact at a finer
+grain (a day) joined to a snapshot at a coarser one (a month), and a snapshot table already
+holds its own grain as a plain column, so only the fact's side ever needs truncating before the
+comparison.
+
+#### Variants
+
+- `Equal` - `origin = target`, unconditionally.
+- `TruncatedEqual` - `TRUNC(origin, grain) = target`. Rendered through the same per-dialect time-bucket code a metric's own grain uses, so a fifth dialect answers this the way it answers every other truncation rather than through a second, unchecked rendering path.
+
+#### Methods
+
+```rust
+pub const fn origin(&self) -> &ColumnName
+```
+
+The column read on the relationship's origin model, before any truncation.
+
+```rust
+pub const fn target(&self) -> &ColumnName
+```
+
+The column read on the relationship's target model.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct JoinKeys`
+
+```rust
+pub struct JoinKeys
+```
+
+The ordered, non-empty list of `JoinKey`s a `Relationship` joins on.
+
+**Non-empty by construction, `ViaChain`'s own reason:** a relationship joining on zero keys
+joins nothing, which is not a narrower relationship - it is not one. Ordered, because each term
+is rendered as one clause of an `AND` in declaration order, the same contract `ViaChain` holds
+for a chain of hops.
+
+#### Methods
+
+```rust
+pub fn as_slice(&self) -> &[JoinKey]
+```
+
+The keys, in declared order.
+
+```rust
+pub fn of(keys: Vec<JoinKey>) -> Result<Self, InvalidJoinKeys>
+```
+
+A key list in the order given, refusing the empty list.
+
+```rust
+pub fn single_equal(origin: ColumnName, target: ColumnName) -> Self
+```
+
+One `origin = target` key - the common case, named so most callers never build a
+single-element `Vec` by hand.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum InvalidJoinKeys`
+
+```rust
+pub enum InvalidJoinKeys
+```
+
+Why a list of `JoinKey`s could not become a `JoinKeys`.
+
+#### Variants
+
+- `Empty`
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ### `struct ViaChain`
 
@@ -1610,6 +1706,12 @@ one note body is. Choosing the two together is the whole point of bounding eithe
 Counted in characters rather than bytes, for the reason
 `crate::knowledge`'s phrase limit gives: a value may be German or Greek text, and a limit in
 bytes would make one value legal in one language and not in another.
+
+### `use CrossSourceLink`
+
+The whole of what
+`CrossSourceRelationshipNotSingleEqualKey`
+says, boxed off the enum for that variant's own reason.
 
 ### `use Definitions`
 
@@ -5881,6 +5983,39 @@ pub const fn table(&self) -> &TableName
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
+### `enum PlanJoinKey`
+
+```rust
+pub enum PlanJoinKey
+```
+
+One term of a `PlanJoin`'s condition, `crate::catalog::JoinKey`'s own vocabulary with both
+sides qualified by the table the plan reads them from.
+
+**The same two shapes, and no third one.** `Self::Equal` renders `origin = target`;
+`Self::TruncatedEqual` renders the origin side truncated to `grain` first. Nothing here can
+spell an `OR` or a free predicate - a renderer matches this enum exhaustively rather than
+interpolating a string.
+
+#### Variants
+
+- `Equal`
+- `TruncatedEqual`
+
+#### Methods
+
+```rust
+pub const fn origin(&self) -> &PlanColumn
+```
+
+```rust
+pub const fn target(&self) -> &PlanColumn
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
 ### `struct PlanJoin`
 
 ```rust
@@ -5896,7 +6031,13 @@ pub const fn join_type(&self) -> JoinType
 ```
 
 ```rust
-pub fn new(relationship: RelationshipName, table: impl Into<QualifiedTable>, join_type: JoinType, origin: PlanColumn, target: PlanColumn) -> Self
+pub fn keys(&self) -> &[PlanJoinKey]
+```
+
+The key terms this join's `ON` clause is the conjunction of, in declared order.
+
+```rust
+pub fn new(relationship: RelationshipName, table: impl Into<QualifiedTable>, join_type: JoinType, keys: Vec<PlanJoinKey>) -> Self
 ```
 
 One join to a table, wherever that table lives.
@@ -5910,9 +6051,10 @@ so where a source count decides between one statement, a split and
 
 `impl Into<QualifiedTable>` for the reason `Model::new` gives.
 
-```rust
-pub const fn origin(&self) -> &PlanColumn
-```
+**`keys` is never empty in practice**, because the only producer builds it from
+`crate::catalog::Relationship::keys`, which `crate::catalog::JoinKeys` already refuses to
+be empty - this type does not re-enforce it, the same trade `chains: Vec<Vec<PlanJoin>>`
+makes one level up in `sutura_semantic::plan::chain`.
 
 ```rust
 pub const fn relationship(&self) -> &RelationshipName
@@ -5929,10 +6071,6 @@ pub const fn table_name(&self) -> &TableName
 ```
 
 The joined table's own name, which is what its columns are qualified by.
-
-```rust
-pub const fn target(&self) -> &PlanColumn
-```
 
 #### Implements
 
@@ -12007,13 +12145,22 @@ gives: the API reference pages are generated from these comments verbatim.
 pub struct DeclaredKey<'a>
 ```
 
-One declared join key, resolved to the table and column a data system can be asked about.
+One declared join key, resolved to the table and the ordered, non-empty set of target columns a
+data system can be asked about.
 
 **A newtype that parses, and what it parses away is asking the wrong question.** It is
-constructible only from a `Relationship` whose `JoinType` promises that the TARGET column is
+constructible only from a `Relationship` whose `JoinType` promises that the TARGET side is
 unique, resolved against the `Definitions` that carry the target model - so a probe over a
 `one_to_many` target, or over a column the model does not declare, is unrepresentable rather than
 refused later. An adapter that holds one of these knows the question is worth asking.
+
+**The whole key set, not one column.** A compound relationship's declaration is about the
+COMBINATION of its target columns being unique - `(subscription_key, month)` can identify at
+most one row even where neither column alone does - so a probe that checked one of them would
+answer a narrower question than the one the join path spends. Only the target side matters here:
+`crate::catalog::JoinKey::TruncatedEqual`'s grain truncates the ORIGIN column before the
+comparison, and the target column it compares against is untouched, so this reasons over plain
+columns whichever kind of term declared them.
 
 It borrows, because every part of it is already owned by the pinned bundle the boot path is
 holding, and a probe outlives nothing.
@@ -12021,10 +12168,10 @@ holding, and a probe outlives nothing.
 ##### Methods
 
 ```rust
-pub const fn column(&self) -> &'a ColumnName
+pub fn columns(&self) -> &[&'a ColumnName]
 ```
 
-The column whose values are meant to be distinct.
+The columns whose combined values are meant to be distinct, in declared order. Never empty.
 
 ```rust
 pub const fn model(&self) -> &'a ModelName
@@ -12064,7 +12211,7 @@ The table to count over.
 
 ##### Implements
 
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+`Clone`, `Debug`, `Eq`, `PartialEq`
 
 #### `enum NoDeclaredKey`
 
@@ -12203,10 +12350,10 @@ nobody scoped for it. The counts locate the table; the operator queries it.
 ##### Methods
 
 ```rust
-pub const fn column(&self) -> &ColumnName
+pub fn columns(&self) -> &[ColumnName]
 ```
 
-The column that was meant to identify at most one row.
+The columns whose combination was meant to identify at most one row. Never empty.
 
 ```rust
 pub const fn counts(&self) -> KeyCounts

@@ -133,6 +133,12 @@ as a refusal a caller would retry.
   buys is the thing the load check alone did not have - a second reader of the same rule, on
   the path where getting it wrong renders another data system's table into one statement under
   a certified metric name. `crate::plan::PlanError::ChainLeavesItsSource` carries the report.
+- `FederatedLinkNotSingleEqualKey` - The relationship carrying a federated link reached the plan stage with more than one key or a truncated one.
+
+  The bundle should not have assembled: `sutura_domain::catalog` refuses a cross-source
+  relationship that does not resolve to exactly one `equal` key, for
+  `ChainLeavesItsSource`'s own reason. `crate::plan::PlanError::FederatedLinkNotSingleEqualKey`
+  carries the report.
 
 ### Implements
 

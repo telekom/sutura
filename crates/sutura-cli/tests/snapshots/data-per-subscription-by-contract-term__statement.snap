@@ -1,0 +1,8 @@
+---
+source: crates/sutura-cli/tests/example.rs
+assertion_line: 355
+expression: rendered(&query)
+---
+SELECT "fct_subscription_monthly"."contract_term" AS "contract_term", CAST(DATE_TRUNC('month', "fct_usage_daily"."usage_date") AS DATE) AS "period", CAST(SUM("fct_usage_daily"."data_gb") AS DOUBLE) / NULLIF(COUNT(DISTINCT "fct_usage_daily"."subscription_key"), 0) AS "data_per_subscription" FROM "fct_usage_daily" LEFT JOIN "fct_subscription_monthly" ON "fct_usage_daily"."subscription_key" = "fct_subscription_monthly"."subscription_key" AND CAST(DATE_TRUNC('month', "fct_usage_daily"."usage_date") AS DATE) = "fct_subscription_monthly"."month" WHERE "fct_usage_daily"."usage_date" >= ? AND "fct_usage_daily"."usage_date" < ? GROUP BY "fct_subscription_monthly"."contract_term", CAST(DATE_TRUNC('month', "fct_usage_daily"."usage_date") AS DATE) ORDER BY "fct_subscription_monthly"."contract_term" NULLS LAST, CAST(DATE_TRUNC('month', "fct_usage_daily"."usage_date") AS DATE) NULLS LAST LIMIT 10001
+-- $1 = 2026-06-01
+-- $2 = 2026-07-01

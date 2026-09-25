@@ -688,10 +688,7 @@ fn a_compound_key_reads_both_terms_in_order() {
 fn an_empty_key_list_is_refused() {
     let yaml = format!("{SINGLE_KEY_RELATIONSHIP}keys: []\n");
     let doc = relationship_doc(&yaml).expect("an empty list still parses as a document");
-    assert_eq!(
-        doc.into_domain().unwrap_err(),
-        sutura_domain::catalog::InvalidJoinKeys::Empty
-    );
+    assert_eq!(doc.into_domain().unwrap_err(), sutura_domain::catalog::InvalidJoinKeys::Empty);
 }
 
 /// A term naming a shape this vocabulary does not have - the refusal names the word, not a type

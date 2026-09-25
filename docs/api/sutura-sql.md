@@ -240,11 +240,28 @@ Renders a plan as one statement, paired with its parameters.
 
 Renders one declared join key's uniqueness probe as one statement.
 
-**Two counts over one column of one table, and nothing else.** `COUNT(col)` beside
-`COUNT(DISTINCT col)` is the whole question a `many_to_one` declaration can be contradicted by,
-and the pair is equal exactly when the declaration holds. There is no `WHERE`, no `GROUP BY`, no
-`HAVING` and no `LIMIT`: the declaration is unconditional, so a probe carrying a filter would
-answer a narrower question than the one the join path spends.
+**Two counts over the WHOLE key - every column of one table together, and nothing else.**
+`COUNT(*)` over the rows every key column is non-null on, beside the count of DISTINCT
+combinations those same columns take, is the whole question a `many_to_one` declaration can be
+contradicted by: the pair is equal exactly when the declaration holds. For one column this is
+the single-column question the pair always asked; for more than one it is the fan-out question a
+single `COUNT(DISTINCT col)` cannot ask, because no `COUNT(DISTINCT …)` form is common to every
+dialect this crate renders for over more than one column. There is no filter beyond the
+non-null guard, no `HAVING` and no `LIMIT`: the declaration is unconditional over what it
+promises, so a probe narrowing it further would answer a different question than the one the
+join path spends.
+
+**A null in any key column excludes the row from both counts**, the same decision a single
+column's `COUNT(col)` made for free before this counted more than one - a key with a null part
+matches nothing on either side of any join, so counting it would report a violation that could
+never change an answer. Made explicit here because `COUNT(*)` does not exclude nulls the way
+`COUNT(col)` did.
+
+**The distinct count is a nested `COUNT(*)` over a `SELECT DISTINCT`, not `COUNT(DISTINCT …)` on
+the key columns directly** - portable by construction rather than by dialect-specific tuple or
+multi-argument `DISTINCT` syntax, which this crate's five targets do not agree on. Measured
+(`a_key_probe_renders_and_parses_for_every_dialect_it_declares`) rather than declared, the same
+discipline `crate::dialect::DateTruncShape`'s own header asks for.
 
 **No parameter, and nothing from a question.** A `DeclaredKey` is built out of a pinned
 bundle's own parsed names, so the statement has nowhere for a caller's value to arrive; the
@@ -1226,11 +1243,28 @@ pub fn generate_key_probe(key: &sutura_domain::warehouse::cardinality::DeclaredK
 
 Renders one declared join key's uniqueness probe as one statement.
 
-**Two counts over one column of one table, and nothing else.** `COUNT(col)` beside
-`COUNT(DISTINCT col)` is the whole question a `many_to_one` declaration can be contradicted by,
-and the pair is equal exactly when the declaration holds. There is no `WHERE`, no `GROUP BY`, no
-`HAVING` and no `LIMIT`: the declaration is unconditional, so a probe carrying a filter would
-answer a narrower question than the one the join path spends.
+**Two counts over the WHOLE key - every column of one table together, and nothing else.**
+`COUNT(*)` over the rows every key column is non-null on, beside the count of DISTINCT
+combinations those same columns take, is the whole question a `many_to_one` declaration can be
+contradicted by: the pair is equal exactly when the declaration holds. For one column this is
+the single-column question the pair always asked; for more than one it is the fan-out question a
+single `COUNT(DISTINCT col)` cannot ask, because no `COUNT(DISTINCT …)` form is common to every
+dialect this crate renders for over more than one column. There is no filter beyond the
+non-null guard, no `HAVING` and no `LIMIT`: the declaration is unconditional over what it
+promises, so a probe narrowing it further would answer a different question than the one the
+join path spends.
+
+**A null in any key column excludes the row from both counts**, the same decision a single
+column's `COUNT(col)` made for free before this counted more than one - a key with a null part
+matches nothing on either side of any join, so counting it would report a violation that could
+never change an answer. Made explicit here because `COUNT(*)` does not exclude nulls the way
+`COUNT(col)` did.
+
+**The distinct count is a nested `COUNT(*)` over a `SELECT DISTINCT`, not `COUNT(DISTINCT …)` on
+the key columns directly** - portable by construction rather than by dialect-specific tuple or
+multi-argument `DISTINCT` syntax, which this crate's five targets do not agree on. Measured
+(`a_key_probe_renders_and_parses_for_every_dialect_it_declares`) rather than declared, the same
+discipline `crate::dialect::DateTruncShape`'s own header asks for.
 
 **No parameter, and nothing from a question.** A `DeclaredKey` is built out of a pinned
 bundle's own parsed names, so the statement has nowhere for a caller's value to arrive; the

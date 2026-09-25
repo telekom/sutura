@@ -1,5 +1,6 @@
 ---
 source: crates/sutura-cli/tests/example.rs
+assertion_line: 193
 expression: pinned.definitions()
 ---
 models:
@@ -22,7 +23,7 @@ models:
       - subscription_key
       - usage_date
       - voice_min
-    description: "One row per subscription per day on which it used anything.\n\nIt carries `subscription_key` and no relationship reaches from here to the subscription\nsnapshot, which looks like an omission and is not. The snapshot has one row per\nsubscription per MONTH, so a join on `subscription_key` alone matches every month that\nsubscription existed and multiplies each day of usage by that count. The sum over those\nrows is a wrong number that raises no error anywhere.\n\nThe join that would be correct also constrains the snapshot month to the usage month,\nand a relationship here declares one column on each side. So the relationship is absent\nrather than declared wrongly, and every metric on this model groups by time and by\nnothing else. Usage per product family is a definition this catalog cannot yet express,\nand saying so is better than shipping a number that is quietly several times too large."
+    description: "One row per subscription per day on which it used anything.\n\nIt carries `subscription_key`, and a join on that column alone matches every month the\nsubscription existed and multiplies each day of usage by that count against the\nsubscription snapshot, which has one row per subscription per MONTH. `data_per_subscription`\nreaches `contract_term` through `daily_usage_subscription`, whose second key term\nconstrains the snapshot month to the usage month rather than joining on the subscription\nkey alone - two typed terms, not a wider relationship. `product_family`, `region` and\n`segment` all sit one hop further from `subscriptions` than `contract_term` does, and\ndeclaring one of those here would be a second relationship's chain, which is a wider\nchange than this catalog makes in one step. Every OTHER dimension here still comes from\ngrouping by time and by nothing else."
   products:
     name: products
     source: local
@@ -58,23 +59,42 @@ relationships:
   customer_region:
     name: customer_region
     origin_model: customers
-    origin_column: region
     target_model: regions
-    target_column: region
+    keys:
+      - Equal:
+          origin: region
+          target: region
+    join_type: many_to_one
+  daily_usage_subscription:
+    name: daily_usage_subscription
+    origin_model: daily_usage
+    target_model: subscriptions
+    keys:
+      - Equal:
+          origin: subscription_key
+          target: subscription_key
+      - TruncatedEqual:
+          origin: usage_date
+          grain: month
+          target: month
     join_type: many_to_one
   subscription_customer:
     name: subscription_customer
     origin_model: subscriptions
-    origin_column: customer_key
     target_model: customers
-    target_column: customer_key
+    keys:
+      - Equal:
+          origin: customer_key
+          target: customer_key
     join_type: many_to_one
   subscription_product:
     name: subscription_product
     origin_model: subscriptions
-    origin_column: product_key
     target_model: products
-    target_column: product_key
+    keys:
+      - Equal:
+          origin: product_key
+          target: product_key
     join_type: many_to_one
 metrics:
   active_subscriptions:
@@ -206,9 +226,18 @@ metrics:
       - day
       - week
       - month
-    dimensions: {}
+    dimensions:
+      contract_term:
+        name: contract_term
+        column: contract_term
+        via:
+          - daily_usage_subscription
+        allowed_values:
+          - annual
+          - monthly
+        description: "Whether the subscription was on a rolling or a committed term that month, reached through the compound join to the snapshot - the one hop it takes, and no further."
     anchor: ~
-    description: "Data volume per subscription, in gigabytes.\n\nA ratio with no definitional filter, which is the other half of what `required_filters`\nis for: this metric means what it measures over every row in range, and there is no\npredicate a reader has to be warned about.\n\nThe denominator counts the subscriptions that appear in the range rather than every\nsubscription that existed during it. A day with no usage is a day with no row here, so\nthis is volume per subscription that used the network, not volume per subscriber. The\nsecond number needs the monthly snapshot, and `daily_usage` says why this catalog cannot\nyet join to it.\n\n`zero_denominator: yields_null` because a range holding no usage rows at all is a range\nwith no figure, not a range whose figure is zero.\n\nNo anchor: a sum of decimal gigabytes divided by a count is a float, and pinning one as\ntext pins how a language prints a binary expansion."
+    description: "Data volume per subscription, in gigabytes.\n\nA ratio with no definitional filter, which is the other half of what `required_filters`\nis for: this metric means what it measures over every row in range, and there is no\npredicate a reader has to be warned about.\n\nThe denominator counts the subscriptions that appear in the range rather than every\nsubscription that existed during it. A day with no usage is a day with no row here, so\nthis is volume per subscription that used the network, not volume per subscriber.\n\n`contract_term` is reached through the one relationship this model declares:\n`daily_usage_subscription` constrains the snapshot month to the usage month before\njoining, so a subscription that changed term mid-year attributes each day's usage to\nthe term it held that month rather than to whatever it holds today. Every OTHER\nattribute the snapshot carries - `product_family`, `region`, `segment` - needs a second\nhop this catalog does not yet declare from here, so grouping by one of those is still\nnot available; `daily_usage` says why the join itself, not the dimension, was the\nmissing piece.\n\n`zero_denominator: yields_null` because a range holding no usage rows at all is a range\nwith no figure, not a range whose figure is zero.\n\nNo anchor: a sum of decimal gigabytes divided by a count is a float, and pinning one as\ntext pins how a language prints a binary expansion."
     audience: Open
   mean_subscription_mrr:
     name: mean_subscription_mrr

@@ -1,5 +1,6 @@
 ---
 source: crates/sutura-cli/tests/example.rs
+assertion_line: 595
 expression: "prompt(&pinned, sutura_app::prompt::CatalogProse::Quoted)"
 ---
 # Answering questions about data with sutura
@@ -377,7 +378,7 @@ which phrase you resolved and what you resolved it to, so the person can correct
 ## The metrics this deployment defines
 
 - Definitions version: `example-single-player`
-- Definitions digest: `73e20e0dd80199d97431ec9ff9543afc520b334e39fe06b9b3b5cd1da3b81f76`
+- Definitions digest: `bb528ce2a9461f5afc7165d7f72d19603b5282793c305870e4887319435f2b5c`
 
 11 metrics, and they are the whole of what may be asked about.
 
@@ -489,7 +490,8 @@ carry on under the rules above.
 ### data_per_subscription
 
 - Grains: month, week, day
-- Dimensions: none. This metric is reported as one number per period and cannot be broken down.
+- Dimensions:
+  - `contract_term` - group by or filter. Values: annual, monthly
 
 > Data volume per subscription, in gigabytes.
 >
@@ -499,28 +501,22 @@ carry on under the rules above.
 >
 > The denominator counts the subscriptions that appear in the range rather than every
 > subscription that existed during it. A day with no usage is a day with no row here, so
-> this is volume per subscription that used the network, not volume per subscriber. The
-> second number needs the monthly snapshot, and `daily_usage` says why this catalog cannot
-> yet join to it.
+> this is volume per subscription that used the network, not volume per subscriber.
+>
+> `contract_term` is reached through the one relationship this model declares:
+> `daily_usage_subscription` constrains the snapshot month to the usage month before
+> joining, so a subscription that changed term mid-year attributes each day's usage to
+> the term it held that month rather than to whatever it holds today. Every OTHER
+> attribute the snapshot carries - `product_family`, `region`, `segment` - needs a second
+> hop this catalog does not yet declare from here, so grouping by one of those is still
+> not available; `daily_usage` says why the join itself, not the dimension, was the
+> missing piece.
 >
 > `zero_denominator: yields_null` because a range holding no usage rows at all is a range
 > with no figure, not a range whose figure is zero.
 >
 > No anchor: a sum of decimal gigabytes divided by a count is a float, and pinning one as
 > text pins how a language prints a binary expansion.
-
-**Caveat `usage_reaches_no_snapshot`** - about this metric as a whole:
-> Neither of these can be broken down at all - not by segment, not by region, not by product.
->
-> The usage rows are daily and the subscription snapshot is monthly. A join between them has to
-> constrain the snapshot month to the usage month, or every day of usage is multiplied by the number
-> of months that subscription existed. A relationship in this catalog declares one column on each
-> side, so that join cannot be written here at all, and it is therefore absent rather than declared
-> wrongly and quietly multiplying rows.
->
-> The consequence for a question is concrete: usage by segment is not available. Say so. Answering
-> with usage overall, or with a segment breakdown of some other metric, is a wrong answer in the shape
-> of a right one.
 
 ### mean_subscription_mrr
 
@@ -906,17 +902,22 @@ carry on under the rules above.
 > rather than a number.
 
 **Caveat `usage_reaches_no_snapshot`** - about this metric as a whole:
-> Neither of these can be broken down at all - not by segment, not by region, not by product.
+> This one cannot be broken down at all - not by segment, not by region, not by product.
 >
-> The usage rows are daily and the subscription snapshot is monthly. A join between them has to
-> constrain the snapshot month to the usage month, or every day of usage is multiplied by the number
-> of months that subscription existed. A relationship in this catalog declares one column on each
-> side, so that join cannot be written here at all, and it is therefore absent rather than declared
-> wrongly and quietly multiplying rows.
+> The usage rows are daily and the subscription snapshot is monthly, so a join between them has to
+> constrain the snapshot month to the usage month or every day of usage is multiplied by the number
+> of months that subscription existed. `daily_usage_subscription` is that join now - a second key
+> term truncates the usage date to its month before comparing it to the snapshot's own - and
+> `data_per_subscription` reaches `contract_term` through it, one hop from `subscriptions`.
+> `product_family`, `region` and `segment` all sit a further hop away and are still not reachable
+> from here. This metric declares no dimension on purpose: it is the plainest shape in the
+> vocabulary, one aggregate over one column with no join at all, and adding one here would be the
+> second metric losing that unadorned case rather than gaining a real one `data_per_subscription`
+> does not already cover.
 >
-> The consequence for a question is concrete: usage by segment is not available. Say so. Answering
-> with usage overall, or with a segment breakdown of some other metric, is a wrong answer in the shape
-> of a right one.
+> The consequence for a question is concrete: voice minutes by segment is not available. Say so.
+> Answering with usage overall, or with a segment breakdown of some other metric, is a wrong answer
+> in the shape of a right one.
 
 ## Worked questions
 

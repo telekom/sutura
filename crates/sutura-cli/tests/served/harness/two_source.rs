@@ -73,6 +73,36 @@ fn without_the_chained_dimension(root: &Path) {
 /// The block [`without_the_chained_dimension`] removes, as `examples/single-player` writes it.
 const CHAINED_DIMENSION: &str = "  - name: sales_area\n    column: sales_area\n    via: [subscription_customer, customer_region]\n    values: [central, north_east, south_west]\n    description: >\n      Which sales area the customer's region rolls up into. The one dimension here\n      reached through a chain of two relationships rather than one.\n";
 
+/// Drops the one dimension `data_per_subscription` reaches through the COMPOUND join's first hop,
+/// which a topology moving `daily_usage` off [`LOCAL_SOURCE`] cannot carry.
+///
+/// **Not a convenience, `without_the_chained_dimension`'s own reason applied to hop 1 instead of
+/// hop 2.** `daily_usage_subscription` is the relationship `two_kind`'s deployment moves - it was
+/// the one model on no chain at all until `contract_term` gave it a first hop, and a first hop that
+/// crosses sources must resolve to exactly one `equal` key
+/// (`InconsistentDefinitions::CrossSourceRelationshipNotSingleEqualKey`); `daily_usage_subscription`
+/// declares two. So the compound key closes the gap `daily_usage.md` used to document and breaks
+/// this fixture's own premise in the same edit - dropped here rather than reverted, because the
+/// dimension itself is real and this deployment's own two questions never ask for it.
+///
+/// A block that no longer matches PANICS, for [`derived_catalog`]'s reason.
+pub(crate) fn without_the_compound_dimension(root: &Path) {
+    let metric = root.join("metrics").join("data_per_subscription.md");
+    let text = std::fs::read_to_string(&metric).expect("the derived catalog carries the metric this case edits");
+    let stripped = text.replace(COMPOUND_DIMENSION, "");
+    assert_ne!(
+        stripped,
+        text,
+        "{} no longer declares the compound-join dimension this fixture strips, so a corpus edit \
+         has left this deployment describing something else",
+        metric.display()
+    );
+    std::fs::write(&metric, stripped).expect("the derived metric document is writable");
+}
+
+/// The block [`without_the_compound_dimension`] removes, as `examples/single-player` writes it.
+const COMPOUND_DIMENSION: &str = "dimensions:\n  - name: contract_term\n    column: contract_term\n    via: daily_usage_subscription\n    values: [annual, monthly]\n    description: >\n      Whether the subscription was on a rolling or a committed term that month, reached\n      through the compound join to the snapshot - the one hop it takes, and no further.\n";
+
 /// The example catalog, copied, with one model moved off [`LOCAL_SOURCE`] onto `moved_to`.
 ///
 /// Copied rather than edited in place for the obvious reason and one less obvious: this suite runs

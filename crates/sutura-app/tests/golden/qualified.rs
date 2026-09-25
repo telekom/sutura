@@ -41,8 +41,8 @@ use sutura_domain::model::{
     RelationshipName, SourceName, TableName, TableQualifier,
 };
 use sutura_domain::plan::{
-    AmbiguousTables, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanJoinKey, PlanKey, PlanMeasure, PlanPredicate,
-    PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
+    AmbiguousTables, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanJoinKey, PlanKey, PlanMeasure,
+    PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
 };
 use sutura_domain::warehouse::ParamValue;
 use sutura_sql::generate::GenerateError;

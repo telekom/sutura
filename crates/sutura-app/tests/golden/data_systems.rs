@@ -399,6 +399,7 @@ where
                 relationship.name()
             )
         });
+        let key_columns = || key.columns().iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
         // The registry cell is the second of the two call sites `clippy.toml` permits for a port
         // method that executes with no credential - the boot path holds the other. It is here rather
         // than nowhere because a capability nothing measures is a capability that can vanish.
@@ -407,13 +408,6 @@ where
             reason = "this cell is one of the two permitted callers of a port method that executes with no \
                       credential; it exists to measure that the method still does what the boot path needs"
         )]
-        let key_columns = || {
-            key.columns()
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
         let answered = warehouse
             .declared_key(key.clone())
             .unwrap_or_else(|e| panic!("{} could not count {} on {}: {e}", W::NAME, key_columns(), key.table()));

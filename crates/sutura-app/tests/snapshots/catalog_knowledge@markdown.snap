@@ -1,5 +1,6 @@
 ---
 source: crates/sutura-app/tests/golden/catalogs.rs
+assertion_line: 43
 expression: pinned.knowledge()
 ---
 declares:
@@ -129,9 +130,8 @@ caveats:
   usage_reaches_no_snapshot:
     name: usage_reaches_no_snapshot
     about:
-      - metric: data_per_subscription
       - metric: voice_minutes
-    body: "Neither of these can be broken down at all - not by segment, not by region, not by product.\n\nThe usage rows are daily and the subscription snapshot is monthly. A join between them has to\nconstrain the snapshot month to the usage month, or every day of usage is multiplied by the number\nof months that subscription existed. A relationship in this catalog declares one column on each\nside, so that join cannot be written here at all, and it is therefore absent rather than declared\nwrongly and quietly multiplying rows.\n\nThe consequence for a question is concrete: usage by segment is not available. Say so. Answering\nwith usage overall, or with a segment breakdown of some other metric, is a wrong answer in the shape\nof a right one."
+    body: "This one cannot be broken down at all - not by segment, not by region, not by product.\n\nThe usage rows are daily and the subscription snapshot is monthly, so a join between them has to\nconstrain the snapshot month to the usage month or every day of usage is multiplied by the number\nof months that subscription existed. `daily_usage_subscription` is that join now - a second key\nterm truncates the usage date to its month before comparing it to the snapshot's own - and\n`data_per_subscription` reaches `contract_term` through it, one hop from `subscriptions`.\n`product_family`, `region` and `segment` all sit a further hop away and are still not reachable\nfrom here. This metric declares no dimension on purpose: it is the plainest shape in the\nvocabulary, one aggregate over one column with no join at all, and adding one here would be the\nsecond metric losing that unadorned case rather than gaining a real one `data_per_subscription`\ndoes not already cover.\n\nThe consequence for a question is concrete: voice minutes by segment is not available. Say so.\nAnswering with usage overall, or with a segment breakdown of some other metric, is a wrong answer\nin the shape of a right one."
 absences:
   customer churn:
     phrase: customer churn

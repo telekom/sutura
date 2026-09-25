@@ -315,10 +315,12 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
     let remote_source = first_join.model.source();
     // The combiner matches the two legs on one carried value, so a link must resolve to exactly
     // one `equal` key - see `PlanError::FederatedLinkNotSingleEqualKey`'s own note.
-    let [JoinKey::Equal {
-        origin: link_origin,
-        target: link_target,
-    }] = relationship.keys()
+    let [
+        JoinKey::Equal {
+            origin: link_origin,
+            target: link_target,
+        },
+    ] = relationship.keys()
     else {
         return Err(PlanError::FederatedLinkNotSingleEqualKey {
             metric: metric.name().clone(),

@@ -1,5 +1,6 @@
 ---
 source: crates/sutura-cli/tests/example.rs
+assertion_line: 596
 expression: "prompt(&pinned, sutura_app::prompt::CatalogProse::Omitted)"
 ---
 # Answering questions about data with sutura
@@ -262,7 +263,7 @@ which phrase you resolved and what you resolved it to, so the person can correct
 ## The metrics this deployment defines
 
 - Definitions version: `example-single-player`
-- Definitions digest: `73e20e0dd80199d97431ec9ff9543afc520b334e39fe06b9b3b5cd1da3b81f76`
+- Definitions digest: `bb528ce2a9461f5afc7165d7f72d19603b5282793c305870e4887319435f2b5c`
 
 11 metrics, and they are the whole of what may be asked about.
 
@@ -294,9 +295,8 @@ not infer a meaning from the name alone and present it as the definition.
 ### data_per_subscription
 
 - Grains: month, week, day
-- Dimensions: none. This metric is reported as one number per period and cannot be broken down.
-
-**Caveat `usage_reaches_no_snapshot`** - about this metric as a whole.
+- Dimensions:
+  - `contract_term` - group by or filter. Values: annual, monthly
 
 ### mean_subscription_mrr
 

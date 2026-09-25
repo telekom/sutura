@@ -92,7 +92,14 @@ fn a_chain_dimension_naming_an_earlier_hops_column_is_refused_naming_the_last_ho
 #[test]
 fn a_chain_hop_that_could_duplicate_rows_is_refused_naming_the_hop() {
     let (models, mut relationships) = three_models();
-    relationships[1] = relationship("customers_regions", "customers", "region_code", "regions", "code", JoinType::OneToMany);
+    relationships[1] = relationship(
+        "customers_regions",
+        "customers",
+        "region_code",
+        "regions",
+        "code",
+        JoinType::OneToMany,
+    );
     let m = chain_metric();
     assert_eq!(
         Definitions::assemble(models, relationships, vec![m]).unwrap_err(),
@@ -111,7 +118,14 @@ fn a_chain_whose_hop_does_not_start_at_the_previous_target_is_refused() {
     // `customers_regions` starts at `regions` instead of at `customers`, so the chain is two
     // relationships rather than one path.
     let (models, mut relationships) = three_models();
-    relationships[1] = relationship("customers_regions", "regions", "code", "customers", "region_code", JoinType::ManyToOne);
+    relationships[1] = relationship(
+        "customers_regions",
+        "regions",
+        "code",
+        "customers",
+        "region_code",
+        JoinType::ManyToOne,
+    );
     let m = chain_metric();
     assert_eq!(
         Definitions::assemble(models, relationships, vec![m]).unwrap_err(),

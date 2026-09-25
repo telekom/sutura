@@ -1,0 +1,11 @@
+---
+source: crates/sutura-cli/tests/example.rs
+assertion_line: 545
+expression: stable(rows)
+---
+- - annual
+  - 2026-06-01
+  - "1.232755555556e2"
+- - monthly
+  - 2026-06-01
+  - "1.016552500000e2"

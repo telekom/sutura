@@ -195,8 +195,15 @@ impl ModelDoc {
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum JoinKeyDoc {
-    Equal { origin: ColumnName, target: ColumnName },
-    TruncatedEqual { origin: ColumnName, grain: Grain, target: ColumnName },
+    Equal {
+        origin: ColumnName,
+        target: ColumnName,
+    },
+    TruncatedEqual {
+        origin: ColumnName,
+        grain: Grain,
+        target: ColumnName,
+    },
 }
 
 impl JoinKeyDoc {
@@ -221,6 +228,11 @@ impl<'de> serde::Deserialize<'de> for SingletonMapped {
 }
 
 /// A list of key terms, each read through [`SingletonMapped`].
+#[expect(
+    clippy::type_complexity,
+    reason = "`Vec<JoinKeyDoc>` beside `D::Error` is what `serde(deserialize_with = ..)` requires; \
+              a type alias would carry the same two parameters and read no plainer"
+)]
 fn deserialize_join_keys<'de, D>(deserializer: D) -> Result<Vec<JoinKeyDoc>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -252,7 +264,13 @@ pub struct RelationshipDoc {
 impl RelationshipDoc {
     pub fn into_domain(self) -> Result<Relationship, InvalidJoinKeys> {
         let keys = JoinKeys::of(self.keys.into_iter().map(JoinKeyDoc::into_domain).collect())?;
-        Ok(Relationship::new(self.name, self.origin_model, self.target_model, keys, self.join_type))
+        Ok(Relationship::new(
+            self.name,
+            self.origin_model,
+            self.target_model,
+            keys,
+            self.join_type,
+        ))
     }
 }
 

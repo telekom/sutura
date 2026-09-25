@@ -19,7 +19,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Dimension, JoinKey, MAX_DEFINITIONS_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL};
+use super::{
+    Dimension, JoinKey, MAX_DEFINITIONS_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL,
+};
 use crate::model::{ColumnName, DimensionName, IdentifierCase, MetricName, ModelName, RelationshipName, SourceName, TableName};
 
 /// Everything a catalog said, with its cross-references checked.
@@ -105,26 +107,29 @@ pub enum InconsistentDefinitions {
         model: ModelName,
         column: ColumnName,
     },
-    /// A relationship whose two models sit on different data systems, declaring more than one key
-    /// or a truncated one.
+    /// A dimension's first hop crosses a data system boundary through a relationship that does
+    /// not resolve to exactly one `equal` key.
     ///
-    /// Crossing a source boundary is legal only at a dimension chain's first hop, where the plan
-    /// layer splits the question into a fact leg and a lookup leg and matches the two on ONE
-    /// carried value (`sutura_semantic::plan`'s link). That match is a single value today, so a
-    /// relationship whose two ends sit on different sources must resolve to exactly one `equal`
-    /// key - refusing it here, once, at load, is earlier and clearer than a metric reaching a hop
-    /// the plan layer has no way to render. **The limit, next to the claim:** a same-source
-    /// relationship carries no such restriction; only a link that would cross data systems does.
+    /// Crossing a source boundary is legal only at a chain's first hop, where the plan layer
+    /// splits the question into a fact leg and a lookup leg and matches the two on ONE carried
+    /// value (`sutura_semantic::plan`'s link). That match is a single value today, so a
+    /// relationship crossing sources at hop 1 must resolve to exactly one `equal` key.
+    ///
+    /// **Checked here, where a dimension actually reaches through the hop, and not once per
+    /// relationship at load** - the same asymmetry [`HopCrossesSource`](Self::HopCrossesSource)
+    /// draws for hop N: a compound or truncated relationship that happens to cross sources but
+    /// that no dimension ever uses as its first hop declares nothing the splitter would ever be
+    /// asked to render, so refusing the whole bundle for it would refuse a catalog over a
+    /// declaration nothing reaches. **The limit, next to the claim:** a same-source relationship
+    /// carries no such restriction; only a link that would cross data systems does.
+    ///
+    /// Boxed, `result_large_err`'s own reason: seven parsed names inline would make this the
+    /// widest variant the enum carries.
     #[error(
-        "relationship {relationship} joins model {origin} on {origin_source} to model {target} on {target_source}, crossing a data system boundary, and only a single `equal` key may do that"
+        "dimension {} of metric {} reaches relationship {} as its first hop, crossing model {} on {} to model {} on {}",
+        .0.dimension(), .0.metric(), .0.relationship(), .0.origin(), .0.origin_source(), .0.target(), .0.target_source()
     )]
-    CrossSourceRelationshipNotSingleEqualKey {
-        relationship: RelationshipName,
-        origin: ModelName,
-        origin_source: SourceName,
-        target: ModelName,
-        target_source: SourceName,
-    },
+    CrossSourceRelationshipNotSingleEqualKey(Box<CrossSourceLink>),
     #[error("dimension {dimension} of metric {metric} names column {column}, which model {model} does not declare")]
     UnknownDimensionColumn {
         metric: MetricName,
@@ -277,6 +282,88 @@ pub enum InconsistentDefinitions {
     DefinitionsTooLarge { bytes: usize, limit: usize },
 }
 
+/// The whole of what
+/// [`CrossSourceRelationshipNotSingleEqualKey`](InconsistentDefinitions::CrossSourceRelationshipNotSingleEqualKey)
+/// says, boxed off the enum for that variant's own reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CrossSourceLink {
+    metric: MetricName,
+    dimension: DimensionName,
+    relationship: RelationshipName,
+    origin: ModelName,
+    origin_source: SourceName,
+    target: ModelName,
+    target_source: SourceName,
+}
+
+impl CrossSourceLink {
+    pub const fn new(
+        metric: MetricName,
+        dimension: DimensionName,
+        relationship: RelationshipName,
+        origin: ModelName,
+        origin_source: SourceName,
+        target: ModelName,
+        target_source: SourceName,
+    ) -> Self {
+        Self {
+            metric,
+            dimension,
+            relationship,
+            origin,
+            origin_source,
+            target,
+            target_source,
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn metric(&self) -> &MetricName {
+        &self.metric
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn dimension(&self) -> &DimensionName {
+        &self.dimension
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn relationship(&self) -> &RelationshipName {
+        &self.relationship
+    }
+
+    /// The model on the metric's own side of the hop.
+    #[inline]
+    #[must_use]
+    pub const fn origin(&self) -> &ModelName {
+        &self.origin
+    }
+
+    /// The data system [`Self::origin`] sits on.
+    #[inline]
+    #[must_use]
+    pub const fn origin_source(&self) -> &SourceName {
+        &self.origin_source
+    }
+
+    /// The model on the far side of the hop.
+    #[inline]
+    #[must_use]
+    pub const fn target(&self) -> &ModelName {
+        &self.target
+    }
+
+    /// The data system [`Self::target`] sits on.
+    #[inline]
+    #[must_use]
+    pub const fn target_source(&self) -> &SourceName {
+        &self.target_source
+    }
+}
+
 impl Definitions {
     /// Assembles definitions from what an adapter read, checking every cross-reference.
     ///
@@ -362,21 +449,6 @@ impl Definitions {
                         column: column.clone(),
                     });
                 }
-            }
-        }
-        // Crossing a source boundary is only ever legal at a chain's first hop, and the plan
-        // layer's splitter matches that hop's fact leg to its lookup leg on one carried value - see
-        // the variant's own note. A same-source relationship has no such limit.
-        if from.source() != to.source() {
-            let is_single_equal = matches!(relationship.keys.as_slice(), [JoinKey::Equal { .. }]);
-            if !is_single_equal {
-                return Err(InconsistentDefinitions::CrossSourceRelationshipNotSingleEqualKey {
-                    relationship: relationship.name.clone(),
-                    origin: from.name.clone(),
-                    origin_source: from.source().clone(),
-                    target: to.name.clone(),
-                    target_source: to.source().clone(),
-                });
             }
         }
         Ok(())
@@ -566,6 +638,26 @@ impl Definitions {
                         own: model.source().clone(),
                         target_source: elsewhere.source().clone(),
                     });
+                }
+                // Hop 1 crossing is the federated case, but the splitter matches its fact leg to
+                // its lookup leg on one carried value - see the variant's own note. A compound or
+                // truncated key promises more than one value, so it needs refusing exactly where
+                // a dimension reaches for it, not for every relationship a catalog happens to hold.
+                if hop == 0
+                    && owning.source() != target.source()
+                    && !matches!(relationship.keys.as_slice(), [JoinKey::Equal { .. }])
+                {
+                    return Err(InconsistentDefinitions::CrossSourceRelationshipNotSingleEqualKey(Box::new(
+                        CrossSourceLink {
+                            metric: metric.name.clone(),
+                            dimension: dimension.name.clone(),
+                            relationship: name.clone(),
+                            origin: owning.name.clone(),
+                            origin_source: owning.source().clone(),
+                            target: target.name.clone(),
+                            target_source: target.source().clone(),
+                        },
+                    )));
                 }
                 owning = target;
             }

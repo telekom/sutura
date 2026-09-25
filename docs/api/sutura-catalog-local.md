@@ -67,6 +67,7 @@ finer split is a cheap change if a caller ever needs the branch.
 - `MalformedFrontmatter`
 - `IdentifyKind`
 - `Metric`
+- `Relationship`
 - `Description` - The prose of a definition document is not a usable description.
 
   **The variant that did not exist, and its absence was the hole.** A model's and a metric's
@@ -304,13 +305,29 @@ pub fn into_domain(self, description: Description) -> Model
 
 `Debug`, `Deserialize<'de>`
 
-### `struct EndpointDoc`
+### `enum JoinKeyDoc`
 
 ```rust
-pub struct EndpointDoc
+pub enum JoinKeyDoc
 ```
 
-One end of a relationship.
+One term of a relationship's join condition, as the document spells it.
+
+Externally tagged - `equal:` or `truncated_equal:`, each with `deny_unknown_fields` - so a
+misspelled key inside a term refuses by name rather than being silently dropped. This is
+`sutura_domain::catalog::JoinKey`'s own vocabulary and nothing wider: no condition string, no
+`OR`, no third shape.
+
+**Read through `singleton_map` one element at a time, `MetricDoc::measure`'s own reason.** An
+externally tagged enum is a YAML *tag* to `serde_norway` - `!equal {...}` - and nobody writing a
+catalog file spells a term that way. `SingletonMapped` is the per-element adapter
+`RelationshipDoc::keys`'s `deserialize_with` drives over the whole list, because
+`serde_norway::with::singleton_map` reads one field and this one is a `Vec`.
+
+#### Variants
+
+- `Equal`
+- `TruncatedEqual`
 
 #### Implements
 
@@ -325,7 +342,7 @@ pub struct RelationshipDoc
 #### Methods
 
 ```rust
-pub fn into_domain(self) -> Relationship
+pub fn into_domain(self) -> Result<Relationship, InvalidJoinKeys>
 ```
 
 #### Implements

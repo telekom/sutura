@@ -166,16 +166,15 @@ fn product_family() -> Dimension {
     )
 }
 
-/// The kind of product, reached from the daily fact through the COMPOUND join to the snapshot and
-/// then to the product dimension - the chain `data_per_subscription` declares rather than
-/// `product_family`'s own single hop, because the fact model here is `daily_usage`, not
-/// `subscriptions`.
-fn product_family_via_usage() -> Dimension {
+/// Whether the subscription was on a rolling or a committed term, reached from the daily fact
+/// through the COMPOUND join alone - one hop, unlike [`contract_term`]'s own no-relationship
+/// declaration on `subscriptions` itself, because the fact model here is `daily_usage`.
+fn contract_term_via_usage() -> Dimension {
     dimension(
-        "product_family",
-        "product_family",
-        Some(&["daily_usage_subscription", "subscription_product"]),
-        Some(&["convergent", "fixed_internet", "mobile", "tv"]),
+        "contract_term",
+        "contract_term",
+        Some(&["daily_usage_subscription"]),
+        Some(&["annual", "monthly"]),
     )
 }
 
@@ -586,10 +585,10 @@ fn the_ratios() -> Vec<Metric> {
     // other half of what `required_filters` is for: this one means what it measures over every row in
     // range and there is no predicate a reader has to be warned about. The denominator counts the
     // subscriptions that APPEAR in the range rather than every subscription that existed during it,
-    // so it is volume per subscription that used the network. `product_family` is the one dimension,
-    // reached through `daily_usage_subscription`'s compound join and then `subscription_product` -
-    // every OTHER dimension the snapshot carries is still unreached from here. No anchor: a sum of
-    // decimal gigabytes over a count is a float.
+    // so it is volume per subscription that used the network. `contract_term` is the one
+    // dimension, reached through `daily_usage_subscription`'s compound join alone - every OTHER
+    // dimension the snapshot carries sits a further hop away and is still unreached from here. No
+    // anchor: a sum of decimal gigabytes over a count is a float.
     let data_per_subscription = Metric::new(
         MetricName::parse("data_per_subscription").expect("a name"),
         ModelName::parse("daily_usage").expect("a name"),
@@ -601,7 +600,7 @@ fn the_ratios() -> Vec<Metric> {
         Vec::new(),
         column("usage_date"),
         BTreeSet::from([Grain::Day, Grain::Week, Grain::Month]),
-        vec![product_family_via_usage()],
+        vec![contract_term_via_usage()],
         None,
         Description::default(),
         Audience::Open,

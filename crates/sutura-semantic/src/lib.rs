@@ -214,6 +214,8 @@ pub fn compile(
         Err(PlanError::ChainLeavesItsSource { metric, dimension, hop }) => {
             Err(CompileFailure::ChainLeavesItsSource { metric, dimension, hop })
         }
-        Err(PlanError::FederatedLinkNotSingleEqualKey { metric }) => Err(CompileFailure::FederatedLinkNotSingleEqualKey { metric }),
+        Err(PlanError::FederatedLinkNotSingleEqualKey { metric }) => {
+            Err(CompileFailure::FederatedLinkNotSingleEqualKey { metric })
+        }
     }
 }

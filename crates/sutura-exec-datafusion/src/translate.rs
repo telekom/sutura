@@ -21,12 +21,12 @@ use datafusion::arrow::datatypes::DataType;
 use datafusion::common::{Column, ScalarValue, TableReference};
 use datafusion::functions::expr_fn::{date_trunc, nullif};
 use datafusion::functions_aggregate::expr_fn::{avg, count, count_distinct, max, min, sum};
-use datafusion::logical_expr::{Expr, cast, lit, when};
+use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, cast, lit, when};
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, Grain, TableName};
 use sutura_domain::plan::{PlanColumn, PlanMeasure, PlanPredicate, PlanTerm};
 use sutura_domain::warehouse::ParamValue;
-use sutura_domain::warehouse::cardinality::DeclaredKey;
+use sutura_domain::warehouse::cardinality::{DISTINCT_LABEL, DeclaredKey, ROWS_LABEL};
 
 use crate::DataFusionError;
 
@@ -61,9 +61,50 @@ pub(crate) fn key_columns(key: &DeclaredKey<'_>) -> Vec<Expr> {
 /// would report a violation that could never change an answer - the same arithmetic the probe's own
 /// module argues for a single column, generalised to the whole key.
 pub(crate) fn key_non_null(key: &DeclaredKey<'_>) -> Expr {
-    let mut clauses = key_columns(key).into_iter().map(Expr::is_not_null);
-    let first = clauses.next().expect("a declared key carries at least one column");
-    clauses.fold(first, Expr::and)
+    let columns = key_columns(key);
+    // `split_first` rather than `.next().expect(..)`: a declared key carries at least one column
+    // by construction, and the `else` arm is an always-true guard rather than a panic on a slice
+    // this crate did not build.
+    let Some((first, rest)) = columns.split_first() else {
+        return lit(true);
+    };
+    rest.iter()
+        .cloned()
+        .map(Expr::is_not_null)
+        .fold(first.clone().is_not_null(), Expr::and)
+}
+
+/// The plan a declared key's uniqueness probe runs: two counts over the WHOLE key, from one scan.
+///
+/// **No `WHERE` beyond the non-null guard: what a `many_to_one` promises is unconditional**, so a
+/// probe that narrowed itself would answer a different question than the one the join path spends.
+/// For one column this reduces to the same `count` beside `count_distinct` this always ran; for
+/// more than one, `count_distinct` is a single-column aggregate, so the distinct combinations are
+/// counted by grouping on every key column first - the fan-out question a compound relationship's
+/// declaration is about - and counting the rows that grouping left. `cross_join` puts the two
+/// one-row aggregates beside each other rather than running two round trips: neither depends on
+/// the other's answer.
+pub(crate) fn key_uniqueness_plan(scan: LogicalPlan, key: &DeclaredKey<'_>) -> Result<LogicalPlan, DataFusionError> {
+    let filtered = LogicalPlanBuilder::from(scan)
+        .filter(key_non_null(key))
+        .and_then(LogicalPlanBuilder::build)
+        .map_err(|cause| DataFusionError::Build { cause })?;
+    let rows_plan = LogicalPlanBuilder::from(filtered.clone())
+        .aggregate(Vec::<Expr>::new(), vec![count(lit(1)).alias(ROWS_LABEL)])
+        .and_then(LogicalPlanBuilder::build)
+        .map_err(|cause| DataFusionError::Build { cause })?;
+    let distinct_combinations = LogicalPlanBuilder::from(filtered)
+        .aggregate(key_columns(key), Vec::<Expr>::new())
+        .and_then(LogicalPlanBuilder::build)
+        .map_err(|cause| DataFusionError::Build { cause })?;
+    let distinct_plan = LogicalPlanBuilder::from(distinct_combinations)
+        .aggregate(Vec::<Expr>::new(), vec![count(lit(1)).alias(DISTINCT_LABEL)])
+        .and_then(LogicalPlanBuilder::build)
+        .map_err(|cause| DataFusionError::Build { cause })?;
+    LogicalPlanBuilder::from(rows_plan)
+        .cross_join(distinct_plan)
+        .and_then(LogicalPlanBuilder::build)
+        .map_err(|cause| DataFusionError::Build { cause })
 }
 
 /// A table name, as the engine's reference type, without normalisation.

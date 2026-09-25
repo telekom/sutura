@@ -164,8 +164,15 @@ impl PlanColumn {
 /// interpolating a string.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum PlanJoinKey {
-    Equal { origin: PlanColumn, target: PlanColumn },
-    TruncatedEqual { origin: PlanColumn, grain: Grain, target: PlanColumn },
+    Equal {
+        origin: PlanColumn,
+        target: PlanColumn,
+    },
+    TruncatedEqual {
+        origin: PlanColumn,
+        grain: Grain,
+        target: PlanColumn,
+    },
 }
 
 impl PlanJoinKey {
@@ -210,7 +217,12 @@ impl PlanJoin {
     /// be empty - this type does not re-enforce it, the same trade `chains: Vec<Vec<PlanJoin>>`
     /// makes one level up in `sutura_semantic::plan::chain`.
     #[inline]
-    pub fn new(relationship: RelationshipName, table: impl Into<QualifiedTable>, join_type: JoinType, keys: Vec<PlanJoinKey>) -> Self {
+    pub fn new(
+        relationship: RelationshipName,
+        table: impl Into<QualifiedTable>,
+        join_type: JoinType,
+        keys: Vec<PlanJoinKey>,
+    ) -> Self {
         Self {
             relationship,
             table: table.into(),

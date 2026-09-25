@@ -8,9 +8,9 @@
 use std::collections::BTreeSet;
 
 use super::{
-    Audience, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidJoinKeys, InvalidViaChain,
-    JoinKey, JoinKeys, MAX_DEFINITIONS_BYTES, MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship,
-    TIME_BUCKET_LABEL, ViaChain,
+    Audience, CrossSourceLink, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidJoinKeys,
+    InvalidViaChain, JoinKey, JoinKeys, MAX_DEFINITIONS_BYTES, MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model,
+    Relationship, TIME_BUCKET_LABEL, ViaChain,
 };
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{
@@ -39,7 +39,14 @@ fn relationship_name(raw: &str) -> RelationshipName {
 }
 
 /// A single-`equal`-key relationship, the shape every test here but the compound-key ones wants.
-fn relationship(name: &str, from_model: &str, from_column: &str, to_model: &str, to_column: &str, join_type: JoinType) -> Relationship {
+fn relationship(
+    name: &str,
+    from_model: &str,
+    from_column: &str,
+    to_model: &str,
+    to_column: &str,
+    join_type: JoinType,
+) -> Relationship {
     Relationship::new(
         relationship_name(name),
         model_name(from_model),

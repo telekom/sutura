@@ -60,7 +60,9 @@ use polyglot_sql::builder::{self, Expr, SelectBuilder};
 use polyglot_sql::expressions::{Expression, Ordered, Parameter, ParameterStyle, Placeholder, Raw};
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, ColumnName, Grain, JoinType, Qualification, QualifiedTable, TableName};
-use sutura_domain::plan::{LegPlan, PlanBucket, PlanColumn, PlanJoin, PlanJoinKey, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan};
+use sutura_domain::plan::{
+    LegPlan, PlanBucket, PlanColumn, PlanJoin, PlanJoinKey, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan,
+};
 use sutura_domain::warehouse::cardinality::{DISTINCT_LABEL, DeclaredKey, ROWS_LABEL};
 
 use crate::GeneratedQuery;
@@ -497,13 +499,18 @@ fn joined(statement: SelectBuilder, joins: &[PlanJoin], dialect: Dialect) -> Res
 
 /// A join's whole `ON` clause: one key term's equality, `AND`ed with the rest in declared order.
 ///
-/// **Never empty** - `keys` is built from
+/// `split_first` rather than `.next().expect(..)`: `keys` is built from
 /// [`Relationship::keys`](sutura_domain::catalog::Relationship::keys), which
-/// [`JoinKeys`](sutura_domain::catalog::JoinKeys) already refuses to be.
+/// [`JoinKeys`](sutura_domain::catalog::JoinKeys) already refuses to let be empty, so the `else`
+/// arm never runs - and it renders an always-true condition rather than panicking on a slice this
+/// crate did not build, for the same reason nothing on this path unwraps a catalog-derived value.
 fn join_condition(keys: &[PlanJoinKey], dialect: Dialect) -> Expr {
-    let mut terms = keys.iter().map(|key| join_key_equality(key, dialect));
-    let first = terms.next().expect("a relationship's keys are non-empty");
-    terms.fold(first, Expr::and)
+    let Some((first, rest)) = keys.split_first() else {
+        return builder::boolean(true);
+    };
+    rest.iter().fold(join_key_equality(first, dialect), |acc, key| {
+        Expr::and(acc, join_key_equality(key, dialect))
+    })
 }
 
 /// One [`PlanJoinKey`] term, as an equality - the origin side truncated first for
@@ -799,19 +806,28 @@ pub fn generate_key_probe(key: &DeclaredKey<'_>, dialect: Dialect) -> Result<Gen
     // The path goes in the `FROM` and the qualifier is the table's own NAME, so a two-part or
     // three-part table still renders a two-part column reference - `qualified` is the one place that
     // is decided.
-    let columns: Vec<Expr> = key.columns().iter().copied().map(|column| qualified(key.table().name(), column)).collect();
+    let columns: Vec<Expr> = key
+        .columns()
+        .iter()
+        .copied()
+        .map(|column| qualified(key.table().name(), column))
+        .collect();
+    // `split_first`, `join_condition`'s own reason: a declared key carries at least one column by
+    // construction, and the `else` arm renders an always-true guard rather than panicking on a
+    // slice this crate did not build.
     let non_null = || -> Expr {
-        let mut clauses = columns.iter().cloned().map(Expr::is_not_null);
-        let first = clauses.next().expect("a declared key carries at least one column");
-        clauses.fold(first, Expr::and)
+        let Some((first, rest)) = columns.split_first() else {
+            return builder::boolean(true);
+        };
+        rest.iter()
+            .cloned()
+            .map(Expr::is_not_null)
+            .fold(first.clone().is_not_null(), Expr::and)
     };
 
     // `COUNT(*) FROM (SELECT DISTINCT <columns> FROM <table> WHERE <non-null>)`: the fan-out
     // question over the whole key, asked without a single `DISTINCT` form every target agrees on.
-    let distinct_rows = builder::select(columns.clone())
-        .from(&path)
-        .distinct()
-        .where_(non_null());
+    let distinct_rows = builder::select(columns.clone()).from(&path).distinct().where_(non_null());
     let distinct_count = builder::select([builder::count_star()]).from_expr(builder::subquery(distinct_rows, "distinct_keys"));
     let distinct_scalar = builder::subquery(distinct_count, DISTINCT_LABEL);
 

@@ -1,0 +1,6 @@
+---
+source: crates/sutura-app/tests/golden/dialects.rs
+assertion_line: 39
+expression: query.sql()
+---
+SELECT "fct_subscription_monthly"."contract_term" AS "contract_term", CAST(dateTrunc('month', "fct_usage_daily"."usage_date") AS DATE) AS "period", CAST(sum("fct_usage_daily"."data_gb") AS Nullable(Float64)) / NULLIF(COUNT(DISTINCT "fct_usage_daily"."subscription_key"), 0) AS "data_per_subscription" FROM "fct_usage_daily" LEFT JOIN "fct_subscription_monthly" ON "fct_usage_daily"."subscription_key" = "fct_subscription_monthly"."subscription_key" AND CAST(dateTrunc('month', "fct_usage_daily"."usage_date") AS DATE) = "fct_subscription_monthly"."month" WHERE "fct_usage_daily"."usage_date" >= ? AND "fct_usage_daily"."usage_date" < ? GROUP BY "fct_subscription_monthly"."contract_term", CAST(dateTrunc('month', "fct_usage_daily"."usage_date") AS DATE) ORDER BY "fct_subscription_monthly"."contract_term", CAST(dateTrunc('month', "fct_usage_daily"."usage_date") AS DATE) LIMIT 10001
