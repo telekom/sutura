@@ -240,11 +240,13 @@ Renders a plan as one statement, paired with its parameters.
 
 Renders one declared join key's uniqueness probe as one statement.
 
-**Two counts over one column of one table, and nothing else.** `COUNT(col)` beside
-`COUNT(DISTINCT col)` is the whole question a `many_to_one` declaration can be contradicted by,
-and the pair is equal exactly when the declaration holds. There is no `WHERE`, no `GROUP BY`, no
-`HAVING` and no `LIMIT`: the declaration is unconditional, so a probe carrying a filter would
-answer a narrower question than the one the join path spends.
+**Two counts over the target side of a whole key set, and nothing else.** A row count beside
+`COUNT(DISTINCT key_1, key_2, …)` is the whole question a `many_to_one` declaration can be
+contradicted by, and the pair is equal exactly when the declaration holds over the WHOLE set -
+the one shape a compound key can be proved by, because no single column of a compound key need
+identify a row on its own. There is no `WHERE`, no `GROUP BY`, no `HAVING` and no `LIMIT`: the
+declaration is unconditional, so a probe carrying a filter would answer a narrower question than
+the one the join path spends.
 
 **No parameter, and nothing from a question.** A `DeclaredKey` is built out of a pinned
 bundle's own parsed names, so the statement has nowhere for a caller's value to arrive; the
@@ -253,6 +255,14 @@ returned `GeneratedQuery` carries an empty parameter list rather than one this c
 **No key value is projected**, which is the same decision the answer type makes and for the same
 reason: what comes back reaches a boot log, and a duplicated dimension key printed there is
 source data copied into a sink nobody scoped for it.
+
+The distinct count is over a TUPLE of the target columns, because the dialect layer renders
+`COUNT(DISTINCT a, b)` as exactly that for every target this crate renders for - measured, and
+the parse check family holds the rendered text. The row count stays `COUNT(col)` for one key -
+unchanged, so an existing single-pair golden keeps its rendered text - and for a compound key
+becomes `COUNT(CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN 1 END)`: a row null in ANY column
+of the set cannot match on either side of a join, the same reason a single null key is excluded,
+so `rows` and `distinct` stay comparable under `COUNT(DISTINCT …)`'s own per-tuple null exclusion.
 
 Shared with `generate` and `generate_leg`: `qualified`, `aliased`, `table_path` and
 `render`, so identifier quoting, column qualification and path depth cannot be one thing here
@@ -1226,11 +1236,13 @@ pub fn generate_key_probe(key: &sutura_domain::warehouse::cardinality::DeclaredK
 
 Renders one declared join key's uniqueness probe as one statement.
 
-**Two counts over one column of one table, and nothing else.** `COUNT(col)` beside
-`COUNT(DISTINCT col)` is the whole question a `many_to_one` declaration can be contradicted by,
-and the pair is equal exactly when the declaration holds. There is no `WHERE`, no `GROUP BY`, no
-`HAVING` and no `LIMIT`: the declaration is unconditional, so a probe carrying a filter would
-answer a narrower question than the one the join path spends.
+**Two counts over the target side of a whole key set, and nothing else.** A row count beside
+`COUNT(DISTINCT key_1, key_2, …)` is the whole question a `many_to_one` declaration can be
+contradicted by, and the pair is equal exactly when the declaration holds over the WHOLE set -
+the one shape a compound key can be proved by, because no single column of a compound key need
+identify a row on its own. There is no `WHERE`, no `GROUP BY`, no `HAVING` and no `LIMIT`: the
+declaration is unconditional, so a probe carrying a filter would answer a narrower question than
+the one the join path spends.
 
 **No parameter, and nothing from a question.** A `DeclaredKey` is built out of a pinned
 bundle's own parsed names, so the statement has nowhere for a caller's value to arrive; the
@@ -1239,6 +1251,14 @@ returned `GeneratedQuery` carries an empty parameter list rather than one this c
 **No key value is projected**, which is the same decision the answer type makes and for the same
 reason: what comes back reaches a boot log, and a duplicated dimension key printed there is
 source data copied into a sink nobody scoped for it.
+
+The distinct count is over a TUPLE of the target columns, because the dialect layer renders
+`COUNT(DISTINCT a, b)` as exactly that for every target this crate renders for - measured, and
+the parse check family holds the rendered text. The row count stays `COUNT(col)` for one key -
+unchanged, so an existing single-pair golden keeps its rendered text - and for a compound key
+becomes `COUNT(CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN 1 END)`: a row null in ANY column
+of the set cannot match on either side of a join, the same reason a single null key is excluded,
+so `rows` and `distinct` stay comparable under `COUNT(DISTINCT …)`'s own per-tuple null exclusion.
 
 Shared with `generate` and `generate_leg`: `qualified`, `aliased`, `table_path` and
 `render`, so identifier quoting, column qualification and path depth cannot be one thing here
