@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 
 use crate::calendar::TimeRange;
 use crate::catalog::DimensionValue;
-use crate::model::{Aggregate, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
+use crate::model::{Aggregate, DimensionName, Grain, MetricName, ModelName, RelationshipName, SourceName, TableName};
 use crate::pinned::Provenance;
 use crate::warehouse::RowSet;
 
@@ -330,6 +330,18 @@ pub enum RefusalReason {
     /// guess a link, and named as a link ambiguity rather than a source count: it is not that too
     /// many sources are involved.
     FederationLinkAmbiguous { source: SourceName },
+    /// The relationship crossing into the remote data system declares more than one join key.
+    ///
+    /// **Distinct from [`FederationLinkAmbiguous`](Self::FederationLinkAmbiguous), which names two
+    /// relationships crossing at once.** This is one relationship, correctly declared - a compound
+    /// key is exactly what `telekom/sutura#967` exists to allow inside one data system - but the
+    /// combiner links two legs on a single column, and a compound key would need one per column,
+    /// which the lookup leg's shape does not carry. Named for what is actually true rather than
+    /// reused from the ambiguity case, so a caller is not told two relationships exist when one does.
+    FederationLinkCompound {
+        source: SourceName,
+        relationship: RelationshipName,
+    },
     /// The question's measure cannot be decomposed into one leg per source.
     ///
     /// A measure federates only when its aggregate can be recomputed above the legs. A distinct count
@@ -614,6 +626,7 @@ impl RefusalReason {
             Self::PlanSpansTooManySources { .. } => "plan_spans_too_many_sources",
             Self::FederationNotExecutable => "federation_not_executable",
             Self::FederationLinkAmbiguous { .. } => "federation_link_ambiguous",
+            Self::FederationLinkCompound { .. } => "federation_link_compound",
             Self::MeasureDoesNotFederate { .. } => "measure_does_not_federate",
             Self::FederatedAnswerNotWellFormed { .. } => "federated_answer_not_well_formed",
             Self::PlanTablesShareAnIdentifier { .. } => "plan_tables_share_an_identifier",
@@ -660,7 +673,7 @@ mod tests {
     use super::{Filter, Query, RefusalReason, ResultBound, ToolOutcome};
     use crate::calendar::{Date, TimeRange};
     use crate::catalog::DimensionValue;
-    use crate::model::{DimensionName, Grain, MetricName};
+    use crate::model::{DimensionName, Grain, MetricName, RelationshipName};
 
     fn june() -> TimeRange {
         TimeRange::new(
@@ -782,6 +795,10 @@ mod tests {
             RefusalReason::FederationNotExecutable,
             RefusalReason::FederationLinkAmbiguous {
                 source: SourceName::parse("warehouse").expect("a test source"),
+            },
+            RefusalReason::FederationLinkCompound {
+                source: SourceName::parse("warehouse").expect("a test source"),
+                relationship: RelationshipName::parse("usage_subscription").expect("a test relationship"),
             },
             RefusalReason::MeasureDoesNotFederate {
                 metric: MetricName::parse("active_subscriptions").expect("a test metric"),

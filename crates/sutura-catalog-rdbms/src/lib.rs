@@ -97,7 +97,7 @@ use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Column, Definitions, Description, Model, Relationship as DomainRelationship};
+use sutura_domain::catalog::{Column, Definitions, Description, JoinKey, JoinKeys, Model, Relationship as DomainRelationship};
 use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
 use sutura_domain::model::{
     ColumnName, DatasetName, InvalidIdentifier, JoinType, ModelName, ProjectName, QualifiedTable, RelationshipName, SourceName,
@@ -433,10 +433,12 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
         Ok(DomainRelationship::new(
             name,
             origin_model,
-            origin_column,
             target_model,
-            target_column,
             JoinType::ManyToOne,
+            JoinKeys::single(JoinKey::Equal {
+                origin: origin_column,
+                target: target_column,
+            }),
         ))
     }
 

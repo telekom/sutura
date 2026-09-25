@@ -161,8 +161,7 @@ pub struct PlanJoin {
     relationship: RelationshipName,
     table: QualifiedTable,
     join_type: JoinType,
-    origin: PlanColumn,
-    target: PlanColumn,
+    keys: Vec<PlanJoinKey>,
 }
 
 impl PlanJoin {
@@ -181,15 +180,13 @@ impl PlanJoin {
         relationship: RelationshipName,
         table: impl Into<QualifiedTable>,
         join_type: JoinType,
-        origin: PlanColumn,
-        target: PlanColumn,
+        keys: Vec<PlanJoinKey>,
     ) -> Self {
         Self {
             relationship,
             table: table.into(),
             join_type,
-            origin,
-            target,
+            keys,
         }
     }
 
@@ -215,14 +212,55 @@ impl PlanJoin {
         self.join_type
     }
 
+    /// The keys this join links on, each qualified by the tables it reads.
+    #[inline]
+    #[must_use]
+    pub fn keys(&self) -> &[PlanJoinKey] {
+        &self.keys
+    }
+}
+
+/// One term of a planned join, as the renderer will make it.
+///
+/// The same two shapes the catalog's [`crate::catalog::JoinKey`] declares, but with each column
+/// resolved to the table-qualified [`PlanColumn`] the statement will read - the origin from the
+/// table the join starts at, the target from the joined table.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub enum PlanJoinKey {
+    /// The origin column equals the target column.
+    Equal { origin: PlanColumn, target: PlanColumn },
+    /// The origin column, truncated to a grain, equals the target column.
+    TruncatedEqual {
+        origin: PlanColumn,
+        grain: Grain,
+        target: PlanColumn,
+    },
+}
+
+impl PlanJoinKey {
+    /// The origin column, truncated to its grain when this is [`PlanJoinKey::TruncatedEqual`].
     #[inline]
     pub const fn origin(&self) -> &PlanColumn {
-        &self.origin
+        match self {
+            Self::Equal { origin, .. } | Self::TruncatedEqual { origin, .. } => origin,
+        }
     }
 
+    /// The target column the origin (or its truncation) is compared against.
     #[inline]
     pub const fn target(&self) -> &PlanColumn {
-        &self.target
+        match self {
+            Self::Equal { target, .. } | Self::TruncatedEqual { target, .. } => target,
+        }
+    }
+
+    /// The grain a [`PlanJoinKey::TruncatedEqual`] truncates its origin to.
+    #[inline]
+    pub const fn grain(&self) -> Option<Grain> {
+        match self {
+            Self::Equal { .. } => None,
+            Self::TruncatedEqual { grain, .. } => Some(*grain),
+        }
     }
 }
 

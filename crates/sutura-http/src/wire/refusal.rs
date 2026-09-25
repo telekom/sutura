@@ -74,8 +74,7 @@ use super::RefusalBody;
 // by concern is the exact drift this function exists to forbid.
 pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
     // The code is the domain's, read once - this transport spells no `code` of its own, so it
-    // cannot drift from the agent surface. The match below decides the status and the sentence
-    // only.
+    // cannot drift from the agent surface. The match below decides the status and the sentence only.
     let code = reason.code();
     let (status, detail) = match *reason {
         // 404. The name does not resolve in this snapshot, which is the plainest thing a status can
@@ -215,6 +214,13 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         RefusalReason::FederationLinkAmbiguous { ref source } => (
             StatusCode::CONFLICT,
             format!("the dimensions on `{source}` join through more than one relationship"),
+        ),
+        RefusalReason::FederationLinkCompound {
+            ref source,
+            ref relationship,
+        } => (
+            StatusCode::CONFLICT,
+            format!("`{relationship}` crossing into `{source}` declares more than one join key"),
         ),
         // The same 409 - a question this deployment will not answer - for a measure that would have
         // to be recombined into a number it cannot make.
@@ -419,6 +425,7 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::PlanSpansTooManySources { .. }
         | RefusalReason::FederationNotExecutable
         | RefusalReason::FederationLinkAmbiguous { .. }
+        | RefusalReason::FederationLinkCompound { .. }
         | RefusalReason::MeasureDoesNotFederate { .. }
         | RefusalReason::FederatedAnswerNotWellFormed { .. }
         | RefusalReason::PlanTablesShareAnIdentifier { .. }
@@ -580,6 +587,15 @@ mod tests {
                 },
                 StatusCode::CONFLICT,
                 "federation_link_ambiguous",
+            ),
+            (
+                RefusalReason::FederationLinkCompound {
+                    source: SourceName::parse("warehouse").expect("a test source is a source"),
+                    relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
+                        .expect("a test relationship is a relationship"),
+                },
+                StatusCode::CONFLICT,
+                "federation_link_compound",
             ),
             (
                 RefusalReason::MeasureDoesNotFederate {

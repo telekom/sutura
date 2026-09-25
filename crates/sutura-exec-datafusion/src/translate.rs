@@ -19,7 +19,7 @@
 
 use datafusion::arrow::datatypes::DataType;
 use datafusion::common::{Column, ScalarValue, TableReference};
-use datafusion::functions::expr_fn::{date_trunc, nullif};
+use datafusion::functions::expr_fn::{date_trunc, named_struct, nullif};
 use datafusion::functions_aggregate::expr_fn::{avg, count, count_distinct, max, min, sum};
 use datafusion::logical_expr::{Expr, cast, lit, when};
 use sutura_domain::measure::ZeroDenominator;
@@ -48,15 +48,60 @@ pub(crate) fn column(plan_column: &PlanColumn) -> Expr {
 /// **Aliased with `sutura-domain`'s constants rather than this crate's literals**, so the field name
 /// the engine puts on the batch is the name
 /// [`KeyUniqueness::read`](sutura_domain::warehouse::cardinality::KeyUniqueness::read) looks for -
-/// the same one-definition argument the SQL renderer makes for the same pair. Nulls are excluded by
-/// `COUNT` on both halves, which is the arithmetic the probe's own module argues for: a null key
-/// matches nothing, so two null rows duplicate nothing.
-pub(crate) fn key_counts(key: &DeclaredKey<'_>) -> Vec<Expr> {
-    let over = Expr::Column(Column::new(Some(table_reference(key.table().name())), key.column().as_str()));
-    vec![
-        count(over.clone()).alias(ROWS_LABEL),
-        count_distinct(over).alias(DISTINCT_LABEL),
-    ]
+/// the same one-definition argument the SQL renderer makes for the same pair.
+///
+/// **A row counts in EITHER aggregate only when every column of the whole key is non-null** - the
+/// same rule `generate.rs`'s SQL probe carries, and for the same reason: a row null in any one
+/// column of a compound key cannot match on either side of a join, so it is not a key row for
+/// either count. A single column keeps `COUNT`'s own null exclusion (`over.len() == 1` below); a
+/// compound key folds the per-column nullness checks into a `CASE` each aggregate counts the
+/// non-null result of, which is what keeps this measurement of `rows` and `distinct` comparable -
+/// `named_struct` alone is never itself null even when a field of it is, so counting a bare struct
+/// counted a null-bearing row as one more distinct value than the SQL path's `COUNT(DISTINCT a, b)`
+/// would, and `is_unique()` could hold over a real duplicate. Only the CASE-guarded form is used.
+///
+/// The distinct count runs over the WHOLE target key set, never one column alone: a compound key
+/// determines a target row only as a whole, so the fan-out check counts distinct over every target
+/// column at once - the same tuple the SQL path renders as `COUNT(DISTINCT a, b, …)`.
+pub(crate) fn key_counts(key: &DeclaredKey<'_>) -> Result<Vec<Expr>, DataFusionError> {
+    let over: Vec<Expr> = key
+        .target_columns()
+        .map(|column| Expr::Column(Column::new(Some(table_reference(key.table().name())), column.as_str())))
+        .collect();
+    let Some(first) = over.first().cloned() else {
+        return Ok(Vec::new());
+    };
+    if over.len() == 1 {
+        return Ok(vec![
+            count(first.clone()).alias(ROWS_LABEL),
+            count_distinct(first).alias(DISTINCT_LABEL),
+        ]);
+    }
+    // `over.len() > 1` was just checked above, so this always has a first element; `unwrap_or_else`
+    // rather than `expect` because `clippy::expect-used` is forbidden outside tests, and the
+    // fallback is never reached rather than merely unlikely.
+    let mut not_null_terms = over.iter().cloned().map(Expr::is_not_null);
+    let first_not_null = not_null_terms.next().unwrap_or_else(|| lit(true));
+    let all_not_null = not_null_terms.fold(first_not_null, Expr::and);
+    let rows_marker = when(all_not_null.clone(), lit(1_i64))
+        .end()
+        .map_err(|cause| DataFusionError::Build { cause })?;
+    // `COUNT(DISTINCT a, b, …)` is not a single-expr aggregate; DataFusion receives it as a struct
+    // of the columns and de-duplicates on the whole tuple - the engine's shape of the same probe
+    // the SQL path renders. Guarded by the same CASE `rows_marker` is, so a null-bearing row
+    // contributes to neither count rather than to `distinct` alone.
+    let fields = over
+        .iter()
+        .enumerate()
+        .flat_map(|(i, expr)| vec![lit(format!("k{i}")), expr.clone()])
+        .collect::<Vec<_>>();
+    let distinct_marker = when(all_not_null, named_struct(fields))
+        .end()
+        .map_err(|cause| DataFusionError::Build { cause })?;
+    Ok(vec![
+        count(rows_marker).alias(ROWS_LABEL),
+        count_distinct(distinct_marker).alias(DISTINCT_LABEL),
+    ])
 }
 
 /// A table name, as the engine's reference type, without normalisation.

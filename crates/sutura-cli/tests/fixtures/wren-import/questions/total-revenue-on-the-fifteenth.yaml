@@ -1,0 +1,5 @@
+metric: sales_summary_total_revenue
+grain: day
+range:
+  start: 2026-01-15
+  end: 2026-01-16

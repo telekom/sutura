@@ -1,0 +1,106 @@
+{
+  "layoutVersion": 2,
+  "catalog": "synthetic",
+  "schema": "public",
+  "dataSource": "DUCKDB",
+  "models": [
+    {
+      "name": "orders",
+      "tableReference": { "catalog": null, "schema": null, "table": "orders" },
+      "primaryKey": "id",
+      "rowLevelAccessControls": [
+        { "name": "regional_only", "requiredProperties": [], "condition": "region_code = current_setting('region')" }
+      ],
+      "columns": [
+        { "name": "id", "type": "BIGINT", "isCalculated": false, "notNull": true, "isHidden": false },
+        { "name": "customer_id", "type": "BIGINT", "isCalculated": false, "notNull": true, "isHidden": false },
+        { "name": "amount_cents", "type": "BIGINT", "isCalculated": false, "notNull": true, "isHidden": false },
+        { "name": "order_date", "type": "DATE", "isCalculated": false, "notNull": true, "isHidden": false },
+        { "name": "status", "type": "VARCHAR", "isCalculated": false, "notNull": true, "isHidden": false },
+        {
+          "name": "amount_dollars",
+          "type": "DOUBLE",
+          "isCalculated": true,
+          "expression": "amount_cents / 100",
+          "notNull": false,
+          "isHidden": false
+        },
+        {
+          "name": "notes",
+          "type": "VARCHAR",
+          "isCalculated": false,
+          "notNull": false,
+          "isHidden": false,
+          "columnLevelAccessControl": { "name": "finance_only", "requiredProperties": [], "operator": "EQUALS", "threshold": "1" }
+        },
+        {
+          "name": "customer",
+          "type": "customers",
+          "relationship": "orders_customer",
+          "isCalculated": false,
+          "notNull": false,
+          "isHidden": true
+        }
+      ]
+    },
+    {
+      "name": "customers",
+      "tableReference": { "catalog": null, "schema": null, "table": "customers" },
+      "primaryKey": "id",
+      "columns": [
+        { "name": "id", "type": "BIGINT", "isCalculated": false, "notNull": true, "isHidden": false },
+        { "name": "name", "type": "VARCHAR", "isCalculated": false, "notNull": true, "isHidden": false },
+        { "name": "region_code", "type": "VARCHAR", "isCalculated": false, "notNull": true, "isHidden": false }
+      ]
+    },
+    {
+      "name": "recent_orders",
+      "refSql": "SELECT * FROM orders WHERE order_date > now() - interval '30' day",
+      "columns": [
+        { "name": "id", "type": "BIGINT", "isCalculated": false, "notNull": true, "isHidden": false }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "name": "orders_customer",
+      "models": ["orders", "customers"],
+      "joinType": "MANY_TO_ONE",
+      "condition": "orders.customer_id = customers.id"
+    },
+    {
+      "name": "orders_customer_legacy",
+      "models": ["orders", "customers"],
+      "joinType": "MANY_TO_ONE",
+      "condition": "orders.customer_id = customers.id OR orders.status = 'legacy'"
+    },
+    {
+      "name": "customer_products_history",
+      "models": ["customers", "orders"],
+      "joinType": "MANY_TO_MANY",
+      "condition": "customers.id = orders.customer_id"
+    }
+  ],
+  "views": [
+    { "name": "recent_orders_view", "statement": "SELECT * FROM orders WHERE order_date > now() - interval '30' day" }
+  ],
+  "cubes": [
+    {
+      "name": "sales_summary",
+      "baseObject": "orders",
+      "measures": [
+        { "name": "total_revenue", "expression": "SUM(amount_cents)", "type": "INTEGER" },
+        { "name": "average_order_value", "expression": "SUM(amount_cents) / COUNT(DISTINCT customer_id)", "type": "DOUBLE" },
+        { "name": "inflated_revenue", "expression": "SUM(amount_cents) * 1.1", "type": "DOUBLE" }
+      ],
+      "dimensions": [
+        { "name": "status", "expression": "status", "type": "VARCHAR" },
+        { "name": "region_shout", "expression": "upper(region_code)", "type": "VARCHAR" }
+      ],
+      "timeDimensions": [
+        { "name": "order_date", "expression": "order_date", "type": "DATE" }
+      ],
+      "hierarchies": { "calendar": ["order_date"] }
+    }
+  ]
+}

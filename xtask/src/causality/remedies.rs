@@ -1,18 +1,19 @@
-//! What the gate prints when it has no verdict about the change to give, and the remedy each
-//! answer asks for.
+//! What the gate PASSES on, loudly, before either run has happened or in place of one - and the
+//! shared lines a handful of these answers print beside their own.
 //!
-//! `super::base` owns the verdict once BOTH runs have happened. These are the answers that come
-//! before that - the plan could not be split, the scan could not name a test, a declaration put a
-//! module of tests into the build, every added test is ignored, or the HEAD run itself was not
-//! green - and they are here rather than in `super` because a printed remedy is prose, nothing
-//! derives it, and the one thing that keeps it honest is reading them side by side.
+//! `super::base` owns the verdict once BOTH runs have happened. `super::refusals` holds the
+//! opposite direction, `Verdict::Fail` for the same shape of reason each time: the scan could not
+//! name a test, a declaration put tests into the build this diff never named, or the HEAD run
+//! itself was not green. Split there at the unexemptable 1000-line cap - a printed remedy is
+//! prose, nothing derives it, and the one thing that kept it honest was reading every answer side
+//! by side, which the split keeps true PER DIRECTION rather than for the whole gate.
 //!
 //! EACH ONE DECLARES ITS OWN DIRECTION at its own decision, because what a wrong answer costs
-//! differs per answer: an unnameable test is a REFUSAL (running everything instead is the
-//! unfiltered run whose verdict was a property of the suite), an inseparable file is a loud PASS
-//! (the change is usually legitimate and a gate that reddens correct work gets disabled), and an
-//! all-ignored diff is a loud PASS for a third reason again (nothing here can execute the tests,
-//! so there is no measurement to refuse over).
+//! differs per answer: an unnameable test is a REFUSAL (`super::refusals::report_unnamed_tests`;
+//! running everything instead is the unfiltered run whose verdict was a property of the suite), an
+//! inseparable file is a loud PASS (the change is usually legitimate and a gate that reddens
+//! correct work gets disabled), and an all-ignored diff is a loud PASS for a third reason again
+//! (nothing here can execute the tests, so there is no measurement to refuse over).
 //!
 //! WHAT A PASS HERE HAS TO CARRY, and it did not. Two of these branches PASS while measuring
 //! nothing, so `super::coverage`'s zero numerator is printed beside them: the reader is told
@@ -32,18 +33,10 @@
 //! keeps producing: [`no_base_behaviour`] is pure now because the test named for that choice
 //! asserted two methods on a value nothing here produced, and the mutation it is named for was
 //! green. A printed sentence is prose; a derived one can be read.
-//!
-//! A PRINTED CAUSE IS A CLAIM, and it is the claim these functions get wrong most easily -
-//! `report_unnamed_tests` has been rewritten twice for exactly that, because the two causes it
-//! first printed were both wrong for the shape that reached it most often. So each refusing answer
-//! names ONE cause per file, taken from the value `super::scoped` classified, rather than
-//! offering a reader a list to pick from.
 
 use crate::Verdict;
-use crate::causality::base::{names_no_tests, tail};
 use crate::causality::coverage::{Attributed, Coverage};
 use crate::causality::diff::ChangedFile;
-use crate::causality::features::{Because, Enabled, Unread};
 use crate::causality::names::Ident;
 use crate::causality::place::{Declares, accounted_for};
 use crate::causality::provenance::Moved;
@@ -73,8 +66,8 @@ pub(super) fn report_not_separable(
 
 /// Every line the arm above prints, in order.
 ///
-/// PURE, for the reason `nothing_to_revert` is: nothing in this venue captures stdout, so the
-/// assertion has to read the lines rather than the print.
+/// PURE, for the reason every other line in this module is: nothing in this venue captures
+/// stdout, so the assertion has to read the lines rather than the print.
 fn not_separable_lines(files: &[String], coverage: &Coverage, build_inputs: &[String], claim_declared: bool) -> Vec<String> {
     let mut lines = vec![String::from("xtask test-causality: NOT MECHANICALLY SEPARABLE")];
     for f in files {
@@ -163,15 +156,15 @@ fn scope_lines(coverage: &Coverage) -> Vec<String> {
 /// The changed files the reconstruction may not revert, named wherever an arm says what it did not
 /// measure.
 ///
-/// **ONE FUNCTION AND FOUR CALLERS, because three of them had none.** `separable.build_inputs` was
-/// printed at exactly one place - inside `super::prove`'s block - and the two arms that return
-/// BEFORE that block are precisely where a manifest is the whole implementation change:
-/// `Cargo.toml` plus a test that needs the dependency it adds gives an empty `revert`, so
-/// [`report_nothing_to_revert`] answered *tests changed but no implementation did* at exit 0 and
-/// never named the manifest. Naming it is all this does; what a manifest diff PUT INTO THE BUILD is
-/// `super::features`' question and its own refusal. The sentence that arm carried instead pointed at *"the
-/// proof's own block"*, which that arm never prints - the cross-arm citation `super::base`'s own
-/// header records as not allowed.
+/// **ONE FUNCTION, THREE CALLERS, because one of them used to have none.** `separable.build_inputs`
+/// was printed at exactly one place - inside `super::prove`'s block - and the tests-only arm that
+/// returns BEFORE that block is precisely where a manifest is the whole implementation change:
+/// `Cargo.toml` plus a test that needs the dependency it adds gives an empty `revert`, and that arm
+/// answered *tests changed but no implementation did* at exit 0 without ever naming the manifest.
+/// Naming it is all this does; what a manifest diff PUT INTO THE BUILD is `super::features`' own
+/// question and its own refusal. `github.com/telekom/sutura#1016` moved that arm onto this same
+/// printer directly (`causality::tests_only`) rather than leaving it a private copy of the same
+/// list, which is the caller this paragraph used to call out as missing one.
 pub(super) fn report_unreverted(build_inputs: &[String]) {
     for line in unreverted_lines(build_inputs) {
         println!("{line}");
@@ -321,73 +314,6 @@ pub(super) fn report_silent(silent: &[Silent]) {
     }
 }
 
-/// A separable plan with nothing to revert: the diff changed tests and no implementation.
-///
-/// PASSES, loudly. There is no old behaviour for a test to be red against, so the gate has no
-/// question to ask - not a defect, and the shape a tests-only branch legitimately has.
-///
-/// It printed NO ratio until the count was measured across thirteen recent branch diffs and one of
-/// them landed here with three added tests. `0 of 3` is the honest line: the filterset names them,
-/// nothing ran, and *nothing to prove* is not the same sentence as *nothing was added*.
-///
-/// `claim_declared` mirrors [`report_not_separable`]'s: a declared `Claim-Cell:` trailer whose
-/// patch was never committed reaches HERE too - the patch is what makes `revert` non-empty (it is
-/// `Reach::Revertible`), so an incomplete declaration is the reachable case, not the
-/// theoretical one. `github.com/telekom/sutura#837`.
-pub(super) fn report_nothing_to_revert(coverage: &Coverage, build_inputs: &[String], claim_declared: bool) -> Verdict {
-    for line in nothing_to_revert(coverage, build_inputs, claim_declared) {
-        println!("{line}");
-    }
-    Verdict::Pass
-}
-
-/// Every line the arm above prints, in order.
-///
-/// PURE, and this arm is the one that needed it most: it is where a manifest-only implementation
-/// change lands, and the naming this PR claimed for that case was printed by a different arm
-/// entirely. A test can read the wording now - `a_manifest_only_change_is_named_on_the_arm_it_lands_on`.
-fn nothing_to_revert(coverage: &Coverage, build_inputs: &[String], claim_declared: bool) -> Vec<String> {
-    let mut lines = vec![
-        String::from("xtask test-causality: tests changed but no implementation did"),
-        format!("  measured:  {}", coverage.measured(Attributed::Nothing)),
-    ];
-    // The limits beside the number, for the reason `unmeasured_lines` gives: this arm printed the
-    // ratio and none of the lists, so an all-`#[ignore]`d tests-only diff read as *no tests*.
-    lines.extend(unmeasured_lines(coverage));
-    // AND THE FILES THIS GATE MAY NOT REVERT, in place rather than by citation. A manifest is the
-    // whole implementation change on this arm more often than anywhere else - a new dependency plus
-    // the test that uses it - and *nothing to revert* over an unnamed `Cargo.toml` reads as *your
-    // change added no implementation*.
-    lines.extend(unreverted_lines(build_inputs));
-    lines.push(String::from(
-        "  Nothing to revert, so there is no old behaviour to be red against.",
-    ));
-    lines.push(String::from(
-        "  If this is a new test for existing behaviour, say so; it is not a",
-    ));
-    lines.push(String::from("  regression test and this gate cannot prove it is causal."));
-    if !build_inputs.is_empty() {
-        lines.push(String::from(
-            "  The build input(s) above are why there was nothing: this gate holds them",
-        ));
-        lines.push(String::from(
-            "  at HEAD, because reverting one changes what cargo RESOLVES rather than what",
-        ));
-        lines.push(String::from("  the tests measure. State the evidence in the handoff."));
-    }
-    if claim_declared {
-        lines.push(String::new());
-        lines.push(String::from(
-            "A `Claim-Cell:` declaration is present in this range and was NOT consulted: this",
-        ));
-        lines.push(String::from(
-            "arm returns before the claim arm is reached, so nothing here read it. It is not a",
-        ));
-        lines.push(String::from("verdict on the declaration - state the evidence above instead."));
-    }
-    lines
-}
-
 /// Every changed implementation file is NEW on this branch, so there is no base to restore.
 ///
 /// PASSES, loudly, for the same reason as the arm above and a different cause: reverting a file
@@ -444,139 +370,6 @@ fn no_base_behaviour(base: &str, remove: &[&String], coverage: &Coverage, build_
     lines
 }
 
-/// A plan whose every provable file declares a test module that named no test.
-///
-/// FAILS, and that direction is the whole point. Both runs are scoped to the tests the diff
-/// added, so a scan that names none has two possible fallbacks: run nothing, or run everything.
-/// Running everything is the unfiltered run whose verdict was a property of the suite - the defect
-/// this scoping removes - and running nothing is a green gate over zero measurements. An empty
-/// scan is therefore a refusal.
-///
-/// **WHAT REACHES HERE IS NARROWER THAN IT WAS, TWICE, and the printed cause narrowed with it.** A
-/// `#[cfg(test)]` item that is not a module is test-only code and never enters the proof; an
-/// attribute whose name could not be read has [`report_unreadable`]; a declaration whose module
-/// file is not in this diff has [`report_enabled_tests`]. What is left is a diff whose every
-/// provable file declares a test module that this gate ACCOUNTED FOR - the module's own file is in
-/// the diff, or the module is inline - and no added line in any of them named a test. The reason
-/// it is worth the words: the two causes this function first printed were both wrong for the shape
-/// that reached it most often, which is how a reader was sent to fix an extractor that was working.
-pub(super) fn report_unnamed_tests(test_files: &[String]) -> Verdict {
-    eprintln!("xtask test-causality: FAILED - the added tests could not be NAMED");
-    for f in test_files {
-        eprintln!("  {f} declares a test module and names no test");
-    }
-    eprintln!();
-    eprintln!("Both runs are scoped to the tests the diff added, so naming none of them would");
-    eprintln!("leave the gate measuring the whole suite and reading any failure in it as evidence");
-    eprintln!("about this change. What reaches here is narrow, so the cause is too: every one of");
-    eprintln!("those files declares a test module this diff DOES account for - the module's own");
-    eprintln!("file is in the diff, or the module is inline - and no added line anywhere named a");
-    eprintln!("test. Usually that means test code moved or was re-wrapped rather than added, which");
-    eprintln!("is not something either run can measure: state the evidence in the handoff. A");
-    eprintln!("`#[cfg(test)]` item that is NOT a module never reaches here - it is test-only code");
-    eprintln!("and is held - and both a name this could not read and a module this diff does not");
-    eprintln!("contain are their own verdicts above.");
-    Verdict::Fail
-}
-
-/// A provable file added a test ATTRIBUTE and the scan could not read a name from it.
-///
-/// FAILS, and it fails even when other files in the diff named tests fine - which is the whole
-/// difference from [`report_unnamed_tests`]. `Scan::of` is aggregate: one nameable test anywhere
-/// used to make the answer `Runnable` and carry this file along unmeasured and unmentioned, so the
-/// verdict was over a subset and nothing said which. The two printed causes here are the real ones
-/// for this shape, and neither is "your change".
-pub(super) fn report_unreadable(files: &[String]) -> Verdict {
-    eprintln!("xtask test-causality: FAILED - a test attribute this gate could not read a NAME from");
-    for f in files {
-        eprintln!("  {f} adds a test attribute and no name came out of it");
-    }
-    eprintln!();
-    eprintln!("This file is part of the proof, so a run that skipped it would measure a subset -");
-    eprintln!("and other files in this diff DID name tests, which is exactly how that used to go");
-    eprintln!("unnoticed. Three causes: the function under the attribute is spelled in a way");
-    eprintln!("`causality::scoped` cannot read, no `Cargo.toml` above the file declares a package,");
-    eprintln!("or the file's post-image could not be read at all. Fix the extractor rather than");
-    eprintln!("widening the run.");
-    Verdict::Fail
-}
-
-/// A provable file declares a test module whose own file is not in this diff.
-///
-/// FAILS, and it is a DIFFERENT failure from [`report_unreadable`] because the remedy is
-/// different: nothing is wrong with the extractor. A module that was never declared is now
-/// compiled, so a whole module of pre-existing tests enters the build - which ENABLES tests rather
-/// than adding them. No added line names any of them, and the declaring file is held at HEAD, so
-/// they are in both trees and cannot be red on base either.
-///
-/// It used to be the passing arm. `Scoped::silent` printed *a test module arrived here; its own
-/// file names the tests* over exactly this input, and nothing read whether that file existed in
-/// the diff - so the run reported `1 of 1 added tests measured` over a module it never looked at.
-/// `report_unnamed_tests` already carried the refusal for this cause and was only reachable when
-/// no sibling named a test, so one input had two remedies and the one that fired was the pass.
-pub(super) fn report_enabled_tests(enabled: &[Enabled]) -> Verdict {
-    eprintln!("xtask test-causality: FAILED - a declaration puts tests this diff does not contain into the build");
-    for one in enabled {
-        // ONE CAUSE PER FINDING, taken from the value rather than from this function's guess -
-        // the same rule `report_unnamed_tests` has been rewritten twice for. The two causes ask
-        // for the same evidence and name different things, and the match is exhaustive so a third
-        // is `error[E0004]` here rather than a finding printed under somebody else's sentence.
-        match one.because {
-            Because::Declared => eprintln!(
-                "  {} declares a test module whose own file {} is not in this diff",
-                one.path, one.module
-            ),
-            Because::Feature { ref manifest, ref name } => eprintln!(
-                "  {manifest} declares the feature `{name}`, which the base does not, and {} gates {} on it",
-                one.path, one.module
-            ),
-        }
-    }
-    eprintln!();
-    eprintln!("A module that was never compiled is now compiled, which ENABLES tests rather than");
-    eprintln!("adding them: no added line names any of them, so neither run measures any of them -");
-    eprintln!("and the declaring file is kept at HEAD, so they are in the base tree too and cannot");
-    eprintln!("be red against it. A manifest is not reverted either, for the reason");
-    eprintln!("`causality::provenance::Reach::BuildInput` states, so a newly declared feature is on");
-    eprintln!("in both trees. Nothing here is an extractor fault. State the evidence in the handoff:");
-    eprintln!("the task that runs those tests, and what their result was before and after.");
-    Verdict::Fail
-}
-
-/// A changed manifest whose own inputs the feature scan could not read.
-///
-/// FAILS, and it is the arm that stops *nothing was enabled* from being said over a table or a
-/// source listing that never came back - the same fail-closed direction `report_unreadable` holds
-/// for a post-image, one level up. Each cause prints what it could not read, because the remedy
-/// differs: a missing base blob is a fetch or a shallow clone, an empty source listing is a path
-/// this gate resolved wrongly, and a listed source that would not read is a working tree that
-/// changed under the scan.
-pub(super) fn report_unread_manifests(unread: &[Unread]) -> Verdict {
-    eprintln!("xtask test-causality: FAILED - a changed manifest this gate could not read");
-    for one in unread {
-        match *one {
-            Unread::Manifest(ref path) => eprintln!("  {path} changed and its content could not be read"),
-            Unread::AtBase(ref path) => {
-                eprintln!("  {path} exists at the base commit and its content there could not be read");
-            }
-            Unread::Sources { ref manifest, ref dir } => {
-                eprintln!("  {manifest} declares a new feature and no source file was listed under {dir}");
-            }
-            Unread::Listed(ref path) => {
-                eprintln!("  {path} is a listed source of a package whose manifest changed, and could not be read");
-            }
-        }
-    }
-    eprintln!();
-    eprintln!("A manifest diff can put a whole module of pre-existing tests into the build by");
-    eprintln!("declaring the feature a `#[cfg(feature = ..)] mod ..;` is gated on, and answering");
-    eprintln!("that it did not needs the feature table on BOTH sides plus the sources that could");
-    eprintln!("carry such a declaration. One of those did not come back, so this gate has no answer");
-    eprintln!("rather than a reassuring one. Check that the base commit is present locally - a");
-    eprintln!("shallow clone is the usual cause - and rerun `just causality`.");
-    Verdict::Fail
-}
-
 /// Every test the diff added is `#[ignore]`d, so no run in this venue reaches one.
 ///
 /// PASSES, loudly, and the opposite direction to the refusal above for a reason: an ignored test
@@ -605,43 +398,11 @@ pub(super) fn report_only_ignored(names: &[Ident], coverage: &Coverage) -> Verdi
     Verdict::Pass
 }
 
-/// The HEAD run did not come back green, so nothing can be measured against it.
-///
-/// Two failures wearing one exit code, and they ask for different things. A filter that matched
-/// NOTHING means the gate named a test nextest does not know - never a pass over zero tests, which
-/// is what nextest's own `--no-tests` default makes impossible. Anything else means the tests this
-/// diff added are simply red here.
-pub(super) fn report_head_failure(output: &str, only: &str) -> Verdict {
-    if names_no_tests(output) {
-        eprintln!("xtask test-causality: FAILED - nextest matched none of the tests this diff added");
-        eprintln!("  filter: {only}");
-        eprintln!("  Nothing was measured, so this refuses rather than reporting on zero tests.");
-        // THREE CAUSES, AND DELETING THE THIRD WAS WRONG TWICE OVER. It was deleted on the strength
-        // of `causality::isolation`'s removal - which at the time removed nothing, because it named
-        // no profile - so the arm stopped offering the one remedy that resolved the live defect.
-        // The removal is real now, and the cause STILL belongs here: it is bounded to what cargo
-        // calls a workspace member at one profile, so anything else in that directory can be stale
-        // and removing the directory is the answer that always works. A remedy that costs a rebuild
-        // is cheap next to a verdict nobody can explain.
-        eprintln!("  Three causes: a test attribute `causality::scoped` does not recognise, a");
-        eprintln!("  binary id or module path its file's PATH does not settle - a `[[test]]` whose");
-        eprintln!("  name is not the file's stem - or a shared target directory holding something");
-        eprintln!("  the per-run removal does not reach: see `causality::isolation`, and remove");
-        eprintln!("  `target/causality-target`.");
-    } else {
-        eprintln!("xtask test-causality: FAILED - the tests this diff added are not green on HEAD");
-    }
-    eprintln!("{}", tail(output, 30));
-    Verdict::Fail
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        Because, Coverage, Enabled, Ident, Moved, Unread, Verdict, moved_lines, no_base_behaviour, not_separable_lines,
-        nothing_to_revert, orphaned_lines, report_enabled_tests, report_head_failure, report_no_base_behaviour,
-        report_not_separable, report_nothing_to_revert, report_only_ignored, report_unnamed_tests, report_unread_manifests,
-        report_unreadable, scope_lines,
+        Coverage, Ident, Moved, Verdict, moved_lines, no_base_behaviour, not_separable_lines, orphaned_lines,
+        report_no_base_behaviour, report_not_separable, report_only_ignored, scope_lines, unreverted_lines,
     };
     use crate::causality::fixtures::{changed, tree};
 
@@ -664,19 +425,28 @@ mod tests {
     }
 
     #[test]
-    fn each_answer_keeps_the_direction_its_own_doc_argues_for() {
+    fn each_pass_answer_keeps_the_direction_its_own_doc_argues_for() {
         // THE ONE MECHANICAL THING IN THIS MODULE, and it had no test at all - which matters more
         // here than elsewhere, because the module's whole argument is that the direction is
         // decided PER ANSWER and for a different reason each time. Nothing captures stdout in this
         // venue, so the sentences stay held by review; the direction does not have to be.
         //
+        // `super::refusals::tests` holds the FAIL half of this same argument now, split there at
+        // the 1000-line cap - each answer in EITHER file still keeps its own direction for its own
+        // reason, not because the two files agree.
+        //
         // Three PASS, and each for its own reason: an inseparable file is usually legitimate work,
-        // a tests-only branch has no question to ask, and an all-ignored diff has nothing this
-        // venue can execute. Flipping any of them to a failure reddens correct work, which is how
-        // a gate gets disabled.
+        // a changed file that is wholly new here has no old behaviour to compile, and an
+        // all-ignored diff has nothing this venue can execute. Flipping any of them to a failure
+        // reddens correct work, which is how a gate gets disabled.
+        //
+        // A TESTS-ONLY branch (`Separable::revert` empty) used to be a fourth PASS here
+        // unconditionally - `report_nothing_to_revert`, deleted by `github.com/telekom/sutura#1016`
+        // - and is not one any more: `causality::tests_only` refuses an undeclared addition now,
+        // so that shape moved to `super::refusals::report_unclaimed_additions` and is no longer
+        // this module's to hold.
         let inseparable = vec![String::from("crates/x/src/a.rs")];
         assert_eq!(report_not_separable(&inseparable, &nothing_of(8), &[], false), Verdict::Pass);
-        assert_eq!(report_nothing_to_revert(&nothing_of(3), &[], false), Verdict::Pass);
         let new_file = String::from("crates/x/src/new.rs");
         assert_eq!(
             report_no_base_behaviour("origin/main", &[&new_file], &nothing_of(2), &[]),
@@ -684,45 +454,6 @@ mod tests {
         );
         let ignored = [Ident::parse("acceptance").expect("an identifier")];
         assert_eq!(report_only_ignored(&ignored, &only_ignored(&["acceptance"])), Verdict::Pass);
-
-        // Four FAIL, and each because the alternative is a verdict over something unmeasured:
-        // running the whole suite, measuring a subset in silence, passing over a module of tests
-        // nothing looked at, or comparing against a HEAD run that was not green.
-        assert_eq!(report_unnamed_tests(&inseparable), Verdict::Fail);
-        assert_eq!(report_unreadable(&inseparable), Verdict::Fail);
-        // BOTH CAUSES, because they are one verdict and a cause with no printed sentence of its
-        // own would inherit the other one's. The exhaustive match in `report_enabled_tests` is
-        // what makes a third cause a compile error rather than a mislabelled line.
-        let enabled = [
-            Enabled {
-                path: String::from("crates/x/src/lib.rs"),
-                module: String::from("crates/x/src/legacy.rs"),
-                because: Because::Declared,
-            },
-            Enabled {
-                path: String::from("crates/x/src/lib.rs"),
-                module: String::from("crates/x/src/legacy.rs"),
-                because: Because::Feature {
-                    manifest: String::from("crates/x/Cargo.toml"),
-                    name: String::from("legacy"),
-                },
-            },
-        ];
-        assert_eq!(report_enabled_tests(&enabled), Verdict::Fail);
-        // And the manifest this gate could not read on one side, which may not answer *nothing was
-        // enabled* - all four causes, each with its own sentence.
-        let unread = [
-            Unread::Manifest(String::from("crates/x/Cargo.toml")),
-            Unread::AtBase(String::from("crates/x/Cargo.toml")),
-            Unread::Sources {
-                manifest: String::from("crates/x/Cargo.toml"),
-                dir: String::from("crates/x"),
-            },
-            Unread::Listed(String::from("crates/x/src/legacy.rs")),
-        ];
-        assert_eq!(report_unread_manifests(&unread), Verdict::Fail);
-        assert_eq!(report_head_failure("error: no tests to run", "test(/x/)"), Verdict::Fail);
-        assert_eq!(report_head_failure("assertion failed", "test(/x/)"), Verdict::Fail);
     }
 
     #[test]
@@ -761,62 +492,27 @@ mod tests {
     }
 
     #[test]
-    fn a_manifest_only_change_is_named_on_the_arm_it_lands_on() {
-        // THE DEFECT REVIEW FOUND, at the arm it lands on. `separable.build_inputs` had exactly one
-        // reader - inside `super::prove`'s block - and a manifest-only implementation change returns
-        // from HERE, before that block: *tests changed but no implementation did*, `Verdict::Pass`,
-        // exit 0, and the `Cargo.toml` that WAS the change named nowhere. That is #343's exact shape
-        // and the one arm where the naming was the point.
-        //
-        // Worse, the sentence this arm carried pointed the reader at *"the proof's own block"* -
-        // lines this arm never prints. `super::base`'s own header records why a cross-arm citation
-        // is not allowed; it is said in place now.
-        let manifest = vec![String::from("crates/x/Cargo.toml")];
-        let lines = nothing_to_revert(&nothing_of(1), &manifest, false);
+    fn unreverted_lines_names_a_build_input_and_why_it_is_held() {
+        // THE ONLY DIRECT COVERAGE OF THIS SHARED PRINTER: `report_nothing_to_revert` used to be
+        // the one arm that exercised it with a non-empty list (#343's exact shape - a
+        // manifest-only implementation change - and the one arm where the naming was the point),
+        // and `github.com/telekom/sutura#1016` deleted that arm along with its own test. The
+        // behaviour it pinned still has three callers (`not_separable_lines`, `no_base_behaviour`,
+        // `report_unreverted`), so it keeps a test of its own rather than losing coverage with the
+        // arm.
+        let lines = unreverted_lines(&[String::from("crates/x/Cargo.toml")]);
         assert!(
             lines.iter().any(|line| line.contains("not reverted: crates/x/Cargo.toml")),
-            "the arm names the file it could not revert: {lines:?}"
-        );
-        assert!(
-            !lines.iter().any(|line| line.contains("the proof's own block")),
-            "no arm cites another arm's output: {lines:?}"
+            "names the file it could not revert: {lines:?}"
         );
         assert!(
             lines.iter().any(|line| line.contains("changes what cargo RESOLVES")),
             "and says why it is held rather than reverted: {lines:?}"
         );
-        // With nothing held back the extra paragraph is absent: a tests-only branch with no build
-        // input is the ordinary shape of this arm and may not be told about one.
-        let plain = nothing_to_revert(&nothing_of(1), &[], false);
-        assert!(
-            !plain.iter().any(|line| line.contains("not reverted")),
-            "nothing to name: {plain:?}"
-        );
-        assert_eq!(report_nothing_to_revert(&nothing_of(1), &manifest, false), Verdict::Pass);
-    }
-
-    #[test]
-    fn an_incomplete_claim_reaching_the_no_revert_arm_says_it_was_not_consulted() {
-        // THE SIBLING EARLY-RETURN #837 CALLS OUT: a `Claim-Cell:` trailer whose patch was never
-        // committed has an empty `revert` (the patch itself is what makes `revert` non-empty), so
-        // it lands HERE rather than at `report_not_separable` - and needs the identical line for
-        // the identical reason.
-        let declared = nothing_to_revert(&nothing_of(3), &[], true);
-        assert!(
-            declared.iter().any(|line| line.contains("was NOT consulted")),
-            "a declared trailer is named as unconsulted here too: {declared:?}"
-        );
-        assert_eq!(report_nothing_to_revert(&nothing_of(3), &[], true), Verdict::Pass);
-    }
-
-    #[test]
-    fn the_no_revert_arm_stays_silent_with_no_claim_declared() {
-        // THE REFUSAL'S OWN CELL for this arm: the field has to still be read on the ordinary,
-        // no-declaration path, not merely on the declared one.
-        let undeclared = nothing_to_revert(&nothing_of(3), &[], false);
-        assert!(
-            !undeclared.iter().any(|line| line.contains("Claim-Cell")),
-            "no trailer, no claim; the arm says nothing about one: {undeclared:?}"
+        assert_eq!(
+            unreverted_lines(&[]),
+            Vec::<String>::new(),
+            "nothing to name: nothing printed"
         );
     }
 

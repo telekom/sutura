@@ -269,16 +269,17 @@ fn a_reader_that_delivers_more_than_the_remaining_budget_is_refused() {
     let path = root.join("document.yaml");
     // Declared at the small length above, but yields more than `remaining`: only the re-check
     // (on top of the `take`) refuses it. The wrapper counts bytes pulled so the `take` cap is
-    // itself tested, not just assumed. Finite (MAX + 100 at most) so the `take`-deleted mutation
-    // fails the count red instead of reading forever; unbounded on its own, so what bounds the
-    // read is `read_document`'s own `take`.
+    // itself tested, not just assumed. Finite - larger than `remaining + 1` but capped at
+    // MAX + 100 - so the `take`-deleted mutation fails the count red instead of reading forever;
+    // what bounds the read is `read_document`'s own `take`.
     let mut lying = CountingReader::bounded(super::MAX_CATALOG_BYTES + 100);
-    let err =
-        super::read_document(&mut lying, &metadata, &path, &root, 0).expect_err("yielding past the remaining budget is refused");
+    let Err(err) = super::read_document(&mut lying, &metadata, &path, &root, 0) else {
+        panic!("yielding past the remaining budget is refused");
+    };
     assert!(matches!(err, OkfCatalogError::TooLarge { .. }), "the refusal is TooLarge");
     // The `take(remaining + 1)` cap: a reader that would happily yield MAX + 100 bytes must be
     // asked for at most remaining + 1 of them. With `read_document`'s `take` deleted, this count
-    // is MAX + 2 and the assertion fails - the mutation this cell holds.
+    // is MAX + 100 and the assertion fails - the mutation this cell holds.
     assert!(
         lying.pulled() <= super::MAX_CATALOG_BYTES + 1,
         "the take cap must bound the read, pulled {} bytes",
@@ -288,8 +289,9 @@ fn a_reader_that_delivers_more_than_the_remaining_budget_is_refused() {
 }
 
 /// A [`std::io::Repeat`] that counts how many bytes were pulled, so a test can assert the read
-/// was bounded. `Read` is implemented for `&mut Self`, so the counter is readable after the read
-/// hands the borrow back.
+/// was bounded. `CountingReader` itself does not implement `Read` - only `&mut CountingReader`
+/// does, below - so the wrapper is passed to `read_document` by mutable reference and `pulled()`
+/// stays readable on the owned value afterward.
 struct CountingReader {
     inner: std::io::Take<std::io::Repeat>,
     pulled: u64,
