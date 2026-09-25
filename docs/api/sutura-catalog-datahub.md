@@ -275,6 +275,10 @@ same simplification `DatasetAspect` already makes for the aspect as a whole, and
 the same: a real `nativeDataType` is already the flat string a dictionary's own `data_type`
 would be (`"VARCHAR(255)"`, `"BIGINT"`), so nothing here needs the union to read it.
 
+Identical in shape to `openmetadata::document::ColumnMetadata` and `rdbms::ColumnMetadata`,
+and kept separate for the reason the latter's own doc gives: each is one adapter's reading of
+a wire shape none of the others should depend on.
+
 #### Methods
 
 ```rust

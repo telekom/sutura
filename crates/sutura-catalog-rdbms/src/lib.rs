@@ -609,6 +609,12 @@ impl core::fmt::Display for TableAddress {
 /// itself, because this crate's own identifiers are still bare dictionary strings at this point -
 /// the same reason [`Table`]'s own fields are `String` rather than [`sutura_domain::model::ColumnName`].
 /// [`RdbmsCatalog::convert_model`] is where the parse happens for all of them together.
+///
+/// **`datahub::document` and `openmetadata::document` declare the identical two fields, and stay
+/// separate on purpose.** Each is that adapter's own reading of a wire shape this crate has no
+/// business depending on - one adapter importing another's type crosses the boundary
+/// `sutura-catalog-*` crates are not supposed to cross, for a coincidence of shape between three
+/// sources whose actual dictionaries have no reason to keep matching.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ColumnMetadata {
     data_type: Option<String>,

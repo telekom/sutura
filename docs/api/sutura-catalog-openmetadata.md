@@ -223,6 +223,10 @@ Its `dataType`, its own `description`, and (via `Table::primary_key`) whether it
 `constraint` value into `Table::primary_key`; see the crate header's "What is built here,
 and what is NOT".
 
+Identical in shape to `datahub::document::ColumnMetadata` and `rdbms::ColumnMetadata`, and
+kept separate for the reason the latter's own doc gives: each is one adapter's reading of a
+wire shape none of the others should depend on.
+
 #### Methods
 
 ```rust
