@@ -157,6 +157,9 @@ jobs:
       # `bigquery-driver-check`, `kind-smoke`, `demo-container` and `e2e` rebuilt them again. The
       # driver is keyed on its flake input and `nix/`, not on this commit's source, so it is built
       # here only when those move; every other push substitutes it and publishes nothing new.
+      # `checks.adbc-driver-postgresql` is the same case for the second self-built driver (#1028):
+      # its four triples are keyed on the `arrow-adbc-src` input and `nix/`, and `ci` built them
+      # from source on every run while they were unpublished.
       - name: Realise and publish the dependency and tool closures
         run: |
           set -eu
@@ -167,7 +170,8 @@ jobs:
             .#checks.x86_64-linux.keycloak-tier \
             .#checks.x86_64-linux.postgres-tier \
             .#checks.x86_64-linux.clickhouse-tier \
-            .#checks.x86_64-linux.adbc-driver-bigquery
+            .#checks.x86_64-linux.adbc-driver-bigquery \
+            .#checks.x86_64-linux.adbc-driver-postgresql
 
   # PER-CONSUMER PUBLISH. Each consumer's closure goes to its OWN cache
   # (`sutura-cross-build` / `sutura-connectors`), each with its own 5 GB bucket, so one consumer's
