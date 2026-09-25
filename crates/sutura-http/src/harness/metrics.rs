@@ -671,3 +671,62 @@ async fn spend_headroom_moves_with_admitted_calls_and_a_refusal_does_not_reset_i
     let after_refusal = scrape(&app).await;
     assert_eq!(sample(&after_refusal, "sutura_spend_headroom_bytes"), 0, "{after_refusal}");
 }
+
+/// The running `sutura_spend_bytes_total` counter moves with the same fixture and the same calls
+/// the headroom cell above drives: the route's post-answer push has to raise the counter to the
+/// ledger's fresh reading, a refusal charges nothing but must still leave the counter at its
+/// current total, and the counter must not reset when the headroom does.
+///
+/// **The byte amounts are the fixture's own, not chosen here.** `PRICE_BYTES` is 500 and the
+/// ceiling overlay is 1000, so two admitted calls take the running total to 500 then 1000 - the
+/// same calls, in the same order, as the headroom cell, read off the counter the route pushes
+/// rather than the gauge. The series does not exist on a tree without the counter's registration,
+/// so this cell is red there; and because the push raises to a reading that already carries every
+/// byte admitted so far, an `add`-shaped push (a double-count) would read 1500 after the second
+/// call instead of 1000 - this cell reddens that too.
+#[tokio::test]
+async fn spend_bytes_total_moves_with_admitted_calls_and_a_refusal_does_not_reset_it() {
+    // Same ceiling, window and fixture as the headroom cell: three calls at `PRICE_BYTES` each
+    // land on admitted, admitted-exactly-to-the-ceiling, and refused.
+    let app = app_with_a_spend_ceiling(metrics_settings_with(
+        "",
+        "rate_limit:\n  enabled: true\ngovernance:\n  per_replica_spend_ceiling:\n    bytes: 1000\n    window_seconds: 3600\n",
+    ));
+
+    // Before any call: zero - the untouched total genuinely is zero, unlike the headroom gauge,
+    // whose boot reading is the ceiling itself.
+    let untouched = scrape(&app).await;
+    assert_eq!(sample(&untouched, "sutura_spend_bytes_total"), 0, "{untouched}");
+
+    assert_eq!(
+        call(&app, request("POST", "/v1/query", Some(super::TOKEN), Body::from(A_QUESTION)))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let after_first = scrape(&app).await;
+    assert_eq!(sample(&after_first, "sutura_spend_bytes_total"), 500, "{after_first}");
+
+    // 500 + 500 = 1000, exactly the ceiling - the second call is still a `200` and the total
+    // doubles. An `add`-shaped push of the fresh 1000 reading over the 500 already held would
+    // read 1500 here, which is the double-count this cell exists to refuse.
+    assert_eq!(
+        call(&app, request("POST", "/v1/query", Some(super::TOKEN), Body::from(A_QUESTION)))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let drained = scrape(&app).await;
+    assert_eq!(sample(&drained, "sutura_spend_bytes_total"), 1_000, "{drained}");
+
+    // A third call is refused and charges nothing further, so the total HOLDS at 1000 - the
+    // counter is cumulative across windows and never reset by a refusal, unlike the headroom
+    // gauge whose sibling assertion above holds at zero for the opposite reason. The route still
+    // has to push on the refusal-shaped answer; a push that stopped here would be invisible on
+    // this series but is caught on the gauge's, so the pair covers both halves.
+    let (status, body) = call(&app, request("POST", "/v1/query", Some(super::TOKEN), Body::from(A_QUESTION))).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert!(body.contains(r#""code":"budget_exhausted""#), "{body}");
+    let after_refusal = scrape(&app).await;
+    assert_eq!(sample(&after_refusal, "sutura_spend_bytes_total"), 1_000, "{after_refusal}");
+}

@@ -306,22 +306,30 @@ than the one the transport actually answers on.
 
 ## `use ReplicaSpendGauge`
 
-This replica's `sutura_spend_headroom_bytes` gauge, obtainable only from the `ServiceState`
-that registered it.
+This replica's `sutura_spend_headroom_bytes` gauge and its `sutura_spend_bytes_total` counter,
+obtainable only from the `ServiceState` that registered them.
 
 **Only `SpendHeadroomPush::of` can make one, which is the whole point of the type existing.**
 A `Gauge` cannot be constructed outside `sutura_runtime`'s registry, but any caller holding a
 `RegistryBuilder` can mint an unrelated one - and a declaration carrying that would typecheck
-while pushing onto a series no scrape of this deployment renders. A private field closes it. The
-fence names the error code (`E0423`, a tuple struct with private fields) rather than a bare
+while pushing onto a series no scrape of this deployment renders. A private field closes it.
+It carries the gauge and this replica's `sutura_spend_bytes_total` counter together: the two
+series are registered under one condition by `ServiceState::new`, so one declaration carries
+both handles and the agent surface pushes both through the one `SpendHeadroomPush`.
+
+The fence names the error code (`E0423`, a tuple struct with private fields) rather than a bare
 `compile_fail`, so a change that made this fail for the WRONG reason - a rename, an unrelated
 syntax error - would itself fail to compile:
 
 ```compile_fail,E0423
-fn _unrelated(gauge: sutura_runtime::Gauge) -> sutura_http::ReplicaSpendGauge {
-    sutura_http::ReplicaSpendGauge(gauge)
+fn _unrelated(gauge: sutura_runtime::Gauge, counter: sutura_runtime::Counter) -> sutura_http::ReplicaSpendGauge {
+    sutura_http::ReplicaSpendGauge(gauge, counter)
 }
 ```
+
+Both arguments are correctly typed - the fence's only defect is that the fields are private, so
+the E0423 it names is the error it fails for and not an ill-typed construction a code pin was
+holding up.
 
 The compiling twin, so the failure above is the privacy error it claims to be and not an
 unresolved path: the same path, in the same crate, named rather than constructed.
@@ -2460,9 +2468,10 @@ series (Decision 5).
 
 `Metrics::install` is the only place in this crate that registers a series, and it takes a
 `sutura_runtime::metrics::RegistryBuilder` to do it - never a built
-`sutura_runtime::metrics::Registry`. Three series whose value is the deployment rather than a
+`sutura_runtime::metrics::Registry`. Four series whose value is the deployment rather than a
 request - `sutura_engine_worker_threads`, `sutura_catalog_metrics` and, when a per-replica spend
-ceiling is configured, `sutura_spend_headroom_bytes` - are registered against the same builder by
+ceiling is configured, the `sutura_spend_headroom_bytes` gauge and the
+`sutura_spend_bytes_total` counter - are registered against the same builder by
 `crate::state::ServiceState::new`, which is the one place that has both the settings and the
 served bundle. A built registry cannot be registered against, so the set is closed once the
 builder is consumed.
@@ -3603,7 +3612,7 @@ merely "someone chose a gauge". `Self::gauge` hands an `Option` back out, which 
 
 #### Variants
 
-- `ThisReplicasGauge` - The `sutura_spend_headroom_bytes` gauge `ServiceState::new` registered for this replica.
+- `ThisReplicasGauge` - The `sutura_spend_headroom_bytes` gauge and the `sutura_spend_bytes_total` counter `ServiceState::new` registered for this replica - one declaration carrying both, since the two series exist under one registration condition and the agent surface pushes both.
 - `NoCeilingConfigured` - There is no such series, because `governance.per_replica_spend_ceiling` is not configured.
 
   Saying so explicitly is the point of the declaration - an unconfigured ceiling is unlimited
@@ -3621,6 +3630,8 @@ The gauge to push onto, or `None` where this deployment has no ceiling at all.
 
 For the push site, which has to branch: a `None` reading leaves the gauge untouched rather
 than fabricating zero, and where there is no gauge there is nothing to leave untouched.
+The counter does not need its own getter - the push site reads the total off the surface
+and hands it to `Self::push_spend_total`.
 
 ```rust
 pub fn of(state: &ServiceState) -> Self
@@ -3630,6 +3641,21 @@ This state's own declaration, whichever of the two it is.
 
 The only route to `Self::ThisReplicasGauge`. `Gauge` shares its storage by `Arc`, so the
 state and every holder of the returned declaration observe one series.
+
+```rust
+pub fn push_spend_total(&self, total: u64)
+```
+
+Raises this replica's `sutura_spend_bytes_total` counter to `total`, where the deployment
+registered one.
+
+For the agent push site, after the same answered call: `/mcp` answers through the same
+`crate::surface::Surface` and charges the same ledger as `POST /v1/query`, so the counter
+the HTTP route writes has to move from here too or it freezes at its boot reading while the
+agent surface drains the ledger - the exact stale-series lie `AgentMount::new`'s required
+declaration exists to close for the gauge. `None` (no ceiling configured) is not a
+fabrication site: the unconfigured total is absent rather than zero, the same discipline
+the gauge's own push follows.
 
 #### Implements
 
@@ -3641,22 +3667,30 @@ state and every holder of the returned declaration observe one series.
 pub struct ReplicaSpendGauge
 ```
 
-This replica's `sutura_spend_headroom_bytes` gauge, obtainable only from the `ServiceState`
-that registered it.
+This replica's `sutura_spend_headroom_bytes` gauge and its `sutura_spend_bytes_total` counter,
+obtainable only from the `ServiceState` that registered them.
 
 **Only `SpendHeadroomPush::of` can make one, which is the whole point of the type existing.**
 A `Gauge` cannot be constructed outside `sutura_runtime`'s registry, but any caller holding a
 `RegistryBuilder` can mint an unrelated one - and a declaration carrying that would typecheck
-while pushing onto a series no scrape of this deployment renders. A private field closes it. The
-fence names the error code (`E0423`, a tuple struct with private fields) rather than a bare
+while pushing onto a series no scrape of this deployment renders. A private field closes it.
+It carries the gauge and this replica's `sutura_spend_bytes_total` counter together: the two
+series are registered under one condition by `ServiceState::new`, so one declaration carries
+both handles and the agent surface pushes both through the one `SpendHeadroomPush`.
+
+The fence names the error code (`E0423`, a tuple struct with private fields) rather than a bare
 `compile_fail`, so a change that made this fail for the WRONG reason - a rename, an unrelated
 syntax error - would itself fail to compile:
 
 ```compile_fail,E0423
-fn _unrelated(gauge: sutura_runtime::Gauge) -> sutura_http::ReplicaSpendGauge {
-    sutura_http::ReplicaSpendGauge(gauge)
+fn _unrelated(gauge: sutura_runtime::Gauge, counter: sutura_runtime::Counter) -> sutura_http::ReplicaSpendGauge {
+    sutura_http::ReplicaSpendGauge(gauge, counter)
 }
 ```
+
+Both arguments are correctly typed - the fence's only defect is that the fields are private, so
+the E0423 it names is the error it fails for and not an ill-typed construction a code pin was
+holding up.
 
 The compiling twin, so the failure above is the privacy error it claims to be and not an
 unresolved path: the same path, in the same crate, named rather than constructed.
