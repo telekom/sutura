@@ -152,7 +152,7 @@ fn a_column_s_type_description_and_primary_key_evidence_arrive() {
 /// succeeds and the column carries no type.
 #[test]
 fn a_column_type_too_long_to_represent_is_dropped_rather_than_refusing_the_load() {
-    let long_type = "STRUCT<".to_owned() + &"a INT, ".repeat(100) + "z INT>";
+    let long_type = format!("STRUCT<{}z INT>", "a INT, ".repeat(100));
     assert!(long_type.len() > sutura_domain::catalog::MAX_COLUMN_TYPE_CHARS);
     let snapshot: Snapshot = serde_json::from_value(serde_json::json!({
         "tables": [{

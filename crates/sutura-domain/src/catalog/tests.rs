@@ -9,8 +9,8 @@ use std::collections::BTreeSet;
 
 use super::{
     Audience, Column, ColumnType, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidViaChain,
-    MAX_DEFINITIONS_BYTES, MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL,
-    ViaChain,
+    MAX_COLUMN_TYPE_CHARS, MAX_DEFINITIONS_BYTES, MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship,
+    TIME_BUCKET_LABEL, ViaChain,
 };
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{
@@ -274,6 +274,72 @@ fn a_column_s_type_and_description_count_toward_the_aggregate_byte_cap() {
             assert!(bytes > MAX_DEFINITIONS_BYTES, "{bytes} must exceed {MAX_DEFINITIONS_BYTES}");
         }
         other => panic!("column description bytes must be what refuses this: {other:?}"),
+    }
+}
+
+/// A review found that the test above proves nothing about `data_type`'s own byte count: every
+/// column in it has `data_type: None`, so a mutation dropping the type's contribution entirely
+/// (`data_type.as_str().len()` to `0`) left it green. Here every metric description stays under
+/// the cap on its own, and only adding column TYPES on top crosses it - isolating the half the
+/// other test could not.
+#[test]
+fn a_column_s_type_alone_can_push_the_bundle_over_the_aggregate_byte_cap() {
+    let description_filler =
+        Description::parse("y".repeat(MAX_DESCRIPTION_BYTES)).expect("exactly the description cap is a description");
+    // 31 metric descriptions at the cap: 126976 bytes, comfortably under 131072 -
+    // `enough_conforming_metrics_to_exceed_the_aggregate_cap_do_not_load` already proves this half
+    // alone loads.
+    let metrics: Vec<Metric> = (0..31_u32)
+        .map(|index| {
+            Metric::new(
+                metric_name(&format!("metric_{index}")),
+                model_name("orders"),
+                Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+                Vec::new(),
+                column("order_date"),
+                BTreeSet::from([Grain::Month]),
+                Vec::new(),
+                None,
+                description_filler.clone(),
+                Audience::Open,
+            )
+            .expect("no dimensions to duplicate")
+        })
+        .collect();
+
+    // The model with no typed column: descriptions alone, well under the cap.
+    let bare_orders = model("orders", "local", &["amount_cents", "order_date"]);
+    assert!(
+        Definitions::assemble(vec![bare_orders], vec![], metrics.clone()).is_ok(),
+        "31 max descriptions and no column types stay under the cap"
+    );
+
+    // The remaining headroom (131072 - 126976 = 4096 bytes) cannot absorb nine columns at the
+    // 512-character type cap (4608 bytes) plus their own names - so adding only TYPES, with every
+    // description still empty, is what has to cross it.
+    let type_filler = ColumnType::parse("x".repeat(MAX_COLUMN_TYPE_CHARS)).expect("exactly the type cap is a type");
+    let mut typed_columns: Vec<Column> = vec![Column::from(column("amount_cents")), Column::from(column("order_date"))];
+    typed_columns.extend((0..9_u32).map(|index| {
+        Column::new(
+            column(&format!("c{index}")),
+            Some(type_filler.clone()),
+            Description::default(),
+            None,
+        )
+    }));
+    let typed_orders = Model::new(
+        model_name("orders"),
+        SourceName::parse("local").expect("a test source is a source"),
+        TableName::parse("orders").expect("a test table is a table"),
+        typed_columns,
+        Description::default(),
+    );
+    match Definitions::assemble(vec![typed_orders], vec![], metrics).unwrap_err() {
+        InconsistentDefinitions::DefinitionsTooLarge { bytes, limit } => {
+            assert_eq!(limit, MAX_DEFINITIONS_BYTES);
+            assert!(bytes > MAX_DEFINITIONS_BYTES, "{bytes} must exceed {MAX_DEFINITIONS_BYTES}");
+        }
+        other => panic!("column type bytes must be what refuses this: {other:?}"),
     }
 }
 

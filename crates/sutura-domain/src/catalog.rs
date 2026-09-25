@@ -277,12 +277,15 @@ impl Model {
     ///
     /// [`InconsistentDefinitions::UnknownPrimaryKeyColumn`], naming the first column that is not
     /// one of this model's own.
-    pub fn with_primary_key(mut self, primary_key: impl IntoIterator<Item = ColumnName>) -> Result<Self, InconsistentDefinitions> {
+    pub fn with_primary_key(
+        mut self,
+        primary_key: impl IntoIterator<Item = ColumnName>,
+    ) -> Result<Self, InconsistentDefinitions> {
         let primary_key: BTreeSet<ColumnName> = primary_key.into_iter().collect();
         for column in &primary_key {
             if !self.has_column(column) {
                 return Err(InconsistentDefinitions::UnknownPrimaryKeyColumn {
-                    model: self.name.clone(),
+                    model: self.name,
                     column: column.clone(),
                 });
             }

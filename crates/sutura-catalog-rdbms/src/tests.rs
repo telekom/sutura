@@ -163,7 +163,10 @@ fn a_column_s_type_comment_and_primary_key_evidence_arrive() {
 /// succeeds and the column carries no type, per that type's own doc.
 #[test]
 fn a_column_type_too_long_to_represent_is_dropped_rather_than_refusing_the_load() {
-    let long_type = "character varying".to_owned() + &"(".repeat(sutura_domain::catalog::MAX_COLUMN_TYPE_CHARS);
+    let long_type = format!(
+        "character varying{}",
+        "(".repeat(sutura_domain::catalog::MAX_COLUMN_TYPE_CHARS)
+    );
     let dictionary = Dictionary::new(
         vec![
             table("orders", vec!["order_id".to_owned()], None)

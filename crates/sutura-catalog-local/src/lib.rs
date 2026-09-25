@@ -42,7 +42,9 @@ use sutura_domain::pinned::{
 };
 
 use crate::document::knowledge::{CaveatDoc, ExampleDoc, GlossaryDoc, NotDefinedDoc};
-use crate::document::{DocumentKind, InvalidMetricDocument, InvalidModelDocument, KindProbe, MetricDoc, ModelDoc, RelationshipDoc};
+use crate::document::{
+    DocumentKind, InvalidMetricDocument, InvalidModelDocument, KindProbe, MetricDoc, ModelDoc, RelationshipDoc,
+};
 use crate::frontmatter::{MalformedDocument, Split};
 
 /// The extension a catalog document has to have.

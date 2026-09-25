@@ -199,12 +199,17 @@ impl OkfCatalog {
                 .or(field.title)
                 .map(|text| text.trim().to_owned())
                 .filter(|text| !text.is_empty());
-            let column = Column::from_metadata(column_name.clone(), field.r#type.as_deref(), field_description.as_deref(), None)
-                .map_err(|cause| OkfCatalogError::InvalidColumnDescription {
-                    path: path.to_path_buf(),
-                    column: column_name.clone(),
-                    cause,
-                })?;
+            let column = Column::from_metadata(
+                column_name.clone(),
+                field.r#type.as_deref(),
+                field_description.as_deref(),
+                None,
+            )
+            .map_err(|cause| OkfCatalogError::InvalidColumnDescription {
+                path: path.to_path_buf(),
+                column: column_name.clone(),
+                cause,
+            })?;
             columns.push(column);
         }
         // A model without a title or description would make the declared `Descriptions` unproduced,
@@ -229,7 +234,9 @@ impl OkfCatalog {
                 path: path.to_path_buf(),
                 cause,
             })?;
-        model.with_primary_key(primary_key).map_err(|cause| OkfCatalogError::Inconsistent { cause })
+        model
+            .with_primary_key(primary_key)
+            .map_err(|cause| OkfCatalogError::Inconsistent { cause })
     }
 
     /// Reads every descriptor and assembles the bundle.

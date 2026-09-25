@@ -194,7 +194,7 @@ pub enum ColumnEntryDoc {
 
 impl ColumnEntryDoc {
     /// The column's own name, either form.
-    fn name(&self) -> &ColumnName {
+    const fn name(&self) -> &ColumnName {
         match self {
             Self::Short(name) | Self::Long { name, .. } => name,
         }
@@ -256,10 +256,11 @@ pub enum InvalidModelDocument {
     },
     /// The model's own `primary_key:` names a column it does not declare.
     ///
-    /// Transparent, for the reason [`InvalidMetricDocument::Inconsistent`] gives: the domain's own
-    /// message already names the model and the column.
+    /// Transparent and boxed, for the reason [`InvalidMetricDocument::Inconsistent`] gives: the
+    /// domain's own message already names the model and the column, and the box is what keeps
+    /// `LocalCatalogError` under `clippy::result_large_err`'s threshold.
     #[error(transparent)]
-    PrimaryKey(InconsistentDefinitions),
+    PrimaryKey(Box<InconsistentDefinitions>),
 }
 
 impl ModelDoc {
@@ -275,7 +276,7 @@ impl ModelDoc {
         }
         Model::new(self.name, self.source, self.table, columns, description)
             .with_primary_key(self.primary_key)
-            .map_err(InvalidModelDocument::PrimaryKey)
+            .map_err(|cause| InvalidModelDocument::PrimaryKey(Box::new(cause)))
     }
 }
 

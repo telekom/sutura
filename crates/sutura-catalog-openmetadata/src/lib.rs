@@ -58,7 +58,9 @@ pub mod document;
 pub mod fixture;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Column, Definitions, Description, InconsistentDefinitions, InvalidDescription, Model, Relationship};
+use sutura_domain::catalog::{
+    Column, Definitions, Description, InconsistentDefinitions, InvalidDescription, Model, Relationship,
+};
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use sutura_domain::model::{ColumnName, JoinType, ModelName, RelationshipName, SourceName, TableName};

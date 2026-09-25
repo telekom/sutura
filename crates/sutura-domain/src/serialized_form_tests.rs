@@ -395,7 +395,7 @@ fn a_parsed_value_serializes_the_way_it_came_and_reparses_unchanged() {
         "the generated space is not the one this test was measured on"
     );
     assert_eq!(
-        checked, 21_502,
+        checked, 23_483,
         "a different number of generated values parsed than this test was measured on, so some parser's accept set moved"
     );
 }

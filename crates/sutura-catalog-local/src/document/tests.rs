@@ -217,7 +217,7 @@ primary_key: [order_date]
 /// refused: the document still loads and the column carries no type.
 #[test]
 fn a_column_type_too_long_to_represent_is_dropped_rather_than_refusing_the_load() {
-    let long_type = "STRUCT<".to_owned() + &"a STRING, ".repeat(80) + "z STRING>";
+    let long_type = format!("STRUCT<{}z STRING>", "a STRING, ".repeat(80));
     assert!(long_type.len() > sutura_domain::catalog::MAX_COLUMN_TYPE_CHARS);
     let yaml = format!(
         "
@@ -234,7 +234,13 @@ columns:
         .expect("a long type still parses as text")
         .into_domain(description("Orders."))
         .expect("dropping an unrepresentable type is not a refusal");
-    assert_eq!(model.column(&column("amount_cents")).expect("amount_cents is declared").data_type(), None);
+    assert_eq!(
+        model
+            .column(&column("amount_cents"))
+            .expect("amount_cents is declared")
+            .data_type(),
+        None
+    );
 }
 
 #[test]
@@ -273,10 +279,12 @@ primary_key: [order_id]
         .expect_err("order_id is not one of the declared columns");
     assert_eq!(
         err,
-        InvalidModelDocument::PrimaryKey(sutura_domain::catalog::InconsistentDefinitions::UnknownPrimaryKeyColumn {
-            model: sutura_domain::model::ModelName::parse("orders").expect("a test model is a model"),
-            column: column("order_id"),
-        })
+        InvalidModelDocument::PrimaryKey(Box::new(
+            sutura_domain::catalog::InconsistentDefinitions::UnknownPrimaryKeyColumn {
+                model: sutura_domain::model::ModelName::parse("orders").expect("a test model is a model"),
+                column: column("order_id"),
+            }
+        ))
     );
 }
 

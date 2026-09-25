@@ -26,7 +26,7 @@ cargo run -p sutura-cli -- \
 ```
 
 ```
--- definitions local-working-tree 50de3a1ed05d0466fbfaabec2cd765e217f43a926a4a2dac056c10f4e7e7a8f7
+-- definitions local-working-tree 3bd02c381fc6d5b8e593ae278a415c7c73948d36d941e4df23adb83572cfc1b8
 period	recurring_revenue
 2026-01-01	237320
 2026-02-01	232822

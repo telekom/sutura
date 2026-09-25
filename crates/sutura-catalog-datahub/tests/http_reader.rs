@@ -297,7 +297,7 @@ mod tests {
     /// layer.
     #[test]
     fn a_native_data_type_past_even_the_generous_bound_is_dropped_rather_than_refusing_the_load() {
-        let long_type = "STRUCT<".to_owned() + &"field STRING, ".repeat(80) + "last STRING>";
+        let long_type = format!("STRUCT<{}last STRING>", "field STRING, ".repeat(80));
         assert!(long_type.len() > sutura_domain::catalog::MAX_COLUMN_TYPE_CHARS);
         let mut dataset = dataset_page();
         dataset["entities"][0]["schemaMetadata"]["value"]["fields"][2] = serde_json::json!({
@@ -321,7 +321,10 @@ mod tests {
             .get(&sutura_domain::model::ModelName::parse("orders").expect("a fixture model is a model"))
             .expect("orders is a model");
         let amount_cents = sutura_domain::model::ColumnName::parse("amount_cents").expect("a fixture column is a column");
-        assert_eq!(orders.column(&amount_cents).expect("amount_cents is declared").data_type(), None);
+        assert_eq!(
+            orders.column(&amount_cents).expect("amount_cents is declared").data_type(),
+            None
+        );
     }
 
     /// **One shared deadline across the (up to) three requests, not one per request.**
