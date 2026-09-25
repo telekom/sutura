@@ -691,18 +691,6 @@ fn catalogs_of_more_than_one_kind_in_one_deployment_are_refused() {
 #[cfg(feature = "datahub")]
 mod datahub_served;
 
-// `OpenedCatalogs::Datahub` is `#[cfg(feature = "datahub")]`, so at the default (no-datahub)
-// build the `Markdown` pattern below is the enum's ONLY arm and the `else` is IRREFUTABLE - a
-// rustc error under `-D irrefutable-let-patterns` that the `--all-features` build never sees
-// (there the `Datahub` variant makes it refutable, which is what the `else` is for). The narrow
-// cfg-scoped allowance is the honest way to run the same cell in both builds.
-#[cfg_attr(
-    not(feature = "datahub"),
-    expect(
-        irrefutable_let_patterns,
-        reason = "at the default build the Datahub arm is cfg'd out, so the Markdown pattern and its else are irrefutable; the all-features build has both arms and needs the else"
-    )
-)]
 #[test]
 fn a_deployment_with_more_than_one_catalog_opens_one_per_declared_entry() {
     // Step 4 of the issue: the settings DECLARE several metadata sources and the composition root

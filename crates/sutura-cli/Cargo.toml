@@ -176,10 +176,8 @@ sutura-catalog-datahub = { workspace = true, optional = true }
 # The OKF metadata adapter. **A normal dependency, not an optional one**, for the same reason
 # `sutura-catalog-local` is: it is a pure directory read with no native or outbound-TLS
 # dependency, so it cross-compiles to musl and there is no artefact reason to hold it out of the
-# default build. It used to sit behind a default-off `okf` feature whose refusal arm no published
-# binary ever reached - every release shipped it via `nix/shipped.nix` - and the reviewer of #1007
-# flagged the feature's stated reason (outbound TLS, shared with `datahub`) as false. The feature
-# and its refusal arm are removed; `catalog.kind: okf` is openable by every build of this binary.
+# default build. It is unconditional like `sutura-catalog-local`; `catalog.kind: okf` is openable
+# by every build of this binary.
 sutura-catalog-okf = { workspace = true }
 # the single-player composition. An agent client launches the process and speaks MCP on its pipes,
 # matching `examples/single-player` - which is exactly the shape roadmap wanted. The dependency is

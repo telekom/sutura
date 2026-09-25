@@ -76,9 +76,7 @@ pub(crate) fn open_catalog(
             catalogs.each().map(open_one_markdown_catalog).collect(),
         )),
         sutura_config::CatalogKind::Datahub => open_datahub_catalogs(catalogs, outbound),
-        // `Okf` is an unconditional dependency of this build, so its arm is always linked - the
-        // `cfg` that used to split a linked and a refusal arm (behind the old default-off `okf`
-        // feature) is gone with the feature.
+        // `Okf` is an unconditional dependency of this build, so its arm is always linked.
         sutura_config::CatalogKind::Okf => Ok(OpenedCatalogs::Okf(catalogs.each().map(open_one_okf_catalog).collect())),
         // Declarable, and refused by name unconditionally: neither crate has a reader over
         // anything but a recorded fixture, so no feature could make either kind honestly openable
