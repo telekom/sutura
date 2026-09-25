@@ -49,9 +49,13 @@ construction rather than by discipline.
 ### What a model may not contain
 
 **No free-text SQL expression, anywhere.** A measure is an aggregate from a closed set over a named
-column, not the string `sum(amount)`. A relationship is a pair of columns and a join type, not the
-string `orders.customer_id = customers.id`. A dimension is a column, optionally reached through one
-declared relationship.
+column, not the string `sum(amount)`. A relationship is a join type and either one column pair or
+an ordered list of typed join keys, never a conditional string like
+`orders.customer_id = customers.id`. **Amended, `telekom/sutura#967`:** a compound join is that same
+escape hatch closed for the multi-key case - a day joined to a monthly snapshot needs two keys
+(`key = key AND month_of(day) = month`), and both are typed terms, never text, and the document's
+`keys:` list and its single-pair form are refused if a document writes both or neither. A dimension
+is a column, optionally reached through one declared relationship.
 
 This is the load-bearing half of the decision, and it is where this design departs from the
 modelling languages it otherwise resembles. Those carry SQL fragments as strings and parse them

@@ -161,7 +161,7 @@ pub struct PlanJoin {
     relationship: RelationshipName,
     table: QualifiedTable,
     join_type: JoinType,
-    keys: Vec<PlanJoinKey>,
+    keys: crate::nonempty::NonEmpty<PlanJoinKey>,
 }
 
 impl PlanJoin {
@@ -174,13 +174,19 @@ impl PlanJoin {
     /// so where a source count decides between one statement, a split and
     /// `PlanSpansTooManySources`.
     ///
+    /// **A join with no keys cannot be built**, and that is what makes `keys` a `NonEmpty` rather
+    /// than a `Vec` the renderers have to fail closed on: every key contributes one `=` term, so an
+    /// empty list would be a `JOIN ... ON` with no predicate - a shape that cannot be minted here.
+    /// The catalog's `JoinKeys` is non-empty by the same construction, so the plan's list, derived
+    /// from it, can never be empty either.
+    ///
     /// `impl Into<QualifiedTable>` for the reason `Model::new` gives.
     #[inline]
     pub fn new(
         relationship: RelationshipName,
         table: impl Into<QualifiedTable>,
         join_type: JoinType,
-        keys: Vec<PlanJoinKey>,
+        keys: crate::nonempty::NonEmpty<PlanJoinKey>,
     ) -> Self {
         Self {
             relationship,
@@ -212,10 +218,10 @@ impl PlanJoin {
         self.join_type
     }
 
-    /// The keys this join links on, each qualified by the tables it reads.
+    /// The keys this join links on, each qualified by the tables it reads. Never empty.
     #[inline]
     #[must_use]
-    pub fn keys(&self) -> &[PlanJoinKey] {
+    pub const fn keys(&self) -> &crate::nonempty::NonEmpty<PlanJoinKey> {
         &self.keys
     }
 }

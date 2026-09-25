@@ -3,10 +3,8 @@ kind: relationship
 name: usage_subscription
 origin:
   model: daily_usage
-  column: subscription_key
 target:
   model: subscriptions
-  column: subscription_key
 keys:
   - origin: subscription_key
     target: subscription_key
