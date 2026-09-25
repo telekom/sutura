@@ -90,7 +90,7 @@ fn direct_overlay(issuer: &MockIssuer, key_set_path: &str) -> String {
 }
 
 /// A catalog port that hands back a bundle somebody else built - the pass-through
-/// `crate::serve::catalog` composes deployments over, so `LocalService::start` validates it.
+/// `crate::catalog` composes deployments over, so `LocalService::start` validates it.
 struct FixedCatalog {
     bundle: sutura_domain::pinned::PinnedDefinitions,
 }

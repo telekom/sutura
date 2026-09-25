@@ -1,12 +1,15 @@
 //! The REAL-CARGO fixtures for `causality::run`'s claim dispatch, split out of `causality.rs`
 //! at the 1000-line cap.
 //!
-//! `claim::tests` drives `claim::run` with string-only fixtures; these two build a tiny real
+//! `claim::tests` drives `claim::run` with string-only fixtures; these build a tiny real
 //! crate and run `kill_cell`'s real `cargo test` against it, because the dispatch from
 //! `causality::run` into `claim::run` (and, after `github.com/telekom/sutura#954`, the COMPOSITE
 //! that also runs the ordinary proof over a range's undeclared additions) is a seam no string
 //! fixture reaches. `set_current_dir` is process-global, so each fixture asserts `NEXTEST` and
 //! runs alone.
+//!
+//! `github.com/telekom/sutura#1016` added the fourth: `causality::tests_only`'s own dispatch,
+//! reached over a `Separable::revert`-empty diff rather than an inseparable one.
 
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -249,4 +252,187 @@ fn composite(beside: &str) -> Verdict {
     std::env::set_current_dir(&original).expect("restore the current directory");
     drop(std::fs::remove_dir_all(&dir));
     verdict
+}
+
+/// Which patch, if any, `tests_only_claim_case` commits for `the_pinned_one`.
+#[derive(Clone, Copy)]
+enum Mutation {
+    /// Flips `f`'s return value, killing `assert_eq!(f(), 1)`.
+    Kills,
+    /// Touches the production line without changing `f`'s return value: applies cleanly, kills
+    /// nothing.
+    DoesNotKill,
+    /// No patch is committed at all.
+    Missing,
+}
+
+/// `github.com/telekom/sutura#1016`'s own fixture: a NEW file, `tests/it.rs`, is the WHOLE
+/// diff - `src/lib.rs`, the function it pins, is never touched at HEAD - so `plan()` finds
+/// nothing to revert (`Separable::revert` is empty) and `causality::run` reaches
+/// `tests_only`. Before this decision that arm passed unconditionally
+/// (`report_nothing_to_revert`, deleted); `Verdict::Fail` from any case here is reachable
+/// ONLY through the new dispatch.
+///
+/// `beside` is a second `#[test]` fn's source appended to the same added file, left out of
+/// the commit's `Claim-Cell:` trailer - the partial-declaration shape, same file shape as
+/// `composite` above but over an empty revert.
+fn tests_only_claim_case(declare: bool, mutation: Mutation, beside: Option<&str>) -> Verdict {
+    assert!(
+        std::env::var_os("NEXTEST").is_some(),
+        "this fixture moves the process's current directory, so it must have the process to \
+         itself: run it under `just test`."
+    );
+    let dir = std::env::temp_dir().join(format!(
+        "sutura-causality-tests-only-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _swept = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    git(&dir, &["init", "-q", "-b", "main"]);
+    git(&dir, &["config", "user.email", "test@example.com"]);
+    git(&dir, &["config", "user.name", "test"]);
+
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[profile.ci]\ninherits = \"dev\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    let lib_content = "pub fn f() -> u8 { 1 }\n";
+    std::fs::write(dir.join("src/lib.rs"), lib_content).unwrap();
+    std::fs::write(dir.join("flake.nix"), "{ }\n").unwrap();
+
+    // THE PATCH GOES INTO THE INIT COMMIT, BEFORE `base` IS CAPTURED - and that placement is
+    // load-bearing, not cosmetic. `Reach::of` reverts a non-Rust file like any other
+    // implementation (`plan.rs`'s own header), so a patch committed ALONGSIDE `tests/it.rs`
+    // would itself be a second changed file with something to revert - `separable.revert`
+    // would no longer be empty, and the diff would route through the OTHER `Plan::Separable`
+    // arm instead of `tests_only`, silently testing a different arm than the one this fixture
+    // names. `claim::run` reads the patch from the checkout at HEAD, never from the diff, so
+    // committing it before `base` proves nothing less.
+    let mutated: Option<String> = match mutation {
+        Mutation::Kills => Some(lib_content.replacen("{ 1 }", "{ 9 }", 1)),
+        Mutation::DoesNotKill => Some(lib_content.replacen("pub fn f() -> u8 { 1 }", "pub fn f() -> u8 { 1 } // same", 1)),
+        Mutation::Missing => None,
+    };
+    if let Some(mutated) = mutated {
+        // Same technique as the wiring fixture's patch: a hand-diffed pair of files renamed
+        // onto `src/lib.rs`.
+        std::fs::write(dir.join(".old.rs"), lib_content).unwrap();
+        std::fs::write(dir.join(".new.rs"), &mutated).unwrap();
+        let diffed = git_output(&dir, &["diff", "--no-index", "--", ".old.rs", ".new.rs"]);
+        let patch = String::from_utf8_lossy(&diffed.stdout)
+            .replace(".old.rs", "src/lib.rs")
+            .replace(".new.rs", "src/lib.rs");
+        std::fs::remove_file(dir.join(".old.rs")).unwrap();
+        std::fs::remove_file(dir.join(".new.rs")).unwrap();
+        std::fs::create_dir_all(dir.join("devco/claim-mutations")).unwrap();
+        std::fs::write(dir.join("devco/claim-mutations/the_pinned_one.patch"), &patch).unwrap();
+    }
+
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "init"]);
+    let base = String::from_utf8(git_output(&dir, &["rev-parse", "HEAD"]).stdout)
+        .expect("utf8")
+        .trim()
+        .to_owned();
+
+    // THE WHOLE MEASURED DIFF: one new test file. `src/lib.rs` is not written again at all,
+    // and nothing else changes - `separable.revert` is empty because there is truly nothing
+    // else in this diff to revert.
+    std::fs::create_dir_all(dir.join("tests")).unwrap();
+    let mut it = String::from("use wired::f;\n\n#[test]\nfn the_pinned_one() {\n    assert_eq!(f(), 1);\n}\n");
+    if let Some(beside) = beside {
+        it.push_str("\n#[test]\n");
+        it.push_str(beside);
+        it.push('\n');
+    }
+    std::fs::write(dir.join("tests/it.rs"), it).unwrap();
+    git(&dir, &["add", "-A"]);
+    let message = if declare {
+        "test: pin f's existing return value\n\nClaim-Cell: the_pinned_one"
+    } else {
+        "test: pin f's existing return value"
+    };
+    git(&dir, &["commit", "-q", "-m", message]);
+
+    let original = std::env::current_dir().expect("a current directory");
+    std::env::set_current_dir(&dir).expect("point the process at the fixture repo");
+    let verdict = super::run(&[String::from("--since"), base]);
+    std::env::set_current_dir(&original).expect("restore the current directory");
+    drop(std::fs::remove_dir_all(&dir));
+    verdict
+}
+
+/// **THE RED-ON-BASE CELL FOR THIS ISSUE.** No `Claim-Cell:` trailer at all, over a diff whose
+/// `Separable::revert` is empty - the exact shape `report_nothing_to_revert` passed
+/// unconditionally before this decision. `Verdict::Fail` is NEW behaviour here, not a pin of
+/// an existing one, so this cell needs no `Claim-Cell:` of its own: neutralising
+/// `tests_only`'s dispatch with `&& false` on the `Scan::Runnable` arm reproduces the base
+/// tree's answer, `Verdict::Pass`, confirmed by hand.
+#[test]
+fn a_tests_only_addition_with_no_claim_cell_is_refused() {
+    assert_eq!(
+        tests_only_claim_case(false, Mutation::Missing, None),
+        Verdict::Fail,
+        "an added test pinning existing behaviour with no `Claim-Cell:` trailer must refuse - \
+         the old arm answered `Verdict::Pass` unconditionally here"
+    );
+}
+
+/// The declared half: a complete declaration on a tests-only diff is EVALUATED, and a
+/// mutation that kills by the cell's own assertion is accepted.
+#[test]
+fn a_declared_tests_only_claim_cell_is_evaluated() {
+    assert_eq!(
+        tests_only_claim_case(true, Mutation::Kills, None),
+        Verdict::Pass,
+        "a complete declaration on a tests-only diff must be consulted, and its killing \
+         mutation accepted"
+    );
+}
+
+/// The arm is reached, not merely declared: a mutation that applies but does not kill is
+/// refused.
+#[test]
+fn a_tests_only_claim_cell_whose_mutation_does_not_kill_is_refused() {
+    assert_eq!(
+        tests_only_claim_case(true, Mutation::DoesNotKill, None),
+        Verdict::Fail,
+        "reaching the arm and finding the mutation does not kill must refuse"
+    );
+}
+
+/// A declaration with no committed patch is `Cause::MissingPatch`, not treated as though
+/// nothing were declared.
+#[test]
+fn a_tests_only_claim_cell_with_no_committed_patch_is_refused_as_missing() {
+    assert_eq!(
+        tests_only_claim_case(true, Mutation::Missing, None),
+        Verdict::Fail,
+        "a declared cell with no patch must refuse as missing"
+    );
+}
+
+/// THE PARTIAL DECLARATION, the third `tests_only` outcome: a commit declares ONE of the two
+/// tests it added, and the refusal must name only the undeclared remainder
+/// (`report_unclaimed_additions` over `scoped.minus(&declared)`), never the declared cell.
+/// Same file shape as [`composite`]'s, over an empty revert.
+///
+/// `Mutation::Kills`, not `Missing`, is what makes this cell discriminating: a committed
+/// killing patch means the declared cell WOULD prove green if the diff wrongly routed to
+/// `claim::run`, so `Verdict::Fail` can come only from the remainder being refused. WHICH
+/// tests the refusal names is not held: `report_unclaimed_additions` fails whatever it is
+/// given and the venue captures no stdout, so passing `scoped.tests()` instead of the
+/// remainder stays green here (measured) and is held by review alone. New behaviour, not a
+/// pin: the base tree passed unconditionally here.
+#[test]
+fn a_tests_only_diff_declaring_one_of_two_additions_refuses_the_undeclared_one() {
+    assert_eq!(
+        tests_only_claim_case(true, Mutation::Kills, Some("fn the_undeclared_one() { assert_eq!(f(), 1); }")),
+        Verdict::Fail,
+        "a partial declaration must refuse over the undeclared remainder, not ride on the \
+         declared cell's own passing proof"
+    );
 }

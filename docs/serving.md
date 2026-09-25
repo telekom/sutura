@@ -396,8 +396,21 @@ It is served by the `sutura` binary's `mcp` command, not by this one, and that i
 split: MCP-over-stdio is a locally launched, single-player surface, so it belongs with the command-line
 tool that composes the in-process engine over a data directory rather than with the HTTP service.
 
+**Since issue #970 `mcp` takes no directory arguments** - `sutura mcp examples/single-player/catalog
+examples/single-player/data` now fails with `` `examples/single-player/catalog` is not an argument
+of `mcp` `` - it reads `catalogs:`/`sources:` the way `sutura serve` does, over the same opener. The
+built-in defaults already declare `catalogs: [{name: model, kind: markdown, dir: catalog, data_dir:
+data}]` relative to the working directory, which is why the fence below needs no `catalogs:`
+override, only the same `sources:` declaration `serve`'s own fence above gives:
+
 ```bash
-sutura mcp examples/single-player/catalog examples/single-player/data
+cd examples/single-player
+SUTURA__SECURITY__IDENTITY=single-user \
+SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
+SUTURA__SOURCES__LOCAL__KIND=files \
+SUTURA__SOURCES__LOCAL__DATA_DIR="$PWD/data" \
+SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
+  sutura mcp
 ```
 
 An agent client launches that process and speaks the protocol on its pipes - the same two tools this
@@ -532,7 +545,7 @@ three, so a caller is told the same thing whether it reads the status, the code 
   "outcome": "answer",
   "provenance": {
     "definition_version": "local-1",
-    "definition_digest": "3bd02c381fc6d5b8e593ae278a415c7c73948d36d941e4df23adb83572cfc1b8"
+    "definition_digest": "c14afabdc65d0088523cfc6b805311547998c12ab1b540fd970b4f369b609270"
   },
   "columns": ["period", "recurring_revenue"],
   "rows": [
@@ -577,6 +590,7 @@ depends on why:
 | `plan_spans_too_many_sources` | `409`  | Nothing. This deployment will not read from more data systems than it serves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `federation_not_executable`   | `409`  | Nothing. This build has no adapter that can execute one half of a two-source question yet                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `federation_link_ambiguous`   | `409`  | Nothing. The question's remote dimensions join through more than one relationship                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `federation_link_compound`    | `409`  | Nothing. The one relationship crossing into the second data system declares more than one join key, and the combiner links two legs on a single column                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `measure_does_not_federate`   | `409`  | Nothing. The measure's aggregate cannot be recombined above two legs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `result_too_large`            | `413`  | Narrow the period or group by fewer dimensions. Nothing was truncated to fit. **One code for three bounds:** more rows than this service's cap, more data than the data system would return at once, or more bytes than this service will encode into a response. The sentence says which, and names a number for the first and the third - the second bound belongs to the data system and is not reported to us                                                                                                                                             |
 | `resources_exhausted`         | `422`  | Narrow the period, group by fewer dimensions or add a filter. The ceiling is a configured number and the sentence names it                                                                                                                                                                                                                                                                                                                                                                                                                                    |

@@ -1137,6 +1137,23 @@ the `return claim::run(..)` wiring in `causality::run` is read by review, not me
 here (stated, not hidden). The trailer never disables red-before-green for anything UNDECLARED: a claim
 cell without a trailer still reaches the green-against-base refusal unchanged.
 
+**THAT LAST SENTENCE WAS FALSE ON ONE ARM UNTIL `github.com/telekom/sutura#1016`: a tests-only diff
+- `Separable::revert` empty, no old behaviour anywhere in the diff to revert - used to reach
+*tests changed but no implementation did*, `Verdict::Pass`, exit 0, UNCONDITIONALLY. Measured on
+#1010: two added tests, neither declared, `measured: 0 of 2`, exit 0. Every test that shape can add
+IS a pin (there is nothing to revert, so nothing this gate can compare it against), so
+`causality::tests_only` now asks the same question the arm above does: an added test not named by a
+`Claim-Cell:` trailer is a refusal naming it (*FAILED - a tests-only diff added a test with no
+Claim-Cell: declaration*); a fully declared set runs through `claim::run` exactly as above,
+exiting 0 with *ok - claim cells: N declared, N killed*; a PARTIALLY declared set is still a
+refusal - naming only the undeclared remainder - because there is no ordinary proof to run for the
+rest on this arm. A cell holds that the partial set refuses; WHICH tests the refusal names is held
+by review alone (the fixture captures no stdout, and naming the whole scope was measured green).
+*tests changed but no implementation did* is retired as a verdict string: nothing prints it any
+more. **The limit stated where the fix landed:** this asks only about an ADDED test - a changed
+assertion inside an EXISTING test, in a file whose production code did not change, still reaches
+`no changed tests - nothing to prove` untouched, tracked as its own follow-up.
+
 **AND READ THE COUNT WITH THE VERDICT, never on its own.** `N of N added tests measured` beside an
 INCONCLUSIVE line means the filterset NAMED N tests, not that any of them ran against base. #307
 made those arms print `0 of N`; that fixed the verdict and not the line above it - `prove` printed
@@ -1152,15 +1169,18 @@ private to `causality::base` - so `base::earned` is the only place that can mint
 spell a non-zero measured numerator without a compile error; that it prints no measured sentence at
 all is a unit test. #331's body had to say in prose which numerator was which; there is one to say.
 
-**Which verdicts pass.** One of them proved something: *ok - red on base, green on head*. **Six more
-pass having run NEITHER run** - `no changed tests`, *tests changed but no implementation did*,
-`EVERY ADDED TEST IS #[ignore]d`, `NO BASE BEHAVIOUR TO COMPARE AGAINST`,
-`NOT MECHANICALLY SEPARABLE` and `nothing to measure - a declared test-file cleanup` - and every one
-of them asks for evidence instead: the command you ran, the failure before, the pass after. Five of
-the six carry `0 of M` beside the prose; the paragraph
-on those five further down has the accounting and says which one prints no number. This list named
-two of the five, so an author whose verdict was *tests changed but no implementation did* did not
-find it and read that everything else fails. **The two INCONCLUSIVE answers are neither pass nor
+**Which verdicts pass.** One of them proved something: *ok - red on base, green on head*. **Five more
+pass having run NEITHER run** - `no changed tests`, `EVERY ADDED TEST IS #[ignore]d`,
+`NO BASE BEHAVIOUR TO COMPARE AGAINST`, `NOT MECHANICALLY SEPARABLE` and
+`nothing to measure - a declared test-file cleanup` - and every one of them asks for evidence
+instead: the command you ran, the failure before, the pass after. **`tests changed but no
+implementation did` used to be a sixth, unconditionally; `github.com/telekom/sutura#1016` retired
+it as a verdict string** - the arm it named (a tests-only diff, nothing to revert) now either
+refuses an undeclared added test by name or runs the claim arm, so nothing prints that sentence any
+more. Four of the remaining five carry `0 of M` beside the prose; the paragraph
+on those four further down has the accounting and says which one prints no number. An author whose
+verdict does not match one of these five sentences exactly should not read that as failure without
+checking the list first. **The two INCONCLUSIVE answers are neither pass nor
 fail** - "the base tree does not build" and "the base run named no failure" exit **3** since #307,
 which is not 0 and not 1: see the paragraph at the end of this section for what each venue does with
 it. **Everything else fails**, on two sides. The base run produced an answer that is not evidence
@@ -1242,20 +1262,21 @@ fail-on-mismatch rule would have reddened every branch in the sample, and a gate
 correct work gets disabled. **What it therefore is not:** nothing forces the remainder to be
 proven. `7 of 8` is an instruction to run a mutation by hand, not a mechanism.
 
-**SIX passing arms run NEITHER run, and *every verdict carries the ratio* was false for them** -
+**FIVE passing arms run NEITHER run, and *every verdict carries the ratio* was false for them** -
 which is the same defect class one level up, so it is worth the row. `no changed tests`,
-*tests changed but no implementation did*, `EVERY ADDED TEST IS #[ignore]d`,
-`NO BASE BEHAVIOUR TO COMPARE AGAINST`, `NOT MECHANICALLY SEPARABLE` and
-`nothing to measure - a declared test-file cleanup` all return exit 0 without either run having
-happened, and two of the thirteen replayed branches landed on one of them with 3 and 7 added tests.
-**Five of the six print a ZERO-numerator line** (`0 of 3`), because the numerator is what the
+`EVERY ADDED TEST IS #[ignore]d`, `NO BASE BEHAVIOUR TO COMPARE AGAINST`,
+`NOT MECHANICALLY SEPARABLE` and `nothing to measure - a declared test-file cleanup` all return
+exit 0 without either run having happened, and two of the thirteen replayed branches landed on one
+of them with 3 and 7 added tests - the 3-added-tests branch on *tests changed but no implementation
+did*, the sixth member of this list until `github.com/telekom/sutura#1016` retired it (see above).
+**Four of the five print a ZERO-numerator line** (`0 of 3`), because the numerator is what the
 filterset NAMES and that equals what was measured only once both runs are done. The one that prints
 no number at all is `no changed tests`: its denominator is zero by construction, and `0 of 0` reads
 as *the diff added none* rather than as *none was measured*. This paragraph said *four* and
 *they all do*; both were corrected by #319, and the count was wrong because
 `NOT MECHANICALLY SEPARABLE` was left out of a list the same sentence claimed to include. **It has
-now been wrong twice for one reason - an arm was added and a sentence carrying a NUMBER was not
-re-counted - so what to cite from here is the LIST, never the number.**
+now been wrong three times for the same reason - an arm changed shape and a sentence carrying a
+COUNT was not re-counted - so what to cite from here is the LIST, never the number.**
 **So the citable claim is: a branch that ran the two runs prints the ratio, and a branch that did not
 either says it measured nothing or had nothing to count.**
 
@@ -1544,7 +1565,7 @@ and whether the new file itself reads as test code:
 
 | The split, otherwise identical | The verdict | Exit |
 | --- | --- | --- |
-| `#[cfg(test)] mod spans;`, new file carries no `#[cfg(test)]` | `tests changed but no implementation did` | 0 |
+| `#[cfg(test)] mod spans;`, new file carries no `#[cfg(test)]` | `FAILED - a tests-only diff added a test with no Claim-Cell: declaration` | 1 |
 | bare `mod spans;`, new file carries no `#[cfg(test)]` | `NOT MECHANICALLY SEPARABLE` | 0 |
 | bare `mod spans;`, new file carries `#![cfg(test)]` | `FAILED - the tests this diff added did not run on base` | 1 |
 
@@ -1558,7 +1579,11 @@ change.** The trailer is for the split that has no such form available - one lan
 implementation changes in the same diff. **Read the middle row as a trap of its own:**
 `NOT MECHANICALLY SEPARABLE` at exit 0 there means the new module read as PRODUCTION code - no
 `#[cfg(test)]` region, not under `tests/` - so its assertions were held OUT of the proof and that
-exit 0 covered nothing. Three rows, three different answers a reader would have predicted as one.
+exit 0 covered nothing. **The first row used to be a trap of the same shape - `tests changed but no
+implementation did` at exit 0, covering a genuine move nobody declared - until
+`github.com/telekom/sutura#1016` made that arm ask for a `Claim-Cell:` too; a `Cleanup-Split:`
+trailer on the same commit still reaches `relocation::decide` first and never gets here at all.**
+Three rows, three different answers a reader would have predicted as one.
 
 **AND THE GATE ALREADY KNEW IT WAS A MOVE AND FAILED ANYWAY, which is the alternative that was NOT
 taken.** On that third row the run printed, before either verdict,

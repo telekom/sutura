@@ -184,6 +184,20 @@ pub(crate) const CATALOG_CASES: &[(&str, Edit)] = &[
             "---\nkind: metric\nname: smallest_subscription_mrr\nmodel: subscriptions\nmeasure:\n  simple: { aggregate: min, column: mrr_cents }\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\naudience: open\n---\nThe smallest recurring amount any one subscription carried in the period.\n\nThe other end of `largest_subscription_mrr`, for the other arm of the same table.\n",
         ),
     ),
+    // `voice_minutes`'s own chained dimension, removed for the same reason `sales_area` is above:
+    // `product_family` is reached through `usage_subscription` (hop 1, `daily_usage` to
+    // `subscriptions`, both local) then `subscription_product` (hop 2, `subscriptions` to
+    // `products`) - and `remote_products` moves `products` to a second data system, which makes
+    // hop 2 cross where only hop 1 of a chain may. Removed from BOTH catalogs so this derivation
+    // stays the one line `the_two_catalogs_differ_in_one_document` measures; the compound join's
+    // own evidence is the shared corpus's golden and executed cells, not this file.
+    (
+        "metrics/voice_minutes.md",
+        Edit::Rewrite {
+            find: "dimensions:\n  - name: product_family\n    column: product_family\n    via: [usage_subscription, subscription_product]\n    values: [convergent, fixed_internet, mobile, tv]\n    description: >\n      The kind of product the subscription that used the minutes belongs to. Reached through\n      `usage_subscription` - the compound join from a usage day to the monthly snapshot -\n      and then on to the product. Grouping by it does not multiply the minutes, because the\n      compound key stops every usage day from joining every month that subscription existed.\n",
+            with: "",
+        },
+    ),
     // A distinct value that genuinely SPANS join keys: several customers subscribe to one product,
     // so the number of distinct products in a region is strictly less than the sum of the distinct
     // products per customer. That is what the combiner cannot re-count and what

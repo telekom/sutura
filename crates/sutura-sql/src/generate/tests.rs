@@ -1,5 +1,5 @@
 use sutura_domain::calendar::{Date, TimeRange};
-use sutura_domain::catalog::{Definitions, Description, Model, Relationship};
+use sutura_domain::catalog::{Definitions, Description, JoinKey, JoinKeys, Model, Relationship};
 use sutura_domain::model::Aggregate;
 use sutura_domain::model::{ColumnName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName};
 use sutura_domain::plan::{
@@ -12,7 +12,8 @@ use sutura_domain::warehouse::ParamValue;
 use polyglot_sql::builder;
 
 use super::{
-    DISTINCT_LABEL, DeclaredKey, ROWS_LABEL, bucket_expression, generate, generate_key_probe, ordered_nulls_last, render,
+    DISTINCT_LABEL, DeclaredKey, GenerateError, ROWS_LABEL, bucket_expression, generate, generate_key_probe, ordered_nulls_last,
+    render,
 };
 use crate::dialect::{ALL, Dialect};
 
@@ -304,10 +305,13 @@ fn a_key_probe_renders_and_parses_for_every_dialect_it_declares() {
     let relationship = Relationship::new(
         RelationshipName::parse("orders_customer").expect("a test relationship is a relationship"),
         ModelName::parse("orders").expect("a test model is a model"),
-        ColumnName::parse("customer_key").expect("a test column is a column"),
         ModelName::parse("customers").expect("a test model is a model"),
-        ColumnName::parse("customer_key").expect("a test column is a column"),
         JoinType::ManyToOne,
+        JoinKeys::of(vec![JoinKey::Equal {
+            origin: ColumnName::parse("customer_key").expect("a test column is a column"),
+            target: ColumnName::parse("customer_key").expect("a test column is a column"),
+        }])
+        .expect("a test relationship declares one key"),
     );
     let definitions = Definitions::assemble(
         vec![
@@ -443,4 +447,98 @@ fn oracle_caps_a_top_plan_with_fetch_first_not_limit() {
         TopDirection::Desc,
     );
     assert_row_limit_clause(&month_plan().with_top(top), 3);
+}
+
+/// A compound (two-column) declared key probe parses on `DuckDb`, `Postgres` and `ClickHouse`, and
+/// Oracle and `BigQuery` both refuse it by name - the negative half of
+/// `a_key_probe_renders_and_parses_for_every_dialect_it_declares`, which only ever built a one-key
+/// probe and so never reached the tuple `DISTINCT`.
+#[test]
+fn a_compound_key_probe_renders_only_where_a_null_safe_tuple_distinct_exists() {
+    let relationship = Relationship::new(
+        RelationshipName::parse("usage_subscription").expect("a test relationship is a relationship"),
+        ModelName::parse("daily_usage").expect("a test model is a model"),
+        ModelName::parse("subscription_snapshot").expect("a test model is a model"),
+        JoinType::ManyToOne,
+        JoinKeys::of(vec![
+            JoinKey::Equal {
+                origin: ColumnName::parse("subscription_key").expect("a test column is a column"),
+                target: ColumnName::parse("subscription_key").expect("a test column is a column"),
+            },
+            JoinKey::TruncatedEqual {
+                origin: ColumnName::parse("usage_date").expect("a test column is a column"),
+                grain: Grain::Month,
+                target: ColumnName::parse("month").expect("a test column is a column"),
+            },
+        ])
+        .expect("two keys is a non-empty set"),
+    );
+    let definitions = Definitions::assemble(
+        vec![
+            Model::new(
+                ModelName::parse("daily_usage").expect("a test model is a model"),
+                SourceName::parse("local").expect("a test source is a source"),
+                TableName::parse("daily_usage").expect("a test table is a table"),
+                ["subscription_key", "usage_date"]
+                    .into_iter()
+                    .map(|c| ColumnName::parse(c).expect("a test column is a column")),
+                Description::default(),
+            ),
+            Model::new(
+                ModelName::parse("subscription_snapshot").expect("a test model is a model"),
+                SourceName::parse("local").expect("a test source is a source"),
+                TableName::parse("subscription_snapshot").expect("a test table is a table"),
+                ["subscription_key", "month"]
+                    .into_iter()
+                    .map(|c| ColumnName::parse(c).expect("a test column is a column")),
+                Description::default(),
+            ),
+        ],
+        vec![relationship.clone()],
+        Vec::new(),
+    )
+    .expect("two models and one compound join are consistent");
+    let key = DeclaredKey::promised_by(&relationship, &definitions).expect("a many-to-one promises a unique target");
+
+    for &dialect in ALL {
+        let outcome = generate_key_probe(&key, dialect);
+        if matches!(dialect, Dialect::Oracle | Dialect::BigQuery) {
+            assert!(
+                matches!(outcome, Err(GenerateError::CompoundKeyProbeUnsupported { dialect: refused }) if refused == dialect),
+                "{dialect} must refuse a compound probe by name, not render one: {outcome:?}"
+            );
+            continue;
+        }
+        let query = outcome.unwrap_or_else(|e| panic!("a compound key probe would not render for {dialect}: {e}"));
+        let sql = query.sql();
+        assert!(
+            query.params().is_empty(),
+            "{dialect} bound a parameter into a compound probe: {sql}"
+        );
+        assert!(sql.contains(ROWS_LABEL), "{dialect} did not alias the row count: {sql}");
+        assert!(
+            sql.contains(DISTINCT_LABEL),
+            "{dialect} did not alias the distinct count: {sql}"
+        );
+        // Both key columns must appear beside DISTINCT, not just the origin's: a probe that
+        // dropped the second column would silently validate a plain-equality's worth of
+        // uniqueness under a compound key's name.
+        assert!(
+            sql.contains("subscription_key"),
+            "{dialect} dropped the first key column: {sql}"
+        );
+        assert!(sql.contains("month"), "{dialect} dropped the second key column: {sql}");
+        for absent in ["WHERE", "GROUP BY", "HAVING", "LIMIT"] {
+            assert!(
+                !sql.contains(absent),
+                "{dialect} narrowed the compound probe with {absent}: {sql}"
+            );
+        }
+        let parsed = polyglot_sql::parse(sql, super::dialect_type(dialect));
+        assert!(
+            parsed.is_ok(),
+            "{dialect} did not parse its own compound probe: {:?}\n{sql}",
+            parsed.err()
+        );
+    }
 }

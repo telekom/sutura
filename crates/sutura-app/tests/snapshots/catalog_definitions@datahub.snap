@@ -57,10 +57,12 @@ relationships:
   orders_to_customer:
     name: orders_to_customer
     origin_model: orders
-    origin_column: customer_id
     target_model: customers
-    target_column: customer_id
     join_type: many_to_one
+    keys:
+      - Equal:
+          origin: customer_id
+          target: customer_id
 metrics:
   revenue:
     name: revenue

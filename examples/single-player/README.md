@@ -26,7 +26,7 @@ cargo run -p sutura-cli -- \
 ```
 
 ```
--- definitions local-working-tree 3bd02c381fc6d5b8e593ae278a415c7c73948d36d941e4df23adb83572cfc1b8
+-- definitions local-working-tree c14afabdc65d0088523cfc6b805311547998c12ab1b540fd970b4f369b609270
 period	recurring_revenue
 2026-01-01	237320
 2026-02-01	232822
@@ -288,15 +288,26 @@ speaks the Model Context Protocol on its pipes - the same two tools the HTTP sur
 (`describe_catalog` and `ask_metric`, from the same declaration), for a locally run, single
 player session over this same directory.
 
+**Since issue #970 `mcp` takes no directory arguments** - it reads `catalogs:`/`sources:` the way
+`sutura serve` does, over the same opener, so `sutura mcp examples/single-player/catalog
+examples/single-player/data` now fails naming the first directory as an argument `mcp` does not take.
+
 ```bash
-sutura mcp examples/single-player/catalog examples/single-player/data
+cd examples/single-player
+SUTURA__SECURITY__IDENTITY=single-user \
+SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
+SUTURA__SOURCES__LOCAL__KIND=files \
+SUTURA__SOURCES__LOCAL__DATA_DIR="$PWD/data" \
+SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
+  sutura mcp
 ```
 
-Point the client at `sutura mcp <catalog-dir> [data-dir]` - the directory is optional, because a
-deployment that declares its data system has already said where the data is - and it lists the
-catalog and answers certified questions exactly as `query` would. The process prints, on standard error, that it
-grants every capability to whoever can reach it: a pipe has no header a token could arrive in,
-so the limit is stated beside the mode rather than left as a default.
+The built-in defaults already declare `catalog`/`data` relative to the working directory - the same
+`catalogs:` entry `serve` reads - so pointing the client here needs no override beyond the data
+source `sources:` declares. It lists the catalog and answers certified questions exactly as `query`
+would. The process prints, on standard error, that it grants every capability to whoever can reach
+it: a pipe has no header a token could arrive in, so the limit is stated beside the mode rather than
+left as a default.
 
 ## The data
 
