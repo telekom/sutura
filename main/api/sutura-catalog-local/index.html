@@ -3865,6 +3865,8 @@ finer split is a cheap change if a caller ever needs the branch.</p>
 <ul>
 <li><code>NotADirectory</code></li>
 <li><code>Io</code></li>
+<li><code>Open</code> - An open, stat or read of a document through its descriptor failed in a way the OS described but <code>Self::Io</code>'s wording does not: a swapped symlink refuses with <code>ELOOP</code> and a swapped FIFO with <code>ENXIO</code>, and neither is "could not read".</li>
+<li><code>NotARegularFile</code> - The document opened is not a regular file - a device node, for one, is refused by the regular-file check on the handle that was opened, not by the walk, which only saw the entry that was there before the swap.</li>
 <li><code>Malformed</code></li>
 <li><code>Frontmatter</code></li>
 <li><code>MalformedFrontmatter</code></li>
@@ -3903,9 +3905,10 @@ finer split is a cheap change if a caller ever needs the branch.</p>
 - <code>TooLarge</code> - The documents read so far sum to more bytes than <code>MAX_CATALOG_BYTES</code> permits.</p>
 <p><code>path</code> is the catalog root, matching <code>TooManyDocuments</code> and <code>Empty</code> above - the rendered
   text names "the catalog", so the path in it has to be the catalog's, not one file's.
-  <code>document</code> is the one whose metadata pushed the running total over <code>limit</code> - checked from
-  its own size and INCLUDING it, before it is read into memory, not after. <code>found</code> is that
-  running total.
+  <code>document</code> is the one whose size pushed the running total over <code>limit</code> - checked on the
+  handle that is then read, and INCLUDING it, before it is read into memory, not after. A
+  document that outgrew that check while being read refuses here too. <code>found</code> is the
+  running total the refusal saw.
 - <code>Digest</code> - The domain could not hash the definitions.</p>
 <p>One variant rather than the two this used to have. Those two - the canonical form failing to
   serialize, and the resulting hex failing to parse as a digest - are now both inside the
