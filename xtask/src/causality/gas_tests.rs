@@ -272,7 +272,11 @@ enum Mutation {
 /// `tests_only`. Before this decision that arm passed unconditionally
 /// (`report_nothing_to_revert`, deleted); `Verdict::Fail` from any case here is reachable
 /// ONLY through the new dispatch.
-fn tests_only_claim_case(declare: bool, mutation: Mutation) -> Verdict {
+///
+/// `beside` is a second `#[test]` fn's source appended to the same added file, left out of
+/// the commit's `Claim-Cell:` trailer - the partial-declaration shape, same file shape as
+/// `composite` above but over an empty revert.
+fn tests_only_claim_case(declare: bool, mutation: Mutation, beside: Option<&str>) -> Verdict {
     assert!(
         std::env::var_os("NEXTEST").is_some(),
         "this fixture moves the process's current directory, so it must have the process to \
@@ -338,11 +342,13 @@ fn tests_only_claim_case(declare: bool, mutation: Mutation) -> Verdict {
     // and nothing else changes - `separable.revert` is empty because there is truly nothing
     // else in this diff to revert.
     std::fs::create_dir_all(dir.join("tests")).unwrap();
-    std::fs::write(
-        dir.join("tests/it.rs"),
-        "use wired::f;\n\n#[test]\nfn the_pinned_one() {\n    assert_eq!(f(), 1);\n}\n",
-    )
-    .unwrap();
+    let mut it = String::from("use wired::f;\n\n#[test]\nfn the_pinned_one() {\n    assert_eq!(f(), 1);\n}\n");
+    if let Some(beside) = beside {
+        it.push_str("\n#[test]\n");
+        it.push_str(beside);
+        it.push('\n');
+    }
+    std::fs::write(dir.join("tests/it.rs"), it).unwrap();
     git(&dir, &["add", "-A"]);
     let message = if declare {
         "test: pin f's existing return value\n\nClaim-Cell: the_pinned_one"
@@ -368,7 +374,7 @@ fn tests_only_claim_case(declare: bool, mutation: Mutation) -> Verdict {
 #[test]
 fn a_tests_only_addition_with_no_claim_cell_is_refused() {
     assert_eq!(
-        tests_only_claim_case(false, Mutation::Missing),
+        tests_only_claim_case(false, Mutation::Missing, None),
         Verdict::Fail,
         "an added test pinning existing behaviour with no `Claim-Cell:` trailer must refuse - \
          the old arm answered `Verdict::Pass` unconditionally here"
@@ -380,7 +386,7 @@ fn a_tests_only_addition_with_no_claim_cell_is_refused() {
 #[test]
 fn a_declared_tests_only_claim_cell_is_evaluated() {
     assert_eq!(
-        tests_only_claim_case(true, Mutation::Kills),
+        tests_only_claim_case(true, Mutation::Kills, None),
         Verdict::Pass,
         "a complete declaration on a tests-only diff must be consulted, and its killing \
          mutation accepted"
@@ -392,7 +398,7 @@ fn a_declared_tests_only_claim_cell_is_evaluated() {
 #[test]
 fn a_tests_only_claim_cell_whose_mutation_does_not_kill_is_refused() {
     assert_eq!(
-        tests_only_claim_case(true, Mutation::DoesNotKill),
+        tests_only_claim_case(true, Mutation::DoesNotKill, None),
         Verdict::Fail,
         "reaching the arm and finding the mutation does not kill must refuse"
     );
@@ -403,8 +409,30 @@ fn a_tests_only_claim_cell_whose_mutation_does_not_kill_is_refused() {
 #[test]
 fn a_tests_only_claim_cell_with_no_committed_patch_is_refused_as_missing() {
     assert_eq!(
-        tests_only_claim_case(true, Mutation::Missing),
+        tests_only_claim_case(true, Mutation::Missing, None),
         Verdict::Fail,
         "a declared cell with no patch must refuse as missing"
+    );
+}
+
+/// THE PARTIAL DECLARATION, the third `tests_only` outcome: a commit declares ONE of the two
+/// tests it added, and the refusal must name only the undeclared remainder
+/// (`report_unclaimed_additions` over `scoped.minus(&declared)`), never the declared cell.
+/// Same file shape as [`composite`]'s, over an empty revert.
+///
+/// `Mutation::Kills`, not `Missing`, is what makes this cell discriminating: a committed
+/// killing patch means the declared cell WOULD prove green if the diff wrongly routed to
+/// `claim::run`, so `Verdict::Fail` can come only from the remainder being refused. WHICH
+/// tests the refusal names is not held: `report_unclaimed_additions` fails whatever it is
+/// given and the venue captures no stdout, so passing `scoped.tests()` instead of the
+/// remainder stays green here (measured) and is held by review alone. New behaviour, not a
+/// pin: the base tree passed unconditionally here.
+#[test]
+fn a_tests_only_diff_declaring_one_of_two_additions_refuses_the_undeclared_one() {
+    assert_eq!(
+        tests_only_claim_case(true, Mutation::Kills, Some("fn the_undeclared_one() { assert_eq!(f(), 1); }")),
+        Verdict::Fail,
+        "a partial declaration must refuse over the undeclared remainder, not ride on the \
+         declared cell's own passing proof"
     );
 }

@@ -1147,7 +1147,8 @@ IS a pin (there is nothing to revert, so nothing this gate can compare it agains
 Claim-Cell: declaration*); a fully declared set runs through `claim::run` exactly as above,
 exiting 0 with *ok - claim cells: N declared, N killed*; a PARTIALLY declared set is still a
 refusal - naming only the undeclared remainder - because there is no ordinary proof to run for the
-rest on this arm.
+rest on this arm. A cell holds that the partial set refuses; WHICH tests the refusal names is held
+by review alone (the fixture captures no stdout, and naming the whole scope was measured green).
 *tests changed but no implementation did* is retired as a verdict string: nothing prints it any
 more. **The limit stated where the fix landed:** this asks only about an ADDED test - a changed
 assertion inside an EXISTING test, in a file whose production code did not change, still reaches
