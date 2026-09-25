@@ -2984,7 +2984,19 @@ there today.</p>
 <p>It is served by the <code>sutura</code> binary's <code>mcp</code> command, not by this one, and that is the point of the
 split: MCP-over-stdio is a locally launched, single-player surface, so it belongs with the command-line
 tool that composes the in-process engine over a data directory rather than with the HTTP service.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sutura<span class="w"> </span>mcp<span class="w"> </span>examples/single-player/catalog<span class="w"> </span>examples/single-player/data
+<p><strong>Since issue #970 <code>mcp</code> takes no directory arguments</strong> - <code>sutura mcp examples/single-player/catalog
+examples/single-player/data</code> now fails with <code>`examples/single-player/catalog` is not an argument
+of `mcp`</code> - it reads <code>catalogs:</code>/<code>sources:</code> the way <code>sutura serve</code> does, over the same opener. The
+built-in defaults already declare <code>catalogs: [{name: model, kind: markdown, dir: catalog, data_dir:
+data}]</code> relative to the working directory, which is why the fence below needs no <code>catalogs:</code>
+override, only the same <code>sources:</code> declaration <code>serve</code>'s own fence above gives:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nb">cd</span><span class="w"> </span>examples/single-player
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="nv">SUTURA__SECURITY__IDENTITY</span><span class="o">=</span>single-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nv">SUTURA__SECURITY__SINGLE_USER_BECAUSE</span><span class="o">=</span><span class="s2">"one operator reading their own files"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="nv">SUTURA__SOURCES__LOCAL__KIND</span><span class="o">=</span>files<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="nv">SUTURA__SOURCES__LOCAL__DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/data"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="nv">SUTURA__SOURCES__LOCAL__POSTURE</span><span class="o">=</span>shared-service-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span>sutura<span class="w"> </span>mcp
 </span></code></pre></div>
 <p>An agent client launches that process and speaks the protocol on its pipes - the same two tools this
 page describes, from the same <code>sutura_app::Capability</code> declaration. The command prints at startup, on

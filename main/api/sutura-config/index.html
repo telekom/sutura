@@ -2782,8 +2782,8 @@ that exists in a record rather than in a linked crate is still a word an operato
 <li><code>Markdown</code> - A directory of markdown documents with YAML frontmatter, read by <code>sutura-catalog-local</code>.</li>
 </ul>
 <p>The only kind either composition root can OPEN in this build: the markdown adapter is
-  linked by <code>sutura serve</code> and is what <code>sutura query</code>/<code>sutura mcp</code> put behind its directory
-  argument.
+  linked by <code>sutura serve</code> and, since issue #970, by <code>sutura mcp</code> over the same <code>catalogs:</code>
+  declaration; <code>sutura query</code> still puts it behind its own directory argument.
 - <code>Datahub</code> - A metadata service, read through the adapter <code>docs/adr/0016</code> specifies and #114 builds.</p>
 <p><strong>Openable behind <code>sutura-cli</code>'s default-off <code>datahub</code> feature; a build without it refuses
   this kind by name</strong>, for exactly the reason <code>SourceKind::BigQuery</code> is refused: an operator

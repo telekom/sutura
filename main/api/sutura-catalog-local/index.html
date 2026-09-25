@@ -3861,9 +3861,10 @@ finer split is a cheap change if a caller ever needs the branch.</p>
 </span></code></pre></div>
 <p>A catalog read from a directory of documents.</p>
 <p>Carries a declared NAME, the way a <code>sources:</code> entry or a <code>catalogs:</code> entry carries an alias: it
-is the key the contribution manifest records this contributor under. <code>sutura serve</code> hands it the
-configured <code>catalogs:.&lt;key&gt;</code>; <code>sutura query</code>/<code>sutura mcp</code> name their single directory a
-constant. The adapter can no more guess it than a data adapter can guess its source alias.</p>
+is the key the contribution manifest records this contributor under. <code>sutura serve</code> and, since
+issue #970, <code>sutura mcp</code> hand it the configured <code>catalogs:.&lt;key&gt;</code>; <code>sutura query</code> still names
+its single directory a constant. The adapter can no more guess it than a data adapter can guess
+its source alias.</p>
 <h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">SourceName</span>
 </span></code></pre></div>
