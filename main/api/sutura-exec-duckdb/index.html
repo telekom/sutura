@@ -2015,6 +2015,7 @@ place the habit started.</p>
 <li><code>Open</code></li>
 <li><code>Prepare</code></li>
 <li><code>Execute</code></li>
+<li><code>Poisoned</code> - The connection's guard was poisoned by a panic. Under <code>panic = "abort"</code> this is unshakeable; in unwind test builds refusing it as a typed error keeps a poisoned connection from being handed to anything else.</li>
 <li><code>UnsupportedType</code> - A column came back as a type this adapter does not map.</li>
 </ul>
 <p>An error rather than a stringified fallback. A <code>LIST</code> or a <code>STRUCT</code> rendered with <code>Debug</code>
