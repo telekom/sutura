@@ -435,10 +435,10 @@ pub enum PlanPredicate {
     /// `column IN (param, param, ..)` - one or more values, `github.com/telekom/sutura#968`.
     ///
     /// `params` rather than a single `param`, because membership in a set binds more than one
-    /// value - and a `Vec` rather than [`crate::query::filter::FilterValues`] or
-    /// [`crate::nonempty::NonEmpty`]: those hold *values*, and by the time a predicate exists the
-    /// values are already parameters `PlanBindings` has accepted in placeholder order. Carrying
-    /// the domain newtype here would let a plan producer skip that acceptance.
+    /// value - and a `Vec` rather than [`crate::nonempty::NonEmpty`]: that holds *values*, and by
+    /// the time a predicate exists the values are already parameters `PlanBindings` has accepted
+    /// in placeholder order. Carrying the domain newtype here would let a plan producer skip that
+    /// acceptance.
     In {
         column: PlanColumn,
         params: Vec<usize>,
