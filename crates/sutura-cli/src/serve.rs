@@ -94,6 +94,9 @@ mod agent;
 /// `security.outbound`, resolved once at boot - `github.com/telekom/sutura#125`/`#911`.
 mod outbound;
 
+/// Re-reading a declared catalog on `catalogs[].refresh_seconds` and re-pinning it - `#975`.
+mod refresh;
+
 /// The alias the example deployment and this crate's tests use for their one source.
 ///
 /// **No longer a check, and that is the change worth reading.** It used to be the only source name
@@ -184,6 +187,10 @@ pub(crate) fn run() -> Result<(), String> {
     // of the bundle (`outbound::resolve` resolved it once, above).
     let catalogs = catalog::open_catalog(settings.catalogs(), outbound.as_ref())?;
     let pinned = catalog::load(&catalogs)?;
+    // Cloned here, before `settings` moves into the state below: `refresh::drive` needs to read
+    // every entry's own `refresh_seconds` from inside `serve_until_stopped`, where a runtime is
+    // already running - `#975`.
+    let declared_catalogs = settings.catalogs().clone();
     // The `sources:` tree rather than `catalog.data_dir`: a deployment declares each data system, its
     // location and which identity a query reaches it as, and the engine is opened per declaration.
     // `catalog.data_dir` stays what it always was - the catalog's own directory - and is no longer
@@ -390,7 +397,16 @@ pub(crate) fn run() -> Result<(), String> {
     // returns needs to know how much of the grace period the drain spent. `tokio::sync` needs no
     // runtime entered, so this is safe on this side of `block_on`.
     let stopping = Shutdown::with_grace(grace);
-    let served = runtime.block_on(serve_until_stopped(router, address, material, watching, stopping.clone()));
+    let served = runtime.block_on(serve_until_stopped(
+        router,
+        address,
+        material,
+        watching,
+        stopping.clone(),
+        catalogs,
+        pinned,
+        declared_catalogs,
+    ));
     stop(runtime, &stopping);
     served
 }
@@ -494,13 +510,22 @@ fn stop(runtime: tokio::runtime::Runtime, stopping: &Shutdown) {
 }
 
 /// Spawns the signal listener and serves until it fires.
+///
+/// `catalogs`/`pinned`/`declared_catalogs` are here rather than read from `serve.rs`'s own boot
+/// section for `#975`'s reason: `refresh::drive` starts a `tokio::spawn` poll, which needs the
+/// runtime `run` has not yet built at that point in the sync boot code - this function is the
+/// first place one is running.
 async fn serve_until_stopped(
     router: axum::Router,
     address: std::net::SocketAddr,
     material: Option<TlsMaterial>,
     inbound: Option<Arc<sutura_http::InboundGate>>,
     stopping: Shutdown,
+    catalogs: catalog::OpenedCatalogs,
+    pinned: PinnedDefinitions,
+    declared_catalogs: sutura_config::Catalogs,
 ) -> Result<(), String> {
+    refresh::drive(&catalogs, &pinned, &declared_catalogs);
     // Detached on purpose: the task's only job is to translate the first signal into the shared
     // flag, and `serve` below is what waits on it. Joining it would mean waiting for a signal that
     // may never arrive.

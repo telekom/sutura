@@ -128,6 +128,7 @@ pub fn service<S>(
     admission: Admission,
     reply: RequestTimeout,
     instructions: Arc<str>,
+    operator_instructions: Option<Arc<str>>,
 ) -> StreamableHttpService<AgentSurface<S>, LocalSessionManager>
 where
     S: Surface + Send + Sync + 'static,
@@ -141,6 +142,7 @@ where
                 admission.clone(),
                 reply,
                 Arc::clone(&instructions),
+                operator_instructions.clone(),
             ))
         },
         Arc::new(LocalSessionManager::default()),
@@ -311,6 +313,7 @@ mod tests {
             admission(),
             reply(),
             testing::instructions(),
+            testing::operator_instructions(),
         );
 
         let catalog_only = subject_asked(
@@ -351,6 +354,7 @@ mod tests {
             admission(),
             reply(),
             testing::instructions(),
+            testing::operator_instructions(),
         );
         let app = router_with_no_established_caller(transport);
         drop(post(app.clone(), initialize(1)).await);
@@ -399,6 +403,7 @@ mod tests {
             admission(),
             reply(),
             testing::instructions(),
+            testing::operator_instructions(),
         );
         let foreign_session_id = "a-session-id-this-request-never-opened";
 

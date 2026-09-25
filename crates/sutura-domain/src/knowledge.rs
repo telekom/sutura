@@ -843,6 +843,15 @@ impl KnowledgeCapabilities {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
+    /// Removes one capability from the declaration, and nothing else.
+    ///
+    /// Visible only inside this module: `bundle::Knowledge::scoped` is the one caller that decides
+    /// a caller-scoped read has withheld an entire kind, so the rendering of that kind can fall back
+    /// to the "not declared here" claim the prompt licenses for a provider that cannot record it.
+    fn withdraw(&mut self, capability: Capability) {
+        self.0.remove(&capability);
+    }
 }
 
 /// The glossary, keyed by the term each entry defines.
