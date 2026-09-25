@@ -24,6 +24,7 @@
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write as _;
     use std::path::PathBuf;
 
     use sutura_catalog_okf::{OkfCatalog, OkfCatalogError};
@@ -183,6 +184,66 @@ mod tests {
              both is the failure this cell exists to catch"
         );
     }
+    /// **PR #1022 review, finding (a), the OKF twin of the local crate's cell.** Same claim, same
+    /// missing mechanism: the byte bound has to come from what the read actually delivers, not
+    /// from the size `fstat` reported once before the read starts. Neutralising `read_document`'s
+    /// budget - both the per-chunk check and the post-read `text.len() as u64 > remaining` recheck,
+    /// keyed off `remaining` - while leaving the pre-read `stat.st_size > remaining` fast path
+    /// untouched keeps every OTHER cell in this file green: none of them gives the read a size that
+    /// differs from what `fstat` already reported. This cell does - the descriptor starts under
+    /// the cap, `fstat` sees exactly that, and it is grown past the cap while its own read is
+    /// still in progress.
+    ///
+    /// **The limit, stated next to the claim:** landing the growth inside the open read is a race,
+    /// same as the swap tests below - a miss just makes the load succeed on an under-cap
+    /// descriptor, and the retry loop tries again.
+    #[test]
+    fn a_descriptor_grown_past_the_cap_after_its_own_stat_is_refused_by_the_bytes_the_read_delivers() {
+        const MAX_ATTEMPTS: usize = 25;
+        const BASE_LEN: usize = 15 * 1024 * 1024;
+        const GROWTH_LEN: usize = 2 * 1024 * 1024;
+
+        let root = scratch("grows-past-cap-during-read");
+        let document = root.join("grows.yaml");
+        let base = padded_descriptor("grows", BASE_LEN);
+        let catalog = OkfCatalog::new(test_name(), root.clone(), version());
+
+        for _ in 0..MAX_ATTEMPTS {
+            std::fs::write(&document, &base).expect("the descriptor resets to its base size");
+            let armed = std::sync::atomic::AtomicBool::new(false);
+            let outcome: Attempt = std::cell::RefCell::new(None);
+            std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    armed.store(true, std::sync::atomic::Ordering::Release);
+                    std::thread::sleep(std::time::Duration::from_micros(200));
+                    let mut file = std::fs::OpenOptions::new()
+                        .append(true)
+                        .open(&document)
+                        .expect("appending to the still-open descriptor succeeds");
+                    file.write_all(&vec![b'a'; GROWTH_LEN]).expect("the growth lands");
+                });
+                while !armed.load(std::sync::atomic::Ordering::Acquire) {
+                    std::thread::yield_now();
+                }
+                *outcome.borrow_mut() = Some(catalog.load());
+            });
+            let attempted = outcome.into_inner().expect("the scoped thread recorded the load's outcome");
+            if let Err(err) = attempted {
+                let message = err.to_string();
+                if message.contains("bytes") {
+                    drop(std::fs::remove_dir_all(&root));
+                    return;
+                }
+                panic!("refused, but not for size: {message}");
+            }
+        }
+        panic!(
+            "in {MAX_ATTEMPTS} attempts, a descriptor grown past the cap after its own fstat was \
+             never refused - the read either never noticed the growth, or the growth never \
+             landed inside an open read"
+        );
+    }
+
     /// The FIFO half: the swap lands between the walk and the open, and on base
     /// `File::open` of a FIFO with no writer BLOCKS - a load that never returns, so the red
     /// here is base's hang (bounded on CI by the test runner's per-test timeout). On the

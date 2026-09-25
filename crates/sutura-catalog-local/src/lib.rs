@@ -425,6 +425,12 @@ impl LocalCatalog {
             // rather than blocking the boot on it. The TOCTOU of a stat taken before a separately
             // named read is gone with the second open, and the same handle is what is stat'd and
             // what is read, so a swap between the two is not reachable at all.
+            //
+            // "Opened once" itself is held by review, not by a test: a hand mutation that appends
+            // a second, unguarded `std::fs::read_to_string(&path)` right after this block is not
+            // killed by a swap-timing test - the window between the two back-to-back opens is
+            // sub-microsecond, well under what even the multi-millisecond swap tests below need to
+            // land reliably (measured across 3 separate `just test` runs against that mutation).
             let flags = rustix::fs::OFlags::RDONLY
                 .union(rustix::fs::OFlags::NOFOLLOW)
                 .union(rustix::fs::OFlags::NONBLOCK)
