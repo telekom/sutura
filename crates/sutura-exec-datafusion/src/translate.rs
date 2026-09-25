@@ -255,6 +255,6 @@ fn resolve(params: &[ParamValue], index: usize) -> Result<&ParamValue, DataFusio
 }
 
 /// Every value an `In`/`NotIn` predicate's indices resolve to, as literals - `github.com/telekom/sutura#968`.
-fn values_of(params: &[ParamValue], indices: &[usize]) -> Result<Vec<Expr>, DataFusionError> {
+fn values_of(params: &[ParamValue], indices: &sutura_domain::nonempty::NonEmpty<usize>) -> Result<Vec<Expr>, DataFusionError> {
     indices.iter().map(|&index| resolve(params, index).map(literal)).collect()
 }

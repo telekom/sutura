@@ -38,6 +38,16 @@ pub enum Filter {
         values: NonEmpty<DimensionValue>,
     },
     /// The dimension equals none of these values.
+    ///
+    /// **A row whose dimension value is NULL is excluded, not included.** A dimension reached by a
+    /// LEFT JOIN groups an unmatched fact row under a null key rather than dropping it (see
+    /// `crate::plan`'s join doc), and SQL `col NOT IN (..)` is unknown - neither true nor false -
+    /// for a NULL `col`, so `WHERE` drops the row exactly as it would for a comparison it could not
+    /// evaluate. This is the *narrower* filter, on purpose: "not north" is a claim about a value a
+    /// row has, and a row with no value to compare cannot be shown to hold it. `DuckDB`, Postgres,
+    /// `DataFusion` and `ClickHouse` (under this deployment's default `transform_null_in`) agree on
+    /// this: the executed corpus's `region not_in [north]` cell pins the same four rows on all four,
+    /// none of them the unmatched-customer row `region in [..]` also drops - `github.com/telekom/sutura#968`.
     NotIn {
         dimension: DimensionName,
         values: NonEmpty<DimensionValue>,

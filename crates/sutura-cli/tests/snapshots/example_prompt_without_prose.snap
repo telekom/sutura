@@ -63,12 +63,11 @@ Every reason you can be given, and what to do about each:
   Use a name from the metric list below, exactly as spelled. Do not try a variant spelling, a
   plural, or a name you remember from another deployment: the list is the whole of what exists.
 - **metrics_span_different_models** - more than one metric was named, and two of them do not share a
-  model and a time column, so no one statement could answer them together.
-  Ask about metrics that share a model, or ask about the mismatched one separately. The two metrics'
-  own definitions disagree; rephrasing the same combination will not.
-- **multi_metric_not_executable** - every metric named resolved and every constraint checked, but
-  this deployment does not yet turn more than one metric into one answer.
-  Ask about one metric at a time for now - a capability gap, not the question.
+  model, a time column, a grain or a dimension, so no one statement could answer them together.
+  Ask about each metric separately - this deployment executes one metric at a time.
+- **multi_metric_not_executable** - every metric named shares a model, time column, grain and
+  dimensions, but this deployment does not yet turn more than one metric into one answer.
+  Ask about each metric separately - a capability gap, not the question.
 - **grain_not_supported** - the metric exists and does not declare that time resolution.
   Ask at a grain the metric lists. A finer grain is not a narrower version of the same question here
   - it is a number nobody certified, which is why it is refused rather than approximated.
@@ -226,9 +225,10 @@ subscriptions, every answer for it is narrowed that way and no argument you send
 - `catalog` - Returns every metric this deployment defines, with its grains, its dimensions and the
   values a filter may use, plus the version and digest of the snapshot. Takes no arguments. Reading
   it cannot change what a question means.
-- `query` - Answers one question. Takes one or more metrics sharing a model, a grain, a bounded
-  period, up to four dimensions to group by, and filters over declared values - equality, or
-  membership in an allowed set. Returns either an answer with its provenance or a refusal with a
+- `query` - Answers one question. Takes a bounded period, up to four dimensions to group by, and
+  filters over declared values - equality, or membership in an allowed set. Takes one metric, or a
+  matching set of them, but this deployment executes only one metric at a time today, so a set of
+  more than one is always refused. Returns either an answer with its provenance or a refusal with a
   typed reason.
 
 ## What this deployment records about its own definitions
@@ -276,7 +276,7 @@ which phrase you resolved and what you resolved it to, so the person can correct
 ## The metrics this deployment defines
 
 - Definitions version: `example-single-player`
-- Definitions digest: `16f8afb19d7fdc2f6b5bc6d9c85f9b9ba7159100baa780326e8c0f2aab7d80ad`
+- Definitions digest: `1b856d2ba2cd17144ba90385177b06df2fae865723d582ed91daeface85c3e98`
 
 11 metrics, and they are the whole of what may be asked about.
 

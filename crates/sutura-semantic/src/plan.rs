@@ -355,7 +355,7 @@ fn requested_predicate(filter: &ResolvedFilter<'_>, column: PlanColumn, params: 
             params.extend(values.iter().cloned().map(ParamValue::Text));
             PlanPredicate::In {
                 column,
-                params: (start..params.len()).collect(),
+                params: index_range(start, values.len()),
             }
         }
         ResolvedFilterValue::NotIn(ref values) => {
@@ -363,10 +363,18 @@ fn requested_predicate(filter: &ResolvedFilter<'_>, column: PlanColumn, params: 
             params.extend(values.iter().cloned().map(ParamValue::Text));
             PlanPredicate::NotIn {
                 column,
-                params: (start..params.len()).collect(),
+                params: index_range(start, values.len()),
             }
         }
     }
+}
+
+/// `count` consecutive placeholder indices from `start`, as the `NonEmpty` [`PlanPredicate::In`]/
+/// [`PlanPredicate::NotIn`] carry - infallible because `count` is a [`sutura_domain::nonempty::NonEmpty`]'s
+/// own [`sutura_domain::nonempty::NonEmpty::len`], never zero, so there is no [`sutura_domain::nonempty::EmptySet`]
+/// this could produce and no `expect`/`unwrap` to reach for.
+fn index_range(start: usize, count: usize) -> sutura_domain::nonempty::NonEmpty<usize> {
+    sutura_domain::nonempty::NonEmpty::of(start, ((start.saturating_add(1))..start.saturating_add(count)).collect())
 }
 
 /// The predicates a lookup leg carries: only the caller's own remote filters, bound on the remote

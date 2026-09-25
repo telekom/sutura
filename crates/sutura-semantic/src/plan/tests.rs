@@ -13,11 +13,11 @@ use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{
     Aggregate, ColumnName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
-use sutura_domain::plan::QueryPlan;
+use sutura_domain::plan::{PlanPredicate, QueryPlan};
 use sutura_domain::query::RefusalReason;
 
 use super::{DimensionName, Plan, PlanError, plan};
-use crate::resolve::{Resolution, ResolvedDimension, ResolvedJoin};
+use crate::resolve::{Resolution, ResolvedDimension, ResolvedFilter, ResolvedFilterValue, ResolvedJoin};
 
 fn column(raw: &str) -> ColumnName {
     ColumnName::parse(raw).expect("a test column is a column")
@@ -172,6 +172,43 @@ fn mono(resolution: &Resolution<'_>) -> Box<QueryPlan> {
         Plan::Mono(query) => query,
         Plan::Federated(_) => panic!("every model here is local, so the plan is one statement"),
     }
+}
+
+/// An `In` filter's values bind in placeholder order, right after the two range bounds - #968.
+///
+/// `predicates_and_params` binds `start`, `end`, then every requested filter's values in the order
+/// `requested_predicate` pushes them, so a two-value `In` after the range bounds must land at
+/// placeholders `2` and `3` in the order the question gave the values. Getting this wrong is a
+/// values-arrive-out-of-order defect a golden SQL string cannot show, because the placeholders
+/// (`?`, `?`) look identical regardless of which index each one binds.
+#[test]
+fn an_in_filter_binds_its_values_right_after_the_range_bounds() {
+    let corpus = Corpus::with_customers_on("local");
+    let resolution = Resolution {
+        filters: vec![ResolvedFilter {
+            dimension: corpus.key("region"),
+            value: ResolvedFilterValue::In(
+                sutura_domain::nonempty::NonEmpty::parse(vec![String::from("north"), String::from("south")])
+                    .expect("two values is not empty"),
+            ),
+        }],
+        ..corpus.asking(Vec::new())
+    };
+    let planned = mono(&resolution);
+    let in_filter = planned
+        .filters()
+        .iter()
+        .find(|filter| matches!(filter.predicate(), PlanPredicate::In { .. }))
+        .expect("the requested In filter reaches the plan");
+    let PlanPredicate::In { params, .. } = in_filter.predicate() else {
+        panic!("just matched on PlanPredicate::In above");
+    };
+    assert_eq!(
+        params.iter().copied().collect::<Vec<_>>(),
+        vec![2, 3],
+        "expected the In filter's two values at placeholders 2 and 3 (after start/end), got {:?}",
+        in_filter.predicate()
+    );
 }
 
 /// One `ON` clause per hop, each qualified by the table the hop actually starts at.

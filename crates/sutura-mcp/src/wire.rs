@@ -91,9 +91,11 @@ pub use raw::{MalformedStatement, RawContent, RunSqlArgs};
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AskArgs {
-    /// The metrics to measure together, at least one, by the names this catalog defines them
-    /// under - for example `["revenue"]`. Every one must share a model, a time column, a grain
-    /// and every dimension listed below - `github.com/telekom/sutura#968`.
+    /// The metrics to ask about, by the names this catalog defines them under - for example
+    /// `["revenue"]`. Naming more than one is accepted only when every one shares a model, a time
+    /// column, a grain and every dimension listed below (`github.com/telekom/sutura#968`), and
+    /// even then this deployment executes just one metric at a time today, so a set of more than
+    /// one is always refused - ask about each metric separately.
     metrics: Vec<String>,
     /// The time resolution to aggregate to: one of `day`, `week`, `month`, `quarter` or `year`, and
     /// only those the metric declares.
@@ -176,9 +178,20 @@ pub enum FilterArgs {
         value: String,
     },
     /// The dimension equals one of these values. At least one.
-    In { dimension: String, values: Vec<String> },
-    /// The dimension equals none of these values. At least one.
-    NotIn { dimension: String, values: Vec<String> },
+    In {
+        /// The dimension to filter on, by the name the metric declares it under.
+        dimension: String,
+        #[schemars(length(min = 1))]
+        values: Vec<String>,
+    },
+    /// The dimension equals none of these values. At least one. A row whose value for this
+    /// dimension is unmatched/NULL (an unresolved join key) is excluded, not included.
+    NotIn {
+        /// The dimension to filter on, by the name the metric declares it under.
+        dimension: String,
+        #[schemars(length(min = 1))]
+        values: Vec<String>,
+    },
 }
 
 /// Why an arguments object is not a question.

@@ -309,6 +309,24 @@ fn an_example_about_an_undefined_metric_does_not_load() {
 }
 
 #[test]
+fn an_example_naming_more_than_one_metric_does_not_load() {
+    // `github.com/telekom/sutura#968` lets a question NAME a set of metrics, but every such
+    // question is refused at plan time (`RefusalReason::MultiMetricNotExecutable`) - so an example
+    // built from one would render under `EXAMPLES_INTRO`'s promise that a worked question is "one
+    // this deployment answers", which is false for it.
+    let metrics = crate::query::MetricNames::parse(vec![metric_name("recurring_revenue"), metric_name("voice_minutes")])
+        .expect("two metrics is not empty");
+    let asking = Query::new(metrics, Grain::Month, june(), Vec::new(), Vec::new());
+    assert_eq!(
+        refuses(only_examples(vec![example("two_metrics", asking)])),
+        InconsistentKnowledge::ExampleNamesMultipleMetrics {
+            name: note_name("two_metrics"),
+            requested: 2,
+        }
+    );
+}
+
+#[test]
 fn an_example_at_a_grain_the_metric_does_not_declare_does_not_load() {
     // A worked example is what an agent copies. One asking at a grain the metric never declared
     // teaches it to send a question that is refused, which is worse than no example.

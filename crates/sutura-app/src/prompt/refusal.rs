@@ -45,17 +45,16 @@ const METRIC_UNKNOWN: Guide = Guide {
 
 const METRICS_SPAN_DIFFERENT_MODELS: Guide = Guide {
     reason: "metrics_span_different_models",
-    meaning: "more than one metric was named, and two of them do not share a model and a time \
-              column, so no one statement could answer them together",
-    remedy: "Ask about metrics that share a model, or ask about the mismatched one separately. \
-             The two metrics' own definitions disagree; rephrasing the same combination will not.",
+    meaning: "more than one metric was named, and two of them do not share a model, a time \
+              column, a grain or a dimension, so no one statement could answer them together",
+    remedy: "Ask about each metric separately - this deployment executes one metric at a time.",
 };
 
 const MULTI_METRIC_NOT_EXECUTABLE: Guide = Guide {
     reason: "multi_metric_not_executable",
-    meaning: "every metric named resolved and every constraint checked, but this deployment does \
-              not yet turn more than one metric into one answer",
-    remedy: "Ask about one metric at a time for now - a capability gap, not the question.",
+    meaning: "every metric named shares a model, time column, grain and dimensions, but this \
+              deployment does not yet turn more than one metric into one answer",
+    remedy: "Ask about each metric separately - a capability gap, not the question.",
 };
 
 const GRAIN_NOT_SUPPORTED: Guide = Guide {

@@ -24,8 +24,9 @@ pub use filter::Filter;
 pub use limits::{InvalidResponseByteLimit, ResponseByteLimit, ResultBound};
 pub use top::{InvalidTopN, Top, TopBy, TopDirection, TopN};
 
-/// One or more certified metric names a question asks about together - see `AGENTS.md`'s multi-metric
-/// entry and [`crate::nonempty::NonEmpty`] for why the invariant is the type rather than a check.
+/// One or more certified metric names a question asks about together - see
+/// `github.com/telekom/sutura#968` for the shape and [`crate::nonempty::NonEmpty`] for why the
+/// invariant is the type rather than a check.
 pub type MetricNames = NonEmpty<MetricName>;
 
 /// The most dimensions one question may group by.

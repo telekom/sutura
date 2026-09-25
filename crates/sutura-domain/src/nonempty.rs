@@ -39,6 +39,14 @@ impl<T> NonEmpty<T> {
         Self { head, tail: Vec::new() }
     }
 
+    /// One element plus every one of `tail`, infallible because a caller who already has one in
+    /// hand needs no [`EmptySet`] to check - the reason this exists beside [`Self::parse`], whose
+    /// only source of failure is a caller who does not.
+    #[inline]
+    pub const fn of(head: T, tail: Vec<T>) -> Self {
+        Self { head, tail }
+    }
+
     /// Every element of `items`, or [`EmptySet`] if there were none.
     pub fn parse(mut items: Vec<T>) -> Result<Self, EmptySet> {
         if items.is_empty() {
@@ -72,6 +80,17 @@ impl<T> NonEmpty<T> {
     /// Every element, in the order it was given.
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         core::iter::once(&self.head).chain(self.tail.iter())
+    }
+
+    /// Every element transformed, infallibly: a `NonEmpty` mapped one-to-one is still a
+    /// `NonEmpty`, with no [`EmptySet`] to check and no `expect`/`unwrap` for a caller who has
+    /// one of these and needs another shape of it - `crate::plan`'s bind-order indices, built
+    /// from a resolved filter's `NonEmpty` of values, is why this exists.
+    pub fn map<U>(&self, mut f: impl FnMut(&T) -> U) -> NonEmpty<U> {
+        NonEmpty {
+            head: f(&self.head),
+            tail: self.tail.iter().map(f).collect(),
+        }
     }
 }
 

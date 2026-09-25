@@ -49,8 +49,8 @@ pub(crate) struct ResolvedJoin<'a> {
 /// and leaves the execution port speaking in the two things a data system binds: text and a date.
 pub(crate) enum ResolvedFilterValue {
     Eq(String),
-    In(Vec<String>),
-    NotIn(Vec<String>),
+    In(sutura_domain::nonempty::NonEmpty<String>),
+    NotIn(sutura_domain::nonempty::NonEmpty<String>),
 }
 
 /// One filter, every one of whose values the bundle has already accepted.
@@ -278,8 +278,8 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
         let resolved = resolve_dimension(view.pinned(), metric, filter.dimension())?;
         let value = match filter {
             Filter::Eq { value, .. } => ResolvedFilterValue::Eq(String::from(value.as_str())),
-            Filter::In { values, .. } => ResolvedFilterValue::In(values.iter().map(|v| String::from(v.as_str())).collect()),
-            Filter::NotIn { values, .. } => ResolvedFilterValue::NotIn(values.iter().map(|v| String::from(v.as_str())).collect()),
+            Filter::In { values, .. } => ResolvedFilterValue::In(values.map(|v| String::from(v.as_str()))),
+            Filter::NotIn { values, .. } => ResolvedFilterValue::NotIn(values.map(|v| String::from(v.as_str()))),
         };
         filters.push(ResolvedFilter {
             dimension: resolved,

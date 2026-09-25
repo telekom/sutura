@@ -435,18 +435,18 @@ pub enum PlanPredicate {
     /// `column IN (param, param, ..)` - one or more values, `github.com/telekom/sutura#968`.
     ///
     /// `params` rather than a single `param`, because membership in a set binds more than one
-    /// value - and a `Vec` rather than [`crate::nonempty::NonEmpty`]: that holds *values*, and by
-    /// the time a predicate exists the values are already parameters `PlanBindings` has accepted
-    /// in placeholder order. Carrying the domain newtype here would let a plan producer skip that
-    /// acceptance.
+    /// value - and [`crate::nonempty::NonEmpty`] rather than a plain `Vec`, unlike the index list
+    /// a predicate normally carries: an empty `IN ()` is either a syntax error or, rendered as
+    /// `NOT IN ()`, a silently vanished filter (fail-open), and both are worse than refusing the
+    /// question earlier. A producer cannot reach this variant with zero placeholders to fill.
     In {
         column: PlanColumn,
-        params: Vec<usize>,
+        params: crate::nonempty::NonEmpty<usize>,
     },
-    /// `column NOT IN (param, param, ..)` - [`Self::In`]'s negation.
+    /// `column NOT IN (param, param, ..)` - [`Self::In`]'s negation, same reason for `NonEmpty`.
     NotIn {
         column: PlanColumn,
-        params: Vec<usize>,
+        params: crate::nonempty::NonEmpty<usize>,
     },
     IsTrue {
         column: PlanColumn,
@@ -497,7 +497,7 @@ impl PlanPredicate {
             | Self::Before { param, .. }
             | Self::Equals { param, .. }
             | Self::NotEquals { param, .. } => BoundParams::One(Some(param)),
-            Self::In { ref params, .. } | Self::NotIn { ref params, .. } => BoundParams::Many(params.iter()),
+            Self::In { ref params, .. } | Self::NotIn { ref params, .. } => BoundParams::Many(params.into_iter()),
             Self::IsTrue { .. } | Self::IsNotNull { .. } => BoundParams::None,
         }
     }
@@ -508,7 +508,7 @@ impl PlanPredicate {
 pub(crate) enum BoundParams<'a> {
     None,
     One(Option<usize>),
-    Many(std::slice::Iter<'a, usize>),
+    Many(<&'a crate::nonempty::NonEmpty<usize> as IntoIterator>::IntoIter),
 }
 
 impl Iterator for BoundParams<'_> {

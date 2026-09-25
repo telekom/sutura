@@ -861,7 +861,7 @@ the predicate's shape and never the source of a value.
 
 - `Eq` - The dimension equals this one value.
 - `In` - The dimension equals one of these values. At least one.
-- `NotIn` - The dimension equals none of these values. At least one.
+- `NotIn` - The dimension equals none of these values. At least one. A row whose value for this dimension is unmatched/NULL (an unresolved join key) is excluded, not included.
 
 #### Implements
 

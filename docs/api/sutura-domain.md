@@ -5146,6 +5146,23 @@ pub const fn len(&self) -> usize
 The number of elements. Never zero.
 
 ```rust
+pub fn map<U>(&self, f: impl FnMut(&T) -> U) -> NonEmpty<U>
+```
+
+Every element transformed, infallibly: a `NonEmpty` mapped one-to-one is still a
+`NonEmpty`, with no `EmptySet` to check and no `expect`/`unwrap` for a caller who has
+one of these and needs another shape of it - `crate::plan`'s bind-order indices, built
+from a resolved filter's `NonEmpty` of values, is why this exists.
+
+```rust
+pub const fn of(head: T, tail: Vec<T>) -> Self
+```
+
+One element plus every one of `tail`, infallible because a caller who already has one in
+hand needs no `EmptySet` to check - the reason this exists beside `Self::parse`, whose
+only source of failure is a caller who does not.
+
+```rust
 pub const fn one(head: T) -> Self
 ```
 
@@ -6567,11 +6584,11 @@ renderer and no executor. `crate::plan::bindings` carries the argument and the l
 - `In` - `column IN (param, param, ..)` - one or more values, `github.com/telekom/sutura#968`.
 
   `params` rather than a single `param`, because membership in a set binds more than one
-  value - and a `Vec` rather than `crate::nonempty::NonEmpty`: that holds *values*, and by
-  the time a predicate exists the values are already parameters `PlanBindings` has accepted
-  in placeholder order. Carrying the domain newtype here would let a plan producer skip that
-  acceptance.
-- `NotIn` - `column NOT IN (param, param, ..)` - `Self::In`'s negation.
+  value - and `crate::nonempty::NonEmpty` rather than a plain `Vec`, unlike the index list
+  a predicate normally carries: an empty `IN ()` is either a syntax error or, rendered as
+  `NOT IN ()`, a silently vanished filter (fail-open), and both are worse than refusing the
+  question earlier. A producer cannot reach this variant with zero placeholders to fill.
+- `NotIn` - `column NOT IN (param, param, ..)` - `Self::In`'s negation, same reason for `NonEmpty`.
 - `IsTrue`
 - `IsNotNull`
 
@@ -10146,8 +10163,9 @@ A positive row count. Zero asks for nothing, which is not what a caller who wrot
 
 ### `type_alias MetricNames`
 
-One or more certified metric names a question asks about together - see `AGENTS.md`'s multi-metric
-entry and `crate::nonempty::NonEmpty` for why the invariant is the type rather than a check.
+One or more certified metric names a question asks about together - see
+`github.com/telekom/sutura#968` for the shape and `crate::nonempty::NonEmpty` for why the
+invariant is the type rather than a check.
 
 ### `constant MAX_DIMENSIONS`
 
@@ -10232,6 +10250,16 @@ a range or a pattern match has no allowlist to check against.
 - `Eq` - The dimension equals this one value.
 - `In` - The dimension equals one of these values - "segment A or segment B".
 - `NotIn` - The dimension equals none of these values.
+
+  **A row whose dimension value is NULL is excluded, not included.** A dimension reached by a
+  LEFT JOIN groups an unmatched fact row under a null key rather than dropping it (see
+  `crate::plan`'s join doc), and SQL `col NOT IN (..)` is unknown - neither true nor false -
+  for a NULL `col`, so `WHERE` drops the row exactly as it would for a comparison it could not
+  evaluate. This is the *narrower* filter, on purpose: "not north" is a claim about a value a
+  row has, and a row with no value to compare cannot be shown to hold it. `DuckDB`, Postgres,
+  `DataFusion` and `ClickHouse` (under this deployment's default `transform_null_in`) agree on
+  this: the executed corpus's `region not_in [north]` cell pins the same four rows on all four,
+  none of them the unmatched-customer row `region in [..]` also drops - `github.com/telekom/sutura#968`.
 
 ##### Methods
 

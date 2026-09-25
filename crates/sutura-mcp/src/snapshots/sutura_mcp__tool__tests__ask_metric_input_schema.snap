@@ -36,6 +36,7 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
           "description": "The dimension equals one of these values. At least one.",
           "properties": {
             "dimension": {
+              "description": "The dimension to filter on, by the name the metric declares it under.",
               "type": "string"
             },
             "op": {
@@ -46,6 +47,7 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
               "items": {
                 "type": "string"
               },
+              "minItems": 1,
               "type": "array"
             }
           },
@@ -58,9 +60,10 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
         },
         {
           "additionalProperties": false,
-          "description": "The dimension equals none of these values. At least one.",
+          "description": "The dimension equals none of these values. At least one. A row whose value for this\ndimension is unmatched/NULL (an unresolved join key) is excluded, not included.",
           "properties": {
             "dimension": {
+              "description": "The dimension to filter on, by the name the metric declares it under.",
               "type": "string"
             },
             "op": {
@@ -71,6 +74,7 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
               "items": {
                 "type": "string"
               },
+              "minItems": 1,
               "type": "array"
             }
           },
@@ -192,7 +196,7 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
       "type": "string"
     },
     "metrics": {
-      "description": "The metrics to measure together, at least one, by the names this catalog defines them\nunder - for example `[\"revenue\"]`. Every one must share a model, a time column, a grain\nand every dimension listed below - `github.com/telekom/sutura#968`.",
+      "description": "The metrics to ask about, by the names this catalog defines them under - for example\n`[\"revenue\"]`. Naming more than one is accepted only when every one shares a model, a time\ncolumn, a grain and every dimension listed below (`github.com/telekom/sutura#968`), and\neven then this deployment executes just one metric at a time today, so a set of more than\none is always refused - ask about each metric separately.",
       "items": {
         "type": "string"
       },

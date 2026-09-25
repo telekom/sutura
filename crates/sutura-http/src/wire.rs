@@ -69,10 +69,12 @@ pub use catalog::{CatalogBody, DimensionBody, MetricBody};
 #[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct QuestionBody {
-    /// The metrics to measure together, at least one - `["revenue"]`.
+    /// The metrics to ask about, at least one - `["revenue"]`.
     ///
-    /// Every one must be defined in this catalog, and every one must share a model, a time
-    /// column, a grain and every dimension listed below - `github.com/telekom/sutura#968`.
+    /// Every one must be defined in this catalog. Naming more than one is accepted only when
+    /// every one shares a model, a time column, a grain and every dimension listed below
+    /// (`github.com/telekom/sutura#968`), and even then this deployment executes just one metric
+    /// at a time today, so a set of more than one is always refused - ask about each separately.
     metrics: Vec<String>,
     /// The time resolution to aggregate to.
     #[schema(example = "month")]
@@ -159,9 +161,18 @@ pub enum FilterBody {
         value: String,
     },
     /// The dimension equals one of these values. At least one.
-    In { dimension: String, values: Vec<String> },
-    /// The dimension equals none of these values. At least one.
-    NotIn { dimension: String, values: Vec<String> },
+    In {
+        dimension: String,
+        #[schema(min_items = 1)]
+        values: Vec<String>,
+    },
+    /// The dimension equals none of these values. At least one. A row whose value for this
+    /// dimension is unmatched/NULL (an unresolved join key) is excluded, not included.
+    NotIn {
+        dimension: String,
+        #[schema(min_items = 1)]
+        values: Vec<String>,
+    },
 }
 
 impl TryFrom<QuestionBody> for Query {
