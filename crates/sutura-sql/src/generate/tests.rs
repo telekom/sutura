@@ -354,11 +354,12 @@ fn a_key_probe_renders_and_parses_for_every_dialect_it_declares() {
     }
 }
 
-/// A compound (two-column) declared key probe parses on every dialect except Oracle, which refuses
-/// it by name - the negative half of `a_key_probe_renders_and_parses_for_every_dialect_it_declares`,
-/// which only ever built a one-key probe and so never reached the tuple `DISTINCT`.
+/// A compound (two-column) declared key probe parses on `DuckDb`, `Postgres` and `ClickHouse`, and
+/// Oracle and `BigQuery` both refuse it by name - the negative half of
+/// `a_key_probe_renders_and_parses_for_every_dialect_it_declares`, which only ever built a one-key
+/// probe and so never reached the tuple `DISTINCT`.
 #[test]
-fn a_compound_key_probe_renders_and_parses_everywhere_but_oracle() {
+fn a_compound_key_probe_renders_only_where_a_null_safe_tuple_distinct_exists() {
     let relationship = Relationship::new(
         RelationshipName::parse("usage_subscription").expect("a test relationship is a relationship"),
         ModelName::parse("daily_usage").expect("a test model is a model"),
@@ -385,8 +386,7 @@ fn a_compound_key_probe_renders_and_parses_everywhere_but_oracle() {
                 TableName::parse("daily_usage").expect("a test table is a table"),
                 ["subscription_key", "usage_date"]
                     .into_iter()
-                    .map(|c| ColumnName::parse(c).expect("a test column is a column"))
-                    .collect(),
+                    .map(|c| ColumnName::parse(c).expect("a test column is a column")),
                 Description::default(),
             ),
             Model::new(
@@ -395,8 +395,7 @@ fn a_compound_key_probe_renders_and_parses_everywhere_but_oracle() {
                 TableName::parse("subscription_snapshot").expect("a test table is a table"),
                 ["subscription_key", "month"]
                     .into_iter()
-                    .map(|c| ColumnName::parse(c).expect("a test column is a column"))
-                    .collect(),
+                    .map(|c| ColumnName::parse(c).expect("a test column is a column")),
                 Description::default(),
             ),
         ],
@@ -408,15 +407,10 @@ fn a_compound_key_probe_renders_and_parses_everywhere_but_oracle() {
 
     for &dialect in ALL {
         let outcome = generate_key_probe(&key, dialect);
-        if dialect == Dialect::Oracle {
+        if matches!(dialect, Dialect::Oracle | Dialect::BigQuery) {
             assert!(
-                matches!(
-                    outcome,
-                    Err(GenerateError::CompoundKeyProbeUnsupported {
-                        dialect: Dialect::Oracle
-                    })
-                ),
-                "Oracle must refuse a compound probe by name, not render one: {outcome:?}"
+                matches!(outcome, Err(GenerateError::CompoundKeyProbeUnsupported { dialect: refused }) if refused == dialect),
+                "{dialect} must refuse a compound probe by name, not render one: {outcome:?}"
             );
             continue;
         }

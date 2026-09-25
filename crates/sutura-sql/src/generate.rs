@@ -121,16 +121,20 @@ pub enum GenerateError {
     /// A compound declared key's fan-out probe, for a dialect this crate has no null-safe
     /// multi-column `DISTINCT` rendering for.
     ///
-    /// **Not observed against a live Oracle instance in this change - stated from Oracle's
-    /// documented `DISTINCT` syntax (one expression), not from a reproduced rejection.** `Tuple`
-    /// still renders as `DISTINCT a, b` on this dialect, which is a plain list of arguments rather
-    /// than the single tuple expression Oracle's grammar accepts, and this crate has no null-safe
-    /// substitute (a `CASE`-guarded concatenation, or a `COUNT(*)` over a `SELECT DISTINCT`
-    /// subquery) implemented for it yet. Refused here, at generation time, rather than handed to
-    /// the data system as SQL that may be rejected: the boot-time probe for a `many_to_one`
-    /// relationship declaring more than one join key is the only caller, so this is reachable only
-    /// from a compound key on this dialect, and a caller cannot narrow a catalog document out of it
-    /// - an operator changes the relationship or the dialect.
+    /// **An allowlist (`DuckDb`, `Postgres`, `ClickHouse`), not a denylist.** `Tuple` renders as a
+    /// plain argument list, `DISTINCT a, b`, on every dialect this crate does not special-case -
+    /// which is the tuple `DuckDB` and Postgres read (polyglot 0.12.0's generator rewrites it to
+    /// the null-safe `CASE WHEN a IS NULL THEN NULL … ELSE (a, b) END` for both, `multi_arg_distinct:
+    /// false`) and the shape `ClickHouse`'s own multi-argument `DISTINCT` already treats as one,
+    /// null-safely, without any rewrite. Oracle and `BigQuery` both document `DISTINCT` as taking one
+    /// expression, and `Tuple` there is `DISTINCT a, b` - a plain argument list neither grammar
+    /// means by it, not the tuple this crate intends. **Not reproduced against a live instance of
+    /// either** - stated from each dialect's documented `DISTINCT` syntax, not from an observed
+    /// rejection. Refused here, at generation time, rather than handed to the data system as SQL
+    /// that may be rejected: the boot-time probe for a `many_to_one` relationship declaring more
+    /// than one join key is the only caller, so this is reachable only from a compound key on one
+    /// of these dialects, and a caller cannot narrow a catalog document out of it - an operator
+    /// changes the relationship or the dialect.
     #[error("a compound declared-key probe cannot be rendered for {dialect}: it accepts one column inside DISTINCT")]
     CompoundKeyProbeUnsupported { dialect: Dialect },
 }
@@ -826,15 +830,16 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
 /// reason: what comes back reaches a boot log, and a duplicated dimension key printed there is
 /// source data copied into a sink nobody scoped for it.
 ///
-/// The distinct count is over a TUPLE of the target columns for every dialect this crate renders a
-/// compound probe for EXCEPT Oracle, which refuses one instead - see
-/// [`GenerateError::CompoundKeyProbeUnsupported`]; only `sutura-domain`'s own parse-check family
-/// (over `DuckDb`, `Postgres`, `ClickHouse` and `BigQuery`) measures the rendered tuple text, and
-/// this comment does not claim Oracle. The row count stays `COUNT(col)` for one key - unchanged, so
-/// an existing single-pair golden keeps its rendered text - and for a compound key becomes
-/// `COUNT(CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN 1 END)`: a row null in ANY column of the
-/// set cannot match on either side of a join, the same reason a single null key is excluded, so
-/// `rows` and `distinct` stay comparable under `COUNT(DISTINCT …)`'s own per-tuple null exclusion.
+/// The distinct count is over a TUPLE of the target columns for `DuckDb`, `Postgres` and
+/// `ClickHouse` (the allowlist [`GenerateError::CompoundKeyProbeUnsupported`]'s rustdoc argues
+/// for), and Oracle and `BigQuery` refuse a compound probe by name instead. Only
+/// `sutura-domain`'s own parse-check family measures the rendered tuple text, over the three
+/// allowed dialects; this comment does not claim Oracle or `BigQuery`. The row count stays
+/// `COUNT(col)` for one key, unchanged, so an existing single-pair golden keeps its rendered
+/// text, and for a compound key becomes `COUNT(CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN 1
+/// END)`: a row null in ANY column of the set cannot match on either side of a join, the same
+/// reason a single null key is excluded, so `rows` and `distinct` stay comparable under
+/// `COUNT(DISTINCT …)`'s own per-tuple null exclusion.
 ///
 /// Shared with [`generate`] and [`generate_leg`]: [`qualified`], [`aliased`], [`table_path`] and
 /// [`render`], so identifier quoting, column qualification and path depth cannot be one thing here
@@ -871,10 +876,16 @@ pub fn generate_key_probe(key: &DeclaredKey<'_>, dialect: Dialect) -> Result<Gen
     let distinct = if over.len() == 1 {
         builder::count_distinct(first)
     } else {
-        // Oracle's `DISTINCT` takes one expression; a `Tuple` here renders as a plain argument
-        // list (`DISTINCT a, b`), which is `ORA-00909` on that dialect and not the tuple this
-        // crate means. Refused rather than rendered: see `GenerateError::CompoundKeyProbeUnsupported`.
-        if dialect == Dialect::Oracle {
+        // An allowlist, not a denylist: DuckDB and Postgres get polyglot's null-safe
+        // `CASE WHEN a IS NULL THEN NULL … ELSE (a, b) END` rewrite (`multi_arg_distinct: false`
+        // in polyglot 0.12.0's generator), and ClickHouse's own multi-argument `DISTINCT` already
+        // skips a row where any argument is null, natively. Every other dialect this crate renders
+        // a `Tuple` for keeps `DISTINCT` a single-expression form - Oracle's grammar accepts one
+        // argument (`ORA-00909` on more, per Oracle's documented syntax; not reproduced against a
+        // live instance here) and BigQuery's `COUNT(DISTINCT …)` is documented as one expression
+        // too - so a `Tuple` there renders a plain argument list neither dialect means by it.
+        // Refused rather than rendered: see `GenerateError::CompoundKeyProbeUnsupported`.
+        if !matches!(dialect, Dialect::DuckDb | Dialect::Postgres | Dialect::ClickHouse) {
             return Err(GenerateError::CompoundKeyProbeUnsupported { dialect });
         }
         let tuple = Expr(Expression::Tuple(Box::new(Tuple {
