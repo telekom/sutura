@@ -5,7 +5,7 @@
 //! whether this build can open it is a property of the composition root, so it lives here.
 //!
 //! **It is the ONE opener, shared by both composition roots** - `crate::serve` and `crate::mcp`
-//! each call [`open_catalog`]/[`load`] rather than keeping a second, parallel version, and this
+//! each call `open_catalog`/`load` rather than keeping a second, parallel version, and this
 //! module lives at the crate root (moved out of `serve` in issue #970) so nothing below one root
 //! can drift from what the other serves. `sutura mcp` used to open only a directory argument and
 //! ignore `catalogs:`.
