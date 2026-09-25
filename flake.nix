@@ -43,9 +43,13 @@
     # (c-shared, `-tags driverlib`) is what `adbc_driver_manager` dlopens.
     bigquery-adbc-src.url = "github:adbc-drivers/bigquery/go/v1.13.0";
     bigquery-adbc-src.flake = false;
+    # The ADBC PostgreSQL driver (`c/driver/postgresql`, C++ over libpq), self-built
+    # per release triple like the BigQuery one (telekom/sutura#913). Apache-2.0.
+    arrow-adbc-src.url = "github:apache/arrow-adbc/apache-arrow-adbc-24";
+    arrow-adbc-src.flake = false;
   };
 
-  outputs = { self, nixpkgs, flake-utils, crane, rust-overlay, jscpd-src, bigquery-adbc-src, ... }:
+  outputs = { self, nixpkgs, flake-utils, crane, rust-overlay, jscpd-src, bigquery-adbc-src, arrow-adbc-src, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -439,6 +443,13 @@
           buildDriver = import ./nix/bigquery-adbc.nix;
         };
 
+        # The ADBC PostgreSQL driver packages, the same four triples. A separate set, not merged
+        # into `adbcDrivers`, because `checks.adbc-driver-bigquery` counts that set's values.
+        postgresAdbcDrivers = import ./nix/postgres-adbc-drivers.nix {
+          inherit pkgs;
+          src = arrow-adbc-src;
+        };
+
         # #149 branch 5's runner - `nix/kind-smoke.nix` carries what it proves and what it does
         # not. `shipped.localImages.oci` is the SAME native image `nix build .#oci` builds, so
         # this loads the one a developer would, not a second build of it.
@@ -507,7 +518,7 @@
           });
 
         }
-        // adbcDrivers;
+        // adbcDrivers // postgresAdbcDrivers;
 
         # `nix flake check` IS the gate. Every entry reuses `cargoArtifacts`, so the
         # dependency tree is built once for the whole set, not once per check.
@@ -565,6 +576,28 @@
               || { echo "built $found ADBC driver triples and this release declares 4" >&2; exit 1; }
             mkdir -p "$out"
             printf '%d ADBC driver triples built\n' "$found" > "$out/result"
+          '';
+
+          # The self-built ADBC PostgreSQL driver: `adbc-driver-bigquery`'s gate, and its limit,
+          # for the second driver - the four triples' `.so` and self-contained `.a` exist, against
+          # a literal four. `nix/postgres-adbc.nix` also LINKS a probe against the archive, so a
+          # member missing from it fails the build; nothing loads or runs the driver, and no Rust
+          # code reads it yet.
+          adbc-driver-postgresql = pkgs.runCommand "adbc-driver-postgresql-check" {
+            buildInputs = builtins.attrValues postgresAdbcDrivers;
+          } ''
+            found=0
+            for d in $buildInputs; do
+              for shape in so a; do
+                test -f "$d/lib/libadbc_driver_postgresql.$shape" \
+                  || { echo "missing libadbc_driver_postgresql.$shape in $d" >&2; exit 1; }
+              done
+              found=$((found + 1))
+            done
+            test "$found" -eq 4 \
+              || { echo "built $found ADBC PostgreSQL driver triples and this release declares 4" >&2; exit 1; }
+            mkdir -p "$out"
+            printf '%d ADBC PostgreSQL driver triples built\n' "$found" > "$out/result"
           '';
 
           # `--all-features` is load-bearing, not thoroughness for its own sake: the
