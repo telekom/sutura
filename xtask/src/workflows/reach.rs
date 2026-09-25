@@ -886,7 +886,8 @@ mod tests {
     #[test]
     fn deps_is_the_dependency_closure_reads_the_real_binding_and_refuses_a_rebound_one() {
         let at = scratch("deps-binding");
-        let flake = |rhs: &str| format!("{{\n  outputs = {{ }}: {{\n    packages = {{\n      deps = {rhs};\n    }};\n  }};\n}}\n");
+        let flake =
+            |rhs: &str| format!("{{\n  outputs = {{ }}: {{\n    packages = {{\n      deps = {rhs};\n    }};\n  }};\n}}\n");
         std::fs::write(at.join("flake.nix"), flake("ciArtifacts")).expect("the flake");
         assert!(super::deps_is_the_dependency_closure(&at), "the real shape must hold");
 

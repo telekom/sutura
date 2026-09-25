@@ -159,24 +159,23 @@ jobs:
       # Exit 2 from the script means the SCAN is broken rather than the prose - an empty task
       # list, an unparsable table - and it warns rather than failing, because `ci`'s own hygiene
       # copy still judges the same citations independently.
+      #
+      # NO `id:`/`GITHUB_OUTPUT` any more (#980 review finding 9): both used to feed the
+      # conditional hygiene skip #982 deleted along with the classifier that gated it. Nothing in
+      # this job reads a `checked` output now, so writing one is dead code pretending to matter.
       - name: Task citations in the prose
-        id: citations
         run: |
           set -eu
           if ! nix run .#just -- --summary > "$RUNNER_TEMP/tasks"; then
-            echo "::warning::could not read the task list - running the full gates"
-            echo "checked=no" >> "$GITHUB_OUTPUT"
+            echo "::warning::could not read the task list - ci's own hygiene copy still judges these citations independently"
             exit 0
           fi
           status=0
           sh .github/scripts/check-task-citations.sh < "$RUNNER_TEMP/tasks" || status=$?
           case "$status" in
-            0)
-              echo "checked=yes" >> "$GITHUB_OUTPUT"
-              ;;
+            0) ;;
             2)
-              echo "::warning::the citation scan could not run - running the full gates"
-              echo "checked=no" >> "$GITHUB_OUTPUT"
+              echo "::warning::the citation scan could not run - ci's own hygiene copy still judges these citations independently"
               ;;
             *)
               exit "$status"

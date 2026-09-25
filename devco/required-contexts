@@ -155,9 +155,11 @@ ci.yml:pr-cache
 # job to finish. It carries no `if:` at all - it reports on every pull request, push and
 # merge-group entry - and it reads no secret, so there is nothing here for a fork's pull request
 # to be denied. Advisory for the same reason `pr-cache` above is: nothing downstream needs its
-# result to be `[required]` for the leg it gates to stay covered - `keycloak-served-test` reads
-# `needs.ci.outputs.identity` (unchanged) for what `ci-aggregate` demands, and this job's own
-# `identity` output only ever WIDENS which pull requests boot the JVM, never narrows it.
+# result to be `[required]` for the leg it gates to stay covered - `ci-aggregate` (unchanged)
+# still decides what it demands of `keycloak-served-test` from `needs.ci.outputs.identity`, its
+# OWN read, never from this job's. This job's own `identity` output only ever WIDENS which pull
+# requests boot the JVM (`keycloak-served-test` reads it directly, see that entry below), never
+# narrows what `ci-aggregate` requires.
 ci.yml:identity-classify
 
 # The provisioned-Keycloak leg-1 venue: `if: needs.identity-classify.outputs.identity == 'true'`

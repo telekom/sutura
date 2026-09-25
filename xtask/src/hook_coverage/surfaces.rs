@@ -51,8 +51,14 @@ pub(crate) const SURFACES: &[Surface] = &[
         // not run check-default-features or check-default-feature-tests - just gates does").
         // Overlapping `*.rs` with the row above is the same all-must-run shape "workflow YAML" and
         // "text and manifests" already use.
+        //
+        // `**/Cargo.toml` and `Cargo.lock` too - #980 review's own point 1, and the exact probe
+        // that found it: a `crates/*/Cargo.toml` feature edit surfaced NEITHER task, because a
+        // manifest change can add a feature, a dependency or a public re-export without touching
+        // one `.rs` file. Both gates read `--all-features`/the shipped default set straight from
+        // the manifests, so a manifest-only diff is exactly what they exist to catch.
         label: "Rust source (api-docs and default-feature lanes)",
-        paths: &["*.rs"],
+        paths: &["*.rs", "**/Cargo.toml", "Cargo.lock"],
         hooks: &[],
         reached_by: "check-api-docs",
     },
@@ -61,7 +67,7 @@ pub(crate) const SURFACES: &[Surface] = &[
         // coverage report can name which of the two ran and which did not, instead of one line
         // standing for both.
         label: "Rust source (default-feature lane)",
-        paths: &["*.rs"],
+        paths: &["*.rs", "**/Cargo.toml", "Cargo.lock"],
         hooks: &[],
         reached_by: "check-default-features",
     },
@@ -271,6 +277,17 @@ mod tests {
             assert!(
                 crate::repo::matches_any(row.paths, "crates/sutura-domain/src/lib.rs"),
                 "`{task}`'s row does not match a Rust source path"
+            );
+            // #980 review point 1's exact probe: a manifest-only diff surfaced neither task
+            // before this row grew `**/Cargo.toml`/`Cargo.lock` - a feature or dependency can
+            // move without touching a `.rs` file at all.
+            assert!(
+                crate::repo::matches_any(row.paths, "crates/sutura-domain/Cargo.toml"),
+                "`{task}`'s row does not match a crate manifest"
+            );
+            assert!(
+                crate::repo::matches_any(row.paths, "Cargo.lock"),
+                "`{task}`'s row does not match the lockfile"
             );
         }
     }

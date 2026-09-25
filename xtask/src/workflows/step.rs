@@ -367,12 +367,9 @@ run_step 0 not-called '' ''
         fn a_push_bases_on_the_actual_previous_tip_not_an_empty_diff() {
             let root = crate::repo::root().expect("the repository root");
             let workflow = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("the workflow");
-            let step = crate::workflows::step::named_step(
-                &workflow,
-                "identity-classify",
-                "Base for this leg's own classification",
-            )
-            .expect("the live step");
+            let step =
+                crate::workflows::step::named_step(&workflow, "identity-classify", "Base for this leg's own classification")
+                    .expect("the live step");
             let body = crate::workflows::step::shell(&step)
                 .into_iter()
                 .skip(1)
@@ -402,12 +399,22 @@ run_step 0 not-called '' ''
                     "export GITHUB_OUTPUT=\"$PWD/out\"\n",
                 ),
             );
-            let output = Command::new("bash")
-                .args(["--noprofile", "--norc", "-c", &script])
-                .current_dir(scratch)
+            let mut command = Command::new("bash");
+            command.args(["--noprofile", "--norc", "-c", &script]).current_dir(scratch);
+            // #980 review, the incident this test itself caused: `git init`/`git commit` here ran
+            // with the AMBIENT GIT_DIR/GIT_INDEX_FILE still set (inherited from whatever git
+            // operation - a hook's own stash included - was running this test), so it committed
+            // into the REAL repository rather than the scratch tree, under the identity this
+            // script's own `git config user.name Fixture` set. `strip_git_env` is the existing,
+            // shared fix for exactly this (`crate::branches::git`'s own `git()` helper already
+            // uses it); `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_NOSYSTEM` and `BASH_ENV` are the causality
+            // fixture's own belt-and-braces one file up, added here for the same reason.
+            crate::repo::strip_git_env(&mut command);
+            command
                 .env_remove("BASH_ENV")
-                .output()
-                .expect("the workflow shell executes");
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1");
+            let output = command.output().expect("the workflow shell executes");
             assert!(
                 output.status.success(),
                 "{}\n{}",
