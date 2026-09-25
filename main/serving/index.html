@@ -3153,7 +3153,7 @@ three, so a caller is told the same thing whether it reads the status, the code 
 </span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">"outcome"</span><span class="p">:</span><span class="w"> </span><span class="s2">"answer"</span><span class="p">,</span>
 </span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">"provenance"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="nt">"definition_version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"local-1"</span><span class="p">,</span>
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="nt">"definition_digest"</span><span class="p">:</span><span class="w"> </span><span class="s2">"c14afabdc65d0088523cfc6b805311547998c12ab1b540fd970b4f369b609270"</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="nt">"definition_digest"</span><span class="p">:</span><span class="w"> </span><span class="s2">"b0e74ef1b790cff7171094fec4b9389913e7940bf7c9a2abdec2269c3e29e538"</span>
 </span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">  </span><span class="p">},</span>
 </span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">  </span><span class="nt">"columns"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"period"</span><span class="p">,</span><span class="w"> </span><span class="s2">"recurring_revenue"</span><span class="p">],</span>
 </span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">  </span><span class="nt">"rows"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
@@ -3192,6 +3192,16 @@ depends on why:</p>
 <td><code>metric_unknown</code></td>
 <td><code>404</code></td>
 <td>Ask <code>GET /v1/catalog</code> which metrics this snapshot defines</td>
+</tr>
+<tr>
+<td><code>metrics_span_different_models</code></td>
+<td><code>422</code></td>
+<td>The named metrics do not share a model, time column, grain and dimensions. Ask about each separately - this deployment executes one metric at a time regardless</td>
+</tr>
+<tr>
+<td><code>multi_metric_not_executable</code></td>
+<td><code>422</code></td>
+<td>Every named metric resolved and agrees, but this deployment does not yet turn more than one into one answer. Ask about each separately</td>
 </tr>
 <tr>
 <td><code>grain_not_supported</code></td>
@@ -3319,7 +3329,7 @@ what a dead data system returns, so a caller was told to retry against a bound t
 The two are now separable by <code>code</code> as well as by status, and a test asserts the refusal is not 503.</p>
 <p>This used to be a <code>200</code> for both outcomes, on the argument that an error status invites a client
 library to retry a governance decision until it succeeds. The second half of that is right and the
-first half does not survive checking: nothing mainstream retries a <code>4xx</code> by default, and 7 refusal
+first half does not survive checking: nothing mainstream retries a <code>4xx</code> by default, and 9 refusal
 reasons land on <code>422</code>, which is documented the other way round, as a status a client should expect
 to fail again on an unchanged request. What the <code>200</code> did cost was legibility to everything that reads
 a status and not a body: an ingress log, a dashboard, an error-rate alert, a generated client whose

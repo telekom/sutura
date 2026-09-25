@@ -2497,17 +2497,26 @@ last day that differs per month. Both dates are ISO <code>YYYY-MM-DD</code>.</p>
 dates - <code>telekom/sutura#778</code>.</p>
 <h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
-<h3 id="struct-filterargs"><code>struct FilterArgs</code><a class="headerlink" href="#struct-filterargs" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FilterArgs</span>
+<h3 id="enum-filterargs"><code>enum FilterArgs</code><a class="headerlink" href="#enum-filterargs" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">FilterArgs</span>
 </span></code></pre></div>
-<p>One equality filter.</p>
+<p>One filter: a dimension, and what it must - or must not - equal.</p>
+<p>Tagged by <code>op</code>, mirroring <code>sutura_domain::query::Filter</code> - <code>github.com/telekom/sutura#968</code>. Every
+value, in either shape, is still checked against the metric's own allowlist; <code>In</code>/<code>NotIn</code> widen
+the predicate's shape and never the source of a value.</p>
+<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Eq</code> - The dimension equals this one value.</li>
+<li><code>In</code> - The dimension equals one of these values. At least one.</li>
+<li><code>NotIn</code> - The dimension equals none of these values. At least one. A row whose value for this dimension is unmatched/NULL (an unresolved join key) is excluded, not included.</li>
+</ul>
 <h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
 <h3 id="enum-malformedquestion"><code>enum MalformedQuestion</code><a class="headerlink" href="#enum-malformedquestion" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedQuestion</span>
 </span></code></pre></div>
 <p>Why an arguments object is not a question.</p>
-<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<h4 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>NotAnObject</code> - The arguments object did not deserialize at all: a missing field, a wrong type, or - the case this crate cares about most - a field the tool surface does not declare.</li>
 </ul>
@@ -2531,7 +2540,7 @@ have cost an agent the ability to answer a question about a number without a sec
 <p>The <code>outcome</code> discriminator is what a client branches on, and it is the same tag and the same
 <code>reason</code> object the HTTP surface serializes - deliberately, so the two transports describe one
 answer even though the types are separate.</p>
-<h4 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h4>
+<h4 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Answer</code> - The question was answered.</li>
 <li><code>Refusal</code> - The question was refused. <strong>Still an <code>Ok</code>, and still a tool RESULT</strong> - see <code>crate::server::AgentSurface::call_tool</code>.</li>
@@ -2712,7 +2721,7 @@ through, the same governance boundary <code>super::AskArgs</code> holds for the 
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedStatement</span>
 </span></code></pre></div>
 <p>Why a <code>run_sql</code> call's arguments were not a statement.</p>
-<h5 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h5>
+<h5 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>NotAnObject</code></li>
 <li><code>Statement</code></li>
@@ -2731,7 +2740,7 @@ over the type's own already-<code>Raw</code>-prefixed name) - only their SERIALI
 explicit <code>#[serde(rename)]</code> on each rather than derived from the Rust identifier: <code>Rows</code> would
 otherwise serialize <code>outcome: "rows"</code> and <code>Refusal</code> would serialize exactly the certified path's
 own <code>outcome: "refusal"</code> - the one collision <code>docs/adr/0013</code> forbids.</p>
-<h5 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h5>
+<h5 id="variants_6">Variants<a class="headerlink" href="#variants_6" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>Rows</code> - The statement executed.</li>
 <li><code>Refusal</code> - The statement was refused. Still an <code>Ok</code> and still a tool result, for <code>ServerHandler::call_tool</code>'s reason: a governance outcome is not a fault.</li>
