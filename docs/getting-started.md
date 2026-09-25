@@ -129,6 +129,7 @@ Eleven metrics; five of them below, and the elision is this page's rather than t
 ```text
 version local-working-tree
 digest  c14afabdc65d0088523cfc6b805311547998c12ab1b540fd970b4f369b609270
+
 active_subscriptions
   measure    count_distinct(subscription_key)
   filters    status = "active"
