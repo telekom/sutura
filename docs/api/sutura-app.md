@@ -1135,8 +1135,8 @@ narrowed to what this caller may see. The operator's own instructions are NOT he
 the deployment's whole-bundle text, the same for every caller, and the MCP transport's catalog
 reply carries them under their own heading so they are not mistaken for catalog prose.
 
-**Takes a `ScopedView`, never a bare `&PinnedDefinitions`** - the same rule
-`CatalogContent` and `docs/adr/0028` state for the metric listing. A caller sees
+**Takes a `ScopedView`, never a bare `&PinnedDefinitions`** - the same rule the MCP catalog
+reply (`sutura_mcp::wire::CatalogContent`) and `docs/adr/0028` state for the metric listing. A caller sees
 only the knowledge that belongs to the metrics it is granted: glossary entries, caveats and worked
 examples stay with their metric, and an entry whose metric is invisible is withheld. The caveat
 all-referents rule is the ADR's own: a caveat survives only when every metric it refers to is
@@ -1153,9 +1153,18 @@ whole.
 Prose is quoted under the operator's `prompt.catalog_prose` setting exactly as the prompt treats
 it - the same `CatalogProse` and the same `> ` per-line `quote` - so an operator who withholds
 catalog prose from the prompt also withholds it from the tool. The byte cap is the bundle's own:
-knowledge is bounded at load by `sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES`. This is a cap on
-the knowledge alone: the operator instructions are NOT bounded here (an operator's own text has
-no authored-byte ceiling), and that limit is `CatalogContent`'s to state beside them.
+knowledge is bounded at load by `sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES`. This function
+never sees the operator's own instructions text at all - that text is a separate field the MCP
+catalog reply (`sutura_mcp::wire::CatalogContent`) carries beside this one and states, honestly,
+as unbounded.
+
+**Section order is `declaration`, `glossary`, `not_defined`, `caveats`, `examples` - fixed, and
+deliberately not the prompt's own order.** The declaration's own sentences ("listed below", "at
+the end of this document") are true only of the document that renders them; `knowledge::Audience`
+carries which one this is, and the order here is what makes its `Tool` wording true. Reordering
+this list without updating `knowledge::claim`'s tool-branch text (or vice versa) is exactly the
+drift round 2 of #971's review found - `tests::the_tool_reply_orders_its_sections_as_claimed`
+holds the two together.
 
 ### `fn tool_operator_instructions`
 
