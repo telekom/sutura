@@ -745,13 +745,21 @@ mod tests {
         drop(std::fs::remove_dir_all(&dir));
         std::fs::create_dir_all(&dir).expect("the okf scratch directory is creatable");
         let (catalog, opened, settings) = okf_composition(&dir);
-        let (service, prose, admission, reply, instructions) =
+        let (service, prose, admission, reply, instructions, operator_instructions) =
             mcp_service(&catalog, opened, &settings).expect("the okf bundle is fit to serve");
         let service = std::sync::Arc::new(service);
         let runtime = tokio::runtime::Runtime::new().expect("a runtime starts");
 
         runtime.block_on(async {
-            let client = connected(std::sync::Arc::clone(&service), prose, admission, reply, instructions).await;
+            let client = connected(
+                std::sync::Arc::clone(&service),
+                prose,
+                admission,
+                reply,
+                instructions,
+                operator_instructions,
+            )
+            .await;
             let tools = client.list_all_tools().await.expect("tools/list answers");
             let advertised: Vec<&str> = tools.iter().map(|tool| tool.name.as_ref()).collect();
             let expected: Vec<&str> = sutura_app::Capability::every().map(sutura_app::Capability::id).collect();
