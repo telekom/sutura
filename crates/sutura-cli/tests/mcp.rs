@@ -964,12 +964,10 @@ mod tests {
             &format!(
                 "security:\n  identity: \"single-user\"\n  single_user_because: \"a unit test reads its \
                  own fixture files as one identity\"\n\
-                 catalogs:\n  \
-                   - name: \"model\"\n    \
-                     kind: \"rdbms\"\n    \
-                     dir: \"{}\"\n    \
-                     data_dir: \"{}\"\n    \
-                     version: \"{VERSION}\"\n\
+                 catalogs:\n  - {{name: \"model\", kind: \"rdbms\", dir: \"{}\", data_dir: \"{}\", version: \"{VERSION}\", \
+                 environment: \"test\", source_alias: \"{SOURCE}\", connection: {{host: \"127.0.0.1\", port: 5432, \
+                 database: \"dictionary\", user: \"reader\", password_file: \"/run/secrets/dictionary\", \
+                 transport_mode: \"plaintext\"}}}}\n\
                  sources:\n  \
                    {SOURCE}:\n    \
                      kind: \"files\"\n    \

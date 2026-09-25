@@ -942,3 +942,8 @@ mod sources;
 
 /// `tools.run_sql`'s own boot refusal. Carved out for the same reason.
 mod tools;
+
+/// A `catalog.kind: rdbms` entry's refusals, through the load path that alone reaches them. Same
+/// `#[cfg(test)]` reason as `governance` above.
+#[cfg(test)]
+mod rdbms_catalog;

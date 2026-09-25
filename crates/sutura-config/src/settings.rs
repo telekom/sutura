@@ -437,7 +437,7 @@ impl Settings {
                 raw.api.docs.unwrap_or_else(|| ApiSettings::docs_default_for(environment)),
                 raw.api.docs.is_some(),
             ),
-            catalogs: catalogs::parse_catalogs(raw)?,
+            catalogs: catalogs::parse_catalogs(raw, &sources)?,
             runtime: parse::parse_runtime(raw)?,
             prompt: parse::parse_prompt(raw)?,
             tools: parse::parse_tools(raw),
