@@ -608,7 +608,7 @@ impl DataFusionWarehouse {
     async fn key_uniqueness(&self, key: &DeclaredKey<'_>) -> Result<KeyUniqueness, DataFusionError> {
         let scan = self.scan(key.table()).await?;
         let logical = LogicalPlanBuilder::from(scan)
-            .aggregate(Vec::<Expr>::new(), key_counts(key))
+            .aggregate(Vec::<Expr>::new(), key_counts(key)?)
             .and_then(LogicalPlanBuilder::build)
             .map_err(|cause| DataFusionError::Build { cause })?;
         let frame = self
@@ -980,3 +980,8 @@ mod drop_tests {
 /// its own file for the same reason.
 #[cfg(test)]
 mod execute_tests;
+
+/// The declared-key probe's own suite - split out of `execute_tests.rs`, again for the same
+/// `max-lines` reason.
+#[cfg(test)]
+mod cardinality_tests;

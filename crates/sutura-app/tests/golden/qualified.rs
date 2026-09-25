@@ -41,8 +41,8 @@ use sutura_domain::model::{
     RelationshipName, SourceName, TableName, TableQualifier,
 };
 use sutura_domain::plan::{
-    AmbiguousTables, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanMeasure, PlanPredicate, PlanTerm,
-    PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
+    AmbiguousTables, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanJoinKey, PlanKey, PlanMeasure,
+    PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
 };
 use sutura_domain::warehouse::ParamValue;
 use sutura_sql::generate::GenerateError;
@@ -142,8 +142,10 @@ fn plan_over(path: QualifiedTable, joined: Option<QualifiedTable>) -> QueryPlan 
             // `ManyToOne`, which is the only cardinality a dimension hop may have: the catalog
             // refuses one that could duplicate the fact rows and change the sum.
             JoinType::ManyToOne,
-            column(FACT, "customer_id"),
-            column(DIMENSION, "id"),
+            vec![PlanJoinKey::Equal {
+                origin: column(FACT, "customer_id"),
+                target: column(DIMENSION, "id"),
+            }],
         ));
         keys.push(PlanKey::new(
             ResultLabel::dimension(&DimensionName::parse("region").expect("a fixture dimension is one")),
@@ -444,8 +446,10 @@ fn two_paths_ending_in_one_name_are_refused_rather_than_rendered_under_one_alias
         RelationshipName::parse("orders_customer").expect("a fixture relationship is one"),
         collides.clone(),
         JoinType::ManyToOne,
-        column(FACT, "customer_id"),
-        column(FACT, "id"),
+        vec![PlanJoinKey::Equal {
+            origin: column(FACT, "customer_id"),
+            target: column(FACT, "id"),
+        }],
     );
 
     let refused = StatementTables::parse(fact.clone(), vec![join]).expect_err("one identifier, two tables");
@@ -476,8 +480,10 @@ fn two_paths_differing_only_in_the_case_of_their_last_part_are_refused_too() {
         RelationshipName::parse("orders_customer").expect("a fixture relationship is one"),
         collides,
         JoinType::ManyToOne,
-        column("Orders", "customer_id"),
-        column("orders", "id"),
+        vec![PlanJoinKey::Equal {
+            origin: column("Orders", "customer_id"),
+            target: column("orders", "id"),
+        }],
     );
     assert!(
         StatementTables::parse(fact, vec![join]).is_err(),

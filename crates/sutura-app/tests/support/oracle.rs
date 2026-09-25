@@ -56,7 +56,8 @@ use std::collections::BTreeSet;
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship, ViaChain,
+    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, JoinKey, JoinKeys, Metric, Model,
+    Relationship, ViaChain,
 };
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
@@ -165,6 +166,18 @@ fn product_family() -> Dimension {
     )
 }
 
+/// The same dimension `voice_minutes` reaches from `daily_usage`, through the compound join: hop 1
+/// is `usage_subscription` (a usage day to the monthly snapshot, on the compound key) and hop 2 is
+/// `subscription_product` - the same second hop [`product_family`] takes from `subscriptions`.
+fn product_family_via_usage() -> Dimension {
+    dimension(
+        "product_family",
+        "product_family",
+        Some(&["usage_subscription", "subscription_product"]),
+        Some(&["convergent", "fixed_internet", "mobile", "tv"]),
+    )
+}
+
 /// The individual tariff. **No value list, so it can be grouped by and not filtered on** - which is
 /// what `refused-dimension-not-filterable.yaml` exists to reach.
 fn product_name() -> Dimension {
@@ -212,13 +225,11 @@ type ModelsAndJoins = (Vec<Model>, Vec<Relationship>);
 /// them grows with every shape the vocabulary gains. Three functions that each build one kind of
 /// thing stay readable where one does not.
 ///
-/// **One relationship that could be declared is deliberately absent.**
-/// `daily_usage` carries `subscription_key` and nothing reaches from there to the monthly snapshot:
-/// the snapshot has one row per subscription per MONTH, so a join on that key alone would match
-/// every month the subscription existed and multiply each day of usage by that count. A
-/// relationship declares one column on each side, so the correct join - which would also constrain
-/// the snapshot month to the usage month - cannot be written. It is therefore absent rather than
-/// declared wrongly, and every metric on `daily_usage` groups by time and by nothing else.
+/// **`usage_subscription`, the one COMPOUND join here.** `daily_usage` carries `subscription_key`
+/// and the monthly snapshot has one row per subscription per MONTH, so a join on that key alone
+/// would match every month the subscription existed and multiply each day of usage by that count.
+/// The second key fixes it: it truncates `usage_date` to a month and compares it against the
+/// snapshot's `month`, so a day joins only the snapshot row of the month it falls in.
 fn tables() -> ModelsAndJoins {
     let subscriptions = Model::new(
         ModelName::parse("subscriptions").expect("a name"),
@@ -282,18 +293,24 @@ fn tables() -> ModelsAndJoins {
         Relationship::new(
             RelationshipName::parse("subscription_customer").expect("a name"),
             ModelName::parse("subscriptions").expect("a name"),
-            column("customer_key"),
             ModelName::parse("customers").expect("a name"),
-            column("customer_key"),
             JoinType::ManyToOne,
+            JoinKeys::of(vec![JoinKey::Equal {
+                origin: column("customer_key"),
+                target: column("customer_key"),
+            }])
+            .expect("a test relationship declares one key"),
         ),
         Relationship::new(
             RelationshipName::parse("subscription_product").expect("a name"),
             ModelName::parse("subscriptions").expect("a name"),
-            column("product_key"),
             ModelName::parse("products").expect("a name"),
-            column("product_key"),
             JoinType::ManyToOne,
+            JoinKeys::of(vec![JoinKey::Equal {
+                origin: column("product_key"),
+                target: column("product_key"),
+            }])
+            .expect("a test relationship declares one key"),
         ),
         // Hop 2 of the one chained dimension, and the only relationship here whose origin is NOT
         // the fact model. Many customers to one region, for the same reason the two above are
@@ -301,10 +318,34 @@ fn tables() -> ModelsAndJoins {
         Relationship::new(
             RelationshipName::parse("customer_region").expect("a name"),
             ModelName::parse("customers").expect("a name"),
-            column("region"),
             ModelName::parse("regions").expect("a name"),
-            column("region"),
             JoinType::ManyToOne,
+            JoinKeys::of(vec![JoinKey::Equal {
+                origin: column("region"),
+                target: column("region"),
+            }])
+            .expect("a test relationship declares one key"),
+        ),
+        // The compound join: `subscription_key` equal, AND `usage_date` truncated to a month equal
+        // to the snapshot's `month`. Either key alone would leave the join ambiguous or wrong; the
+        // pair is what `daily_usage`'s doc comment above describes.
+        Relationship::new(
+            RelationshipName::parse("usage_subscription").expect("a name"),
+            ModelName::parse("daily_usage").expect("a name"),
+            ModelName::parse("subscriptions").expect("a name"),
+            JoinType::ManyToOne,
+            JoinKeys::of(vec![
+                JoinKey::Equal {
+                    origin: column("subscription_key"),
+                    target: column("subscription_key"),
+                },
+                JoinKey::TruncatedEqual {
+                    origin: column("usage_date"),
+                    grain: Grain::Month,
+                    target: column("month"),
+                },
+            ])
+            .expect("a test relationship declares two keys"),
         ),
     ];
 
@@ -374,6 +415,8 @@ fn metrics_the_original_vocabulary_could_express() -> Vec<Metric> {
     // "Outgoing voice minutes." One aggregate over one column, no definitional filter, no join, no
     // ratio. No anchor, for the reason `data_per_subscription` gives: a sum of decimals is a float,
     // so an anchor written as text would pin a formatting decision rather than a number.
+    // `product_family`, reached through the compound join, is the one exception added when
+    // `usage_subscription` landed - see `product_family_via_usage`.
     let voice_minutes = Metric::new(
         MetricName::parse("voice_minutes").expect("a name"),
         ModelName::parse("daily_usage").expect("a name"),
@@ -381,7 +424,7 @@ fn metrics_the_original_vocabulary_could_express() -> Vec<Metric> {
         Vec::new(),
         column("usage_date"),
         BTreeSet::from([Grain::Day, Grain::Month]),
-        Vec::new(),
+        vec![product_family_via_usage()],
         None,
         Description::default(),
         Audience::Open,

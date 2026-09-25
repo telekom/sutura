@@ -57,10 +57,12 @@
 
 use polyglot_sql::DialectType;
 use polyglot_sql::builder::{self, Expr, SelectBuilder};
-use polyglot_sql::expressions::{Expression, Ordered, Parameter, ParameterStyle, Placeholder, Raw};
+use polyglot_sql::expressions::{Expression, Ordered, Parameter, ParameterStyle, Placeholder, Raw, Tuple};
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, ColumnName, Grain, JoinType, Qualification, QualifiedTable, TableName};
-use sutura_domain::plan::{LegPlan, PlanBucket, PlanColumn, PlanJoin, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan};
+use sutura_domain::plan::{
+    LegPlan, PlanBucket, PlanColumn, PlanJoin, PlanJoinKey, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan,
+};
 use sutura_domain::warehouse::cardinality::{DISTINCT_LABEL, DeclaredKey, ROWS_LABEL};
 
 use crate::GeneratedQuery;
@@ -116,6 +118,25 @@ pub enum GenerateError {
     /// describing it twice.
     #[error("a plan must carry the two bounds of its range, and this one carries no predicate")]
     NoPredicate,
+    /// A compound declared key's fan-out probe, for a dialect this crate has no null-safe
+    /// multi-column `DISTINCT` rendering for.
+    ///
+    /// **An allowlist (`DuckDb`, `Postgres`, `ClickHouse`), not a denylist.** `Tuple` renders as a
+    /// plain argument list, `DISTINCT a, b`, on every dialect this crate does not special-case -
+    /// which is the tuple `DuckDB` and Postgres read (polyglot 0.12.0's generator rewrites it to
+    /// the null-safe `CASE WHEN a IS NULL THEN NULL … ELSE (a, b) END` for both, `multi_arg_distinct:
+    /// false`) and the shape `ClickHouse`'s own multi-argument `DISTINCT` already treats as one,
+    /// null-safely, without any rewrite. Oracle and `BigQuery` both document `DISTINCT` as taking one
+    /// expression, and `Tuple` there is `DISTINCT a, b` - a plain argument list neither grammar
+    /// means by it, not the tuple this crate intends. **Not reproduced against a live instance of
+    /// either** - stated from each dialect's documented `DISTINCT` syntax, not from an observed
+    /// rejection. Refused here, at generation time, rather than handed to the data system as SQL
+    /// that may be rejected: the boot-time probe for a `many_to_one` relationship declaring more
+    /// than one join key is the only caller, so this is reachable only from a compound key on one
+    /// of these dialects, and a caller cannot narrow a catalog document out of it - an operator
+    /// changes the relationship or the dialect.
+    #[error("a compound declared-key probe cannot be rendered for {dialect}: it accepts one column inside DISTINCT")]
+    CompoundKeyProbeUnsupported { dialect: Dialect },
 }
 
 /// The dialect layer's name for a data system.
@@ -469,27 +490,29 @@ fn predicate(dialect: Dialect, plan_predicate: &PlanPredicate) -> Expr {
 /// the arguments for that arm, and `DateTruncShape::DateFirstAsQuotedFormat`'s own doc says why
 /// reusing either of the first two shapes would still be wrong.
 fn bucket_expression(bucket: &PlanBucket, dialect: Dialect) -> Expr {
+    bucket_expr(bucket.grain(), bucket.column(), dialect)
+}
+
+/// One column truncated to a grain, the way this dialect spells date truncation.
+///
+/// Shared between a question's [`PlanBucket`] and a compound join's truncation key, so a join that
+/// truncates an origin to a month and a time bucket at the same grain cannot render differently.
+fn bucket_expr(grain: Grain, over: &PlanColumn, dialect: Dialect) -> Expr {
     let (function, arguments) = match dialect.date_trunc_shape() {
-        DateTruncShape::GrainFirstAsLiteral => (
-            "DATE_TRUNC",
-            vec![builder::lit(unit(bucket.grain())), column(bucket.column())],
-        ),
+        DateTruncShape::GrainFirstAsLiteral => ("DATE_TRUNC", vec![builder::lit(unit(grain)), column(over)]),
         // The grain as a bare keyword. `grain_keyword` carries why a `Raw` node here is not a hole.
         DateTruncShape::DateFirstAsKeyword => (
             "DATE_TRUNC",
             vec![
-                column(bucket.column()),
+                column(over),
                 Expr(Expression::Raw(Raw {
-                    sql: String::from(grain_keyword(bucket.grain())),
+                    sql: String::from(grain_keyword(grain)),
                 })),
             ],
         ),
         // `TRUNC`, not `DATE_TRUNC` - see `DateTruncShape::DateFirstAsQuotedFormat`'s own doc for
-        // why this arm builds the call directly instead of reshaping the other two's function.
-        DateTruncShape::DateFirstAsQuotedFormat => (
-            "TRUNC",
-            vec![column(bucket.column()), builder::lit(oracle_format(bucket.grain()))],
-        ),
+        // why this arm builds the call directly instead of reshaping the other two's shape.
+        DateTruncShape::DateFirstAsQuotedFormat => ("TRUNC", vec![column(over), builder::lit(oracle_format(grain))]),
     };
     builder::func(function, arguments).cast("DATE")
 }
@@ -524,7 +547,23 @@ fn joined(statement: SelectBuilder, joins: &[PlanJoin], dialect: Dialect) -> Res
         // A joined table carries its own path, which is what makes a cross-dataset join one native
         // statement rather than two legs and a combiner.
         let path = table_path(join.table(), dialect)?;
-        let on = column(join.origin()).eq(column(join.target()));
+        // Every key contributes one `=` term, `AND`ed together: a compound join renders
+        // `a.x = b.y AND a.day_truncated = b.month`. A truncated key buckets its origin through
+        // the same per-dialect date-truncation a time bucket uses, so the join's truncation and a
+        // question's time bucket cannot drift apart in spelling.
+        let on = join.keys().iter().fold(None, |acc: Option<Expr>, key| {
+            let term = match key {
+                PlanJoinKey::Equal { origin, target } => column(origin).eq(column(target)),
+                PlanJoinKey::TruncatedEqual { origin, grain, target } => bucket_expr(*grain, origin, dialect).eq(column(target)),
+            };
+            Some(match acc {
+                None => term,
+                Some(acc) => acc.and(term),
+            })
+        });
+        let Some(on) = on else {
+            return Err(GenerateError::NoPredicate);
+        };
         statement = match join.join_type() {
             JoinType::OneToOne | JoinType::ManyToOne | JoinType::OneToMany => statement.left_join(&path, on),
         };
@@ -775,11 +814,13 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
 
 /// Renders one declared join key's uniqueness probe as one statement.
 ///
-/// **Two counts over one column of one table, and nothing else.** `COUNT(col)` beside
-/// `COUNT(DISTINCT col)` is the whole question a `many_to_one` declaration can be contradicted by,
-/// and the pair is equal exactly when the declaration holds. There is no `WHERE`, no `GROUP BY`, no
-/// `HAVING` and no `LIMIT`: the declaration is unconditional, so a probe carrying a filter would
-/// answer a narrower question than the one the join path spends.
+/// **Two counts over the target side of a whole key set, and nothing else.** A row count beside
+/// `COUNT(DISTINCT key_1, key_2, …)` is the whole question a `many_to_one` declaration can be
+/// contradicted by, and the pair is equal exactly when the declaration holds over the WHOLE set -
+/// the one shape a compound key can be proved by, because no single column of a compound key need
+/// identify a row on its own. There is no `WHERE`, no `GROUP BY`, no `HAVING` and no `LIMIT`: the
+/// declaration is unconditional, so a probe carrying a filter would answer a narrower question than
+/// the one the join path spends.
 ///
 /// **No parameter, and nothing from a question.** A [`DeclaredKey`] is built out of a pinned
 /// bundle's own parsed names, so the statement has nowhere for a caller's value to arrive; the
@@ -788,6 +829,17 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
 /// **No key value is projected**, which is the same decision the answer type makes and for the same
 /// reason: what comes back reaches a boot log, and a duplicated dimension key printed there is
 /// source data copied into a sink nobody scoped for it.
+///
+/// The distinct count is over a TUPLE of the target columns for `DuckDb`, `Postgres` and
+/// `ClickHouse` (the allowlist [`GenerateError::CompoundKeyProbeUnsupported`]'s rustdoc argues
+/// for), and Oracle and `BigQuery` refuse a compound probe by name instead. Only
+/// `sutura-domain`'s own parse-check family measures the rendered tuple text, over the three
+/// allowed dialects; this comment does not claim Oracle or `BigQuery`. The row count stays
+/// `COUNT(col)` for one key, unchanged, so an existing single-pair golden keeps its rendered
+/// text, and for a compound key becomes `COUNT(CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN 1
+/// END)`: a row null in ANY column of the set cannot match on either side of a join, the same
+/// reason a single null key is excluded, so `rows` and `distinct` stay comparable under
+/// `COUNT(DISTINCT …)`'s own per-tuple null exclusion.
 ///
 /// Shared with [`generate`] and [`generate_leg`]: [`qualified`], [`aliased`], [`table_path`] and
 /// [`render`], so identifier quoting, column qualification and path depth cannot be one thing here
@@ -798,11 +850,50 @@ pub fn generate_key_probe(key: &DeclaredKey<'_>, dialect: Dialect) -> Result<Gen
     // The path goes in the `FROM` and the qualifier is the table's own NAME, so a two-part or
     // three-part table still renders a two-part column reference - `qualified` is the one place that
     // is decided.
-    let over = qualified(key.table().name(), key.column());
-    let projection = vec![
-        aliased(builder::count(over.clone()), ROWS_LABEL)?,
-        aliased(builder::count_distinct(over), DISTINCT_LABEL)?,
-    ];
+    let over: Vec<Expr> = key
+        .target_columns()
+        .map(|column| qualified(key.table().name(), column))
+        .collect();
+    let first = over.first().ok_or(GenerateError::NoPredicate)?.clone();
+    // A row's key is non-null only when every column of the whole set is non-null - the same
+    // "excluded from both counts" decision the module header states, extended to a compound key:
+    // a row where one column of the pair is null cannot match on either side of any join, so it
+    // is not a key row. One column keeps `COUNT(col)`'s existing shape; a compound key folds the
+    // per-column nullness checks into the `CASE` that `COUNT` then counts non-null results of, so
+    // the two counts stay comparable under `COUNT(DISTINCT …)`'s own null-exclusion.
+    let rows = if over.len() == 1 {
+        builder::count(first.clone())
+    } else {
+        let all_not_null = over
+            .iter()
+            .cloned()
+            .map(Expr::is_not_null)
+            .reduce(Expr::and)
+            .ok_or(GenerateError::NoPredicate)?;
+        let marker = builder::case().when(all_not_null, builder::lit(1)).build();
+        builder::count(marker)
+    };
+    let distinct = if over.len() == 1 {
+        builder::count_distinct(first)
+    } else {
+        // An allowlist, not a denylist: DuckDB and Postgres get polyglot's null-safe
+        // `CASE WHEN a IS NULL THEN NULL … ELSE (a, b) END` rewrite (`multi_arg_distinct: false`
+        // in polyglot 0.12.0's generator), and ClickHouse's own multi-argument `DISTINCT` already
+        // skips a row where any argument is null, natively. Every other dialect this crate renders
+        // a `Tuple` for keeps `DISTINCT` a single-expression form - Oracle's grammar accepts one
+        // argument (`ORA-00909` on more, per Oracle's documented syntax; not reproduced against a
+        // live instance here) and BigQuery's `COUNT(DISTINCT …)` is documented as one expression
+        // too - so a `Tuple` there renders a plain argument list neither dialect means by it.
+        // Refused rather than rendered: see `GenerateError::CompoundKeyProbeUnsupported`.
+        if !matches!(dialect, Dialect::DuckDb | Dialect::Postgres | Dialect::ClickHouse) {
+            return Err(GenerateError::CompoundKeyProbeUnsupported { dialect });
+        }
+        let tuple = Expr(Expression::Tuple(Box::new(Tuple {
+            expressions: over.into_iter().map(|e| e.0).collect(),
+        })));
+        builder::count_distinct(tuple)
+    };
+    let projection = vec![aliased(rows, ROWS_LABEL)?, aliased(distinct, DISTINCT_LABEL)?];
     let ast = builder::select(projection).from(&table_path(key.table(), dialect)?).build();
     Ok(GeneratedQuery::new(key.source().clone(), render(&ast, dialect)?, Vec::new()))
 }

@@ -122,10 +122,10 @@ Every reason you can be given, and what to do about each:
   Nothing you can change by re-asking, and do not retry it as if it were an outage: this is not a
   data system being down. Ask the same metric without the dimension on the second data system, or
   report it to a person.
-- **federation_link_ambiguous** - the question's dimensions on the second data system join the
-  metric through more than one relationship, and the two legs link on a single column.
-  Nothing you can change about the question. Report it to a person: it is a fact about how the
-  metric is defined.
+- **federation_link_ambiguous** - a remote dimension joins through more than one relationship.
+  Nothing you can change. Report it: it is a fact about how the metric is defined.
+- **federation_link_compound** - the crossing relationship declares more than one join key.
+  Nothing you can change. Report it: it is a fact about how the relationship is defined.
 - **measure_does_not_federate** - across two data systems this measure cannot be computed and
   recombined - its aggregate (a distinct count) is not additive the way a sum or an average is.
   Nothing you can change about the question. Ask the same metric without the dimension that sits on
@@ -383,7 +383,7 @@ which phrase you resolved and what you resolved it to, so the person can correct
 ## The metrics this deployment defines
 
 - Definitions version: `example-single-player`
-- Definitions digest: `3bd02c381fc6d5b8e593ae278a415c7c73948d36d941e4df23adb83572cfc1b8`
+- Definitions digest: `c14afabdc65d0088523cfc6b805311547998c12ab1b540fd970b4f369b609270`
 
 11 metrics, and they are the whole of what may be asked about.
 
@@ -898,7 +898,8 @@ carry on under the rules above.
 ### voice_minutes
 
 - Grains: month, day
-- Dimensions: none. This metric is reported as one number per period and cannot be broken down.
+- Dimensions:
+  - `product_family` - group by or filter. Values: convergent, fixed_internet, mobile, tv
 
 > Outgoing voice minutes.
 >
@@ -906,6 +907,12 @@ carry on under the rules above.
 > aggregate over one column, no definitional filter, no join, no ratio. Most certified
 > metrics look like this, and a catalog whose every entry needed a paragraph of
 > justification would be a catalog nobody trusted.
+>
+> The product family dimension is the one exception added when `usage_subscription`
+> landed: it is the dimensionless metric reaching a dimension through the compound join,
+> which is the case `daily_usage`'s prose calls the gap a one-column relationship cannot
+> close. Grouping by it must not change the measure - that is what the compound key is
+> for, and the golden suite pins it.
 >
 > Same grains as `data_per_subscription`, and the same reason for carrying no anchor: a sum
 > of decimals is a float, so an anchor written as text would pin a formatting decision

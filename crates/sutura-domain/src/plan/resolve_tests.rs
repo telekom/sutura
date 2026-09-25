@@ -1,6 +1,6 @@
 use super::{
-    PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin,
-    QueryPlan, ResultLabel, StatementTables,
+    PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanJoinKey, PlanKey, PlanMeasure, PlanPredicate, PlanTerm,
+    PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
 };
 use crate::calendar::{Date, TimeRange};
 use crate::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, QualifiedTable, RelationshipName, SourceName, TableName};
@@ -51,8 +51,10 @@ fn plan_with_join(fact: QualifiedTable, joined: QualifiedTable) -> QueryPlan {
         RelationshipName::parse("dim").expect("a test relationship is one"),
         joined,
         JoinType::ManyToOne,
-        column("fct", "dim_id"),
-        column("dim", "id"),
+        vec![PlanJoinKey::Equal {
+            origin: column("fct", "dim_id"),
+            target: column("dim", "id"),
+        }],
     );
     QueryPlan::new(
         SourceName::parse("warehouse").expect("a test source is a source"),

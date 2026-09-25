@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/dialects.rs
+expression: query.sql()
+---
+SELECT `dim_product`.`product_family` AS `product_family`, CAST(DATE_TRUNC(`fct_usage_daily`.`usage_date`, MONTH) AS DATE) AS `period`, sum(`fct_usage_daily`.`voice_min`) AS `voice_minutes` FROM `fct_usage_daily` LEFT JOIN `fct_subscription_monthly` ON `fct_usage_daily`.`subscription_key` = `fct_subscription_monthly`.`subscription_key` AND CAST(DATE_TRUNC(`fct_usage_daily`.`usage_date`, MONTH) AS DATE) = `fct_subscription_monthly`.`month` LEFT JOIN `dim_product` ON `fct_subscription_monthly`.`product_key` = `dim_product`.`product_key` WHERE `fct_usage_daily`.`usage_date` >= ? AND `fct_usage_daily`.`usage_date` < ? GROUP BY `dim_product`.`product_family`, CAST(DATE_TRUNC(`fct_usage_daily`.`usage_date`, MONTH) AS DATE) ORDER BY `dim_product`.`product_family` NULLS LAST, CAST(DATE_TRUNC(`fct_usage_daily`.`usage_date`, MONTH) AS DATE) NULLS LAST LIMIT 10001

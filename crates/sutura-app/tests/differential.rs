@@ -55,6 +55,12 @@ mod adapters;
 #[path = "differential/federated.rs"]
 mod federated;
 
+// The mono half of the same evidence: one relationship, a single-column key and a compound one,
+// over one real embedded database. `#[path]` for the reason `federated` above needs it.
+#[cfg(test)]
+#[path = "differential/compound_join.rs"]
+mod compound_join;
+
 #[cfg(test)]
 mod tests {
     use sutura_app::{answer, verify_anchors};
