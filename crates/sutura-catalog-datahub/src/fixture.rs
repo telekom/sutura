@@ -52,7 +52,11 @@ const CORPUS: &str = r#"{
       "table": "fct_order",
       "platform": "bigquery",
       "columns": ["order_id", "customer_id", "amount_cents", "order_date", "status"],
-      "description": "Net revenue orders, in minor units."
+      "description": "Net revenue orders, in minor units.",
+      "column_metadata": {
+        "amount_cents": { "data_type": "NUMERIC", "description": "The order total, in minor units." }
+      },
+      "primary_key": ["order_id"]
     },
     {
       "name": "customers",

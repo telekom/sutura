@@ -3,7 +3,19 @@ kind: model
 name: subscriptions
 source: local
 table: fct_subscription_monthly
-columns: [month, subscription_key, customer_key, product_key, status, mrr_cents, churned_in_month, contract_term]
+columns:
+  - month
+  - subscription_key
+  - customer_key
+  - product_key
+  - status
+  - name: mrr_cents
+    type: NUMERIC
+    description: Recurring revenue for the month, in minor units.
+    nullable: false
+  - churned_in_month
+  - contract_term
+primary_key: [subscription_key, month]
 ---
 One row per subscription per month: what that subscription was worth in the month, and
 what state it was in at the end of it.

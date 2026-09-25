@@ -145,6 +145,31 @@ fn the_bundle_of_models_and_one_certified_metric_loads_and_validates() {
     );
 }
 
+/// A column's `nativeDataType`/`description` evidence arrives on the model's own column, and
+/// `isPartOfKey` arrives as primary-key evidence - read off the RECORDED fixture corpus
+/// (`fixture::CORPUS`), which is what the golden snapshot pins, rather than off this file's
+/// synthetic one.
+#[test]
+fn a_column_s_type_description_and_primary_key_evidence_arrive() {
+    let pinned = crate::fixture::over_fixture_source(name(), version())
+        .load()
+        .expect("the recorded fixture corpus loads");
+    let orders = pinned
+        .definitions()
+        .models()
+        .get(&ModelName::parse("orders").expect("a fixture model is a model"))
+        .expect("orders is a model");
+    let amount = ColumnName::parse("amount_cents").expect("a fixture column is a column");
+    let column = orders.column(&amount).expect("amount_cents is declared");
+    assert_eq!(
+        column.data_type().map(sutura_domain::catalog::ColumnType::as_str),
+        Some("NUMERIC")
+    );
+    assert_eq!(column.description(), "The order total, in minor units.");
+    let order_id = ColumnName::parse("order_id").expect("a fixture column is a column");
+    assert_eq!(orders.primary_key(), &BTreeSet::from([order_id]));
+}
+
 /// The issue #202 claim, held against the declaration.
 ///
 /// `MetadataCapabilities::produced` reads what the bundle actually carries, and
@@ -570,9 +595,7 @@ fn content_for_a_kind_it_did_not_declare_fails_the_load() {
         [
             ColumnName::parse("amount_cents").expect("a column is a name"),
             ColumnName::parse("order_date").expect("a column is a name"),
-        ]
-        .into_iter()
-        .collect(),
+        ],
         Description::parse("Net revenue orders.").expect("a description is a description"),
     );
     let metric = Metric::new(

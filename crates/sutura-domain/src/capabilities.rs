@@ -34,9 +34,11 @@ use crate::knowledge::{Capability, Knowledge, KnowledgeCapabilities};
 /// A closed set, for the reason [`crate::knowledge::Capability`] is one: the alternative is a string,
 /// and a provider that declared `"metrics "` would silently declare nothing at all.
 ///
-/// **Nine kinds, and the test for whether one belongs here is whether a real source can be missing it
-/// on its own:** a metadata service can have tables and no metrics, metrics and no definitional
-/// filters, joins whose cardinality it does not vouch for, and dimensions with no reviewed value list.
+/// **Eleven kinds, and the test for whether one belongs here is whether a real source can be missing
+/// it on its own:** a metadata service can have tables and no metrics, metrics and no definitional
+/// filters, joins whose cardinality it does not vouch for, dimensions with no reviewed value list,
+/// and - the two most recent - columns with no declared type and columns with no per-column prose,
+/// independently of whether it describes the model itself.
 ///
 /// **`Grains` is the exception and it is stated rather than smoothed over.**
 /// [`Definitions::assemble`] refuses a metric declaring no grain as `NoGrains`, so a bundle cannot
@@ -75,6 +77,11 @@ pub enum DefinitionKind {
     AllowedValues,
     /// The number a metric produced when it was certified.
     Anchors,
+    /// A column's data type, as a source's own dictionary spells it.
+    ColumnTypes,
+    /// Prose about one column - kept apart from [`Self::Descriptions`] because a source can carry
+    /// model, metric or dimension prose with no column prose, or the reverse.
+    ColumnDescriptions,
 }
 
 // `DefinitionKind::every` is seeded with `Structure`, and this is what makes that a derived fact
@@ -110,7 +117,9 @@ impl DefinitionKind {
             Self::RequiredFilters => Some(Self::Grains),
             Self::Grains => Some(Self::AllowedValues),
             Self::AllowedValues => Some(Self::Anchors),
-            Self::Anchors => None,
+            Self::Anchors => Some(Self::ColumnTypes),
+            Self::ColumnTypes => Some(Self::ColumnDescriptions),
+            Self::ColumnDescriptions => None,
         }
     }
 
@@ -134,6 +143,8 @@ impl DefinitionKind {
             Self::Grains => Some(Self::RequiredFilters),
             Self::AllowedValues => Some(Self::Grains),
             Self::Anchors => Some(Self::AllowedValues),
+            Self::ColumnTypes => Some(Self::Anchors),
+            Self::ColumnDescriptions => Some(Self::ColumnTypes),
         }
     }
 
@@ -158,6 +169,8 @@ impl DefinitionKind {
             Self::Grains => "grains",
             Self::AllowedValues => "allowed values",
             Self::Anchors => "anchors",
+            Self::ColumnTypes => "column types",
+            Self::ColumnDescriptions => "column descriptions",
         }
     }
 }
@@ -451,7 +464,7 @@ impl MetadataCapabilities {
     /// [`Self::checked_against`] catch a bundle whose own declaration and content disagree rather
     /// than comparing one claim against a copy of itself.
     ///
-    /// Two of the nine definition kinds are read through their consequence rather than their field,
+    /// Two of the eleven definition kinds are read through their consequence rather than their field,
     /// and both are worth stating because a reader will otherwise look for the field:
     ///
     /// - **`Cardinality`** is observed as *some dimension is reached through a relationship*. Every
@@ -547,12 +560,19 @@ fn carried(definitions: &Definitions, kind: DefinitionKind) -> bool {
         DefinitionKind::Grains => definitions.metrics().values().any(|metric| !metric.grains().is_empty()),
         DefinitionKind::AllowedValues => dimensions(definitions).any(|dimension| dimension.allowed_values().is_some()),
         DefinitionKind::Anchors => definitions.metrics().values().any(|metric| metric.anchor().is_some()),
+        DefinitionKind::ColumnTypes => model_columns(definitions).any(|column| column.data_type().is_some()),
+        DefinitionKind::ColumnDescriptions => model_columns(definitions).any(|column| !column.description().is_empty()),
     }
 }
 
 /// Every dimension of every metric.
 fn dimensions(definitions: &Definitions) -> impl Iterator<Item = &crate::catalog::Dimension> {
     definitions.metrics().values().flat_map(|metric| metric.dimensions().values())
+}
+
+/// Every column of every model.
+fn model_columns(definitions: &Definitions) -> impl Iterator<Item = &crate::catalog::Column> {
+    definitions.models().values().flat_map(crate::catalog::Model::columns)
 }
 
 /// Is there prose anywhere in these definitions?

@@ -19,8 +19,8 @@ use std::collections::BTreeSet;
 
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::catalog::{
-    Anchor, AnchorValue, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidDimensionValue, InvalidViaChain,
-    Metric, Model, Relationship, ViaChain,
+    Anchor, AnchorValue, Column, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidDescription,
+    InvalidDimensionValue, InvalidViaChain, Metric, Model, Relationship, ViaChain,
 };
 use sutura_domain::expression::{AuthoredSql, Computation, InvalidComputation};
 use sutura_domain::measure::{Measure, RequiredFilter};
@@ -151,6 +151,72 @@ impl AnchorLiteral {
     }
 }
 
+/// One entry of a model's `columns:` list: a bare name, or a name with a type, a description and
+/// whether it may hold null.
+///
+/// **Untagged, the same shape [`AnchorLiteral`] uses and for the same reason: every document
+/// already on disk writes the short form, so it must keep loading byte for byte.** A document
+/// writes the long form only for a column it has something more to say about; the two may mix
+/// freely in one list. The same cost `AnchorLiteral`'s own doc states applies here too: a
+/// misspelled key inside the long form is refused, but `untagged` cannot say which variant a
+/// mapping was attempting or which key was wrong - the message names neither.
+///
+/// **`type` and `description` are read as bare text, not as [`ColumnType`](sutura_domain::catalog::ColumnType)/[`Description`]
+/// directly, and that is deliberate.** `serde(try_from)` has no escape hatch: a `ColumnType` that
+/// failed to parse would refuse the WHOLE document, for text nothing renders - the same defect
+/// found in review over `DataHub`'s HTTP reader, and [`ColumnType`](sutura_domain::catalog::ColumnType)'s own doc argues why a type
+/// this crate cannot represent should be dropped instead. Reading the raw text here and converting
+/// through [`Column::from_metadata`] in [`Self::into_domain`] is what gives this format the same
+/// "a type is dropped, a description still refuses" rule every other catalog adapter now has.
+///
+/// **What this does not check: two entries naming one column.** [`Model::new`] collects columns
+/// into a map keyed by name, so a repeated name keeps whichever entry was last in the list rather
+/// than refusing - the same silent collapse a `BTreeSet<ColumnName>` already gave every identical
+/// bare-name repeat before this type existed. Two long-form entries that repeat a name with
+/// DIFFERENT metadata are now representable and not caught: unlike [`super::MetricDoc`]'s
+/// dimensions, which the domain refuses a duplicate of, a model's columns are not checked for one
+/// here or in [`sutura_domain::catalog::Definitions::assemble`]. Stated as a limit rather than
+/// silently accepted.
+#[derive(Debug, serde::Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum ColumnEntryDoc {
+    Short(ColumnName),
+    Long {
+        name: ColumnName,
+        #[serde(default)]
+        r#type: Option<String>,
+        #[serde(default)]
+        description: Option<String>,
+        #[serde(default)]
+        nullable: Option<bool>,
+    },
+}
+
+impl ColumnEntryDoc {
+    /// The column's own name, either form.
+    const fn name(&self) -> &ColumnName {
+        match self {
+            Self::Short(name) | Self::Long { name, .. } => name,
+        }
+    }
+
+    /// # Errors
+    ///
+    /// [`InvalidDescription`], if the long form's `description:` is present and not usable. A
+    /// `type:` that is not usable is dropped rather than refused - see this type's own doc.
+    fn into_domain(self) -> Result<Column, InvalidDescription> {
+        match self {
+            Self::Short(name) => Ok(Column::from(name)),
+            Self::Long {
+                name,
+                r#type,
+                description,
+                nullable,
+            } => Column::from_metadata(name, r#type.as_deref(), description.as_deref(), nullable),
+        }
+    }
+}
+
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelDoc {
@@ -171,12 +237,46 @@ pub struct ModelDoc {
     /// parsed names rather than a string with dots in it, is
     /// `sutura_domain::model::qualified`.
     table: QualifiedTable,
-    columns: BTreeSet<ColumnName>,
+    columns: Vec<ColumnEntryDoc>,
+    /// Which of `columns` the model's own primary key names - evidence only, per
+    /// [`sutura_domain::catalog::Model::with_primary_key`]'s own doc.
+    #[serde(default)]
+    primary_key: BTreeSet<ColumnName>,
+}
+
+/// Why a model document could not become a domain [`Model`].
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum InvalidModelDocument {
+    /// One column's own `description:` is not usable prose.
+    #[error("column {column}'s description is not usable")]
+    ColumnDescription {
+        column: ColumnName,
+        #[source]
+        cause: InvalidDescription,
+    },
+    /// The model's own `primary_key:` names a column it does not declare.
+    ///
+    /// Transparent and boxed, for the reason [`InvalidMetricDocument::Inconsistent`] gives: the
+    /// domain's own message already names the model and the column, and the box is what keeps
+    /// `LocalCatalogError` under `clippy::result_large_err`'s threshold.
+    #[error(transparent)]
+    PrimaryKey(Box<InconsistentDefinitions>),
 }
 
 impl ModelDoc {
-    pub fn into_domain(self, description: Description) -> Model {
-        Model::new(self.name, self.source, self.table, self.columns, description)
+    pub fn into_domain(self, description: Description) -> Result<Model, InvalidModelDocument> {
+        let mut columns = Vec::with_capacity(self.columns.len());
+        for entry in self.columns {
+            let name = entry.name().clone();
+            columns.push(
+                entry
+                    .into_domain()
+                    .map_err(|cause| InvalidModelDocument::ColumnDescription { column: name, cause })?,
+            );
+        }
+        Model::new(self.name, self.source, self.table, columns, description)
+            .with_primary_key(self.primary_key)
+            .map_err(|cause| InvalidModelDocument::PrimaryKey(Box::new(cause)))
     }
 }
 

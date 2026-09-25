@@ -128,6 +128,16 @@ provide. Its value is the same as any catalog a deployment already vends - it tu
 OKF-described tables into something `load` can pin and validate - even though the metric layer has to
 be authored elsewhere.
 
+## Update, 2026-09-24 (issue #966)
+
+Three of the properties this record named as "accepted only to refuse faithfully" now surface: a
+field's `type` and its own `description` map into `sutura_domain::catalog::Column`, and a
+descriptor's `primaryKey` maps into `Model::with_primary_key` - evidence only, per that
+constructor's own doc, and licensing no join. `format`, `constraints` and `rdfType` remain
+unsurfaced for the same reasons this record already gives. The mapping table above and the
+"what it also is not" column are otherwise unchanged: a column's type is still a data type and
+still not a measure.
+
 ## Limits, stated
 
 Written read-only, against the published Table Schema specification (version 1, updated 2021-10-05)

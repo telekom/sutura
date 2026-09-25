@@ -8,18 +8,46 @@ models:
     source: local
     table: public.customers
     columns:
+      customer_id:
+        name: customer_id
+        data_type: bigint
+        description: ""
+        nullable: ~
+      segment:
+        name: segment
+        data_type: ~
+        description: ""
+        nullable: ~
+    primary_key:
       - customer_id
-      - segment
     description: Customer reference data.
   orders:
     name: orders
     source: local
     table: public.orders
     columns:
-      - amount_cents
-      - customer_id
+      amount_cents:
+        name: amount_cents
+        data_type: integer
+        description: "The order total, in minor units."
+        nullable: ~
+      customer_id:
+        name: customer_id
+        data_type: ~
+        description: ""
+        nullable: ~
+      order_id:
+        name: order_id
+        data_type: bigint
+        description: ""
+        nullable: ~
+      status:
+        name: status
+        data_type: ~
+        description: ""
+        nullable: ~
+    primary_key:
       - order_id
-      - status
     description: Orders placed by customers. One row per order.
 relationships:
   orders_customer_fk__0877fc1bfb1427b4:

@@ -8,9 +8,9 @@
 use std::collections::BTreeSet;
 
 use super::{
-    Audience, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidViaChain,
-    MAX_DEFINITIONS_BYTES, MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL,
-    ViaChain,
+    Audience, Column, ColumnType, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidViaChain,
+    MAX_COLUMN_TYPE_CHARS, MAX_DEFINITIONS_BYTES, MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship,
+    TIME_BUCKET_LABEL, ViaChain,
 };
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{
@@ -48,7 +48,7 @@ fn model(name: &str, source: &str, columns: &[&str]) -> Model {
         model_name(name),
         SourceName::parse(source).expect("a test source is a source"),
         TableName::parse(name).expect("a test table is a table"),
-        columns.iter().map(|c| column(c)).collect::<BTreeSet<_>>(),
+        columns.iter().map(|c| column(c)),
         Description::default(),
     )
 }
@@ -63,7 +63,7 @@ fn model_over(name: &str, source: &str, table_path: &str, columns: &[&str]) -> M
         model_name(name),
         SourceName::parse(source).expect("a test source is a source"),
         QualifiedTable::parse(table_path).expect("a test table path is a path"),
-        columns.iter().map(|c| column(c)).collect::<BTreeSet<_>>(),
+        columns.iter().map(|c| column(c)),
         Description::default(),
     )
 }
@@ -804,6 +804,7 @@ fn a_dimension_naming_a_column_the_joined_model_does_not_have_is_refused() {
 }
 
 mod chain;
+mod column_metadata;
 
 #[test]
 fn a_dimension_with_an_allowlist_permits_only_what_it_lists() {

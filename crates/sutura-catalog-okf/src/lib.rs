@@ -49,7 +49,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Definitions, Description, InconsistentDefinitions, InvalidDescription, Model};
+use sutura_domain::catalog::{Column, Definitions, Description, InconsistentDefinitions, InvalidDescription, Model};
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use sutura_domain::model::{ColumnName, ModelName, SourceName, TableName};
@@ -182,21 +182,43 @@ impl OkfCatalog {
             path: path.to_path_buf(),
             cause,
         })?;
-        // Columns with a duplicate `name` are refused, not silently deduplicated: `BTreeSet` would
+        // Columns with a duplicate `name` are refused, not silently deduplicated: a column map would
         // swallow the second one, and a column set that shrinks between reads is a digest that lies.
         let mut columns = Vec::with_capacity(descriptor.fields.len());
         let mut seen = BTreeSet::new();
         for field in descriptor.fields {
-            let column = ColumnName::parse(field.name.as_str()).map_err(|cause| OkfCatalogError::InvalidColumn {
+            let column_name = ColumnName::parse(field.name.as_str()).map_err(|cause| OkfCatalogError::InvalidColumn {
                 path: path.to_path_buf(),
                 cause,
             })?;
-            if !seen.insert(column.clone()) {
+            if !seen.insert(column_name.clone()) {
                 return Err(OkfCatalogError::DuplicateColumn {
                     path: path.to_path_buf(),
-                    column,
+                    column: column_name,
                 });
             }
+            // `type` is the field's logical data type (`string`, `integer`, `number`, …) - descriptive
+            // text quoted into `Column::data_type`, never a measure. A type this adapter cannot
+            // represent is dropped rather than refused - `Column::from_metadata`'s own doc.
+            //
+            // `description`, falling back to `title` the same way the model's own does - a field may
+            // carry either or neither, and this adapter has no third source of column prose.
+            let field_description = field
+                .description
+                .or(field.title)
+                .map(|text| text.trim().to_owned())
+                .filter(|text| !text.is_empty());
+            let column = Column::from_metadata(
+                column_name.clone(),
+                field.r#type.as_deref(),
+                field_description.as_deref(),
+                None,
+            )
+            .map_err(|cause| OkfCatalogError::InvalidColumnDescription {
+                path: path.to_path_buf(),
+                column: column_name.clone(),
+                cause,
+            })?;
             columns.push(column);
         }
         // A model without a title or description would make the declared `Descriptions` unproduced,
@@ -213,13 +235,17 @@ impl OkfCatalog {
             path: path.to_path_buf(),
             cause,
         })?;
-        Ok(Model::new(
-            name,
-            self.name.clone(),
-            table,
-            columns.into_iter().collect(),
-            description,
-        ))
+        let model = Model::new(name, self.name.clone(), table, columns, description);
+        // `primaryKey` is a Table Schema field or field list; evidence only, per `Model::with_primary_key`'s
+        // own doc - it licenses no join and nothing here re-derives a cardinality from it.
+        let primary_key =
+            primary_key_columns(descriptor.primary_key.as_ref()).map_err(|cause| OkfCatalogError::InvalidPrimaryKey {
+                path: path.to_path_buf(),
+                cause,
+            })?;
+        model
+            .with_primary_key(primary_key)
+            .map_err(|cause| OkfCatalogError::Inconsistent { cause })
     }
     /// Reads every descriptor and assembles the bundle.
     ///
@@ -372,6 +398,19 @@ pub enum OkfCatalogError {
         #[source]
         cause: InvalidDescription,
     },
+    #[error("the description of column {column} in {path} is not usable")]
+    InvalidColumnDescription {
+        path: PathBuf,
+        column: ColumnName,
+        #[source]
+        cause: InvalidDescription,
+    },
+    #[error("the primaryKey of {path} is not a column name or a list of them")]
+    InvalidPrimaryKey {
+        path: PathBuf,
+        #[source]
+        cause: InvalidPrimaryKeyShape,
+    },
     #[error("the catalog does not hold together")]
     Inconsistent {
         #[source]
@@ -422,10 +461,9 @@ pub enum OkfCatalogError {
 ///
 /// `deny_unknown_fields` at this depth and within each field is the fidelity that a Table Schema
 /// document which carries a key the adapter does not read still fails the load rather than vanishing.
-/// The properties the adapter does not use - `primaryKey`, `foreignKeys`, `constraints`, the field
-/// `type`/`format` - are accepted as part of the published vocabulary and deliberately not surfaced:
-/// they are value-level or structural facts that licence neither a measure nor a join in this model
-/// (`docs/what-okf-can-carry.md`).
+/// `primaryKey` is now evidence on the model (`Model::with_primary_key`); `foreignKeys`,
+/// `constraints`, `format` and `rdfType` remain accepted and unsurfaced - structural or value-level
+/// facts that licence neither a measure nor a join (`docs/what-okf-can-carry.md`).
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct TableSchema {
@@ -435,19 +473,18 @@ struct TableSchema {
     description: Option<String>,
     #[expect(
         dead_code,
-        reason = "part of the accepted OKF vocabulary, read only to accept and refuse faithfully; the adapter deliberately does not surface missing-value or key declarations as definitions"
+        reason = "part of the accepted OKF vocabulary, read only to accept and refuse faithfully; the adapter deliberately does not surface a missing-value declaration as a definition"
     )]
     #[serde(default)]
     missing_values: Vec<String>,
-    #[expect(
-        dead_code,
-        reason = "see `missing_values` - a key declaration is not a measure or a join here"
-    )]
+    /// A field or field list uniquely identifying each row - primary-key evidence only, per
+    /// `Model::with_primary_key`'s own doc. Not a `foreignKeys`-style structural fact: it says
+    /// nothing about a join and licenses none.
     #[serde(default)]
     primary_key: Option<serde_norway::Value>,
     #[expect(
         dead_code,
-        reason = "see `missing_values` - a foreign key declares no cardinality and so licences no relationship (`docs/what-okf-can-carry.md`)"
+        reason = "a foreign key declares no cardinality and so licences no relationship (`docs/what-okf-can-carry.md`)"
     )]
     #[serde(default)]
     foreign_keys: Vec<serde_norway::Value>,
@@ -458,43 +495,64 @@ struct TableSchema {
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Field {
-    name: String,
-    #[expect(
-        dead_code,
-        reason = "a field's own prose is accepted but not surfaced - the model's one description comes from the descriptor's own `title`/`description`"
-    )]
+    /// Human-readable, and the fallback for `description` - same precedence as the model's own.
     #[serde(default)]
     title: Option<String>,
-    #[expect(dead_code, reason = "see `title`")]
-    #[serde(default)]
     description: Option<String>,
-    #[expect(dead_code, reason = "see `title`")]
+    #[expect(dead_code, reason = "a sample value, not prose or structure")]
     #[serde(default)]
     example: Option<String>,
-    #[expect(
-        dead_code,
-        reason = "a column type is a data type, not a measure (`docs/what-okf-can-carry.md`)"
-    )]
+    name: String,
+    /// The logical data type (`string`, `integer`, `number`, …) - descriptive text quoted into
+    /// `Column::data_type`, never a measure (`docs/what-okf-can-carry.md`).
     #[serde(rename = "type", default)]
     r#type: Option<String>,
-    #[expect(
-        dead_code,
-        reason = "see `type` - a format is a physical representation hint, not a semantic predicate"
-    )]
+    #[expect(dead_code, reason = "a format is a physical representation hint, not a semantic predicate")]
     #[serde(default)]
     format: Option<String>,
     #[expect(
         dead_code,
-        reason = "see `type` - constraints are value validation over the data file, not definitional filters"
+        reason = "constraints are value validation over the data file, not definitional filters"
     )]
     #[serde(default)]
     constraints: Option<serde_norway::Value>,
-    #[expect(
-        dead_code,
-        reason = "see `type` - an rdf type annotates a column, it does not define a measure"
-    )]
+    #[expect(dead_code, reason = "an rdf type annotates a column, it does not define a measure")]
     #[serde(default)]
     rdf_type: Option<String>,
+}
+
+/// Why a `primaryKey` value could not be read as a column name or a list of them.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum InvalidPrimaryKeyShape {
+    /// Neither a YAML string nor a sequence of strings - the two shapes the Table Schema
+    /// specification allows.
+    #[error("primaryKey must be a string or a list of strings")]
+    NotAStringOrList,
+    #[error("a primaryKey entry is not a usable column name: {cause}")]
+    Column {
+        #[source]
+        cause: sutura_domain::model::InvalidIdentifier,
+    },
+}
+
+/// Reads a Table Schema `primaryKey` - absent, a bare string, or a list of strings - into the
+/// column names it names.
+fn primary_key_columns(raw: Option<&serde_norway::Value>) -> Result<Vec<ColumnName>, InvalidPrimaryKeyShape> {
+    let Some(raw) = raw else {
+        return Ok(Vec::new());
+    };
+    let names: Vec<&str> = match raw {
+        serde_norway::Value::String(name) => vec![name.as_str()],
+        serde_norway::Value::Sequence(entries) => entries
+            .iter()
+            .map(|entry| entry.as_str().ok_or(InvalidPrimaryKeyShape::NotAStringOrList))
+            .collect::<Result<_, _>>()?,
+        _ => return Err(InvalidPrimaryKeyShape::NotAStringOrList),
+    };
+    names
+        .into_iter()
+        .map(|name| ColumnName::parse(name).map_err(|cause| InvalidPrimaryKeyShape::Column { cause }))
+        .collect()
 }
 
 impl SemanticCatalog for OkfCatalog {
@@ -506,9 +564,13 @@ impl SemanticCatalog for OkfCatalog {
         // Exactly what this adapter produces and nothing more: the physical model (with, per model,
         // a non-empty description) and the descriptions. Everything else is a deliberate, declared
         // absence - the metric, the required filter, the grain, the allowlist, the anchor, the
-        // relationship, and the referent-bearing knowledge.
+        // relationship, and the referent-bearing knowledge. `ColumnTypes` and `ColumnDescriptions`
+        // are declared-and-empty may-provide: a Table Schema field's `type` and `description` are
+        // both `#[serde(default)]`, so whether a given descriptor carries either is the author's
+        // choice per field rather than a structural guarantee this adapter can vouch for.
         MetadataCapabilities::of(
-            DefinitionCapabilities::of([DefinitionKind::Structure, DefinitionKind::Descriptions]),
+            DefinitionCapabilities::of([DefinitionKind::Structure, DefinitionKind::Descriptions])
+                .and_may_provide([DefinitionKind::ColumnTypes, DefinitionKind::ColumnDescriptions]),
             KnowledgeCapabilities::none(),
         )
     }

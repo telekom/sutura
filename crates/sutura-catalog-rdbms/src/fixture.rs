@@ -14,7 +14,8 @@ use sutura_domain::model::SourceName;
 use sutura_domain::pinned::DefinitionVersion;
 
 use crate::{
-    Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, SingleColumnTargetUniqueness, Table, TableAddress,
+    ColumnMetadata, Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, SingleColumnTargetUniqueness, Table,
+    TableAddress,
 };
 
 fn public(table: &str) -> TableAddress {
@@ -46,13 +47,26 @@ pub fn corpus() -> Dictionary {
                     "status".to_owned(),
                 ],
                 Some("Orders placed by customers. One row per order.".to_owned()),
-            ),
+            )
+            .with_column_metadata([
+                ("order_id".to_owned(), ColumnMetadata::new(Some("bigint".to_owned()), None)),
+                (
+                    "amount_cents".to_owned(),
+                    ColumnMetadata::new(
+                        Some("integer".to_owned()),
+                        Some("The order total, in minor units.".to_owned()),
+                    ),
+                ),
+            ])
+            .with_primary_key(vec!["order_id".to_owned()]),
             Table::new(
                 "customers".to_owned(),
                 public("customers"),
                 vec!["customer_id".to_owned(), "segment".to_owned()],
                 Some("Customer reference data.".to_owned()),
-            ),
+            )
+            .with_column_metadata([("customer_id".to_owned(), ColumnMetadata::new(Some("bigint".to_owned()), None))])
+            .with_primary_key(vec!["customer_id".to_owned()]),
         ],
         vec![Relationship::new(
             Some("orders_customer_fk".to_owned()),
