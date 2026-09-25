@@ -893,7 +893,8 @@ mod tests {
             "a diff with both covering tasks named as seen leaves no gap"
         );
         // A Rust diff is covered when EVERY hook claiming Rust ran, and not before: `one of them
-        // ran` is the sentence this module exists to stop being printed as coverage.
+        // ran` is the sentence this module exists to stop being printed as coverage. Named as
+        // `ran` too: the two no-hook Rust rows #987 added (`check-api-docs`, `check-default-features`).
         let rust = vec![String::from("crates/sutura-domain/src/lib.rs")];
         let all: Vec<String> = super::SURFACES
             .iter()
@@ -903,17 +904,20 @@ mod tests {
             .iter()
             .map(|id| String::from(*id))
             .collect();
+        let ran = [String::from("check-api-docs"), String::from("check-default-features")];
         assert!(
-            super::surface_gaps(&rust, &all, &[]).1.is_empty(),
+            super::surface_gaps(&rust, &all, &ran).1.is_empty(),
             "every hook claiming Rust leaves no gap"
         );
-        // Clippy alone is a gap, and the gap NAMES the four that did not run.
-        let (_, partial) = super::surface_gaps(&rust, &[String::from("rust-clippy")], &[]);
+        // Clippy alone is a gap, and the gap NAMES the four that did not run. `ran` still names
+        // the two no-hook rows, or they would add two gaps this assertion is not about.
+        let (_, partial) = super::surface_gaps(&rust, &[String::from("rust-clippy")], &ran);
         assert_eq!(partial.len(), 1, "{partial:?}");
         assert!(partial.first().is_some_and(|gap| gap.contains("rust-fmt")), "{partial:?}");
         // And with nothing at all, which is the state the measured run on a workflow-only branch
-        // was in for five of its ten hooks.
-        assert_eq!(super::surface_gaps(&rust, &[], &[]).1.len(), 1);
+        // was in for five of its ten hooks - three gaps now, the two no-hook rows added to the one
+        // hooked row's.
+        assert_eq!(super::surface_gaps(&rust, &[], &[]).1.len(), 3);
     }
 
     /// The surface table after a hook rename nobody carried here.
@@ -950,16 +954,8 @@ mod tests {
             super::unknown_hook_ids(&declared()).is_empty(),
             "every real-config hook ID is still declared"
         );
-        // And the two rows that claim nothing are exactly the two the header says there are. The
-        // day a hook covers one of them this assertion is what says the header stopped being true
-        // - which is the direction that matters, because a row claiming a hook that cannot report
-        // a gap is what `github.com/telekom/sutura#402` measured on the second of these.
-        let uncovered: Vec<&str> = super::SURFACES
-            .iter()
-            .filter(|s| s.hooks.is_empty())
-            .map(|s| s.label)
-            .collect();
-        assert_eq!(uncovered, vec!["composite-action shell", "devenv script shell"]);
+        // The exact set of rows that claim nothing is `surfaces::tests::the_uncovered_rows_are_exactly_this_set` -
+        // over there because it is a claim about the TABLE, not about this reader.
         // AND THE RULE ABOVE COVERS BOTH SPELLINGS OF "runs whatever the diff contains" -
         // `always_run: true`, and no `files:`/`types:` filter at all, which prek runs on every
         // diff for the same reason. This tree has one of each, so the derived set is asserted to

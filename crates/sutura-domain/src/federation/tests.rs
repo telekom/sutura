@@ -201,6 +201,7 @@ fn a_conditional_count_descends_and_is_summed_above() {
     // and a count either way - so it descends as written and the combine adds the leg counts.
     let above = descend(&Term::CountIf {
         column: column("churned"),
+        model: None,
     });
     assert_eq!(
         above,
@@ -227,6 +228,7 @@ fn a_ratio_is_decomposed_rather_than_divided_per_leg() {
     let measure = Measure::Ratio {
         numerator: Term::CountIf {
             column: column("churned"),
+            model: None,
         },
         denominator: term(Aggregate::CountDistinct, "subscription_key"),
         zero_denominator: ZeroDenominator::Null,
@@ -287,6 +289,7 @@ fn the_zero_guard_a_definition_asked_for_reaches_the_final_denominator() {
         numerator: term(Aggregate::Sum, "amount_cents"),
         denominator: Term::CountIf {
             column: column("churned"),
+            model: None,
         },
         zero_denominator: ZeroDenominator::Fail,
     };

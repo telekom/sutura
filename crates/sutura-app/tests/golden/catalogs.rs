@@ -98,7 +98,7 @@ where
 ///
 /// A registered catalog is expanded over this too, and for the reference adapter it is not a
 /// formality: `sutura-catalog-local` declares every kind there is, so passing this asserts the
-/// example corpus really carries all thirteen of them. A corpus trimmed to twelve would take a
+/// example corpus really carries all fifteen of them. A corpus trimmed to fourteen would take a
 /// declared capability with it and nothing else in this suite would notice.
 fn provides_exactly_what_it_declares<C>()
 where

@@ -146,7 +146,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::calendar::Date;
-use crate::catalog::{AnchorValue, Description, DimensionValue};
+use crate::catalog::{AnchorValue, ColumnType, Description, DimensionValue};
 use crate::definitions::DefinitionDigest;
 use crate::expression::{DialectTag, SqlFragment};
 use crate::knowledge::{NoteBody, NoteName, Phrase};
@@ -353,7 +353,7 @@ where
 
 /// **The property, asked of every parsed newtype whose serialized form the digest is taken over.**
 ///
-/// One row per type rather than a loop, because the rows are twenty-two different types and Rust has
+/// One row per type rather than a loop, because the rows are twenty-three different types and Rust has
 /// no way to put them in one collection. All **ten** `identifier_newtype!` expansions are here
 /// even though the macro's own note says one implementation cannot drift from itself: the row costs
 /// a line, and with it nothing rests on a reader knowing which types share a parser.
@@ -368,6 +368,7 @@ fn a_parsed_value_serializes_the_way_it_came_and_reparses_unchanged() {
     checked += survives("Description", |raw| Description::parse(raw).ok(), &all);
     checked += survives("DimensionValue", |raw| DimensionValue::parse(raw).ok(), &all);
     checked += survives("AnchorValue", |raw| AnchorValue::parse(raw).ok(), &all);
+    checked += survives("ColumnType", |raw| ColumnType::parse(raw).ok(), &all);
     checked += survives("SqlFragment", |raw| SqlFragment::parse(raw).ok(), &all);
     checked += survives("DialectTag", |raw| DialectTag::parse(raw).ok(), &all);
     checked += survives("ModelName", |raw| ModelName::parse(raw).ok(), &all);
@@ -394,7 +395,7 @@ fn a_parsed_value_serializes_the_way_it_came_and_reparses_unchanged() {
         "the generated space is not the one this test was measured on"
     );
     assert_eq!(
-        checked, 20_154,
+        checked, 23_483,
         "a different number of generated values parsed than this test was measured on, so some parser's accept set moved"
     );
 }
@@ -423,7 +424,10 @@ fn a_term_survives_the_on_disk_shape_it_serializes_into() {
     let terms: Vec<Term> = aggregates
         .into_iter()
         .map(|aggregate| Term::Aggregate(AggregatedColumn::new(aggregate, column.clone())))
-        .chain([Term::CountIf { column: column.clone() }])
+        .chain([Term::CountIf {
+            column: column.clone(),
+            model: None,
+        }])
         .collect();
     assert_eq!(terms.len(), 7, "every term this type can hold is in the table");
 

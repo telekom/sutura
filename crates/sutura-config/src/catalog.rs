@@ -126,6 +126,10 @@ pub struct CatalogSettings {
     /// `catalog.kind: datahub` only - the response-size cap in bytes. `None` means the reader's
     /// own recommended default.
     max_response_bytes: Option<u64>,
+    /// `github.com/telekom/sutura#975` - every kind, not `datahub` alone: how often a composition
+    /// root that DRIVES a refresh re-reads this catalog and re-pins it. `None` means never - the
+    /// state every catalog declared before this key existed is already in.
+    refresh_seconds: Option<u64>,
 }
 
 /// Why a catalog configuration is not usable.
@@ -144,6 +148,11 @@ pub enum InvalidCatalogSettings {
     /// A `catalog.kind: datahub` entry did not declare a field only that kind needs.
     #[error("catalog.{field} is required when catalog.kind is datahub, and is empty or absent")]
     MissingForDatahub { field: &'static str },
+    /// `catalogs[].refresh_seconds: 0` - `github.com/telekom/sutura#975`. Zero re-reads on every
+    /// tick of whatever drives it, which is not a refresh interval; absent is how "never refresh"
+    /// is written.
+    #[error("catalogs.{name}.refresh_seconds is 0 - remove the key for never, or write a positive interval")]
+    ZeroRefresh { name: SourceName },
 }
 
 impl CatalogSettings {
@@ -180,7 +189,26 @@ impl CatalogSettings {
             metric_property: None,
             deadline_seconds: None,
             max_response_bytes: None,
+            refresh_seconds: None,
         })
+    }
+
+    /// Declares how often this catalog is re-read and re-pinned - `#975`. `None` (the default
+    /// every entry written before this key existed is already at) means never; `Some(0)` is
+    /// refused rather than read as "never" or "as fast as possible", so an operator who wrote a
+    /// literal `0` is told rather than silently ignored.
+    pub fn with_refresh_seconds(mut self, refresh_seconds: Option<u64>) -> Result<Self, InvalidCatalogSettings> {
+        if refresh_seconds == Some(0) {
+            return Err(InvalidCatalogSettings::ZeroRefresh { name: self.name });
+        }
+        self.refresh_seconds = refresh_seconds;
+        Ok(self)
+    }
+
+    /// The declared refresh interval, or `None` for never.
+    #[inline]
+    pub const fn refresh_seconds(&self) -> Option<u64> {
+        self.refresh_seconds
     }
 
     /// Adds the three `catalog.kind: datahub`-only fields to an already-parsed entry.
@@ -525,5 +553,34 @@ mod tests {
                 field: "metric_property"
             }
         );
+    }
+
+    /// `#975`: absent means never, a positive value round-trips, and every kind takes it - not
+    /// only `datahub`, unlike the three fields above.
+    #[test]
+    fn a_refresh_interval_defaults_to_never_and_round_trips_on_every_kind() {
+        for kind in [CatalogKind::Markdown, CatalogKind::Datahub, CatalogKind::Okf] {
+            let base = CatalogSettings::parse(
+                name("catalog"),
+                kind,
+                PathBuf::from("/nowhere/catalog"),
+                PathBuf::from("/nowhere/data"),
+                version(),
+            )
+            .expect("a directory and a version are a settings");
+            assert_eq!(base.refresh_seconds(), None, "{kind:?}");
+            let declared = base.with_refresh_seconds(Some(300)).expect("a positive interval is usable");
+            assert_eq!(declared.refresh_seconds(), Some(300), "{kind:?}");
+        }
+    }
+
+    /// A declared `0` is refused rather than read as "never" or "as fast as possible" - the same
+    /// reasoning `ReadBounds::parse` (in `sutura-catalog-datahub`) applies to a zero deadline.
+    #[test]
+    fn a_zero_refresh_interval_is_refused_naming_the_catalog() {
+        let error = settings("catalog")
+            .with_refresh_seconds(Some(0))
+            .expect_err("a zero interval is not an interval");
+        assert_eq!(error, InvalidCatalogSettings::ZeroRefresh { name: name("catalog") });
     }
 }

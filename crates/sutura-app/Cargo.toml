@@ -13,6 +13,11 @@ description = "The service: generic over the ports, holding no framework types."
 sutura-domain = { workspace = true }
 sutura-semantic = { workspace = true }
 thiserror = { workspace = true }
+# The `tracing` FACADE only - no subscriber, no tokio, no new runtime edge. A federated answer's
+# lookup leg runs on a `std::thread::scope` thread, and `Span::current` entered inside that thread
+# is what keeps the leg's logs attributable to the same request in the same trace. Nothing in this
+# crate builds, registers or flushes a subscriber.
+tracing = { workspace = true }
 
 [dev-dependencies]
 # `Asked`'s `compile_fail` doctest needs a crate to try deserializing from - the same house pattern

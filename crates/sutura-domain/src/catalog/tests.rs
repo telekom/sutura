@@ -8,9 +8,9 @@
 use std::collections::BTreeSet;
 
 use super::{
-    Audience, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidViaChain,
-    MAX_DEFINITIONS_BYTES, MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL,
-    ViaChain,
+    Audience, Column, ColumnType, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidViaChain,
+    MAX_COLUMN_TYPE_CHARS, MAX_DEFINITIONS_BYTES, MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship,
+    TIME_BUCKET_LABEL, ViaChain,
 };
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{
@@ -48,7 +48,7 @@ fn model(name: &str, source: &str, columns: &[&str]) -> Model {
         model_name(name),
         SourceName::parse(source).expect("a test source is a source"),
         TableName::parse(name).expect("a test table is a table"),
-        columns.iter().map(|c| column(c)).collect::<BTreeSet<_>>(),
+        columns.iter().map(|c| column(c)),
         Description::default(),
     )
 }
@@ -63,7 +63,7 @@ fn model_over(name: &str, source: &str, table_path: &str, columns: &[&str]) -> M
         model_name(name),
         SourceName::parse(source).expect("a test source is a source"),
         QualifiedTable::parse(table_path).expect("a test table path is a path"),
-        columns.iter().map(|c| column(c)).collect::<BTreeSet<_>>(),
+        columns.iter().map(|c| column(c)),
         Description::default(),
     )
 }
@@ -208,6 +208,107 @@ fn a_metric_naming_a_column_its_model_does_not_have_is_refused() {
             column: column("not_a_column"),
         }
     );
+}
+
+#[test]
+fn a_ratio_term_naming_an_undeclared_model_is_refused() {
+    // `telekom/sutura#780`'s vocabulary: a ratio side can name a model other than the metric's own.
+    // Naming one this catalog never declared is the same class of dangling reference
+    // `UnknownModel` already refuses for the metric's own model, one field further into the measure.
+    let broken = Metric::new(
+        metric_name("revenue"),
+        model_name("orders"),
+        Measure::Ratio {
+            numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+            denominator: Term::Aggregate(AggregatedColumn::on_model(
+                Aggregate::CountDistinct,
+                column("id"),
+                model_name("no_such_model"),
+            )),
+            zero_denominator: crate::measure::ZeroDenominator::Null,
+        },
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        None,
+        Description::default(),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate");
+    assert_eq!(
+        assemble_one(broken).unwrap_err(),
+        InconsistentDefinitions::UnknownTermModel {
+            metric: metric_name("revenue"),
+            model: model_name("no_such_model"),
+        }
+    );
+}
+
+#[test]
+fn a_ratio_term_s_column_is_checked_against_the_model_it_names() {
+    // The other half of the same mechanism: the model exists, but the column the term names is
+    // checked against THAT model rather than against the metric's own - `customers` has no
+    // `amount_cents`, and the metric's own model, `orders`, is irrelevant to this term.
+    let broken = Metric::new(
+        metric_name("revenue"),
+        model_name("orders"),
+        Measure::Ratio {
+            numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+            denominator: Term::Aggregate(AggregatedColumn::on_model(
+                Aggregate::CountDistinct,
+                column("amount_cents"),
+                model_name("customers"),
+            )),
+            zero_denominator: crate::measure::ZeroDenominator::Null,
+        },
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        None,
+        Description::default(),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate");
+    assert_eq!(
+        assemble_one(broken).unwrap_err(),
+        InconsistentDefinitions::UnknownMeasureColumn {
+            metric: metric_name("revenue"),
+            model: model_name("customers"),
+            column: column("amount_cents"),
+        }
+    );
+}
+
+#[test]
+fn a_ratio_term_naming_a_real_model_and_column_assembles() {
+    // The positive control for the two refusals above: a term naming a model this catalog declares,
+    // and a column that model actually has, holds together. The vocabulary is not a refusal that
+    // always fires - it is a reference this check proves rather than assumes.
+    let held = Metric::new(
+        metric_name("revenue_per_customer"),
+        model_name("orders"),
+        Measure::Ratio {
+            numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+            denominator: Term::Aggregate(AggregatedColumn::on_model(
+                Aggregate::CountDistinct,
+                column("id"),
+                model_name("customers"),
+            )),
+            zero_denominator: crate::measure::ZeroDenominator::Null,
+        },
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        None,
+        Description::default(),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate");
+    let definitions = assemble_one(held).expect("a real model and a real column on it hold together");
+    assert!(definitions.metric(&metric_name("revenue_per_customer")).is_some());
 }
 
 #[test]
@@ -703,6 +804,7 @@ fn a_dimension_naming_a_column_the_joined_model_does_not_have_is_refused() {
 }
 
 mod chain;
+mod column_metadata;
 
 #[test]
 fn a_dimension_with_an_allowlist_permits_only_what_it_lists() {

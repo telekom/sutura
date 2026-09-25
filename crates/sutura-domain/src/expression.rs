@@ -840,6 +840,7 @@ mod tests {
         // metric already had - which is what keeps every existing definition digest where it is.
         let measure = Measure::Simple(Term::CountIf {
             column: ColumnName::parse("churned_in_month").expect("a test column is a column"),
+            model: None,
         });
         let direct = serde_json::to_string(&measure).expect("a measure serializes");
         let wrapped = serde_json::to_string(&Computation::Measure(measure)).expect("a computation serializes");

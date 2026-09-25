@@ -49,6 +49,10 @@
 use std::path::Path;
 
 use super::reach::Closure;
+// #980 review: `classify`'s `deps_closure` area reads this SAME list, so a job may skip
+// building `.#deps` only when none of these moved - "is the key naming every input" and "did
+// an input move" sharing one list is what stops the two silently disagreeing.
+use crate::changes::DEPS_CLOSURE_INPUTS as KEY_INPUTS;
 
 // IS THE RECORDED ABSENCE STILL ABSENT? A different question from this file's - nothing there
 // counts, gates or anchors a cache write - and its own file because the unexemptable 1000-line cap
@@ -57,6 +61,11 @@ use super::reach::Closure;
 /// The writer-EFFECTIVENESS rule for the daemon-mode cache publisher (issue #560): a
 /// `cachix/cachix-action` step whose job realises nothing after it publishes nothing. Its own file
 /// for the same 1000-line reason.
+/// EXACTLY-ONE-INSTALLER-PER-EVENT (#980): a different question again - `judge` above holds a
+/// writer's own gate, this holds whether a SIBLING installer in the same job can already run for
+/// the event a writer's own gate admits. Its own file for the same 1000-line reason the other two
+/// siblings split off.
+mod installers;
 mod realise;
 mod retired;
 
@@ -109,29 +118,6 @@ const STORE_ACTION: &str = "./.github/actions/nix-store-cache";
 /// does, this list is the thing to change, with the input named beside it.
 const NO_RESTORE_ONLY: [&str; 1] = ["DeterminateSystems/magic-nix-cache-action"];
 
-/// Every input a store-cache `primary-key` must hash, because each one moves a dependency
-/// derivation without moving a lockfile.
-///
-/// **The bug this exists for is under-invalidation, and it was measured rather than reasoned.** The
-/// key was once the lock digest alone, and a `[profile.ci]` change, a `.cargo/config.toml` change
-/// and a crate's `[features]` change each moved the deps derivation while that key stayed
-/// identical. Because `cache-nix-action` SKIPS SAVING on an exact primary-key hit, such an entry
-/// can never acquire the new derivations: it rebuilds them every run, forever, while the job
-/// summary prints a hit - slow, and reported as fast. `github.com/telekom/sutura#512` §3 is the
-/// write-up; the fix shipped in the action and was then held by nothing, which is what this is.
-///
-/// Split by the digest each belongs to only in prose, because the rule is over the whole key: the
-/// first three are the lock generation, the rest are the derivation generation.
-const KEY_INPUTS: [&str; 7] = [
-    "flake.lock",
-    "Cargo.lock",
-    "rust-toolchain.toml",
-    "flake.nix",
-    "nix/**",
-    ".cargo/config.toml",
-    "**/Cargo.toml",
-];
-
 /// Expressions that would move the key on a push that changed no dependency input.
 ///
 /// The OPPOSITE failure from [`KEY_INPUTS`], and the reason both are held here: a key carrying the
@@ -150,6 +136,7 @@ const KEY_CHURN: [&str; 3] = ["github.sha", "github.run_id", "github.run_number"
 pub(super) fn problems(root: &Path, closure: &Closure) -> Vec<String> {
     let files: Vec<(&str, &str)> = closure.inspected().iter().map(|file| (file.label(), file.text())).collect();
     let mut out = judge(&files);
+    out.extend(installers::problems(root));
     out.extend(retired::problems(root));
     out
 }

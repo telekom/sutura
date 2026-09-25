@@ -393,6 +393,42 @@ fn the_digest_a_bundle_carries_is_computed_from_the_definitions_it_holds() {
 }
 
 #[test]
+fn a_column_s_type_or_description_arriving_moves_the_digest() {
+    // `MAX_DEFINITIONS_BYTES` did not bound either field before `Column` existed, and neither
+    // travelled under the digest. Both now do: a source that starts typing or describing its
+    // columns has changed what the bundle carries, and a caller trusting the digest to notice a
+    // catalog edit must see it move.
+    let column = |raw: &str| ColumnName::parse(raw).expect("a test column is a column");
+    let model_with = |data_type: Option<&str>, description: &str| {
+        Model::new(
+            ModelName::parse("orders").expect("a test model is a model"),
+            SourceName::parse("local").expect("a test source is a source"),
+            TableName::parse("orders").expect("a test table is a table"),
+            vec![crate::catalog::Column::new(
+                column("amount_cents"),
+                data_type.map(|raw| crate::catalog::ColumnType::parse(raw).expect("a test column type is a column type")),
+                Description::parse(description).expect("a test description is a description"),
+                None,
+            )],
+            Description::default(),
+        )
+    };
+    let bare = pin(Definitions::assemble(vec![model_with(None, "")], vec![], vec![]).expect("a bare column assembles"));
+    let typed =
+        pin(Definitions::assemble(vec![model_with(Some("NUMERIC"), "")], vec![], vec![]).expect("a typed column assembles"));
+    let described = pin(
+        Definitions::assemble(vec![model_with(None, "the order total, in minor units")], vec![], vec![])
+            .expect("a described column assembles"),
+    );
+    assert_ne!(bare.digest(), typed.digest(), "a column's type arriving must move the digest");
+    assert_ne!(
+        bare.digest(),
+        described.digest(),
+        "a column's description arriving must move the digest"
+    );
+}
+
+#[test]
 fn two_compositions_that_assemble_identically_have_different_digests() {
     // The contribution manifest's own reason for existing, red before green: `docs/adr/0011`
     // measured that the digest used to be taken over the assembly alone, so two different

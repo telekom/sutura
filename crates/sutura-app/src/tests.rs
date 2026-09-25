@@ -51,8 +51,10 @@ fn answer<W, B>(
     warehouses: &Warehouses<W>,
 ) -> super::Answering<W, B, sutura_domain::plan::RefusingCombiner>
 where
-    W: sutura_domain::warehouse::Warehouse,
+    W: sutura_domain::warehouse::Warehouse + Sync,
+    W::Error: Send,
     B: sutura_domain::identity::CredentialBroker,
+    B::Error: Send,
 {
     super::answer(
         definitions,

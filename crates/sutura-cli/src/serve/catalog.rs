@@ -108,7 +108,10 @@ pub(crate) fn load(catalogs: &OpenedCatalogs) -> Result<PinnedDefinitions, Strin
 
 /// One kind's worth of catalogs, loaded and composed - the body `load` used to be, generic now
 /// because it runs over either monomorphic vector [`OpenedCatalogs`] carries.
-fn load_each<C>(catalogs: &[C]) -> Result<PinnedDefinitions, String>
+///
+/// `pub(super)` since `#975`: `serve::refresh::Refresher` re-runs exactly this over a declared
+/// `refresh_seconds` interval, so a re-read composes the SAME way the boot-time one does.
+pub(super) fn load_each<C>(catalogs: &[C]) -> Result<PinnedDefinitions, String>
 where
     C: SemanticCatalog,
 {

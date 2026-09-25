@@ -884,6 +884,17 @@ attestation nobody verifies is a file. The smoke test is the deliverable, not th
 
 ## The CI cost of a prose change
 
+**SUPERSEDED BY #982.** Every "deferred to the `main` push" claim below assumed `ci.yml` skips a
+prose-only PULL REQUEST the way it skips a prose-only PUSH. It does not: `ci.yml`'s own
+`pull_request` trigger carries no path filter at all, so its `Structural gates` step already builds
+the identical `hygiene` derivation, unconditionally, on every pull request - including the
+prose-only ones this section is about. `verify`'s own copy was buying a pull request nothing the
+required `ci` context did not already give it, on the SAME pull request rather than after the
+merge - so the residual table further down misdescribes what was actually deferred, and `verify` no
+longer runs `hygiene` at all now. The measurement immediately below is real and stands; the
+conclusion drawn from it (a conditional skip, replaced by a citation check) is the part #982 found
+wrong.
+
 **Measured before touching anything**, on a real run, because the intuitive answer was wrong:
 
 | Step in the docs workflow's verify job | Time |

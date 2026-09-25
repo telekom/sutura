@@ -3,7 +3,15 @@ kind: model
 name: orders
 source: local
 table: orders
-columns: [ordered_at, order_id, customer_id, amount_cents]
+columns:
+  - ordered_at
+  - order_id
+  - customer_id
+  - name: amount_cents
+    type: NUMERIC
+    description: The order's value, in minor units.
+    nullable: false
+primary_key: [order_id]
 ---
 One row per order, with its value in minor units.
 

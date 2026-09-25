@@ -27,7 +27,7 @@ use crate::{OpenMetadataCatalog, OpenMetadataError, SnapshotReader};
 /// expression-string binding that never becomes a domain `Measure`.
 const CORPUS: &str = r#"{
   "tables": [
-    {"service":"warehouse","name":"orders","columns":["order_id","customer_id","amount_cents","order_date","status"],"description":"Net revenue orders, in minor units."},
+    {"service":"warehouse","name":"orders","columns":["order_id","customer_id","amount_cents","order_date","status"],"description":"Net revenue orders, in minor units.","column_metadata":{"amount_cents":{"data_type":"BIGINT","description":"The order total, in minor units."}},"primary_key":["order_id"]},
     {"service":"warehouse","name":"customers","columns":["customer_id","segment"],"description":"The customer dimension."}
   ],
   "relationships": {

@@ -19,7 +19,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Dimension, MAX_DEFINITIONS_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL};
+use super::{Column, Dimension, MAX_DEFINITIONS_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL};
 use crate::model::{ColumnName, DimensionName, IdentifierCase, MetricName, ModelName, RelationshipName, SourceName, TableName};
 
 /// Everything a catalog said, with its cross-references checked.
@@ -55,6 +55,9 @@ pub enum InconsistentDefinitions {
     DuplicateMetric { metric: MetricName },
     #[error("relationship {relationship} is declared twice")]
     DuplicateRelationship { relationship: RelationshipName },
+    /// A model's primary-key evidence names a column the model does not declare.
+    #[error("model {model} names {column} in its primary key, which it does not declare as a column")]
+    UnknownPrimaryKeyColumn { model: ModelName, column: ColumnName },
     /// One metric declaring the same dimension twice.
     ///
     /// Raised by [`Metric::new`], which is the only place the pair is still visible; that
@@ -63,6 +66,11 @@ pub enum InconsistentDefinitions {
     DuplicateDimension { metric: MetricName, dimension: DimensionName },
     #[error("metric {metric} names model {model}, which is not declared")]
     UnknownModel { metric: MetricName, model: ModelName },
+    /// A ratio term names a model - `telekom/sutura#780`'s vocabulary - that this catalog does not
+    /// declare at all. The same dangling reference [`Self::UnknownModel`] is for the metric's own
+    /// model, one field further into the measure.
+    #[error("metric {metric} measures a term on model {model}, which is not declared")]
+    UnknownTermModel { metric: MetricName, model: ModelName },
     #[error("metric {metric} measures column {column}, which model {model} does not declare")]
     UnknownMeasureColumn {
         metric: MetricName,
@@ -274,6 +282,9 @@ impl Definitions {
                 return Err(InconsistentDefinitions::DuplicateModel { model: existing.name });
             }
         }
+        // No primary-key cross-check here: `Model::with_primary_key` already refused a dangling
+        // key at construction, against the same model's own columns, so every `Model` this map
+        // holds already has one that exists - unrepresentable rather than checked twice.
 
         let mut relationship_map: BTreeMap<RelationshipName, Relationship> = BTreeMap::new();
         for relationship in relationships {
@@ -356,15 +367,24 @@ impl Definitions {
                 metric: metric.name.clone(),
                 model: metric.model.clone(),
             })?;
-        // Every column the measure reads, whichever shape it is. `Measure::columns` is the single
-        // place that knows, so a shape added there cannot be forgotten here - which is the failure
-        // this loop replaces, from when a measure was one column and the check read it directly.
+        // Every term the measure reads, checked against the model THAT TERM names - the metric's own
+        // when a term names none, or a `telekom/sutura#780` ratio side's own model when it does.
+        // `Measure::columns`/`Measure::models` are the two places that know, positionally paired, so
+        // a shape added to either cannot be forgotten here - the failure this loop replaces, from
+        // when a measure was one column and the check read it directly.
         if let Some(measure) = metric.computation.measure() {
-            for column in measure.columns() {
-                if !model.has_column(column) {
+            for (column, term_model) in measure.columns().into_iter().zip(measure.models()) {
+                let owning = match term_model {
+                    None => model,
+                    Some(name) => models.get(name).ok_or_else(|| InconsistentDefinitions::UnknownTermModel {
+                        metric: metric.name.clone(),
+                        model: name.clone(),
+                    })?,
+                };
+                if !owning.has_column(column) {
                     return Err(InconsistentDefinitions::UnknownMeasureColumn {
                         metric: metric.name.clone(),
-                        model: model.name.clone(),
+                        model: owning.name.clone(),
                         column: column.clone(),
                     });
                 }
@@ -613,7 +633,18 @@ impl Definitions {
 /// The authored bytes behind one model beyond its own name: every column it declares, and its
 /// description.
 fn model_bytes(model: &Model) -> usize {
-    sum_bytes(model.columns().iter().map(|column| column.as_str().len())).saturating_add(model.description().len())
+    sum_bytes(model.columns().map(column_bytes)).saturating_add(model.description().len())
+}
+
+/// The authored bytes behind one column: its name, its data type if declared, and its description.
+///
+/// The name counted here too, unchanged from before this type existed - a model with many columns
+/// still adds up, whether or not any of them carries a type or a description.
+fn column_bytes(column: &Column) -> usize {
+    let name = column.name().as_str().len();
+    let data_type = column.data_type().map_or(0, |data_type| data_type.as_str().len());
+    let description = column.description().len();
+    name.saturating_add(data_type).saturating_add(description)
 }
 
 /// The authored bytes behind one relationship beyond its own name: the two columns it joins on.

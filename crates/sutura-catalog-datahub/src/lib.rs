@@ -9,7 +9,7 @@
 //! no definitional filter, no grain, no value allowlist and no anchor. That is the shape of a
 //! **declaring** adapter, and it is measured against its own declaration rather than against the
 //! golden adapters' oracle. **The excluded half is the knowledge kinds, declared empty below** -
-//! every one of the nine [`DefinitionKind`]s is covered, either provided unconditionally or as a
+//! every one of the eleven [`DefinitionKind`]s is covered, either provided unconditionally or as a
 //! declared-and-empty may-provide kind, so there is no definition kind this adapter declares itself
 //! out of.
 //!
@@ -99,7 +99,7 @@ use std::collections::BTreeMap;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Audience, Definitions, Description, InconsistentDefinitions, InvalidDescription, Metric, Model, Relationship,
+    Audience, Column, Definitions, Description, InconsistentDefinitions, InvalidDescription, Metric, Model, Relationship,
 };
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::KnowledgeCapabilities;
@@ -187,6 +187,14 @@ pub enum DataHubError {
     #[error("the description of {on} is not usable")]
     Description {
         on: String,
+        #[source]
+        cause: InvalidDescription,
+    },
+    /// A column's own description did not pass the authored-prose rule.
+    #[error("the description of column {column} on {on} is not usable")]
+    ColumnDescription {
+        on: String,
+        column: ColumnName,
         #[source]
         cause: InvalidDescription,
     },
@@ -296,16 +304,35 @@ impl<R: AspectReader> DataHubCatalog<R> {
             })?;
         let name = Self::identifier(dataset.name(), |raw| ModelName::parse(raw), "model", "a dataset")?;
         let table = Self::identifier(dataset.table(), |raw| TableName::parse(raw), "table", dataset.name())?;
-        let columns = dataset
-            .columns()
-            .iter()
-            .map(|column| Self::identifier(column, |raw| ColumnName::parse(raw), "column", dataset.name()))
-            .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+        let mut columns = Vec::with_capacity(dataset.columns().len());
+        for column in dataset.columns() {
+            let column_name = Self::identifier(column, |raw| ColumnName::parse(raw), "column", dataset.name())?;
+            let metadata = dataset.column_metadata(column);
+            let column = Column::from_metadata(
+                column_name.clone(),
+                metadata.and_then(document::ColumnMetadata::data_type),
+                metadata.and_then(document::ColumnMetadata::description),
+                None,
+            )
+            .map_err(|cause| DataHubError::ColumnDescription {
+                on: dataset.name().to_owned(),
+                column: column_name.clone(),
+                cause,
+            })?;
+            columns.push(column);
+        }
         let description = Description::parse(dataset.description()).map_err(|cause| DataHubError::Description {
             on: dataset.name().to_owned(),
             cause,
         })?;
-        Ok(Model::new(name, source, table, columns, description))
+        let primary_key = dataset
+            .primary_key()
+            .iter()
+            .map(|column| Self::identifier(column, |raw| ColumnName::parse(raw), "column", dataset.name()))
+            .collect::<Result<Vec<_>, _>>()?;
+        Model::new(name, source, table, columns, description)
+            .with_primary_key(primary_key)
+            .map_err(|cause| DataHubError::Inconsistent { cause })
     }
 
     /// One `SemanticModelRelationship` into a [`Relationship`].
@@ -453,9 +480,12 @@ where
 
     /// Provides `Structure`, `Descriptions` and `Relationships` unconditionally, and the kinds that
     /// arrive from the deployment-defined `sutura` structured property
-    /// (`Metrics`, `Grains`, `RequiredFilters`, `AllowedValues`, `Anchors`) **plus `Cardinality`**
-    /// as **declared-and-empty may-provide kinds** - the first use of
-    /// [`DefinitionCapabilities::of_may_provide`]'s 0011 *declared-and-empty* state.
+    /// (`Metrics`, `Grains`, `RequiredFilters`, `AllowedValues`, `Anchors`) **plus `Cardinality`,
+    /// `ColumnTypes` and `ColumnDescriptions`** as **declared-and-empty may-provide kinds** - the
+    /// first use of [`DefinitionCapabilities::of_may_provide`]'s 0011 *declared-and-empty* state.
+    /// `ColumnTypes`/`ColumnDescriptions` belong here rather than beside the unconditional half
+    /// because `schemaMetadata.fields[].nativeDataType`/`.description` are both per-field optional -
+    /// a deployment's own schema evolution, not this adapter's decision.
     ///
     /// That distinction is the whole of this declaration, and it is why a metric-free `DataHub`
     /// deployment stays servable: whether a bundle carries any of the may-provide kinds is the
@@ -488,6 +518,8 @@ where
                 DefinitionKind::RequiredFilters,
                 DefinitionKind::AllowedValues,
                 DefinitionKind::Anchors,
+                DefinitionKind::ColumnTypes,
+                DefinitionKind::ColumnDescriptions,
             ]),
             KnowledgeCapabilities::none(),
         )

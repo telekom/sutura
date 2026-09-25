@@ -248,6 +248,15 @@ const TOP_OVER_UNCERTIFIED_ROWS: Guide = Guide {
              this deployment can raise it.",
 };
 
+const CROSS_MODEL_RATIO_NOT_EXECUTABLE: Guide = Guide {
+    reason: "cross_model_ratio_not_executable",
+    meaning: "the metric measures a ratio whose two sides read from two different fact models, and \
+              this deployment does not yet build the second fact leg such a term needs",
+    remedy: "Nothing you can change in the question. Report it to the person you are acting for: \
+             it is a fact about how the metric is defined and what this deployment can execute, \
+             not something a narrower question works around.",
+};
+
 /// Every refusal a caller can be given, in the order the prompt lists them.
 ///
 /// Ordered so the ones an agent can act on come first and the two it cannot come last, because a
@@ -294,6 +303,10 @@ pub(super) const GUIDES: &[&Guide] = &[
     // reaching it has already read that a refusal about the plan's shape is not one to retry
     // unchanged.
     &PLAN_TABLES_SHARE_AN_IDENTIFIER,
+    // With the plan-shape family above it, for the same reason: the move is not to narrow anything,
+    // it is to ask a different metric, and an agent reaching it has already read that a refusal
+    // about the plan's shape is not one to retry unchanged.
+    &CROSS_MODEL_RATIO_NOT_EXECUTABLE,
     &SOURCE_UNAVAILABLE,
     &SOURCE_REFUSED,
     &CREDENTIAL_UNAVAILABLE,
@@ -334,6 +347,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::DeadlineExceeded { .. } => &DEADLINE_EXCEEDED,
         RefusalReason::BudgetExhausted { .. } => &BUDGET_EXHAUSTED,
         RefusalReason::TopOverUncertifiedRows { .. } => &TOP_OVER_UNCERTIFIED_ROWS,
+        RefusalReason::CrossModelRatioNotExecutable { .. } => &CROSS_MODEL_RATIO_NOT_EXECUTABLE,
     }
 }
 

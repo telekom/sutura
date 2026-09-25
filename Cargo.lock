@@ -4271,6 +4271,7 @@ dependencies = [
  "sutura-semantic",
  "sutura-sql",
  "thiserror 2.0.20",
+ "tracing",
 ]
 
 [[package]]

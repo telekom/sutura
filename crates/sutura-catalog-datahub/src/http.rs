@@ -768,6 +768,31 @@ fn harvest_dataset(entity: &Value) -> Result<DatasetAspect, HttpReaderError> {
                 })
         })
         .collect::<Result<Vec<String>, _>>()?;
+    // `nativeDataType`/`description` are both per-field optional - a field carrying neither
+    // contributes no entry, which is what makes `column_metadata` empty rather than aspirational
+    // for a schema nobody has annotated at the column level.
+    let mut column_metadata = serde_json::Map::new();
+    let mut primary_key = Vec::new();
+    for field in fields {
+        let Some(path) = field.get("fieldPath").and_then(Value::as_str) else {
+            continue;
+        };
+        let data_type = field.get("nativeDataType").and_then(Value::as_str);
+        let field_description = field.get("description").and_then(Value::as_str);
+        if data_type.is_some() || field_description.is_some() {
+            let mut entry = serde_json::Map::new();
+            if let Some(data_type) = data_type {
+                drop(entry.insert(String::from("data_type"), Value::String(data_type.to_owned())));
+            }
+            if let Some(field_description) = field_description {
+                drop(entry.insert(String::from("description"), Value::String(field_description.to_owned())));
+            }
+            drop(column_metadata.insert(path.to_owned(), Value::Object(entry)));
+        }
+        if field.get("isPartOfKey").and_then(Value::as_bool) == Some(true) {
+            primary_key.push(Value::String(path.to_owned()));
+        }
+    }
     // Absent prose is an empty description rather than a refusal: `datasetProperties` may be absent
     // on a dataset nobody has annotated, and this adapter's own `Description::parse` accepts empty.
     let description = entity
@@ -783,6 +808,8 @@ fn harvest_dataset(entity: &Value) -> Result<DatasetAspect, HttpReaderError> {
     drop(document.insert(String::from("platform"), Value::String(platform)));
     drop(document.insert(String::from("columns"), Value::from(columns)));
     drop(document.insert(String::from("description"), Value::String(description)));
+    drop(document.insert(String::from("column_metadata"), Value::Object(column_metadata)));
+    drop(document.insert(String::from("primary_key"), Value::Array(primary_key)));
     serde_json::from_value(Value::Object(document))
         .map_err(|cause| HttpReaderError::NotTheCanonicalShape { entity: ENTITY, cause })
 }

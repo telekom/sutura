@@ -537,6 +537,11 @@ pub(crate) struct RawCatalog {
     /// for the same reason `deadline_seconds` above does not name it here.
     #[serde(default)]
     pub(crate) max_response_bytes: Option<u64>,
+    /// Every kind, not `datahub` alone - `github.com/telekom/sutura#975`. Absent means never
+    /// re-read; a declared `0` is refused by `CatalogSettings::with_refresh_seconds` rather than
+    /// read as either "never" or "every tick".
+    #[serde(default)]
+    pub(crate) refresh_seconds: Option<u64>,
 }
 
 /// The default spelling of [`crate::catalog::CatalogKind::Markdown`], for `#[serde(default)]`.

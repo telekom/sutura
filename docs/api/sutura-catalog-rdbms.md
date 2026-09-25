@@ -55,11 +55,31 @@ Three findings, and two of them are the declaration's content:
    relationship. The variant records what the reader found; this converter does not re-derive
    it from the constraint itself.
 
+**Update, 2026-09-24 (#966).** The measurement above counted TABLE comments; a real dictionary's
+`information_schema.columns` / `pg_catalog` COULD also supply a `data_type` per column, a
+per-COLUMN comment through `col_description`, and its own primary/unique key - a real reader
+could read all three the same way it reads the rest of the dictionary, and none of it existed
+at this port before this issue. `Table` now CAN carry a type and a comment per column, as
+`ColumnMetadata` attached with `Table::with_column_metadata`, and a key as
+`Table::with_primary_key` - both additive rather than `Table::new` parameters, so every
+existing reader and every test fixture here keeps compiling. Neither licenses anything a
+cardinality or a measure would: a type is descriptive text
+(`sutura_domain::catalog::ColumnType`) and a primary key is evidence
+(`sutura_domain::catalog::Model::with_primary_key`).
+
+**What this update does NOT do: read any of it from a real database.** The only
+`DictionaryReader` this crate has is `fixture::FixtureReader`, serving a recorded corpus -
+see "What is built here, and what is NOT" below, unchanged by this update. The fixture now
+carries a type, a comment and a key for two columns, so the conversion, the declaration and the
+byte accounting are exercised the same way the rest of this adapter always has been - against a
+recording, not a socket.
+
 # The declaration, and what it means for the bundle
 
-`SemanticCatalog::capabilities` provides `Structure` and may provide `Descriptions` and
-`Relationships`. A sparse dictionary - structure with no comments or foreign keys - is therefore
-faithful without making structure optional. What is declared is nothing more: no `Cardinality`
+`SemanticCatalog::capabilities` provides `Structure` and may provide `Descriptions`,
+`Relationships`, `ColumnTypes` and `ColumnDescriptions`. A sparse dictionary - structure with no
+comments, foreign keys, column types or column comments - is therefore faithful without making
+structure optional. What is declared is nothing more: no `Cardinality`
 (a foreign key vouches for no metric fan-out), no `Metrics`, no
 `Grains`, no `RequiredFilters`, no `AllowedValues`, no `Anchors`, and an empty knowledge half.
 A bundle from this source therefore **loads, pins and validates with zero metrics**, and answers
@@ -126,6 +146,7 @@ a reader back to all of them.
 - `ColumnName` - A column's name did not parse.
 - `RelationshipName` - A foreign key's name did not parse.
 - `Description` - A table description did not pass the authored-prose rule.
+- `ColumnDescription` - A column comment did not pass the authored-prose rule.
 - `TargetUniquenessUnknown` - The referenced column had no single-column primary or unique-key evidence.
 - `Inconsistent` - The assembled definitions did not hold together.
 - `Digest` - Pinning failed.
@@ -205,6 +226,44 @@ The table's own name.
 
 `Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
 
+## `struct ColumnMetadata`
+
+```rust
+pub struct ColumnMetadata
+```
+
+What a dictionary's own `information_schema`/catalog view says about one column beyond its
+name: its declared data type, and a column comment if a human wrote one.
+
+A separate type from the domain's `sutura_domain::catalog::Column` rather than that type
+itself, because this crate's own identifiers are still bare dictionary strings at this point -
+the same reason `Table`'s own fields are `String` rather than `sutura_domain::model::ColumnName`.
+`RdbmsCatalog::convert_model` is where the parse happens for all of them together.
+
+**`datahub::document` and `openmetadata::document` declare the identical two fields, and stay
+separate on purpose.** Each is that adapter's own reading of a wire shape this crate has no
+business depending on - one adapter importing another's type crosses the boundary
+`sutura-catalog-*` crates are not supposed to cross, for a coincidence of shape between three
+sources whose actual dictionaries have no reason to keep matching.
+
+### Methods
+
+```rust
+pub fn data_type(&self) -> Option<&str>
+```
+
+```rust
+pub fn description(&self) -> Option<&str>
+```
+
+```rust
+pub const fn new(data_type: Option<String>, description: Option<String>) -> Self
+```
+
+### Implements
+
+`Clone`, `Debug`, `Default`, `Eq`, `PartialEq`
+
 ## `struct Table`
 
 ```rust
@@ -213,6 +272,10 @@ pub struct Table
 
 One semantic model, the physical table it selects, and the prose written against it.
 
+`column_metadata` and `primary_key` are both additive - see `Self::with_column_metadata` and
+`Self::with_primary_key` - rather than `Self::new` parameters, so a reader that has neither
+(or a test fixture built before either existed) keeps compiling unchanged.
+
 ### Methods
 
 ```rust
@@ -220,6 +283,12 @@ pub const fn address(&self) -> &TableAddress
 ```
 
 The physical table address, as the dictionary spells each part.
+
+```rust
+pub fn column_metadata(&self, column: &str) -> Option<&ColumnMetadata>
+```
+
+One column's type/comment evidence, by the dictionary's own spelling of its name.
 
 ```rust
 pub fn columns(&self) -> &[String]
@@ -244,6 +313,39 @@ pub const fn new(model: String, address: TableAddress, columns: Vec<String>, des
 ```
 
 A semantic model over a physical table.
+
+```rust
+pub fn primary_key(&self) -> &[String]
+```
+
+Which columns the dictionary's own constraint names as this table's primary key.
+
+```rust
+pub fn with_column_metadata(self, metadata: impl IntoIterator<Item>) -> Self
+```
+
+Attaches per-column type and comment evidence, keyed by the dictionary's own column spelling.
+
+A column named here that is not in `Self::columns` is dropped rather than refused: the
+conversion reads metadata only for a column it is already about to declare, and a stray key
+says nothing this crate's error vocabulary is set up to report against a table.
+
+```rust
+pub fn with_primary_key(self, primary_key: Vec<String>) -> Self
+```
+
+Declares which of this table's columns the dictionary's own primary or unique-key constraint
+names - evidence only, the same as `sutura_domain::catalog::Model::with_primary_key`, which
+is where this arrives once converted.
+
+**Uncorrelated with `SingleColumnTargetUniqueness`, and that is stated rather than
+reconciled.** A `Relationship`'s target-uniqueness evidence licenses one specific foreign
+key's `ManyToOne` direction; this evidence describes the table's OWN key, independent of
+whether anything references it. Nothing here checks the two against each other - a column
+this method names could be the primary key, a unique key that is not the primary one, or
+(a reader's bug) neither, and this type cannot tell which from the name alone. A reader is
+the only thing that could keep them consistent, because only a reader sees the dictionary's
+own labelling of which constraint is which.
 
 ### Implements
 

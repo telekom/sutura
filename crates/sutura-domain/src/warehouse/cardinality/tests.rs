@@ -1,7 +1,5 @@
 //! What the probe's vocabulary claims, held against itself.
 
-use std::collections::BTreeSet;
-
 use super::{
     CountsNotRead, DISTINCT_LABEL, DeclaredKey, ImpossibleCounts, KeyCounts, KeyNotUnique, KeyUniqueness, NoDeclaredKey,
     ROWS_LABEL,
@@ -23,7 +21,7 @@ fn model(name: &str, columns: &[&str]) -> Model {
         model_name(name),
         SourceName::parse("local").expect("a test source is a source"),
         TableName::parse(name).expect("a test table is a table"),
-        columns.iter().map(|c| column(c)).collect::<BTreeSet<_>>(),
+        columns.iter().map(|c| column(c)),
         Description::default(),
     )
 }

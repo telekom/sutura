@@ -66,9 +66,9 @@ not touch the query path.
 
 **And an adapter behind it says what it can supply, because the absence is the part that matters.**
 `SemanticCatalog::capabilities` is required with no default: an adapter that omitted it would not
-compile. It names which of nine definition kinds - structure, descriptions, relationships, a join's
-cardinality, metrics, definitional filters, grains, value allowlists, anchors - and which of the four
-knowledge kinds this source can carry at all. An empty collection is two different facts: a reviewed
+compile. It names which of eleven definition kinds - structure, descriptions, relationships, a
+join's cardinality, metrics, definitional filters, grains, value allowlists, anchors, a column's
+type, a column's description - and which of the four knowledge kinds this source can carry at all. An empty collection is two different facts: a reviewed
 catalogue that has not certified a metric yet, and a source that holds a measure this runtime will
 not execute. `sutura-catalog-local` declares every kind, a statement about the format rather than
 about the directory it read; a source that supplies part of the model declares the part, and its

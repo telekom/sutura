@@ -225,6 +225,7 @@ pub async fn serve_stdio<S>(
     admission: sutura_runtime::Admission,
     reply: sutura_config::RequestTimeout,
     instructions: std::sync::Arc<str>,
+    operator_instructions: Option<std::sync::Arc<str>>,
 ) -> Result<(), NotServed>
 where
     S: Surface,
@@ -237,6 +238,7 @@ where
             admission,
             reply,
             instructions,
+            operator_instructions,
         ),
         rmcp::transport::stdio(),
     )
