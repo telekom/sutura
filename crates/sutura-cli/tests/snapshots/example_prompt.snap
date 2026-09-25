@@ -122,10 +122,10 @@ Every reason you can be given, and what to do about each:
   Nothing you can change by re-asking, and do not retry it as if it were an outage: this is not a
   data system being down. Ask the same metric without the dimension on the second data system, or
   report it to a person.
-- **federation_link_ambiguous** - the question's dimensions on the second data system join the
-  metric through more than one relationship, and the two legs link on a single column.
-  Nothing you can change about the question. Report it to a person: it is a fact about how the
-  metric is defined.
+- **federation_link_ambiguous** - a remote dimension joins through more than one relationship.
+  Nothing you can change. Report it: it is a fact about how the metric is defined.
+- **federation_link_compound** - the crossing relationship declares more than one join key.
+  Nothing you can change. Report it: it is a fact about how the relationship is defined.
 - **measure_does_not_federate** - across two data systems this measure cannot be computed and
   recombined - its aggregate (a distinct count) is not additive the way a sum or an average is.
   Nothing you can change about the question. Ask the same metric without the dimension that sits on

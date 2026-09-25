@@ -116,6 +116,13 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
             "the dimensions on `{source}` join through more than one relationship, and the two \
              legs link on a single column"
         ),
+        RefusalReason::FederationLinkCompound {
+            ref source,
+            ref relationship,
+        } => format!(
+            "the relationship `{relationship}` crossing into `{source}` declares more than one join \
+             key, and the two legs link on a single column"
+        ),
         RefusalReason::MeasureDoesNotFederate { ref metric, aggregate } => format!(
             "`{metric}` cannot be computed across two data systems because its {aggregate} \
              aggregate is not additive; ask it without the dimension that sits on the second \
@@ -265,6 +272,11 @@ mod tests {
             RefusalReason::FederationNotExecutable,
             RefusalReason::FederationLinkAmbiguous {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
+            },
+            RefusalReason::FederationLinkCompound {
+                source: SourceName::parse("warehouse").expect("a test source is a source"),
+                relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
+                    .expect("a test relationship is a relationship"),
             },
             RefusalReason::MeasureDoesNotFederate {
                 metric: metric(),

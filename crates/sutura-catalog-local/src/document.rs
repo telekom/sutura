@@ -296,6 +296,7 @@ pub struct EndpointDoc {
 /// equality. A compound join declares a `keys:` list, each entry `{ origin, target }` or
 /// `{ origin, grain, target }` - the origin column, truncated to `grain` for a truncated key.
 #[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JoinKeyDoc {
     origin: ColumnName,
     /// The grain an origin is truncated to. Absent means a plain equality.
