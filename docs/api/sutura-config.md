@@ -1523,6 +1523,12 @@ disappears between reading the configuration and loading the catalog would make 
 existence check here a claim that goes stale immediately. The load is what fails.
 
 ```rust
+pub const fn refresh_seconds(&self) -> Option<u64>
+```
+
+The declared refresh interval, or `None` for never.
+
+```rust
 pub fn token_file(&self) -> Option<&Path>
 ```
 
@@ -1558,6 +1564,15 @@ caller - every markdown entry, every test that builds one - is unaffected by a k
 binary in this repository could open until issue #202's reader arrived. `parse_catalogs`
 calls this only when `kind` parsed as `CatalogKind::Datahub`.
 
+```rust
+pub fn with_refresh_seconds(self, refresh_seconds: Option<u64>) -> Result<Self, InvalidCatalogSettings>
+```
+
+Declares how often this catalog is re-read and re-pinned - `#975`. `None` (the default
+every entry written before this key existed is already at) means never; `Some(0)` is
+refused rather than read as "never" or "as fast as possible", so an operator who wrote a
+literal `0` is told rather than silently ignored.
+
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
@@ -1576,6 +1591,7 @@ Why a catalog configuration is not usable.
 - `EmptyCatalog` - No catalog was declared, so there is nothing to serve.
 - `DuplicateName` - Two catalogs share one declared name, so the contribution manifest could not tell them apart.
 - `MissingForDatahub` - A `catalog.kind: datahub` entry did not declare a field only that kind needs.
+- `ZeroRefresh` - `catalogs[].refresh_seconds: 0` - `github.com/telekom/sutura#975`. Zero re-reads on every tick of whatever drives it, which is not a refresh interval; absent is how "never refresh" is written.
 
 #### Implements
 
