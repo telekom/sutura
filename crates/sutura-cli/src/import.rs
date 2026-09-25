@@ -32,7 +32,7 @@ fn run(args: &[String]) -> Result<(), String> {
     let destination = arg(args, 2, "out-dir", usage)?;
     match kind.as_str() {
         "wren" => {
-            let summary = wren::import(Path::new(&source), Path::new(&destination))?;
+            let summary = wren::import(Path::new(&source), Path::new(&destination)).map_err(|e| e.to_string())?;
             println!(
                 "mapped {} models, {} relationships, {} metrics into {destination}",
                 summary.models, summary.relationships, summary.metrics

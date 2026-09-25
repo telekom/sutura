@@ -149,13 +149,11 @@ fn qualified(text: &str) -> Option<Side> {
 /// `condition` read as a plain equality between two declared columns - the one shape
 /// [`sutura_domain::catalog::Relationship`]'s own module header licenses, over the escape hatch a
 /// free condition string is: `a.x = b.y OR 1 = 1` is a valid wren condition and is refused here
-/// because a second `=` anywhere makes this `None`, not because the disjunction is parsed and
-/// rejected.
+/// because everything after the first `=` must be exactly one `model.column` - [`qualified`]'s
+/// bare-identifier check sees `y OR 1 = 1` as no column name. Nothing parses or rejects the
+/// disjunction itself.
 pub(crate) fn equi_join(condition: &str) -> Option<(Side, Side)> {
     let (left, right) = condition.split_once('=')?;
-    if right.contains('=') {
-        return None;
-    }
     Some((qualified(left)?, qualified(right)?))
 }
 

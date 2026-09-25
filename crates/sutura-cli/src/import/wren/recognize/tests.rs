@@ -65,8 +65,8 @@ fn an_equi_join_is_recognised_and_a_wider_condition_is_refused() {
     assert_eq!(right.model, "customers");
     assert_eq!(right.column, "id");
 
-    // The escape hatch `sutura_domain::catalog::Relationship`'s own header names: a second `=`
-    // anywhere refuses the whole condition rather than being parsed and rejected.
+    // The escape hatch `sutura_domain::catalog::Relationship`'s own header names: the text after
+    // the first `=` is not one `model.column`, so the whole condition is refused.
     assert!(equi_join("orders.customer_id = customers.id OR 1 = 1").is_none());
     assert!(equi_join("orders.customer_id").is_none());
 }

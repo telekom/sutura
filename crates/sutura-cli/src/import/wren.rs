@@ -13,8 +13,8 @@ mod recognize;
 mod render;
 mod wire;
 
-use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 /// What ran, for the two lines the command prints.
 pub(crate) struct Summary {
@@ -24,18 +24,53 @@ pub(crate) struct Summary {
     pub(crate) refusals: usize,
 }
 
+/// Why an import wrote nothing, or stopped part-way through writing.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ImportError {
+    #[error("could not read {}: {source}", path.display())]
+    Read { path: PathBuf, source: io::Error },
+    #[error("{} is not a wren MDL manifest: {source}", path.display())]
+    NotAManifest { path: PathBuf, source: serde_json::Error },
+    /// `<out>` already holds files. Refused rather than written into, because a document an
+    /// earlier run wrote and this manifest no longer produces would sit beside the new output as if
+    /// this run had converted it - and deleting the operator's files is not this command's call.
+    #[error("{} is not empty - import into a new or empty directory", .0.display())]
+    DestinationNotEmpty(PathBuf),
+    #[error("could not write {}: {source}", path.display())]
+    Write { path: PathBuf, source: io::Error },
+}
+
 /// Converts the wren project at `source` into markdown catalog documents and a refusal report
-/// under `destination`.
+/// under `destination`, which must be absent or empty.
 ///
 /// # Errors
 ///
 /// If `<source>/manifest.json` cannot be read or is not a wren manifest this converter's [`wire`]
-/// module can parse, or if `destination` cannot be written to.
-pub(crate) fn import(source: &Path, destination: &Path) -> Result<Summary, String> {
+/// module can parse, if `destination` already holds a file, or if it cannot be written to.
+pub(crate) fn import(source: &Path, destination: &Path) -> Result<Summary, ImportError> {
     let manifest_path = source.join("manifest.json");
-    let text = fs::read_to_string(&manifest_path).map_err(|e| format!("could not read {}: {e}", manifest_path.display()))?;
-    let manifest: wire::Manifest =
-        serde_json::from_str(&text).map_err(|e| format!("{} is not a wren MDL manifest: {e}", manifest_path.display()))?;
+    let text = fs::read_to_string(&manifest_path).map_err(|source| ImportError::Read {
+        path: manifest_path.clone(),
+        source,
+    })?;
+    let manifest: wire::Manifest = serde_json::from_str(&text).map_err(|source| ImportError::NotAManifest {
+        path: manifest_path.clone(),
+        source,
+    })?;
+    match fs::read_dir(destination) {
+        Ok(mut entries) => {
+            if entries.next().is_some() {
+                return Err(ImportError::DestinationNotEmpty(destination.to_owned()));
+            }
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(source) => {
+            return Err(ImportError::Read {
+                path: destination.to_owned(),
+                source,
+            });
+        }
+    }
     let converted = convert::convert(&manifest);
 
     for model in &converted.models {
@@ -67,11 +102,14 @@ pub(crate) fn import(source: &Path, destination: &Path) -> Result<Summary, Strin
 /// The subdirectory is a convenience for a person browsing the output - `sutura-catalog-local`
 /// dispatches on each document's own `kind:` tag and walks every `.md` file regardless of which
 /// directory holds it, exactly as `document.rs`'s own header states.
-fn write_document(destination: &Path, subdirectory: &str, name: &str, text: &str) -> Result<(), String> {
+fn write_document(destination: &Path, subdirectory: &str, name: &str, text: &str) -> Result<(), ImportError> {
     let dir = destination.join(subdirectory);
-    fs::create_dir_all(&dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    fs::create_dir_all(&dir).map_err(|source| ImportError::Write {
+        path: dir.clone(),
+        source,
+    })?;
     let path = dir.join(format!("{name}.md"));
-    fs::write(&path, text).map_err(|e| format!("could not write {}: {e}", path.display()))
+    fs::write(&path, text).map_err(|source| ImportError::Write { path, source })
 }
 
 /// Writes the refusal report as `<destination>/report.txt`.
@@ -79,8 +117,11 @@ fn write_document(destination: &Path, subdirectory: &str, name: &str, text: &str
 /// `.txt`, not `.md`: `sutura-catalog-local`'s walk loads every `.md` file as a catalog document,
 /// and a report has no `kind:` tag to be one - naming it `.md` would make the converted catalog
 /// fail to load over its own report.
-fn write_report(destination: &Path, converted: &convert::Converted) -> Result<(), String> {
-    fs::create_dir_all(destination).map_err(|e| format!("could not create {}: {e}", destination.display()))?;
+fn write_report(destination: &Path, converted: &convert::Converted) -> Result<(), ImportError> {
+    fs::create_dir_all(destination).map_err(|source| ImportError::Write {
+        path: destination.to_owned(),
+        source,
+    })?;
     let path = destination.join("report.txt");
-    fs::write(&path, render::report(converted)).map_err(|e| format!("could not write {}: {e}", path.display()))
+    fs::write(&path, render::report(converted)).map_err(|source| ImportError::Write { path, source })
 }

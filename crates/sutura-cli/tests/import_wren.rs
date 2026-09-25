@@ -68,6 +68,42 @@ mod tests {
         }
     }
 
+    /// A second run into a directory an earlier run filled would leave that run's documents beside
+    /// this one's, so a non-empty `<out>` is refused before anything is written - and nothing the
+    /// operator already had there is touched.
+    #[test]
+    fn a_non_empty_out_dir_is_refused_by_name_and_left_untouched() {
+        let out_dir = scratch_out_dir();
+        let stale = out_dir.join("models/stale_model.md");
+        fs::create_dir_all(stale.parent().expect("a file under models/ has a parent")).expect("the scratch dir is writable");
+        fs::write(&stale, "an earlier run's document\n").expect("the scratch dir is writable");
+
+        let output = Command::new(env!("CARGO_BIN_EXE_sutura"))
+            .arg("import")
+            .arg("wren")
+            .arg(fixture_root())
+            .arg(&out_dir)
+            .output()
+            .expect("the sutura binary runs");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let listed = files_sorted(&out_dir);
+        drop(fs::remove_dir_all(&out_dir));
+
+        assert!(
+            !output.status.success(),
+            "a non-empty out dir was written into\nstderr: {stderr}"
+        );
+        assert!(
+            stderr.contains(&format!("{} is not empty", out_dir.display())),
+            "the refusal must name the directory: {stderr}"
+        );
+        assert_eq!(
+            listed,
+            vec![stale],
+            "nothing may be written beside, or instead of, what was there"
+        );
+    }
+
     #[test]
     fn the_synthetic_fixture_converts_to_a_golden_snapshot_and_the_result_loads_and_answers() {
         let out_dir = scratch_out_dir();
