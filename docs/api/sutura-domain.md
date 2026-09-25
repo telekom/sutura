@@ -5105,10 +5105,12 @@ A list that cannot be empty, because the constructor that would produce one does
 **Unrepresentable over checked**, the same argument `secure-by-design` makes for the rest of this
 crate's newtypes: a `Vec` that a caller happens to always check for emptiness is a rule enforced
 by discipline at every read site, and a set with no elements is a valid `Vec` that means nothing
-for a caller who asked for one or more metrics, or one or more values to filter on. `NonEmpty`
-makes the empty case not exist rather than exist and be refused - there is no `Default`, no
-`new()`, and `NonEmpty::parse` is the only fallible entry point, returning `EmptySet` for the
-one thing that can go wrong.
+for a caller who asked for one or more of something. `NonEmpty` makes the empty case not exist
+rather than exist and be refused - there is no `Default`, no `new()`, and `NonEmpty::parse` is
+the only fallible entry point, returning `EmptySet` for the one thing that can go wrong.
+
+A relationship's ordered set of join keys is non-empty by construction this way, mirroring the
+catalog's `JoinKeys`; so is the plan's `PlanJoinKey` list it becomes.
 
 ### `struct NonEmpty`
 
@@ -5151,8 +5153,7 @@ pub fn map<U>(&self, f: impl FnMut(&T) -> U) -> NonEmpty<U>
 
 Every element transformed, infallibly: a `NonEmpty` mapped one-to-one is still a
 `NonEmpty`, with no `EmptySet` to check and no `expect`/`unwrap` for a caller who has
-one of these and needs another shape of it - `crate::plan`'s bind-order indices, built
-from a resolved filter's `NonEmpty` of values, is why this exists.
+one of these and needs another shape of it.
 
 ```rust
 pub const fn of(head: T, tail: Vec<T>) -> Self
@@ -6327,13 +6328,13 @@ pub const fn join_type(&self) -> JoinType
 ```
 
 ```rust
-pub fn keys(&self) -> &[PlanJoinKey]
+pub const fn keys(&self) -> &crate::nonempty::NonEmpty<PlanJoinKey>
 ```
 
-The keys this join links on, each qualified by the tables it reads.
+The keys this join links on, each qualified by the tables it reads. Never empty.
 
 ```rust
-pub fn new(relationship: RelationshipName, table: impl Into<QualifiedTable>, join_type: JoinType, keys: Vec<PlanJoinKey>) -> Self
+pub fn new(relationship: RelationshipName, table: impl Into<QualifiedTable>, join_type: JoinType, keys: crate::nonempty::NonEmpty<PlanJoinKey>) -> Self
 ```
 
 One join to a table, wherever that table lives.
@@ -6344,6 +6345,12 @@ what a multi-project estate looks like, and it is one statement, one job and one
 a native join the data system pushes down, not a second source. `sutura_semantic::plan` says
 so where a source count decides between one statement, a split and
 `PlanSpansTooManySources`.
+
+**A join with no keys cannot be built**, and that is what makes `keys` a `NonEmpty` rather
+than a `Vec` the renderers have to fail closed on: every key contributes one `=` term, so an
+empty list would be a `JOIN ... ON` with no predicate - a shape that cannot be minted here.
+The catalog's `JoinKeys` is non-empty by the same construction, so the plan's list, derived
+from it, can never be empty either.
 
 `impl Into<QualifiedTable>` for the reason `Model::new` gives.
 
@@ -6581,8 +6588,6 @@ renderer and no executor. `crate::plan::bindings` carries the argument and the l
 - `Before` - `column < param`, the exclusive end.
 - `Equals`
 - `NotEquals`
-- `In` - `column IN (param, param, ..)` - one or more values, `github.com/telekom/sutura#968`. `crate::nonempty::NonEmpty` rather than a plain `Vec`: an empty `IN ()` is either a syntax error or, rendered as `NOT IN ()`, a silently vanished filter (fail-open), and a producer cannot reach this variant with zero placeholders to fill.
-- `NotIn` - `column NOT IN (param, param, ..)` - `Self::In`'s negation, same reason for `NonEmpty`.
 - `IsTrue`
 - `IsNotNull`
 
@@ -6595,9 +6600,6 @@ pub const fn column(&self) -> &PlanColumn
 ```rust
 pub const fn param(&self) -> Option<usize>
 ```
-
-The one parameter a single-valued predicate binds. `None` for `In`/`NotIn` too - see
-`Self::bound_params` for the shape that covers every variant.
 
 #### Implements
 
@@ -9563,6 +9565,63 @@ cannot.
 
 Widening this is a governance change. `AGENTS.md` says which mechanism has to still hold.
 
+### `struct Filter`
+
+```rust
+pub struct Filter
+```
+
+One equality filter: a dimension, and a value the pinned bundle declares.
+
+The value is a `DimensionValue` here and a bind parameter by the time it reaches a statement. It
+is checked against the metric's allowlist first, so the parameterisation is the second line of
+defence rather than the only one.
+
+# Why a caller's value is parsed by the type a catalog author's value is parsed by
+
+It was a `String`, and the review that gave `DimensionValue` to the catalog side asked whether the
+request side wanted it too. It does, for four reasons, and the last one is the decisive one:
+
+* **It refuses nothing a request could have been answered.** The two are compared for equality
+  against the metric's allowlist, and every entry in that allowlist is a `DimensionValue`. Text
+  that cannot be one cannot be in there, so parsing here turns a `DimensionValueNotAllowed`
+  refusal into a `400` naming the field and loses no answerable question.
+* **The precedent is already here and is older than this type.** A caller's `metric` and
+  `dimension` arrive as text and are parsed by `MetricName` and `DimensionName` - the same
+  types the catalog loader uses, at the same boundary, by the same constructor. A value being the
+  one field held to a laxer rule was the asymmetry, not the fix.
+* **It bounds what a request may carry before anything allocates it.** A ten-megabyte filter value
+  used to be compared against the allowlist and refused, having been read, cloned into
+  `Query::literals` and rendered into whatever an audit sink keeps.
+* **A second character rule is a rule nothing compares against the first.** `crate::text` exists
+  because one such rule was written down twice and the copies drifted. A request-side value type
+  with its own idea of what a value may hold would be that mistake, deliberately, in a place where
+  one side of the comparison is content and the other is a caller.
+
+**What does NOT follow is that a refusal may name the text.** `sutura_http::wire` parses the value
+and reports `filters[i].value` without the parse error underneath it, because
+`InvalidDimensionValue` carries the offending input and
+`RefusalReason`'s own rule is that caller-supplied text is never reflected into a message that
+reaches a log, a UI and an agent's context.
+
+#### Methods
+
+```rust
+pub const fn dimension(&self) -> &DimensionName
+```
+
+```rust
+pub const fn new(dimension: DimensionName, value: DimensionValue) -> Self
+```
+
+```rust
+pub const fn value(&self) -> &DimensionValue
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
 ### `struct Query`
 
 ```rust
@@ -9604,31 +9663,13 @@ first time a field is added.
 pub const fn metric(&self) -> &MetricName
 ```
 
-The first metric named - the whole of `Self::metrics` for a single-metric question, and
-what a caller who has not yet widened for multiple metrics reads.
-
 ```rust
-pub const fn metrics(&self) -> &MetricNames
-```
-
-Every metric this question asks about, in the order the caller listed them. At least one:
-see `MetricNames`.
-
-```rust
-pub const fn new(metrics: MetricNames, grain: Grain, range: TimeRange, dimensions: Vec<DimensionName>, filters: Vec<Filter>) -> Self
+pub const fn new(metric: MetricName, grain: Grain, range: TimeRange, dimensions: Vec<DimensionName>, filters: Vec<Filter>) -> Self
 ```
 
 ```rust
 pub const fn range(&self) -> TimeRange
 ```
-
-```rust
-pub const fn single(metric: MetricName, grain: Grain, range: TimeRange, dimensions: Vec<DimensionName>, filters: Vec<Filter>) -> Self
-```
-
-One metric, the shape every question asked before `github.com/telekom/sutura#968`. A
-convenience over `Self::new` for the overwhelmingly common case, so a caller asking about
-one metric writes one name rather than building a one-element `MetricNames`.
 
 ```rust
 pub const fn top(&self) -> Option<Top>
@@ -9676,23 +9717,6 @@ somebody else's input.
 #### Variants
 
 - `MetricUnknown` - No metric of that name is in the pinned bundle.
-- `MetricsSpanDifferentModels` - A question named more than one metric, and two of them do not declare the same model or the same time column.
-
-  **A mixed-model set is unrepresentable as one grouped statement.** Two metrics over two
-  physical tables have no shared `FROM`, and two metrics on one table but two different time
-  columns would group by an ambiguous bucket - `sutura_semantic::resolve` compares every
-  metric named against the first, so the pair reported is always the first metric and the
-  first one that disagreed with it, never a third-party guess at which is "wrong".
-- `MultiMetricNotExecutable` - A question named more than one metric, and every one of them resolved: same model, time column, grain and dimensions.
-
-  **The boundary this build has not moved past yet.** `sutura_semantic::resolve` validates a
-  whole `crate::query::MetricNames` set exactly as it validates one - every metric's grain,
-  every requested dimension against every metric, every filter value against every metric's
-  own allowlist - but the plan stage does not yet decompose more than one metric into one
-  statement's select list, so a fully valid multi-metric question is refused here rather than
-  answered under a shape nothing has certified. `requested` is the count, a number this
-  deployment computed and safe to log - not any of the metric names, which the two refusals
-  above already report where they are the reason.
 - `GrainNotSupported` - The metric exists and does not declare that grain. Not a narrower question: a grain the author did not render is a number nobody certified.
 - `DimensionNotPermitted` - The metric does not declare that dimension. A dimension a metric did not declare is a name that does not resolve, not a filter to apply anyway.
 - `DimensionNotFilterable` - The dimension exists but declares no value allowlist, so it can be grouped by and not filtered.
@@ -10072,23 +10096,6 @@ The refusal reason, if this is one. Convenience for tests and for an audit sink.
 
 `Clone`, `Debug`, `PartialEq`, `Serialize`
 
-### `use Filter`
-
-One clause of a question's filter: a dimension, and what it must - or must not - equal.
-
-**Every value is still a parsed `DimensionValue` from the same allowlist an equality filter is
-checked against.** `In`/`NotIn` do not open a second, laxer path for a caller's text: each value
-in the set is checked against the metric's declared allowlist exactly as `Self::Eq`'s single
-value is, and an unlisted member of the set is
-`RefusalReason::DimensionValueNotAllowed` - the
-same refusal, reused, because a set's member and a single equality's value are the same kind of
-thing to the allowlist that checks them.
-
-**No comparison operator reaches this type**, deliberately: there is no `Gt`, `Lt` or `Like`
-variant, and none is planned. A comparison against free text is exactly the shape a certified
-number cannot come from - the allowlist is what makes a filter value bounded and enumerable, and
-a range or a pattern match has no allowlist to check against.
-
 ### `use InvalidResponseByteLimit`
 
 Why a response byte ceiling is not one.
@@ -10154,12 +10161,6 @@ Which way `TopBy` ranks.
 
 A positive row count. Zero asks for nothing, which is not what a caller who wrote `top` meant.
 
-### `type_alias MetricNames`
-
-One or more certified metric names a question asks about together - see
-`github.com/telekom/sutura#968` for the shape and `crate::nonempty::NonEmpty` for why the
-invariant is the type rather than a check.
-
 ### `constant MAX_DIMENSIONS`
 
 The most dimensions one question may group by.
@@ -10206,95 +10207,6 @@ bounding the work that produced it: the groups are built, and then the answer is
 refusal is not a budget. A day count is also only a proxy for rows: ten years of a small table and
 ten years of a large one are the same number here. A real budget is expressed in rows or bytes
 scanned, which needs something from the data system that no port asks for yet.
-
-### Module `filter`
-
-`Filter`: one dimension's worth of what a question may filter by.
-
-Split out of `query.rs` because the parent module is near its line limit, and because the three
-variants below - equality, and a set the caller allows or excludes - are one cohesive idea with
-its own doc comment, not three loose fields. See `query.rs`'s own header for why the value is a
-`DimensionValue` and not a `String`; that argument is unchanged by there now being a set of
-them.
-
-#### `enum Filter`
-
-```rust
-pub enum Filter
-```
-
-One clause of a question's filter: a dimension, and what it must - or must not - equal.
-
-**Every value is still a parsed `DimensionValue` from the same allowlist an equality filter is
-checked against.** `In`/`NotIn` do not open a second, laxer path for a caller's text: each value
-in the set is checked against the metric's declared allowlist exactly as `Self::Eq`'s single
-value is, and an unlisted member of the set is
-`RefusalReason::DimensionValueNotAllowed` - the
-same refusal, reused, because a set's member and a single equality's value are the same kind of
-thing to the allowlist that checks them.
-
-**No comparison operator reaches this type**, deliberately: there is no `Gt`, `Lt` or `Like`
-variant, and none is planned. A comparison against free text is exactly the shape a certified
-number cannot come from - the allowlist is what makes a filter value bounded and enumerable, and
-a range or a pattern match has no allowlist to check against.
-
-##### Variants
-
-- `Eq` - The dimension equals this one value.
-- `In` - The dimension equals one of these values - "segment A or segment B".
-- `NotIn` - The dimension equals none of these values.
-
-  **A row whose dimension value is NULL is excluded, not included.** A dimension reached by a
-  LEFT JOIN groups an unmatched fact row under a null key rather than dropping it (see
-  `crate::plan`'s join doc), and SQL `col NOT IN (..)` is unknown - neither true nor false -
-  for a NULL `col`, so `WHERE` drops the row exactly as it would for a comparison it could not
-  evaluate. This is the *narrower* filter, on purpose: "not north" is a claim about a value a
-  row has, and a row with no value to compare cannot be shown to hold it. `DuckDB`, Postgres,
-  `DataFusion` and `ClickHouse` (under this deployment's default `transform_null_in`) agree on
-  this: the executed corpus's `region not_in [north]` cell pins the same four rows on all four,
-  none of them the unmatched-customer row `region in [..]` also drops - `github.com/telekom/sutura#968`.
-
-##### Methods
-
-```rust
-pub const fn dimension(&self) -> &DimensionName
-```
-
-The dimension every variant filters on.
-
-```rust
-pub const fn in_set(dimension: DimensionName, values: NonEmpty<DimensionValue>) -> Self
-```
-
-A membership filter: the dimension must equal one of `values`.
-
-```rust
-pub const fn new(dimension: DimensionName, value: DimensionValue) -> Self
-```
-
-An equality filter - the constructor every existing caller of the old two-field struct
-already spells, unchanged, because the type it built kept its name and its meaning.
-
-```rust
-pub const fn not_in_set(dimension: DimensionName, values: NonEmpty<DimensionValue>) -> Self
-```
-
-An exclusion filter: the dimension must equal none of `values`.
-
-```rust
-pub fn values(&self) -> Vec<&DimensionValue>
-```
-
-Every value this filter carries, in declared order. One for `Self::Eq`, the whole set for
-`Self::In`/`Self::NotIn`.
-
-The one place a caller who does not care which variant this is reads every value it holds -
-`super::Query::literals` uses it so a field added here is a field the no-injection golden
-sees without a second edit.
-
-##### Implements
-
-`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
 
 ### Module `limits`
 
@@ -10586,48 +10498,26 @@ stack and which therefore has no analogue here. `parse_query` takes the six fiel
 extracted, as borrowed strings and one optional `RawTop`, so it carries no serde of its own
 and no framework.
 
-### `enum RawFilter`
+### `struct RawFilter`
 
 ```rust
-pub enum RawFilter<'a>
+pub struct RawFilter<'a>
 ```
 
-One filter, before parsing: a caller's raw dimension name and operator, borrowed out of
-whichever wire struct a transport deserialized.
+One filter, before parsing: a caller's raw dimension name and value, borrowed out of whichever
+wire struct a transport deserialized.
 
 Fields are private - a `pub` field on a `pub struct` fails `cargo xtask check-boundaries` in
-this crate - even though nothing here is validated yet: the strings are exactly what a
-transport extracted, unchanged, and each constructor is the only way to build a variant.
-
-Mirrors `Filter`'s own three shapes - `github.com/telekom/sutura#968` - so a transport that
-deserialized a tagged `op` field hands this module the same three shapes back, rather than one
-flat struct with fields that only make sense for some values of `op`.
-
-#### Variants
-
-- `Eq`
-- `In`
-- `NotIn`
+this crate - even though nothing here is validated yet: the two strings are exactly what a
+transport extracted, unchanged, and `new` is the only way to pair them.
 
 #### Methods
 
 ```rust
-pub const fn eq(dimension: &'a str, value: &'a str) -> Self
+pub const fn new(dimension: &'a str, value: &'a str) -> Self
 ```
 
 Pairs a caller's raw dimension name and value, as a transport extracted them.
-
-```rust
-pub const fn in_set(dimension: &'a str, values: &'a [String]) -> Self
-```
-
-A membership filter, before parsing.
-
-```rust
-pub const fn not_in_set(dimension: &'a str, values: &'a [String]) -> Self
-```
-
-An exclusion filter, before parsing.
 
 #### Implements
 
@@ -10688,7 +10578,6 @@ parser never carried.
 #### Variants
 
 - `Metric`
-- `Metrics` - The list named nothing - `github.com/telekom/sutura#968`. Carries no field, for the same reason `Self::Grain` does not: there is no offending entry to point at.
 - `Grain` - **Carries no field, and that is on purpose.** The accepted set is fixed and finite, so the sentence names all five instead of echoing back the one that did not match - the caller's text would otherwise sit in a `Debug` rendering unread by any transport, the shape `MalformedQuestion` is elsewhere careful never to carry.
 - `Date`
 - `Range`
@@ -10705,7 +10594,6 @@ parser never carried.
   field and the index are reported and the cause is dropped rather than reported and trusted:
   the same answer `DimensionValueNotAllowed` gives, at the boundary that now catches it
   earlier.
-- `FilterValues` - An `In`/`NotIn` filter named no values, or more than `crate::catalog::MAX_VALUES_PER_DIMENSION` of them - `github.com/telekom/sutura#968`. Carries only the filter's own index, for `Self::FilterValue`'s own reason: there is no single offending value to point at, and the list itself is not caller text worth echoing. The upper bound is checked BEFORE any value in the set is parsed - the same order-of-checks argument `crate::catalog::DimensionValue`'s own length check makes: an oversized list is bounded at the edge rather than allocated and then found impossible to satisfy in full, since no dimension's own allowlist can hold more entries than this.
 - `TopN`
 - `TopBy` - Carries no field, for `Self::Grain`'s own reason: the accepted set is fixed and finite.
 - `TopDirection` - Carries no field, for `Self::Grain`'s own reason: the accepted set is fixed and finite.
@@ -10717,7 +10605,7 @@ parser never carried.
 ### `fn parse_query`
 
 ```rust
-pub fn parse_query(metrics: &[String], grain: &str, range_start: &str, range_end: &str, dimensions: &[String], filters: &[RawFilter<'_>], top: Option<RawTop<'_>>) -> Result<crate::query::Query, MalformedQuestion>
+pub fn parse_query(metric: &str, grain: &str, range_start: &str, range_end: &str, dimensions: &[String], filters: &[RawFilter<'_>], top: Option<RawTop<'_>>) -> Result<crate::query::Query, MalformedQuestion>
 ```
 
 Parses a caller's raw question fields into a `Query`.
