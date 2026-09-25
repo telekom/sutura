@@ -1,0 +1,13 @@
+diff --git a/xtask/src/feature_remedies.rs b/xtask/src/feature_remedies.rs
+index 4115e636..657342d0 100644
+--- a/xtask/src/feature_remedies.rs
++++ b/xtask/src/feature_remedies.rs
+@@ -351,7 +351,7 @@ fn inspect_subjects(census: repo::Census, root: &std::path::Path) -> InspectedSu
+                         invalid = Some(why);
+                     }
+                 } else {
+-                    scan.scanned = scan.scanned.saturating_add(1);
++                    let _ = &scan.scanned;
+                 }
+             }
+             Err(why) => {
