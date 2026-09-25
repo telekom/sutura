@@ -1,1 +1,1 @@
-{"metric":"a","grain":"day","range":{"start":"2026-01-01","end":"2026-01-32"}}
+{"metrics":["a"],"grain":"day","range":{"start":"2026-01-01","end":"2026-01-32"}}

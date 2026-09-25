@@ -25,14 +25,16 @@ const QUERY: Subject = Subject {
     // `TopOverUncertifiedRows` once the two-case rule made the blanket refusal's arm unreachable -
     // a straight substitution, so the count was unchanged. 22 since `docs/adr/0040` DELETED
     // `LegsDecideIdentityDifferently`: a cross-posture federated answer is disclosed per leg
-    // instead, so there is no question left for that variant to refuse. 23 again since
+    // instead, so there is no question left for that variant to refuse. 23 since
     // `telekom/sutura#780` ADDED `CrossModelRatioNotExecutable`: a ratio term naming another fact
     // model loads and is refused at plan time rather than mis-planned against the wrong table.
     // 24 since `telekom/sutura#967` ADDED `FederationLinkCompound`: a relationship crossing into a
     // remote data system with more than one join key is refused under its own name rather than
     // under `FederationLinkAmbiguous`, which means two RELATIONSHIPS crossing at once and would
-    // tell a caller something untrue about one correctly declared compound key.
-    variants: variants(24),
+    // tell a caller something untrue about one correctly declared compound key. 26:
+    // `github.com/telekom/sutura#968` added `MetricsSpanDifferentModels` and
+    // `MultiMetricNotExecutable` for a question naming more than one metric.
+    variants: variants(26),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

@@ -93,7 +93,7 @@ fn a_source_that_refuses_the_statement_is_refused_not_a_transport_failure() {
     let working = Warehouses::of(FixedWarehouse::answering(source(), shared(), certified()));
     let validated = verify_and_validate(bundle(), &working).expect("the anchor reproduces its number");
     let refusing = Warehouses::of(RefusingSourceWarehouse::new(source(), shared()));
-    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
     let outcome = answer(
         &validated,
         &question,
@@ -120,7 +120,7 @@ fn a_source_that_refuses_the_preflight_is_refused_and_never_executed() {
     let working = Warehouses::of(FixedWarehouse::answering(source(), shared(), certified()));
     let validated = verify_and_validate(bundle(), &working).expect("the anchor reproduces its number");
     let refusing = MonoPreflightWarehouse::new(source(), shared(), certified(), DryRunOutcome::SourceRefused);
-    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
     let warehouses = Warehouses::of(refusing);
     let outcome = answer(
         &validated,
@@ -155,7 +155,7 @@ fn a_failure_the_source_did_not_refuse_is_still_a_transport_failure() {
     let working = Warehouses::of(FixedWarehouse::answering(source(), shared(), certified()));
     let validated = verify_and_validate(bundle(), &working).expect("the anchor reproduces its number");
     let broken = Warehouses::of(TransientlyBrokenWarehouse::new(source(), shared()));
-    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
     let failure = answer(
         &validated,
         &question,
@@ -188,7 +188,7 @@ fn an_adapter_that_receives_the_wrong_posture_returns_an_err_rather_than_a_refus
     // application cannot decide: a source the deployment declared impersonating, served by an adapter
     // whose CAPABILITY has nowhere for a subject to arrive. The composition root refuses that pairing
     // at boot; `answer` is not the boot path, so the adapter is the thing that stops it.
-    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
     let registry = Warehouses::of(FixedWarehouse::answering(
         source(),
         SourcePosture::ImpersonationAtSource,
@@ -366,7 +366,7 @@ fn a_credential_that_expires_during_the_pre_flight_never_reaches_the_execution()
         std::time::Duration::from_millis(1200),
     ));
     let validated = verify_and_validate(bundle(), &registry).expect("the anchor reproduces its number");
-    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
     let failure = answer(
         &validated,
         &question,
@@ -434,7 +434,7 @@ fn what_a_call_ran_under_travels_to_the_record_and_not_to_the_caller() {
 
     // A question declined before the broker was asked has nothing to report, and `None` says so
     // rather than claiming a credential that never existed does not expire.
-    let unknown = Query::new(
+    let unknown = Query::single(
         MetricName::parse("no_such_metric").expect("a test metric name is a name"),
         Grain::Month,
         june(),

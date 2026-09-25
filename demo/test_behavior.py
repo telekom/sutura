@@ -77,7 +77,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             question = json.loads(self.rfile.read(length))
             self.server.queries.append(question)
             if (
-                question.get("metric") == "customer_lifetime_value"
+                question.get("metrics") == ["customer_lifetime_value"]
                 and self.server.mode != "sutura-always-answers"
             ):
                 self._reply(404, {"outcome": "refusal", "reason": "metric_unknown"})
@@ -488,7 +488,7 @@ class DemoBehavior(unittest.TestCase):
             finally:
                 os.environ.clear()
                 os.environ.update(old)
-            metrics = [query["metric"] for query in sutura_server.queries]
+            metrics = [query["metrics"][0] for query in sutura_server.queries]
             self.assertIn("active_subscriptions", metrics)
             self.assertIn("customer_lifetime_value", metrics)
 

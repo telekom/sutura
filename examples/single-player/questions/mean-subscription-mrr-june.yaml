@@ -1,4 +1,4 @@
-metric: mean_subscription_mrr
+metrics: [mean_subscription_mrr]
 grain: month
 range:
   start: 2026-06-01

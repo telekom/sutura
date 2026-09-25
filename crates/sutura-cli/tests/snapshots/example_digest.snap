@@ -2,4 +2,4 @@
 source: crates/sutura-cli/tests/example.rs
 expression: pinned.digest().as_str()
 ---
-c14afabdc65d0088523cfc6b805311547998c12ab1b540fd970b4f369b609270
+b0e74ef1b790cff7171094fec4b9389913e7940bf7c9a2abdec2269c3e29e538

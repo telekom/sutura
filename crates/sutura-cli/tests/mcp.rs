@@ -479,7 +479,7 @@ mod tests {
             );
         }
         serde_json::json!({
-            "metric": metric,
+            "metrics": [metric],
             "grain": GRAIN,
             "range": { "start": start, "end": end },
         })

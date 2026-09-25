@@ -1,4 +1,4 @@
-metric: revenue_per_customer
+metrics: [revenue_per_customer]
 grain: month
 range:
   start: 2026-06-01

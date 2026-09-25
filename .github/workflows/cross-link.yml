@@ -226,8 +226,9 @@ jobs:
       # `buildDepsOnly` runs on the same argument set as the default build, so the probe shares
       # that DEPENDENCY derivation - but a one-package build resolves a narrower feature set than
       # the workspace union that derivation compiled, so the closure recompiles inside it. The
-      # seconds printed below are therefore the probe and not a delta; `docs/adr/0017` measures
-      # the feature as compiled units instead, and `nix/shipped.nix` carries the same correction.
+      # seconds printed below are therefore every probe's realise together and not a delta;
+      # `docs/adr/0017` measures the feature as compiled units instead, and `nix/shipped.nix`
+      # carries the same correction.
       #
       # **THE SET IS READ AND NOT RECONSTRUCTED.** It used to recover the set by splitting the
       # flake's attribute NAMES, so a rename emptied it silently and this step exited ZERO having
@@ -244,15 +245,22 @@ jobs:
             echo "::error::${TARGET}: the probe manifest is empty or unreadable, so nothing here measured a feature-on build. Usually that means nix/shipped.nix declares no probeFeatures for this triple. docs/adr/0017 claims the feature-on build is linked on every pull request - restore a probe, or withdraw the claim. Which features must be probed is held by cargo xtask check-shipped-binaries."
             exit 1
           fi
+          # ONE REALISE FOR EVERY PROBE, so they compile side by side instead of one after another.
+          # The loop below still builds each by name - it finds the output present - and still
+          # asserts each on its own, so the derivations and the verdicts are the ones they were.
+          probes=()
+          while read -r probe _; do probes+=(".#${probe}"); done < "$manifest"
+          started="$(date +%s)"
+          nix build -L --no-link "${probes[@]}"
+          seconds="$(( $(date +%s) - started ))"
           while read -r probe exe feature; do
-            started="$(date +%s)"
             # `< /dev/null` because the manifest is this loop's stdin: a child that reads stdin
             # would eat the remaining rows, and the job would go green having built fewer probes.
             nix build ".#${probe}" -L -o "result-probe-${probe}" < /dev/null
             # What makes the manifest's `exe` field CHECKED rather than decorative. A bare `file`
             # here printed `cannot open` and exited zero, so a renamed executable was green.
             bash nix/assert-linked.sh "${TARGET}" "result-probe-${probe}/bin/${exe}"
-            echo "::notice::${TARGET}: ${exe} with --features ${feature} linked in $(( $(date +%s) - started ))s at the ci profile, which is NOT docs/getting-started.md's --release link. The seconds are the whole probe, not the feature's delta; docs/adr/0017 has the delta as compiled units, and the feature-off decision in nix/shipped.nix rests on what a published artefact links rather than on either number."
+            echo "::notice::${TARGET}: ${exe} with --features ${feature} linked at the ci profile, which is NOT docs/getting-started.md's --release link. ${seconds}s is the realise of all ${#probes[@]} probes together, not this feature's delta; docs/adr/0017 has the delta as compiled units, and the feature-off decision in nix/shipped.nix rests on what a published artefact links rather than on either number."
           done < "$manifest"
 
       # DOES EVERY SHIPPED BINARY CARRY ITS OWN DEPENDENCY LIST, and can the tool the release
