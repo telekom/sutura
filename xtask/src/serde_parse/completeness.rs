@@ -40,7 +40,7 @@ pub(super) const DIGEST_CRATE: &str = "crates/sutura-domain/";
 /// that file for the reason every other exemption in this repository does: an exemption beside the
 /// rule is one a reviewer reading the rule sees, and changing it is a visible diff. Each cited test
 /// is checked to exist by [`Population::verdict`], so a rename cannot leave a dead pointer.
-const ASKED_ELSEWHERE: [(&str, &str); 6] = [
+const ASKED_ELSEWHERE: [(&str, &str); 7] = [
     ("Term", "a_term_survives_the_on_disk_shape_it_serializes_into"),
     ("TimeRange", "a_range_round_trips_through_the_mapping_a_catalog_author_writes"),
     ("AuthoredSql", "authored_sql_round_trips_through_its_on_disk_shape"),
@@ -50,6 +50,9 @@ const ASKED_ELSEWHERE: [(&str, &str); 6] = [
     // other rows are asked against is built of strings, so `TopN::parse` (`u32 -> TopN`) cannot
     // take a candidate from it.
     ("TopN", "a_top_n_round_trips_through_its_on_disk_shape"),
+    // `Filter`'s canonical form is `{dimension, op, values}`, a mapping rather than a string, so
+    // it cannot take a candidate from this file's generated corpus either.
+    ("Filter", "a_filter_round_trips_through_its_on_disk_shape"),
 ];
 
 /// The macro whose expansions carry `try_from` and a derived `Serialize` of their own.

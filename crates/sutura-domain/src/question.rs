@@ -224,7 +224,11 @@ pub fn parse_query(
             let value = DimensionValue::parse(value).map_err(|_| MalformedQuestion::FilterValue { index, value_index })?;
             values.push(value);
         }
-        let values = FilterValues::parse(values).map_err(|_| MalformedQuestion::EmptyFilterValues { index })?;
+        // `EmptyFilterValues` carries no field to discard - a unit struct naming the one way
+        // `FilterValues::parse` can fail - so this is not the caller-text case
+        // `clippy::map_err_ignore` exists to catch; the lint cannot tell the two apart, hence the
+        // named-but-unused binding rather than `_`.
+        let values = FilterValues::parse(values).map_err(|_empty| MalformedQuestion::EmptyFilterValues { index })?;
         parsed_filters.push(Filter::new(dimension, op, values));
     }
     let query = Query::new(metric, grain, range, parsed_dimensions, parsed_filters);
@@ -354,7 +358,7 @@ mod tests {
 
     #[test]
     fn more_filter_values_than_the_limit_are_refused_before_any_is_parsed() {
-        let too_many: Vec<String> = (0..(super::MAX_VALUES_PER_DIMENSION + 1)).map(|n| n.to_string()).collect();
+        let too_many: Vec<String> = (0..=super::MAX_VALUES_PER_DIMENSION).map(|n| n.to_string()).collect();
         let error = parse_query(
             "revenue",
             "month",

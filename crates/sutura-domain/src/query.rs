@@ -11,14 +11,15 @@
 use std::collections::BTreeSet;
 
 use crate::calendar::TimeRange;
-use crate::catalog::DimensionValue;
 use crate::model::{Aggregate, DimensionName, Grain, MetricName, SourceName, TableName};
 use crate::pinned::Provenance;
 use crate::warehouse::RowSet;
 
+mod filter;
 pub mod limits;
 pub mod top;
 
+pub use filter::{EmptyFilterValues, Filter, FilterOp, FilterValues};
 pub use limits::{InvalidResponseByteLimit, ResponseByteLimit, ResultBound};
 pub use top::{InvalidTopN, Top, TopBy, TopDirection, TopN};
 
@@ -66,172 +67,6 @@ pub const MAX_DIMENSIONS: usize = 4;
 /// ten years of a large one are the same number here. A real budget is expressed in rows or bytes
 /// scanned, which needs something from the data system that no port asks for yet.
 pub const MAX_RANGE_DAYS: i32 = 3653;
-
-/// Which way a [`Filter`] compares: every requested value must be one the dimension declares
-/// ([`Self::In`]), or none of them may be ([`Self::NotIn`]).
-///
-/// **There is no `Eq`, and that is not an omission.** `In` with one value already says "equals this
-/// one declared value" - the shape every filter had before this type existed - so a third variant
-/// spelling the same comparison would be a second way to ask the same question, kept equal to the
-/// first only by review.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FilterOp {
-    /// The dimension's value must be one of [`Filter::values`].
-    In,
-    /// The dimension's value must be none of [`Filter::values`].
-    NotIn,
-}
-
-/// The values one [`Filter`] compares against: at least one, deduplicated, each already a
-/// [`DimensionValue`] a metric's allowlist could declare.
-///
-/// A set rather than the [`Vec`] the wire carries, so a value repeated in the caller's own list -
-/// `["north", "north"]` - is one entry here rather than two, and two requests that list the same
-/// values in a different order compare equal. [`BTreeSet`] rather than a hash set for the same
-/// reason every other collection in this crate that reaches a digest or a golden is ordered: the
-/// iteration order is a function of the values and never of the order a caller happened to send
-/// them in.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-#[serde(transparent)]
-pub struct FilterValues(BTreeSet<DimensionValue>);
-
-/// A filter whose value list was empty.
-///
-/// **Unrepresentable everywhere but the wire boundary itself.** Every production caller of
-/// [`FilterValues::parse`] already holds at least one parsed [`DimensionValue`] by construction -
-/// `sutura_domain::question::parse_query` refuses an empty `values` list before this is ever
-/// reached, naming the field - so this variant exists for the one caller that cannot make that
-/// promise: a `Filter` deserialized directly, which is what the example corpus's own fixtures are.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("a filter's values must not be empty")]
-pub struct EmptyFilterValues;
-
-impl FilterValues {
-    /// Parses a non-empty, deduplicated set of values, refusing an empty list.
-    pub fn parse(values: Vec<DimensionValue>) -> Result<Self, EmptyFilterValues> {
-        let values: BTreeSet<DimensionValue> = values.into_iter().collect();
-        if values.is_empty() {
-            return Err(EmptyFilterValues);
-        }
-        Ok(Self(values))
-    }
-
-    /// One value, which can never be an empty set - the shape every filter had before
-    /// [`FilterOp`] existed, kept infallible so the many call sites that still only ever compare
-    /// against one declared value do not have to handle a refusal that cannot happen.
-    #[inline]
-    pub fn one(value: DimensionValue) -> Self {
-        Self(BTreeSet::from([value]))
-    }
-
-    #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = &DimensionValue> {
-        self.0.iter()
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-}
-
-/// The wire shape a [`Filter`] deserializes through, and the point [`EmptyFilterValues`] is
-/// checked at for a `Filter` built straight from a document rather than from
-/// `sutura_domain::question::parse_query`.
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FilterRepr {
-    dimension: DimensionName,
-    op: FilterOp,
-    values: Vec<DimensionValue>,
-}
-
-impl TryFrom<FilterRepr> for Filter {
-    type Error = EmptyFilterValues;
-
-    fn try_from(repr: FilterRepr) -> Result<Self, Self::Error> {
-        Ok(Self {
-            dimension: repr.dimension,
-            op: repr.op,
-            values: FilterValues::parse(repr.values)?,
-        })
-    }
-}
-
-/// One filter: a dimension, which way it compares, and the values the pinned bundle declares.
-///
-/// Each value is a [`DimensionValue`] here and a bind parameter by the time it reaches a statement.
-/// Every one is checked against the metric's allowlist first, so the parameterisation is the second
-/// line of defence rather than the only one.
-///
-/// # Why a caller's value is parsed by the type a catalog author's value is parsed by
-///
-/// It was a `String`, and the review that gave `DimensionValue` to the catalog side asked whether the
-/// request side wanted it too. It does, for four reasons, and the last one is the decisive one:
-///
-/// * **It refuses nothing a request could have been answered.** Every value is compared against the
-///   metric's allowlist, and every entry in that allowlist is a `DimensionValue`. Text that cannot be
-///   one cannot be in there, so parsing here turns a `DimensionValueNotAllowed` refusal into a `400`
-///   naming the field and loses no answerable question.
-/// * **The precedent is already here and is older than this type.** A caller's `metric` and
-///   `dimension` arrive as text and are parsed by [`MetricName`] and [`DimensionName`] - the same
-///   types the catalog loader uses, at the same boundary, by the same constructor. A value being the
-///   one field held to a laxer rule was the asymmetry, not the fix.
-/// * **It bounds what a request may carry before anything allocates it.** A ten-megabyte filter value
-///   used to be compared against the allowlist and refused, having been read, cloned into
-///   [`Query::literals`] and rendered into whatever an audit sink keeps.
-/// * **A second character rule is a rule nothing compares against the first.** [`crate::text`] exists
-///   because one such rule was written down twice and the copies drifted. A request-side value type
-///   with its own idea of what a value may hold would be that mistake, deliberately, in a place where
-///   one side of the comparison is content and the other is a caller.
-///
-/// **What does NOT follow is that a refusal may name the text.** `sutura_http::wire` parses each
-/// value and reports `filters[i].values[j]` without the parse error underneath it, because
-/// [`InvalidDimensionValue`](crate::catalog::InvalidDimensionValue) carries the offending input and
-/// [`RefusalReason`]'s own rule is that caller-supplied text is never reflected into a message that
-/// reaches a log, a UI and an agent's context.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(try_from = "FilterRepr")]
-pub struct Filter {
-    dimension: DimensionName,
-    op: FilterOp,
-    values: FilterValues,
-}
-
-impl Filter {
-    #[inline]
-    pub const fn new(dimension: DimensionName, op: FilterOp, values: FilterValues) -> Self {
-        Self { dimension, op, values }
-    }
-
-    /// `dimension` [`FilterOp::In`] one `value` - what every filter was before this type gained
-    /// [`FilterOp`] and a set. Infallible: [`FilterValues::one`] can never be an empty set.
-    #[inline]
-    pub fn equals(dimension: DimensionName, value: DimensionValue) -> Self {
-        Self::new(dimension, FilterOp::In, FilterValues::one(value))
-    }
-
-    #[inline]
-    pub const fn dimension(&self) -> &DimensionName {
-        &self.dimension
-    }
-
-    #[inline]
-    pub const fn op(&self) -> FilterOp {
-        self.op
-    }
-
-    #[inline]
-    pub const fn values(&self) -> &FilterValues {
-        &self.values
-    }
-}
 
 /// A modelled question.
 ///
@@ -768,13 +603,6 @@ mod tests {
         )
     }
 
-    #[test]
-    fn equals_is_in_with_one_value() {
-        let dimension = DimensionName::parse("region").expect("a test dimension is a dimension");
-        let value = DimensionValue::parse("north").expect("a test value is a value");
-        assert_eq!(Filter::equals(dimension, value), filter("region", FilterOp::In, &["north"]));
-    }
-
     fn query_with_filter(value: &str) -> Query {
         Query::new(
             MetricName::parse("revenue").expect("a test metric is a metric"),
@@ -813,18 +641,6 @@ mod tests {
         assert!(literals.contains("north"), "{literals:?}");
         assert!(literals.contains("south"), "{literals:?}");
         assert_eq!(literals.len(), 4);
-    }
-
-    #[test]
-    fn an_empty_filter_value_list_is_refused() {
-        // The one caller of `FilterValues::parse` that can actually reach an empty list:
-        // `sutura_domain::question::parse_query` refuses before this point, so this is the wire
-        // boundary's own check, reached by a `Filter` deserialized straight from a document.
-        use super::EmptyFilterValues;
-
-        assert_eq!(FilterValues::parse(Vec::new()).unwrap_err(), EmptyFilterValues);
-        let deserialized: Result<Filter, _> = serde_json::from_str(r#"{"dimension":"region","op":"in","values":[]}"#);
-        assert!(deserialized.is_err(), "an empty values list must not deserialize");
     }
 
     // The two governance properties of this type that need a real format parser to provoke -

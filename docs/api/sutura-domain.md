@@ -9100,167 +9100,6 @@ cannot.
 
 Widening this is a governance change. `AGENTS.md` says which mechanism has to still hold.
 
-### `enum FilterOp`
-
-```rust
-pub enum FilterOp
-```
-
-Which way a `Filter` compares: every requested value must be one the dimension declares
-(`Self::In`), or none of them may be (`Self::NotIn`).
-
-**There is no `Eq`, and that is not an omission.** `In` with one value already says "equals this
-one declared value" - the shape every filter had before this type existed - so a third variant
-spelling the same comparison would be a second way to ask the same question, kept equal to the
-first only by review.
-
-#### Variants
-
-- `In` - The dimension's value must be one of `Filter::values`.
-- `NotIn` - The dimension's value must be none of `Filter::values`.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
-
-### `struct FilterValues`
-
-```rust
-pub struct FilterValues
-```
-
-The values one `Filter` compares against: at least one, deduplicated, each already a
-`DimensionValue` a metric's allowlist could declare.
-
-A set rather than the `Vec` the wire carries, so a value repeated in the caller's own list -
-`["north", "north"]` - is one entry here rather than two, and two requests that list the same
-values in a different order compare equal. `BTreeSet` rather than a hash set for the same
-reason every other collection in this crate that reaches a digest or a golden is ordered: the
-iteration order is a function of the values and never of the order a caller happened to send
-them in.
-
-#### Methods
-
-```rust
-pub fn contains(&self, value: &DimensionValue) -> bool
-```
-
-```rust
-pub fn is_empty(&self) -> bool
-```
-
-```rust
-pub fn iter(&self) -> impl Iterator<Item>
-```
-
-```rust
-pub fn len(&self) -> usize
-```
-
-```rust
-pub fn one(value: DimensionValue) -> Self
-```
-
-One value, which can never be an empty set - the shape every filter had before
-`FilterOp` existed, kept infallible so the many call sites that still only ever compare
-against one declared value do not have to handle a refusal that cannot happen.
-
-```rust
-pub fn parse(values: Vec<DimensionValue>) -> Result<Self, EmptyFilterValues>
-```
-
-Parses a non-empty, deduplicated set of values, refusing an empty list.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
-
-### `struct EmptyFilterValues`
-
-```rust
-pub struct EmptyFilterValues
-```
-
-A filter whose value list was empty.
-
-**Unrepresentable everywhere but the wire boundary itself.** Every production caller of
-`FilterValues::parse` already holds at least one parsed `DimensionValue` by construction -
-`sutura_domain::question::parse_query` refuses an empty `values` list before this is ever
-reached, naming the field - so this variant exists for the one caller that cannot make that
-promise: a `Filter` deserialized directly, which is what the example corpus's own fixtures are.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-### `struct Filter`
-
-```rust
-pub struct Filter
-```
-
-One filter: a dimension, which way it compares, and the values the pinned bundle declares.
-
-Each value is a `DimensionValue` here and a bind parameter by the time it reaches a statement.
-Every one is checked against the metric's allowlist first, so the parameterisation is the second
-line of defence rather than the only one.
-
-# Why a caller's value is parsed by the type a catalog author's value is parsed by
-
-It was a `String`, and the review that gave `DimensionValue` to the catalog side asked whether the
-request side wanted it too. It does, for four reasons, and the last one is the decisive one:
-
-* **It refuses nothing a request could have been answered.** Every value is compared against the
-  metric's allowlist, and every entry in that allowlist is a `DimensionValue`. Text that cannot be
-  one cannot be in there, so parsing here turns a `DimensionValueNotAllowed` refusal into a `400`
-  naming the field and loses no answerable question.
-* **The precedent is already here and is older than this type.** A caller's `metric` and
-  `dimension` arrive as text and are parsed by `MetricName` and `DimensionName` - the same
-  types the catalog loader uses, at the same boundary, by the same constructor. A value being the
-  one field held to a laxer rule was the asymmetry, not the fix.
-* **It bounds what a request may carry before anything allocates it.** A ten-megabyte filter value
-  used to be compared against the allowlist and refused, having been read, cloned into
-  `Query::literals` and rendered into whatever an audit sink keeps.
-* **A second character rule is a rule nothing compares against the first.** `crate::text` exists
-  because one such rule was written down twice and the copies drifted. A request-side value type
-  with its own idea of what a value may hold would be that mistake, deliberately, in a place where
-  one side of the comparison is content and the other is a caller.
-
-**What does NOT follow is that a refusal may name the text.** `sutura_http::wire` parses each
-value and reports `filters[i].values[j]` without the parse error underneath it, because
-`InvalidDimensionValue` carries the offending input and
-`RefusalReason`'s own rule is that caller-supplied text is never reflected into a message that
-reaches a log, a UI and an agent's context.
-
-#### Methods
-
-```rust
-pub const fn dimension(&self) -> &DimensionName
-```
-
-```rust
-pub fn equals(dimension: DimensionName, value: DimensionValue) -> Self
-```
-
-`dimension` `FilterOp::In` one `value` - what every filter was before this type gained
-`FilterOp` and a set. Infallible: `FilterValues::one` can never be an empty set.
-
-```rust
-pub const fn new(dimension: DimensionName, op: FilterOp, values: FilterValues) -> Self
-```
-
-```rust
-pub const fn op(&self) -> FilterOp
-```
-
-```rust
-pub const fn values(&self) -> &FilterValues
-```
-
-#### Implements
-
-`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
-
 ### `struct Query`
 
 ```rust
@@ -9697,6 +9536,78 @@ The refusal reason, if this is one. Convenience for tests and for an audit sink.
 #### Implements
 
 `Clone`, `Debug`, `PartialEq`, `Serialize`
+
+### `use EmptyFilterValues`
+
+A filter whose value list was empty.
+
+**Unrepresentable everywhere but the wire boundary itself.** Every production caller of
+`FilterValues::parse` already holds at least one parsed `DimensionValue` by construction -
+`sutura_domain::question::parse_query` refuses an empty `values` list before this is ever
+reached, naming the field - so this variant exists for the one caller that cannot make that
+promise: a `Filter` deserialized directly, which is what the example corpus's own fixtures are.
+
+**Declared last in this file**, for `crate::warehouse::deadline::NoBudget`'s own reason:
+`xtask check-boundaries`'s pub-field scan misreads a unit struct followed by an `impl` block
+as the struct's own fields, a gate defect noted as a follow-up rather than worked around with
+more prose here.
+
+### `use Filter`
+
+One filter: a dimension, which way it compares, and the values the pinned bundle declares.
+
+Each value is a `DimensionValue` here and a bind parameter by the time it reaches a statement.
+Every one is checked against the metric's allowlist first, so the parameterisation is the second
+line of defence rather than the only one.
+
+# Why a caller's value is parsed by the type a catalog author's value is parsed by
+
+It was a `String`, and the review that gave `DimensionValue` to the catalog side asked whether the
+request side wanted it too. It does, for four reasons, and the last one is the decisive one:
+
+* **It refuses nothing a request could have been answered.** Every value is compared against the
+  metric's allowlist, and every entry in that allowlist is a `DimensionValue`. Text that cannot be
+  one cannot be in there, so parsing here turns a `DimensionValueNotAllowed` refusal into a `400`
+  naming the field and loses no answerable question.
+* **The precedent is already here and is older than this type.** A caller's `metric` and
+  `dimension` arrive as text and are parsed by `MetricName` and
+  `DimensionName` - the same types the catalog loader uses, at the same boundary, by the same
+  constructor. A value being the one field held to a laxer rule was the asymmetry, not the fix.
+* **It bounds what a request may carry before anything allocates it.** A ten-megabyte filter value
+  used to be compared against the allowlist and refused, having been read, cloned into
+  `Query::literals` and rendered into whatever an audit sink keeps.
+* **A second character rule is a rule nothing compares against the first.** `crate::text` exists
+  because one such rule was written down twice and the copies drifted. A request-side value type
+  with its own idea of what a value may hold would be that mistake, deliberately, in a place where
+  one side of the comparison is content and the other is a caller.
+
+**What does NOT follow is that a refusal may name the text.** `sutura_http::wire` parses each
+value and reports `filters[i].values[j]` without the parse error underneath it, because
+`InvalidDimensionValue` carries the offending input and
+`RefusalReason`'s own rule is that caller-supplied text is never
+reflected into a message that reaches a log, a UI and an agent's context.
+
+### `use FilterOp`
+
+Which way a `Filter` compares: every requested value must be one the dimension declares
+(`Self::In`), or none of them may be (`Self::NotIn`).
+
+**There is no `Eq`, and that is not an omission.** `In` with one value already says "equals this
+one declared value" - the shape every filter had before this type existed - so a third variant
+spelling the same comparison would be a second way to ask the same question, kept equal to the
+first only by review.
+
+### `use FilterValues`
+
+The values one `Filter` compares against: at least one, deduplicated, each already a
+`DimensionValue` a metric's allowlist could declare.
+
+A set rather than the `Vec` the wire carries, so a value repeated in the caller's own list -
+`["north", "north"]` - is one entry here rather than two, and two requests that list the same
+values in a different order compare equal. `BTreeSet` rather than a hash set for the same
+reason every other collection in this crate that reaches a digest or a golden is ordered: the
+iteration order is a function of the values and never of the order a caller happened to send
+them in.
 
 ### `use InvalidResponseByteLimit`
 

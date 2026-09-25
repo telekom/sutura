@@ -4280,75 +4280,6 @@ The status this outcome comes back as.
 
 `Debug`, `IntoResponse`
 
-### `struct CatalogBody`
-
-```rust
-pub struct CatalogBody
-```
-
-What this catalog defines.
-
-# Why a structured surface reads the prose setting at all
-
-`prompt.catalog_prose: omitted` is not a mitigation for the forgery `docs/adr/0022` is about -
-`serde` owns the field boundary here, so a description cannot cross one whatever it spells, and
-this body escapes nothing. It is a decision about **who may put words in front of an agent**: an
-operator whose catalog authors are not the people who decide what their agents are told drops the
-prose, and a description that still reached an agent through a second transport would make that
-setting a statement about one surface rather than about the deployment. So the omission is
-honoured wherever the prose is carried, and the escaping stays where the delimiter is.
-
-#### Methods
-
-```rust
-pub fn of(view: &ScopedView<'_>, prose: sutura_config::CatalogProse) -> Self
-```
-
-The reader's view of a caller-scoped catalog, under the prose setting this deployment was
-started with.
-
-**Takes a `ScopedView`, never a bare `&PinnedDefinitions`** - `docs/adr/0028`. A metric
-outside the view is not in `metrics` below, so advertisement and invocation cannot disagree
-about which metrics exist; the provenance still names the whole bundle's version and digest,
-because that is what `docs/adr/0028` says the digest continues to identify.
-
-**A named constructor rather than a `From`, and the argument is the reason.**
-`CatalogProse::default()` is `Quoted`, so a conversion reachable without the setting fails
-OPEN: it ships the prose of a deployment that asked for none, which is the defect this
-function exists to close. A second argument cannot be left out.
-
-#### Implements
-
-`ComposeSchema`, `Debug`, `Serialize`, `ToSchema`
-
-### `struct MetricBody`
-
-```rust
-pub struct MetricBody
-```
-
-One metric, as much of it as a caller needs to ask a valid question.
-
-Descriptive content only. Nothing here selects, widens or parameterizes what executes - the
-catalog port takes no request context and cannot - so this is a reader's view of a pinned
-bundle rather than an input to one.
-
-#### Implements
-
-`ComposeSchema`, `Debug`, `Serialize`, `ToSchema`
-
-### `struct DimensionBody`
-
-```rust
-pub struct DimensionBody
-```
-
-One dimension of one metric.
-
-#### Implements
-
-`ComposeSchema`, `Debug`, `Serialize`, `ToSchema`
-
 ### `use RawMalformedStatement`
 
 Why a `run_sql` request body was not a statement.
@@ -4375,6 +4306,32 @@ A raw outcome, and the status the transport says it with.
 
 `super::Outcome`'s shape, over `RawOutcome` instead of a certified
 `sutura_domain::query::ToolOutcome`.
+
+### `use CatalogBody`
+
+What this catalog defines.
+
+# Why a structured surface reads the prose setting at all
+
+`prompt.catalog_prose: omitted` is not a mitigation for the forgery `docs/adr/0022` is about -
+`serde` owns the field boundary here, so a description cannot cross one whatever it spells, and
+this body escapes nothing. It is a decision about **who may put words in front of an agent**: an
+operator whose catalog authors are not the people who decide what their agents are told drops the
+prose, and a description that still reached an agent through a second transport would make that
+setting a statement about one surface rather than about the deployment. So the omission is
+honoured wherever the prose is carried, and the escaping stays where the delimiter is.
+
+### `use DimensionBody`
+
+One dimension of one metric.
+
+### `use MetricBody`
+
+One metric, as much of it as a caller needs to ask a valid question.
+
+Descriptive content only. Nothing here selects, widens or parameterizes what executes - the
+catalog port takes no request context and cannot - so this is a reader's view of a pinned
+bundle rather than an input to one.
 
 ### Module `raw`
 

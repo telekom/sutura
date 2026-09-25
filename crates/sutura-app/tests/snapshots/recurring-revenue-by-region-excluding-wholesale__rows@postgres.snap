@@ -1,6 +1,5 @@
 ---
 source: crates/sutura-app/tests/golden/data_systems.rs
-assertion_line: 95
 expression: stable(rows)
 ---
 region	period	recurring_revenue
