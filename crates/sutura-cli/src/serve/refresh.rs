@@ -225,7 +225,9 @@ mod tests {
         CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
     };
 
-    use super::{Outcome, Refresher};
+    use sutura_config::{CatalogKind as ConfiguredKind, CatalogSettings, Catalogs};
+
+    use super::{Outcome, Refresher, shortest_declared_interval};
 
     /// What this test's fake catalog can be told to answer next.
     #[derive(Clone)]
@@ -334,6 +336,39 @@ mod tests {
 
     fn set(cell: &Cell, answer: Answer) {
         *cell.borrow_mut() = answer;
+    }
+
+    /// **Shortest, not first, and not an average** - the doc comment's own claim, otherwise
+    /// unexercised: a `.min()` weakened to `.max()` would leave the second entry's declared 30s
+    /// waiting for the first entry's declared 300s instead.
+    #[test]
+    fn the_declared_interval_is_the_shortest_across_catalogs_not_the_first() {
+        let first = CatalogSettings::parse(
+            SourceName::parse("first").expect("a test source is a source"),
+            ConfiguredKind::Markdown,
+            std::path::PathBuf::from("catalog"),
+            std::path::PathBuf::from("data"),
+            DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        )
+        .expect("a complete markdown entry parses")
+        .with_refresh_seconds(Some(300))
+        .expect("a positive interval is usable");
+        let second = CatalogSettings::parse(
+            SourceName::parse("second").expect("a test source is a source"),
+            ConfiguredKind::Markdown,
+            std::path::PathBuf::from("catalog"),
+            std::path::PathBuf::from("data"),
+            DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        )
+        .expect("a complete markdown entry parses")
+        .with_refresh_seconds(Some(30))
+        .expect("a positive interval is usable");
+        let declared = Catalogs::parse(vec![first, second]).expect("two distinctly named catalogs are valid");
+
+        assert_eq!(
+            shortest_declared_interval(&declared),
+            Some(std::time::Duration::from_secs(30))
+        );
     }
 
     #[test]
