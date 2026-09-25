@@ -334,6 +334,27 @@ fn avg_for_postgres(over: Expr, kind: Aggregate, dialect: Dialect) -> Expr {
     }
 }
 
+/// `ClickHouse`'s native `sum` wraps at 64 bits. Keep the original aggregate for Float and Decimal.
+/// Both aggregate branches evaluate, so the widened cast must tolerate non-integer input.
+fn sum_for_clickhouse(col: &PlanColumn) -> Expr {
+    let native = || builder::sum(column(col));
+    let integer = builder::func("toTypeName", [native()]).in_list([
+        builder::lit("Int64"),
+        builder::lit("UInt64"),
+        builder::lit("Nullable(Int64)"),
+        builder::lit("Nullable(UInt64)"),
+    ]);
+    let widened = builder::func(
+        "tuple",
+        [
+            builder::lit("Int128"),
+            builder::sum(builder::func("accurateCastOrNull", [column(col), builder::lit("Int128")])).cast("Dynamic"),
+        ],
+    );
+    let original = builder::func("tuple", [builder::func("toTypeName", [native()]), native().cast("Dynamic")]);
+    builder::func("if", [integer, widened, original])
+}
+
 /// One term, as one expression.
 ///
 /// A conditional count is `SUM(CASE WHEN col THEN 1 ELSE 0 END)` rather than the dialect layer's own
@@ -346,6 +367,10 @@ fn term_expression(term: &PlanTerm, dialect: Dialect) -> Expr {
         PlanTerm::Aggregate {
             aggregate: kind,
             column: ref col,
+        } if matches!(kind, Aggregate::Sum) && dialect == Dialect::ClickHouse => sum_for_clickhouse(col),
+        PlanTerm::Aggregate {
+            aggregate: kind,
+            column: ref col,
         } => avg_for_postgres(aggregate(kind, column(col)), kind, dialect),
         PlanTerm::CountIf { column: ref col } => builder::sum(
             builder::case()
@@ -353,6 +378,23 @@ fn term_expression(term: &PlanTerm, dialect: Dialect) -> Expr {
                 .else_(builder::lit(0))
                 .build(),
         ),
+    }
+}
+
+fn ratio_term_expression(term: &PlanTerm, dialect: Dialect) -> Expr {
+    let value = term_expression(term, dialect);
+    if dialect == Dialect::ClickHouse
+        && matches!(
+            term,
+            PlanTerm::Aggregate {
+                aggregate: Aggregate::Sum,
+                ..
+            }
+        )
+    {
+        builder::func("tupleElement", [value, builder::lit(2)]).cast("DOUBLE")
+    } else {
+        value
     }
 }
 
@@ -386,8 +428,8 @@ fn measure_expression(measure: &PlanMeasure, dialect: Dialect) -> Expr {
             ref denominator,
             zero_denominator,
         } => {
-            let top = term_expression(numerator, dialect).cast("DOUBLE");
-            let bottom = term_expression(denominator, dialect);
+            let top = ratio_term_expression(numerator, dialect).cast("DOUBLE");
+            let bottom = ratio_term_expression(denominator, dialect);
             let bottom = match zero_denominator {
                 ZeroDenominator::Null => builder::null_if(bottom, builder::lit(0)),
                 ZeroDenominator::Fail => bottom,

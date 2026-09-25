@@ -6,10 +6,8 @@
 //! plaintext loopback request of a FIXED shape, no dependency - and the reasons stay true for the
 //! request it was written for. This module is not that request: it talks to a real Quarkus/Keycloak
 //! server this suite did not write, whose responses this fixture has no business assuming the shape
-//! of - chunked or not, redirected or not. `ureq` is the crate `sutura-exec-bigquery::wire` already
-//! uses for exactly this (`.post(url).send_form(form)`, `.get(url).call()`,
-//! `body_mut().read_to_string()`), and `crates/sutura-cli/Cargo.toml` records why adding it here
-//! costs nothing new.
+//! of - chunked or not, redirected or not. `ureq` is already a workspace dependency and handles
+//! this request without a new HTTP stack.
 //!
 //! **Reached only by its own `just` task, never by `just test`.** Two reasons, both load-bearing.
 //! First, cost: `nix/keycloak-tier.nix`'s own header says a JVM issuer is not something every

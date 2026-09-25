@@ -1283,6 +1283,12 @@ venue beside the acceptance dataset, refusing the absent owned name); the cross-
 #118 and the conformance packs (#116) are still future work. This change made the first safe to add
 rather than doing it.
 
+**Corrected, 2026-09-24:** neither half is future work as written. The conformance packs landed
+(`crates/sutura-conformance`, `github.com/telekom/sutura#352`; `execute_packs!` is bound in four
+adapters' conformance tests) - what #116 still asks for is their two-warehouse extension. The
+cross-PROJECT half of #118 is held by qualification by owner decision (`docs/adr/0019`, second
+amendment), not by a second project.
+
 ## Tenth amendment, 2026-09-04: the two-principal cell exists, and what it is *not*
 
 **Status of the amendment: accepted; the cell is written and has not been run.** The sixth amendment

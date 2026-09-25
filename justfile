@@ -322,6 +322,16 @@ bigquery-declared-principal *args:
 bigquery-driver-check:
     bash nix/bigquery-driver-check.sh
 
+# Run the hosted DataHub/ADBC BigQuery cell after starting its DataHub and Keycloak tiers.
+# CI starts both tiers through the matching Nix app; this local recipe keeps the selector explicit.
+e2e-datahub-adbc *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "e2e-datahub-adbc: scope sutura-cli - one served DataHub, Keycloak and BigQuery cell."
+    echo "e2e-datahub-adbc: this is NOT a gate. Run \`just test\` for the workspace suite."
+    cargo nextest run -p sutura-cli --all-features --run-ignored only \
+      -E 'test(served_datahub_metric_executes_through_adbc_bigquery)' {{ args }}
+
 # The finishing sequence, over the committed branch diff. Needs a clean tree.
 ship-check:
     devenv shell ship-check

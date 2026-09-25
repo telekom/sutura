@@ -379,6 +379,22 @@ const JSON_QUOTE_DENORMALS: &str = "output_format_json_quote_denormals";
 /// branch no venue here produces.
 const JSON_QUOTE_64BIT_INTEGERS: &str = "output_format_json_quote_64bit_integers";
 
+/// The setting that makes a `Decimal` answer as quoted text rather than as a JSON number.
+///
+/// A bare JSON number is read through `f64`, so a value past 2^53 arrives rounded and the
+/// column's trailing zeros are lost; quoted text hands [`crate::decimal_value`] the server's own
+/// digits.
+const JSON_QUOTE_DECIMALS: &str = "output_format_json_quote_decimals";
+
+/// The setting that keeps a `Decimal`'s trailing zeros in that quoted text.
+///
+/// The server otherwise drops them, so a column declared `Decimal(10, 4)` answers `12.45` where
+/// its scale promises `12.4500` - the exact text this adapter keeps in a text cell.
+const DECIMAL_TRAILING_ZEROS: &str = "output_format_decimal_trailing_zeros";
+
+/// The generated sum tuple has one `Dynamic` field with one concrete numeric type per query.
+const ALLOW_DYNAMIC_ORDER_BY: &str = "allow_suspicious_types_in_order_by";
+
 /// The setting that decides what the server does when `max_execution_time` runs out: `throw`
 /// answers `Code: 159`; `break` answers HTTP 200 with the rows read so far - measured, a cleanly
 /// terminated and silently truncated result. The server default is `throw`, but it is an ordinary
@@ -392,6 +408,10 @@ const TIMEOUT_OVERFLOW_MODE: &str = "timeout_overflow_mode";
 /// settings ARE part of this adapter's contract with the server - [`JOIN_USE_NULLS`] and
 /// [`TIMEOUT_OVERFLOW_MODE`] decide what the rows say - and a contract written inline is one no
 /// cell can read back.
+///
+/// The two `Decimal` settings join the contract for the same reason in a different shape: as a
+/// bare JSON number a `Decimal` is read through `f64` and loses precision and its trailing zeros,
+/// so the request asks for the exact quoted text with its full scale.
 ///
 /// **What holds *every* request, and what does not.** The cells below hold what this function
 /// returns. `-D dead-code` refuses a `run` that stops calling it; it does NOT refuse a `run` that
@@ -407,6 +427,9 @@ fn request_settings(deadline: Deadline, now: Instant) -> Vec<(&'static str, Stri
         (JOIN_USE_NULLS, String::from("1")),
         (JSON_QUOTE_DENORMALS, String::from("1")),
         (JSON_QUOTE_64BIT_INTEGERS, String::from("1")),
+        (JSON_QUOTE_DECIMALS, String::from("1")),
+        (DECIMAL_TRAILING_ZEROS, String::from("1")),
+        (ALLOW_DYNAMIC_ORDER_BY, String::from("1")),
         (TIMEOUT_OVERFLOW_MODE, String::from("throw")),
     ];
     if let Some(seconds) = crate::deadline::max_execution_time_seconds(deadline, now) {
@@ -538,6 +561,9 @@ mod tests {
                 (JOIN_USE_NULLS, String::from("1")),
                 (JSON_QUOTE_DENORMALS, String::from("1")),
                 (JSON_QUOTE_64BIT_INTEGERS, String::from("1")),
+                (JSON_QUOTE_DECIMALS, String::from("1")),
+                (DECIMAL_TRAILING_ZEROS, String::from("1")),
+                (ALLOW_DYNAMIC_ORDER_BY, String::from("1")),
                 ("timeout_overflow_mode", String::from("throw"))
             ]
         );
@@ -561,6 +587,19 @@ mod tests {
         let settings = request_settings(deadline, now);
         assert!(
             settings.contains(&("output_format_json_quote_denormals", String::from("1"))),
+            "the request carried {settings:?}"
+        );
+    }
+
+    #[test]
+    fn every_request_asks_for_a_decimal_as_exact_quoted_text_with_its_full_scale() {
+        // As a bare JSON number a `Decimal` is read through `f64` and loses precision and its
+        // trailing zeros, so the request pins the quoted-text form with the declared scale.
+        let (deadline, now) = deadline_of(30);
+        let settings = request_settings(deadline, now);
+        assert!(
+            settings.contains(&("output_format_json_quote_decimals", String::from("1")))
+                && settings.contains(&("output_format_decimal_trailing_zeros", String::from("1"))),
             "the request carried {settings:?}"
         );
     }

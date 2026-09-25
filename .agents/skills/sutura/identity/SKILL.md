@@ -51,19 +51,27 @@ proof of impersonation.
   credential while provenance reported the answer as impersonated.
 - **Recording is not a control**, and the field's own documentation says so: it reaches a caller
   after the rows did. sutura retains nothing, so a record is worth what the deployment's sink is
-  worth. **And *disclose instead of refuse* is not the third option it reads as**: `ToolOutcome` has
-  two variants, both transports serialize `executed_as` and `rows` in one body per call, and there
-  is no streaming and no second message - so the only outcome that reaches a caller without rows is a
-  `Refusal`. That is why a federated answer whose legs decide identity differently is refused rather
-  than labelled (`ExecutedAs::uniform`, and the `UniformlyExecuted` that
-  `PinnedDefinitions::provenance` takes), and why the per-leg record still ships beside it: the
-  record documents a disclosure that happened, which is a different job.
+  worth. `ToolOutcome` has two variants, both transports serialize `executed_as` and `rows` in one
+  body per call, and there is no streaming and no second message - so the only outcome that reaches a
+  caller without rows is a `Refusal`. **A federated answer whose legs decide identity differently IS
+  disclosed rather than refused since `docs/adr/0040`, and that does not make the disclosure a
+  control.** The refusal that stood there (`ExecutedAs::uniform` and the `UniformlyExecuted` that
+  `PinnedDefinitions::provenance` took) is deleted because BigQuery is the only impersonating adapter,
+  so refusing the mix prevented BigQuery from federating with a shared-posture adapter. The
+  arithmetic it named is unchanged -
+  rows a shared identity may see plus rows the asker may see is a total no identity is entitled to -
+  and what answers for it is the BOOT acknowledgement each source's own entry carries, refused by
+  `Settings::refusals` before a listener binds. Written as: *a mixed answer does span two
+  authorization domains, an operator declared each one in writing on its own entry before this
+  process started, and the answer names which leg came from which* - not *the operator opted in, so
+  it is fine*. **And one budget over the two domains:** the spend charge sums both legs against one
+  subject key whichever leg ran as whom.
 - **`SourcePosture` must never reach a `RefusalReason`.** It and `AcknowledgementReason` both derive
   `Serialize`, so a posture value in a refusal publishes the operator's own acknowledgement prose to
   every caller, log and agent context. The refusal carries the LABELS off `SourcePosture::NAMES`.
   Same reason: **compare the posture VARIANT and never the value** - the acknowledgement resolves per
   source, so two ordinary shared legs are two unequal values and one posture, and a `!=` would refuse
-  the only federating shape that ships.
+  a valid shared-posture federation.
 - **`docs/adr/0008` part 6's expiry FLOOR is not implemented, and nothing replaces it.** *Is there
   enough life left for what this query may take* lived in `WorkloadIdentityBroker::with_floor`, which
   was deleted with that broker (`docs/adr/0018`, eighth amendment) - and it had **already been
