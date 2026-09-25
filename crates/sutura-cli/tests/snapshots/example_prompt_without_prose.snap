@@ -22,10 +22,10 @@ the question and not a fault to work around.
    dimensions and permitted values this deployment will answer for. **Do not skip this because the
    question looks simple.** The metric list in this document was rendered from one snapshot; the
    deployment is the authority on which snapshot it is serving now.
-2. Choose exactly ONE metric by name. If the user's question needs two metrics, ask two questions
-   and combine the answers yourself; there is no way to ask for two at once. If no metric means what
-   they asked for, say that plainly and name the closest one rather than answering with a different
-   metric under their words.
+2. Choose the metric or metrics by name. Several are answered together only when every one shares a
+   model, a time column, a grain AND every dimension listed below; otherwise ask separately. If no
+   metric means what they asked for, say that plainly and name the closest one rather than answering
+   with a different metric under their words.
 3. Choose a grain the metric lists, and a period with BOTH ends given as dates. There is no
    open-ended period and no default period: a question with one end missing cannot be represented at
    all.
@@ -64,25 +64,29 @@ Every reason you can be given, and what to do about each:
   plural, or a name you remember from another deployment: the list is the whole of what exists.
 - **metrics_span_different_models** - two named metrics do not share a model or a time column.
   Ask about each metric separately - one at a time executes.
-- **multi_metric_not_executable** - every metric agreed, but this build runs only one.
-  Ask about each metric separately - a capability gap, not the question.
+- **too_many_metrics** - more metrics than one question may carry.
+  Ask two narrower questions instead.
+- **duplicate_metric_name** - the same metric was sent twice in one question.
+  Send it once - refused rather than de-duplicated.
+- **multi_metric_federation_not_executable** - this build does not federate several metrics, and the
+  question reached a remote dimension.
+  Ask about each metric separately.
+- **multi_metric_top_not_executable** - `top` names no metric to rank by, and more than one was
+  asked.
+  Ask about one metric with `top`, or ask about several with no `top`.
 - **grain_not_supported** - the metric exists and does not declare that time resolution.
-  Ask at a grain the metric lists. A finer grain is not a narrower version of the same question - it
-  is a number nobody certified, so it is refused rather than approximated.
+  Ask at a grain the metric lists - a finer grain is a number nobody certified.
 - **dimension_not_permitted** - the metric does not declare that dimension.
-  Use one of the dimensions listed under that metric - do not substitute a similar-sounding name for
-  one it did not declare.
-- **dimension_not_filterable** - the dimension can be grouped by and not filtered, because the
-  definitions declare no set of values for it.
-  Drop the filter, group by the dimension instead, and read the row you wanted out of the result.
+  Use one of the dimensions listed under that metric.
+- **dimension_not_filterable** - the dimension can be grouped by and not filtered - it declares no
+  value list.
+  Drop the filter and group by the dimension instead.
 - **dimension_value_not_allowed** - the value is not one the definitions declare for that dimension.
-  Use a value from that dimension's list below. The refusal does not repeat your value back to you,
-  on purpose, so compare against the list rather than expecting a correction.
+  Use a value from that dimension's list below - the refusal will not repeat yours back.
 - **duplicate_dimension** - the same dimension was sent twice in one question.
-  Send it once - refused rather than de-duplicated, since a caller sending it twice believed
-  something about the result that is not true.
+  Send it once - refused rather than de-duplicated.
 - **too_many_dimensions** - more group-by keys than one question may carry.
-  Ask a narrower question, or ask two questions. Do not resend the same list.
+  Ask a narrower question, or ask two questions.
 - **result_too_large** - the answer was too much data to certify - more rows than the cap, more than
   the data system would return at once, or more bytes than this deployment will encode into a
   response - and it was refused rather than cut short.
@@ -97,18 +101,16 @@ Every reason you can be given, and what to do about each:
   is who can say whether it moves, so report it there if it is consistently too small rather than
   retrying past it.
 - **time_range_too_long** - the period asked about is longer than one question may span.
-  Split it into consecutive shorter periods and ask about each. The refusal carries both day counts,
-  so the split can be computed rather than guessed.
+  Split it into consecutive shorter periods and ask about each - the refusal carries both day
+  counts.
 - **resources_exhausted** - answering would have needed more working memory than this deployment
-  allows, so it was refused rather than allowed to exhaust the process.
-  Narrow the period, drop a dimension, or add a filter, and ask again. Retrying the same question
-  returns the same refusal: the ceiling is a configured number, not a passing condition, so this is
-  not an outage to wait out.
+  allows.
+  Narrow the period, drop a dimension, or add a filter, and ask again. Retrying unchanged returns
+  the same refusal - the ceiling is a configured number, not an outage.
 - **deadline_exceeded** - this deployment stopped the question after its configured time budget,
   rather than let it keep running.
-  Narrow the period, drop a dimension, or add a filter, and ask again. Retrying the same question
-  unchanged returns the same refusal: the budget is a configured number, not a passing condition, so
-  this is not an outage to wait out.
+  Narrow the period, drop a dimension, or add a filter, and ask again. Retrying unchanged returns
+  the same refusal - the budget is a configured number, not an outage.
 - **budget_exhausted** - the person you are acting for has spent this deployment's per-replica byte
   ceiling for the current window.
   Usually, do not narrow the question: the ceiling is about how much has already been spent, not
@@ -118,21 +120,19 @@ Every reason you can be given, and what to do about each:
   narrowing the question is the only remedy.
 - **plan_spans_too_many_sources** - answering would need to read from more data systems than this
   deployment serves (two at most).
-  Nothing you can change. Report it to a person: it is a fact about how the metric is defined, not
-  about how you asked. Do not retry and do not try a different dimension in the hope of avoiding it.
+  Nothing you can change. Report it to a person - it is a fact about how the metric is defined, and
+  retrying or trying a different dimension will not avoid it.
 - **federation_not_executable** - this deployment has no adapter that can execute one half of a
   question spanning two data systems, so the question cannot be answered yet.
-  Nothing you can change by re-asking, and do not retry it as if it were an outage: this is not a
-  data system being down. Ask the same metric without the dimension on the second data system, or
-  report it to a person.
+  Not a data system being down, so do not retry as if it were. Ask the same metric without the
+  dimension on the second data system, or report it to a person.
 - **federation_link_ambiguous** - a remote dimension joins through more than one relationship.
   Nothing you can change. Report it: it is a fact about how the metric is defined.
 - **federation_link_compound** - the crossing relationship declares more than one join key.
   Nothing you can change. Report it: it is a fact about how the relationship is defined.
-- **measure_does_not_federate** - across two data systems this measure cannot be computed and
-  recombined - its aggregate (a distinct count) is not additive the way a sum or an average is.
-  Nothing you can change about the question. Ask the same metric without the dimension that sits on
-  the second data system, or report it to a person.
+- **measure_does_not_federate** - this measure cannot be recombined across two data systems - its
+  aggregate is not additive.
+  Ask the same metric without the dimension on the second data system, or report it.
 - **federated_answer_not_well_formed** - answering this across two data systems hit a division by
   zero, a join key that matched more than one row, or a join key that can never match because the
   two data systems store it as two different types - the same question and the same rows fail the

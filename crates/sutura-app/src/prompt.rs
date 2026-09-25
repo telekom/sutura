@@ -508,10 +508,10 @@ fn workflow(inputs: &PromptInputs<'_>) -> String {
     };
     steps.push(String::from(first));
     steps.push(String::from(
-        "Choose exactly ONE metric by name. If the user's question needs two metrics, ask two \
-         questions and combine the answers yourself; there is no way to ask for two at once. If no \
-         metric means what they asked for, say that plainly and name the closest one rather than \
-         answering with a different metric under their words.",
+        "Choose the metric or metrics by name. Several are answered together only when every one \
+         shares a model, a time column, a grain AND every dimension listed below; otherwise ask \
+         separately. If no metric means what they asked for, say that plainly and name the closest \
+         one rather than answering with a different metric under their words.",
     ));
     steps.push(String::from(
         "Choose a grain the metric lists, and a period with BOTH ends given as dates. There is no \

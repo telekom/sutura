@@ -278,7 +278,7 @@ refused: DimensionValueNotAllowed
   the value is not one the definitions declare for that dimension
   metric: recurring_revenue
   dimension: region
-  remedy: Use a value from that dimension's list below. The refusal does not repeat your value back to you, on purpose, so compare against the list rather than expecting a correction.
+  remedy: Use a value from that dimension's list below - the refusal will not repeat yours back.
 ```
 
 Note what the refusal does not say: the value you asked for. The remedy says outright that it will

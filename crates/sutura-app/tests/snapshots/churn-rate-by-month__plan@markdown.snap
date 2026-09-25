@@ -3,7 +3,24 @@ source: crates/sutura-app/tests/golden/catalogs.rs
 expression: plan
 ---
 source: local
-metric: churn_rate
+measures:
+  - metric: churn_rate
+    label: churn_rate
+    measure:
+      ratio:
+        numerator:
+          count_if:
+            column:
+              table: fct_subscription_monthly
+              column: churned_in_month
+        denominator:
+          aggregate:
+            aggregate: count_distinct
+            column:
+              table: fct_subscription_monthly
+              column: subscription_key
+        zero_denominator: yields_null
+    guard: []
 table: fct_subscription_monthly
 joins: []
 bucket:
@@ -13,21 +30,6 @@ bucket:
     table: fct_subscription_monthly
     column: month
 keys: []
-measure:
-  ratio:
-    numerator:
-      count_if:
-        column:
-          table: fct_subscription_monthly
-          column: churned_in_month
-    denominator:
-      aggregate:
-        aggregate: count_distinct
-        column:
-          table: fct_subscription_monthly
-          column: subscription_key
-    zero_denominator: yields_null
-measure_label: churn_rate
 filters:
   - origin: definition
     predicate:

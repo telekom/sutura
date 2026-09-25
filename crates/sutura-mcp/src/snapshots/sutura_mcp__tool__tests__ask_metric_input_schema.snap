@@ -196,10 +196,11 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
       "type": "string"
     },
     "metrics": {
-      "description": "The metrics to ask about, by the names this catalog defines them under - for example\n`[\"revenue\"]`. Naming more than one is accepted only when every one shares a model, a time\ncolumn, a grain and every dimension listed below (`github.com/telekom/sutura#968`), and\neven then this deployment executes just one metric at a time today, so a set of more than\none is always refused - ask about each metric separately.",
+      "description": "The metrics to ask about, by the names this catalog defines them under - for example\n`[\"revenue\"]`. A set of several is answered as one grouped statement with one column per\nmetric WHEN every one shares a model, a time column, a grain and every dimension listed\nbelow (`github.com/telekom/sutura#968`); otherwise ask about each separately. More than\n[`MAX_METRICS`], or the same name repeated, is refused.",
       "items": {
         "type": "string"
       },
+      "maxItems": 8,
       "minItems": 1,
       "type": "array"
     },

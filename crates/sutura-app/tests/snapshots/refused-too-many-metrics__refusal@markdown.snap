@@ -2,5 +2,6 @@
 source: crates/sutura-app/tests/golden/catalogs.rs
 expression: reason
 ---
-MultiMetricNotExecutable:
-  requested: 2
+TooManyMetrics:
+  requested: 9
+  limit: 8

@@ -30,9 +30,10 @@ use std::collections::BTreeSet;
 
 use sutura_domain::measure::Measure;
 use sutura_domain::model::{DimensionName, MetricName, ModelName, SourceName, TableName};
+use sutura_domain::nonempty::NonEmpty;
 use sutura_domain::plan::{
     FederatedPlan, FederatedPlanError, IncoherentBindings, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey,
-    PlanPredicate, PredicateOrigin, QueryPlan, ResultLabel, StatementTables, plan_measure, plan_required_filter,
+    PlanPredicate, PlannedMeasure, PredicateOrigin, QueryPlan, ResultLabel, StatementTables, plan_measure, plan_required_filter,
 };
 use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::ParamValue;
@@ -163,15 +164,26 @@ impl From<RefusalReason> for PlanError {
 /// metric's data system after its first hop cannot be rendered by either plan shape, and neither
 /// shape would notice - see [`PlanError::ChainLeavesItsSource`].
 pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
-    // `resolve` has already checked a multi-metric question exactly as it checks a single one -
-    // every metric's grain, every dimension against every metric, every filter value against
-    // every metric's own allowlist. What it has NOT done is decide how more than one metric's
-    // measure becomes one statement's select list, which this stage does not do yet. See
-    // `RefusalReason::MultiMetricNotExecutable`'s own doc comment for the boundary.
-    if resolution.metrics.len() > 1 {
-        return Err(PlanError::Refused(RefusalReason::MultiMetricNotExecutable {
-            requested: resolution.metrics.len(),
-        }));
+    // Every metric has now resolved exactly as one was checked - every one's grain, every
+    // dimension against every metric, every filter value against every metric's own allowlist -
+    // and this stage turns the whole set into one grouped statement with one certified column per
+    // metric. The mono path (`mono_plan`) builds one `PlannedMeasure` per metric, each guarded by
+    // its own required filters so none of them leaks into another's column. Because the metrics all
+    // share a model, a time column and a grain (or `MetricsSpanDifferentModels` refused them
+    // already), they share one data system and a multi-metric question never federates.
+    //
+    // The checks below gate on the FIRST metric's shape and dispatch on its source topology; they
+    // are the same facts every named metric shares, so gating on the first is gating on the set.
+    // No authored-SQL metric can be part of a question this plan shape carries: the plan holds no
+    // SQL. Checked over every named metric, so a multi-metric question naming one authored-SQL
+    // metric beside ordinary ones is refused by name rather than silently dropped from the select
+    // list. `measure` stays the first metric's, used by the single-metric and federated dispatch.
+    for named in &resolution.metrics {
+        if named.measure().is_none() {
+            return Err(PlanError::AuthoredSqlNotPlanned {
+                metric: named.name().clone(),
+            });
+        }
     }
     let Some(measure) = resolution.metric.measure() else {
         return Err(PlanError::AuthoredSqlNotPlanned {
@@ -181,9 +193,9 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
     // `telekom/sutura#780`: neither plan shape builds a second FACT leg, so a term naming a model
     // other than the metric's own is refused here rather than resolved against the metric's own
     // table under a certified name - the catalog already proved the reference, not the plan shape.
-    if let Some(model) = cross_model_term(resolution, measure) {
+    if let Some((cross_metric, model)) = cross_model_term(resolution) {
         return Err(PlanError::Refused(RefusalReason::CrossModelRatioNotExecutable {
-            metric: resolution.metric.name().clone(),
+            metric: cross_metric.clone(),
             model: model.clone(),
         }));
     }
@@ -201,6 +213,17 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
         .filter_map(|dim| dim.join.as_ref().and_then(|hops| hops.last()).map(|hop| hop.model.source()))
         .collect();
 
+    // A multi-metric question never federates - `mono_plan`'s own comment argues why the metrics
+    // sharing a model puts them on one data system - but `federated_plan` below reads only
+    // `resolution.metric` (the first named metric), so without this check a multi-metric question
+    // that also reaches a remote dimension would silently plan as a federated single-metric answer
+    // and drop every metric but the first. Checked here, before dispatch, naming every metric asked.
+    if resolution.metrics.len() > 1 && !remote.is_empty() {
+        return Err(PlanError::Refused(RefusalReason::MultiMetricFederationNotExecutable {
+            metrics: resolution.metrics.iter().map(|m| m.name().clone()).collect(),
+        }));
+    }
+
     match remote.len() {
         0 => Ok(Plan::Mono(Box::new(mono_plan(resolution, measure)?))),
         1 => Ok(Plan::Federated(Box::new(federated_plan(resolution, measure)?))),
@@ -212,19 +235,35 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
     }
 }
 
-/// The first term whose `model` names one other than the metric's own, if the measure has one.
+/// The first metric (and the first term within it) whose `model` names one other than that metric's
+/// own, if any metric's measure has one.
 ///
 /// `None` for every measure written before `telekom/sutura#780`'s vocabulary existed, and for a
 /// term that names the metric's own model explicitly - the two are the same question to a plan,
-/// because both resolve their column against the metric's own table.
-fn cross_model_term<'a>(resolution: &Resolution<'a>, measure: &'a Measure) -> Option<&'a ModelName> {
-    let own = resolution.metric.model();
-    measure.models().into_iter().flatten().find(|model| *model != own)
+/// because both resolve their column against the metric's own table. Scans every named metric,
+/// because a multi-metric question can name one metric with a cross-model ratio beside others
+/// without one.
+fn cross_model_term<'a>(resolution: &Resolution<'a>) -> Option<(&'a MetricName, &'a ModelName)> {
+    resolution.metrics.iter().find_map(|metric| {
+        let own = metric.model();
+        metric
+            .measure()?
+            .models()
+            .into_iter()
+            .flatten()
+            .find(|model| *model != own)
+            .map(|model| (metric.name(), model))
+    })
 }
 
-/// A question confined to one data system: exactly the plan this module already built.
+/// A question confined to one data system.
+///
+/// One grouped statement, with one certified column per named metric. A single-metric question is
+/// exactly the plan this module already built - the metric's required filters stay in the shared
+/// `WHERE`, where there is only one column for them to constrain. A multi-metric question folds
+/// each metric's OWN required filters into that metric's conditional aggregate (its guard), so one
+/// metric's filter cannot prune a row another metric's column must count.
 fn mono_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<QueryPlan, PlanError> {
-    let metric = resolution.metric;
     let model = resolution.model;
     // Two readings of "the table", and both are used below. `own_path` is what the `FROM` names -
     // dataset and project included, where the model declares them. `own_table` is the bare name, which
@@ -237,18 +276,15 @@ fn mono_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<QueryPlan,
     // only for a question with no remote dimension at all, so no chain stops short here.
     let joins = chain_joins(resolution, own_table, model.source());
 
-    let time_column = PlanColumn::new(own_table.clone(), metric.time_column().clone());
+    let time_column = PlanColumn::new(own_table.clone(), resolution.metric.time_column().clone());
 
     let requested: Vec<&ResolvedFilter> = resolution.filters.iter().collect();
-    let bindings = predicates_and_params(resolution, &requested, own_table, &time_column)?;
 
     let keys: Vec<PlanKey> = resolution
         .keys
         .iter()
         .map(|key| PlanKey::new(ResultLabel::dimension(key.dimension.name()), column_of(key, own_table)))
         .collect();
-
-    let measure = plan_measure(closed, |column| PlanColumn::new(own_table.clone(), column.clone()));
 
     // **Where the statement's tables stop being a list and become a checked set.** Two tables whose
     // paths end in the same name render under one implicit alias, so a column qualified by it names
@@ -262,17 +298,41 @@ fn mono_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<QueryPlan,
             table: ambiguous.alias().clone(),
         })?;
 
-    let plan = QueryPlan::new(
-        model.source().clone(),
-        metric.name().clone(),
-        tables,
-        PlanBucket::new(ResultLabel::bucket(), resolution.grain, time_column),
-        keys,
-        measure,
-        ResultLabel::measure(metric.name()),
-        bindings,
-        resolution.range,
-    );
+    let bucket = PlanBucket::new(ResultLabel::bucket(), resolution.grain, time_column.clone());
+
+    let plan = if resolution.metrics.len() == 1 {
+        // Single metric: required filters in the shared WHERE, exactly as before - there is one
+        // column for them to constrain, so nothing can leak.
+        let bindings = predicates_and_params(resolution, &requested, own_table, &time_column)?;
+        let metric = resolution.metric;
+        let measure = plan_measure(closed, |column| PlanColumn::new(own_table.clone(), column.clone()));
+        QueryPlan::new(
+            model.source().clone(),
+            metric.name().clone(),
+            tables,
+            bucket,
+            keys,
+            measure,
+            ResultLabel::measure(metric.name()),
+            bindings,
+            resolution.range,
+        )
+    } else {
+        // Multi metric: one column per metric, each guarded by that metric's own required filters
+        // so none of them restricts another's column. The single shared WHERE carries only the
+        // range and the question's own filters.
+        let (measures, bindings) = guards_and_shared(resolution, &requested, own_table, &time_column)?;
+        QueryPlan::with_measures(
+            model.source().clone(),
+            measures,
+            tables,
+            bucket,
+            keys,
+            bindings,
+            resolution.range,
+        )
+    };
+
     Ok(match resolution.top {
         Some(top) => plan.with_top(top),
         None => plan,
@@ -340,6 +400,101 @@ fn predicates_and_params(
     PlanBindings::parse(filters, params)
 }
 
+/// Multi-metric: one [`PlannedMeasure`] per named metric (each guarded by that metric's OWN
+/// required filters) plus the single shared `WHERE` bindings, as one union.
+///
+/// **The parameter order is the statement's text order, guards first.** A metric's guard renders
+/// inside its measure column, which appears in the `SELECT` before any `WHERE` predicate, so on a
+/// positional dialect its placeholders must come before the range and requested ones. Hence every
+/// metric's guard parameters are pushed first, and `predicates_and_params`' shared half (range +
+/// requested, no metric's required filters) is appended after, producing the exact list a renderer
+/// emits. [`sutura_domain::plan::QueryPlan::with_measures`] splits this union back into the shared
+/// tail it stores as `filters` and keeps the guards on their own measures.
+///
+/// Returns a plain `Vec` rather than a [`NonEmpty`], because the caller constructs that when it has
+/// the whole list in hand; that construction happens only in the multi-metric branch, so it never
+/// fails.
+type MeasuresAndBindings = (NonEmpty<PlannedMeasure>, PlanBindings);
+
+fn guards_and_shared(
+    resolution: &Resolution<'_>,
+    requested: &[&ResolvedFilter<'_>],
+    own_table: &TableName,
+    time_column: &PlanColumn,
+) -> Result<MeasuresAndBindings, PlanError> {
+    let mut measures: Vec<PlannedMeasure> = Vec::with_capacity(resolution.metrics.len());
+    let mut params: Vec<ParamValue> = Vec::new();
+    // The whole statement's union of WHERE-or-guard filters. Guards (the measure columns) come
+    // first, in the order the metrics were asked; range then requested follow as the shared tail.
+    let mut all_filters: Vec<PlanFilter> = Vec::new();
+
+    for metric in &resolution.metrics {
+        // `plan()` has already refused any authored-SQL metric (over every named one), so every
+        // measure here resolves; the `ok_or_else` arm is the defensive spelling of a fact the caller
+        // established, kept as an error rather than a panic because a catalog file must not be able
+        // to reach one.
+        let measure = metric
+            .measure()
+            .ok_or_else(|| PlanError::AuthoredSqlNotPlanned {
+                metric: metric.name().clone(),
+            })
+            .map(|measure| plan_measure(measure, |column| PlanColumn::new(own_table.clone(), column.clone())))?;
+        // This metric's own required filters, kept both as the guard the measure renders against
+        // and as the filter head the union validates.
+        let mut guard: Vec<PlanPredicate> = Vec::new();
+        for required in metric.required_filters() {
+            let column = PlanColumn::new(own_table.clone(), required.column().clone());
+            let predicate = plan_required_filter(required, column, |value| {
+                params.push(ParamValue::Text(value));
+                params.len().saturating_sub(1)
+            });
+            guard.push(predicate.clone());
+            all_filters.push(PlanFilter::new(PredicateOrigin::Definition, predicate));
+        }
+        measures.push(PlannedMeasure::new(
+            metric.name().clone(),
+            ResultLabel::measure(metric.name()),
+            measure,
+            guard,
+        ));
+    }
+
+    // The shared tail: the two range bounds, then the question's own filters. None of the metrics'
+    // required filters appear here - each is already a guard above, and putting it in the WHERE
+    // would let it prune a row a sibling metric's column must count.
+    let bind = |params: &mut Vec<ParamValue>, value: ParamValue| {
+        params.push(value);
+        params.len().saturating_sub(1)
+    };
+    let start = bind(&mut params, ParamValue::Date(resolution.range.start()));
+    all_filters.push(PlanFilter::new(
+        PredicateOrigin::Definition,
+        PlanPredicate::AtOrAfter {
+            column: time_column.clone(),
+            param: start,
+        },
+    ));
+    let end = bind(&mut params, ParamValue::Date(resolution.range.end()));
+    all_filters.push(PlanFilter::new(
+        PredicateOrigin::Definition,
+        PlanPredicate::Before {
+            column: time_column.clone(),
+            param: end,
+        },
+    ));
+    for filter in requested {
+        let column = column_of(&filter.dimension, own_table);
+        let predicate = requested_predicate(filter, column, &mut params);
+        all_filters.push(PlanFilter::new(PredicateOrigin::Requested, predicate));
+    }
+
+    // `resolution.metrics` is what `Query.metrics()` (a `MetricNames`, i.e. a `NonEmpty`) resolved
+    // to, so it is never empty and `measures` - one entry per metric, built above - is never empty
+    // either. `remove(0)` moves the head out to seed the `NonEmpty` without cloning and, on the
+    // empty case that cannot happen here, would panic rather than silently mis-build.
+    let head = measures.remove(0);
+    Ok((NonEmpty::of(head, measures), PlanBindings::parse(all_filters, params)?))
+}
 /// One requested filter's predicate, and the parameter(s) it binds - one for `Eq`, one per value
 /// for `In`/`NotIn`, each pushed in placeholder order so [`PlanBindings::parse`] sees them
 /// consecutive.

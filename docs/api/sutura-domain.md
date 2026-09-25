@@ -2092,6 +2092,10 @@ serialize says so instead of surfacing as "the catalog is broken".
 
 - `Canonicalize` - The definitions could not be written into their canonical form.
 - `NotADigest` - The computed hash is not digest-shaped, which means the hashing changed and not the catalog.
+- `MetricMissing` - The named metric is not in this set of definitions, so it has no canonical form to hash.
+
+  Reachable only through `DefinitionDigest::of_metric`, which is given the metric name by its
+  caller rather than walking a complete set the way `DefinitionDigest::of` does.
 
 #### Implements
 
@@ -5327,6 +5331,36 @@ Why a version label was rejected.
 
 `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+### `struct MetricDigest`
+
+```rust
+pub struct MetricDigest
+```
+
+One metric and the digest of that one metric's canonical form.
+
+The element of `Provenance::metric_digests`: which metric an answer measured, and the digest
+certifying that metric's own canonical form. The metric name and its digest form one value so
+the pair cannot drift apart as it travels.
+
+#### Methods
+
+```rust
+pub const fn digest(&self) -> &DefinitionDigest
+```
+
+The digest of that metric's canonical form.
+
+```rust
+pub const fn metric(&self) -> &MetricName
+```
+
+The metric this entry certifies.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
 ### `struct Provenance`
 
 ```rust
@@ -5346,7 +5380,10 @@ posture per leg is *deployment configuration* - the same bundle may be served by
 impersonates and one that does not - so hashing it in would make one catalog produce two digests
 in two deployments. That is why `crate::source::ExecutedAs` is a field here and not an input to
 `PinnedDefinitions::pin`, and it is the opposite of the knowledge declaration, which *is* under
-the digest because it is content a catalog author wrote.
+the digest because it is content a catalog author wrote. The per-metric digests in
+`Provenance::metric_digests` are content too, so they sit under the same "numbered certifies
+authored content" heading as the version and bundle digest rather than beside the execution
+record.
 
 **Recording is not a control.** Provenance is read by whoever holds the answer, after the rows
 were served, so it cannot prevent a disclosure and does not attempt to. It makes one attributable
@@ -5369,6 +5406,12 @@ Read off the posture the **adapter was handed**, never off a settings tree - see
 `crate::source`. Non-empty, because `ExecutedAs` has no empty form. **Not uniform**: a
 federated answer whose legs decide identity differently is answered and names both postures
 here, one entry per source (`docs/adr/0040`).
+
+```rust
+pub fn metric_digests(&self) -> &[MetricDigest]
+```
+
+One digest per metric this answer measured, in query order.
 
 ```rust
 pub const fn version(&self) -> &DefinitionVersion
@@ -5568,6 +5611,20 @@ fn _mixed(pinned: &PinnedDefinitions, both_legs: ExecutedAs) -> Provenance {
     pinned.provenance(both_legs)
 }
 ```
+
+```rust
+pub fn provenance_for<'a>(&self, executed_as: ExecutedAs, metrics: impl IntoIterator<Item>) -> Result<Provenance, NotDigestible>
+```
+
+The provenance to attach to one answer formed over the named metrics: the bundle digest
+plus one per-metric digest per name, in request order.
+
+The companion to `Self::provenance` for a set of several metrics. It also takes the
+execution record, and on top of that the question's metric order; the per-metric digests
+are computed here, from the definitions this bundle actually holds, so a caller can no more
+choose its own per-metric digest than its own bundle digest.
+
+A metric the bundle does not define refuses, and cannot be hashed.
 
 ```rust
 pub const fn version(&self) -> &DefinitionVersion
@@ -6605,6 +6662,61 @@ comes from and the catalog does not have to.
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
+### `struct PlannedMeasure`
+
+```rust
+pub struct PlannedMeasure
+```
+
+One metric's share of a query's select list, and its own definitional guard.
+
+A multi-metric question answers one grouped statement with one certified column per metric.
+Each column is that metric's measure, computed only over the rows its OWN required filters
+admit - and that restriction is folded into the measure's conditional aggregation rather than
+into the shared `WHERE`, because a `WHERE` applies to every column at once and would let one
+`PlanPredicate`s - its own required filters - that renderers fold into the aggregate, so
+none of them leaks into another metric's column. `QueryPlan::measures` holds one of these
+per named metric, in the order the question gave them.
+
+The label is a `ResultLabel`, so a metric name cannot arrive here as text - the same carrier
+argument `telekom/sutura#337` makes for a dimension key.
+
+#### Methods
+
+```rust
+pub fn guard(&self) -> &[PlanPredicate]
+```
+
+This metric's own definitional guard predicates, in render order.
+
+```rust
+pub fn label(&self) -> &str
+```
+
+```rust
+pub const fn measure(&self) -> &PlanMeasure
+```
+
+```rust
+pub const fn metric(&self) -> &MetricName
+```
+
+```rust
+pub const fn new(metric: MetricName, label: ResultLabel, measure: PlanMeasure, guard: Vec<PlanPredicate>) -> Self
+```
+
+One metric's measure, labelled and bound by its own definitional guard.
+
+`guard` holds this metric's own REQUIRED filters - the predicates that say what this metric
+counts. The shared time range, being the same for every metric, stays in the plan's shared
+`WHERE`; only the per-metric required filters are folded into the conditional aggregate, so
+one metric's filter cannot constrain another's column. A metric with no required filters
+carries an empty guard and computes over every row in range.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
 ### `enum PlanPredicate`
 
 ```rust
@@ -6717,10 +6829,14 @@ pub const fn bucket(&self) -> &PlanBucket
 pub fn definitional_params(&self) -> Vec<&ParamValue>
 ```
 
-Every parameter a definitional predicate binds.
+Every parameter a definitional predicate binds - the shared `WHERE`'s AND, for a
+multi-metric plan, every measure's own guard.
 
 Used by the golden that asserts a required filter is bound rather than written into the
-statement.
+statement. A single-metric plan's required filters are the shared `WHERE` half alone,
+exactly as before this method's second half existed; a multi-metric plan's are folded into
+each measure's guard instead (`PlannedMeasure::guard`) and would otherwise never be checked
+- the same "a shorter list passes" gap this method's own history already records once.
 
 ```rust
 pub fn filters(&self) -> &[PlanFilter]
@@ -6745,15 +6861,7 @@ The cap itself, which is what a row count is compared against. Read it with
 useful without the other.
 
 ```rust
-pub const fn measure(&self) -> &PlanMeasure
-```
-
-```rust
-pub fn measure_label(&self) -> &str
-```
-
-```rust
-pub const fn metric(&self) -> &MetricName
+pub const fn measures(&self) -> &NonEmpty<PlannedMeasure>
 ```
 
 ```rust
@@ -6774,6 +6882,11 @@ exist to be rendered:
   plan holds a predicate that binds a parameter it does not carry, or binds one out of the
   order a positional placeholder gives it. `crate::plan::bindings` argues what each adapter
   does with the incoherent pair, and why the check cannot live on the index.
+
+A single-metric convenience over `Self::with_measures`, so every existing caller (and the
+serialized form of the overwhelmingly common one metric) keeps its shape. The wrapped
+`PlannedMeasure` carries an empty guard - this metric's required filters stay in the shared
+`WHERE`, which is correct when there is exactly one column for them to constrain.
 
 ```rust
 pub fn params(&self) -> &[ParamValue]
@@ -6850,6 +6963,27 @@ pub const fn top(&self) -> Option<Top>
 ```
 
 ```rust
+pub fn with_measures(source: SourceName, measures: NonEmpty<PlannedMeasure>, tables: StatementTables, bucket: PlanBucket, keys: Vec<PlanKey>, bindings: PlanBindings, range: TimeRange) -> Self
+```
+
+One statement's worth of decisions over several metrics.
+
+`Self::new`'s general form: `measures` holds one `PlannedMeasure` per named metric, in
+the order the question gave them. Each metric's own required filters live in that measure's
+guard (folded into its conditional aggregate), so none of them constrains a column that is
+not its own.
+
+**`bindings` carries the whole statement's parameters, guards first.** A metric's guard
+predicates render inside its measure column - which appears in the `SELECT` before the
+`WHERE` - so on a positional dialect their placeholders come before the range and requested
+ones. The caller therefore hands this constructor `PlanBindings` whose filter list is the
+union `[every metric's guards][range, requested]` and whose parameter list matches; this
+constructor validates the union through `PlanBindings::parse` machinery the caller already
+ran, then stores only the shared tail as the plan's `filters` (what a `WHERE` emits) while
+keeping the full `params`. The guard predicates themselves stay on their `PlannedMeasure`s,
+which is where a renderer reads them for the `SELECT`.
+
+```rust
 pub const fn with_top(self, top: Top) -> Self
 ```
 
@@ -6864,11 +6998,36 @@ without it is byte-for-byte one built before this field existed.
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
-### `struct AnchorPlan`
+### `fn plan_measure`
 
 ```rust
-pub struct AnchorPlan<'bundle>
+pub fn plan_measure(measure: &crate::measure::Measure, resolve: impl Fn(&crate::model::ColumnName) -> PlanColumn) -> PlanMeasure
 ```
+
+Restated over plan columns, so an adapter does not need the catalog to know which table a
+measure's column comes from.
+
+Resolves one term at a time rather than one shape at a time, which is why a term added to the
+vocabulary is one arm here instead of one arm per shape.
+
+`resolve` reads only the column, never the term's `model`: a term naming a model other than the
+metric's own is refused before this is called - `sutura_semantic::plan::plan`'s own
+`telekom/sutura#780` check - so every column this function resolves belongs to the same table
+`resolve`'s caller already qualified everything else by.
+
+### `fn plan_required_filter`
+
+```rust
+pub fn plan_required_filter(filter: &crate::measure::RequiredFilter, column: PlanColumn, bind: impl FnOnce(String) -> usize) -> PlanPredicate
+```
+
+A required filter as a plan predicate, binding a parameter when it needs one.
+
+`bind` is called only for the operators that compare against a value, and returns the index it
+was stored at. Passing the binding in rather than returning a value keeps the parameter list in
+one place: the caller owns the order, which is what the placeholder-position contract depends on.
+
+### `use AnchorPlan`
 
 The one thing `Warehouse::verify_anchor` accepts:
 a plan the pinned bundle itself agrees is one of its anchors' own.
@@ -6913,41 +7072,7 @@ module could mint would have to be constructible from `sutura-domain`, which is 
 door one level down. `docs/adr/0008`'s own corrections are the precedent for saying this rather
 than implying more.
 
-#### Methods
-
-```rust
-pub fn of(plan: &'bundle QueryPlan, pinned: &PinnedDefinitions, metric: &MetricName) -> Result<Self, NotAnAnchorsPlan>
-```
-
-Parses a plan as one of `pinned`'s own anchors', reading every fact it compares off the bundle.
-
-Takes the metric's name as well as the bundle, because the bundle holds many anchors and the
-caller is asserting *which* one this plan is of - so the first check is that the plan agrees.
-Everything after that is the bundle's own statement about that metric.
-
-**It does not take a `sutura_app::Validated` bundle, and it cannot:** validating a bundle is
-what this call is part of, so the proof does not exist yet. That is one more reason the type is
-a self-check rather than an authority.
-
-The order of the checks is chosen for the diagnostic rather than for cost - every input is
-already bounded and in memory. Which metric, then what the bundle says about that metric, then
-the two shapes only a question has, then the two values an anchor's own question pins.
-
-```rust
-pub const fn plan(&self) -> &QueryPlan
-```
-
-The plan, for the adapter that has to execute it.
-
-#### Implements
-
-`Debug`
-
-### `enum NotAnAnchorsPlan`
-
-```rust
-pub enum NotAnAnchorsPlan
-```
+### `use NotAnAnchorsPlan`
 
 A plan that is not a declared anchor's own, so the boot path did not compile what it meant to.
 
@@ -6957,60 +7082,6 @@ anchor's question, which is a defect here rather than anything about a caller.
 `Serialize` for `crate::pinned::NotExecutedReason::NotAnAnchor`'s reason: a boot report
 serializes the whole reason tree, and D10 stopped that variant from flattening this into a
 string first.
-
-#### Variants
-
-- `NotThatMetric` - The plan computes a different metric from the one whose anchor it would be checked against.
-- `MetricNotDefined` - The bundle this plan is checked against does not define the metric at all.
-- `DeclaresNoAnchor` - The metric is defined and declares no certified number, so there is no anchor to be a plan of.
-- `Grouped` - The plan groups by something. An anchor is a metric's own number, not a slice of it.
-- `Requested` - The plan carries a predicate a question asked for, which an anchor's plan never does.
-- `NotTheCoarsestGrain` - The plan buckets at a finer grain than the metric's coarsest, so it returns a series.
-
-  **The gap a second review found**, and the reason it is not cosmetic: an anchor certifies one
-  number, and a plan at `Day` grain over the anchor's range comes back as one row per day. The
-  comparison downstream insists on exactly one row, so this arrived as a mismatch that reads like
-  a broken definition - and a plan that returns a series is strictly more than the number the
-  bundle already publishes.
-
-  `coarsest` is an `Option` because a set can be empty, and the empty case is folded in here
-  rather than given a variant of its own: `Definitions::assemble`
-  refuses a metric that declares no grain, so a separate variant would be one no test could
-  provoke - and this crate's rule is that an enum does not carry one of those.
-- `NotTheAnchorsRange` - The plan's range is not the range the anchor's author certified.
-
-#### Implements
-
-`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`, `Serialize`
-
-### `fn plan_measure`
-
-```rust
-pub fn plan_measure(measure: &crate::measure::Measure, resolve: impl Fn(&crate::model::ColumnName) -> PlanColumn) -> PlanMeasure
-```
-
-Restated over plan columns, so an adapter does not need the catalog to know which table a
-measure's column comes from.
-
-Resolves one term at a time rather than one shape at a time, which is why a term added to the
-vocabulary is one arm here instead of one arm per shape.
-
-`resolve` reads only the column, never the term's `model`: a term naming a model other than the
-metric's own is refused before this is called - `sutura_semantic::plan::plan`'s own
-`telekom/sutura#780` check - so every column this function resolves belongs to the same table
-`resolve`'s caller already qualified everything else by.
-
-### `fn plan_required_filter`
-
-```rust
-pub fn plan_required_filter(filter: &crate::measure::RequiredFilter, column: PlanColumn, bind: impl FnOnce(String) -> usize) -> PlanPredicate
-```
-
-A required filter as a plan predicate, binding a parameter when it needs one.
-
-`bind` is called only for the operators that compare against a value, and returns the index it
-was stored at. Passing the binding in rather than returning a value keeps the parameter list in
-one place: the caller owns the order, which is what the placeholder-position contract depends on.
 
 ### `use IncoherentBindings`
 
@@ -9787,16 +9858,20 @@ somebody else's input.
   columns would group by an ambiguous bucket - `sutura_semantic::resolve` compares every
   metric named against the first, so the pair reported is always the first metric and the
   first one that disagreed with it, never a third-party guess at which is "wrong".
-- `MultiMetricNotExecutable` - A question named more than one metric, and every one of them resolved: same model, time column, grain and dimensions.
+- `TooManyMetrics` - More metrics than `MAX_METRICS` one question may name together.
+- `DuplicateMetricName` - The same metric named twice in one question. Refused rather than de-duplicated, the same way a duplicated dimension is: a caller who sent it twice believes something about the result that is not true.
+- `MultiMetricFederationNotExecutable` - A question named more than one metric and also reached a remote dimension.
 
-  **The boundary this build has not moved past yet.** `sutura_semantic::resolve` validates a
-  whole `crate::query::MetricNames` set exactly as it validates one - every metric's grain,
-  every requested dimension against every metric, every filter value against every metric's
-  own allowlist - but the plan stage does not yet decompose more than one metric into one
-  statement's select list, so a fully valid multi-metric question is refused here rather than
-  answered under a shape nothing has certified. `requested` is the count, a number this
-  deployment computed and safe to log - not any of the metric names, which the two refusals
-  above already report where they are the reason.
+  **A multi-metric question never federates.** The combiner links exactly two legs on one
+  column and produces one measure column; there is no shape here for several certified
+  columns arriving through a join. Refused by name, naming every metric asked, rather than
+  silently answered as though only the first metric had been named.
+- `MultiMetricTopNotExecutable` - A question named more than one metric and also asked for `top`.
+
+  **`top` names no metric to rank by**, and the two rendering paths disagree about which
+  measure column it means once there is more than one: this workspace's own wiring, not a
+  caller-narrowable question. Refused by name, naming every metric asked, rather than ranking
+  by whichever measure a given adapter happens to read.
 - `GrainNotSupported` - The metric exists and does not declare that grain. Not a narrower question: a grain the author did not render is a number nobody certified.
 - `DimensionNotPermitted` - The metric does not declare that dimension. A dimension a metric did not declare is a name that does not resolve, not a filter to apply anyway.
 - `DimensionNotFilterable` - The dimension exists but declares no value allowlist, so it can be grouped by and not filtered.
@@ -10271,6 +10346,17 @@ The most dimensions one question may group by.
 A bound for the same reason the time range is bounded: a group-by over every column is a table
 scan with a plausible name, and the cost lands on a shared data system. Four covers the questions
 a person asks and refuses the ones a loop generates.
+
+### `constant MAX_METRICS`
+
+The most metrics one question may name together.
+
+A bound for the same reason the time range and the dimension count are bounded: each
+additional metric is one more certified column the deployment computes for every row it
+already reads, so the cost multiplies the groups rather than the scan. Eight covers the
+questions a person asks - a handful of KPIs over the same break-down - and refuses a loop
+that enumerates a catalog. A set larger than this is the same refusal a caller narrows by
+asking about fewer metrics.
 
 ### `constant MAX_RANGE_DAYS`
 
