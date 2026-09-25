@@ -4294,6 +4294,7 @@ dependencies = [
 name = "sutura-catalog-local"
 version = "0.5.1"
 dependencies = [
+ "rustix 0.38.44",
  "serde",
  "serde_norway",
  "sutura-domain",
@@ -4304,6 +4305,7 @@ dependencies = [
 name = "sutura-catalog-okf"
 version = "0.5.1"
 dependencies = [
+ "rustix 0.38.44",
  "serde",
  "serde_norway",
  "sutura-domain",

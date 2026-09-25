@@ -45,7 +45,6 @@
 mod tests;
 
 use std::collections::BTreeSet;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
@@ -63,8 +62,8 @@ const DOCUMENT_EXTENSIONS: &[&str] = &["yaml", "yml"];
 /// The most documents a catalog root may hold - a startup bound, walk refused as soon as it crosses.
 const MAX_CATALOG_DOCUMENTS: usize = 1_000;
 /// The most bytes a catalog root's documents may sum to - a startup bound, enforced on the READ
-/// itself (each file is opened once, its `metadata()` on that handle checked for size and, before
-/// the read, for being a regular file, and the read passes through `Read::take(remaining + 1)`), so
+/// itself (each file is opened once, `fstat`'d on that handle for being a regular file and for its
+/// size, and the read is done in chunks capped at the bytes the aggregate had left), so
 /// a document that crosses the aggregate bound is refused rather than allocated even if it grows or
 /// is swapped after the walk. Mirrors `sutura-catalog-local`'s `MAX_CATALOG_BYTES` for the same
 /// reason that crate has one: a served catalog directory is operator-mounted, and an unbounded
@@ -231,18 +230,20 @@ impl OkfCatalog {
         let mut models = Vec::new();
         let mut total_bytes: u64 = 0;
         for path in self.documents()? {
-            let mut file = std::fs::File::open(&path).map_err(|cause| OkfCatalogError::Io {
+            // ONE open per descriptor, still, and now one that does not follow a symlink into it
+            // and does not block on what the walk did not see: `O_NOFOLLOW` makes a document
+            // swapped for a symlink a refusal at open, `O_NONBLOCK` makes a swapped FIFO `ENXIO`
+            // rather than a boot that never returns. What the opened handle IS is still checked
+            // on the handle, below.
+            let flags = rustix::fs::OFlags::RDONLY
+                .union(rustix::fs::OFlags::NOFOLLOW)
+                .union(rustix::fs::OFlags::NONBLOCK)
+                .union(rustix::fs::OFlags::CLOEXEC);
+            let fd = rustix::fs::open(&path, flags, rustix::fs::Mode::empty()).map_err(|cause| OkfCatalogError::Open {
                 path: path.clone(),
                 cause,
             })?;
-            // `fstat` on the handle we are about to read from: this is the file actually being
-            // read, not a separately-named path. A non-regular file - a device, or a document
-            // swapped for one after the walk - is refused here rather than read.
-            let metadata = file.metadata().map_err(|cause| OkfCatalogError::Io {
-                path: path.clone(),
-                cause,
-            })?;
-            let ReadDocument { text, consumed } = read_document(&mut file, &metadata, &path, &self.root, total_bytes)?;
+            let ReadDocument { text, consumed } = read_document(&fd, &path, &self.root, total_bytes)?;
             total_bytes += consumed;
             models.push(self.descriptor_to_model(&path, &text)?);
         }
@@ -267,35 +268,37 @@ struct ReadDocument {
 
 /// Reads one descriptor's bytes against the aggregate byte bound.
 ///
-/// Bounded on the OPENED HANDLE rather than a separate path-based `stat`: `declared` is the
-/// `metadata()` (an `fstat`) of the very `reader` about to be read. It is checked for being a
-/// regular file, and its `len()` against the remaining budget is the fast path that refuses a
-/// legitimately-oversized file before anything is read. The read is then capped with
-/// `Read::take(remaining + 1)` and what actually arrived is re-checked, so a file that lies
-/// about its size, or grows between the `fstat` and the read, is refused as
-/// [`OkfCatalogError::TooLarge`] rather than allocated.
+/// Bounded on the OPENED HANDLE: the descriptor is `fstat`'d for being a regular file, its
+/// size against the remaining budget is the fast path that refuses a legitimately-oversized
+/// file before anything is read, and the read itself is done in chunks capped at the bytes
+/// the aggregate had left - so a file that lies about its size, or grows while it is being
+/// read, is refused as [`OkfCatalogError::TooLarge`] rather than allocated.
 ///
-/// This is the whole reach of the bound. The `fstat` refuses a document that is, or resolves
-/// through a symlink to, a NON-REGULAR file such as a device; it does NOT refuse a symlink to a
-/// regular file - [`std::fs::File::open`] follows that, and a document swapped after the walk for
-/// such a symlink is read (still bounded) and parsed - and it never sees a swapped FIFO, whose
-/// open blocks before the `fstat`. `root` is the catalog root, carried only so the `TooLarge`
-/// text can name the catalog as the other variants do.
-fn read_document(
-    mut reader: impl Read,
-    declared: &std::fs::Metadata,
-    path: &Path,
-    root: &Path,
-    total_bytes: u64,
-) -> Result<ReadDocument, OkfCatalogError> {
-    if !declared.is_file() {
+/// The OPEN is the other half, and it is where a document swapped after the walk is caught:
+/// `O_NOFOLLOW` makes a final-component symlink a refusal at open rather than a read of
+/// whatever it pointed at, and `O_NONBLOCK` makes a swapped FIFO `ENXIO` rather than an open
+/// that blocks the boot before the `fstat` runs. What these do NOT refuse is a document
+/// swapped for a regular file at a different path - the walk named a path, and the handle
+/// opened is of whatever that path names now; the bound still holds, on the handle. `root`
+/// is the catalog root, carried only so the `TooLarge` text can name the catalog as the
+/// other variants do.
+fn read_document(fd: impl rustix::fd::AsFd, path: &Path, root: &Path, total_bytes: u64) -> Result<ReadDocument, OkfCatalogError> {
+    // `fstat` on the descriptor we are about to read from: this is the file actually being
+    // read, not a separately-named path. A non-regular file that opens anyway - a device, for
+    // one - is refused here rather than read; a swapped symlink and a swapped FIFO are refused
+    // at the open itself (`O_NOFOLLOW` / `O_NONBLOCK`), before this check runs.
+    let stat = rustix::fs::fstat(fd.as_fd()).map_err(|cause| OkfCatalogError::Open {
+        path: path.to_path_buf(),
+        cause,
+    })?;
+    if rustix::fs::FileType::from_raw_mode(stat.st_mode) != rustix::fs::FileType::RegularFile {
         return Err(OkfCatalogError::NotARegularFile {
             path: path.to_path_buf(),
         });
     }
     let remaining = MAX_CATALOG_BYTES - total_bytes.min(MAX_CATALOG_BYTES);
-    if declared.len() > remaining {
-        let found = total_bytes.saturating_add(declared.len());
+    if stat.st_size.cast_unsigned() > remaining {
+        let found = total_bytes.saturating_add(stat.st_size.cast_unsigned());
         return Err(OkfCatalogError::TooLarge {
             path: root.to_path_buf(),
             document: path.to_path_buf(),
@@ -303,15 +306,45 @@ fn read_document(
             limit: MAX_CATALOG_BYTES,
         });
     }
-    let mut text = String::new();
-    reader
-        .by_ref()
-        .take(remaining.saturating_add(1))
-        .read_to_string(&mut text)
-        .map_err(|cause| OkfCatalogError::Io {
+    // The read is on the descriptor itself, in bounded chunks: a document that grows while it
+    // is being read cannot allocate past the bytes the aggregate had left, in any one chunk.
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 16 * 1024];
+    loop {
+        let n = rustix::io::read(fd.as_fd(), &mut chunk).map_err(|cause| OkfCatalogError::Io {
             path: path.to_path_buf(),
-            cause,
+            cause: cause.into(),
         })?;
+        if n == 0 {
+            break;
+        }
+        if buf.len() as u64 + n as u64 > remaining.saturating_add(1) {
+            let found = total_bytes.saturating_add(remaining.saturating_add(1));
+            return Err(OkfCatalogError::TooLarge {
+                path: root.to_path_buf(),
+                document: path.to_path_buf(),
+                found,
+                limit: MAX_CATALOG_BYTES,
+            });
+        }
+        match chunk.get(..n) {
+            Some(read) => buf.extend_from_slice(read),
+            // `read` never reports more bytes than the chunk held; the bound is the one
+            // guard if it ever did.
+            None => {
+                return Err(OkfCatalogError::TooLarge {
+                    path: path.to_path_buf(),
+                    document: path.to_path_buf(),
+                    found: total_bytes.saturating_add(u64::try_from(n).unwrap_or(u64::MAX)),
+                    limit: MAX_CATALOG_BYTES,
+                });
+            }
+        }
+    }
+    let text = String::from_utf8(buf).map_err(|cause| OkfCatalogError::Io {
+        path: path.to_path_buf(),
+        cause: std::io::Error::new(std::io::ErrorKind::InvalidData, cause),
+    })?;
     // `take` caps the read; if the file actually held more than `remaining` bytes, what arrived
     // still is - so re-check the length of what was READ, which closes the case of a file that
     // grew between the `fstat` and the read.
@@ -341,6 +374,15 @@ pub enum OkfCatalogError {
         path: PathBuf,
         #[source]
         cause: std::io::Error,
+    },
+    /// An open or `fstat` of a descriptor failed in a way the OS described but [`Self::Io`]'s
+    /// wording does not: a swapped symlink refuses with `ELOOP` and a swapped FIFO with
+    /// `ENXIO`, and neither is "could not read".
+    #[error("could not open {path}: {cause}")]
+    Open {
+        path: PathBuf,
+        #[source]
+        cause: rustix::io::Errno,
     },
     #[error("the document {path} is not a Table Schema descriptor")]
     Malformed {
