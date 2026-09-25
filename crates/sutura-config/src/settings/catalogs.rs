@@ -63,6 +63,12 @@ pub(super) fn parse_catalogs(raw: &RawSettings) -> Result<Catalogs, SettingsErro
                     .with_datahub_bounds(raw_catalog.deadline_seconds, raw_catalog.max_response_bytes)
             }
         };
+        // Every kind, not `datahub` alone - `#975`. Applied after the kind-specific step above so
+        // a `datahub` entry's own refusal (an unusable endpoint, say) is reported first; a zero
+        // interval is refused either way.
+        let settings = settings
+            .with_refresh_seconds(raw_catalog.refresh_seconds)
+            .map_err(|cause| SettingsError::Catalog { cause })?;
         entries.push(settings);
     }
     Catalogs::parse(entries).map_err(|cause| SettingsError::Catalog { cause })
