@@ -68,6 +68,19 @@ impl Snapshot {
     pub fn metrics(&self) -> &[Metric] {
         &self.metrics
     }
+    /// Builds a snapshot from decoded entity groups - the constructor a real
+    /// [`super::SnapshotReader`] uses to hand the conversion a `Snapshot` it decoded off the wire.
+    /// The recorded fixtures and the converter's own tests prefer `Deserialize` (a real reader
+    /// reaches for the reader-visible shape), but an HTTP reader assembling a `Snapshot` from
+    /// harvested entities needs a constructor the way `sutura-catalog-datahub`'s `Snapshot::new`
+    /// provides one.
+    pub const fn new(tables: Vec<Table>, relationships: BTreeMap<String, StructuralRelationship>, metrics: Vec<Metric>) -> Self {
+        Self {
+            tables,
+            relationships,
+            metrics,
+        }
+    }
 }
 
 /// What `OpenMetadata`'s `Column` schema COULD supply a reader beyond a column's name.

@@ -513,28 +513,30 @@ pub(crate) struct RawCatalog {
     pub(crate) dir: String,
     pub(crate) data_dir: String,
     pub(crate) version: String,
-    /// `catalog.kind: datahub`'s endpoint (`scheme://host[:port]`, no trailing slash). Absent for
-    /// every other kind; `parse_catalogs` requires it when `kind` parses as `datahub`.
+    /// `catalog.kind: datahub`/`openmetadata`'s endpoint (`scheme://host[:port]`, no trailing
+    /// slash). Absent for every other kind; `parse_catalogs` requires it when `kind` parses as
+    /// `datahub` or `openmetadata`.
     #[serde(default)]
     pub(crate) endpoint: Option<String>,
-    /// `catalog.kind: datahub`'s personal access token FILE - never the token itself. The naming
-    /// convention `sources.<alias>.credential_file`/`password_file` already hold.
+    /// `catalog.kind: datahub`/`openmetadata`'s personal access token FILE - never the token itself.
+    /// The naming convention `sources.<alias>.credential_file`/`password_file` already hold.
     #[serde(default)]
     pub(crate) token_file: Option<String>,
     /// `catalog.kind: datahub`'s deployment-chosen structured property name - `docs/adr/0016`
     /// decision 7's *not ours to say*, so there is no default and no adapter-chosen constant.
     #[serde(default)]
     pub(crate) metric_property: Option<String>,
-    /// `catalog.kind: datahub`'s read deadline, in seconds, shared across the (up to) three
-    /// requests one `read()` makes. Absent means the reader's own recommended default -
-    /// `sutura_catalog_datahub::http::DEFAULT_TIMEOUT_SECONDS` - which `sutura-config` cannot name
-    /// (it does not depend on that crate), so the default lives where the composition root reads
-    /// it, and this field's absence is what selects it.
+    /// `catalog.kind: datahub`/`openmetadata`'s read deadline, in seconds, shared across the
+    /// requests one `read()` makes. Absent means the reader's own recommended default - the
+    /// matching adapter crate's `DEFAULT_TIMEOUT_SECONDS` - which `sutura-config` cannot name (it
+    /// does not depend on that crate), so the default lives where the composition root reads it,
+    /// and this field's absence is what selects it.
     #[serde(default)]
     pub(crate) deadline_seconds: Option<u64>,
-    /// `catalog.kind: datahub`'s response-size cap, in bytes, read before decode. Absent means the
-    /// reader's own recommended default - `sutura_catalog_datahub::http::DEFAULT_MAX_RESPONSE_BYTES` -
-    /// for the same reason `deadline_seconds` above does not name it here.
+    /// `catalog.kind: datahub`/`openmetadata`'s response-size cap, in bytes, read before decode.
+    /// Absent means the reader's own recommended default - the matching adapter crate's
+    /// `DEFAULT_MAX_RESPONSE_BYTES` - for the same reason `deadline_seconds` above does not name it
+    /// here.
     #[serde(default)]
     pub(crate) max_response_bytes: Option<u64>,
     /// Every kind, not `datahub` alone - `github.com/telekom/sutura#975`. Absent means never
