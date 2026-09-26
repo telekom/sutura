@@ -54,8 +54,7 @@
 //!   not a jump; the numbers this tree already ships were minted out of order and that is not a
 //!   defect.
 
-use std::path::Path;
-
+use crate::causality::regions::PostImage;
 use crate::markdown;
 
 /// The ordinal words a heading may carry. The index is the position the word names, minus one.
@@ -298,13 +297,13 @@ pub(super) struct PageCounts {
 /// * `headings` over the tree. This tree writes amendment headings, so zero means the rule stopped
 ///   reading rather than that they went - a blanking lexer or a `"## "` prefix that stopped
 ///   matching leaves both equalities above intact and this at zero.
-pub(super) fn page_problems(root: &Path, files: &[String]) -> (Vec<String>, PageCounts) {
+pub(super) fn page_problems(text_of: &PostImage<'_>, files: &[String]) -> (Vec<String>, PageCounts) {
     let offered = files.iter().filter(|f| f.to_ascii_lowercase().ends_with(".md")).count();
     let mut problems = adr_number_problems(files);
     let mut read = 0_usize;
     let mut headings = 0_usize;
     for rel in files.iter().filter(|f| super::has_ext(f, &["md"])) {
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
+        let Some(text) = text_of(rel) else {
             problems.push(format!("{rel}: could not be read, so nothing on it was judged"));
             continue;
         };
@@ -346,6 +345,24 @@ pub(super) fn page_problems(root: &Path, files: &[String]) -> (Vec<String>, Page
 #[cfg(test)]
 mod tests {
     use super::adr_number_problems;
+
+    #[test]
+    fn page_scan_uses_the_supplied_text_and_refuses_an_offered_gap() {
+        let files = [String::from("docs/page.md")];
+        let text_of = |rel: &str| (rel == "docs/page.md").then(|| String::from("## First amendment\n"));
+        let (problems, counts) = super::page_problems(&text_of, &files);
+        assert!(problems.is_empty(), "{problems:#?}");
+        assert_eq!(counts.read, 1);
+        assert_eq!(counts.headings, 1);
+
+        let (problems, counts) = super::page_problems(&|_: &str| None, &files);
+        assert!(
+            problems.iter().any(|problem| problem.contains("could not be read")),
+            "{problems:#?}"
+        );
+        assert_eq!(counts.offered, 1);
+        assert_eq!(counts.read, 0);
+    }
 
     /// **No naturally occurring base regression exists for this rule**: `main` has no two ADR
     /// files sharing a number, so there is nothing to be red against without building a fixture.
