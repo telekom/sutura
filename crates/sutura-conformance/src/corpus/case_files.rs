@@ -2,7 +2,8 @@
 //!
 //! Each case is a `.case` file under `corpus/cases/`, embedded at compile time with
 //! [`include_str!`] and parsed here by a typed loader. Adding a case is a data edit -
-//! a new file plus one `include_str!` line in [`FILES`] - and no Rust function changes.
+//! a new file plus one `include_str!` line in [`FILES`] or [`FEDERATED_FILES`] - and no Rust
+//! function changes.
 //!
 //! # The format
 //!
@@ -13,6 +14,15 @@
 //! `xtask/src/boundaries/harness.rs` holds. So the loader parses text and constructs each domain
 //! type through its own `parse` constructor, the same path a catalog file takes.
 //!
+//! # A federated file
+//!
+//! The same header and `rows:`, with `order:` gone (a federated plan claims no order) and four
+//! fields added. `lookup:` names the lookup leg's table, and the corpus has one. `keys:` are read
+//! off that table, joined to the fact rows on `region`. `lookup_filter: <column> = <value>` is a
+//! filter in the lookup leg, and its presence drops an unmatched fact row, as the planner's
+//! `include_unmatched` does. A ratio is `aggregate: ratio` with `numerator:`/`denominator:` as
+//! `<aggregate> <column>` and `zero_denominator: yields_null|fails`. Any other field is refused.
+//!
 //! # What a malformed file costs
 //!
 //! A parse failure is a typed `CaseError` surfaced through `expect` in [`super::cases`], which
@@ -20,12 +30,17 @@
 //! silently skipped case is what this loader exists to prevent, so every entry in `FILES` is
 //! parsed or the whole call fails - there is no `continue` past a broken file.
 
-use sutura_domain::model::{Aggregate, ColumnName, DimensionName, MetricName};
-use sutura_domain::plan::{PlanColumn, PlanKey, PlanMeasure, PlanTerm, QueryPlan, ResultLabel, StatementTables};
-use sutura_domain::warehouse::{Real, RowSet, Value};
+use sutura_domain::federation::{Carried, Federation};
+use sutura_domain::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
+use sutura_domain::model::{Aggregate, ColumnName, DimensionName, MetricName, QualifiedTable};
+use sutura_domain::plan::{
+    AnswerKey, FederatedPlan, FederatedPlanError, InternalLabel, LegPlan, LegTerm, PlanBindings, PlanColumn, PlanFilter, PlanKey,
+    PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables, labels,
+};
+use sutura_domain::warehouse::{ParamValue, Real, RowSet, Value};
 
-use super::{bucket, range, range_bindings, source, table};
-use crate::corpus::Case;
+use super::{LOOKUP_TABLE, bucket, lookup_source, range, range_bindings, source, table};
+use crate::corpus::{Case, FederatedCase};
 
 /// Every case file, embedded at compile time.
 ///
@@ -57,6 +72,24 @@ static FILES: &[(&str, &str)] = &[
         include_str!("../../corpus/cases/total_by_collation_sensitive_key_and_day.case"),
     ),
 ];
+
+/// Every federated case file with an answer, embedded and guarded exactly as [`FILES`] is.
+///
+/// The third federated file ADR 0012 names has no answer: its plan is refused at construction, so
+/// it is registered beside the test that asserts the refusal rather than here.
+static FEDERATED_FILES: &[(&str, &str)] = &[
+    (
+        "two-source-remote-filter-with-an-orphan-key",
+        include_str!("../../corpus/cases/two_source_remote_filter_with_an_orphan_key.case"),
+    ),
+    (
+        "two-source-zero-denominator-in-one-subgroup",
+        include_str!("../../corpus/cases/two_source_zero_denominator_in_one_subgroup.case"),
+    ),
+];
+
+/// The column both legs of a federated case join on, under [`InternalLabel::Link`].
+const LINK_COLUMN: &str = "region";
 
 /// Why a case file could not be read.
 ///
@@ -111,6 +144,13 @@ pub(super) enum CaseError {
         cells: usize,
         expected: usize,
     },
+    /// [`FederatedPlan::new`] refused the plan a federated file describes.
+    #[error("case `{file}` describes a plan the domain refuses: {error}")]
+    PlanRefused {
+        file: &'static str,
+        #[source]
+        error: FederatedPlanError,
+    },
 }
 
 /// Parses every case file and returns the cases in order.
@@ -126,128 +166,287 @@ pub(super) fn load() -> Vec<Case> {
         .collect()
 }
 
+/// Parses every federated case file with an answer, with [`load`]'s posture.
+pub(super) fn load_federated() -> Vec<FederatedCase> {
+    FEDERATED_FILES
+        .iter()
+        .map(|(file, content)| parse_federated(file, content).unwrap_or_else(|e| panic!("{e}")))
+        .collect()
+}
+
 /// Parses one case file into a [`Case`].
 fn parse(file: &'static str, content: &str) -> Result<Case, CaseError> {
-    let mut name: Option<String> = None;
-    let mut metric: Option<MetricName> = None;
-    let mut aggregate: Option<Aggregate> = None;
-    let mut column: Option<ColumnName> = None;
-    let mut keys: Option<Vec<String>> = None;
-    let mut order_is_asserted: Option<bool> = None;
-    let mut row_lines: Option<&[&str]> = None;
-
-    let lines: Vec<&str> = content.lines().collect();
-    let mut iter = lines.iter().copied().enumerate().peekable();
-    while let Some((_, line)) = iter.next() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-
-        if trimmed == "rows:" {
-            let start = iter.peek().map_or(lines.len(), |(i, _)| *i);
-            row_lines = lines.get(start..);
-            break;
-        }
-
-        let (field, value) = split_field(file, line)?;
-        match field {
-            "name" => set_once(&mut name, value.to_owned(), file, "name")?,
-            "metric" => set_once(
-                &mut metric,
-                MetricName::parse(value).map_err(|e| bad_field(file, "metric", &e.to_string()))?,
-                file,
-                "metric",
-            )?,
-            "aggregate" => set_once(&mut aggregate, parse_aggregate(file, value)?, file, "aggregate")?,
-            "column" => set_once(
-                &mut column,
-                ColumnName::parse(value).map_err(|e| bad_field(file, "column", &e.to_string()))?,
-                file,
-                "column",
-            )?,
-            "keys" => set_once(
-                &mut keys,
-                if value.is_empty() {
-                    Vec::new()
-                } else {
-                    value.split(',').map(str::trim).map(String::from).collect()
-                },
-                file,
-                "keys",
-            )?,
-            "order" => set_once(&mut order_is_asserted, parse_order(file, value)?, file, "order")?,
-            _ => {
-                return Err(CaseError::UnknownValue {
-                    file,
-                    field: "header",
-                    value: field.to_owned(),
-                });
-            }
-        }
-    }
-
-    let name = name.ok_or(CaseError::MissingField { file, field: "name" })?;
-    if name != file {
-        return Err(CaseError::NameDisagrees { file, name });
-    }
-    let metric = metric.ok_or(CaseError::MissingField { file, field: "metric" })?;
-    let aggregate = aggregate.ok_or(CaseError::MissingField {
-        file,
-        field: "aggregate",
-    })?;
-    let column = column.ok_or(CaseError::MissingField { file, field: "column" })?;
-    let keys = keys.ok_or(CaseError::MissingField { file, field: "keys" })?;
-    let order_is_asserted = order_is_asserted.ok_or(CaseError::MissingField { file, field: "order" })?;
-
-    let row_lines = row_lines.ok_or(CaseError::NoRows { file })?;
-    let non_empty: Vec<&str> = row_lines
+    let sections = Sections::read(file, content, &["name", "metric", "aggregate", "column", "keys", "order"])?;
+    let metric = sections.metric()?;
+    let aggregate = parse_aggregate(file, sections.required("aggregate")?)?;
+    let column = PlanColumn::new(table(), sections.column("column")?);
+    let keys = sections
+        .keys()?
         .iter()
-        .copied()
-        .filter(|l| !l.trim().is_empty() && !l.trim().starts_with('#'))
+        .map(|key| PlanKey::new(ResultLabel::dimension(key), plan_column(key.as_str())))
         .collect();
-    if non_empty.is_empty() {
-        return Err(CaseError::NoRows { file });
-    }
-
-    let plan_keys = build_keys(&keys, file)?;
-    let measure = PlanMeasure::Simple {
-        term: PlanTerm::Aggregate {
-            aggregate,
-            column: plan_column(column.as_str()),
-        },
-    };
+    let order_is_asserted = parse_order(file, sections.required("order")?)?;
     let plan = QueryPlan::new(
         source(),
         metric.clone(),
         StatementTables::only(table()),
         bucket(),
-        plan_keys.clone(),
-        measure,
+        keys,
+        PlanMeasure::Simple {
+            term: PlanTerm::Aggregate { aggregate, column },
+        },
         ResultLabel::measure(&metric),
         range_bindings(),
         range(),
     );
-
-    let expected_width = plan_keys.len() + 1 + 1;
-    let cells: Vec<Vec<Value>> = non_empty
-        .iter()
-        .enumerate()
-        .map(|(row_idx, line)| parse_row(file, line, row_idx, expected_width))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let expected = RowSet::new(plan.result_labels(), cells).map_err(|e| CaseError::BadField {
-        file,
-        field: "rows",
-        message: e.to_string(),
-    })?;
-
+    let expected = sections.expected(plan.result_labels())?;
     Ok(Case {
-        name,
+        name: String::from(file),
         plan,
         expected,
         order_is_asserted,
     })
+}
+
+/// Parses one federated case file into a [`FederatedCase`], or the refusal that stopped it.
+fn parse_federated(file: &'static str, content: &str) -> Result<FederatedCase, CaseError> {
+    let sections = Sections::read(
+        file,
+        content,
+        &[
+            "name",
+            "metric",
+            "aggregate",
+            "column",
+            "keys",
+            "lookup",
+            "lookup_filter",
+            "numerator",
+            "denominator",
+            "zero_denominator",
+        ],
+    )?;
+    let metric = sections.metric()?;
+    let keys = sections.keys()?;
+    let lookup_table = match sections.required("lookup")? {
+        LOOKUP_TABLE => QualifiedTable::parse(LOOKUP_TABLE).map_err(|e| bad_field(file, "lookup", &e.to_string()))?,
+        other => {
+            return Err(CaseError::UnknownValue {
+                file,
+                field: "lookup",
+                value: other.to_owned(),
+            });
+        }
+    };
+    let lookup_column = |field: &'static str, name: &str| {
+        ColumnName::parse(name)
+            .map(|column| PlanColumn::new(lookup_table.name().clone(), column))
+            .map_err(|e| bad_field(file, field, &e.to_string()))
+    };
+    let measure = match sections.required("aggregate")? {
+        "ratio" => Measure::Ratio {
+            numerator: sections.term("numerator")?,
+            denominator: sections.term("denominator")?,
+            zero_denominator: parse_zero_denominator(file, sections.required("zero_denominator")?)?,
+        },
+        aggregate => Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+            parse_aggregate(file, aggregate)?,
+            sections.column("column")?,
+        ))),
+    };
+    let federation = Federation::of(&measure);
+    let terms = federation
+        .carried()
+        .into_iter()
+        .zip(labels(&federation))
+        .filter_map(|(leaf, label)| match *leaf {
+            Carried::Aggregated { pushed, ref column } => Some(LegTerm::new(
+                PlanTerm::Aggregate {
+                    aggregate: pushed.push(),
+                    column: PlanColumn::new(table(), column.clone()),
+                },
+                ResultLabel::internal(label),
+            )),
+            // No field spells a conditional count, and a pulled-up column is a key rather than a
+            // term - `FederatedPlan::new` refuses the leaf that needs one.
+            Carried::CountIf { .. } | Carried::Keys { .. } => None,
+        })
+        .collect();
+    let link = ResultLabel::internal(InternalLabel::Link);
+    let fact = LegPlan::Fact {
+        source: source(),
+        metric: metric.clone(),
+        tables: StatementTables::only(table()),
+        bucket: bucket(),
+        keys: vec![PlanKey::new(link.clone(), plan_column(LINK_COLUMN))],
+        terms,
+        bindings: range_bindings(),
+        range: range(),
+    };
+    let mut lookup_keys = vec![PlanKey::new(link, lookup_column("lookup", LINK_COLUMN)?)];
+    for key in &keys {
+        lookup_keys.push(PlanKey::new(
+            ResultLabel::dimension(key),
+            lookup_column("keys", key.as_str())?,
+        ));
+    }
+    let (bindings, include_unmatched) = match sections.get("lookup_filter") {
+        None => (PlanBindings::none(), true),
+        Some(filter) => {
+            let (column, value) = filter
+                .split_once('=')
+                .map(|(column, value)| (column.trim(), value.trim()))
+                .filter(|&(column, value)| !column.is_empty() && !value.is_empty())
+                .ok_or_else(|| bad_field(file, "lookup_filter", "expected `<column> = <value>`"))?;
+            let equals = PlanFilter::new(
+                PredicateOrigin::Requested,
+                PlanPredicate::Equals {
+                    column: lookup_column("lookup_filter", column)?,
+                    param: 0,
+                },
+            );
+            let bindings = PlanBindings::parse(vec![equals], vec![ParamValue::Text(String::from(value))])
+                .map_err(|e| bad_field(file, "lookup_filter", &e.to_string()))?;
+            (bindings, false)
+        }
+    };
+    let lookup = LegPlan::Lookup {
+        source: lookup_source(),
+        table: lookup_table,
+        keys: lookup_keys,
+        bindings,
+    };
+    let answer_keys = keys
+        .iter()
+        .map(|key| AnswerKey::lookup(ResultLabel::dimension(key)))
+        .collect();
+    let measure_label = ResultLabel::measure(&metric);
+    // Built before the rows are read: a refused plan has no answer, so its refusal IS the case.
+    let plan = FederatedPlan::new(
+        metric,
+        measure_label,
+        bucket(),
+        fact,
+        lookup,
+        include_unmatched,
+        federation,
+        answer_keys,
+    )
+    .map_err(|error| CaseError::PlanRefused { file, error })?;
+    let mut labels: Vec<String> = plan.keys().iter().map(|key| String::from(key.label())).collect();
+    labels.push(String::from(plan.bucket_label()));
+    labels.push(String::from(plan.measure_label()));
+    let expected = sections.expected(labels)?;
+    Ok(FederatedCase {
+        name: file,
+        plan,
+        expected,
+    })
+}
+
+/// A file's header - every field one the caller knows, none named twice - and its row lines.
+struct Sections<'a> {
+    file: &'static str,
+    fields: Vec<(&'static str, &'a str)>,
+    rows: Option<Vec<&'a str>>,
+}
+
+impl<'a> Sections<'a> {
+    /// Splits `content` at `rows:`, refusing an unknown or repeated field and a `name:` that
+    /// disagrees with `file`.
+    fn read(file: &'static str, content: &'a str, known: &[&'static str]) -> Result<Self, CaseError> {
+        let blank = |line: &str| line.trim().is_empty() || line.trim().starts_with('#');
+        let mut fields: Vec<(&'static str, &'a str)> = Vec::new();
+        let mut rows = None;
+        let mut lines = content.lines();
+        while let Some(line) = lines.next() {
+            if blank(line) {
+                continue;
+            }
+            if line.trim() == "rows:" {
+                rows = Some(lines.by_ref().filter(|line| !blank(line)).collect());
+                break;
+            }
+            let (field, value) = split_field(file, line)?;
+            let Some(&field) = known.iter().find(|&&known| known == field) else {
+                return Err(CaseError::UnknownValue {
+                    file,
+                    field: "header",
+                    value: field.to_owned(),
+                });
+            };
+            if fields.iter().any(|&(seen, _)| seen == field) {
+                return Err(CaseError::DuplicateField { file, field });
+            }
+            fields.push((field, value));
+        }
+        let sections = Self { file, fields, rows };
+        let name = sections.required("name")?;
+        if name != file {
+            return Err(CaseError::NameDisagrees {
+                file,
+                name: name.to_owned(),
+            });
+        }
+        Ok(sections)
+    }
+
+    fn get(&self, field: &str) -> Option<&'a str> {
+        self.fields.iter().find(|&&(seen, _)| seen == field).map(|&(_, value)| value)
+    }
+
+    fn required(&self, field: &'static str) -> Result<&'a str, CaseError> {
+        self.get(field).ok_or(CaseError::MissingField { file: self.file, field })
+    }
+
+    fn metric(&self) -> Result<MetricName, CaseError> {
+        MetricName::parse(self.required("metric")?).map_err(|e| bad_field(self.file, "metric", &e.to_string()))
+    }
+
+    fn column(&self, field: &'static str) -> Result<ColumnName, CaseError> {
+        ColumnName::parse(self.required(field)?).map_err(|e| bad_field(self.file, field, &e.to_string()))
+    }
+
+    fn keys(&self) -> Result<Vec<DimensionName>, CaseError> {
+        let keys = self.required("keys")?;
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        keys.split(',')
+            .map(|key| DimensionName::parse(key.trim()).map_err(|e| bad_field(self.file, "keys", &e.to_string())))
+            .collect()
+    }
+
+    /// A `numerator:`/`denominator:` term: `<aggregate> <column>`.
+    fn term(&self, field: &'static str) -> Result<Term, CaseError> {
+        let (aggregate, column) = self
+            .required(field)?
+            .split_once(' ')
+            .ok_or_else(|| bad_field(self.file, field, "expected `<aggregate> <column>`"))?;
+        let column = ColumnName::parse(column.trim()).map_err(|e| bad_field(self.file, field, &e.to_string()))?;
+        Ok(Term::Aggregate(AggregatedColumn::new(
+            parse_aggregate(self.file, aggregate)?,
+            column,
+        )))
+    }
+
+    /// The rows under `labels`, one cell per label.
+    fn expected(&self, labels: Vec<String>) -> Result<RowSet, CaseError> {
+        let rows = match self.rows.as_deref() {
+            Some(rows) if !rows.is_empty() => rows,
+            _ => return Err(CaseError::NoRows { file: self.file }),
+        };
+        let cells = rows
+            .iter()
+            .enumerate()
+            .map(|(row, line)| parse_row(self.file, line, row, labels.len()))
+            .collect::<Result<Vec<_>, _>>()?;
+        RowSet::new(labels, cells).map_err(|e| CaseError::BadField {
+            file: self.file,
+            field: "rows",
+            message: e.to_string(),
+        })
+    }
 }
 
 /// A header field name and its raw value, parsed from one line.
@@ -266,15 +465,6 @@ fn split_field<'a>(file: &'static str, line: &'a str) -> Result<Field<'a>, CaseE
     Ok((field, value))
 }
 
-/// Sets a field once; rejects duplicates.
-fn set_once<T>(slot: &mut Option<T>, value: T, file: &'static str, field: &'static str) -> Result<(), CaseError> {
-    if slot.is_some() {
-        return Err(CaseError::DuplicateField { file, field });
-    }
-    *slot = Some(value);
-    Ok(())
-}
-
 fn bad_field(file: &'static str, field: &'static str, message: &str) -> CaseError {
     CaseError::BadField {
         file,
@@ -287,6 +477,7 @@ fn parse_aggregate(file: &'static str, value: &str) -> Result<Aggregate, CaseErr
     match value {
         "sum" => Ok(Aggregate::Sum),
         "avg" => Ok(Aggregate::Avg),
+        "count_distinct" => Ok(Aggregate::CountDistinct),
         _ => Err(CaseError::UnknownValue {
             file,
             field: "aggregate",
@@ -307,26 +498,21 @@ fn parse_order(file: &'static str, value: &str) -> Result<bool, CaseError> {
     }
 }
 
-/// Builds the `PlanKey` list from dimension names.
-fn build_keys(names: &[String], file: &'static str) -> Result<Vec<PlanKey>, CaseError> {
-    names
-        .iter()
-        .map(|name| {
-            let dim = DimensionName::parse(name).map_err(|e| bad_field(file, "keys", &e.to_string()))?;
-            Ok(PlanKey::new(ResultLabel::dimension(&dim), plan_column_from(name)))
-        })
-        .collect()
+fn parse_zero_denominator(file: &'static str, value: &str) -> Result<ZeroDenominator, CaseError> {
+    match value {
+        "yields_null" => Ok(ZeroDenominator::Null),
+        "fails" => Ok(ZeroDenominator::Fail),
+        _ => Err(CaseError::UnknownValue {
+            file,
+            field: "zero_denominator",
+            value: value.to_owned(),
+        }),
+    }
 }
 
-/// Makes a `PlanColumn` from a column name string.
+/// Makes a `PlanColumn` on the fact table from a column name string.
 fn plan_column(name: &str) -> PlanColumn {
     PlanColumn::new(table(), ColumnName::parse(name).expect("a corpus column name is a name"))
-}
-
-/// Makes a `PlanColumn` from a dimension name string (same as `plan_column` - the key name is
-/// both the dimension name and the column name, by construction in this corpus).
-fn plan_column_from(name: &str) -> PlanColumn {
-    plan_column(name)
 }
 
 /// Parses one tab-separated row into a list of `Value` cells.
@@ -391,7 +577,18 @@ fn parse_cell(file: &'static str, raw: &str, row: usize, cell: usize) -> Result<
 
 #[cfg(test)]
 mod tests {
-    use super::{FILES, load};
+    use sutura_domain::model::Aggregate;
+    use sutura_domain::plan::FederatedPlanError;
+
+    use super::{CaseError, FEDERATED_FILES, FILES, load};
+
+    /// The federated case ADR 0012 names whose plan the domain refuses, so it has no answer and no
+    /// place in [`FEDERATED_FILES`]; the refusal is what [`a_count_distinct_across_the_join_is_refused`]
+    /// holds it to.
+    static REFUSED: (&str, &str) = (
+        "two-source-distinct-value-spanning-join-keys",
+        include_str!("../../corpus/cases/two_source_distinct_value_spanning_join_keys.case"),
+    );
 
     /// The loader reads every `.case` file the directory holds.
     ///
@@ -412,7 +609,7 @@ mod tests {
                     .then(|| path.file_stem().unwrap().to_string_lossy().into_owned())
             })
             .count();
-        let loaded = FILES.len();
+        let loaded = FILES.len() + FEDERATED_FILES.len() + 1;
         assert_eq!(
             on_disk, loaded,
             "the corpus directory holds {on_disk} `.case` file(s) but the loader reads {loaded} - \
@@ -486,5 +683,38 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("bogus"), "the error should name the bad cell type: {err}");
+    }
+
+    /// ADR 0012's third case: a `CountDistinct` leaf does not re-aggregate, so the plan is refused
+    /// at construction rather than summed into an over-count.
+    #[test]
+    fn a_count_distinct_across_the_join_is_refused() {
+        let (file, content) = REFUSED;
+        let refused = super::parse_federated(file, content);
+        assert!(
+            matches!(
+                refused,
+                Err(CaseError::PlanRefused {
+                    error: FederatedPlanError::LeafDoesNotReaggregate {
+                        aggregate: Aggregate::CountDistinct
+                    },
+                    ..
+                })
+            ),
+            "{refused:?}"
+        );
+    }
+
+    /// A federated file names the lookup table it reads, and one the corpus does not hold is
+    /// refused rather than read as the one it does.
+    #[test]
+    fn a_federated_file_naming_another_lookup_table_is_refused() {
+        let (file, content) = FEDERATED_FILES[0];
+        let elsewhere = content.replace("lookup: conformance_regions", "lookup: somewhere_else");
+        let refused = super::parse_federated(file, &elsewhere);
+        assert!(
+            matches!(refused, Err(CaseError::UnknownValue { field: "lookup", ref value, .. }) if value == "somewhere_else"),
+            "{refused:?}"
+        );
     }
 }

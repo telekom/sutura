@@ -21,8 +21,9 @@ below asks for, holding the registry and the macro invocation in step. What is s
 named individually rather than counted because an earlier version of this sentence undercounted
 it: a per-pack timing aggregate and `cargo-insta`'s unreferenced-snapshot check, both decided as a
 plan further down rather than built; the three named corpus cases (a filter on a remote dimension
-with an orphan key, a zero-denominator ratio, a `CountDistinct` spanning two join keys), none of
-which is in the corpus yet; and a fourth data adapter, `sutura-exec-bigquery`, which IS built and is
+with an orphan key, a zero-denominator ratio, a `CountDistinct` spanning two join keys) on any
+adapter but one - they are `.case` files now, but only two in-process `sutura-exec-datafusion`
+engines bind the two-warehouse arm that runs them; and a fourth data adapter, `sutura-exec-bigquery`, which IS built and is
 not yet bound to the packs. The corpus is files, not code - *The corpus is files, not code* below
 is how that is built.
 
