@@ -63,6 +63,22 @@ fn the_embedded_defaults_are_a_loopback_development_service() {
 }
 
 #[test]
+fn an_operator_can_set_a_finite_instructions_limit() {
+    let sources = Sources::defaults(Environment::Development).with_overlay("prompt:\n  instructions_max_bytes: 64\n");
+    Settings::load(&sources).expect("a bounded override loads");
+
+    for value in [0, 1024 * 1024 + 1] {
+        let sources =
+            Sources::defaults(Environment::Development).with_overlay(format!("prompt:\n  instructions_max_bytes: {value}\n"));
+        let error = Settings::load(&sources).expect_err("a limit outside the range refuses startup");
+        let SettingsError::Prompt { cause } = error.reason() else {
+            panic!("expected a prompt refusal, got {error:?}");
+        };
+        assert!(cause.to_string().contains("prompt.instructions_max_bytes"), "{cause}");
+    }
+}
+
+#[test]
 fn the_defaults_alone_do_not_start_a_production_deployment() {
     // The single most important assertion in this file: shipping the defaults to production is a
     // refusal, not a permissive service. Two refusals, because two separate controls are missing.

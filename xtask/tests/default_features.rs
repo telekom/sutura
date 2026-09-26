@@ -65,6 +65,12 @@ case "$1" in
     exit 0
     ;;
   tree) ;;
+  clean)
+    if [ "$SUTURA_FEATURE_CASE" = clean-fails ]; then
+      printf 'cargo clean failed: mock disk full\n' >&2
+      exit 1
+    fi
+    printf '     Removed 3 files\n' >&2; exit 0 ;;
   *) exit 42 ;;
 esac
 package=$5
@@ -123,15 +129,25 @@ if "$last" && [ "$SUTURA_FEATURE_CASE" = nonzero ]; then exit 23; fi
         std::fs::write(&cargo, format!("#!{}\n{CARGO}", shell.trim())).expect("fake Cargo");
         std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).expect("executable fake Cargo");
         let ledger = root.join("calls");
-        let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
-            .arg("check-default-features")
+        let mut gate = Command::new(env!("CARGO_BIN_EXE_xtask"));
+        gate.arg("check-default-features")
             .current_dir(&root)
             .env("PATH", root.join("bin"))
             .env("SUTURA_FEATURE_CASE", case)
             .env("SUTURA_FEATURE_LEDGER", &ledger)
-            .env_remove("CARGO_TARGET_DIR")
-            .env_remove("BASH_ENV")
-            .output();
+            .env_remove("BASH_ENV");
+        if case == "shared-target" || case == "clean-fails" {
+            let target = root.join("target");
+            std::fs::create_dir_all(&target).expect("the target directory");
+            if case == "shared-target" {
+                // The warm-start stamp, so the compiles run at the profile the clean removed.
+                std::fs::write(target.join(".sutura-warm-start"), "warm").expect("the warm-start stamp");
+            }
+            gate.env("CARGO_TARGET_DIR", target);
+        } else {
+            gate.env_remove("CARGO_TARGET_DIR");
+        }
+        let output = gate.output();
         let calls = std::fs::read_to_string(ledger);
         drop(tree);
         Observed {
@@ -157,6 +173,15 @@ if "$last" && [ "$SUTURA_FEATURE_CASE" = nonzero ]; then exit 23; fi
          <clippy><--all-targets><--package><root-one><--><-D><warnings>\n\
          <check><--all-targets><--package><root-two>\n\
          <clippy><--all-targets><--package><root-two><--><-D><warnings>\n"
+    }
+
+    /// The expensive passes when the target directory carries the warm-start stamp, so
+    /// `profile_for` derives `ci` and every compile carries `--profile ci` matching the clean.
+    const fn profiled_expensive() -> &'static str {
+        "<check><--all-targets><--profile><ci><--package><root-one>\n\
+         <clippy><--all-targets><--profile><ci><--package><root-one><--><-D><warnings>\n\
+         <check><--all-targets><--profile><ci><--package><root-two>\n\
+         <clippy><--all-targets><--profile><ci><--package><root-two><--><-D><warnings>\n"
     }
 
     #[test]
@@ -189,6 +214,36 @@ if "$last" && [ "$SUTURA_FEATURE_CASE" = nonzero ]; then exit 23; fi
             failures.is_empty(),
             "query coverage, ordering, or original passes changed: {failures:#?}"
         );
+    }
+
+    #[test]
+    fn a_shared_target_directory_is_cleaned_of_first_party_artifacts_before_the_first_compile() {
+        let observed = observe("shared-target");
+        let mut expected = queries();
+        expected.push_str("<clean><--workspace><--profile><ci>\n");
+        expected.push_str(profiled_expensive());
+        assert_eq!(observed.output.status.code(), Some(0), "{observed:?}");
+        assert_eq!(
+            observed.ledger, expected,
+            "the clean follows admission and precedes every compile, both at profile ci"
+        );
+        let stdout = String::from_utf8_lossy(&observed.output.stdout);
+        assert!(stdout.contains("isolated: removed 3 "), "the count is cargo's own: {stdout}");
+    }
+
+    #[test]
+    fn a_failed_clean_fails_the_gate_before_any_compile_runs() {
+        let observed = observe("clean-fails");
+        let mut expected = queries();
+        expected.push_str("<clean><--workspace><--profile><ci>\n");
+        assert_eq!(
+            observed.output.status.code(),
+            Some(1),
+            "a failed clean must fail the gate: {observed:?}"
+        );
+        assert_eq!(observed.ledger, expected, "no compile may follow a clean that failed");
+        let stderr = String::from_utf8(observed.output.stderr).expect("gate diagnostics");
+        assert!(stderr.contains("FAILED"), "the failure must be reported: {stderr}");
     }
 
     #[test]

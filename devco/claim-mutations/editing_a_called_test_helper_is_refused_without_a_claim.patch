@@ -1,0 +1,8 @@
+--- a/xtask/src/causality/edited.rs
++++ b/xtask/src/causality/edited.rs
+@@ -129,4 +129,3 @@
+     let lines: Vec<&str> = text.lines().collect();
+-    let scope = crate::causality::regions::scope(path, read);
+-    !touched_in(&lines, added).is_empty() || !edited_helper_caller(&lines, added, &scope).is_empty()
++    !touched_in(&lines, added).is_empty()
+ }

@@ -178,20 +178,18 @@ fn two_legs_that_each_wait_for_the_other_run_concurrently() {
 }
 
 /// The pre-`execute` deadline re-check (`run_leg`'s own guard, leg.rs) still refuses BOTH legs when
-/// the budget is spent DURING the dry-run phase - even though, unlike the dry-run cell above, both
-/// dry runs are actually reached this time.
+/// the budget is spent DURING the dry-run phase.
 ///
 /// Here it is the LOOKUP leg's dry run that is slow, not the fact leg's: `dry_run_leg`'s own
 /// pre-call guard is asked before EACH leg's own `dry_run`, using the deadline as it stands at that
 /// moment - so the fact leg's dry run (instant) passes its guard, and the lookup leg's dry run
 /// (which then sleeps past the budget) passes ITS guard too, because the sleep is inside the call
-/// the guard only gates the START of. Both dry runs are therefore reached (unlike the fact-leg-slow
-/// cell, where the lookup leg's dry-run guard already finds the budget spent and its `dry_run` is
-/// never called at all) - so this cell exercises a DIFFERENT guard: `run_leg`'s own re-check,
-/// asked of each leg just before its `execute`, after the dry-run phase has already spent the
-/// shared deadline.
+/// the guard only gates the START of. Both dry runs therefore ARE reached, so this cell can assert
+/// each fake's `dry_runs() == 1` - the two legs pass their dry-run guards - and then refuses at the
+/// OTHER guard this cell exists to pin: `run_leg`'s own pre-`execute` re-check, asked of each leg
+/// just before its `execute`, after the dry-run phase has already spent the shared deadline.
 #[test]
-fn a_federated_lookup_dry_run_that_spends_the_budget_refuses_both_legs_before_either_executes() {
+fn a_federated_lookup_dry_run_that_spends_the_budget_refuses_both_legs_at_their_pre_execute_check() {
     let fact = SlowDryRunLegsWarehouse::answering_after(
         SourceName::parse("facts").expect("a test source"),
         shared(),
@@ -247,5 +245,25 @@ fn a_federated_lookup_dry_run_that_spends_the_budget_refuses_both_legs_before_ei
             .executions(),
         0,
         "the lookup leg's own pre-execute check must find the shared budget spent"
+    );
+    // Both legs PASSED their dry-run-phase guards - the fact leg's own (before its instant dry
+    // run) and the lookup leg's (before its slow one, whose sleep spends the budget) - so each
+    // fake's `dry_run` really was reached once, and this cell is pinning the OTHER guard (the
+    // pre-`execute` re-check) rather than a guard that refused them before any dry run.
+    assert_eq!(
+        warehouses
+            .get(&SourceName::parse("facts").expect("a test source"))
+            .expect("facts is registered")
+            .dry_runs(),
+        1,
+        "the fact leg's dry run must be reached before its pre-execute check refuses it"
+    );
+    assert_eq!(
+        warehouses
+            .get(&SourceName::parse("geo").expect("a test source"))
+            .expect("geo is registered")
+            .dry_runs(),
+        1,
+        "the lookup leg's dry run must be reached before its pre-execute check refuses it"
     );
 }

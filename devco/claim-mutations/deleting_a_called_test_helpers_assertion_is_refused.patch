@@ -1,0 +1,10 @@
+--- a/xtask/src/causality/edited.rs
++++ b/xtask/src/causality/edited.rs
+@@ -173,6 +173,6 @@ pub(super) fn deletion_in(
+     let mut deleted: Vec<Ident> = removed_in(&base_lines, file_removed).iter().map(Deleted::name).collect();
+     let removed_behaviour: Vec<AddedLine> = file_removed
+         .iter()
+-        .filter(|line| !carries_no_behaviour(&line.text))
++        .filter(|line| carries_no_behaviour(&line.text))
+         .map(|line| AddedLine::new(line.before, &line.text))
+         .collect();
