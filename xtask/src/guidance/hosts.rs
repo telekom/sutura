@@ -303,7 +303,12 @@ mod tests {
 
     #[test]
     fn host_checks_use_the_supplied_text_even_when_no_path_exists() {
-        let files = [String::from("nix/lint-workflows.sh"), String::from("docs/page.md")];
+        let files = [
+            String::from("nix/lint-workflows.sh"),
+            String::from("docs/page.md"),
+            String::from("nix/unreadable.sh"),
+            String::from("docs/unreadable.md"),
+        ];
         let text_of = |rel: &str| match rel {
             "nix/lint-workflows.sh" => Some(String::from("git ls-files '*.sh'\n")),
             "docs/page.md" => Some(String::from("The list `nix/lint-workflows.sh` builds from tracked files.\n")),
@@ -311,11 +316,17 @@ mod tests {
         };
         let holders = super::hosting(&text_of, &files, &ENTRY);
         assert_eq!(holders.found, vec![String::from("nix/lint-workflows.sh")]);
-        assert!(holders.unreadable.is_empty(), "{:?}", holders.unreadable);
+        assert_eq!(
+            holders.unreadable,
+            vec![String::from("nix/unreadable.sh: cannot be read as UTF-8 text")]
+        );
         let stated = super::attributions(&text_of, &files, &ENTRY);
         assert_eq!(stated.found.len(), 1);
         assert_eq!(stated.found[0].named, "nix/lint-workflows.sh");
-        assert!(stated.unreadable.is_empty(), "{:?}", stated.unreadable);
+        assert_eq!(
+            stated.unreadable,
+            vec![String::from("docs/unreadable.md: cannot be read as UTF-8 text")]
+        );
     }
 
     /// A WRAPPED attribution is found, which is what the flattened view buys.

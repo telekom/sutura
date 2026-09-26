@@ -56,7 +56,7 @@
 //! offered - `remedy_problems`' evidence, `recipe_names`' justfile, `leg_two_citable`'s claims
 //! matrix - is read from disk and is not held at all.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use crate::Verdict;
@@ -104,7 +104,10 @@ mod pages;
 // keys on comes out of the manifests, and the copy it refuses is as often in a `//` comment as in
 // a page. What it does NOT reach, and the measured false positives that decided its axis, are in
 // its own header rather than here.
+mod texts;
 mod versions;
+
+use texts::{Texts, tree_problems_from_texts};
 
 use absences::{Reading, absence_problems};
 use citations::dead_paths;
@@ -462,28 +465,6 @@ fn tree_problems(
 /// The listed paths, their text, and the census's verdict line.
 type Listed = Result<(Vec<String>, Texts, String), String>;
 
-/// Keep the original lossy view for checks that already used it; host and page checks use the
-/// strict view that their former `read_to_string` calls provided.
-#[derive(Default)]
-pub(in crate::guidance) struct Texts {
-    lossy: BTreeMap<String, String>,
-    invalid: BTreeSet<String>,
-}
-
-impl Texts {
-    pub(in crate::guidance) fn get(&self, rel: &str) -> Option<&String> {
-        self.lossy.get(rel)
-    }
-
-    pub(in crate::guidance) fn strict(&self, rel: &str) -> Option<String> {
-        if self.invalid.contains(rel) {
-            None
-        } else {
-            self.lossy.get(rel).cloned()
-        }
-    }
-}
-
 /// Every listed file, read once through [`repo::Census::inspect`]: the paths, their text, and the
 /// census's verdict line.
 ///
@@ -504,13 +485,7 @@ pub(in crate::guidance) fn inspect_listing(found: Result<repo::Census, repo::Ref
             |_| true,
             |rel, bytes| {
                 files.push(String::from(rel));
-                let text = if let Ok(valid) = std::str::from_utf8(bytes) {
-                    String::from(valid)
-                } else {
-                    texts.invalid.insert(String::from(rel));
-                    String::from_utf8_lossy(bytes).into_owned()
-                };
-                texts.lossy.insert(String::from(rel), text);
+                texts.insert(rel, bytes);
             },
         )
         .map_err(|why| why.describe())?;
@@ -537,14 +512,13 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         }
     };
     let text_of = |rel: &str| texts.get(rel).cloned();
-    let strict_text_of = |rel: &str| texts.strict(rel);
 
     // Only text we might make a claim in. `files` is kept whole for `count_mismatches`, which
     // counts things in Rust, in snapshots and in anything else the claim is about - the scope
     // limit below is about where a CLAIM may be made, not about what may be counted.
     let text_files = in_scope(&files);
 
-    let (mut problems, pages, read, scan) = tree_problems(&root, &text_of, &strict_text_of, &files, &text_files);
+    let (mut problems, pages, read, scan) = tree_problems_from_texts(&root, &texts, &files, &text_files);
     // Not over `text_files`: the remedies are in this binary, which the scope above excludes for
     // the reason it states. They are judged against the tree rather than scanned in it.
     let (remedied, live_remedies) = remedy_problems(&root);
@@ -978,10 +952,16 @@ mod tests {
 
     #[test]
     fn invalid_utf8_stays_offered_without_becoming_readable_text() {
-        let tree = crate::scratch_tree::Tree::of("guidance-invalid-text", &[("docs/bad.md", &[0xff_u8])]);
-        let census = crate::repo::collect_files(tree.root(), &tree.root().join("docs"), &["md"]);
+        let tree = crate::scratch_tree::Tree::of(
+            "guidance-invalid-text",
+            &[("docs/bad.md", &[0xff_u8]), ("nix/lint-workflows.sh", &[0xfe_u8])],
+        );
+        let census = crate::repo::collect_files(tree.root(), tree.root(), &["md", "sh"]);
         let (files, texts, _witness) = super::inspect_listing(Ok(census)).expect("the file census");
-        assert_eq!(files, vec![String::from("docs/bad.md")]);
+        assert_eq!(
+            files,
+            vec![String::from("docs/bad.md"), String::from("nix/lint-workflows.sh")]
+        );
         assert_eq!(
             texts.get("docs/bad.md").map(String::as_str),
             Some("\u{fffd}"),
@@ -991,6 +971,19 @@ mod tests {
             texts.strict("docs/bad.md"),
             None,
             "strict scans must reach the unreadable arm"
+        );
+        let (problems, ..) = super::tree_problems_from_texts(tree.root(), &texts, &files, &super::in_scope(&files));
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("docs/bad.md: could not be read")),
+            "the page check must receive strict text: {problems:#?}"
+        );
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("nix/lint-workflows.sh: cannot be read as UTF-8 text")),
+            "the host check must receive strict text: {problems:#?}"
         );
     }
 }
