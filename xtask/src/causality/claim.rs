@@ -563,14 +563,28 @@ fn validate(wt: &Path, claim: &Claim, test_files: &[String]) -> Vec<Cause> {
 /// builds the `Scoped` the claim arm runs from. Empty would falsely `NotAdded` every cell of an
 /// inseparable declaring commit, which is exactly the shape `f61bcf28` (and this gate's own
 /// inseparable fixture) declares in.
+///
+/// USES [`crate::causality::plan::partition`], NEVER the SHAPE A/`Plan::DeletedTests`-aware
+/// `plan::plan_with_base`: this only wants which files are test-worthy, and threading a base reader through
+/// here for a question it does not ask risked exactly the class of bug review found once already
+/// (a wrong image resolving Shape A's removed-line numbers against the wrong commit) - keeping
+/// deletion detection OUT of this path removes the risk rather than getting the reader right a
+/// second time. `github.com/telekom/sutura#1031`'s own review (N6): the earlier version routed
+/// through `plan::plan` and mapped `Plan::DeletedTests` to `Some(Vec::new())`, which silently
+/// dropped a declaring commit's ADDED names whenever that same commit's diff ALSO deleted an
+/// assertion somewhere else - `partition` cannot answer `DeletedTests` at all, so there is no
+/// longer a case to drop names in.
 fn commit_added_names(wt: &Path, commit: &str, read: &crate::causality::regions::PostImage<'_>) -> Option<Vec<String>> {
     use crate::causality::plan::Plan;
     use crate::causality::scoped::Scan;
     let files: Vec<ChangedFile> = diff::commit_additions(wt, commit)?;
-    let (test_files, scannable) = match crate::causality::plan::plan(&files, read) {
+    let (test_files, scannable) = match crate::causality::plan::partition(&files, read) {
         Plan::Separable(separable) => (separable.test_files, files),
         Plan::NotSeparable { files: inseparable, .. } => (inseparable, files),
-        Plan::NotRequired => return Some(Vec::new()),
+        // `partition` never answers either of these - there is no base reader for it to route a
+        // deletion through - but the match stays exhaustive rather than assuming it: the honest
+        // answer for a shape this function cannot even ask about is "no names", not a panic.
+        Plan::NotRequired | Plan::DeletedTests(_) | Plan::BaseUnreadable(_) => return Some(Vec::new()),
     };
     match Scan::of(&scannable, &test_files, read) {
         Scan::Runnable(scoped) => Some(scoped.tests().iter().map(AddedTest::name).map(String::from).collect()),

@@ -1,7 +1,8 @@
 //! What goes into the agent-facing system prompt that this deployment hands out.
 //!
-//! Two keys, and each one is read by something: `sutura_app::prompt::render` is the consumer, and
-//! `sutura prompt` is the command that reaches it. That is a requirement rather than a remark - this
+//! Three keys, and each one is read: `sutura_app::prompt::render` consumes the text and prose choice,
+//! and the CLI composition root reads the file under the byte limit. `sutura prompt` reaches both.
+//! That is a requirement rather than a remark - this
 //! crate has shipped a group of keys that were parsed, range-checked, refused on a bad value and
 //! consumed by nothing, and it was a finding. A key nobody reads reads as a control that is in
 //! place.
@@ -150,6 +151,36 @@ pub enum InvalidPromptSettings {
     /// somebody meant to write a path.
     #[error("prompt.instructions_file is empty - write the path, or remove the key")]
     EmptyPath,
+    /// A configured byte ceiling was zero or large enough to defeat the startup bound.
+    #[error("prompt.instructions_max_bytes must be between 1 and 1048576 bytes, got {bytes}")]
+    InvalidInstructionsMaxBytes { bytes: u64 },
+}
+
+/// Maximum bytes read from the operator's instructions file at startup.
+///
+/// The default matches the knowledge bundle's 32 KiB cap. The finite maximum keeps an
+/// operator-configurable limit from turning this into an unbounded read again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InstructionsMaxBytes(usize);
+
+impl InstructionsMaxBytes {
+    pub const DEFAULT: Self = Self(32 * 1024);
+    pub const MAX: u64 = 1024 * 1024;
+
+    pub fn parse(bytes: u64) -> Result<Self, InvalidPromptSettings> {
+        if !(1..=Self::MAX).contains(&bytes) {
+            return Err(InvalidPromptSettings::InvalidInstructionsMaxBytes { bytes });
+        }
+        let Ok(bytes) = usize::try_from(bytes) else {
+            return Err(InvalidPromptSettings::InvalidInstructionsMaxBytes { bytes });
+        };
+        Ok(Self(bytes))
+    }
+
+    #[inline]
+    pub const fn get(self) -> usize {
+        self.0
+    }
 }
 
 impl InstructionsFile {
@@ -182,6 +213,7 @@ impl core::fmt::Display for InstructionsFile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromptSettings {
     instructions_file: Option<InstructionsFile>,
+    instructions_max_bytes: InstructionsMaxBytes,
     catalog_prose: CatalogProse,
 }
 
@@ -193,8 +225,19 @@ impl PromptSettings {
     /// and nothing about meaning - so it is a choice rather than a refusal.
     #[inline]
     pub const fn new(instructions_file: Option<InstructionsFile>, catalog_prose: CatalogProse) -> Self {
+        Self::with_max_bytes(instructions_file, InstructionsMaxBytes::DEFAULT, catalog_prose)
+    }
+
+    /// Assembles the group with an operator-selected byte ceiling.
+    #[inline]
+    pub const fn with_max_bytes(
+        instructions_file: Option<InstructionsFile>,
+        instructions_max_bytes: InstructionsMaxBytes,
+        catalog_prose: CatalogProse,
+    ) -> Self {
         Self {
             instructions_file,
+            instructions_max_bytes,
             catalog_prose,
         }
     }
@@ -203,6 +246,11 @@ impl PromptSettings {
     #[inline]
     pub const fn instructions_file(&self) -> Option<&InstructionsFile> {
         self.instructions_file.as_ref()
+    }
+
+    #[inline]
+    pub const fn instructions_max_bytes(&self) -> InstructionsMaxBytes {
+        self.instructions_max_bytes
     }
 
     #[inline]

@@ -216,10 +216,9 @@ impl CatalogContent {
     /// One metric per line, then its grains and its dimensions, because a model reads that back
     /// without being told how. The metrics and the knowledge are bounded at load: the bundle by the
     /// catalog's own parses, and [`Self::knowledge`] additionally by
-    /// `sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES`. **[`Self::instructions`] is NOT bounded here** -
-    /// the operator's own text has no byte ceiling and is repeated in full on every call - so a listing
-    /// that grew past what a context tolerates through the metrics or the knowledge is a bundle nobody
-    /// could ask about either way, and the same is not true of the operator's text.
+    /// `sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES`. The CLI composition root reads the operator's
+    /// instructions under `prompt.instructions_max_bytes` at startup. This wire type does not check
+    /// that limit itself; a direct caller can still construct it with longer text.
     pub(crate) fn as_text(&self) -> String {
         let mut out = String::from(self.notice);
         out.push('\n');
