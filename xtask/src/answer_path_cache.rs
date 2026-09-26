@@ -23,9 +23,9 @@
 //! path"*. **"Reachable" is not a property a text scan decides** - `sutura-app` calls into every
 //! adapter crate, and walking that call graph to decide what is truly reachable is a second gate's
 //! worth of work this one does not attempt. What is built instead, and all that is claimed: **no
-//! named-field `struct` in `crates/sutura-app/src` or `crates/sutura-domain/src` declares a
-//! `HashMap` or `BTreeMap` field whose value type names one of [`ANSWER_PATH_TYPES`]** - the
-//! hexagon's own interior, never an adapter. A map living inside an adapter crate is out of scope by
+//! named-field `struct` field and no `static` item (a `thread_local!` entry included) in
+//! `crates/sutura-app/src` or `crates/sutura-domain/src` declares a `HashMap` or `BTreeMap` whose
+//! value type names one of [`ANSWER_PATH_TYPES`]** - the hexagon's own interior, never an adapter. A map living inside an adapter crate is out of scope by
 //! construction, not by an exclusion this gate carries and could be argued open - the two
 //! directories named above are the whole of its walk.
 //!
@@ -35,8 +35,8 @@
 //!   a method from opening a file and holding what it reads for as long as it likes without ever
 //!   naming a `HashMap`. This gate reads a SHAPE, not a guarantee; the shape is what every cache
 //!   this codebase has written so far looks like from the outside.
-//! * A field declared across more than one physical line - a generic argument list wrapped for
-//!   width - is not read. Measured: nothing in scope wraps today.
+//! * A field or `static` type declared across more than one physical line - a generic argument
+//!   list wrapped for width - is not read. Measured: nothing in scope wraps today.
 //! * Only a **named-field** `struct` is walked; a tuple struct's single field is out of scope.
 //!   Theoretical rather than active here: every struct in scope names its fields.
 //!
@@ -54,7 +54,7 @@
 
 use crate::Verdict;
 use crate::repo;
-use crate::serde_parse::scan::{code_lines, matching_angle};
+use crate::serde_parse::scan::{code_lines, matching_angle, without_visibility};
 
 /// A type read off the answer path: the result of executing a plan, the compiled plan itself, or
 /// what a caller receives. A `HashMap`/`BTreeMap` field naming one of these as its VALUE type is
@@ -173,7 +173,7 @@ fn scan(census: repo::Census, must_judge: &[&str]) -> Result<Scanned, repo::Refu
                 declared.push(entry.name);
             }
         }
-        for (line, field) in struct_field_lines(&code) {
+        for (line, field) in struct_field_lines(&code).into_iter().chain(static_item_lines(&code)) {
             let Some((_, declared_type)) = field.split_once(':') else {
                 continue;
             };
@@ -301,6 +301,20 @@ enum Scan {
     AwaitingBody,
     /// Inside a struct's body, at this brace depth.
     InBody { depth: usize },
+}
+
+/// Every `static` item's `NAME: Type` on its own line - module-level, in a function, or a
+/// `thread_local!` entry, whose `static` keyword the macro requires. A `'static` lifetime never
+/// starts a line, so it is not read as one.
+fn static_item_lines(code: &[String]) -> Vec<(usize, String)> {
+    code.iter()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            let item = without_visibility(line.trim()).strip_prefix("static ")?;
+            let declared = item.split_once('=').map_or(item, |(declared, _)| declared);
+            Some((index.saturating_add(1), declared.trim().to_owned()))
+        })
+        .collect()
 }
 
 /// Every field-list line inside a named-field `struct`'s body - depth 1 relative to the struct's
@@ -576,6 +590,35 @@ mod tests {
             found.violations.iter().map(|v| &v.field).collect::<Vec<_>>()
         );
         assert_eq!(found.violations[0].holds, "RowSet");
+        assert_eq!(super::decide(&found), crate::Verdict::Fail);
+    }
+
+    /// A `static` cache - module-level or a `thread_local!` entry - is the same cache as a field.
+    /// The unrelated `static`, the `'static` bound and the `const` beside them are not.
+    #[test]
+    fn a_static_holding_an_answer_path_type_is_refused() {
+        let tree = crate::scratch_tree::Tree::of(
+            "answer-path-cache-static",
+            &[
+                (
+                    "crates/sutura-app/src/leaky.rs",
+                    b"static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);\npub(crate) static CACHE: LazyLock<HashMap<Subject, RowSet>> =\n    LazyLock::new(HashMap::new);\n",
+                ),
+                (
+                    "crates/sutura-domain/src/leaky.rs",
+                    b"pub trait Surface: Send + Sync + 'static {}\nconst TABLE: [u8; 4] = [0; 4];\nthread_local! {\n    static SEEN: RefCell<BTreeMap<Subject, AnsweredRaw>> = RefCell::new(BTreeMap::new());\n}\n",
+                ),
+            ],
+        );
+        let found = scan_over(&tree, &[]).expect("a readable tree scans");
+        let mut held: Vec<&str> = found.violations.iter().map(|v| v.holds).collect();
+        held.sort_unstable();
+        assert_eq!(
+            held,
+            ["AnsweredRaw", "RowSet"],
+            "{:?}",
+            found.violations.iter().map(|v| &v.field).collect::<Vec<_>>()
+        );
         assert_eq!(super::decide(&found), crate::Verdict::Fail);
     }
 
