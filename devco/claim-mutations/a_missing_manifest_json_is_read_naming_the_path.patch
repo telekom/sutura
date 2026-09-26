@@ -1,0 +1,14 @@
+--- a/crates/sutura-catalog-wren/src/lib.rs
++++ b/crates/sutura-catalog-wren/src/lib.rs
+@@ -73,10 +73,7 @@
+ /// module can parse, if `destination` already holds a file, or if it cannot be written to.
+ pub fn import(source: &Path, destination: &Path) -> Result<Summary, ImportError> {
+     let manifest_path = source.join("manifest.json");
+-    let text = fs::read_to_string(&manifest_path).map_err(|source| ImportError::Read {
+-        path: manifest_path.clone(),
+-        source,
+-    })?;
++    let text = fs::read_to_string(&manifest_path).map_err(|_source| ImportError::DestinationNotEmpty(manifest_path.clone()))?;
+     let manifest: wire::Manifest = serde_json::from_str(&text).map_err(|source| ImportError::NotAManifest {
+         path: manifest_path.clone(),
+         source,

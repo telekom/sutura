@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::{fs, io};
 
 /// What ran, for the two lines the command prints.
+#[derive(Debug)]
 pub struct Summary {
     models: usize,
     relationships: usize,
@@ -148,3 +149,6 @@ fn write_report(destination: &Path, converted: &convert::Converted) -> Result<()
     let path = destination.join("report.txt");
     fs::write(&path, render::report(converted)).map_err(|source| ImportError::Write { path, source })
 }
+
+#[cfg(test)]
+mod tests;

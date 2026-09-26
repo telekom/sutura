@@ -102,28 +102,12 @@ pub(crate) enum Measure {
     Ratio { numerator: Term, denominator: Term },
 }
 
-/// Splits `expr` on a `/` that sits outside every pair of parentheses - the one place a ratio's two
-/// terms meet - or `None` if there is none.
-fn split_top_level_slash(expr: &str) -> Option<(&str, &str)> {
-    let mut depth = 0i32;
-    for (index, character) in expr.char_indices() {
-        match character {
-            '(' => depth = depth.saturating_add(1),
-            ')' => depth = depth.saturating_sub(1),
-            '/' if depth == 0 => {
-                let (left, rest) = expr.split_at(index);
-                let (_slash, right) = rest.split_at(1);
-                return Some((left, right));
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-/// `expr` read as a wren cube measure: one term, or one term divided by another.
+/// `expr` read as a wren cube measure: one term, or one term divided by another. A plain split on
+/// the first `/` is exact, not an approximation of a parenthesis-aware one: a [`term`]'s argument
+/// is a bare identifier, so a ratio this admits holds exactly one `/`, and any other `/` leaves a
+/// half that is no term.
 pub(crate) fn measure(expr: &str) -> Option<Measure> {
-    if let Some((left, right)) = split_top_level_slash(expr) {
+    if let Some((left, right)) = expr.split_once('/') {
         let numerator = term(left)?;
         let denominator = term(right)?;
         return Some(Measure::Ratio { numerator, denominator });
