@@ -101,7 +101,7 @@ mod edited;
 mod features;
 #[cfg(test)]
 mod fixtures;
-mod isolation;
+pub(crate) mod isolation;
 mod membership;
 mod names;
 mod place;

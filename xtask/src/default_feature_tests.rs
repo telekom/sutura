@@ -134,6 +134,26 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         Err(verdict) => return verdict,
     };
     let target_dir = std::env::var_os("CARGO_TARGET_DIR");
+    // THE SAME PROFILE-SCOPED CLEAN `causality::runner::cargo_test` gets from `Isolated::of`, for
+    // the same reason this lane shares `target/causality-target` with the causality gate: the two
+    // trees are one unit to cargo, and a build in either satisfies the other on mtime. Without this
+    // clean the gate can run and pass tests over the other tree's first-party artifacts. The
+    // dependency closure is untouched - `--workspace` removes only workspace members - so the cost
+    // is a rebuild of this workspace's own crates each run, measured in `isolation`'s own header.
+    if let Some(target) = target_dir.as_deref().map(Path::new) {
+        match crate::causality::isolation::Isolated::of(&root, target) {
+            Ok(witness) => println!(
+                "  isolated: removed {} first-party {} artifact(s) from {}",
+                witness.removed(),
+                crate::warm_start::WARM_PROFILE,
+                target.display()
+            ),
+            Err(why) => {
+                eprintln!("xtask check-default-feature-tests: FAILED - {why}");
+                return Verdict::Fail;
+            }
+        }
+    }
     let profile = profile_for(target_dir.as_deref().map(Path::new));
     println!(
         "xtask check-default-feature-tests: {} shipped package(s) from {SOURCE}: {}",
