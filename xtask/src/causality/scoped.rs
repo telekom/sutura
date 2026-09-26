@@ -54,19 +54,25 @@
 //! scope, and a diff whose every added test is ignored gets [`Scan::OnlyIgnored`] - a statement
 //! that this gate has not verified the change, not a claim that the extractor is broken.
 //!
-//! WHAT IT DOES NOT REACH. A name is read from an ADDED test attribute and the function under
-//! it, so a body-only edit inside an existing `#[test]` names nothing here. `super::attributes`
-//! also accepts an added `#[cfg(test)] mod ..` or `mod tests {` marker, which names no function -
-//! so a diff whose ONLY test signal is such a marker is a file the plan calls a test file and this
-//! cannot name. **A `#[cfg(test)]` item that is not a module is NOT such a marker**, and treating
-//! it as one was a refusal no author could act on; that module's header carries the reasoning.
-//! Both attribute lists live THERE, in one file, because a name this cannot extract from a marker
-//! it accepts is exactly the disagreement that would reopen the unfiltered run.
+//! WHAT IT DOES NOT REACH. `super::attributes` accepts an added `#[cfg(test)] mod ..` or
+//! `mod tests {` marker, which names no function - so a diff whose ONLY test signal is such a
+//! marker is a file the plan calls a test file and this cannot name. **A `#[cfg(test)]` item that
+//! is not a module is NOT such a marker**, and treating it as one was a refusal no author could
+//! act on; that module's header carries the reasoning. Both attribute lists live THERE, in one
+//! file, because a name this cannot extract from a marker it accepts is exactly the disagreement
+//! that would reopen the unfiltered run.
+//!
+//! A NAME NEED NOT COME FROM AN ADDED ATTRIBUTE ANY MORE - `github.com/telekom/sutura#1025`.
+//! `super::edited` reads the same [`function_name`] over a PRE-existing attribute whose item an
+//! added line lands inside, so an edited assertion is named the same way an added test is. Its own
+//! header carries the one shape that still names nothing: a pure deletion, which adds no line for
+//! either extractor to find.
 
 use std::collections::BTreeSet;
 
 use crate::causality::attributes::{attached, declares_a_test, item_below};
 use crate::causality::diff::ChangedFile;
+use crate::causality::edited;
 use crate::causality::features::{Because, Enabled};
 use crate::causality::names::Ident;
 use crate::causality::place::{AddedTest, Declares, accounted_for, place};
@@ -245,6 +251,27 @@ impl Scan {
                     }
                 }
             }
+            // `github.com/telekom/sutura#1025`: a test this diff did not ADD but whose item an
+            // added line lands inside - an edited assertion, most often. Independent of
+            // `named`/`declared` above, which count only ADDED attribute lines: a body-only edit
+            // adds no attribute at all, so those two stay at zero however many of these this finds.
+            let touched = edited::touched_in(&lines, &file.added);
+            let touched_any = !touched.is_empty();
+            for one in touched {
+                match one {
+                    edited::Touched::Ignored(name) => {
+                        if !ignored.contains(&name) {
+                            ignored.push(name);
+                        }
+                    }
+                    edited::Touched::Runs(name) => {
+                        let one = AddedTest::at(&file.path, &at, name);
+                        if !runnable.contains(&one) {
+                            runnable.push(one);
+                        }
+                    }
+                }
+            }
             if named > 0 && named == declared {
                 continue;
             }
@@ -254,6 +281,9 @@ impl Scan {
                 // An added attribute that declares a test and yielded no name: the extractor is
                 // the fix.
                 unreadable.push(file.path.clone());
+                continue;
+            }
+            if touched_any {
                 continue;
             }
             match accounted_for(file, &lines) {
@@ -341,7 +371,10 @@ fn declared_under(lines: &[&str], added: &AddedLine) -> Option<Declared> {
 /// `#[cfg_attr(.., ignore)]` is not recognised - no such spelling exists in this tree, and the
 /// direction of missing one is the `no tests to run` failure this dropping exists to prevent,
 /// which is loud.
-fn is_ignored(lines: &[&str], index: usize) -> bool {
+///
+/// `pub(super)` for `super::edited`, which asks the same question of a PRE-existing declaration -
+/// one attribute, one answer, and a second copy would be a second thing to keep in step.
+pub(super) fn is_ignored(lines: &[&str], index: usize) -> bool {
     attached(lines, index)
         .iter()
         .any(|(_, opening)| opening.starts_with("#[ignore"))
@@ -354,23 +387,28 @@ fn is_ignored(lines: &[&str], index: usize) -> bool {
 /// wrapped signature names nothing*. The name sits before the `(`, and rustfmt breaks a signature
 /// too long for one line AFTER that `(`, so the FIRST line of a wrapped `async fn very_long_...(`
 /// still carries `fn <name>(` and is still named. The shapes that occur are `fn`, `async fn` and a
-/// visibility in front of either. What is genuinely out of reach is an added line that is not a
-/// signature's first line: a body-only or def-interior edit.
+/// visibility in front of either. This function ITSELF never walks UP from an interior line to the
+/// signature above it - it only ever reads the one line it is handed.
 ///
-/// **ASSERTED NOW, by the two tests below rather than by this paragraph**
+/// **ASSERTED NOW, by the test below rather than by this paragraph**
 /// (`github.com/telekom/sutura#347`): `a_signature_the_formatter_wrapped_after_the_paren_is_still_named`
 /// drives a wrapped `async fn` with a return type through [`Scan::of`] and pins the name that comes
-/// out, and `an_added_line_inside_a_signature_this_diff_did_not_open_names_nothing` pins
-/// the limit - the extractor does not walk UP from an interior line to the signature above it, so
-/// such an edit is refused rather than credited with a test it did not add.
+/// out.
 ///
-/// **Why it took an issue to land two assertions**, because the constraint is this gate's own rule
-/// and it applies to anything pinning behaviour a branch did not change: such a test passes against
-/// base too, which `AGENTS.md` calls worse than none. The gate said so out loud when one was first
-/// tried here - *FAILED - green against base behaviour* - and the shape that lands it honestly is
-/// the second of the two the issue carries: the test module of a file that ALSO carries an
-/// implementation change. `plan` holds such a file back, so these two appear under `not measured:`
-/// in the verdict instead of becoming the verdict.
+/// **`github.com/telekom/sutura#1025` closed the gap that used to sit here.** A def-interior edit -
+/// an added line that is not a signature's first line, most often a changed assertion in the BODY -
+/// used to be refused rather than named, because [`declared_under`] only ever calls this on the item
+/// BELOW an ADDED attribute. `super::edited` asks the opposite direction: from a PRE-existing
+/// attribute DOWN to this same function, so a diff whose only line inside `fn <name>(..) { .. }` is
+/// an edited assertion - or, since the span is the whole item, an edited parameter - is named the
+/// same way an added test is. `an_added_line_inside_a_signature_this_diff_did_not_open_names_nothing`
+/// pins the fixed answer now, not the old limit.
+///
+/// **Why the naming alone is not the whole proof.** A test named this way still has to clear the
+/// same rule as an added one: it applies to anything pinning behaviour a branch did not change, and
+/// AGENTS.md calls a test that passes both ways worse than none. `super::plan` puts such a file into
+/// `test_files` and `causality::run`'s tests-only arm then asks for a `Claim-Cell:` declaration and a
+/// killing mutation - the same proof an added test pinning existing behaviour needs.
 pub(super) fn function_name(line: &str) -> Option<Ident> {
     let declared = line.split_whitespace().skip_while(|word| *word != "fn").nth(1)?;
     Ident::parse(declared.split(['(', '<', ':']).next()?)
@@ -904,13 +942,12 @@ mod tests {
     }
 
     #[test]
-    fn an_added_line_inside_a_signature_this_diff_did_not_open_names_nothing() {
-        // THE STATED LIMIT, and it is the half a wider extractor would get wrong. The same wrapped
-        // signature, with only its PARAMETER line added - a def-interior edit. The name is two
-        // lines up and in reach of anything that walked upward, which is exactly what must not
-        // happen: crediting this diff with a test it did not add would put a test that is green in
-        // both trees into the proof. So no name comes out, the file's only added line declares no
-        // test, and the answer is a refusal naming the file rather than that test's name.
+    fn an_added_line_inside_a_signature_this_diff_did_not_open_is_named_by_the_enclosing_item() {
+        // `github.com/telekom/sutura#1025`. UNTIL NOW, THE STATED LIMIT: the same wrapped
+        // signature, with only its PARAMETER line added - a def-interior edit - named nothing,
+        // because `function_name` never walks UP from an interior line and `declared_under` only
+        // ever asks about an ADDED attribute. `super::edited` asks the opposite direction, from the
+        // PRE-existing `#[tokio::test]` down to this same function, so the enclosing item names it.
         let file = concat!(
             "#[tokio::test]\n",                                                    // 1
             "async fn the_exchange_chain_joined_through_the_transport_answers(\n", // 2
@@ -921,11 +958,10 @@ mod tests {
         );
         let files = vec![changed("crates/x/tests/t.rs", 3, &["    provisioned: &Provisioned,"])];
         let read = tree(&[("crates/x/tests/t.rs", file), ("crates/x/Cargo.toml", &manifest("x"))]);
-        assert_eq!(runnable(&files, &["crates/x/tests/t.rs"], &read), None);
-        match Scan::of(&files, &[String::from("crates/x/tests/t.rs")], &read) {
-            Scan::Unreadable(ref refused) => assert_eq!(*refused, vec![String::from("crates/x/tests/t.rs")]),
-            other => panic!("a def-interior edit names no test, got {other:?}"),
-        }
+        assert_eq!(
+            runnable(&files, &["crates/x/tests/t.rs"], &read),
+            Some(vec![String::from("the_exchange_chain_joined_through_the_transport_answers")])
+        );
     }
 
     #[test]

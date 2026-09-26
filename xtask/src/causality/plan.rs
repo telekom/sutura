@@ -12,12 +12,18 @@
 //! subject of `a_held_back_implementation_is_reverted_when_a_scoped_test_reaches_it`: an
 //! inseparable file that is the IMPLEMENTATION of a separable test in the same package stayed at
 //! HEAD while that test was measured, so the test stayed green on a "base" that had never
-//! reverted it and the gate blamed the author for a partition it chose.
+//! reverted it and the gate blamed the author for a partition it chose. A fifth,
+//! `an_edited_assertion_with_no_added_marker_is_a_test_file_not_an_implementation_change`
+//! (`github.com/telekom/sutura#1025`): a file whose only added lines sit inside a test that
+//! already existed added no marker `adds` reads, so it fell into `impl_only` and, absent any
+//! OTHER test file in the diff, `test_files` stayed empty and the whole diff answered
+//! `Plan::NotRequired` - *no changed tests* over a diff that changed one.
 
 use std::collections::BTreeSet;
 
 use super::attributes::{Adds, adds};
 use super::diff::ChangedFile;
+use super::edited;
 use super::place;
 use super::provenance::Reach;
 use super::regions::{PostImage, has_non_test_additions, scope};
@@ -131,7 +137,21 @@ pub(crate) fn plan(files: &[ChangedFile], read: &PostImage<'_>) -> Plan {
                 // that is the shape whose unnameable test is a deliberate refusal.
                 Adds::NamedTest | Adds::TestModule => test_files.push(file.path.clone()),
                 Adds::TestOnlyItem => test_only.push(file.path.clone()),
-                Adds::Nothing => impl_only.push(file.path.clone()),
+                // `github.com/telekom/sutura#1025`: an added line naming no marker at all may still
+                // sit inside a test that already existed - a changed assertion, most often - and
+                // `adds` cannot see that, because it reads only what an added line SAYS, never
+                // where it SITS. `edited::touches` asks the position question the same way
+                // `has_non_test_additions` below does, over the file's PRE-existing `#[test]`s
+                // rather than its `#[cfg(test)]` regions. Kept at HEAD like any other test file
+                // rather than reverted - reverting it would take the very edit this diff is about
+                // out of the tree the proof measures.
+                Adds::Nothing => {
+                    if edited::touches(&file.added, &file.path, read) {
+                        test_files.push(file.path.clone());
+                    } else {
+                        impl_only.push(file.path.clone());
+                    }
+                }
             },
         }
     }
@@ -282,6 +302,45 @@ mod tests {
     fn no_changed_tests_means_nothing_to_prove() {
         let files = vec![changed("src/a.rs", 1, &["fn f() {}"])];
         assert_eq!(plan(&files, &tree(&[])), Plan::NotRequired);
+    }
+
+    #[test]
+    fn an_edited_assertion_with_no_added_marker_is_a_test_file_not_an_implementation_change() {
+        // THE DEFECT `github.com/telekom/sutura#1025` CLOSES. The only added line is the new
+        // assertion INSIDE an existing `#[test]` fn - no `#[test]`, no `mod tests`, no production
+        // line anywhere in the diff. `adds` reads `Adds::Nothing` because nothing added SAYS test:
+        // before this decision that put the file straight into `impl_only`, and with no other test
+        // file in the diff the whole answer was `Plan::NotRequired` - *no changed tests* over a
+        // diff whose only change was to one.
+        let post_image = concat!(
+            "pub fn open_engine() -> u8 {\n",          // 1
+            "    2\n",                                 // 2
+            "}\n",                                     // 3
+            "#[cfg(test)]\n",                          // 4
+            "mod tests {\n",                           // 5
+            "    use super::open_engine;\n",           // 6
+            "    #[test]\n",                           // 7
+            "    fn existing() {\n",                   // 8
+            "        assert_eq!(open_engine(), 2);\n", // 9
+            "    }\n",                                 // 10
+            "}\n",                                     // 11
+        );
+        let files = vec![changed(
+            "crates/x/src/commands.rs",
+            9,
+            &["        assert_eq!(open_engine(), 2);"],
+        )];
+        let read = tree(&[
+            ("crates/x/src/commands.rs", post_image),
+            ("crates/x/Cargo.toml", &manifest("x")),
+        ]);
+        match plan(&files, &read) {
+            Plan::Separable(ref one) => {
+                assert!(one.revert.is_empty(), "nothing else changed: {:?}", one.revert);
+                assert_eq!(one.test_files, vec![String::from("crates/x/src/commands.rs")]);
+            }
+            other => panic!("expected Separable with nothing to revert, got {other:?}"),
+        }
     }
 
     #[test]
