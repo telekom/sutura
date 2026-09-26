@@ -1195,10 +1195,12 @@ refuses an undeclared added test by name or runs the claim arm, so nothing print
 more. Four of the remaining five carry `0 of M` beside the prose; the paragraph
 on those four further down has the accounting and says which one prints no number. An author whose
 verdict does not match one of these five sentences exactly should not read that as failure without
-checking the list first. **The two INCONCLUSIVE answers are neither pass nor
-fail** - "the base tree does not build" and "the base run named no failure" exit **3** since #307,
-which is not 0 and not 1: see the paragraph at the end of this section for what each venue does with
-it. **Everything else fails**, on two sides. The base run produced an answer that is not evidence
+checking the list first. **INCONCLUSIVE is neither pass nor fail.** "The base run named no failure"
+exits **3**; "the base tree does not build" exits **3** only after a held-back retry also fails.
+With nothing held back, a compile failure exits **1**: declared cells already reached mutation
+proof, and each remaining test is refused by name. A transient build failure has that same shape,
+so rerun before declaring a claim. See the paragraph below for what each venue does with exit 3.
+**Everything else fails**, on two sides. The base run produced an answer that is not evidence
 about the change: green against base, red outside the diff, or the added tests not running at all.
 Or the scan refused before either run: no added line named a test, a test attribute it could not read
 a NAME from, a declaration putting a module of tests this diff does not contain into the build, or a

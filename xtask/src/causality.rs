@@ -362,6 +362,18 @@ fn reconstruct_and_run(
         );
     }
 
+    // The caller ran declared claim cells first; only unclaimed tests reach this proof.
+    if matches!(outcome, BaseOutcome::DidNotCompile) && held.is_empty() {
+        eprintln!("xtask test-causality: FAILED - the base does not compile with nothing held back");
+        eprintln!("{}", tail(&base_out, 8));
+        for test in scoped.tests() {
+            eprintln!("  unmeasured: {} in {}", test.name(), test.file());
+        }
+        eprintln!("Declare each as a `Claim-Cell:` with a killing mutation, then rerun.");
+        eprintln!("A transient build failure has the same shape; rerun before declaring a claim.");
+        return Verdict::Fail;
+    }
+
     report_base(
         &outcome,
         &base_out,
