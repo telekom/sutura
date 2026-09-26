@@ -838,6 +838,25 @@ mod tests {
     }
 
     #[test]
+    fn an_oversized_instructions_file_reads_only_one_byte_past_the_cap() {
+        let dir = std::env::temp_dir().join(format!("sutura-cli-prompt-read-probe-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        std::fs::create_dir_all(&dir).expect("scratch directory");
+        let path = dir.join("instructions.md");
+        std::fs::write(&path, "x".repeat(128)).expect("oversized instructions file");
+        let configured = sutura_config::InstructionsFile::parse(path.to_string_lossy().as_ref()).expect("path");
+        let settings = sutura_config::PromptSettings::with_max_bytes(
+            Some(configured),
+            sutura_config::InstructionsMaxBytes::parse(64).expect("valid cap"),
+            sutura_config::CatalogProse::Quoted,
+        );
+        let error = prompt_inputs(&settings).expect_err("oversized instructions refuse");
+        assert!(error.contains("at least 65 bytes"), "{error}");
+        assert!(!error.contains("128 bytes"), "the read passed its bound: {error}");
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
     fn a_refused_question_is_printed_as_a_sentence_and_a_remedy_and_not_as_a_debug_dump() {
         // THE BUG. Both refusal paths - `compile` and `query` - printed `refused: {reason:?}`, so what
         // a person got for a governance decision was
