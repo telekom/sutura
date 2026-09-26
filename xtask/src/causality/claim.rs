@@ -553,8 +553,10 @@ fn validate(wt: &Path, claim: &Claim, test_files: &[String]) -> Vec<Cause> {
 ///
 /// The single-commit diff numbers its `AddedLine`s in THAT commit's post-image, so they resolve
 /// against the commit's own tree, never HEAD's: a later commit in the range that shifts or deletes
-/// lines above the test would otherwise read it as absent (`github.com/telekom/sutura#1054`). The
-/// kill step still reads HEAD, because the mutation runs there. `OK(empty)` for a
+/// lines above the test would otherwise read it as absent, or name a test it did not add
+/// (`github.com/telekom/sutura#1054`). A path the commit does not carry answers `None`, never
+/// HEAD's copy. Every read is one `git show`, uncached; the kill step still reads HEAD, because
+/// the mutation runs there. `OK(empty)` for a
 /// commit whose diff added no named test, which a declaration over it must then answer as
 /// [`Cause::NotAdded`]; `None` when the commit's diff cannot be read at all (an unnameable hash),
 /// fail-closed in the direction that refuses.

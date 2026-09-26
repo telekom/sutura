@@ -922,41 +922,75 @@ fn the_numstat_reader_names_what_git_would_rewrite() {
     );
 }
 
-// RED for #1054: a declaring commit's added lines resolve against ITS tree, not HEAD's. Commit 2
-// adds and declares `the_shifted_one`; commit 3 inserts two items above it. Read against HEAD, the
-// added `#[test]` line number lands on `above_two` and the valid declaration refuses `NotAdded`.
-// Inserted COMMENTS would not show it: the item lookup skips them down to the same `fn`.
-#[test]
-fn a_later_commit_shifting_the_declared_test_is_not_refused() {
-    let repo = Repo::with(
-        "Cargo.toml",
-        "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    );
-    repo.write("src/lib.rs", "pub fn f() -> u8 { 1 }\n");
-    repo.write("tests/t.rs", "#[test]\nfn the_shifted_one() {}\n");
-    repo.write(
-        "devco/claim-mutations/the_shifted_one.patch",
-        "diff --git a/src/lib.rs b/src/lib.rs\n\
+/// A mutation of the `src/lib.rs` the #1054 cells write, so each cell's claim has a patch to read.
+const LIB_PATCH: &str = "diff --git a/src/lib.rs b/src/lib.rs\n\
 --- a/src/lib.rs\n\
 +++ b/src/lib.rs\n\
 @@ -1 +1 @@\n\
 -pub fn f() -> u8 { 1 }\n\
-+pub fn f() -> u8 { 2 }\n",
-    );
-    repo.commit("adds the_shifted_one and declares it");
-    let declaring = repo.commit_hash();
-    repo.write(
-        "tests/t.rs",
-        "fn above_one() {}\nfn above_two() {}\n#[test]\nfn the_shifted_one() {}\n",
-    );
-    repo.commit("inserts two items above the declared test");
++pub fn f() -> u8 { 2 }\n";
+const MANIFEST: &str = "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
+
+/// `validate`'s causes for ONE cell declared on `declaring`, with its patch committed there.
+fn declared_on(repo: &Repo, declaring: String, cell: &str) -> Vec<Cause> {
     let claim = Claim {
-        cells: vec![String::from("the_shifted_one")],
-        by_commit: vec![(declaring, vec![String::from("the_shifted_one")])],
+        cells: vec![cell.to_owned()],
+        by_commit: vec![(declaring, vec![cell.to_owned()])],
     };
-    let causes = super::validate(&repo.dir, &claim, &[]);
+    super::validate(&repo.dir, &claim, &[])
+}
+
+/// #1054's shape, returning commit 2: it appends `added_here` below `pre_existing`, and commit 3
+/// inserts two `fn`s above both (comments would not show it: the item lookup skips them).
+fn shifted_below_an_earlier_test() -> (Repo, String) {
+    let repo = Repo::with("Cargo.toml", MANIFEST);
+    repo.write("src/lib.rs", "pub fn f() -> u8 { 1 }\n");
+    repo.write("tests/t.rs", "#[test]\nfn pre_existing() {}\n");
+    repo.commit("adds pre_existing");
+    repo.write("tests/t.rs", "#[test]\nfn pre_existing() {}\n#[test]\nfn added_here() {}\n");
+    repo.write("devco/claim-mutations/added_here.patch", LIB_PATCH);
+    repo.write("devco/claim-mutations/pre_existing.patch", LIB_PATCH);
+    repo.commit("adds added_here");
+    let declaring = repo.commit_hash();
+    let shifted = "fn above_one() {}\nfn above_two() {}\n#[test]\nfn pre_existing() {}\n#[test]\nfn added_here() {}\n";
+    repo.write("tests/t.rs", shifted);
+    repo.commit("inserts two items above both tests");
+    (repo, declaring)
+}
+
+// RED for #1054, the false refusal: read against HEAD, commit 2's added `#[test]` line lands on
+// `pre_existing`, so the valid declaration of `added_here` refuses `NotAdded`.
+#[test]
+fn a_later_commit_shifting_the_declared_test_is_not_refused() {
+    let (repo, declaring) = shifted_below_an_earlier_test();
+    let causes = declared_on(&repo, declaring, "added_here");
     assert!(
         causes.is_empty(),
         "a shifted declared test is still the declaring commit's: {causes:?}"
     );
+}
+
+// RED for #1054, the false accept: the same misread names `pre_existing`, a test commit 2 never
+// added, and a declaration of it would pass the per-commit bijection.
+#[test]
+fn a_later_commit_shifting_lines_does_not_lend_an_earlier_test_to_the_declaring_commit() {
+    let (repo, declaring) = shifted_below_an_earlier_test();
+    let causes = declared_on(&repo, declaring, "pre_existing");
+    assert_eq!(causes, [Cause::NotAdded(String::from("pre_existing"))]);
+}
+
+// RED for #1054: a path the declaring commit does not carry answers `None`, never HEAD's copy. The
+// manifest arrives only in a later commit, so the declaring commit's test has no owning package.
+#[test]
+fn a_manifest_a_later_commit_adds_does_not_name_the_declaring_commits_test() {
+    let repo = Repo::with("README", "x\n");
+    repo.write("tests/t.rs", "#[test]\nfn the_orphan() {}\n");
+    repo.write("devco/claim-mutations/the_orphan.patch", LIB_PATCH);
+    repo.commit("adds the_orphan before any manifest owns it, and declares it");
+    let declaring = repo.commit_hash();
+    repo.write("Cargo.toml", MANIFEST);
+    repo.write("src/lib.rs", "pub fn f() -> u8 { 1 }\n");
+    repo.commit("adds the manifest");
+    let causes = declared_on(&repo, declaring, "the_orphan");
+    assert_eq!(causes, [Cause::NotAdded(String::from("the_orphan"))]);
 }
