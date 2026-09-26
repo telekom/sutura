@@ -874,9 +874,12 @@ crate has watched a real GMS answer.
 
 # TLS and the endpoint
 
-`Endpoint::parse` is the ONLY way to obtain an `Endpoint`, and `HttpAspectReader::new` takes one rather than a
-`String` - a caller cannot dial an endpoint this module has not validated. What `Endpoint::parse` accepts, exactly:
-`scheme://host[:port]`, scheme `http` or `https` (case-folded), on a `Uri` (`ureq`'s own re-export of the `http` crate's
+`Endpoint` and its `Endpoint::parse` now live in `sutura-http-client`, shared with
+`sutura-catalog-openmetadata`'s identical reader since issue #970's review found the two
+byte-for-byte the same (`cargo xtask check-jscpd`). `HttpAspectReader::new` takes one rather
+than a `String` - a caller cannot dial an endpoint this module has not validated. What
+`Endpoint::parse` accepts, exactly:
+`scheme://host[:port]`, scheme `http` or `https` (case-folded), on a `ureq::http::Uri` (`ureq`'s own re-export of the `http` crate's
 parser, the SAME type `ureq` itself parses a request URL into before dialling), an OPTIONAL nonzero valid `:port`, an
 OPTIONAL trailing `/`, and NOTHING else: a path, query or fragment is `InvalidEndpoint::PathBeyondRoot` (fragment
 checked on the RAW text, because `http::Uri` silently discards a `#`), a bad port is `InvalidEndpoint::NotAnHttpUrl`,
@@ -902,7 +905,7 @@ connection timeout. The first fix was `Endpoint`, parsed by splitting the string
 LAST `:` in the authority - `::1` for the bracketed case - so the endpoint parsed as loopback
 while the REAL host, `localhost` (everything after the userinfo's `@`), is exactly the name
 `Endpoint::parse` is supposed to refuse in plaintext. A reader built from that string dialled
-`localhost` with the bearer prepared. Parsing with `Uri` - the SAME parser `ureq` itself uses -
+`localhost` with the bearer prepared. Parsing with `ureq::http::Uri` - the SAME parser `ureq` itself uses -
 closes this the way it should have been closed the first time: `Authority::host` already
 resolves past userinfo correctly, and `Endpoint::parse` additionally refuses any `user[:pass]@`
 prefix outright rather than trusting that resolution to stay correct.
@@ -910,79 +913,7 @@ prefix outright rather than trusting that resolution to stay correct.
 `ureq`'s compiled-in default root set (for an `https://` endpoint), `max_redirects(0)` and the
 proxy left on (`Proxy::try_from_env()`) are the other pins; a deployment MAY replace the
 compiled-in roots with its own CA via `security.outbound.transport_anchors` (`#125`), folded in
-`super::tls_roots` - anchors only, no client identity.
-
-### `enum InvalidReadBounds`
-
-```rust
-pub enum InvalidReadBounds
-```
-
-Why a declared bound is not usable.
-
-#### Variants
-
-- `Zero` - Zero would refuse every read rather than bounding one.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-### `struct ReadBounds`
-
-```rust
-pub struct ReadBounds
-```
-
-What one `HttpAspectReader::read` call may spend: a request timeout and a response-size cap.
-
-A newtype rather than two loose arguments, so a reader cannot be built with an unchecked pair -
-a request timeout paired with a response-size cap, and no money bound: a metadata read is not
-billed.
-
-#### Methods
-
-```rust
-pub const fn max_response_bytes(&self) -> u64
-```
-
-```rust
-pub const fn parse(timeout_seconds: u64, max_response_bytes: u64) -> Result<Self, InvalidReadBounds>
-```
-
-Parses a declared timeout and cap, refusing either at zero.
-
-```rust
-pub const fn timeout(&self) -> Duration
-```
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`
-
-### `struct EndpointMessage`
-
-```rust
-pub struct EndpointMessage
-```
-
-`DataHub`'s own message on a refusal.
-
-Redacted the way `sutura_exec_bigquery::wire::EndpointMessage` is: bounded, filtered, and
-reachable only through `Self::as_str` - never through `Debug`, which is the rendering a
-cause-chain walk uses.
-
-#### Methods
-
-```rust
-pub fn as_str(&self) -> &str
-```
-
-The message itself, for a caller that has decided it may render it.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
+`sutura_http_client::tls` - anchors only, no client identity.
 
 ### `enum HttpReaderError`
 
@@ -1016,53 +947,6 @@ variant - so this stays inspectable by a caller that knows to downcast, the `Era
 
 `Debug`, `Display`, `Error`
 
-### `enum InvalidEndpoint`
-
-```rust
-pub enum InvalidEndpoint
-```
-
-Why a declared endpoint is not usable.
-
-#### Variants
-
-- `NotAnHttpUrl` - Not a parseable URL, or a parseable URL naming neither `http` nor `https`, or one naming no authority at all.
-- `CredentialsInUrl` - The authority carries `user[:pass]@` - refused outright. **This is not merely defence in depth against a spoofed host**: the round-2 review measured a reader built from `http://[::1]:1@localhost:<port>` dialling `localhost` in clear text with the bearer prepared, because a hand-rolled host extraction split on the wrong delimiter. Parsing with `Uri` closes that specific bypass on its own - `Authority::host` resolves to the text AFTER the last `@`, which is `localhost` here, so the loopback check below already sees the real target - but a declared endpoint has no legitimate use for embedded credentials, so this refuses the shape by name rather than relying on that resolution being correct forever.
-- `PathBeyondRoot` - A path, a query or a fragment beyond the bare root - a reverse-proxy path prefix is a real shape, not yet supported, a stated limit. The fragment is checked on RAW text in `Endpoint::parse`: `http::Uri` silently discards a `#`.
-- `PlaintextBeyondLoopback` - `http://` to a host that is not an IP loopback literal - see `sutura_domain::source::host_is_loopback`.
-
-#### Implements
-
-`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-### `struct Endpoint`
-
-```rust
-pub struct Endpoint
-```
-
-A validated `DataHub` endpoint, obtainable only through `Self::parse` - see the module
-header's "TLS and the endpoint" section for the accepted grammar and each refusal.
-
-#### Methods
-
-```rust
-pub fn as_str(&self) -> &str
-```
-
-```rust
-pub fn parse(raw: &str) -> Result<Self, InvalidEndpoint>
-```
-
-Parses and validates against `Uri` - the SAME parser `ureq` itself dials with, rather
-than a hand-rolled split, which is what let the round-2 review's userinfo form
-(`http://[::1]:1@localhost`) reach `host_is_loopback` with the wrong string. The stored
-form is rebuilt from the parsed `scheme`/`authority`, so any root spelling normalises alike.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
 ### `struct HttpAspectReader`
 
 ```rust
@@ -1087,7 +971,7 @@ settings-declared file at boot) and `bounds` (only `ReadBounds::parse`) are all 
 **`anchors` is `security.outbound.transport_anchors` (`#125`), resolved once at boot**: `None`
 leaves `ureq`'s compiled-in `RootCerts::WebPki` (every deployment before `security.outbound`),
 `Some` replaces it with `RootCerts::Specific` from exactly the declared certificates - never a
-union of the two (see `super::tls_roots`). This constructor never presents a client
+union of the two (see `sutura_http_client::tls`). This constructor never presents a client
 identity - `Self::rotating_agent` is the one that does, over the same declaration
 (`security.outbound.client_certificate`/`client_key`, `github.com/telekom/sutura#911`).
 
@@ -1102,7 +986,7 @@ a replaced bundle (`security.outbound.transport_anchors`, `github.com/telekom/su
 adopted by the next read, no drain (per `docs/adr/0010`).
 
 ```rust
-pub fn rotating_agent(bounds: ReadBounds, declared: Option<sutura_tls::Declared>) -> Result<(sutura_tls::Rotating<ureq::Agent>, Option<sutura_tls::Rotator<ureq::Agent>>), sutura_tls::LoadError>
+pub fn rotating_agent(bounds: ReadBounds, declared: Option<sutura_tls::Declared>) -> Result<OutboundAgent, sutura_tls::LoadError>
 ```
 
 Builds the reader's rotating agent handle for a declared `security.outbound` set, and (when
@@ -1121,129 +1005,40 @@ The declared bundle or client identity cannot be loaded at boot.
 
 `AspectReader`, `Clone`, `Debug`
 
-### `constant DEFAULT_TIMEOUT_SECONDS`
+### `use Budget`
 
-The recommended default request timeout, in seconds, for a composition root's settings default.
+### `use DEFAULT_MAX_RESPONSE_BYTES`
 
-Matches `server.request_timeout_seconds`'s own shipped default: a metadata read that outlives the
-request timeout in front of it cannot answer inside the budget the caller was promised anyway.
-**Not read by anything in this module** - a caller passes the number it resolved, through
-`ReadBounds::parse`, the same single-owner shape `BytesBilledCeiling::parse` holds for
-`BigQuery`'s ceiling: this crate owns the range, a settings tree owns that the key was written.
+### `use DEFAULT_TIMEOUT_SECONDS`
 
-### `constant DEFAULT_MAX_RESPONSE_BYTES`
+### `use Endpoint`
 
-The recommended default response-size cap, in bytes, for a composition root's settings default.
+### `use EndpointMessage`
 
-A metadata page is descriptions, column names and one metric document, not query rows, so what
-this defends against is something that is not the endpoint answering at all - a redirect loop,
-a proxy gone wrong - rather than a realistic upper bound on a legitimate page.
+### `use InvalidEndpoint`
+
+### `use InvalidReadBounds`
+
+### `use OutboundAgent`
+
+### `use ReadBounds`
 
 ## Module `test_support`
 
-A real local HTTP server - "ports get fakes, not mocked HTTP" - and the happy-path DataHub wire
-pages this crate's own tests need, made `pub` so a DIFFERENT crate's integration test can build
-the same fake rather than a second one.
+The happy-path `DataHub` wire pages this crate's own tests need.
 
-**Moved out of `tests/http_reader.rs` by issue #202's second PR, not written fresh.** That file's
-own `FakeServer`/`Scripted`/page builders were `mod tests`-private, which is exactly right for a
-`#[cfg(test)]`-only fake used by one crate - until a SECOND crate needed one too:
-`sutura-cli`'s own served-binary suite (`crates/sutura-cli/tests/served/datahub.rs`) wants a
-real loopback DataHub server to boot a composed `catalog.kind: datahub` deployment against, and
-an integration test binary cannot see another crate's `tests/` directory at all - Rust does not
-expose one. The only way to share this fake is through the LIBRARY, which is what this module is.
+Over the loopback fake `sutura-http-client::test_support` now hosts (issue #970's review: this
+file's own `FakeServer`/`Scripted`/plumbing was byte-for-byte identical to
+`sutura-catalog-openmetadata`'s copy, `cargo xtask check-jscpd` measured, once a second reader
+crate carried one). Re-exported here so `sutura-cli`'s served-binary suite
+(`crates/sutura-cli/tests/served/datahub.rs`) keeps building `test_support::FakeServer` off
+THIS crate's public API - it takes `sutura-catalog-datahub` as a dependency, not
+`sutura-http-client` directly.
 
-**`#[cfg(feature = "http")]`, not `#[cfg(test)]`.** A downstream crate's OWN test compilation is
-what needs to see this, and `#[cfg(test)]` on an item is private to the crate that sets it - it
-never crosses the dependency edge the way a feature does. That means this module compiles into
-any NON-test build with `--features http` too (`sutura-cli --features datahub`, in particular)
-- dead code there, never called by production composition, but real object code in a shipped
-binary. **Stated rather than hidden:** `.agents/skills/sutura/crate-map/SKILL.md`'s "why a
-networked adapter hides behind a default-off feature" argument is about the DEPENDENCY EDGE the
-four cross builds' `crane.buildDepsOnly` derivation carries - `std::net::TcpListener` adds none,
-so this module does not reopen that measurement. A dedicated `test-support`-only feature is the
-natural follow-up if the object-code cost itself becomes the concern instead of the edge.
-
-### `struct Scripted`
-
-```rust
-pub struct Scripted
-```
-
-One scripted answer: a status, a body, and how long to wait before sending it.
-
-#### Methods
-
-```rust
-pub fn body(&self) -> &[u8]
-```
-
-The body this scripted answer is served with - see `Self::status_code` for why it is public.
-
-```rust
-pub fn delayed(body: &serde_json::Value, delay: Duration) -> Self
-```
-
-```rust
-pub fn ok(body: &serde_json::Value) -> Self
-```
-
-```rust
-pub const fn raw(status: u16, body: Vec<u8>) -> Self
-```
-
-A response whose body is opaque bytes, as a size-cap test needs: a body that must be too
-big to be legal JSON (the length check runs before decode), so it is not served through
-the JSON-typed constructors above.
-
-```rust
-pub fn status(status: u16, body: &str) -> Self
-```
-
-```rust
-pub const fn status_code(&self) -> u16
-```
-
-The status this scripted answer is served with - public so a TLS loopback variant of the
-fake (`tests/http_reader.rs::tls_anchors`, a served-binary boot-line cell) can serve the SAME
-answers this server does, instead of a second worth of page-building. Named `status_code`
-rather than `status` because `Self::status` is already the constructor's name.
-
-### `struct FakeServer`
-
-```rust
-pub struct FakeServer
-```
-
-A real local HTTP/1.1 server answering one `Scripted` response per connection, in order, then
-closing. Captures each request's `authorization` header so a test can assert the bearer was sent.
-
-#### Methods
-
-```rust
-pub const fn addr(&self) -> SocketAddr
-```
-
-The bound loopback address, for a case that builds its own (malformed) endpoint string
-around it rather than using `Self::endpoint` as-is.
-
-```rust
-pub fn endpoint(&self) -> String
-```
-
-```rust
-pub fn finish(self) -> CapturedAuthorizations
-```
-
-Joins the server thread and returns every request's `authorization` header, in order.
-
-Only called by a test that knows exactly how many connections it will make - a test that
-deliberately stops short drops the server instead, and the abandoned thread exits with the
-process.
-
-```rust
-pub fn start(answers: Vec<Scripted>) -> Self
-```
+`#[cfg(feature = "http")]`, not `#[cfg(test)]`, for the reason `sutura_http_client::test_support`'s
+own header gives: an integration test binary cannot see another crate's `tests/` directory, so
+the only way to share a fake across crates is through a library, `pub`, reachable at compile
+time from whichever feature both a reader and its composition root's tests turn on.
 
 ### `fn dataset_page`
 
@@ -1287,9 +1082,11 @@ pub fn happy_path_answers() -> Vec<Scripted>
 The three pages a `read()` call makes, in order, all answering `200` - what a real `DataHub`
 carrying exactly the recorded fixture's content would serve.
 
-### `type_alias CapturedAuthorizations`
+### `use CapturedAuthorizations`
 
-Every request this fake server has answered, in order: `authorization` header or `None`.
+### `use FakeServer`
+
+### `use Scripted`
 
 ### `constant DEPLOYMENT_PROPERTY`
 

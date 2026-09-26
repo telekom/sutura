@@ -69,7 +69,7 @@
 //! byte-for-byte the same (`cargo xtask check-jscpd`). [`HttpAspectReader::new`] takes one rather
 //! than a `String` - a caller cannot dial an endpoint this module has not validated. What
 //! [`Endpoint::parse`] accepts, exactly:
-//! `scheme://host[:port]`, scheme `http` or `https` (case-folded), on a [`Uri`] (`ureq`'s own re-export of the `http` crate's
+//! `scheme://host[:port]`, scheme `http` or `https` (case-folded), on a `ureq::http::Uri` (`ureq`'s own re-export of the `http` crate's
 //! parser, the SAME type `ureq` itself parses a request URL into before dialling), an OPTIONAL nonzero valid `:port`, an
 //! OPTIONAL trailing `/`, and NOTHING else: a path, query or fragment is [`InvalidEndpoint::PathBeyondRoot`] (fragment
 //! checked on the RAW text, because `http::Uri` silently discards a `#`), a bad port is [`InvalidEndpoint::NotAnHttpUrl`],
@@ -95,7 +95,7 @@
 //! LAST `:` in the authority - `::1` for the bracketed case - so the endpoint parsed as loopback
 //! while the REAL host, `localhost` (everything after the userinfo's `@`), is exactly the name
 //! [`Endpoint::parse`] is supposed to refuse in plaintext. A reader built from that string dialled
-//! `localhost` with the bearer prepared. Parsing with [`Uri`] - the SAME parser `ureq` itself uses -
+//! `localhost` with the bearer prepared. Parsing with `ureq::http::Uri` - the SAME parser `ureq` itself uses -
 //! closes this the way it should have been closed the first time: `Authority::host` already
 //! resolves past userinfo correctly, and `Endpoint::parse` additionally refuses any `user[:pass]@`
 //! prefix outright rather than trusting that resolution to stay correct.

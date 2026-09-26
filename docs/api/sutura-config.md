@@ -125,19 +125,6 @@ answer (no groups mapped yet), while there a missing declaration must not parse 
 
 Why a mapping this operator wrote is not a usable one.
 
-## `use CatalogConnection`
-
-An rdbms catalog's own read-only Postgres connection.
-
-The same parsed types a `sources:` Postgres entry holds (`PostgresDial`, `SourceTransport`)
-and the same fail-closed channel rules, through the one function both call:
-`crate::sources::transport::refuse_unsafe_postgres_channel`. **No password is held here:**
-`password_file` is a path the composition root reads at boot.
-
-## `use CatalogEnvironment`
-
-A non-empty environment key. Empty would select no dictionary rows, silently.
-
 ## `use CatalogKind`
 
 Which adapter the catalog configuration names, and therefore which one opens it.
@@ -175,37 +162,6 @@ what a reviewer reads and manifest determinism does not depend on it surviving a
 ## `use InvalidCatalogSettings`
 
 Why a catalog configuration is not usable.
-
-## `use InvalidConnection`
-
-Why an rdbms catalog's `connection:` block is not usable.
-
-**Limit:** an `InvalidConnection::Transport` cause is the `sources:` transport reader's own, so
-its message names the key under `sources.<catalog name>` rather than under this block.
-
-## `use InvalidRdbmsCatalog`
-
-Why an rdbms catalog's own keys are not usable.
-
-## `use LiveRowPredicate`
-
-The closed-form predicate a dictionary row must satisfy to be live.
-
-A typed column, an operator from a closed set, and a value only `equals` reads - never a SQL
-string. The column parses through `ColumnName`, so it holds nothing that would need escaping;
-the value is arbitrary text, and **a reader must bind it as a parameter, never interpolate it.**
-
-## `use PredicateOperator`
-
-The operators a `LiveRowPredicate` may use. A closed set: a new one is a visible diff plus a
-reader arm, which is the review it deserves.
-
-## `use RdbmsSettings`
-
-The `kind: rdbms`-only half of a catalog entry, all or nothing.
-
-An rdbms entry carries every required field, and `crate::catalog::CatalogSettings` holds this
-as one `Option`, so no state with half of it set is representable.
 
 ## `use UnknownCatalogKind`
 
@@ -1454,10 +1410,11 @@ that exists in a record rather than in a linked crate is still a word an operato
   openable by every build of this binary.
 - `Openmetadata` - An `OpenMetadata` deployment, decided by `sutura-catalog-openmetadata` over its own `SnapshotReader` port.
 
-  **A declarable kind no binary this repository ships can open yet, and that is deliberate.**
-  The crate decides a whole metric against a fake reader; a reader over a real deployment is
-  the follow-up `#152` names, so the composition root refuses this kind by name until one
-  exists rather than opening the recorded fixture against a real deployment's name.
+  **Openable behind `sutura-cli`'s default-off `openmetadata` feature; a build without it
+  refuses this kind by name**, for exactly the reason `SourceKind::BigQuery` is refused: an
+  operator who writes the word must be told the truth (the adapter is not linked) rather than
+  sent looking for a typo. The HTTP reader (`#152`'s follow-up this arm wires) reads the
+  deployment's `REST` API and maps it into the crate's recorded `Snapshot` shape.
 - `Rdbms` - An RDBMS dictionary, decided by `sutura-catalog-rdbms` over a `DictionaryReader` port.
 
   **A declarable kind no binary this repository ships can open yet, for the identical reason
@@ -1567,12 +1524,6 @@ disappears between reading the configuration and loading the catalog would make 
 existence check here a claim that goes stale immediately. The load is what fails.
 
 ```rust
-pub const fn rdbms(&self) -> Option<&RdbmsSettings>
-```
-
-The rdbms-only settings, `Some` exactly for a `kind: rdbms` entry read from settings.
-
-```rust
 pub const fn refresh_seconds(&self) -> Option<u64>
 ```
 
@@ -1615,11 +1566,25 @@ binary in this repository could open until issue #202's reader arrived. `parse_c
 calls this only when `kind` parsed as `CatalogKind::Datahub`.
 
 ```rust
-pub fn with_rdbms(self, rdbms: RdbmsSettings) -> Self
+pub const fn with_openmetadata_bounds(self, deadline_seconds: Option<u64>, max_response_bytes: Option<u64>) -> Self
 ```
 
-Adds the `catalog.kind: rdbms`-only settings. `parse_catalogs` calls this only when `kind`
-parsed as `CatalogKind::Rdbms`.
+Adds the two `catalog.kind: openmetadata`-only bounds, when the deployment declared either.
+
+**Infallible, unlike `Self::with_openmetadata_reader`, because `None` is a valid value
+here rather than a missing required one** - it selects the reader's own recommended default
+(`sutura_catalog_openmetadata::http::{DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES}`).
+
+```rust
+pub fn with_openmetadata_reader(self, endpoint: String, token_file: PathBuf) -> Result<Self, InvalidCatalogSettings>
+```
+
+Adds the two `catalog.kind: openmetadata`-only fields to an already-parsed entry.
+
+A separate step rather than two more parameters on `Self::parse`, for the same reason
+`Self::with_datahub_reader` is one: `parse_catalogs` calls it only when `kind` parsed as
+`CatalogKind::Openmetadata`, so every other kind is unaffected by fields only a reader over
+a real deployment needs.
 
 ```rust
 pub fn with_refresh_seconds(self, refresh_seconds: Option<u64>) -> Result<Self, InvalidCatalogSettings>
@@ -1648,13 +1613,12 @@ Why a catalog configuration is not usable.
 - `EmptyCatalog` - No catalog was declared, so there is nothing to serve.
 - `DuplicateName` - Two catalogs share one declared name, so the contribution manifest could not tell them apart.
 - `MissingForDatahub` - A `catalog.kind: datahub` entry did not declare a field only that kind needs.
+- `MissingForOpenmetadata` - A `catalog.kind: openmetadata` entry did not declare a field only that kind needs.
 - `ZeroRefresh` - `catalogs[].refresh_seconds: 0` - `github.com/telekom/sutura#975`. Zero re-reads on every tick of whatever drives it, which is not a refresh interval; absent is how "never refresh" is written.
-- `Rdbms` - A `catalog.kind: rdbms` entry's own keys are not usable.
-- `RdbmsKeyOnOtherKind` - A catalog of another kind wrote an rdbms-only key - a key nothing would read, which is a configuration nobody can see, so it is refused the way `deny_unknown_fields` refuses one.
 
 #### Implements
 
-`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ### `struct Catalogs`
 
@@ -1693,272 +1657,6 @@ Reads the declared catalogs, refusing an empty list and any duplicated name.
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
-
-### `use CatalogConnection`
-
-An rdbms catalog's own read-only Postgres connection.
-
-The same parsed types a `sources:` Postgres entry holds (`PostgresDial`, `SourceTransport`)
-and the same fail-closed channel rules, through the one function both call:
-`crate::sources::transport::refuse_unsafe_postgres_channel`. **No password is held here:**
-`password_file` is a path the composition root reads at boot.
-
-### `use CatalogEnvironment`
-
-A non-empty environment key. Empty would select no dictionary rows, silently.
-
-### `use InvalidConnection`
-
-Why an rdbms catalog's `connection:` block is not usable.
-
-**Limit:** an `InvalidConnection::Transport` cause is the `sources:` transport reader's own, so
-its message names the key under `sources.<catalog name>` rather than under this block.
-
-### `use InvalidRdbmsCatalog`
-
-Why an rdbms catalog's own keys are not usable.
-
-### `use LiveRowPredicate`
-
-The closed-form predicate a dictionary row must satisfy to be live.
-
-A typed column, an operator from a closed set, and a value only `equals` reads - never a SQL
-string. The column parses through `ColumnName`, so it holds nothing that would need escaping;
-the value is arbitrary text, and **a reader must bind it as a parameter, never interpolate it.**
-
-### `use PredicateOperator`
-
-The operators a `LiveRowPredicate` may use. A closed set: a new one is a visible diff plus a
-reader arm, which is the review it deserves.
-
-### `use RdbmsSettings`
-
-The `kind: rdbms`-only half of a catalog entry, all or nothing.
-
-An rdbms entry carries every required field, and `crate::catalog::CatalogSettings` holds this
-as one `Option`, so no state with half of it set is representable.
-
-### Module `rdbms`
-
-The `catalog.kind: rdbms` entry's own settings.
-
-A read-only Postgres connection, a closed-form live-row predicate, the environment key that
-selects dictionary rows, the source the described objects are served from, and two read bounds.
-
-Split out of `catalog.rs` at the crate's 1000-line cap. The parent re-exports every type, so
-`crate::catalog::<Name>` and the crate root's `pub use` both still resolve.
-
-**Parsed, not read:** nothing in this repository opens an rdbms catalog yet. The composition
-root still refuses `kind: rdbms` by name, so every value here is a checked declaration no reader
-has consumed.
-
-#### `struct RdbmsSettings`
-
-```rust
-pub struct RdbmsSettings
-```
-
-The `kind: rdbms`-only half of a catalog entry, all or nothing.
-
-An rdbms entry carries every required field, and `crate::catalog::CatalogSettings` holds this
-as one `Option`, so no state with half of it set is representable.
-
-##### Methods
-
-```rust
-pub const fn connection(&self) -> &CatalogConnection
-```
-
-```rust
-pub const fn environment(&self) -> &CatalogEnvironment
-```
-
-```rust
-pub const fn live_row_predicate(&self) -> Option<&LiveRowPredicate>
-```
-
-```rust
-pub const fn max_dictionary_bytes(&self) -> Option<NonZeroU64>
-```
-
-The declared byte cap, or `None` for the reader's own default.
-
-```rust
-pub const fn max_dictionary_rows(&self) -> Option<NonZeroU64>
-```
-
-The declared row cap, or `None` for the reader's own default.
-
-```rust
-pub const fn source_alias(&self) -> &SourceName
-```
-
-##### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
-#### `struct LiveRowPredicate`
-
-```rust
-pub struct LiveRowPredicate
-```
-
-The closed-form predicate a dictionary row must satisfy to be live.
-
-A typed column, an operator from a closed set, and a value only `equals` reads - never a SQL
-string. The column parses through `ColumnName`, so it holds nothing that would need escaping;
-the value is arbitrary text, and **a reader must bind it as a parameter, never interpolate it.**
-
-##### Methods
-
-```rust
-pub const fn column(&self) -> &ColumnName
-```
-
-```rust
-pub const fn operator(&self) -> PredicateOperator
-```
-
-```rust
-pub fn value(&self) -> Option<&str>
-```
-
-The comparison value, `Some` exactly when the operator is `PredicateOperator::Equals`.
-
-##### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
-#### `enum PredicateOperator`
-
-```rust
-pub enum PredicateOperator
-```
-
-The operators a `LiveRowPredicate` may use. A closed set: a new one is a visible diff plus a
-reader arm, which is the review it deserves.
-
-##### Variants
-
-- `IsNull`
-- `IsNotNull`
-- `Equals`
-
-##### Methods
-
-```rust
-pub const fn as_str(self) -> &'static str
-```
-
-##### Implements
-
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
-
-#### `struct CatalogEnvironment`
-
-```rust
-pub struct CatalogEnvironment
-```
-
-A non-empty environment key. Empty would select no dictionary rows, silently.
-
-##### Methods
-
-```rust
-pub fn as_str(&self) -> &str
-```
-
-##### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
-#### `struct CatalogConnection`
-
-```rust
-pub struct CatalogConnection
-```
-
-An rdbms catalog's own read-only Postgres connection.
-
-The same parsed types a `sources:` Postgres entry holds (`PostgresDial`, `SourceTransport`)
-and the same fail-closed channel rules, through the one function both call:
-`crate::sources::transport::refuse_unsafe_postgres_channel`. **No password is held here:**
-`password_file` is a path the composition root reads at boot.
-
-##### Methods
-
-```rust
-pub fn database(&self) -> &str
-```
-
-```rust
-pub const fn dial(&self) -> &PostgresDial
-```
-
-```rust
-pub fn password_file(&self) -> &Path
-```
-
-```rust
-pub const fn transport(&self) -> &SourceTransport
-```
-
-```rust
-pub fn user(&self) -> &str
-```
-
-##### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
-#### `enum InvalidRdbmsCatalog`
-
-```rust
-pub enum InvalidRdbmsCatalog
-```
-
-Why an rdbms catalog's own keys are not usable.
-
-##### Variants
-
-- `Missing`
-- `EmptyEnvironment`
-- `SourceAlias`
-- `UnknownSourceAlias`
-- `PredicateColumn`
-- `UnknownPredicateOperator`
-- `PredicateValueMissing`
-- `PredicateValueUnexpected`
-- `ZeroBound`
-- `Connection`
-
-##### Implements
-
-`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-#### `enum InvalidConnection`
-
-```rust
-pub enum InvalidConnection
-```
-
-Why an rdbms catalog's `connection:` block is not usable.
-
-**Limit:** an `InvalidConnection::Transport` cause is the `sources:` transport reader's own, so
-its message names the key under `sources.<catalog name>` rather than under this block.
-
-##### Variants
-
-- `Missing`
-- `HostAndUnixSocket`
-- `RelativePath`
-- `Host`
-- `Transport`
-- `Channel`
-
-##### Implements
-
-`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ## Module `credentials`
 
@@ -5788,27 +5486,6 @@ value that would be cloned is a path, which is fine to own here.
 
 `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
-#### `enum UnsafeChannel`
-
-```rust
-pub enum UnsafeChannel
-```
-
-A channel refused whatever its keys say: issue 124's and 125's fail-closed rules.
-
-Held here once so every declaration that dials a host - a `sources:` entry, an rdbms catalog's own
-`connection:` - is refused by the same function rather than by a copy that can be narrowed.
-Each caller maps it into its own refusal, which names its own key path.
-
-##### Variants
-
-- `RemotePlaintext` - A host a network can reach, declared `plaintext`: a password and every row in clear text.
-- `TlsOverUnixSocket` - `verified`/`mutual` over a unix socket, where there is no TLS handshake to perform.
-
-##### Implements
-
-`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
 #### `fn parse`
 
 ```rust
@@ -5826,23 +5503,6 @@ is the one way to declare no TLS.
 refusal.** `plaintext` reads no anchors and no client identity; `verified` verifies the source's
 chain and presents nothing, so it reads no client identity either. `mutual` is the only mode
 that reads all three, so it is the only one nothing is refused on for being unread.
-
-#### `fn refuse_remote_plaintext`
-
-```rust
-pub fn refuse_remote_plaintext(host: &super::placement::HostName, transport: &SourceTransport) -> Result<(), UnsafeChannel>
-```
-
-Refuses `plaintext` to a host that is not a loopback LITERAL. `localhost` is not one - see
-`host_is_loopback` - which is the fail-closed direction on purpose.
-
-#### `fn refuse_unsafe_postgres_channel`
-
-```rust
-pub fn refuse_unsafe_postgres_channel(dial: &super::placement::PostgresDial, transport: &SourceTransport) -> Result<(), UnsafeChannel>
-```
-
-Both rules for a Postgres dial: remote plaintext on TCP, TLS on a unix socket.
 
 #### `use host_is_loopback`
 

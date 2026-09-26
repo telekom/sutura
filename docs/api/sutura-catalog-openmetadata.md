@@ -185,6 +185,17 @@ Read so the reported-not-defined cell can prove a metric a snapshot carries neve
 domain `Metric`.
 
 ```rust
+pub const fn new(tables: Vec<Table>, relationships: BTreeMap<String, StructuralRelationship>, metrics: Vec<Metric>) -> Self
+```
+
+Builds a snapshot from decoded entity groups - the constructor a real
+`super::SnapshotReader` uses to hand the conversion a `Snapshot` it decoded off the wire.
+The recorded fixtures and the converter's own tests prefer `Deserialize` (a real reader
+reaches for the reader-visible shape), but an HTTP reader assembling a `Snapshot` from
+harvested entities needs a constructor the way `sutura-catalog-datahub`'s `Snapshot::new`
+provides one.
+
+```rust
 pub fn relationship_count(&self) -> usize
 ```
 
@@ -450,3 +461,230 @@ An `OpenMetadataCatalog` over the recorded corpus.
 The source mapping answers the one service the corpus names - `warehouse` - with the deployment's
 declared source, which is what lets a model on that platform be opened. This is the constructor
 the conformance registry uses to register the adapter.
+
+## Module `http`
+
+The real `crate::SnapshotReader`: two paged reads over `OpenMetadata`'s `REST` API, assembled
+into one `crate::document::Snapshot`.
+
+Behind the crate's default-off `http` feature - see `Cargo.toml`'s own comment on why - so a
+build that does not ask for this reader links no outbound TLS stack.
+
+# What is measured, and what is NOT
+
+**The `Table` and `Metric` wire shapes are read from `docs/what-openmetadata-can-carry.md`'s
+field-by-field table**, which was itself read out of the published `Table`/`Metric` entity
+schemas against this repository's `SemanticCatalog` port - not against a provisioned instance
+(the nix sandbox has no network; the finding states that as an open live check). So the mapping
+functions here are a **first claim** this crate has made about `OpenMetadata`'s served envelope,
+the same way `sutura-catalog-datahub`'s `dataset` mapping was before its provisioned tier
+measured it. Each mapping refuses an unexpected shape as a typed
+`HttpReaderError::UnexpectedShape` naming the entity and the field, rather than reading past a
+missing or mistyped key with a default - a guess that happened to be wrong would otherwise
+certify a bundle silently missing a model, a join or a metric. **Do not cite this reader as proof
+the `OpenMetadata` half works against a real instance until an acceptance leg measures it.**
+
+# What every read is bounded by
+
+`ReadBounds` carries a request timeout and a response-size cap, both **settings with defaults,
+not constants** - `DEFAULT_TIMEOUT_SECONDS` and `DEFAULT_MAX_RESPONSE_BYTES` are the values a
+composition root's settings default to, following `sutura-config`'s own convention of a default
+function per optional key, not a value baked into this type. `read`
+makes up to two requests (tables, then metrics) and shares ONE deadline across them - opened
+once, and what is left after the first is what the second gets - the same shape
+`sutura_domain::warehouse::deadline::Deadline` and `sutura-catalog-datahub`'s own reader hold.
+
+# Auth
+
+A bearer token as a `Secret`, sent as `Authorization: Bearer <token>` on every request. The
+token is a constructor argument here; a composition root reads it from a settings-declared file
+at boot (`token_file`), never inline in a settings document.
+
+# Paging
+
+One page per entity kind, at a generous count. A page that SIGNALS more results exist - an
+`after` cursor, or a returned count below a reported `paging.total` - is refused
+(`HttpReaderError::MorePages`) rather than silently read as complete: the same "one page or a
+refusal" shape `sutura-catalog-datahub`'s reader and `sutura-exec-bigquery`'s wire hold for
+`jobs.query`, because a caller must not certify a bundle built from a `Snapshot` that silently
+dropped a model or a metric.
+
+# TLS and the endpoint
+
+`Endpoint` and its `Endpoint::parse` now live in `sutura-http-client`, shared with
+`sutura-catalog-datahub`'s identical reader since issue #970's review found the two
+byte-for-byte the same (`cargo xtask check-jscpd`). `HttpSnapshotReader::new` takes one
+rather than a `String` - a caller cannot dial an endpoint this module has not validated. The
+grammar and each refusal: `scheme://host[:port]`, scheme `http` or `https` (case-folded) on a
+`ureq::http::Uri`, an optional nonzero valid `:port`, an optional trailing `/`, and nothing
+else; `https://` for any host, `http://` only for an IP loopback literal
+(`sutura_domain::source::host_is_loopback`). This mirrors `DataHub` exactly because the two
+readers share the same security posture: a bearer prepared for a plaintext host that is not
+loopback is a token handed to whoever answers that name.
+
+`ureq`'s compiled-in default root set (for an `https://` endpoint), `max_redirects(0)` and the
+proxy left on are the other pins; a deployment MAY replace the compiled-in roots with its own
+CA via `security.outbound.transport_anchors` (`#125`), folded in `sutura_http_client::tls` -
+anchors only, no client identity.
+
+### `enum HttpReaderError`
+
+```rust
+pub enum HttpReaderError
+```
+
+Why one of the two entity reads did not produce the entities it names.
+
+Reaches `crate::OpenMetadataCatalog` boxed inside `OpenMetadataError::Read` - the port's own
+coarse variant - so this stays inspectable by a caller that knows to downcast, the `ErasedCause`
+shape `.agents/skills/sutura/secure-by-design/SKILL.md` argues for at a boundary.
+
+#### Variants
+
+- `DeadlineSpent` - The shared budget was gone before this entity's page could be requested.
+- `Unreachable` - The entity's page was not reached.
+- `Unreadable` - The entity's page was reached and its answer could not be read.
+- `Refused` - `OpenMetadata` refused the request. `Display` renders the status and never `detail`, because a cause-chain walk that flattens every link with `Display` must not carry endpoint-owned text.
+- `TooLarge` - The page was larger than the cap this reader will read.
+- `NotADocument` - The page was not a JSON document.
+- `UnexpectedShape` - One entity did not carry a field this reader expects, or carried it in a shape it does not recognise.
+
+  **Refused rather than guessed** - see the module header on what is measured and what is not.
+  `field` is a dotted path (e.g. `"columns[].name"`) so a refusal names exactly where the
+  document stopped matching this reader's expectation.
+- `NotTheCanonicalShape` - The page's own field mapped into this crate's canonical aspect shape and that decode failed - a defect in this reader's mapping rather than in the page, since every field reaching `serde_json::from_value` here was already read out of the page by name above.
+- `MorePages` - The page stated or implied more results exist than the one page this reader will read.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `struct HttpSnapshotReader`
+
+```rust
+pub struct HttpSnapshotReader
+```
+
+An `OpenMetadata` deployment, reached over HTTP.
+
+Not generic over its credential the way `sutura-exec-bigquery`'s transport is: there is exactly
+one credential shape here, a bearer token, so a type parameter would buy nothing a second
+constructor would not.
+
+#### Methods
+
+```rust
+pub fn new(endpoint: Endpoint, token: Secret, bounds: ReadBounds, anchors: Option<sutura_tls::LoadedAnchors>) -> Self
+```
+
+Opens a reader. `endpoint` (only `Endpoint::parse`), `token` (read from a settings-
+declared file at boot) and `bounds` (only `ReadBounds::parse`) are all checked first.
+
+**`anchors` is `security.outbound.transport_anchors` (`#125`), resolved once at boot**: `None`
+leaves `ureq`'s compiled-in `RootCerts::WebPki`, `Some` replaces it with
+`RootCerts::Specific` from exactly the declared certificates - never a union of the two (see
+`sutura_http_client::tls`). This constructor never presents a client identity -
+`Self::rotating_agent` is the one that does.
+
+```rust
+pub const fn rotating(endpoint: Endpoint, token: Secret, bounds: ReadBounds, agent: sutura_tls::Rotating<ureq::Agent>) -> Self
+```
+
+The rotation-lane constructor: holds the rotating agent handle a composition root built (via
+`Self::rotating_agent`) and drove to re-read on `sutura_tls::POLL_INTERVAL`. The reader is
+per-request, so the agent `current()` resolves to on the next `read` is the latest that loaded.
+
+```rust
+pub fn rotating_agent(bounds: ReadBounds, declared: Option<sutura_tls::Declared>) -> Result<OutboundAgent, sutura_tls::LoadError>
+```
+
+Builds the reader's rotating agent handle for a declared `security.outbound` set, and (when
+one is declared) the `sutura_tls::Rotator` the composition root drives on
+`sutura_tls::POLL_INTERVAL`. `None` (no declaration) returns a fixed handle over `ureq`'s
+compiled-in roots, presenting no identity, and no poll handle.
+
+# Errors
+
+The declared bundle or client identity cannot be loaded at boot.
+
+#### Implements
+
+`Clone`, `Debug`, `SnapshotReader`
+
+### `use Budget`
+
+### `use DEFAULT_MAX_RESPONSE_BYTES`
+
+### `use DEFAULT_TIMEOUT_SECONDS`
+
+### `use Endpoint`
+
+### `use EndpointMessage`
+
+### `use InvalidEndpoint`
+
+### `use InvalidReadBounds`
+
+### `use OutboundAgent`
+
+### `use ReadBounds`
+
+## Module `test_support`
+
+The happy-path `OpenMetadata` wire pages this crate's own tests need.
+
+Over the loopback fake `sutura-http-client::test_support` now hosts (issue #970's review: this
+file's own `FakeServer`/`Scripted`/plumbing was byte-for-byte identical to
+`sutura-catalog-datahub`'s copy, `cargo xtask check-jscpd` measured). Re-exported here so
+`sutura-cli`'s served-binary suite (`crates/sutura-cli/tests/served/openmetadata.rs`) keeps
+building `test_support::FakeServer` off THIS crate's public API - it takes
+`sutura-catalog-openmetadata` as a dependency, not `sutura-http-client` directly.
+
+`#[cfg(feature = "http")]`, not `#[cfg(test)]`, for the reason `sutura_http_client::test_support`'s
+own header gives: an integration test binary cannot see another crate's `tests/` directory, so
+the only way to share a fake across crates is through a library, `pub`, reachable at compile
+time from whichever feature both a reader and its composition root's tests turn on.
+
+### `fn tables_page`
+
+```rust
+pub fn tables_page() -> serde_json::Value
+```
+
+One `tables` page, over the two models the crate's recorded fixture carries (`orders` and
+`customers`), each with its columns, data types, and descriptions. Served in the shape a REAL
+`OpenMetadata` list endpoint answers: a `data` array with a `paging` block whose `total` matches
+what was returned (so the reader does not refuse it as truncated).
+
+### `fn metrics_page`
+
+```rust
+pub fn metrics_page() -> serde_json::Value
+```
+
+One `metrics` page carrying the recorded fixture's OWN reported-not-defined metric, so the two
+transports cannot drift - it is read through the crate's public fixture rather than restated.
+
+### `fn happy_path_answers`
+
+```rust
+pub fn happy_path_answers() -> Vec<Scripted>
+```
+
+The two pages a `read()` call makes, in order, all answering `200` - what a real `OpenMetadata`
+carrying exactly the recorded fixture's content would serve.
+
+### `use CapturedAuthorizations`
+
+### `use FakeServer`
+
+### `use Scripted`
+
+### `constant SERVICE`
+
+The `sources.<alias>` the happy-path tables sit on, matching the recorded fixture corpus's own
+ `service: "warehouse"` so the two transports serve one content.
+
+ A fixed test constant, independent of a deployment's own choice, the way `sutura-catalog-datahub`
+'s `DEPLOYMENT_PROPERTY` is: a fake carrying the adapter's own constant would pass whether the
+ service were the deployment's choice or a value this crate required.
