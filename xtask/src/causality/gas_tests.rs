@@ -772,6 +772,15 @@ fn a_moved_file_is_read_at_base_under_its_old_path() {
 
 #[test]
 fn a_mixed_claim_cell_is_killed_when_the_range_scope_excludes_it() {
+    mixed_claim_cell_is_killed(false);
+}
+
+#[test]
+fn a_claim_cell_in_a_mixed_file_beside_a_pure_test_is_found() {
+    mixed_claim_cell_is_killed(true);
+}
+
+fn mixed_claim_cell_is_killed(pure_in_same_commit: bool) {
     let dir = std::env::temp_dir().join(format!(
         "sutura-mixed-claim-{}-{}",
         std::process::id(),
@@ -803,12 +812,18 @@ fn a_mixed_claim_cell_is_killed_when_the_range_scope_excludes_it() {
         "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,4 +1,4 @@\n-pub fn answer() -> u8 { 1 }\n+pub fn answer() -> u8 { 2 }\n #[cfg(test)]\n mod tests {\n     #[test]\n",
     )
     .unwrap();
-    git(&dir, &["add", "-A"]);
-    git(&dir, &["commit", "-q", "-m", "test: mixed claim\n\nClaim-Cell: mixed_cell"]);
     std::fs::create_dir_all(dir.join("tests")).unwrap();
     std::fs::write(dir.join("tests/pure.rs"), "#[test]\nfn pure_cell() {}\n").unwrap();
-    git(&dir, &["add", "-A"]);
-    git(&dir, &["commit", "-q", "-m", "test: pure sibling"]);
+    if pure_in_same_commit {
+        git(&dir, &["add", "-A"]);
+    } else {
+        git(&dir, &["add", "src/lib.rs", "devco/claim-mutations/mixed_cell.patch"]);
+    }
+    git(&dir, &["commit", "-q", "-m", "test: mixed claim\n\nClaim-Cell: mixed_cell"]);
+    if !pure_in_same_commit {
+        git(&dir, &["add", "-A"]);
+        git(&dir, &["commit", "-q", "-m", "test: pure sibling"]);
+    }
     let head = String::from_utf8(git_output(&dir, &["rev-parse", "HEAD"]).stdout).unwrap();
     let files = super::diff::commit_additions(&dir, head.trim()).unwrap();
     let read = |path: &str| std::fs::read_to_string(dir.join(path)).ok();
