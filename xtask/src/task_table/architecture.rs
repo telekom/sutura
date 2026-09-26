@@ -131,7 +131,19 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-shared-client",
         description: "one `ureq` in the lock, still shared with `libduckdb-sys` (docs/adr/0018)",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // Two `ureq` versions, with `libduckdb-sys` still depending on one: the two-versions
+            // rule is the ONLY arm this lock trips, so the refusal is that rule's.
+            seeds: &[(
+                "Cargo.lock",
+                concat!(
+                    "[[package]]\nname = \"libduckdb-sys\"\nversion = \"1.0.0\"\ndependencies = [\n \"ureq\",\n]\n\n",
+                    "[[package]]\nname = \"ureq\"\nversion = \"3.4.0\"\n\n",
+                    "[[package]]\nname = \"ureq\"\nversion = \"4.0.0\"\n",
+                ),
+            )],
+            in_scope: Some("Cargo.lock"),
+        },
         run: shared_client::run,
     },
     Task {
