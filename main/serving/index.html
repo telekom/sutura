@@ -3286,12 +3286,17 @@ depends on why:</p>
 <tr>
 <td><code>metrics_span_different_models</code></td>
 <td><code>422</code></td>
-<td>The named metrics do not share a model, time column, grain and dimensions. Ask about each separately - this deployment executes one metric at a time regardless</td>
+<td>The named metrics do not share a model, time column, grain and dimensions. Ask about them separately - one grouped statement needs all of them to agree</td>
 </tr>
 <tr>
-<td><code>multi_metric_not_executable</code></td>
+<td><code>too_many_metrics</code></td>
 <td><code>422</code></td>
-<td>Every named metric resolved and agrees, but this deployment does not yet turn more than one into one answer. Ask about each separately</td>
+<td>More metrics than one question may name together. Ask fewer - the sentence carries the maximum</td>
+</tr>
+<tr>
+<td><code>duplicate_metric_name</code></td>
+<td><code>422</code></td>
+<td>The same metric was named twice. Send it once</td>
 </tr>
 <tr>
 <td><code>grain_not_supported</code></td>
@@ -3352,6 +3357,16 @@ depends on why:</p>
 <td><code>measure_does_not_federate</code></td>
 <td><code>409</code></td>
 <td>Nothing. The measure's aggregate cannot be recombined above two legs</td>
+</tr>
+<tr>
+<td><code>multi_metric_federation_not_executable</code></td>
+<td><code>409</code></td>
+<td>Ask about each metric separately. This build does not federate several metrics, and the question reached a dimension on another data system</td>
+</tr>
+<tr>
+<td><code>multi_metric_top_not_executable</code></td>
+<td><code>409</code></td>
+<td>Ask about one metric with <code>top</code>, or ask about several with no <code>top</code>. <code>top</code> names no metric to rank by, and this build's two rendering paths disagree about which measure it would mean once more than one is named</td>
 </tr>
 <tr>
 <td><code>result_too_large</code></td>
@@ -3419,7 +3434,7 @@ what a dead data system returns, so a caller was told to retry against a bound t
 The two are now separable by <code>code</code> as well as by status, and a test asserts the refusal is not 503.</p>
 <p>This used to be a <code>200</code> for both outcomes, on the argument that an error status invites a client
 library to retry a governance decision until it succeeds. The second half of that is right and the
-first half does not survive checking: nothing mainstream retries a <code>4xx</code> by default, and 9 refusal
+first half does not survive checking: nothing mainstream retries a <code>4xx</code> by default, and 10 refusal
 reasons land on <code>422</code>, which is documented the other way round, as a status a client should expect
 to fail again on an unchanged request. What the <code>200</code> did cost was legibility to everything that reads
 a status and not a body: an ingress log, a dashboard, an error-rate alert, a generated client whose

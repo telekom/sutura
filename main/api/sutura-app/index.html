@@ -2282,7 +2282,10 @@ boundary gate bans <code>anyhow</code> for, arrived at by a different route.</p>
   transport as <code>Self::Warehouse</code> does. What it means is that a data system returned a column
   of a type this workspace does not map, or a value no domain cell can hold - a non-finite
   double, a day number that is not a date. No caller caused it and narrowing the question does
-  not avoid it, which is why it is not a refusal a caller is told to act on.</p>
+  not avoid it, which is why it is not a refusal a caller is told to act on.
+- <code>AnswersDoNotCertify</code> - The bundle could not compute a per-metric digest for this answer.</p>
+<p>Reachable only if a metric the compiled plan certifies is not in the bundle that compiled
+  it - a splitter or registry invariant that changed, not something a caller can provoke.</p>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="enum-federationmiswired"><code>enum FederationMiswired</code><a class="headerlink" href="#enum-federationmiswired" title="Permanent link">&para;</a></h2>
