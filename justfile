@@ -778,6 +778,17 @@ dev-up-datahub:
 dev-up-oracle:
     cargo run -q -p xtask -- dev-up --with oracle
 
+# A live, on-demand Oracle cell. The compose profile is outside `just validate`'s nix sandbox.
+oracle-acceptance:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just dev-up-oracle
+    export SUTURA_DEV_REQUIRE_TIER=1
+    export SUTURA_DEV_USER="${SUTURA_DEV_USER:-sutura}"
+    export SUTURA_DEV_PASSWORD="${SUTURA_DEV_PASSWORD:-sutura}"
+    echo 'scope: sutura-exec-oracle only; run `just gates` for the workspace'
+    cargo test -p sutura-exec-oracle --features fixtures --test acceptance -- --ignored --nocapture
+
 # The sibling of `dev-up-identity` and `dev-up-datahub`, and it exists for the reason they do: a
 # service behind a profile is brought up by the task named after that profile, and the tier's own
 # remedy for a missing service cites that task. Unlike the other two it must also BUILD the derived
