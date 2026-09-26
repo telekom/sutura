@@ -1,0 +1,8 @@
+diff --git a/xtask/src/catalog_opened_once.rs b/xtask/src/catalog_opened_once.rs
+--- a/xtask/src/catalog_opened_once.rs
++++ b/xtask/src/catalog_opened_once.rs
+@@ -236,3 +236,3 @@ fn decide(found: &Scanned) -> Verdict {
+ fn is_registered(rel: &str, needle: &str) -> bool {
+-    REGISTERED.iter().any(|entry| entry.file == rel && entry.needle == needle)
++    REGISTERED.iter().all(|entry| entry.file == rel && entry.needle == needle)
+ }

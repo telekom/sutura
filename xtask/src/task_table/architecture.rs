@@ -6,8 +6,8 @@
 
 use crate::registry::{Falsifier, Kind, Reads, Task};
 use crate::{
-    answer_path_cache, boot_order, boundaries, bounded_wait, conformance, newtype_leaks, one_bound, orphan_modules, refusals,
-    serde_parse, shared_client, threshold_expect, unsafe_containment, worktree_state,
+    answer_path_cache, boot_order, boundaries, bounded_wait, catalog_opened_once, conformance, newtype_leaks, one_bound,
+    orphan_modules, refusals, serde_parse, shared_client, threshold_expect, unsafe_containment, worktree_state,
 };
 
 pub(crate) const TASKS: &[Task] = &[
@@ -203,6 +203,29 @@ pub(crate) const TASKS: &[Task] = &[
         kind: Kind::Hygiene(Reads::Code),
         falsifier: Falsifier::declared_in_programme(),
         run: conformance::run,
+    },
+    Task {
+        // Beside `check-answer-path-caches` because it is the same shape: a rule the code cannot
+        // state about itself, read as text, starting from a tree that already obeys it. What it
+        // holds is "each catalog document is opened once" - the property the two catalog crates'
+        // own comments said was held by review, because a swap-timing test cannot land in the
+        // sub-microsecond window between two back-to-back opens. This gate is the static half:
+        // no path-based `std::fs` read outside the registered `read_dir` walk.
+        //
+        // The falsifier seeds a `std::fs::read_to_string(&path)` into the local catalog's
+        // library root - the exact mutation the comment described - so the refusal comes from this
+        // gate's own rule rather than from an empty-scan floor.
+        name: "check-catalog-opened-once",
+        description: "no path-based std::fs read in the catalog crates outside the registered walk",
+        kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier {
+            seeds: &[(
+                "crates/sutura-catalog-local/src/leaky_read.rs",
+                "fn f(path: &std::path::Path) {\n    let _ = std::fs::read_to_string(&path);\n}\n",
+            )],
+            in_scope: Some("crates/sutura-catalog-local/src/leaky_read.rs"),
+        },
+        run: catalog_opened_once::run,
     },
     Task {
         // A threshold lint's cause is a NUMBER, which is a property of the surrounding

@@ -262,11 +262,13 @@ impl OkfCatalog {
             // rather than a boot that never returns. What the opened handle IS is still checked
             // on the handle, below.
             //
-            // "Opened once" itself is held by review, not by a test: a hand mutation that appends
-            // a second, unguarded `std::fs::read_to_string(&path)` right after this block is not
-            // killed by a swap-timing test - the window between the two back-to-back opens is
-            // sub-microsecond, well under what even the multi-millisecond swap tests below need to
-            // land reliably (measured across 3 separate `just test` runs against that mutation).
+            // "Opened once" is held by `cargo xtask check-catalog-opened-once`, a static gate that
+            // refuses any path-based `std::fs` read in this crate's non-test source outside the
+            // registered `read_dir` walk: a hand mutation that appends a second, unguarded
+            // `std::fs::read_to_string(&path)` right after this block is killed by that gate rather
+            // than by a swap-timing test. The limit: a second `rustix::fs::open` of the path, a
+            // read through an alias (`use std::fs as disk;`) or a helper in another crate escapes
+            // the text scan.
             let flags = rustix::fs::OFlags::RDONLY
                 .union(rustix::fs::OFlags::NOFOLLOW)
                 .union(rustix::fs::OFlags::NONBLOCK)

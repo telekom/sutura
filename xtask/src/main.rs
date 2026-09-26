@@ -19,6 +19,7 @@ mod boot_order;
 mod boundaries;
 mod bounded_wait;
 mod branches;
+mod catalog_opened_once;
 mod causality;
 mod changes;
 mod commit_msg;
