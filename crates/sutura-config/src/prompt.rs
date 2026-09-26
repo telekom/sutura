@@ -156,10 +156,11 @@ pub enum InvalidPromptSettings {
     InvalidInstructionsMaxBytes { bytes: u64 },
 }
 
-/// Maximum bytes read from the operator's instructions file at startup.
+/// Maximum accepted bytes in the operator's instructions file at startup.
 ///
 /// The default matches the knowledge bundle's 32 KiB cap. The finite maximum keeps an
-/// operator-configurable limit from turning this into an unbounded read again.
+/// operator-configurable limit from turning this into an unbounded read again. The reader probes
+/// one extra byte to detect an oversized file, so it reads at most this limit plus one byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InstructionsMaxBytes(usize);
 
