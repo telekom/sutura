@@ -92,3 +92,34 @@ fn the_broken_user_share_formula_was_identical_for_that_pair() {
     assert_eq!(user_share_a, user_share_b);
     assert!((user_share_a - 66.0).abs() < 0.5, "the issue measured 66 for both");
 }
+
+#[test]
+fn high_iowait_with_low_user_system_reads_as_not_busy() {
+    // IOWAIT COUNTS AS NOT-BUSY - the decision the sampler's header states, and one no existing
+    // scenario exercised: every other test set iowait to 0. Here nearly the whole interval is
+    // blocked on I/O (980 jiffies) while user+system is tiny (10+10), so true busy is ~2%.
+    // Fields are user nice system idle iowait irq softirq steal.
+    let prev = "cpu 0 0 0 0 0 0 0 0";
+    let scenario = "cpu 10 0 10 0 980 0 0 0";
+
+    let busy = busy_between(prev, scenario);
+    assert!(
+        busy < 5.0,
+        "a machine blocked on I/O is not busy, but the sampler read {busy}% - iowait stopped counting as idle"
+    );
+}
+
+#[test]
+fn high_iowait_alongside_high_user_still_reads_as_busy() {
+    // The other half of the iowait decision: half the interval blocked on I/O (500 jiffies) and
+    // half running user code (500 jiffies) reads as ~50% busy, because iowait is treated like
+    // idle rather than consumed CPU. A sampler that counted iowait as busy would report ~100%.
+    let prev = "cpu 0 0 0 0 0 0 0 0";
+    let scenario = "cpu 500 0 0 0 500 0 0 0";
+
+    let busy = busy_between(prev, scenario);
+    assert!(
+        (busy - 50.0).abs() < 1.0,
+        "user=500 iowait=500 should read ~50% busy, got {busy}% - iowait is being counted as consumed CPU"
+    );
+}
