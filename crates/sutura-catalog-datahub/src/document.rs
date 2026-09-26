@@ -689,6 +689,11 @@ impl SuturaDimension {
         }
     }
 
+    /// The dimension's name.
+    pub const fn name(&self) -> &DimensionName {
+        &self.name
+    }
+
     /// Into the domain type `Definitions::assemble` holds.
     ///
     /// `via` is decoded from the string `DataHub` returns, and an empty `ViaDoc::Chain` survives

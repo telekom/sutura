@@ -151,7 +151,8 @@ reader back to all of them.
   `SuturaDimension` deserializes `via` as a `ViaDoc`, whose untagged `Chain` arm accepts an
   empty sequence, so a property value such as `{"dimensions":[{"name":"x","column":"y","via":[]}]}`
   reaches the conversion. `ViaChain::try_from` refuses it; this variant carries that refusal
-  out naming the metric, the same way `DataHubError::Sutura` carries a failed scalar decode.
+  out naming the metric and the dimension, as `DataHubError::ColumnDescription` names both of
+  its coordinates.
 - `Description` - Prose on a snapshot is not a usable description.
 - `ColumnDescription` - A column's own description did not pass the authored-prose rule.
 - `Inconsistent` - The models, relationships and columns did not hold together.
@@ -693,6 +694,12 @@ Into the domain type `Definitions::assemble` holds.
 
 `via` is decoded from the string `DataHub` returns, and an empty `ViaDoc::Chain` survives
 that decode, so the refusal of `ViaChain::try_from` is returned rather than panicked on.
+
+```rust
+pub const fn name(&self) -> &DimensionName
+```
+
+The dimension's name.
 
 ```rust
 pub fn new(name: DimensionName, column: ColumnName, via: Option<ViaChain>, allowed_values: Option<std::collections::BTreeSet<DimensionValue>>, description: Description) -> Self
