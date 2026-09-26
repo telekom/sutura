@@ -1,0 +1,18 @@
+diff --git a/crates/sutura-conformance/src/corpus/case_files.rs b/crates/sutura-conformance/src/corpus/case_files.rs
+--- a/crates/sutura-conformance/src/corpus/case_files.rs
++++ b/crates/sutura-conformance/src/corpus/case_files.rs
+@@ -519,11 +519,11 @@
+ fn parse_row(file: &'static str, line: &str, row: usize, expected: usize) -> Result<Vec<Value>, CaseError> {
+     let parts: Vec<&str> = line.split('\t').collect();
+     if parts.len() != expected {
+-        return Err(CaseError::RowWidth {
++        return Err(CaseError::BadCell {
+             file,
+             row,
+-            cells: parts.len(),
+-            expected,
++            cell: 0,
++            message: format!("expected {expected} cells, found {}", parts.len()),
+         });
+     }
+     parts

@@ -717,4 +717,79 @@ mod tests {
             "{refused:?}"
         );
     }
+
+    /// A header field the reader does not know is refused, not dropped: a misspelled `lookup:`
+    /// would otherwise surface as a missing field, or pass silently where the field is optional.
+    #[test]
+    fn an_unknown_header_field_is_refused() {
+        let (file, content) = FEDERATED_FILES[0];
+        let misspelled = content.replace("lookup: conformance_regions", "lookuup: conformance_regions");
+        let refused = super::parse_federated(file, &misspelled);
+        assert!(
+            matches!(refused, Err(CaseError::UnknownValue { field: "header", ref value, .. }) if value == "lookuup"),
+            "{refused:?}"
+        );
+    }
+
+    /// A header line without a `:` is a `BadField` naming `header`, not a skipped line.
+    #[test]
+    fn a_malformed_header_line_is_rejected() {
+        let malformed =
+            "name: broken\nmetric: m\ngarbage_line\naggregate: sum\ncolumn: c\nkeys:\norder: asserted\nrows:\ntext:a\tint:1\n";
+        let result = super::parse("broken", malformed);
+        assert!(
+            matches!(result, Err(CaseError::BadField { field: "header", .. })),
+            "{result:?}"
+        );
+    }
+
+    /// A header field named twice is a `DuplicateField` naming it.
+    #[test]
+    fn a_duplicate_header_field_is_rejected() {
+        let malformed =
+            "name: broken\nmetric: m\naggregate: sum\naggregate: avg\ncolumn: c\nkeys:\norder: asserted\nrows:\ntext:a\tint:1\n";
+        let result = super::parse("broken", malformed);
+        assert!(
+            matches!(result, Err(CaseError::DuplicateField { field: "aggregate", .. })),
+            "{result:?}"
+        );
+    }
+
+    /// A row with the wrong number of cells is a `RowWidth` naming the row and both counts.
+    #[test]
+    fn a_row_with_the_wrong_width_is_rejected() {
+        // `keys: region` gives three labels - region, bucket, measure - and the row has two cells.
+        let malformed =
+            "name: broken\nmetric: m\naggregate: sum\ncolumn: c\nkeys: region\norder: asserted\nrows:\ntext:east\tint:1\n";
+        let result = super::parse("broken", malformed);
+        assert!(
+            matches!(
+                result,
+                Err(CaseError::RowWidth {
+                    row: 0,
+                    cells: 2,
+                    expected: 3,
+                    ..
+                })
+            ),
+            "{result:?}"
+        );
+    }
+
+    /// A federated file with no `rows:` is a `NoRows`, not an empty answer. The file is otherwise
+    /// valid, so the plan is built and the refusal is the row reader's.
+    #[test]
+    fn a_federated_file_with_no_rows_is_rejected() {
+        let malformed = "name: broken-federated\nmetric: amount_total\naggregate: sum\ncolumn: amount_cents\nkeys: region_name\nlookup: conformance_regions\n";
+        let result = super::parse_federated("broken-federated", malformed);
+        assert!(
+            matches!(
+                result,
+                Err(CaseError::NoRows {
+                    file: "broken-federated"
+                })
+            ),
+            "{result:?}"
+        );
+    }
 }

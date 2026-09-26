@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-conformance/src/corpus/case_files.rs b/crates/sutura-conformance/src/corpus/case_files.rs
+--- a/crates/sutura-conformance/src/corpus/case_files.rs
++++ b/crates/sutura-conformance/src/corpus/case_files.rs
+@@ -434,7 +434,7 @@
+     fn expected(&self, labels: Vec<String>) -> Result<RowSet, CaseError> {
+         let rows = match self.rows.as_deref() {
+             Some(rows) if !rows.is_empty() => rows,
+-            _ => return Err(CaseError::NoRows { file: self.file }),
++            _ => return Err(CaseError::MissingField { file: self.file, field: "rows" }),
+         };
+         let cells = rows
+             .iter()
