@@ -22,7 +22,7 @@ adapter prefix so it joins no forbidden class.
 # What this crate owns, and what each catalog keeps
 
 This crate reads bytes and returns them; it renders nothing to a caller. Each catalog maps
-[`ReadError`] / [`WalkError`] into its own error enum, keeping its own variants and rendered
+`ReadError` / `WalkError` into its own error enum, keeping its own variants and rendered
 messages unchanged, and keeps whatever it does with the text after the read (parse the document,
 split its frontmatter, dispatch on its kind). The two sharp bounds a catalog clamps each document
 to - the document-count cap on the walk and the aggregate-byte cap on the read - are both declared
@@ -36,162 +36,59 @@ files against the refactor and against base.
 
 ## `use MAX_CATALOG_BYTES`
 
-The most bytes a catalog root's documents may sum to.
+## `use ReadError`
 
-A startup bound, not a request-time one: a served catalog directory is operator-mounted, and an
-unbounded aggregate read is a startup cost nobody asked to pay. 16 MiB is a round number, and a
-generous one, shared by every catalog adapter that uses this crate.
+Why a bounded document read could not complete.
+
+Every variant carries the path (a catalog is many files, and a message that names no file sends
+a reader to read all of them), and, for `Self::TooLarge`, the whole of the refusal's context,
+so a caller can name the same things its own refusal did before this crate existed.
+
+## `use read_document`
+
+Reads one catalog document whole and against the aggregate byte budget.
+
+`root` is the catalog root (carried only so the `ReadError::TooLarge` text can name it the way
+each caller's own refusal does) and `total_bytes` is the running total of bytes already read, so
+the remaining budget is the cap minus it. Returns the document's text, which is what the caller
+parses next.
+
+# Errors
+
+`ReadError::Open` for an open or `fstat` that the OS refused (a swapped symlink `ELOOP`, a
+swapped FIFO `ENXIO`); `ReadError::NotARegularFile` for a handle that is not a regular file;
+`ReadError::TooLarge` when the document is oversized against the aggregate budget, whether its
+declared size already is, it grew past it while being read, or the read delivered more than the
+budget left; `ReadError::Io` for the read itself or a failed UTF-8 conversion.
 
 ## `use MAX_CATALOG_DOCUMENTS`
 
 The most documents a catalog root may hold.
 
-A startup bound, checked on every `BTreeSet` insert - a directory built to be large is refused as
-soon as it is large enough, rather than walked to its end first. **Documents, not entries**: a
-directory holding this many document-shaped files plus an unbounded number of other entries
-(subdirectories, non-document files, a skipped symlink) is unaffected - this bounds what becomes a
-document, not the size of the tree it lives in.
+A startup bound, checked on every `BTreeSet` insert - a directory built to be large is refused
+as soon as it is large enough, rather than walked to its end first. **Documents, not entries**:
+a directory holding this many document-shaped files plus an unbounded number of other entries
+(subdirectories, non-document files, a skipped symlink) is unaffected - this bounds what becomes
+a document, not the size of the tree it lives in.
 
-## `enum ReadError`
-
-Why a bounded document read could not complete.
-
-Every variant carries the path (a catalog is many files, and a message that names no file sends a
-reader to read all of them), and, for [`Self::TooLarge`], the whole of the refusal's context, so a
-caller can name the same things its own refusal did before this crate existed.
-
-### Variants
-
-#### `Open`
-
-```rust
-Open { path: PathBuf, cause: rustix::io::Errno }
-```
-
-An open or `fstat` of a descriptor failed in a way the OS described but [`Self::Io`]'s wording
-cannot: a swapped symlink refuses with `ELOOP` and a swapped FIFO with `ENXIO`, and neither is
-"could not read".
-
-#### `NotARegularFile`
-
-```rust
-NotARegularFile { path: PathBuf }
-```
-
-The document opened is not a regular file - a device node, for one, is refused by the regular-file
-check on the handle that was opened, not by the walk, which only saw the entry that was there
-before the swap.
-
-#### `Io`
-
-```rust
-Io { path: PathBuf, cause: io::Error }
-```
-
-A read from the handle, or the conversion of the read bytes to UTF-8, failed.
-
-#### `TooLarge`
-
-```rust
-TooLarge { root: PathBuf, document: PathBuf, found: u64, limit: u64 }
-```
-
-Reading this document pushed the running total over the aggregate byte budget.
-
-`root` is the catalog root, `document` is the one whose bytes crossed the budget, `found` is the
-running total the refusal saw, and `limit` is the aggregate cap. The size came from the handle's
-own `fstat` before the read, or from what the capped read actually delivered if a file grew in
-between - whichever refusal fired.
-
-#### Implements
-
-`Debug`, `Error`, `Display`, `From<ReadError> for Error` (via `thiserror`)  <!-- the enum derives Debug and thiserror::Error -->
-
-## `fn read_document`
-
-```rust
-pub fn read_document(root: &Path, path: &Path, total_bytes: u64) -> Result<String, ReadError>
-```
-
-Reads one catalog document whole and against the aggregate byte budget.
-
-`root` is the catalog root (carried only so the [`ReadError::TooLarge`] text can name it the way
-each caller's own refusal does) and `total_bytes` is the running total of bytes already read, so
-the remaining budget is the cap minus it. Returns the document's text, which is what the caller
-parses next.
-
-#### Errors
-
-[`ReadError::Open`] for an open or `fstat` that the OS refused (a swapped symlink `ELOOP`, a
-swapped FIFO `ENXIO`); [`ReadError::NotARegularFile`] for a handle that is not a regular file;
-[`ReadError::TooLarge`] when the document is oversized against the aggregate budget, whether its
-declared size already is, it grew past it while being read, or the read delivered more than the
-budget left; [`ReadError::Io`] for the read itself or a failed UTF-8 conversion.
-
-## `enum WalkError`
+## `use WalkError`
 
 Why the walk could not produce the sorted document list.
 
-### Variants
-
-#### `NotADirectory`
-
-```rust
-NotADirectory { path: PathBuf }
-```
-
-The root path does not name a directory.
-
-#### `Io`
-
-```rust
-Io { path: PathBuf, cause: io::Error }
-```
-
-`read_dir` on a directory, or an entry or its type within it, failed.
-
-#### `TooManyDocuments`
-
-```rust
-TooManyDocuments { path: PathBuf, found: usize, limit: usize }
-```
-
-The walk found more documents than [`MAX_CATALOG_DOCUMENTS`] permits.
-
-`path` is the catalog root, `found` is how many document-shaped entries the walk had counted when
-it stopped - which may be less than the directory's true total, because the walk refuses as soon as
-it crosses `limit` rather than finishing the tree first.
-
-#### `Empty`
-
-```rust
-Empty { path: PathBuf }
-```
-
-The root is a directory that holds no documents.
-
-#### Implements
-
-`Debug`, `Error`, `Display`
-
-## `fn walk`
-
-```rust
-pub fn walk(root: &Path, extensions: &[&str], max_documents: usize) -> Result<Vec<PathBuf>, WalkError>
-```
+## `use walk`
 
 Every document under `root`, in sorted order, refused when empty or missing.
 
-Depth-first with the entries of each directory sorted, so the traversal is a function of the tree
-rather than of the filesystem. `extensions` is the set of file extensions treated as documents;
-anything else is skipped. A document with the right extension and the wrong content still fails
-loudly at deserialisation, which is the caller's job.
+Depth-first with the entries of each directory sorted, so the traversal is a function of the
+tree rather than of the filesystem. `extensions` is the set of file extensions treated as
+documents; anything else is skipped. A document with the right extension and the wrong content
+still fails loudly at deserialisation, which is the caller's job.
 
 The decision is made from the directory entry's own type rather than from the path, because
 `Path::is_dir` follows a link and answers about the target.
 
-#### Errors
+# Errors
 
-[`WalkError::NotADirectory`] when `root` is not a directory; [`WalkError::Io`] for a failure to
-read `root` or a directory within it; [`WalkError::TooManyDocuments`] once a directory crosses
-[`MAX_CATALOG_DOCUMENTS`]; [`WalkError::Empty`] when `root` holds no documents.
+`WalkError::NotADirectory` when `root` is not a directory; `WalkError::Io` for a failure to
+read `root` or a directory within it; `WalkError::TooManyDocuments` once a directory crosses
+`MAX_CATALOG_DOCUMENTS`; `WalkError::Empty` when `root` holds no documents.
