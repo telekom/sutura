@@ -12,7 +12,7 @@ use super::SettingsError;
 use crate::environment::Environment;
 use crate::governance::SpendBudget;
 use crate::limits::{Quota, RateLimitSettings};
-use crate::prompt::{CatalogProse, InstructionsFile, PromptSettings};
+use crate::prompt::{CatalogProse, InstructionsFile, InstructionsFileLimit, PromptSettings};
 use crate::proxy::{ClientAddressSource, TrustedProxies};
 use crate::raw::RawSettings;
 use crate::runtime::{AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace, WorkingSetCeiling};
@@ -212,7 +212,7 @@ pub(super) fn parse_row_ceiling(raw: &RawSettings) -> Result<RowCeiling, Setting
     )
 }
 
-/// The two keys that shape the agent-facing prompt.
+/// The three keys that shape the agent-facing prompt.
 ///
 /// **An empty `instructions_file` is an error here, and that is the opposite of what
 /// [`parse_security`] does with an empty token.** The two empties mean different things. An empty
@@ -224,9 +224,9 @@ pub(super) fn parse_row_ceiling(raw: &RawSettings) -> Result<RowCeiling, Setting
 ///
 /// `catalog_prose` is branched on rather than required, so a deployment that removed the key from
 /// its own copy of the defaults gets the default rather than a deserialization failure.
-/// Infallible: a boolean has no invalid form. Named as its own function anyway, matching the other
-/// groups, so `Settings::parse` reads as one list of "read this section" calls rather than one
-/// inline and the rest not.
+/// `instructions_file_limit` is branched on the same way, defaulting to
+/// `InstructionsFileLimit::DEFAULT_BYTES`; a number out of range is a refusal, the same way a
+/// server bound is, because a mistyped cap is a control that silently does not bound.
 pub(super) const fn parse_tools(raw: &RawSettings) -> crate::tools::ToolsSettings {
     crate::tools::ToolsSettings::new(raw.tools.run_sql.enabled)
 }
@@ -236,9 +236,13 @@ pub(super) fn parse_prompt(raw: &RawSettings) -> Result<PromptSettings, Settings
         None => None,
         Some(value) => Some(InstructionsFile::parse(value).map_err(|cause| SettingsError::Prompt { cause })?),
     };
+    let limit = match raw.prompt.instructions_file_limit {
+        None => InstructionsFileLimit::default(),
+        Some(bytes) => InstructionsFileLimit::parse(bytes).map_err(|cause| SettingsError::Bound { cause })?,
+    };
     let prose = match raw.prompt.catalog_prose.as_deref() {
         None => CatalogProse::default(),
         Some(value) => CatalogProse::parse(value).map_err(|cause| SettingsError::CatalogProse { cause })?,
     };
-    Ok(PromptSettings::new(instructions, prose))
+    Ok(PromptSettings::new(instructions, prose).with_instructions_file_limit(limit))
 }

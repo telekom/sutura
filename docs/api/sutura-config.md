@@ -503,6 +503,12 @@ Where the operator's own prompt text lives.
 A newtype rather than a `PathBuf` so the one thing that can be wrong about it is wrong in one
 place. The field is private and `Self::parse` is the only way in.
 
+## `use InstructionsFileLimit`
+
+The most bytes the operator's own prompt text may hold.
+
+Bounds the shared `prompt.instructions_file` read at the composition roots.
+
 ## `use InvalidPromptSettings`
 
 Why the prompt configuration is not usable.
@@ -3066,7 +3072,7 @@ The hops whose forwarded header is believed.
 
 What goes into the agent-facing system prompt that this deployment hands out.
 
-Two keys, and each one is read by something: `sutura_app::prompt::render` is the consumer, and
+Three keys, and each one is read by something: `sutura_app::prompt::render` is the consumer, and
 `sutura prompt` is the command that reaches it. That is a requirement rather than a remark - this
 crate has shipped a group of keys that were parsed, range-checked, refused on a bad value and
 consumed by nothing, and it was a finding. A key nobody reads reads as a control that is in
@@ -3110,6 +3116,9 @@ operator's rules in it would be the failure this crate refuses everywhere else. 
 checked at parse time, for the reason `CatalogSettings` does
 not check its directories: a check here is a claim that is already stale by the time the file is
 read. The read is what fails, loudly, at the composition root.
+
+The operator's file is read through a bounded `sutura-cli` path at startup. Both composition
+roots use that path, so a file over `PromptSettings::instructions_file_limit` is refused.
 
 ### `enum CatalogProse`
 
@@ -3222,6 +3231,36 @@ Why the prompt configuration is not usable.
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+### `struct InstructionsFileLimit`
+
+```rust
+pub struct InstructionsFileLimit
+```
+
+The most bytes the operator's own prompt text may hold.
+
+Bounds the shared `prompt.instructions_file` read at the composition roots.
+
+#### Methods
+
+```rust
+pub const fn bytes(self) -> usize
+```
+
+The cap, in bytes: a file of exactly this length is accepted, one byte more is refused.
+
+```rust
+pub const fn parse(bytes: usize) -> Result<Self, InvalidBound>
+```
+
+Reads a limit in bytes.
+
+Zero and values above `Self::MAX_BYTES` are refused.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Default`, `Eq`, `PartialEq`
+
 ### `struct PromptSettings`
 
 ```rust
@@ -3241,6 +3280,12 @@ pub const fn instructions_file(&self) -> Option<&InstructionsFile>
 ```
 
 The operator's own text, if a path was configured.
+
+```rust
+pub const fn instructions_file_limit(&self) -> InstructionsFileLimit
+```
+
+The byte cap the `Self::instructions_file` read is refused above.
 
 ```rust
 pub const fn new(instructions_file: Option<InstructionsFile>, catalog_prose: CatalogProse) -> Self

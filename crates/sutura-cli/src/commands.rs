@@ -11,6 +11,7 @@
 //! matching on a variant. Every message is built from a typed error's own `Display`, so the variant
 //! is still what decided the wording.
 
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -335,19 +336,38 @@ type ResolvedPromptText = (CatalogProse, Option<String>);
 /// absent, which is right for a convention - no file means nobody wrote one. Here the path was
 /// written down, so absence means the operator's rules are missing from a document that says it
 /// carries them, and serving that quietly is the failure this repository refuses everywhere else.
+/// Reads at most `prompt.instructions_file_limit + 1` bytes before refusing an oversized file.
 fn prompt_inputs(settings: &sutura_config::PromptSettings) -> Result<ResolvedPromptText, String> {
     let prose = catalog_prose(settings.catalog_prose());
     let instructions = match settings.instructions_file() {
         None => None,
         Some(configured) => {
             let path = configured.path();
-            Some(std::fs::read_to_string(path).map_err(|e| {
-                format!(
-                    "prompt.instructions_file is {} and it could not be read: {e}\nremove the key to \
+            let limit = settings.instructions_file_limit().bytes();
+            let mut bytes = Vec::new();
+            std::fs::File::open(path)
+                .and_then(|file| file.take((limit + 1) as u64).read_to_end(&mut bytes))
+                .map_err(|e| {
+                    format!(
+                        "prompt.instructions_file is {} and it could not be read: {e}\nremove the key to \
                      render the prompt without an operator section",
-                    path.display()
-                )
-            })?)
+                        path.display()
+                    )
+                })?;
+            if bytes.len() > limit {
+                return Err(format!(
+                    "prompt.instructions_file is {} and is over the configured limit of {} bytes \
+                     (at least {} bytes read) - raise prompt.instructions_file_limit or shrink the file, \
+                     or remove the key to render the prompt without an operator section",
+                    path.display(),
+                    limit,
+                    bytes.len()
+                ));
+            }
+            Some(
+                String::from_utf8(bytes)
+                    .map_err(|e| format!("prompt.instructions_file is {} and it is not UTF-8: {e}", path.display()))?,
+            )
         }
     };
     Ok((prose, instructions))

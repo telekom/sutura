@@ -647,6 +647,9 @@ pub(crate) struct RawRunSql {
 pub(crate) struct RawPrompt {
     #[serde(default)]
     pub(crate) instructions_file: Option<String>,
+    /// The byte cap on reading the configured instructions file, when one is set.
+    #[serde(default)]
+    pub(crate) instructions_file_limit: Option<usize>,
     #[serde(default)]
     pub(crate) catalog_prose: Option<String>,
 }

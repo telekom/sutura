@@ -1,6 +1,6 @@
 //! What goes into the agent-facing system prompt that this deployment hands out.
 //!
-//! Two keys, and each one is read by something: `sutura_app::prompt::render` is the consumer, and
+//! Three keys, and each one is read by something: `sutura_app::prompt::render` is the consumer, and
 //! `sutura prompt` is the command that reaches it. That is a requirement rather than a remark - this
 //! crate has shipped a group of keys that were parsed, range-checked, refused on a bad value and
 //! consumed by nothing, and it was a finding. A key nobody reads reads as a control that is in
@@ -44,8 +44,13 @@
 //! checked at parse time, for the reason [`CatalogSettings`](crate::catalog::CatalogSettings) does
 //! not check its directories: a check here is a claim that is already stale by the time the file is
 //! read. The read is what fails, loudly, at the composition root.
+//!
+//! The operator's file is read through a bounded `sutura-cli` path at startup. Both composition
+//! roots use that path, so a file over [`PromptSettings::instructions_file_limit`] is refused.
 
 use std::path::{Path, PathBuf};
+
+use crate::server::InvalidBound;
 
 /// Whether the catalog's own prose is quoted into the prompt.
 ///
@@ -177,12 +182,59 @@ impl core::fmt::Display for InstructionsFile {
         write!(f, "{}", self.0.display())
     }
 }
+/// The most bytes the operator's own prompt text may hold.
+///
+/// Bounds the shared `prompt.instructions_file` read at the composition roots.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InstructionsFileLimit(usize);
+
+impl InstructionsFileLimit {
+    const KEY: &'static str = "prompt.instructions_file_limit";
+
+    /// The same default as the catalog's authored knowledge limit.
+    pub const DEFAULT_BYTES: usize = sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES;
+
+    /// The existing request body ceiling is also the largest operator text this service accepts.
+    pub const MAX_BYTES: usize = crate::server::BodyLimit::MAX_BYTES;
+
+    /// Reads a limit in bytes.
+    ///
+    /// Zero and values above [`Self::MAX_BYTES`] are refused.
+    pub const fn parse(bytes: usize) -> Result<Self, InvalidBound> {
+        if bytes == 0 {
+            return Err(InvalidBound::Zero { name: Self::KEY });
+        }
+        if bytes > Self::MAX_BYTES {
+            return Err(InvalidBound::TooLarge {
+                name: Self::KEY,
+                found: bytes as u64,
+                limit: Self::MAX_BYTES as u64,
+            });
+        }
+        Ok(Self(bytes))
+    }
+
+    /// The cap, in bytes: a file of exactly this length is accepted, one byte more is refused.
+    #[inline]
+    pub const fn bytes(self) -> usize {
+        self.0
+    }
+}
+
+impl Default for InstructionsFileLimit {
+    /// The shipped default. What a deployment that configured nothing gets.
+    #[inline]
+    fn default() -> Self {
+        Self(Self::DEFAULT_BYTES)
+    }
+}
 
 /// Everything that goes into the prompt beyond the pinned bundle and the tool list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromptSettings {
     instructions_file: Option<InstructionsFile>,
     catalog_prose: CatalogProse,
+    instructions_file_limit: InstructionsFileLimit,
 }
 
 impl PromptSettings {
@@ -196,13 +248,25 @@ impl PromptSettings {
         Self {
             instructions_file,
             catalog_prose,
+            instructions_file_limit: InstructionsFileLimit(InstructionsFileLimit::DEFAULT_BYTES),
         }
+    }
+
+    pub(crate) const fn with_instructions_file_limit(mut self, limit: InstructionsFileLimit) -> Self {
+        self.instructions_file_limit = limit;
+        self
     }
 
     /// The operator's own text, if a path was configured.
     #[inline]
     pub const fn instructions_file(&self) -> Option<&InstructionsFile> {
         self.instructions_file.as_ref()
+    }
+
+    /// The byte cap the [`Self::instructions_file`] read is refused above.
+    #[inline]
+    pub const fn instructions_file_limit(&self) -> InstructionsFileLimit {
+        self.instructions_file_limit
     }
 
     #[inline]
@@ -212,7 +276,8 @@ impl PromptSettings {
 }
 
 impl Default for PromptSettings {
-    /// No operator text, prose quoted. What a deployment that configured nothing gets.
+    /// No operator text, prose quoted, the shipped byte limit. What a deployment that configured
+    /// nothing gets.
     #[inline]
     fn default() -> Self {
         Self::new(None, CatalogProse::Quoted)

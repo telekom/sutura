@@ -325,6 +325,56 @@ mod tests {
         );
     }
 
+    #[test]
+    fn prompt_refuses_an_instructions_file_one_byte_over_the_configured_cap() {
+        let dir = scratch("prompt-instructions-cap");
+        let path = dir.join("instructions.md");
+        let catalog = example().join("catalog");
+        let catalog = catalog.to_string_lossy();
+        let configure = |limit: Option<usize>| {
+            let cap = limit.map_or_else(String::new, |n| format!("  instructions_file_limit: {n}\n"));
+            std::fs::write(
+                dir.join("base.yaml"),
+                format!("prompt:\n  instructions_file: '{}'\n{cap}", path.display()),
+            )
+            .expect("prompt settings are writable");
+        };
+
+        let default_limit = sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES;
+        configure(None);
+        std::fs::write(&path, vec![b'x'; default_limit]).expect("at-cap file");
+        let ran = run(Some(&dir), &["prompt", catalog.as_ref()]);
+        assert_eq!(ran.code, Some(0), "{}", ran.output());
+
+        std::fs::write(&path, vec![b'x'; default_limit + 1]).expect("over-cap file");
+        let ran = run(Some(&dir), &["prompt", catalog.as_ref()]);
+        assert_eq!(
+            ran.code,
+            Some(1),
+            "one byte over the default cap must be refused: {}",
+            ran.output()
+        );
+        assert!(ran.stderr.contains("prompt.instructions_file is"), "{}", ran.output());
+        assert!(ran.stderr.contains(&default_limit.to_string()), "{}", ran.output());
+
+        let configured_limit = default_limit + 1;
+        configure(Some(configured_limit));
+        let ran = run(Some(&dir), &["prompt", catalog.as_ref()]);
+        assert_eq!(ran.code, Some(0), "configured at-cap file: {}", ran.output());
+        std::fs::write(&path, vec![b'x'; configured_limit + 1]).expect("configured over-cap file");
+        let ran = run(Some(&dir), &["prompt", catalog.as_ref()]);
+        assert_eq!(ran.code, Some(1), "configured cap must be enforced: {}", ran.output());
+        assert!(ran.stderr.contains(&configured_limit.to_string()), "{}", ran.output());
+        assert!(ran.stderr.contains("prompt.instructions_file_limit"), "{}", ran.output());
+
+        configure(Some(0));
+        let ran = run(Some(&dir), &["prompt", catalog.as_ref()]);
+        assert_eq!(ran.code, Some(1), "zero cannot disable the cap: {}", ran.output());
+        configure(Some(sutura_config::BodyLimit::MAX_BYTES + 1));
+        let ran = run(Some(&dir), &["prompt", catalog.as_ref()]);
+        assert_eq!(ran.code, Some(1), "the cap has a ceiling: {}", ran.output());
+    }
+
     /// A configuration directory declaring nothing but the raw tool's own switch.
     ///
     /// No `sources:` at all, deliberately: `prompt` never opens a source - it loads the catalog

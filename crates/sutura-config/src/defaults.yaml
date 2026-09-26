@@ -284,6 +284,9 @@ prompt:
   #
   # An EMPTY string is an error rather than an absence: an empty path resolves to the working
   # directory. Remove the key to mean "no operator text".
+  #
+  # The file is read at startup with a 32768-byte default cap. An operator may set
+  # `instructions_file_limit` up to 1048576 bytes; zero and larger values are refused.
 
 # `governance` is deliberately absent. Uncommenting `per_replica_spend_ceiling` turns on a
 # per-replica, in-process byte ceiling per subject - PER REPLICA, not a deployment-wide budget: N
