@@ -1,0 +1,34 @@
+--- a/crates/sutura-app/src/lib.rs
++++ b/crates/sutura-app/src/lib.rs
+@@ -558,30 +558,7 @@
+             },
+         ));
+     }
+-    let preflight = match warehouse.dry_run(Executable::Query(&plan), presented, deadline) {
+-        Ok(preflight) => preflight,
+-        Err(cause) => {
+-            if warehouse.deadline_exceeded(&cause) {
+-                return Ok(Answered::under(
+-                    &credentials,
+-                    ToolOutcome::Refusal {
+-                        reason: deadline_exceeded(deadline),
+-                    },
+-                ));
+-            }
+-            if warehouse.source_refused(&cause) {
+-                return Ok(Answered::under(
+-                    &credentials,
+-                    ToolOutcome::Refusal {
+-                        reason: RefusalReason::SourceRefused {
+-                            source: warehouse.source().clone(),
+-                        },
+-                    },
+-                ));
+-            }
+-            return Err(ServiceError::Warehouse { cause });
+-        }
+-    };
++    let preflight = PreFlight::NotAsked;
+     // The spend ledger, consulted with the dry run's own price and nobody else's - an adapter that
+     // did not price charges nothing, "not counted" rather than "free", so this only ever refuses
+     // for the one adapter that prices today (BigQuery). See `budget_exhausted`'s own doc.
