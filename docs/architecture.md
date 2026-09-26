@@ -123,14 +123,16 @@ is the record.
 DataFusion is an adapter behind `Warehouse` for local files and can execute a leg of a federated
 answer. The splitter and combiner are built; each selected adapter declares whether it can execute
 a leg, and an unsupported leg is refused. A federated answer may mix source identity postures and
-reports each one. That report is not a uniform authorization guarantee.
+reports each one. That report is not a uniform authorization guarantee. [How a federated join key is compared](how-a-join-key-is-compared.md) records what the combiner refuses before any row is read,
+and what it does not cover.
 
 ### Connectors: Arrow Flight, not a driver per data system
 
 That heading records an earlier direction; the implemented boundary is the plan passed to
 `Warehouse`, leaving each adapter to choose its own transport and rendering. BigQuery uses ADBC;
-Postgres and ClickHouse use their own drivers. The domain still returns
-`RowSet` rather than an Arrow result envelope. DuckDB is a development dependency used to prove
+Postgres and ClickHouse use their own drivers. The domain returns
+`ResultBatches` (Arrow) rather than a `RowSet`, decoded to rows once at the
+presentation edge. DuckDB is a development dependency used to prove
 rendered SQL, while the shipped BigQuery and Postgres adapters are runtime dependencies.
 
 ### What can be plugged in today, and what the shipped binary actually uses
@@ -285,11 +287,13 @@ concatenated into the channel that carries instructions, with descriptive text t
 way and both envelopes sharing one encoder so neither transport can grow a text-blob shortcut on its
 own. There is no Arrow envelope, no encoder and no transport to carry one.
 
-*Enforced today:* the `Warehouse` port returns a `RowSet` of typed columns and typed `Value` cells
-rather than a text blob, and provenance rides beside the rows as its own typed field rather than as
-text mixed into them. The shape of the guarantee is right; the envelope is a row type rather than an
-Arrow schema. The engine executing over Arrow *in process* is a different claim from results leaving
-as Arrow, and only the first is true.
+*Enforced today:* the `Warehouse` port returns `ResultBatches` (Arrow) rather than a text blob,
+and provenance rides beside the rows as its own typed field rather than as text mixed into them.
+The shape of the guarantee is right at the port: `ResultBatches` is Arrow, decoded to typed
+`Value` cells once at the presentation edge (`ResultBatches::to_rows`), so what a transport sends
+is still rows and not Arrow. This does not claim results leave the process as Arrow. The engine
+executing over Arrow *in process* is a different claim from results leaving as Arrow, and only the
+first is true.
 
 ## The semantic compiler
 
