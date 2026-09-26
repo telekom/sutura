@@ -18,7 +18,7 @@
 //! retry" - a transport condition, not a status. `axios` retries nothing on its own, and
 //! `axios-retry` defaults to "a network error or a 5xx error on an idempotent request". Go's
 //! `net/http` reference documents no status-driven retry anywhere. The statuses that *are* retried by
-//! convention are `429` and `408`, and no refusal maps to either. 10 refusal reasons land on `422`,
+//! convention are `429` and `408`, and no refusal maps to either. 11 refusal reasons land on `422`,
 //! documented the other way round: "Clients that receive a `422` response should expect that
 //! repeating the request without modification will fail with the same error."
 //!
@@ -80,7 +80,7 @@ use axum::Extension;
 use axum::Json;
 use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
-use sutura_domain::query::Query;
+use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_runtime::AtCapacity;
 
@@ -239,18 +239,21 @@ pub(crate) async fn ask(
     body: Result<Json<QuestionBody>, JsonRejection>,
 ) -> Result<Outcome, Failure> {
     let Json(body) = body.map_err(|rejection| crate::problem::rejected(&rejection))?;
-    let query = Query::try_from(body).map_err(|cause| match cause {
-        // The caller asked nothing wrong here; this deployment's own clock could not be read.
-        // `Failure::Internal` carries no detail for the same reason every other internal defect
-        // does not: what broke is ours to fix, not the caller's business.
-        crate::wire::MalformedQuestion::Range(sutura_runtime::relative_range::RangeResolutionError::Clock(clock_cause)) => {
-            tracing::error!(error = %clock_cause, "this deployment's clock could not be read");
-            Failure::Internal
-        }
-        other => Failure::NotAQuestion {
-            detail: crate::problem::Detail::of(&other),
-        },
-    })?;
+    let query = match Query::try_from(body) {
+        Err(crate::wire::MalformedQuestion::Refused(reason)) => return Ok(Outcome::from(&ToolOutcome::Refusal { reason })),
+        parsed => parsed.map_err(|cause| match cause {
+            // The caller asked nothing wrong here; this deployment's own clock could not be read.
+            // `Failure::Internal` carries no detail for the same reason every other internal defect
+            // does not: what broke is ours to fix, not the caller's business.
+            crate::wire::MalformedQuestion::Range(sutura_runtime::relative_range::RangeResolutionError::Clock(clock_cause)) => {
+                tracing::error!(error = %clock_cause, "this deployment's clock could not be read");
+                Failure::Internal
+            }
+            other => Failure::NotAQuestion {
+                detail: crate::problem::Detail::of(&other),
+            },
+        })?,
+    };
 
     // WHICH question, onto the span, so every subsequent line of this request carries it.
     //
@@ -702,5 +705,56 @@ mod tests {
             !body.contains("foo-bar"),
             "a non-identifier unknown-field key was echoed: {body}"
         );
+    }
+
+    async fn count_is_refused_before_parsing(mut body: serde_json::Value, field: &str, values: serde_json::Value, code: &str) {
+        body[field] = values;
+        let (app, _held) = app("");
+        let (status, response) = crate::testing::call(
+            &app,
+            crate::testing::request("POST", "/v1/query", None, Body::from(body.to_string())),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{response}");
+        let response: serde_json::Value = serde_json::from_str(&response).expect("a refusal is JSON");
+        assert_eq!(response["outcome"], "refusal");
+        assert_eq!(response["reason"]["code"], code);
+    }
+
+    fn count_body() -> serde_json::Value {
+        serde_json::json!({
+            "metrics": ["revenue"],
+            "grain": "month",
+            "range": {"start": "2026-06-01", "end": "2026-07-01"},
+            "dimensions": [],
+            "filters": []
+        })
+    }
+
+    #[tokio::test]
+    async fn an_excess_metric_count_refuses_before_an_invalid_metric_is_parsed() {
+        let mut metrics = vec!["revenue"; 9];
+        metrics[0] = "bad name";
+        count_is_refused_before_parsing(count_body(), "metrics", serde_json::json!(metrics), "too_many_metrics").await;
+    }
+
+    #[tokio::test]
+    async fn an_excess_dimension_count_refuses_before_an_invalid_dimension_is_parsed() {
+        let mut dimensions = vec!["region"; 5];
+        dimensions[0] = "bad name";
+        count_is_refused_before_parsing(
+            count_body(),
+            "dimensions",
+            serde_json::json!(dimensions),
+            "too_many_dimensions",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn an_excess_filter_count_refuses_before_an_invalid_filter_is_parsed() {
+        let mut filters = vec![serde_json::json!({"op": "eq", "dimension": "region", "value": "north"}); 17];
+        filters[0]["dimension"] = serde_json::json!("bad name");
+        count_is_refused_before_parsing(count_body(), "filters", serde_json::json!(filters), "too_many_filters").await;
     }
 }

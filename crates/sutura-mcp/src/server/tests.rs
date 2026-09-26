@@ -215,7 +215,10 @@ fn a_certified_question() -> serde_json::Value {
 ///
 /// [`Query`]: sutura_domain::query::Query
 fn a_query() -> sutura_domain::query::Query {
-    super::question(ask(&a_certified_question())).expect("the fixture question parses")
+    match super::question(ask(&a_certified_question())).expect("the fixture question parses") {
+        super::QuestionAdmission::Query(query) => query,
+        super::QuestionAdmission::Refused(reason) => panic!("the fixture was refused: {reason:?}"),
+    }
 }
 
 /// Every tool the shared source declares is advertised, with the schema that was generated for it.
@@ -658,6 +661,29 @@ async fn a_question_outside_the_metrics_grains_is_also_a_RESULT() {
         Some("grain_not_supported"),
         "{structured:?}"
     );
+    drop(client.cancel().await);
+}
+
+#[tokio::test]
+async fn excess_filters_are_a_tool_refusal_before_the_first_filter_is_parsed() {
+    let client = connected(certified_service()).await;
+    let mut question = a_certified_question();
+    question["filters"] = serde_json::json!(vec![
+        serde_json::json!({"op": "eq", "dimension": "region", "value": "north"});
+        17
+    ]);
+    question["filters"][0]["dimension"] = serde_json::json!("bad name");
+    let result = client
+        .call_tool(ask(&question))
+        .await
+        .expect("a count refusal is a tool result");
+    assert_ne!(result.is_error, Some(true), "{result:?}");
+    let structured = result
+        .structured_content
+        .as_ref()
+        .expect("a refusal carries structured content");
+    assert_eq!(structured["outcome"], "refusal");
+    assert_eq!(structured["reason"]["code"], "too_many_filters");
     drop(client.cancel().await);
 }
 

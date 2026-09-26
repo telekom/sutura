@@ -86,7 +86,7 @@ use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree
 use sutura_domain::warehouse::{RowSet, Value};
 use sutura_semantic::{Compiled, compile};
 
-use crate::adapters::{a_caller, deadline, posture, shared_credential, source, version};
+use crate::adapters::{a_caller, deadline, posture, result_budget, shared_credential, source, version};
 // `#[path]` for the reason `tests/golden.rs` gives, one level down: a bare `mod corpus;` in a
 // submodule of a test target resolves beside the target root, not beside this file.
 #[path = "federated/bounds.rs"]
@@ -348,7 +348,8 @@ struct Side<W> {
 }
 
 fn duckdb_on(data: &Path, name: &SourceName, pinned: &PinnedDefinitions) -> sutura_exec_duckdb::DuckDbWarehouse {
-    let warehouse = sutura_exec_duckdb::DuckDbWarehouse::in_memory(name.clone(), posture()).expect("an in-memory database opens");
+    let warehouse = sutura_exec_duckdb::DuckDbWarehouse::in_memory(name.clone(), posture(), result_budget())
+        .expect("an in-memory database opens");
     let attached = tables_on(data, name, pinned);
     assert!(!attached.is_empty(), "no model in the derived bundle sits on {name}");
     for (table, csv) in attached {

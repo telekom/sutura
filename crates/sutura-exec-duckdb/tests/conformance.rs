@@ -38,7 +38,14 @@ mod conformance {
     /// `sutura-exec-postgres`, and `sutura_conformance::Fixture` for why the question is a return
     /// type.
     fn open() -> Fixture<DuckDbWarehouse> {
-        let warehouse = DuckDbWarehouse::in_memory(corpus::source(), corpus::posture()).expect("an in-memory database opens");
+        let warehouse = DuckDbWarehouse::in_memory(
+            corpus::source(),
+            corpus::posture(),
+            sutura_domain::warehouse::ResultBudget::of_bytes(
+                core::num::NonZeroUsize::new(1024 * 1024 * 1024).expect("a gibibyte is positive"),
+            ),
+        )
+        .expect("an in-memory database opens");
         warehouse
             .attach_fixture_csv(&corpus::table(), &corpus::on_disk())
             .expect("duckdb attaches the conformance corpus");

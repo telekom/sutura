@@ -21,7 +21,19 @@ use crate::calendar::{Date, InvalidDate, InvalidTimeRange, TimeRange};
 use crate::catalog::DimensionValue;
 use crate::model::{DimensionName, Grain, InvalidIdentifier, MetricName};
 use crate::nonempty::NonEmpty;
-use crate::query::{Filter, InvalidTopN, MetricNames, Query, Top, TopBy, TopDirection, TopN};
+use crate::query::{
+    Filter, InvalidTopN, MAX_DIMENSIONS, MAX_FILTERS, MAX_METRICS, MetricNames, Query, RefusalReason, Top, TopBy, TopDirection,
+    TopN,
+};
+
+/// A raw question failed to parse, or exceeded a governance count before parsing.
+#[derive(Debug, thiserror::Error)]
+pub enum QuestionInputError {
+    #[error(transparent)]
+    Malformed(#[from] MalformedQuestion),
+    #[error("the question names more items than this deployment permits")]
+    Refused(RefusalReason),
+}
 
 /// One filter, before parsing: a caller's raw dimension name and operator, borrowed out of
 /// whichever wire struct a transport deserialized.
@@ -191,10 +203,9 @@ pub enum MalformedQuestion {
 /// Parses a caller's raw question fields into a [`Query`].
 ///
 /// **This is the whole translation a transport is allowed to do**: extract each field from its own
-/// wire shape as a plain string, hand them here, get back a certified [`Query`] or a
-/// [`MalformedQuestion`] naming the field. Nothing here decides what may be asked - that is
-/// `sutura_app::compile`'s job, against the pinned catalog this function never sees and cannot
-/// widen.
+/// wire shape as a plain string, hand them here, get back a certified [`Query`], a malformed
+/// input error, or an early count refusal. Catalog-dependent decisions stay in
+/// `sutura_app::compile`, against the pinned catalog this function never sees.
 pub fn parse_query(
     metrics: &[String],
     grain: &str,
@@ -203,7 +214,25 @@ pub fn parse_query(
     dimensions: &[String],
     filters: &[RawFilter<'_>],
     top: Option<RawTop<'_>>,
-) -> Result<Query, MalformedQuestion> {
+) -> Result<Query, QuestionInputError> {
+    if metrics.len() > MAX_METRICS {
+        return Err(QuestionInputError::Refused(RefusalReason::TooManyMetrics {
+            requested: metrics.len(),
+            limit: MAX_METRICS,
+        }));
+    }
+    if dimensions.len() > MAX_DIMENSIONS {
+        return Err(QuestionInputError::Refused(RefusalReason::TooManyDimensions {
+            requested: dimensions.len(),
+            limit: MAX_DIMENSIONS,
+        }));
+    }
+    if filters.len() > MAX_FILTERS {
+        return Err(QuestionInputError::Refused(RefusalReason::TooManyFilters {
+            requested: filters.len(),
+            limit: MAX_FILTERS,
+        }));
+    }
     let mut parsed_metrics = Vec::with_capacity(metrics.len());
     for (index, raw) in metrics.iter().enumerate() {
         parsed_metrics.push(MetricName::parse(raw).map_err(|cause| MalformedQuestion::Metric { index, cause })?);
@@ -312,8 +341,9 @@ fn range_of(start: &str, end: &str) -> Result<TimeRange, MalformedQuestion> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MalformedQuestion, RawFilter, parse_query};
+    use super::{MalformedQuestion, QuestionInputError, RawFilter, parse_query};
     use crate::model::{DimensionName, Grain, MetricName};
+    use crate::query::{MAX_FILTERS, RefusalReason};
 
     fn revenue() -> Vec<String> {
         vec![String::from("revenue")]
@@ -344,7 +374,23 @@ mod tests {
     fn an_empty_metrics_list_names_the_field() {
         let error =
             parse_query(&[], "month", "2026-06-01", "2026-07-01", &[], &[], None).expect_err("no metric is nothing to measure");
-        assert!(matches!(error, MalformedQuestion::Metrics), "{error:?}");
+        assert!(
+            matches!(error, QuestionInputError::Malformed(MalformedQuestion::Metrics)),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn excess_filters_refuse_before_an_invalid_first_filter_is_parsed() {
+        let mut filters = vec![RawFilter::eq("region", "north"); MAX_FILTERS + 1];
+        filters[0] = RawFilter::eq("bad name", "north");
+        let error = parse_query(&revenue(), "month", "2026-06-01", "2026-07-01", &[], &filters, None)
+            .expect_err("the count is refused before individual filters are parsed");
+        assert!(
+            matches!(error, QuestionInputError::Refused(RefusalReason::TooManyFilters { requested, limit })
+                if requested == MAX_FILTERS + 1 && limit == MAX_FILTERS),
+            "{error:?}"
+        );
     }
 
     #[test]
@@ -382,7 +428,13 @@ mod tests {
             None,
         )
         .expect_err("an in-set filter with no values names nothing to match");
-        assert!(matches!(error, MalformedQuestion::FilterValues { index: 0, .. }), "{error:?}");
+        assert!(
+            matches!(
+                error,
+                QuestionInputError::Malformed(MalformedQuestion::FilterValues { index: 0, .. })
+            ),
+            "{error:?}"
+        );
     }
 
     #[test]
@@ -400,21 +452,30 @@ mod tests {
             None,
         )
         .expect_err("a set past the ceiling no allowlist could ever hold names nothing answerable");
-        assert!(matches!(error, MalformedQuestion::FilterValues { index: 0, .. }), "{error:?}");
+        assert!(
+            matches!(
+                error,
+                QuestionInputError::Malformed(MalformedQuestion::FilterValues { index: 0, .. })
+            ),
+            "{error:?}"
+        );
     }
 
     #[test]
     fn an_unknown_grain_names_the_field_and_the_accepted_set() {
         let error = parse_query(&revenue(), "fortnight", "2026-06-01", "2026-07-01", &[], &[], None)
             .expect_err("`fortnight` is not a grain");
-        assert!(matches!(error, MalformedQuestion::Grain), "{error:?}");
+        assert!(
+            matches!(error, QuestionInputError::Malformed(MalformedQuestion::Grain)),
+            "{error:?}"
+        );
         assert!(error.to_string().contains("quarter"), "{error}");
     }
 
     #[test]
     fn a_malformed_date_names_which_end_of_the_range() {
         let error = parse_query(&revenue(), "month", "nope", "2026-07-01", &[], &[], None).expect_err("`nope` is not a date");
-        let MalformedQuestion::Date { field, .. } = error else {
+        let QuestionInputError::Malformed(MalformedQuestion::Date { field, .. }) = error else {
             panic!("{error:?} is not a Date error");
         };
         assert_eq!(field, "start");
@@ -424,7 +485,10 @@ mod tests {
     fn a_reversed_range_is_refused_rather_than_reordered() {
         let error = parse_query(&revenue(), "month", "2026-07-01", "2026-06-01", &[], &[], None)
             .expect_err("an end before its start is not a period");
-        assert!(matches!(error, MalformedQuestion::Range { .. }), "{error:?}");
+        assert!(
+            matches!(error, QuestionInputError::Malformed(MalformedQuestion::Range { .. })),
+            "{error:?}"
+        );
     }
 
     #[test]
@@ -439,7 +503,13 @@ mod tests {
             None,
         )
         .expect_err("a multi-line value is not one this catalog could declare");
-        assert!(matches!(error, MalformedQuestion::FilterValue { index: 0 }), "{error:?}");
+        assert!(
+            matches!(
+                error,
+                QuestionInputError::Malformed(MalformedQuestion::FilterValue { index: 0 })
+            ),
+            "{error:?}"
+        );
         assert!(!error.to_string().contains("line one"), "{error}");
     }
 
@@ -471,7 +541,10 @@ mod tests {
             Some(super::RawTop::new(0, "metric", "desc")),
         )
         .expect_err("zero rows is not a row count");
-        assert!(matches!(error, MalformedQuestion::TopN { .. }), "{error:?}");
+        assert!(
+            matches!(error, QuestionInputError::Malformed(MalformedQuestion::TopN { .. })),
+            "{error:?}"
+        );
     }
 
     #[test]
@@ -486,7 +559,10 @@ mod tests {
             Some(super::RawTop::new(10, "revenue", "desc")),
         )
         .expect_err("`revenue` is not `metric` or `period`");
-        assert!(matches!(error, MalformedQuestion::TopBy), "{error:?}");
+        assert!(
+            matches!(error, QuestionInputError::Malformed(MalformedQuestion::TopBy)),
+            "{error:?}"
+        );
     }
 
     #[test]
@@ -501,6 +577,9 @@ mod tests {
             Some(super::RawTop::new(10, "metric", "sideways")),
         )
         .expect_err("`sideways` is not `desc` or `asc`");
-        assert!(matches!(error, MalformedQuestion::TopDirection), "{error:?}");
+        assert!(
+            matches!(error, QuestionInputError::Malformed(MalformedQuestion::TopDirection)),
+            "{error:?}"
+        );
     }
 }

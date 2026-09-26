@@ -86,11 +86,10 @@ exclude = [
 # that is a test. An entry is for code whose complexity the metric reads wrongly - a generated
 # match arm table, a vendored port - not for code we have not got round to covering.
 #
-# EMPTY, AND CURRENTLY WITH NOTHING TO PUT IN IT. No function in the scored crate is over the
-# line: the two highest sit exactly at 30.0 and pass. `Grain::as_str` used to be over it at CRAP
-# 42 and was never listed here, because it was uncovered by its own crate's tests - which is a
-# finding, not an exemption. It scores 6.0 now, and what changed was the tests.
-allow = []
+# This exhaustive variant-to-code table has 100% coverage. Its complexity rises by one whenever
+# a refusal variant is added, although every arm only returns a literal; splitting the match would
+# lose the compiler's check that every variant has a code.
+allow = ["RefusalReason::code"]
 
 # `(file, function, line)` ordering rather than by score, so the report of a small change is a
 # small diff.
