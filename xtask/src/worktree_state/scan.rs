@@ -246,6 +246,7 @@ const MUTATIONS: &[&str] = &[
     "fs::write",
     "fs::rename",
     "fs::copy",
+    "hard_link",
     "fs::remove",
     "remove_dir",
     "remove_file",
