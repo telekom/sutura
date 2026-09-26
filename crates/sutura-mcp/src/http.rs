@@ -125,6 +125,7 @@ pub fn config() -> StreamableHttpServerConfig {
 pub fn service<S>(
     surface: Arc<S>,
     prose: CatalogProse,
+    list_physical_schema: bool,
     admission: Admission,
     reply: RequestTimeout,
     instructions: Arc<str>,
@@ -143,7 +144,8 @@ where
                 reply,
                 Arc::clone(&instructions),
                 operator_instructions.clone(),
-            ))
+            )
+            .listing_physical_schema(list_physical_schema))
         },
         Arc::new(LocalSessionManager::default()),
         config(),
@@ -310,6 +312,7 @@ mod tests {
         let transport = super::service(
             Arc::new(testing::FailingSurface::new()),
             CatalogProse::Quoted,
+            false,
             admission(),
             reply(),
             testing::instructions(),
@@ -351,6 +354,7 @@ mod tests {
         let transport = super::service(
             Arc::new(testing::FailingSurface::new()),
             CatalogProse::Quoted,
+            false,
             admission(),
             reply(),
             testing::instructions(),
@@ -400,6 +404,7 @@ mod tests {
         let transport = super::service(
             Arc::new(testing::FailingSurface::new()),
             CatalogProse::Quoted,
+            false,
             admission(),
             reply(),
             testing::instructions(),

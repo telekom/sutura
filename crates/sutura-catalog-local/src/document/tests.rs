@@ -216,6 +216,17 @@ primary_key: [order_date]
     assert_eq!(model.primary_key(), &BTreeSet::from([column("order_date")]));
 }
 
+#[test]
+fn a_physical_only_model_may_declare_a_restricted_audience() {
+    let yaml = "kind: model\nname: orders\nsource: local\ntable: orders\ncolumns: [amount]\naudience:\n  restricted: [finance]\n";
+    let model = serde_norway::from_str::<ModelDoc>(yaml)
+        .expect("a model document with an audience parses")
+        .into_domain(Description::default())
+        .expect("the audience converts");
+    let grant = AudienceGrant::parse(BTreeSet::from([AudienceId::parse("finance").expect("an id")])).expect("a grant");
+    assert_eq!(model.audience(), Some(&Audience::Restricted(grant)));
+}
+
 /// A `type:` this crate cannot represent - here, over `MAX_COLUMN_TYPE_CHARS` - is dropped, not
 /// refused: the document still loads and the column carries no type.
 #[test]

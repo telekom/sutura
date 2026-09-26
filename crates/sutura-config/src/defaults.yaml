@@ -264,6 +264,8 @@ runtime:
   shutdown_grace_seconds: 15
 
 prompt:
+  # Physical model and column names are listed only when an operator enables them.
+  list_physical_schema: false
   # Maximum bytes read from `instructions_file` at startup. An operator may lower or raise this
   # within 1..=1048576; the finite ceiling keeps a mistyped large file from filling every prompt.
   instructions_max_bytes: 32768

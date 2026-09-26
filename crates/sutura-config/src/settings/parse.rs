@@ -244,5 +244,5 @@ pub(super) fn parse_prompt(raw: &RawSettings) -> Result<PromptSettings, Settings
         || Ok(InstructionsMaxBytes::DEFAULT),
         |bytes| InstructionsMaxBytes::parse(bytes).map_err(|cause| SettingsError::Prompt { cause }),
     )?;
-    Ok(PromptSettings::with_max_bytes(instructions, max_bytes, prose))
+    Ok(PromptSettings::with_max_bytes(instructions, max_bytes, prose).listing_physical_schema(raw.prompt.list_physical_schema))
 }

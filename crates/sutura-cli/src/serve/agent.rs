@@ -105,7 +105,7 @@ pub(crate) fn mount(
     // One read, two uses: `agent_instructions` returns the operator's raw text beside the rendered
     // prompt it read it from, so the mounted surface carries the SAME text - never a second read of
     // the same path that could disagree.
-    let (instructions, operator_instructions) = crate::commands::agent_instructions(service.definitions(), settings)?;
+    let (instructions, operator_instructions) = crate::commands::agent_instructions(service.definitions(), settings, false)?;
     let operator_instructions = operator_instructions.map(std::sync::Arc::from);
     let serving = Arc::new(Serving {
         surface: service,
@@ -115,6 +115,7 @@ pub(crate) fn mount(
         sutura_mcp::http::service(
             serving,
             crate::commands::catalog_prose(settings.prompt().catalog_prose()),
+            settings.prompt().list_physical_schema(),
             admission,
             settings.server().request_timeout(),
             Arc::from(instructions),

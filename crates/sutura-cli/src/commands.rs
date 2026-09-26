@@ -272,7 +272,7 @@ pub(crate) fn prompt(args: &[String]) -> ExitCode {
         // never found is the failure it exists to make visible.
         eprintln!("sutura: configuration from {}", settings.layers());
         let pinned = load(Path::new(&root))?;
-        let (rendered, _operator) = agent_instructions(&pinned, &settings)?;
+        let (rendered, _operator) = agent_instructions(&pinned, &settings, true)?;
         print!("{rendered}");
         Ok(())
     })())
@@ -312,10 +312,12 @@ fn agent_tools(settings: &sutura_config::Settings) -> Vec<Tool> {
 pub(crate) fn agent_instructions(
     pinned: &PinnedDefinitions,
     settings: &sutura_config::Settings,
+    whole_bundle_listing: bool,
 ) -> Result<RenderedPromptWithOperator, String> {
     let (prose, operator) = prompt_inputs(settings.prompt())?;
     let tools = agent_tools(settings);
-    let inputs = PromptInputs::new(&tools, prose, operator.as_deref());
+    let inputs = PromptInputs::new(&tools, prose, operator.as_deref())
+        .listing_physical_schema(whole_bundle_listing && settings.prompt().list_physical_schema());
     Ok((sutura_app::prompt::render(pinned, &inputs), operator))
 }
 /// The rendered prompt and the operator's own text, returned together by [`agent_instructions`].

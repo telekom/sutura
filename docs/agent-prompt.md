@@ -72,12 +72,14 @@ exception rather than staying silent about it, because a document that both said
 and separately advertised `run_sql` would be internally inconsistent - worse than either sentence
 alone.
 
-**No column, table, model or measure expression.** Of what a metric *is*, the prompt renders what
+**No measure expression.** Of what a metric *is*, the prompt renders what
 `GET /v1/catalog` renders and no further field: a caller needs a metric's name, prose, grains,
 dimensions and permitted values to ask a valid question; it needs no column name to do it, and a
 column name in an agent's context is a name it will eventually try to use. This is asserted rather
 than intended: a test renders a bundle whose model, table and column names appear in no prose and
-checks that none of them reaches the output.
+checks that none of them reaches the output by default. An operator can enable
+`prompt.list_physical_schema` to list descriptive model, table and column metadata. That listing
+does not make a physical name queryable or certify a metric.
 
 That is a claim about *fields of a metric*, and not about the document being a rendering of the
 endpoint - the two are worth keeping apart. The prompt carries four sections the catalog body has no
@@ -92,13 +94,15 @@ describe a control that does not exist.
 
 ## Configuration
 
-Two keys, in the same layered tree as everything else: embedded defaults, then `base.yaml`, then
+Four keys, in the same layered tree as everything else: embedded defaults, then `base.yaml`, then
 `<environment>.yaml`, then one environment variable per key.
 
-| Key                        | Default  | What it does                                                                                                                                                                                                                  |
-| -------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `prompt.catalog_prose`     | `quoted` | `quoted` includes each metric's own prose, with `>` at the start of every line and the trust boundary named above the block. `omitted` leaves it out, and the document then says the descriptions exist and were not included |
-| `prompt.instructions_file` | absent   | A path to markdown that is appended as the document's LAST section. Absent means no operator section at all                                                                                                                   |
+| Key                             | Default  | What it does                                                                                                                                                                                                                  |
+| ------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prompt.catalog_prose`          | `quoted` | `quoted` includes each metric's own prose, with `>` at the start of every line and the trust boundary named above the block. `omitted` leaves it out, and the document then says the descriptions exist and were not included |
+| `prompt.instructions_file`      | absent   | A path to markdown that is appended as the document's LAST section. Absent means no operator section at all                                                                                                                   |
+| `prompt.instructions_max_bytes` | `32768`  | Maximum operator instruction bytes read at startup, configurable up to 1 MiB                                                                                                                                                  |
+| `prompt.list_physical_schema`   | `false`  | List models, tables and columns on operator-side prompts and caller-scoped catalog tool replies                                                                                                                               |
 
 ```bash
 SUTURA__PROMPT__CATALOG_PROSE=omitted \
@@ -107,7 +111,9 @@ SUTURA__PROMPT__INSTRUCTIONS_FILE=prompts/house-rules.md \
 ```
 
 `sutura prompt` takes the deployment's configuration directory as its optional second argument, so
-the text it renders is the text that deployment would hand out. It loads the settings the way the
+the text it renders is the operator-side whole-bundle preview. The served MCP `initialize` prompt
+omits the optional physical listing because it has no caller-specific view; a verified caller gets
+the listing through `describe_catalog` under its own audience grants. The command loads settings the way the
 service does, refusals included: a production configuration with no access token will not render a
 prompt either, and the refusal names the key to fix. That is deliberate - a second, weaker door into
 the settings is a door that can disagree with the first.
@@ -127,7 +133,7 @@ silently when it is not, which is right for a *convention*: no file means nobody
 path was written down, so absence means the operator's rules are missing from a document that claims
 to carry them.
 
-**Neither key defaults by environment.** `telemetry.format` and `api.docs` do, and record whether
+**Catalog prose and the instruction path do not default by environment.** `telemetry.format` and `api.docs` do, and record whether
 somebody wrote the value down so the startup log can tell a decision from a default. Neither
 decision here is a function of the environment: whether a catalog's authors are trusted enough to
 quote their prose into an agent's context is a fact about who writes the catalog, not about whether

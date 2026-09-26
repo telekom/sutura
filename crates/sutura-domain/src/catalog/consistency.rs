@@ -636,10 +636,15 @@ impl Definitions {
         self.relationships.get(name)
     }
 }
-/// The authored bytes behind one model beyond its own name: every column it declares, and its
-/// description.
+/// The bytes a physical-schema listing can expose for one model.
 fn model_bytes(model: &Model) -> usize {
-    sum_bytes(model.columns().map(column_bytes)).saturating_add(model.description().len())
+    model
+        .name()
+        .as_str()
+        .len()
+        .saturating_add(model.table().to_string().len())
+        .saturating_add(sum_bytes(model.columns().map(column_bytes)))
+        .saturating_add(model.description().len())
 }
 
 /// The authored bytes behind one column: its name, its data type if declared, and its description.
