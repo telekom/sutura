@@ -6,18 +6,27 @@
 //! two can compile and pass over first-party artifacts another tree left there.
 //!
 //! POSITION, NOT PRESENCE: a gate that moved the clean after its build would still contain the
-//! call. So this reads the byte offset of the CALL - `Isolated::of(`, with the parenthesis, because
-//! the gates' own comments name `Isolated::of` without one and a comment left behind by a moved
-//! call must not satisfy it - against the first BUILD invocation: the first `Command::new("cargo")`
-//! whose statement's first string literal is not `"tree"`. `cargo tree` is resolve-only and writes
-//! no artifacts, so it may precede the clean.
+//! call. So this reads the byte offset of the CALL - `Isolated::of(`, with the parenthesis - against
+//! the first BUILD invocation: the first `Command::new("cargo")` whose statement's first string
+//! literal is not `"tree"`. `cargo tree` is resolve-only and writes no artifacts, so it may precede
+//! the clean.
+//!
+//! Comments and MULTI-LINE string interiors come out first, through
+//! [`crate::serde_parse::scan::code_lines`] as in `boot_order`, so prose or a literal spanning lines
+//! that names the call cannot satisfy it. **A single-line string literal is NOT removed** - the shared
+//! lexer keeps its content by contract - so a one-line literal spelling `Isolated::of(` above the
+//! build is a live anchor whether the real call moved or was deleted. Neither gate file contains one
+//! today, checked over every occurrence of `Isolated::of`, so this is a limit and not an open hole.
 //!
 //! WHAT IT DOES NOT REACH: it reads TEXT order, not execution order. A build moved into a helper
 //! defined above `run`, or a clean moved behind a condition, is outside it; a gate with no build
 //! invocation left to find is refused rather than passed. The behaviour itself - that the clean
-//! runs before the first compile - is held by `xtask/tests/default_features.rs` for one of the two.
+//! runs before the first compile - is held by `xtask/tests/default_features.rs` for
+//! `check-default-features` only; `check-default-feature-tests` is held by this textual check alone.
 
 use std::path::Path;
+
+use crate::serde_parse::scan::code_lines;
 
 /// The gates that share `target/causality-target` with `causality` and must clean first.
 const ISOLATED_GATES: &[(&str, &str)] = &[
@@ -48,9 +57,12 @@ pub(super) fn holds(root: &Path) -> Result<usize, String> {
     Ok(ISOLATED_GATES.len())
 }
 
+/// Whether a gate's source calls `Isolated::of(` before its first build invocation, read over its
+/// [`code_lines`] image joined back with `\n` so a multi-line statement still reads its subcommand.
 fn clean_precedes_build(text: &str) -> Result<(), &'static str> {
-    let call = text.find(ISOLATED_CALL).ok_or("no longer calls `Isolated::of`")?;
-    let build = first_build_invocation(text).ok_or("has no build invocation for `Isolated::of` to precede")?;
+    let code = code_lines(text).join("\n");
+    let call = code.find(ISOLATED_CALL).ok_or("no longer calls `Isolated::of`")?;
+    let build = first_build_invocation(&code).ok_or("has no build invocation for `Isolated::of` to precede")?;
     if call > build {
         return Err("calls `Isolated::of` after its first build invocation");
     }
@@ -86,8 +98,20 @@ mod tests {
 
     #[test]
     fn a_comment_left_behind_by_a_moved_clean_does_not_hold_it() {
-        let moved = ["// the clean `Isolated::of` performs\n", BUILD, CLEAN].concat();
-        assert!(clean_precedes_build(&moved).is_err());
+        for comment in [
+            "// the clean `Isolated::of` performs\n",
+            "// the clean `Isolated::of(..)` performs\n",
+        ] {
+            assert!(clean_precedes_build(&[comment, BUILD, CLEAN].concat()).is_err(), "{comment}");
+            assert!(clean_precedes_build(&[comment, BUILD].concat()).is_err(), "{comment}");
+        }
+    }
+
+    #[test]
+    fn a_multiline_string_spelling_the_call_does_not_hold_it() {
+        let note = "let note = \"the clean Isolated::of(\nperforms the removal\";\n";
+        assert!(clean_precedes_build(&[note, BUILD, CLEAN].concat()).is_err());
+        assert!(clean_precedes_build(&[note, BUILD].concat()).is_err());
     }
 
     #[test]
