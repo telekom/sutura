@@ -503,6 +503,13 @@ Where the operator's own prompt text lives.
 A newtype rather than a `PathBuf` so the one thing that can be wrong about it is wrong in one
 place. The field is private and `Self::parse` is the only way in.
 
+## `use InstructionsMaxBytes`
+
+Maximum bytes read from the operator's instructions file at startup.
+
+The default matches the knowledge bundle's 32 KiB cap. The finite maximum keeps an
+operator-configurable limit from turning this into an unbounded read again.
+
 ## `use InvalidPromptSettings`
 
 Why the prompt configuration is not usable.
@@ -3066,8 +3073,9 @@ The hops whose forwarded header is believed.
 
 What goes into the agent-facing system prompt that this deployment hands out.
 
-Two keys, and each one is read by something: `sutura_app::prompt::render` is the consumer, and
-`sutura prompt` is the command that reaches it. That is a requirement rather than a remark - this
+Three keys, and each one is read: `sutura_app::prompt::render` consumes the text and prose choice,
+and the CLI composition root reads the file under the byte limit. `sutura prompt` reaches both.
+That is a requirement rather than a remark - this
 crate has shipped a group of keys that were parsed, range-checked, refused on a bad value and
 consumed by nothing, and it was a finding. A key nobody reads reads as a control that is in
 place.
@@ -3217,10 +3225,36 @@ Why the prompt configuration is not usable.
   to the process working directory, so this would read a *directory* as an instructions file on
   whichever host the process happens to be on. Absent means "no operator text"; empty means
   somebody meant to write a path.
+- `InvalidInstructionsMaxBytes` - A configured byte ceiling was zero or large enough to defeat the startup bound.
 
 #### Implements
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct InstructionsMaxBytes`
+
+```rust
+pub struct InstructionsMaxBytes
+```
+
+Maximum bytes read from the operator's instructions file at startup.
+
+The default matches the knowledge bundle's 32 KiB cap. The finite maximum keeps an
+operator-configurable limit from turning this into an unbounded read again.
+
+#### Methods
+
+```rust
+pub const fn get(self) -> usize
+```
+
+```rust
+pub fn parse(bytes: u64) -> Result<Self, InvalidPromptSettings>
+```
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
 
 ### `struct PromptSettings`
 
@@ -3243,6 +3277,10 @@ pub const fn instructions_file(&self) -> Option<&InstructionsFile>
 The operator's own text, if a path was configured.
 
 ```rust
+pub const fn instructions_max_bytes(&self) -> InstructionsMaxBytes
+```
+
+```rust
 pub const fn new(instructions_file: Option<InstructionsFile>, catalog_prose: CatalogProse) -> Self
 ```
 
@@ -3251,6 +3289,12 @@ Assembles the group from parts that have each already been parsed.
 Infallible, like the other groups here: there is no cross-field rule inside it. `omitted`
 prose with no operator text is a coherent deployment - it says the metric names and the rules
 and nothing about meaning - so it is a choice rather than a refusal.
+
+```rust
+pub const fn with_max_bytes(instructions_file: Option<InstructionsFile>, instructions_max_bytes: InstructionsMaxBytes, catalog_prose: CatalogProse) -> Self
+```
+
+Assembles the group with an operator-selected byte ceiling.
 
 #### Implements
 

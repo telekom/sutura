@@ -12,7 +12,7 @@ use super::SettingsError;
 use crate::environment::Environment;
 use crate::governance::SpendBudget;
 use crate::limits::{Quota, RateLimitSettings};
-use crate::prompt::{CatalogProse, InstructionsFile, PromptSettings};
+use crate::prompt::{CatalogProse, InstructionsFile, InstructionsMaxBytes, PromptSettings};
 use crate::proxy::{ClientAddressSource, TrustedProxies};
 use crate::raw::RawSettings;
 use crate::runtime::{AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace, WorkingSetCeiling};
@@ -212,7 +212,7 @@ pub(super) fn parse_row_ceiling(raw: &RawSettings) -> Result<RowCeiling, Setting
     )
 }
 
-/// The two keys that shape the agent-facing prompt.
+/// The keys that shape the agent-facing prompt and bound its operator section.
 ///
 /// **An empty `instructions_file` is an error here, and that is the opposite of what
 /// [`parse_security`] does with an empty token.** The two empties mean different things. An empty
@@ -240,5 +240,9 @@ pub(super) fn parse_prompt(raw: &RawSettings) -> Result<PromptSettings, Settings
         None => CatalogProse::default(),
         Some(value) => CatalogProse::parse(value).map_err(|cause| SettingsError::CatalogProse { cause })?,
     };
-    Ok(PromptSettings::new(instructions, prose))
+    let max_bytes = raw.prompt.instructions_max_bytes.map_or_else(
+        || Ok(InstructionsMaxBytes::DEFAULT),
+        |bytes| InstructionsMaxBytes::parse(bytes).map_err(|cause| SettingsError::Prompt { cause }),
+    )?;
+    Ok(PromptSettings::with_max_bytes(instructions, max_bytes, prose))
 }

@@ -22,7 +22,7 @@
 //! not be caught by any swap-timing test here - the window between two back-to-back opens is
 //! sub-microsecond, well under what even a multi-millisecond swap test can land reliably (measured
 //! across 3 separate `just test` runs against that mutation, before this crate existed). The gate
-//! refuses a path-based `std::fs` read in this crate and the three catalogs outside [`walk()`]'s
+//! refuses a path-based `std::fs` read in this crate and the three catalogs outside `walk`'s
 //! `read_dir`; a second `rustix::fs::open` or an aliased read escapes that text scan.
 //!
 //! The refusal paths and their exact reach are [`read_document`]'s contract; a caller maps its
