@@ -80,6 +80,19 @@ impl<W> Fixture<W> {
     }
 }
 
+impl<F, L, C> Fixture<(F, L, C)> {
+    /// Two warehouses and the combiner above them, standing only where both warehouses stood up.
+    ///
+    /// The combiner is built only then, and the fact side's absence is the one reported when both
+    /// are absent.
+    pub fn federated(fact: Fixture<F>, lookup: Fixture<L>, combiner: impl FnOnce() -> C) -> Self {
+        match (fact, lookup) {
+            (Fixture::Standing(fact), Fixture::Standing(lookup)) => Self::Standing((fact, lookup, combiner())),
+            (Fixture::Absent(missing), _) | (_, Fixture::Absent(missing)) => Self::Absent(missing),
+        }
+    }
+}
+
 /// Why this venue could not stand a fixture up. **About the environment, never about the adapter.**
 ///
 /// Typed rather than a message, for the reason every refusal in this workspace is: a reader that

@@ -60,6 +60,8 @@ sutura-dev = { workspace = true }
 # neither of these.
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
+# Two in-process engines and a combiner for `tests/federated_bound.rs`; a dev edge, which the harness rule exempts.
+sutura-exec-datafusion = { workspace = true }
 
 [lints]
 workspace = true
