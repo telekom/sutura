@@ -6,33 +6,35 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="What sutura is, what it enforces today, what it does not yet, and which page to read next.">
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/how-a-join-key-is-compared/">
       
       
+        <link rel="prev" href="../where-identity-is-proven/">
       
-        <link rel="next" href="concepts/">
+      
+        <link rel="next" href="../rdbms-catalog-guidance/">
       
       
         
       
       
-      <link rel="icon" href="assets/favicon.svg">
+      <link rel="icon" href="../assets/favicon.svg">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>Introduction - sutura</title>
+        <title>How a federated join key is compared - sutura</title>
       
     
     
-      <link rel="stylesheet" href="assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -45,9 +47,9 @@
       
     
     
-      <link rel="stylesheet" href="css/telekom.css">
+      <link rel="stylesheet" href="../css/telekom.css">
     
-    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -72,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#sutura" class="md-skip">
+        <a href="#how-a-federated-join-key-is-compared" class="md-skip">
           Skip to content
         </a>
       
@@ -92,9 +94,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href=".." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="assets/sutura.svg" alt="logo">
+  <img src="../assets/sutura.svg" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -111,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Introduction
+              How a federated join key is compared
             
           </span>
         </div>
@@ -239,9 +241,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href=".." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="assets/sutura.svg" alt="logo">
+  <img src="../assets/sutura.svg" alt="logo">
 
     </a>
     sutura
@@ -265,8 +267,6 @@
       
   
   
-    
-  
   
   
     
@@ -293,15 +293,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="." class="md-nav__link md-nav__link--active">
+            <a href=".." class="md-nav__link ">
               
   
   
@@ -319,13 +319,13 @@
             </a>
             
               
-              <label class="md-nav__link md-nav__link--active" for="__nav_1" id="__nav_1_label" tabindex="">
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_1">
             <span class="md-nav__icon md-icon"></span>
             
@@ -345,7 +345,7 @@
   
   
     <li class="md-nav__item">
-      <a href="concepts/" class="md-nav__link">
+      <a href="../concepts/" class="md-nav__link">
         
   
   
@@ -373,7 +373,7 @@
   
   
     <li class="md-nav__item">
-      <a href="getting-started/" class="md-nav__link">
+      <a href="../getting-started/" class="md-nav__link">
         
   
   
@@ -401,7 +401,7 @@
   
   
     <li class="md-nav__item">
-      <a href="qa/" class="md-nav__link">
+      <a href="../qa/" class="md-nav__link">
         
   
   
@@ -429,7 +429,7 @@
   
   
     <li class="md-nav__item">
-      <a href="agent-prompt/" class="md-nav__link">
+      <a href="../agent-prompt/" class="md-nav__link">
         
   
   
@@ -461,8 +461,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -499,11 +501,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
           <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
@@ -524,7 +526,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -542,7 +544,7 @@
   
   
     <li class="md-nav__item">
-      <a href="serving/" class="md-nav__link">
+      <a href="../serving/" class="md-nav__link">
         
   
   
@@ -570,7 +572,7 @@
   
   
     <li class="md-nav__item">
-      <a href="verifying-a-release/" class="md-nav__link">
+      <a href="../verifying-a-release/" class="md-nav__link">
         
   
   
@@ -598,7 +600,7 @@
   
   
     <li class="md-nav__item">
-      <a href="demo/" class="md-nav__link">
+      <a href="../demo/" class="md-nav__link">
         
   
   
@@ -626,7 +628,7 @@
   
   
     <li class="md-nav__item">
-      <a href="integrations/" class="md-nav__link">
+      <a href="../integrations/" class="md-nav__link">
         
   
   
@@ -654,7 +656,7 @@
   
   
     <li class="md-nav__item">
-      <a href="where-identity-is-proven/" class="md-nav__link">
+      <a href="../where-identity-is-proven/" class="md-nav__link">
         
   
   
@@ -679,10 +681,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="how-a-join-key-is-compared/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a federated join key is compared
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -698,6 +727,187 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-compared-and-where" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is compared, and where
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What is compared, and where">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-kinds-not-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why kinds, not types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-from-the-schema-not-the-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why from the schema, not the data
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-refused" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is refused
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What is refused">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-link-column-whose-arrow-type-maps-to-no-kind" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A link column whose Arrow type maps to no kind
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#two-legs-whose-link-kinds-disagree" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two legs whose link kinds disagree
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-the-refusal-replaced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the refusal replaced
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-not-covered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is NOT covered
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What is NOT covered">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#no-plan-time-or-catalog-time-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No plan-time or catalog-time check
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-comparability-declaration-on-a-relationship" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No comparability declaration on a relationship
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#case-and-whitespace-on-a-text-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Case and whitespace on a text key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#null-link-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Null link keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mixed-warehouse-kinds-are-served-not-refused" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mixed warehouse kinds are served, not refused
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -710,7 +920,7 @@
   
   
     <li class="md-nav__item">
-      <a href="rdbms-catalog-guidance/" class="md-nav__link">
+      <a href="../rdbms-catalog-guidance/" class="md-nav__link">
         
   
   
@@ -738,7 +948,7 @@
   
   
     <li class="md-nav__item">
-      <a href="what-agent-identity-can-carry/" class="md-nav__link">
+      <a href="../what-agent-identity-can-carry/" class="md-nav__link">
         
   
   
@@ -766,7 +976,7 @@
   
   
     <li class="md-nav__item">
-      <a href="what-okf-can-carry/" class="md-nav__link">
+      <a href="../what-okf-can-carry/" class="md-nav__link">
         
   
   
@@ -794,7 +1004,7 @@
   
   
     <li class="md-nav__item">
-      <a href="what-openmetadata-can-carry/" class="md-nav__link">
+      <a href="../what-openmetadata-can-carry/" class="md-nav__link">
         
   
   
@@ -822,7 +1032,7 @@
   
   
     <li class="md-nav__item">
-      <a href="what-a-data-contract-can-carry/" class="md-nav__link">
+      <a href="../what-a-data-contract-can-carry/" class="md-nav__link">
         
   
   
@@ -850,7 +1060,7 @@
   
   
     <li class="md-nav__item">
-      <a href="changelog/" class="md-nav__link">
+      <a href="../changelog/" class="md-nav__link">
         
   
   
@@ -949,7 +1159,7 @@
   
   
     <li class="md-nav__item">
-      <a href="architecture/" class="md-nav__link">
+      <a href="../architecture/" class="md-nav__link">
         
   
   
@@ -977,7 +1187,7 @@
   
   
     <li class="md-nav__item">
-      <a href="contributing/" class="md-nav__link">
+      <a href="../contributing/" class="md-nav__link">
         
   
   
@@ -1005,7 +1215,7 @@
   
   
     <li class="md-nav__item">
-      <a href="enterprise-mirrors/" class="md-nav__link">
+      <a href="../enterprise-mirrors/" class="md-nav__link">
         
   
   
@@ -1033,7 +1243,7 @@
   
   
     <li class="md-nav__item">
-      <a href="publishing/" class="md-nav__link">
+      <a href="../publishing/" class="md-nav__link">
         
   
   
@@ -1133,7 +1343,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="api/" class="md-nav__link ">
+            <a href="../api/" class="md-nav__link ">
               
   
   
@@ -1177,7 +1387,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-domain/" class="md-nav__link">
+      <a href="../api/sutura-domain/" class="md-nav__link">
         
   
   
@@ -1205,7 +1415,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-catalog-local/" class="md-nav__link">
+      <a href="../api/sutura-catalog-local/" class="md-nav__link">
         
   
   
@@ -1233,7 +1443,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-catalog-datahub/" class="md-nav__link">
+      <a href="../api/sutura-catalog-datahub/" class="md-nav__link">
         
   
   
@@ -1261,7 +1471,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-catalog-okf/" class="md-nav__link">
+      <a href="../api/sutura-catalog-okf/" class="md-nav__link">
         
   
   
@@ -1289,7 +1499,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-catalog-datacontract/" class="md-nav__link">
+      <a href="../api/sutura-catalog-datacontract/" class="md-nav__link">
         
   
   
@@ -1317,7 +1527,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-catalog-openmetadata/" class="md-nav__link">
+      <a href="../api/sutura-catalog-openmetadata/" class="md-nav__link">
         
   
   
@@ -1345,7 +1555,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-catalog-rdbms/" class="md-nav__link">
+      <a href="../api/sutura-catalog-rdbms/" class="md-nav__link">
         
   
   
@@ -1373,7 +1583,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-catalog-wren/" class="md-nav__link">
+      <a href="../api/sutura-catalog-wren/" class="md-nav__link">
         
   
   
@@ -1401,7 +1611,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-semantic/" class="md-nav__link">
+      <a href="../api/sutura-semantic/" class="md-nav__link">
         
   
   
@@ -1429,7 +1639,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-sql/" class="md-nav__link">
+      <a href="../api/sutura-sql/" class="md-nav__link">
         
   
   
@@ -1457,7 +1667,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-exec-datafusion/" class="md-nav__link">
+      <a href="../api/sutura-exec-datafusion/" class="md-nav__link">
         
   
   
@@ -1485,7 +1695,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-exec-duckdb/" class="md-nav__link">
+      <a href="../api/sutura-exec-duckdb/" class="md-nav__link">
         
   
   
@@ -1513,7 +1723,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-exec-bigquery/" class="md-nav__link">
+      <a href="../api/sutura-exec-bigquery/" class="md-nav__link">
         
   
   
@@ -1541,7 +1751,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-exec-postgres/" class="md-nav__link">
+      <a href="../api/sutura-exec-postgres/" class="md-nav__link">
         
   
   
@@ -1569,7 +1779,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-exec-clickhouse/" class="md-nav__link">
+      <a href="../api/sutura-exec-clickhouse/" class="md-nav__link">
         
   
   
@@ -1597,7 +1807,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-exec-oracle/" class="md-nav__link">
+      <a href="../api/sutura-exec-oracle/" class="md-nav__link">
         
   
   
@@ -1625,7 +1835,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-tls/" class="md-nav__link">
+      <a href="../api/sutura-tls/" class="md-nav__link">
         
   
   
@@ -1653,7 +1863,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-http-client/" class="md-nav__link">
+      <a href="../api/sutura-http-client/" class="md-nav__link">
         
   
   
@@ -1681,7 +1891,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-bounded-read/" class="md-nav__link">
+      <a href="../api/sutura-bounded-read/" class="md-nav__link">
         
   
   
@@ -1709,7 +1919,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-app/" class="md-nav__link">
+      <a href="../api/sutura-app/" class="md-nav__link">
         
   
   
@@ -1737,7 +1947,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-config/" class="md-nav__link">
+      <a href="../api/sutura-config/" class="md-nav__link">
         
   
   
@@ -1765,7 +1975,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-runtime/" class="md-nav__link">
+      <a href="../api/sutura-runtime/" class="md-nav__link">
         
   
   
@@ -1793,7 +2003,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-http/" class="md-nav__link">
+      <a href="../api/sutura-http/" class="md-nav__link">
         
   
   
@@ -1821,7 +2031,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-mcp/" class="md-nav__link">
+      <a href="../api/sutura-mcp/" class="md-nav__link">
         
   
   
@@ -1849,7 +2059,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-conformance/" class="md-nav__link">
+      <a href="../api/sutura-conformance/" class="md-nav__link">
         
   
   
@@ -1877,7 +2087,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/sutura-dev/" class="md-nav__link">
+      <a href="../api/sutura-dev/" class="md-nav__link">
         
   
   
@@ -1940,57 +2150,163 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-four-properties" class="md-nav__link">
+  <a href="#what-is-compared-and-where" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The four properties
+        What is compared, and where
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What is compared, and where">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-kinds-not-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why kinds, not types
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#what-it-borrows" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#why-from-the-schema-not-the-data" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What it borrows
+        Why from the schema, not the data
       
     </span>
   </a>
   
 </li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
-  <a href="#where-to-start" class="md-nav__link">
+  <a href="#what-is-refused" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where to start
+        What is refused
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What is refused">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-link-column-whose-arrow-type-maps-to-no-kind" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A link column whose Arrow type maps to no kind
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#status" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#two-legs-whose-link-kinds-disagree" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Status
+        Two legs whose link kinds disagree
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#feedback-and-reporting" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#what-the-refusal-replaced" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Feedback and reporting
+        What the refusal replaced
       
     </span>
   </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-not-covered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is NOT covered
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What is NOT covered">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#no-plan-time-or-catalog-time-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No plan-time or catalog-time check
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-comparability-declaration-on-a-relationship" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No comparability declaration on a relationship
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#case-and-whitespace-on-a-text-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Case and whitespace on a text key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#null-link-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Null link keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mixed-warehouse-kinds-are-served-not-refused" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mixed warehouse kinds are served, not refused
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2014,150 +2330,180 @@
   
 
 
-<h1 id="sutura">sutura<a class="headerlink" href="#sutura" title="Permanent link">&para;</a></h1>
-<p>sutura is being built to answer questions about data <strong>as the person or agent asking</strong>, using
-metric definitions somebody certified, and to refuse when it cannot do either.</p>
-<p>Give an agent a database connection and it answers with SQL it invented, run under whatever
-credential the service holds. Two failures, not one. The number is uncertified, so nobody can
-say whether "revenue" means what finance means by it. The rows are the ones the <em>service</em> may
-read rather than the ones the <em>caller</em> may read, which is how a row-level security policy
-becomes decorative.</p>
-<div class="admonition warning">
-<p class="admonition-title">What is built, and what is a design target</p>
-<p>sutura serves governed questions over local files and declared data sources. The path that
-executes as a verified caller is <strong>built and unproven</strong>. A request context, a credential broker
-port, an audit sink and
-an MCP surface all exist, and a deployment that declares <code>security.inbound</code> verifies a caller's
-own token - so who is asking can be known, no question can execute without a credential minted
-for the source it reads, and every outcome is recorded. A published build links BigQuery's
-per-subject credential path, but no served run has proven source execution as the asker. Shared
-sources still read under their declared identity. No Arrow result envelope either. Every claim on this
-site is marked <em>enforced today</em> or <em>design target</em> at the point it is made.</p>
-</div>
-<h2 id="the-four-properties">The four properties<a class="headerlink" href="#the-four-properties" title="Permanent link">&para;</a></h2>
-<p>Each row names the property, the mechanism it is meant to rest on, and whether that mechanism
-holds it in the code that is here now.</p>
-<table>
-<thead>
-<tr>
-<th>Property</th>
-<th>The mechanism it rests on</th>
-<th>Status</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Every query runs as the caller</td>
-<td>A credential minted per request for the calling principal. A leg that cannot run as the subject is refused, never downgraded to a service identity</td>
-<td><strong>Design target, not built.</strong> No caller identity reaches the query path as the subject, and in single-player the property is trivially true and worth nothing: a file has no login, so there is nobody else to be</td>
-</tr>
-<tr>
-<td>A refusal is an answer</td>
-<td>Refusal is a variant of the result type rather than an error return, so a caller cannot mistake it for a hiccup and retry until something works</td>
-<td><strong>Enforced today.</strong> <code>ToolOutcome::Refusal</code> is the public surface and the golden suite provokes every reachable variant. Recording it against the principal chain is enforced too - every outcome goes through an <code>AuditSink</code> before it is returned - with two limits: sutura retains nothing, and behind the shared bearer token alone the subject recorded is the deployment</td>
-</tr>
-<tr>
-<td>You cannot ask it to run SQL</td>
-<td>The tool surface has no field for a query, a table or a filter. An uncertified question is unrepresentable, not merely refused</td>
-<td><strong>Enforced today.</strong> <code>Query</code> declares no such field, <code>deny_unknown_fields</code> turns an attempt into an error naming it, and a golden asserts no value a question carries reaches the statement as text</td>
-</tr>
-<tr>
-<td>Definitions come from elsewhere</td>
-<td>They are authored in a semantic layer and arrive pinned and hashed. Nothing here edits one, because that would fork the definition from the number it certifies</td>
-<td><strong>Enforced today.</strong> The load path takes no request context, the bundle is hashed, and every declared anchor re-executes before the bundle may be served</td>
-</tr>
-</tbody>
-</table>
-<p>Those mechanisms are the design. <a href="architecture/">Architecture</a> says how the four force the shape
-of the system and which parts are compiled today. <code>AGENTS.md</code> in the repository lists every invariant
-beside the type, lint or gate that enforces it - including the rows that say outright that nothing
-enforces them yet.</p>
-<h2 id="what-it-borrows">What it borrows<a class="headerlink" href="#what-it-borrows" title="Permanent link">&para;</a></h2>
-<p>Two Apache-2.0 projects got there first.</p>
+<h1 id="how-a-federated-join-key-is-compared">How a federated join key is compared<a class="headerlink" href="#how-a-federated-join-key-is-compared" title="Permanent link">&para;</a></h1>
+<p>A federated answer joins two legs - a fact leg and a lookup leg - on a link column.
+This page is the record of how that join is compared, what is refused before any row
+is read, and what is <strong>not</strong> covered. It exists because the failure mode is a green
+answer that proves less than it looks like: before the refusal existed, a type
+mismatch between the two legs' link columns was indistinguishable from a key that
+simply was not in the dimension table, and the answer came back wrong rather than
+refused.</p>
+<p>ADR 0007's <em>What is explicitly not decided</em> carried <em>"How a cross-source join key is
+declared and compared"</em> as an open question
+(<code>docs/adr/0007-federating-across-different-data-systems.md:1040-1042</code>). This page
+closes the comparison half: the runtime refusal. The declaration half - a catalog
+field saying two columns are comparable before either leg runs - is still open, and
+the last section says so.</p>
+<h2 id="what-is-compared-and-where">What is compared, and where<a class="headerlink" href="#what-is-compared-and-where" title="Permanent link">&para;</a></h2>
+<p>The combiner is <code>sutura-exec-datafusion</code>'s <code>DataFusionCombiner</code>, the only
+implementor of <code>sutura_domain::plan::FederationCombiner</code> a published build links
+(<code>sutura-domain</code>'s <code>RefusingCombiner</code> also implements it, behind <code>cfg(any(test, feature =
+"fixtures"))</code>). The comparison happens
+in two places, and the split is the whole of the design:</p>
+<ol>
+<li>
+<p><strong>Each leg's link column is classified to a kind from its Arrow schema</strong>, before
+   either leg's rows are read
+   (<code>crates/sutura-exec-datafusion/src/combine/schema.rs:162-180</code>, <code>link_kind</code>).
+   The kind is one of five - <code>ExactInteger</code>, <code>ExactDecimal</code>, <code>Text</code>, <code>Date</code>,
+   <code>Boolean</code> - and anything else is refused (see below).</p>
+</li>
+<li>
+<p><strong>The two legs' link kinds are compared to each other</strong>, and a mismatch is
+   refused
+   (<code>crates/sutura-exec-datafusion/src/combine/schema.rs:150-158</code>, <code>agreeing_link</code>).
+   The check is <code>fact == lookup</code>: the two kinds must be the same variant. There is
+   no coercion, no widening, and no fallback. <code>ExactInteger</code> against <code>Text</code> is
+   refused; <code>ExactInteger</code> against <code>ExactDecimal</code> is refused; <code>Date</code> against <code>Text</code>
+   is refused.</p>
+</li>
+</ol>
+<p>The call site is <code>crates/sutura-exec-datafusion/src/combine.rs:346</code>:</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">agreeing_link</span><span class="p">(</span><span class="n">fact</span><span class="p">.</span><span class="n">link_kind</span><span class="p">(</span><span class="o">&amp;</span><span class="n">link</span><span class="p">)</span><span class="o">?</span><span class="p">,</span><span class="w"> </span><span class="n">lookup</span><span class="p">.</span><span class="n">link_kind</span><span class="p">(</span><span class="o">&amp;</span><span class="n">link</span><span class="p">)</span><span class="o">?</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</span></code></pre></div>
+<p>A second fact leg, when one is present for a cross-model ratio, is checked the same
+way against the first fact leg at <code>combine.rs:360</code>.</p>
+<h3 id="why-kinds-not-types">Why kinds, not types<a class="headerlink" href="#why-kinds-not-types" title="Permanent link">&para;</a></h3>
+<p>An Arrow column has one declared type, but the interior's own row builder may give
+two legs different Arrow types for one logical column. A leg whose link values all
+fit an <code>i64</code> comes back <code>Int64</code>; one whose column mixes a fitting value with exact
+integral text comes back <code>Decimal128(38, 0)</code>. Both are <code>ExactInteger</code>, and
+<code>DataFusion</code>'s comparison coercion joins them correctly, so requiring the two
+schemas to be equal would refuse a legal pair. The kind is the coarsest unit at
+which a mismatch means <em>no row can ever match</em>.</p>
+<h3 id="why-from-the-schema-not-the-data">Why from the schema, not the data<a class="headerlink" href="#why-from-the-schema-not-the-data" title="Permanent link">&para;</a></h3>
+<p>The check reads a TYPE and no value
+(<code>crates/sutura-exec-datafusion/src/combine/schema.rs:1-8</code>). The hand-written
+combine that preceded this one decided a link column's kind from the first non-null
+cell it happened to find, so two legs whose link columns could never match were
+refused only when the data proved it - and two empty legs were answered as <em>no
+rows</em> rather than refused. An Arrow column carries a declared type whether it has
+rows or not, so the same mismatch is refused from the schema, before a batch is
+read, for every input including an empty one
+(<code>crates/sutura-exec-datafusion/src/combine/tests/refusals.rs:46-69</code>,
+<code>two_empty_legs_whose_link_kinds_disagree_are_refused</code>).</p>
+<h2 id="what-is-refused">What is refused<a class="headerlink" href="#what-is-refused" title="Permanent link">&para;</a></h2>
+<h3 id="a-link-column-whose-arrow-type-maps-to-no-kind">A link column whose Arrow type maps to no kind<a class="headerlink" href="#a-link-column-whose-arrow-type-maps-to-no-kind" title="Permanent link">&para;</a></h3>
+<p><code>link_kind</code> returns <code>None</code> for any Arrow type outside the five kinds
+(<code>crates/sutura-exec-datafusion/src/combine/schema.rs:162-180</code>). The refusal is
+split by what the type is:</p>
 <ul>
-<li><strong><a href="https://github.com/Canner/WrenAI">Wren</a></strong> compiles a modelled question into SQL over
-  <a href="https://datafusion.apache.org/">DataFusion</a>. The compile-a-plan-from-a-model shape comes from
-  there.</li>
-<li><strong><a href="https://github.com/spiceai/spiceai">Spice</a></strong>, also DataFusion-based, federates and accelerates
-  queries across sources.</li>
+<li>
+<p><strong>A floating-point type</strong> (<code>Float16</code>, <code>Float32</code>, <code>Float64</code>) is refused as
+  <code>CombineError::FloatLinkKey</code>
+  (<code>crates/sutura-exec-datafusion/src/combine/schema.rs:193-196</code>,
+  <code>classify_unjoinable</code>), which reaches a caller as
+  <code>FederatedAnswerRefusal::FloatLinkKey</code>
+  (<code>crates/sutura-domain/src/plan/federated/failure.rs:56-58</code>).
+  This is ADR 0007's float-key rule: formatting a float into an equality lets
+  distinct values collide, so a floating-point link column is forbidden by the
+  DATA, and a caller is told.</p>
+</li>
+<li>
+<p><strong>Any other unmapped type</strong> is refused as <code>CombineError::LinkTypeNotMapped</code>
+  (<code>crates/sutura-exec-datafusion/src/combine/schema.rs:197-200</code>), which stays
+  this workspace's own wiring defect and reaches a caller as nothing - it is not
+  a <code>FederatedAnswerRefusal</code>. A question naming such a column would have failed
+  at the presentation edge whatever the combine did.</p>
+</li>
 </ul>
-<p>Between them they cover compiling a question and federating it. What sutura <em>means to</em> add is
-identity: not only what a question means, but who is asking and whether they may see the answer.
-That is the designed and unbuilt part, so what differs today is the narrow tool surface and the
-pinned bundle, not the identity.</p>
-<p><a href="architecture/#where-the-parts-come-from">Where the parts come from</a> sets those two and
-<a href="https://github.com/tobilg/polyglot">polyglot</a> on the line from a modelled question to executed SQL,
-and says which parts we mean to build.</p>
-<h2 id="where-to-start">Where to start<a class="headerlink" href="#where-to-start" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>You want to</th>
-<th>Read</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Install it and ask a question</td>
-<td><a href="getting-started/">Getting started</a></td>
-</tr>
-<tr>
-<td>Know what the words on the tool surface mean</td>
-<td><a href="concepts/">Concepts</a></td>
-</tr>
-<tr>
-<td>Ask the short questions first</td>
-<td><a href="qa/">Questions and answers</a></td>
-</tr>
-<tr>
-<td>Understand the shape of the system</td>
-<td><a href="architecture/">Architecture</a></td>
-</tr>
-<tr>
-<td>Read the Rust API</td>
-<td><a href="api/">API reference</a></td>
-</tr>
-</tbody>
-</table>
-<p>To work <em>on</em> sutura, start at <a href="contributing/">Contributing</a>, under <strong>Building it</strong>.</p>
-<h2 id="status">Status<a class="headerlink" href="#status" title="Permanent link">&para;</a></h2>
-<p>The query path is built, and it supports exactly one combination: <strong>metadata from a catalogue of
-markdown documents with YAML frontmatter in git, executed by the in-process engine over the CSV or
-Parquet files you point it at.</strong> A question naming a metric, a grain, a bounded range and some
-dimensions compiles to a plan and executes, and every metric that declares a certified number
-reproduces it before the bundle can be served.</p>
-<p>The plan can also be <em>rendered</em> as SQL for <code>DuckDB</code>, Postgres or <code>ClickHouse</code>, and there is a <code>DuckDB</code>
-adapter that pushes a statement down - but that adapter is a <strong>test dependency</strong>, not the runtime data
-source, and the shipped binary links neither it nor any driver. Which DATA SYSTEM is opened is a
-declaration - <code>sources.&lt;alias&gt;.kind</code>, the same tree the service reads - and which KINDS a given build
-can open is a compile-time decision: a published binary opens <code>files</code>, <code>bigquery</code> and <code>postgres</code>,
-while <code>kind: clickhouse</code> and <code>kind: oracle</code> still need builds carrying their own default-off
-features. A build without one refuses that kind by name rather than silently falling back.
-<a href="architecture/#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses">What can be plugged in today</a>
-is the table, and it is the section to read before assuming otherwise.</p>
-<p>What remains unproven is whether a served BigQuery leg executes as the verified caller. There is a request context, a credential broker port
-with a static-credential implementor, an audit sink, an MCP surface, and - where a deployment
-declares <code>security.inbound</code> - a caller identity verified from a signature, with scopes deciding which
-operations that caller may invoke. Leg 2 is built and unproven: the published BigQuery adapter can
-carry a verified caller's assertion through its declared per-subject map, but no served run has
-shown source execution as that caller. Shared sources still read under their declared identity.
-Arrow results are also still ahead. Federation and <a href="serving/">the HTTP surface</a> are built. In
-static access-token mode, the token authenticates the deployment rather than the caller.
-<a href="architecture/#what-exists-today">What exists today</a> is the honest inventory.</p>
-<h2 id="feedback-and-reporting">Feedback and reporting<a class="headerlink" href="#feedback-and-reporting" title="Permanent link">&para;</a></h2>
-<p>For questions, feature ideas and bug reports, open an issue in the
-<a href="https://github.com/telekom/sutura/issues">issue tracker</a>. For a suspected vulnerability, report it
-privately rather than in a public issue - see
-<a href="https://github.com/telekom/sutura/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+<h3 id="two-legs-whose-link-kinds-disagree">Two legs whose link kinds disagree<a class="headerlink" href="#two-legs-whose-link-kinds-disagree" title="Permanent link">&para;</a></h3>
+<p><code>agreeing_link</code> refuses a mismatch as <code>CombineError::LinkTypeMismatch</code>
+(<code>crates/sutura-exec-datafusion/src/combine/schema.rs:154-157</code>), carrying both
+sides' kind as a prose word - <em>an exact integer</em>, <em>text</em>, <em>a date</em> - via
+<code>LinkKind::word</code> (<code>schema.rs:58-66</code>). The combiner maps that to
+<code>FederatedAnswerRefusal::LinkTypeMismatch</code>
+(<code>crates/sutura-exec-datafusion/src/combine.rs:445</code>,
+<code>crates/sutura-domain/src/plan/federated/failure.rs:62-65</code>), and it reaches a
+caller inside <code>RefusalReason::FederatedAnswerNotWellFormed</code>.</p>
+<p>The refusal is <strong>deterministic</strong>: the same plan against the same legs refuses
+again. A caller told to retry retries forever, which is the opposite of a
+data-system failure, and <code>FederatedAnswerRefusal</code> says so in its own doc
+(<code>crates/sutura-domain/src/plan/federated/failure.rs:22-25</code>).</p>
+<h3 id="what-the-refusal-replaced">What the refusal replaced<a class="headerlink" href="#what-the-refusal-replaced" title="Permanent link">&para;</a></h3>
+<p>Before <code>LinkTypeMismatch</code> existed, a type mismatch was a silent non-match. Under
+an inner join the row was dropped, so the answer came back with fewer rows and no
+error. Under a left join every fact row survived with a null remote side, so the
+row count was right but the measure landed in a null bucket that should not exist.
+Both are a wrong answer that looks like a right one, which is why the refusal is
+taken at the combine rather than left to the presentation edge. The test that pins
+both flavours is
+<code>crates/sutura-app/src/federated/tests/leg_refusal_test.rs:268-323</code>, in two cells -
+one per join kind - because a test asserting only a row count passes on the left
+half.</p>
+<h2 id="what-is-not-covered">What is NOT covered<a class="headerlink" href="#what-is-not-covered" title="Permanent link">&para;</a></h2>
+<h3 id="no-plan-time-or-catalog-time-check">No plan-time or catalog-time check<a class="headerlink" href="#no-plan-time-or-catalog-time-check" title="Permanent link">&para;</a></h3>
+<p>The runtime check fires after both legs have executed. Nothing at the catalog or
+plan stage compares the two declared key columns: <code>Column::data_type</code> is
+descriptive text - a quote of what the source called the column, and nothing
+branches on it (<code>crates/sutura-domain/src/catalog.rs:114-119</code>). So both legs run
+before the refusal, which is the cost of deciding from the schema rather than from
+a declaration. A plan-time refusal in <code>federated_plan</code>, which holds the
+relationship and both models, is the smallest design that would move the check
+earlier - and it needs a classifier from <code>ColumnType</code> text to a kind, which does
+not exist today.</p>
+<h3 id="no-comparability-declaration-on-a-relationship">No comparability declaration on a relationship<a class="headerlink" href="#no-comparability-declaration-on-a-relationship" title="Permanent link">&para;</a></h3>
+<p><code>Relationship</code> carries a name, two models, a join type, and join keys - and no
+field saying the two sides are comparable
+(<code>crates/sutura-domain/src/catalog.rs:363-370</code>). A catalog author has no way to
+declare that an <code>INTEGER</code> here and a <code>NUMBER(38)</code> there are intended to join, so
+the runtime check is the only thing that holds the pair. The declaration half of
+ADR 0007's open question - option (b) in the issue - is still open, and this page
+does not close it.</p>
+<h3 id="case-and-whitespace-on-a-text-key">Case and whitespace on a text key<a class="headerlink" href="#case-and-whitespace-on-a-text-key" title="Permanent link">&para;</a></h3>
+<p>The combiner compares what it was handed. Two text keys that differ only in case
+or trailing whitespace are different keys, and <code>IdentifierCase</code> decides
+identifiers rather than values. No normalisation is applied, and none is planned:
+the rule is that a join key is compared exactly, and a text key that differs in
+case is a mismatch in the data rather than a defect in the comparison.</p>
+<h3 id="null-link-keys">Null link keys<a class="headerlink" href="#null-link-keys" title="Permanent link">&para;</a></h3>
+<p>A null link key does not join: the combiner excludes nulls before it counts and
+before it joins, so a null-keyed fact row cannot match a null-linked lookup row, and
+the join kind decides a null fact key the way it decides an unmatched one - null
+under left, dropped under inner. This is decided and asserted, not incidental, and
+it is not what this page is about: it is stated here only to name what is <strong>not</strong>
+covered by the type-mismatch refusal.</p>
+<h3 id="mixed-warehouse-kinds-are-served-not-refused">Mixed warehouse kinds are served, not refused<a class="headerlink" href="#mixed-warehouse-kinds-are-served-not-refused" title="Permanent link">&para;</a></h3>
+<p>A federated answer whose two legs sit on two different warehouse kinds is
+<strong>reachable and served</strong>. <code>sutura-cli</code>'s <code>kind::AnyWarehouse</code>
+(<code>crates/sutura-cli/src/serve/kind.rs:56</code>) is a closed enum - one variant per
+adapter this build linked - implementing <code>Warehouse</code>. When <code>open_engine</code>
+(<code>crates/sutura-cli/src/serve.rs:800</code>) sees more than one kind group non-empty,
+it routes to <code>kind::open_mixed</code>, which opens each group and merges them into
+one <code>Warehouses&lt;AnyWarehouse&gt;</code>. <code>answer_federated&lt;W, B, C&gt;</code>
+(<code>crates/sutura-app/src/federated.rs:114</code>) is generic in <code>W: Warehouse</code>, and
+<code>AnyWarehouse</code> implements <code>Warehouse</code>, so a fact leg on <code>files</code> and a lookup
+leg on <code>bigquery</code> reach the same combiner this page describes. ADR 0007's
+Second amendment
+(<code>docs/adr/0007-federating-across-different-data-systems.md:1169-1178</code>)
+records this: "rather than refusing at the kind mismatch as <code>one_kind</code> used
+to." <code>one_kind</code> is a <em>concept name</em> used in a comment
+(<code>crates/sutura-cli/src/catalog.rs:73</code>)
+to describe the single-kind fast path, not a function - there is no <code>fn
+one_kind</code> anywhere in the codebase. So the type-mismatch this page describes
+can fire across two different warehouse kinds, not only within one.</p>
+<p>What IS genuinely one-kind is the <em>catalog</em> kind (<code>CatalogKind::Markdown</code> vs
+<code>CatalogKind::Datahub</code>): a deployment naming both is refused at boot by
+<code>catalogs_of_more_than_one_kind_in_one_deployment_are_refused</code>
+(<code>crates/sutura-cli/src/serve/tests.rs:680</code>). That is a catalog-shape
+refusal, not a warehouse-kind refusal, and has nothing to do with join-key
+comparison.</p>
 
 
 
 
 
 
-
-  
-  
 
 
 
@@ -2223,10 +2569,10 @@ privately rather than in a public issue - see
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

@@ -488,6 +488,8 @@
       
         
       
+        
+      
     
     
     
@@ -660,6 +662,34 @@
     
   
     Where each identity claim is proven
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-a-join-key-is-compared/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a federated join key is compared
   
 
     
@@ -2431,12 +2461,14 @@ is the record.</p>
 <p>DataFusion is an adapter behind <code>Warehouse</code> for local files and can execute a leg of a federated
 answer. The splitter and combiner are built; each selected adapter declares whether it can execute
 a leg, and an unsupported leg is refused. A federated answer may mix source identity postures and
-reports each one. That report is not a uniform authorization guarantee.</p>
+reports each one. That report is not a uniform authorization guarantee. <a href="../how-a-join-key-is-compared/">How a federated join key is compared</a> records what the combiner refuses before any row is read,
+and what it does not cover.</p>
 <h3 id="connectors-arrow-flight-not-a-driver-per-data-system">Connectors: Arrow Flight, not a driver per data system<a class="headerlink" href="#connectors-arrow-flight-not-a-driver-per-data-system" title="Permanent link">&para;</a></h3>
 <p>That heading records an earlier direction; the implemented boundary is the plan passed to
 <code>Warehouse</code>, leaving each adapter to choose its own transport and rendering. BigQuery uses ADBC;
-Postgres and ClickHouse use their own drivers. The domain still returns
-<code>RowSet</code> rather than an Arrow result envelope. DuckDB is a development dependency used to prove
+Postgres and ClickHouse use their own drivers. The domain returns
+<code>ResultBatches</code> (Arrow) rather than a <code>RowSet</code>, decoded to rows once at the
+presentation edge. DuckDB is a development dependency used to prove
 rendered SQL, while the shipped BigQuery and Postgres adapters are runtime dependencies.</p>
 <h3 id="what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses">What can be plugged in today, and what the shipped binary actually uses<a class="headerlink" href="#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses" title="Permanent link">&para;</a></h3>
 <p>The composition root chooses adapters at build time, then <code>sources.&lt;alias&gt;.kind</code> selects among
@@ -2568,11 +2600,13 @@ provenance in the schema metadata, a typed field a caller reads deliberately rat
 concatenated into the channel that carries instructions, with descriptive text travelling the same
 way and both envelopes sharing one encoder so neither transport can grow a text-blob shortcut on its
 own. There is no Arrow envelope, no encoder and no transport to carry one.</p>
-<p><em>Enforced today:</em> the <code>Warehouse</code> port returns a <code>RowSet</code> of typed columns and typed <code>Value</code> cells
-rather than a text blob, and provenance rides beside the rows as its own typed field rather than as
-text mixed into them. The shape of the guarantee is right; the envelope is a row type rather than an
-Arrow schema. The engine executing over Arrow <em>in process</em> is a different claim from results leaving
-as Arrow, and only the first is true.</p>
+<p><em>Enforced today:</em> the <code>Warehouse</code> port returns <code>ResultBatches</code> (Arrow) rather than a text blob,
+and provenance rides beside the rows as its own typed field rather than as text mixed into them.
+The shape of the guarantee is right at the port: <code>ResultBatches</code> is Arrow, decoded to typed
+<code>Value</code> cells once at the presentation edge (<code>ResultBatches::to_rows</code>), so what a transport sends
+is still rows and not Arrow. This does not claim results leave the process as Arrow. The engine
+executing over Arrow <em>in process</em> is a different claim from results leaving as Arrow, and only the
+first is true.</p>
 <h2 id="the-semantic-compiler">The semantic compiler<a class="headerlink" href="#the-semantic-compiler" title="Permanent link">&para;</a></h2>
 <p>A modelled question becomes one statement for one data system in three stages, and they live in
 <strong>two</strong> crates rather than one. <code>sutura-semantic</code> is the first two, named after them; <code>sutura-sql</code> is
