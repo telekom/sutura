@@ -51,10 +51,11 @@ fn plan_with_join(fact: QualifiedTable, joined: QualifiedTable) -> QueryPlan {
         RelationshipName::parse("dim").expect("a test relationship is one"),
         joined,
         JoinType::ManyToOne,
-        vec![PlanJoinKey::Equal {
+        crate::nonempty::NonEmpty::parse(vec![PlanJoinKey::Equal {
             origin: column("fct", "dim_id"),
             target: column("dim", "id"),
-        }],
+        }])
+        .expect("a test join declares one key"),
     );
     QueryPlan::new(
         SourceName::parse("warehouse").expect("a test source is a source"),
@@ -90,7 +91,7 @@ fn resolve_tables_rewrites_the_from_table_and_every_join_and_nothing_else() {
     assert_eq!(resolved.table().to_string(), "resolved_ds.fct");
     assert_eq!(resolved.joins()[0].table().to_string(), "resolved_ds.dim");
     // Nothing else about the plan moved.
-    assert_eq!(resolved.metric(), plan.metric());
+    assert_eq!(resolved.measures().first().metric(), plan.measures().first().metric());
     assert_eq!(resolved.source(), plan.source());
     assert_eq!(resolved.bucket(), plan.bucket());
 }

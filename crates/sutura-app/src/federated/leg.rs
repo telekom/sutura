@@ -13,16 +13,16 @@
 
 use std::time::Instant;
 
-use sutura_domain::identity::{BoundToTheRequest, CredentialBroker};
+use sutura_domain::identity::{BoundToTheRequest, CredentialBroker, RequestContext};
 use sutura_domain::plan::FederationCombiner;
 use sutura_domain::plan::{Executable, LegPlan};
 use sutura_domain::query::{RefusalReason, ResultBound};
-use sutura_domain::warehouse::Warehouse;
 use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::{PreFlight, Warehouse};
 
-use crate::{ServiceError, deadline_exceeded, now_in_unix_seconds};
+use crate::{ServiceError, SpendLedger, deadline_exceeded, now_in_unix_seconds};
 
-use super::{LegAnswer, LegError, LegPreflight};
+use super::{LegAnswer, LegCleared, LegError, LegPreflight};
 
 /// Pre-flights one leg against its own adapter, under that source's own presented credential.
 pub(crate) fn dry_run_leg<W, B, C>(
@@ -131,4 +131,37 @@ where
             Err(LegError::Failure(ServiceError::Warehouse { cause }))
         }
     }
+}
+
+/// Pre-flights every leg in order, then charges what they priced as one sum against `context`'s
+/// subject - `docs/adr/0030`'s all-or-nothing: a federated answer is refused as a whole before any
+/// leg executes, never after one has spent.
+///
+/// Only a priced leg is counted, and a leg that priced nothing contributes nothing - "not counted",
+/// never "free". Nothing is charged at all when NO leg priced, so an all-`None` federated answer
+/// (every adapter but `BigQuery`, today) never touches the ledger.
+pub(crate) fn preflight_and_charge<'a, W, B, C>(
+    legs: impl IntoIterator<Item = (&'a LegPlan, &'a W)>,
+    credentials: &BoundToTheRequest,
+    deadline: Deadline,
+    ledger: &SpendLedger,
+    context: &RequestContext,
+) -> LegCleared<W, B, C>
+where
+    W: Warehouse + 'a,
+    B: CredentialBroker,
+    C: FederationCombiner,
+{
+    let mut priced: Option<u64> = None;
+    for (leg, warehouse) in legs {
+        if let PreFlight::Accepted {
+            estimated_bytes: Some(bytes),
+        } = dry_run_leg::<_, B, C>(warehouse, credentials, leg, deadline)?
+        {
+            priced = Some(priced.unwrap_or(0).saturating_add(bytes.bytes()));
+        }
+    }
+    priced
+        .and_then(|total| crate::charge_subject(ledger, context, total, Instant::now()))
+        .map_or(Ok(()), |reason| Err(LegError::Refusal(reason)))
 }

@@ -555,6 +555,21 @@ mod venue {
         assert!(Fixture::standing(Fake::<false>::faithful()).missing().is_none());
         assert!(absent().missing().is_some());
     }
+
+    /// When both legs of a federated fixture are absent, the fact side's `Missing` is the one surfaced.
+    #[test]
+    fn a_federated_fixture_with_both_legs_absent_reports_the_fact_sides_absence() {
+        let fact_absent: Fixture<()> = Fixture::Absent(Missing::tier("fact-side", &"the fact tier was not provisioned"));
+        let lookup_absent: Fixture<()> = Fixture::Absent(Missing::tier("lookup-side", &"the lookup tier was not provisioned"));
+        let combined = Fixture::federated(fact_absent, lookup_absent, || ());
+        let missing = combined
+            .missing()
+            .expect("both legs absent means the federated fixture is absent");
+        assert_eq!(
+            missing.to_string(),
+            Missing::tier("fact-side", &"the fact tier was not provisioned").to_string()
+        );
+    }
 }
 
 /// **What the corpus must CONTAIN for three of the packs' claims to say anything.**
@@ -655,7 +670,7 @@ mod corpus_shape {
     fn a_sum_in_the_corpus_answers_a_real_number() {
         let found = corpus::cases().iter().any(|case| {
             let sums = matches!(
-                *case.plan().measure(),
+                *case.plan().measures().first().measure(),
                 PlanMeasure::Simple {
                     term: PlanTerm::Aggregate {
                         aggregate: Aggregate::Sum,

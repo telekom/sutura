@@ -555,6 +555,10 @@ where
             // workspace does not map is this deployment's concern and not the caller's, and the
             // typed `UnreadableCell` under it is what names the column and the Arrow type.
             ServiceError::Unreadable { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
+            // Reachable only if a metric the compiled plan certifies is missing from the bundle that
+            // compiled it - a splitter or registry invariant, not something a caller can provoke.
+            // Same class as `Combine`/`Unreadable` above: this workspace's own wiring, not a refusal.
+            ServiceError::AnswersDoNotCertify { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
         })?;
         // Here, and before the `Ok`. Not in the transport: a record the transport writes is a record
         // that exists only for the transports that remember to write one, and this is the one line

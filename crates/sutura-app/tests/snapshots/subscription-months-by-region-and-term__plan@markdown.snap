@@ -3,7 +3,18 @@ source: crates/sutura-app/tests/golden/catalogs.rs
 expression: plan
 ---
 source: local
-metric: subscription_months_billed
+measures:
+  - metric: subscription_months_billed
+    label: subscription_months_billed
+    measure:
+      simple:
+        term:
+          aggregate:
+            aggregate: count
+            column:
+              table: fct_subscription_monthly
+              column: subscription_key
+    guard: []
 table: fct_subscription_monthly
 joins:
   - relationship: subscription_customer
@@ -32,15 +43,6 @@ keys:
     column:
       table: fct_subscription_monthly
       column: contract_term
-measure:
-  simple:
-    term:
-      aggregate:
-        aggregate: count
-        column:
-          table: fct_subscription_monthly
-          column: subscription_key
-measure_label: subscription_months_billed
 filters:
   - origin: definition
     predicate:

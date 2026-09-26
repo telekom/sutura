@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Definitions, Description, InconsistentDefinitions, InvalidDescription, InvalidJoinKeys, Metric, Model, Relationship,
+    Definitions, Description, InconsistentDefinitions, InvalidDescription, Metric, Model, Relationship,
 };
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{
@@ -43,7 +43,8 @@ use sutura_domain::pinned::{
 
 use crate::document::knowledge::{CaveatDoc, ExampleDoc, GlossaryDoc, NotDefinedDoc};
 use crate::document::{
-    DocumentKind, InvalidMetricDocument, InvalidModelDocument, KindProbe, MetricDoc, ModelDoc, RelationshipDoc,
+    DocumentKind, InvalidMetricDocument, InvalidModelDocument, InvalidRelationshipDocument, KindProbe, MetricDoc, ModelDoc,
+    RelationshipDoc,
 };
 use crate::frontmatter::{MalformedDocument, Split};
 
@@ -214,7 +215,7 @@ pub enum LocalCatalogError {
     Relationship {
         path: PathBuf,
         #[source]
-        cause: InvalidJoinKeys,
+        cause: InvalidRelationshipDocument,
     },
     /// The prose of a definition document is not a usable description.
     ///

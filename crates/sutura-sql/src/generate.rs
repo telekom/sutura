@@ -58,11 +58,9 @@
 use polyglot_sql::DialectType;
 use polyglot_sql::builder::{self, Expr, SelectBuilder};
 use polyglot_sql::expressions::{Expression, Fetch, Literal, Ordered, Parameter, ParameterStyle, Placeholder, Raw, Tuple};
-use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, ColumnName, Grain, JoinType, Qualification, QualifiedTable, TableName};
-use sutura_domain::plan::{
-    LegPlan, PlanBucket, PlanColumn, PlanJoin, PlanJoinKey, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan,
-};
+use sutura_domain::plan::{LegPlan, PlanBucket, PlanColumn, PlanJoin, PlanJoinKey, PlanPredicate, QueryPlan};
+use sutura_domain::warehouse::ParamValue;
 use sutura_domain::warehouse::cardinality::{DISTINCT_LABEL, DeclaredKey, ROWS_LABEL};
 
 use crate::GeneratedQuery;
@@ -338,128 +336,6 @@ fn aggregate(kind: Aggregate, over: Expr) -> Expr {
     }
 }
 
-/// Cast a Postgres `AVG` to `DOUBLE`, where a mean must arrive as a float.
-///
-/// Postgres's `AVG` over an INTEGER column returns `NUMERIC`, where the engine (and `DuckDB`)
-/// produce `DOUBLE` for the same query - and `NUMERIC` with a fraction is the case this repository
-/// keeps exact as text ("so an exact total stays exact"), which would turn a mean into a `Text` leg
-/// that disagrees with the float every other adapter reaches. Casting the Postgres `AVG` to
-/// `DOUBLE` on the WIRE keeps a mean a float there. It is the same `DOUBLE` cast the ratio path
-/// already makes (proven accepted by every target we render for), and it touches only the Postgres
-/// dialect.
-fn avg_for_postgres(over: Expr, kind: Aggregate, dialect: Dialect) -> Expr {
-    if matches!(kind, Aggregate::Avg) && dialect == Dialect::Postgres {
-        over.cast("DOUBLE")
-    } else {
-        over
-    }
-}
-
-/// `ClickHouse`'s native `sum` wraps at 64 bits. Keep the original aggregate for Float and Decimal.
-/// Both aggregate branches evaluate, so the widened cast must tolerate non-integer input.
-fn sum_for_clickhouse(col: &PlanColumn) -> Expr {
-    let native = || builder::sum(column(col));
-    let integer = builder::func("toTypeName", [native()]).in_list([
-        builder::lit("Int64"),
-        builder::lit("UInt64"),
-        builder::lit("Nullable(Int64)"),
-        builder::lit("Nullable(UInt64)"),
-    ]);
-    let widened = builder::func(
-        "tuple",
-        [
-            builder::lit("Int128"),
-            builder::sum(builder::func("accurateCastOrNull", [column(col), builder::lit("Int128")])).cast("Dynamic"),
-        ],
-    );
-    let original = builder::func("tuple", [builder::func("toTypeName", [native()]), native().cast("Dynamic")]);
-    builder::func("if", [integer, widened, original])
-}
-
-/// One term, as one expression.
-///
-/// A conditional count is `SUM(CASE WHEN col THEN 1 ELSE 0 END)` rather than the dialect layer's own
-/// `CountIf` node. That node does lower correctly for all three of our targets, unlike `SafeDivide`
-/// below, so this is the weaker of the two decisions - but it keeps every term rendered by one
-/// mechanism we can read, and it counts 0 rather than null for a false row, so a period with no
-/// matches answers 0 instead of nothing.
-fn term_expression(term: &PlanTerm, dialect: Dialect) -> Expr {
-    match *term {
-        PlanTerm::Aggregate {
-            aggregate: kind,
-            column: ref col,
-        } if matches!(kind, Aggregate::Sum) && dialect == Dialect::ClickHouse => sum_for_clickhouse(col),
-        PlanTerm::Aggregate {
-            aggregate: kind,
-            column: ref col,
-        } => avg_for_postgres(aggregate(kind, column(col)), kind, dialect),
-        PlanTerm::CountIf { column: ref col } => builder::sum(
-            builder::case()
-                .when(column(col), builder::lit(1))
-                .else_(builder::lit(0))
-                .build(),
-        ),
-    }
-}
-
-fn ratio_term_expression(term: &PlanTerm, dialect: Dialect) -> Expr {
-    let value = term_expression(term, dialect);
-    if dialect == Dialect::ClickHouse
-        && matches!(
-            term,
-            PlanTerm::Aggregate {
-                aggregate: Aggregate::Sum,
-                ..
-            }
-        )
-    {
-        builder::func("tupleElement", [value, builder::lit(2)]).cast("DOUBLE")
-    } else {
-        value
-    }
-}
-
-/// The measure, as one expression.
-///
-/// A ratio is rendered as a division with a `NULLIF` on the denominator, rather than through the
-/// dialect layer's own `SafeDivide` node - and that is a measured decision rather than ignorance of
-/// the node.
-///
-/// The dialect layer does carry typed `SafeDivide` and `CountIf` nodes, and they lower correctly for
-/// some targets: `SAFE_DIVIDE` for one, a `CASE` for another, `COUNTIF` and `countIf` for two more.
-/// But `SafeDivide` has **no Postgres lowering** - the generator falls through to writing the literal
-/// text `SAFE_DIVIDE(x, y)`, which is not a function Postgres has - and Postgres is a target we
-/// render for. Using the node would produce a statement that is valid in most of the dialects we
-/// render for and a call to a non-existent function in Postgres.
-///
-/// `NULLIF` and `/` exist in every dialect we render for, and a division by null is null in each, so
-/// this form is identical in behaviour and portable by construction. Revisit it if the node gains that lowering;
-/// until then the golden that parses every statement in its target dialect is what would catch the
-/// regression - with the limit `crate::dialect::DateTruncShape` records, which is that such a golden
-/// sees syntax and not a function's argument contract.
-///
-/// The numerator is cast to a floating type first. Integer division truncates in Postgres and in
-/// `DuckDB` - `SUM(cents) / COUNT(*)` would silently return a whole number - which is the wrong answer
-/// for every ratio anybody actually wants.
-fn measure_expression(measure: &PlanMeasure, dialect: Dialect) -> Expr {
-    match *measure {
-        PlanMeasure::Simple { ref term } => term_expression(term, dialect),
-        PlanMeasure::Ratio {
-            ref numerator,
-            ref denominator,
-            zero_denominator,
-        } => {
-            let top = ratio_term_expression(numerator, dialect).cast("DOUBLE");
-            let bottom = ratio_term_expression(denominator, dialect);
-            let bottom = match zero_denominator {
-                ZeroDenominator::Null => builder::null_if(bottom, builder::lit(0)),
-                ZeroDenominator::Fail => bottom,
-            };
-            top.div(bottom)
-        }
-    }
-}
-
 /// One predicate, as an expression.
 fn predicate(dialect: Dialect, plan_predicate: &PlanPredicate) -> Expr {
     let col = column(plan_predicate.column());
@@ -637,6 +513,10 @@ fn ordered_nulls_last(expr: Expr) -> Expr {
 /// `top: { n, by, direction }` - `github.com/telekom/sutura#777`.
 mod top;
 
+/// One measure, as one expression - the guard/aggregate rendering.
+mod measure;
+use measure::{Guard, measure_expression, predicate_values, term_expression};
+
 /// The statement, as this dialect writes it.
 ///
 /// Identifiers force-quoted, for the reason this module's header gives at length. One function, so
@@ -656,10 +536,11 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
     let bucket = plan.bucket();
     let bucket_expr = bucket_expression(bucket, dialect);
 
-    // Dimensions, then the time bucket, then the measure. A stable order, because it is the result
-    // schema a caller reads by position and a golden pins by text - and `QueryPlan::result_labels`
-    // states the same order for the adapter that builds a schema instead of a projection.
-    let mut projection = Vec::with_capacity(plan.keys().len().saturating_add(2));
+    // Dimensions, then the time bucket, then one measure column per metric. A stable order,
+    // because it is the result schema a caller reads by position and a golden pins by text - and
+    // `QueryPlan::result_labels` states the same order for the adapter that builds a schema instead
+    // of a projection (keys, bucket, measures).
+    let mut projection = Vec::with_capacity(plan.keys().len().saturating_add(plan.measures().len()).saturating_add(1));
     let mut grouping = Vec::with_capacity(plan.keys().len().saturating_add(1));
     for key in plan.keys() {
         projection.push(aliased(column(key.column()), key.label())?);
@@ -667,17 +548,34 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
     }
     projection.push(aliased(bucket_expr.clone(), bucket.label())?);
     grouping.push(bucket_expr.clone());
-    let measure_expr = measure_expression(plan.measure(), dialect);
-    projection.push(aliased(measure_expr.clone(), plan.measure_label())?);
+    // The parameters this statement actually binds, in the order their placeholders will render -
+    // built up as the SELECT list and then the `WHERE` are constructed, which is text order. Used
+    // verbatim below for `PlaceholderStyle::Question` and `Colon` (Oracle binds a plain statement by
+    // occurrence, not by its placeholders' names); `Numbered` binds by index and keeps
+    // `plan.params()` as it stands - see `measure`'s module doc for why Colon sides with Question.
+    let mut emitted: Vec<ParamValue> = Vec::new();
+    // Single-metric: an empty guard, so it renders exactly as it always did - a bare aggregate, no
+    // `CASE`. Multi-metric: each measure's own required filters guard its column (`guarded_column`).
+    let primary = plan.measures().first();
+    let primary_guard = Guard::build(dialect, primary.guard(), plan.params());
+    let measure_expr = measure_expression(primary.measure(), primary_guard.as_ref(), dialect, &mut emitted);
+    projection.push(aliased(measure_expr.clone(), primary.label())?);
+    for measure in plan.measures().iter().skip(1) {
+        let guard = Guard::build(dialect, measure.guard(), plan.params());
+        let expr = measure_expression(measure.measure(), guard.as_ref(), dialect, &mut emitted);
+        projection.push(aliased(expr, measure.label())?);
+    }
     let statement = joined(
         builder::select(projection).from(&table_path(plan.table(), dialect)?),
         plan.joins(),
         dialect,
     )?;
 
-    // Folded in plan order, which is parameter order: the range bounds, then the metric's required
-    // filters, then the caller's. For a dialect that writes `?` the position in the statement is the
-    // parameter's identity, so this fold and the plan's parameter list have to walk together.
+    // Folded in plan order, which is parameter order: the range bounds, then the caller's. A
+    // single-metric plan's metric filters live here too; a multi-metric plan's are each measure's
+    // own guard (folded into the SELECT) and never reach this clause. Each filter here renders
+    // exactly once, so its value is pushed to `emitted` once, in the same order, right after every
+    // guard above - matching the SELECT-then-WHERE order the rendered text will have.
     let mut clauses = plan.filters().iter().map(|f| predicate(dialect, f.predicate()));
     let Some(first) = clauses.next() else {
         // Unreachable: a plan always carries its two range bounds, because a `TimeRange` cannot be
@@ -686,6 +584,9 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
         return Err(GenerateError::NoPredicate);
     };
     let where_clause = clauses.fold(first, Expr::and);
+    for filter in plan.filters() {
+        emitted.extend(predicate_values(filter.predicate(), plan.params()));
+    }
 
     // `top` replaces both the ordering and the limit - see `top::ordering` for the tie-break
     // argument - with the caller's own count rather than one past the row cap, since a `top`
@@ -726,11 +627,20 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
         });
     }
 
-    Ok(GeneratedQuery::new(
-        plan.source().clone(),
-        render(&ast, dialect)?,
-        plan.params().to_vec(),
-    ))
+    // `Question` and `Colon` both bind a plain statement by occurrence - the oracledb driver's
+    // `add_bind` pushes one `BindInfo` per placeholder it sees rather than per distinct name
+    // (`oracledb-26.0.0-beta.3/src/statement/mod.rs:72-86`), and `bind_params.rs:99-104` refuses
+    // when the bound row's length does not match that occurrence count - so a guard embedded more
+    // than once needs its value repeated that many times for Oracle exactly as it does for the
+    // bare-`?` dialects. `emitted` is exactly that, built alongside the tree above, in text order.
+    // `Numbered` is the one style that binds by the index each placeholder carries, so a repeat
+    // already resolves to the right value and `plan.params()` needs no rebuilding - true for
+    // Postgres's `$n`, which the driver dereferences by number rather than by occurrence.
+    let params = match dialect.placeholder_style() {
+        PlaceholderStyle::Question | PlaceholderStyle::Colon => emitted,
+        PlaceholderStyle::Numbered => plan.params().to_vec(),
+    };
+    Ok(GeneratedQuery::new(plan.source().clone(), render(&ast, dialect)?, params))
 }
 
 /// Renders one leg of a federated question as one statement, paired with its parameters.
@@ -742,7 +652,7 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
 ///    expression. That is the whole of 0009's Decision 2 at the rendering layer: a decomposed `Avg`
 ///    travels as a sum beside a count and a ratio travels as an undivided numerator and denominator,
 ///    so nothing here can emit a division. It never calls [`measure_expression`], and it could not -
-///    there is no [`PlanMeasure`] in a [`LegPlan`] to hand it.
+///    there is no `PlanMeasure` in a [`LegPlan`] to hand it.
 /// 2. **The bucket and the joins are the fact leg's alone.** A dimension lookup reads a table with
 ///    no time column, so it projects its keys and groups by them, which is a distinct key set.
 ///
@@ -798,7 +708,14 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
             // Zero to four of them. Empty is the distinct-key leg, and it is not a special case
             // here: the projection is then the key list and the bucket, grouped by itself.
             for term in terms {
-                projection.push(aliased(term_expression(term.term(), dialect), term.label())?);
+                // A leg projects bare decomposed terms, never a guarded measure - guards belong to
+                // the whole-answer `generate` path, so `None` keeps this byte-identical.
+                // A leg projects bare decomposed terms, never a guarded measure, so `emitted` is
+                // never read - `generate_leg` keeps `leg.params()` unchanged below.
+                projection.push(aliased(
+                    term_expression(term.term(), None, dialect, &mut Vec::new()),
+                    term.label(),
+                )?);
             }
             tables.joins()
         }

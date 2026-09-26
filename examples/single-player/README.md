@@ -222,7 +222,7 @@ refused: DimensionValueNotAllowed
   the value is not one the definitions declare for that dimension
   metric: recurring_revenue
   dimension: region
-  remedy: Use a value from that dimension's list below. The refusal does not repeat your value back to you, on purpose, so compare against the list rather than expecting a correction.
+  remedy: Use a value from that dimension's list below - the refusal will not repeat yours back.
 ```
 
 The other eight ask for a grain the metric does not declare, a metric nobody has defined, a

@@ -39,12 +39,10 @@
 //! produced against a real dataset - what is held is that each leg renders for the dialect and is
 //! submitted with that subject's own credential and that source's configured byte ceiling.
 
-use std::time::Instant;
-
 use sutura_domain::identity::{Agreed, BoundToTheRequest, CredentialBroker, RequestContext, SourceSet};
-use sutura_domain::model::SourceName;
-use sutura_domain::pinned::PinnedDefinitions;
-use sutura_domain::plan::{FederatedPlan, FederationCombiner, LegResult, Legs, RowCeiling};
+use sutura_domain::model::{MetricName, SourceName};
+use sutura_domain::pinned::{PinnedDefinitions, Provenance};
+use sutura_domain::plan::{FederatedPlan, FederationCombiner, LegPlan, LegResult, Legs, RowCeiling};
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::deadline::Deadline;
@@ -82,6 +80,14 @@ impl<E, Q, C> From<ServiceError<E, Q, C>> for LegError<E, Q, C> {
 /// finding.
 pub(crate) type LegAnswer<W, B, C> =
     Result<ResultBatches, LegError<<W as Warehouse>::Error, <B as CredentialBroker>::Error, <C as FederationCombiner>::Error>>;
+
+/// Every leg pre-flighted and charged, or why not - named for the same `type_complexity` reason.
+pub(crate) type LegCleared<W, B, C> =
+    Result<(), LegError<<W as Warehouse>::Error, <B as CredentialBroker>::Error, <C as FederationCombiner>::Error>>;
+
+/// The execution record of every leg, or the miswiring that kept one out of it.
+type Recorded<W, B, C> =
+    Result<ExecutedAs, ServiceError<<W as Warehouse>::Error, <B as CredentialBroker>::Error, <C as FederationCombiner>::Error>>;
 
 /// The leg pre-flight's return type, named for the same `type_complexity` reason [`LegResult`] is.
 pub(crate) type LegPreflight<W, B, C> =
@@ -136,41 +142,30 @@ where
     let Some(lookup_warehouse) = warehouses.get(plan.lookup().source()) else {
         return Ok(Answered::declined_before_minting(source_unavailable(plan.lookup().source())));
     };
+    // A two-fact plan's third leg (`telekom/sutura#780`), paired with its adapter so nothing below
+    // can hold one without the other. It may share a source with the lookup, never with the fact.
+    let second_fact = match plan
+        .second_fact()
+        .map(|leg| warehouses.get(leg.source()).map(|w| (leg, w)).ok_or(leg))
+        .transpose()
+    {
+        Ok(second_fact) => second_fact,
+        Err(leg) => return Ok(Answered::declined_before_minting(source_unavailable(leg.source()))),
+    };
     // The capability gate, PER LEG: a heterogeneous registry - one closed-enum variant per LINKED
     // kind - can mix a leg-capable adapter with one that takes the port's default, so this reads
     // each leg's own instance rather than one `W::EXECUTES_LEGS` for the whole build. Refuses
     // before minting or running anything, exactly as the type-level check used to, whichever side
     // (or both) cannot run a leg.
-    if !fact_warehouse.executes_legs() || !lookup_warehouse.executes_legs() {
+    if !fact_warehouse.executes_legs()
+        || !lookup_warehouse.executes_legs()
+        || second_fact.is_some_and(|(_, warehouse)| !warehouse.executes_legs())
+    {
         return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
             reason: RefusalReason::FederationNotExecutable,
         }));
     }
-    // Execution records for BOTH legs, so provenance names both identities. Read off the two
-    // adapters this answer would run on rather than off a settings tree, for the reason
-    // `Warehouse::posture` gives. `FederatedPlan::new` refuses same-source legs, so the two records
-    // belong to distinct sources and `and` cannot collide; the Err arm of `and` is kept (rather than
-    // an expect) because the compile cannot know that, and nothing can answer for a splitter
-    // invariant that changed.
-    let executed_as = match ExecutedAs::of(plan.fact().source().clone(), fact_warehouse.posture().clone())
-        .and(plan.lookup().source().clone(), lookup_warehouse.posture().clone())
-    {
-        Ok(record) => record,
-        Err(_collision) => {
-            // The splitter refuses same-source legs, so a collision is a splitter invariant that
-            // changed and nothing can answer for it.
-            //
-            // It leaves as its OWN typed shape now. This arm used to mint a
-            // a `DuplicateLabels` combine failure - a failure about a leg RESULT - out of the
-            // plan's metric name, which said nothing true about what went wrong; the combine's
-            // failure vocabulary belongs to the combiner since `docs/adr/0039` step 3 anyway.
-            return Err(ServiceError::Miswired {
-                cause: crate::FederationMiswired::LegsCollide {
-                    at: plan.fact().source().clone(),
-                },
-            });
-        }
-    };
+    let executed_as = executed_as_of::<_, B, C>(plan, fact_warehouse, lookup_warehouse, second_fact)?;
     // **No verdict over the two postures, and `docs/adr/0040` is why the one that stood here is
     // gone.** It refused an answer whose legs decided identity differently - and BigQuery is the
     // only impersonating adapter, so that prevented BigQuery from federating with any
@@ -193,7 +188,10 @@ where
     //
     // One mint over the whole set, exactly like the mono path: the broker answers for every source
     // this answer reads, and `agreeing_with` compares that answer against this request.
-    let requested = SourceSet::of(plan.fact().source().clone()).and(plan.lookup().source().clone());
+    let requested = second_fact.into_iter().fold(
+        SourceSet::of(plan.fact().source().clone()).and(plan.lookup().source().clone()),
+        |requested, (leg, _)| requested.and(leg.source().clone()),
+    );
     let minted = broker
         .mint(context, &requested)
         .map_err(|cause| ServiceError::Broker { cause })?;
@@ -209,40 +207,17 @@ where
         Agreed::Granted { credentials } => credentials,
     };
 
-    // Both legs pre-flighted before either one executes, and the pair's own estimates summed and
-    // charged against the ledger BEFORE either `execute` runs - `docs/adr/0030`'s "all-or-nothing":
-    // a two-source answer is refused as a whole rather than after one leg has already spent.
-    let fact_preflight = match dry_run_leg::<_, B, C>(fact_warehouse, &credentials, plan.fact(), deadline) {
-        Ok(preflight) => preflight,
+    // Every leg pre-flighted, and what they priced charged as one sum, before any leg executes -
+    // `docs/adr/0030`'s all-or-nothing, under the SAME `Deadline` (`docs/adr/0029` decision 3).
+    let every_leg = [(plan.fact(), fact_warehouse), (plan.lookup(), lookup_warehouse)]
+        .into_iter()
+        .chain(second_fact);
+    match preflight_and_charge::<_, B, C>(every_leg, &credentials, deadline, ledger, context) {
+        Ok(()) => {}
         Err(LegError::Refusal(reason)) => {
             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
         }
         Err(LegError::Failure(error)) => return Err(error),
-    };
-    // The SAME `Deadline`, shared rather than divided (`docs/adr/0029` decision 3).
-    let lookup_preflight = match dry_run_leg::<_, B, C>(lookup_warehouse, &credentials, plan.lookup(), deadline) {
-        Ok(preflight) => preflight,
-        Err(LegError::Refusal(reason)) => {
-            return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
-        }
-        Err(LegError::Failure(error)) => return Err(error),
-    };
-    // Only a `Some` leg is counted, and a leg that priced nothing contributes nothing - "not
-    // counted", never "free". Nothing is charged at all when NEITHER leg priced, so an
-    // all-`None` federated answer (every adapter but BigQuery, today) never touches the ledger.
-    let priced = |preflight: PreFlight| match preflight {
-        PreFlight::Accepted {
-            estimated_bytes: Some(bytes),
-        } => Some(bytes.bytes()),
-        PreFlight::Accepted { estimated_bytes: None } | PreFlight::NotAsked => None,
-    };
-    let fact_estimate = priced(fact_preflight);
-    let lookup_estimate = priced(lookup_preflight);
-    if fact_estimate.is_some() || lookup_estimate.is_some() {
-        let total = fact_estimate.unwrap_or(0).saturating_add(lookup_estimate.unwrap_or(0));
-        if let Some(reason) = crate::charge_subject(ledger, context, total, Instant::now()) {
-            return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
-        }
     }
     // **The legs' results never become rows, and that is `docs/adr/0039` step 2's whole point
     // meeting step 3's.** Each `LegResult` is tagged with the side its own `LegPlan` names, so the
@@ -334,9 +309,22 @@ where
         }
         Err(LegError::Failure(error)) => return Err(error),
     };
-    let legs = Legs::of(&fact, &lookup).map_err(|cause| ServiceError::Miswired {
-        cause: crate::FederationMiswired::LegsAreNotOneOfEach { cause },
-    })?;
+    // The second fact leg runs after both, sequentially: it is reached by no question yet.
+    let second_fact_result = match second_fact
+        .map(|(leg, warehouse)| run_leg::<_, B, C>(warehouse, &credentials, leg, deadline).map(|rows| LegResult::of(leg, rows)))
+        .transpose()
+    {
+        Ok(result) => result,
+        Err(LegError::Refusal(reason)) => {
+            return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
+        }
+        Err(LegError::Failure(error)) => return Err(error),
+    };
+    let legs = Legs::of(&fact, &lookup)
+        .and_then(|legs| legs.with_second_fact(second_fact_result.as_ref()))
+        .map_err(|cause| ServiceError::Miswired {
+            cause: crate::FederationMiswired::LegsAreNotOneOfEach { cause },
+        })?;
     // **The combine, through the port.** The row cap applies to the ANSWER and not to a leg - a leg
     // carries none - and the two governance outcomes are taken off the combiner's error FIRST, in
     // the order the mono path asks its own adapter: the ceiling, then a deterministic refusal about
@@ -404,10 +392,25 @@ where
     Ok(Answered::under(
         &credentials,
         ToolOutcome::Answer {
-            provenance: pinned.provenance(executed_as),
+            provenance: certified_provenance(pinned, executed_as, plan.metric())?,
             rows: answer,
         },
     ))
+}
+
+/// The provenance for a federated leg's single metric, or the typed cause a splitter or registry
+/// invariant that changed would leave behind.
+///
+/// Its own function rather than a `map_err` closure repeated at [`answer_federated`]'s and
+/// [`ranked_answer`]'s exit points: a federated plan names exactly one metric (`FederatedPlan::metric`
+/// is a field, not a first-of-several), so there is one certification to compute and two places
+/// that need it.
+type Certified<E, M, C> = Result<Provenance, ServiceError<E, M, C>>;
+
+fn certified_provenance<E, M, C>(pinned: &PinnedDefinitions, executed_as: ExecutedAs, metric: &MetricName) -> Certified<E, M, C> {
+    pinned
+        .provenance_for(executed_as, [metric])
+        .map_err(|cause| ServiceError::AnswersDoNotCertify { cause })
 }
 
 /// Either case's `top`, applied to an already-answer answer - split out of [`answer_federated`]
@@ -459,7 +462,7 @@ where
     Ok(Answered::under(
         credentials,
         ToolOutcome::Answer {
-            provenance: pinned.provenance(executed_as),
+            provenance: certified_provenance(pinned, executed_as, plan.metric())?,
             rows: ranked,
         },
     ))
@@ -473,7 +476,34 @@ where
 // `answer_federated` exactly as `execute_leg`'s did before the split - moving PRODUCTION code
 // across files is the gate's ordinary case, unlike moving tests away from the implementation they
 // hold red-before-green evidence for (see that module's own doc for why).
-pub(crate) use leg::{dry_run_leg, run_leg};
+/// Execution records for every leg, so provenance names each source. Read off the adapters this
+/// answer would run on rather than off a settings tree, for the reason `Warehouse::posture` gives.
+///
+/// `FederatedPlan::new` refuses same-source legs, so the fact and lookup records belong to distinct
+/// sources and `and` cannot collide; the Err arm is kept (rather than an expect) because the compile
+/// cannot know that. A second fact on the lookup's source is already recorded, under the one adapter
+/// both legs run on, so it is skipped rather than recorded twice.
+fn executed_as_of<W, B, C>(plan: &FederatedPlan, fact: &W, lookup: &W, second_fact: Option<(&LegPlan, &W)>) -> Recorded<W, B, C>
+where
+    W: Warehouse,
+    B: CredentialBroker,
+    C: FederationCombiner,
+{
+    let collide = |at: &SourceName| ServiceError::Miswired {
+        cause: crate::FederationMiswired::LegsCollide { at: at.clone() },
+    };
+    let record = ExecutedAs::of(plan.fact().source().clone(), fact.posture().clone())
+        .and(plan.lookup().source().clone(), lookup.posture().clone())
+        .map_err(|_collision| collide(plan.fact().source()))?;
+    match second_fact {
+        Some((leg, warehouse)) if record.posture(leg.source()).is_none() => record
+            .and(leg.source().clone(), warehouse.posture().clone())
+            .map_err(|_collision| collide(leg.source())),
+        _ => Ok(record),
+    }
+}
+
+pub(crate) use leg::{preflight_and_charge, run_leg};
 mod leg;
 
 /// The federated answer orchestration: the two-source answer path exercised above fake leg-executing

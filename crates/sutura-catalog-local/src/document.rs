@@ -280,21 +280,29 @@ impl ModelDoc {
     }
 }
 
-/// One end of a relationship, and the grain an origin is truncated to when a join key's
-/// `grain` is present, making it a truncated equality rather than a plain one.
+/// One end of a relationship: the model a join reaches from or to, and - for the single-pair
+/// form - the column that is the one equality.
+///
+/// `model` is always present: it names the two endpoints a relationship links. `column` is
+/// present for the single-pair form (one `origin.column = target.column` equality) and absent
+/// for the compound form, where the `keys:` list names the columns. Optional because the two
+/// forms are mutually exclusive - [`RelationshipDoc::into_domain`] refuses a document that
+/// declares both a `column` and `keys:`, and one that declares neither.
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EndpointDoc {
     model: ModelName,
-    column: ColumnName,
+    #[serde(default)]
+    column: Option<ColumnName>,
 }
 
 /// One term of a compound join, as the document spells it.
 ///
 /// A single column pair keeps the byte shape every existing relationship document has:
-/// `origin: { model, column }` / `target: { model, column }` outside a `keys:` list stays a plain
-/// equality. A compound join declares a `keys:` list, each entry `{ origin, target }` or
-/// `{ origin, grain, target }` - the origin column, truncated to `grain` for a truncated key.
+/// `origin: { model, column }` / `target: { model, column }` and no `keys:` list stays a plain
+/// equality. A compound join declares a `keys:` list and no `column`s on either endpoint, each
+/// entry `{ origin, target }` or `{ origin, grain, target }` - the origin column, truncated to
+/// `grain` for a truncated key.
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JoinKeyDoc {
@@ -321,6 +329,26 @@ impl JoinKeyDoc {
     }
 }
 
+/// Why a relationship document cannot become a domain [`Relationship`].
+///
+/// The two join forms a relationship may take - one `origin.column = target.column` pair, or a
+/// `keys:` list - are mutually exclusive, and a document that writes neither is missing a join.
+/// Both violations are a property of the DOCUMENT's shape, so they refuse here rather than in
+/// the domain: the domain's [`JoinKeys`] already refuses an empty key set, which is what makes
+/// [`Self::EmptyKeys`] the domain's empty-set refusal wrapped in the document's name.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum InvalidRelationshipDocument {
+    /// The document declared both a `keys:` list and a `column` on an endpoint.
+    #[error("a relationship declares either one column pair or a `keys:` list, not both")]
+    Both,
+    /// The document declared a `keys:` list with nothing in it.
+    #[error("a relationship's `keys:` list must hold at least one key")]
+    EmptyKeys(#[source] InvalidJoinKeys),
+    /// The document declared neither a column pair nor a `keys:` list.
+    #[error("a relationship must declare either one column pair or a `keys:` list")]
+    Neither,
+}
+
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RelationshipDoc {
@@ -341,16 +369,19 @@ pub struct RelationshipDoc {
 }
 
 impl RelationshipDoc {
-    pub fn into_domain(self) -> Result<Relationship, InvalidJoinKeys> {
-        let keys = self.keys.map_or_else(
-            || {
-                JoinKeys::of(vec![JoinKey::Equal {
-                    origin: self.origin.column,
-                    target: self.target.column,
-                }])
-            },
-            |keys| JoinKeys::of(keys.into_iter().map(JoinKeyDoc::into_domain).collect()),
-        )?;
+    pub fn into_domain(self) -> Result<Relationship, InvalidRelationshipDocument> {
+        let keys = match (self.keys, self.origin.column, self.target.column) {
+            // A compound join: a `keys:` list and no column on either endpoint.
+            (Some(keys), None, None) => JoinKeys::of(keys.into_iter().map(JoinKeyDoc::into_domain).collect())
+                .map_err(InvalidRelationshipDocument::EmptyKeys)?,
+            // The single-pair form: both columns and no `keys:` list.
+            (None, Some(origin), Some(target)) => JoinKeys::single(JoinKey::Equal { origin, target }),
+            // `keys:` alongside a column is a document author meant one of the two; choosing would
+            // certify a join the author did not write.
+            (Some(_), Some(_), _) | (Some(_), _, Some(_)) => return Err(InvalidRelationshipDocument::Both),
+            // No `keys:` and not a complete column pair - neither join form is declared.
+            _ => return Err(InvalidRelationshipDocument::Neither),
+        };
         Ok(Relationship::new(
             self.name,
             self.origin.model,

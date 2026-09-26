@@ -1,0 +1,7 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: reason
+---
+TooManyMetrics:
+  requested: 9
+  limit: 8

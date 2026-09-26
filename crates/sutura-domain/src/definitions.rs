@@ -23,6 +23,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::catalog::Definitions;
 use crate::knowledge::Knowledge;
+use crate::model::MetricName;
 use crate::pinned::ContributionManifest;
 
 /// Hex characters in a digest: SHA-256, as lower-case hex.
@@ -111,6 +112,34 @@ impl DefinitionDigest {
         Self::parse(hex).map_err(|cause| NotDigestible::NotADigest { cause })
     }
 
+    /// The digest of ONE metric's canonical form.
+    ///
+    /// What a bundle-level [`Self::of`] gives per-caller: an answer formed over several metrics
+    /// carries one digest for the whole bundle, and a reader who wants to know which metric an
+    /// answer's number claims to certify cannot distil that out of a bundle-wide hash. This is the
+    /// per-metric half, hashed from the single [`Metric`](crate::catalog::Metric) by its own
+    /// canonical form - a rename moves it exactly as it moves the bundle digest, and a metric not
+    /// actually in the set has no canonical form and is refused by [`NotDigestible::MetricMissing`].
+    ///
+    /// Hashing one metric separately from the other two halves of the bundle is a deliberate
+    /// narrowing: the glossary and the contribution manifest are content that changes what an
+    /// answer means, so they belong under the bundle digest, but "which metric's number is this"
+    /// is answered by the metric alone. It is `pub(crate)` for the same reason [`Self::of`] is - the
+    /// public surface for a per-metric digest is `PinnedDefinitions::provenance_for`, which stores
+    /// the definitions it hashed from.
+    pub(crate) fn of_metric(definitions: &Definitions, name: &MetricName) -> Result<Self, NotDigestible> {
+        let metric = definitions
+            .metric(name)
+            .ok_or_else(|| NotDigestible::MetricMissing { metric: name.clone() })?;
+        let canonical = serde_json::to_vec(metric).map_err(|cause| NotDigestible::Canonicalize { cause })?;
+        let hash = Sha256::digest(&canonical);
+        let hex: String = hash
+            .iter()
+            .flat_map(|byte| [nibble(byte >> 4_u8), nibble(byte & 0x0f_u8)])
+            .collect();
+        Self::parse(hex).map_err(|cause| NotDigestible::NotADigest { cause })
+    }
+
     #[inline]
     pub fn as_str(&self) -> &str {
         &self.0
@@ -185,6 +214,12 @@ pub enum NotDigestible {
         #[source]
         cause: InvalidDigest,
     },
+    /// The named metric is not in this set of definitions, so it has no canonical form to hash.
+    ///
+    /// Reachable only through [`DefinitionDigest::of_metric`], which is given the metric name by its
+    /// caller rather than walking a complete set the way [`DefinitionDigest::of`] does.
+    #[error("metric {metric} is not in the definitions, so it has no canonical form to hash")]
+    MetricMissing { metric: MetricName },
 }
 
 /// Delegates to [`DefinitionDigest::parse`] rather than repeating it: one constructor is the

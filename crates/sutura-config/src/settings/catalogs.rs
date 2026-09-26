@@ -44,15 +44,15 @@ pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Res
             version,
         )
         .map_err(|cause| SettingsError::Catalog { cause })?;
-        // `datahub` and `rdbms` add their own fields in a separate step so every other kind never
-        // has to carry them, and every kind but `rdbms` refuses an rdbms key it would read past.
-        // `CatalogKind::parse` already refused any other word, so this match is exhaustive over
-        // what `kind` can be at this point.
+        // `datahub`, `openmetadata` and `rdbms` add their own fields in a separate step so every
+        // other kind never has to carry them, and every kind but `rdbms` refuses an rdbms key it
+        // would read past. `CatalogKind::parse` already refused any other word, so this match is
+        // exhaustive over what `kind` can be at this point.
         if kind != CatalogKind::Rdbms {
             refuse_rdbms_keys(&settings, raw_catalog)?;
         }
         let settings = match kind {
-            CatalogKind::Markdown | CatalogKind::Okf | CatalogKind::Openmetadata => settings,
+            CatalogKind::Markdown | CatalogKind::Okf | CatalogKind::DataContract => settings,
             CatalogKind::Rdbms => {
                 let rdbms =
                     RdbmsSettings::parse(settings.name(), raw_catalog, sources).map_err(|cause| SettingsError::Catalog {
@@ -74,6 +74,14 @@ pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Res
                     // refused here for being absent, only (downstream, in the composition root)
                     // for being an unusable bound if the deployment WROTE a zero.
                     .with_datahub_bounds(raw_catalog.deadline_seconds, raw_catalog.max_response_bytes)
+            }
+            CatalogKind::Openmetadata => {
+                let endpoint = raw_catalog.endpoint.clone().unwrap_or_default();
+                let token_file = raw_catalog.token_file.clone().unwrap_or_default();
+                settings
+                    .with_openmetadata_reader(endpoint, PathBuf::from(token_file))
+                    .map_err(|cause| SettingsError::Catalog { cause })?
+                    .with_openmetadata_bounds(raw_catalog.deadline_seconds, raw_catalog.max_response_bytes)
             }
         };
         // Every kind, not `datahub` alone - `#975`. Applied after the kind-specific step above so

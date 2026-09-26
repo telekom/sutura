@@ -1,0 +1,12 @@
+diff --git a/xtask/src/guidance.rs b/xtask/src/guidance.rs
+--- a/xtask/src/guidance.rs
++++ b/xtask/src/guidance.rs
+@@ -483,7 +483,7 @@
+             },
+         )
+         .map_err(|why| why.describe())?;
+-    if inspected.absent() != 0 {
++    if inspected.absent() > 1 {
+         return Err(format!(
+             "{} listed file(s) vanished after discovery, so the scan is incomplete",
+             inspected.absent()

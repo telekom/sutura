@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/dialects.rs
+expression: query.sql()
+---
+SELECT CAST(TRUNC("fct_subscription_monthly"."month", 'MM') AS DATE) AS "period", SUM(CASE WHEN "fct_subscription_monthly"."status" = :1 THEN "fct_subscription_monthly"."mrr_cents" END) AS "recurring_revenue", COUNT(DISTINCT CASE WHEN "fct_subscription_monthly"."status" = :2 THEN "fct_subscription_monthly"."subscription_key" END) AS "active_subscriptions" FROM "fct_subscription_monthly" LEFT JOIN "dim_customer" ON "fct_subscription_monthly"."customer_key" = "dim_customer"."customer_key" WHERE "fct_subscription_monthly"."month" >= :3 AND "fct_subscription_monthly"."month" < :4 AND "dim_customer"."segment" = :5 GROUP BY CAST(TRUNC("fct_subscription_monthly"."month", 'MM') AS DATE) ORDER BY CAST(TRUNC("fct_subscription_monthly"."month", 'MM') AS DATE) FETCH FIRST 10001 ROWS ONLY

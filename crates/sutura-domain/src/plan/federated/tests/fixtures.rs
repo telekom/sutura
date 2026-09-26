@@ -61,7 +61,7 @@ pub(super) fn key(name: &str, table_name: &str) -> PlanKey {
 }
 
 /// The link key of a leg: the internal label over the physical join column `customer_key`.
-fn link_key(table_name: &str) -> PlanKey {
+pub(super) fn link_key(table_name: &str) -> PlanKey {
     PlanKey::new(
         ResultLabel::internal(InternalLabel::Link),
         PlanColumn::new(table(table_name), column("customer_key")),
@@ -116,6 +116,39 @@ pub(super) fn lookup_leg() -> LegPlan {
     }
 }
 
+pub(super) const SECOND_FACT_SOURCE: &str = "second";
+
+/// A second fact leg over a different source, sharing the link key with the first fact leg so the
+/// chasm guard passes. It carries no terms because a simple measure names no second model, so the
+/// constructor's term check expects none on it.
+pub(super) fn second_fact_leg() -> LegPlan {
+    LegPlan::Fact {
+        source: source(SECOND_FACT_SOURCE),
+        metric: metric("revenue"),
+        tables: StatementTables::only(table("dim_orders")),
+        bucket: bucket(),
+        keys: vec![key("product_family", "dim_orders"), link_key("dim_orders")],
+        terms: Vec::new(),
+        bindings: PlanBindings::none(),
+        range: range(),
+    }
+}
+
+/// A second fact leg over a different source that shares NO key with the first fact leg - the
+/// chasm-trap guard: no join is possible.
+pub(super) fn second_fact_leg_with_no_shared_key() -> LegPlan {
+    LegPlan::Fact {
+        source: source(SECOND_FACT_SOURCE),
+        metric: metric("revenue"),
+        tables: StatementTables::only(table("dim_orders")),
+        bucket: bucket(),
+        keys: vec![key("unrelated", "dim_orders")],
+        terms: Vec::new(),
+        bindings: PlanBindings::none(),
+        range: range(),
+    }
+}
+
 pub(super) fn try_plan_for(
     measure_name: &str,
     measure: &Measure,
@@ -129,6 +162,7 @@ pub(super) fn try_plan_for(
         measure_label,
         bucket(),
         fact_leg(terms_for(&federation)),
+        None,
         lookup_leg(),
         include_unmatched,
         federation,

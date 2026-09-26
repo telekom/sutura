@@ -1,0 +1,17 @@
+diff --git a/crates/sutura-conformance/src/execute.rs b/crates/sutura-conformance/src/execute.rs
+index b686bad1..1e7f8327 100644
+--- a/crates/sutura-conformance/src/execute.rs
++++ b/crates/sutura-conformance/src/execute.rs
+@@ -397,9 +397,9 @@ where
+         .map(|batches| LegResult::of(plan.lookup(), batches))
+         .map_err(|cause| not_answered(Stage::Lookup(cause)))?;
+     let legs = Legs::of(&fact_result, &lookup_result).expect("a FederatedPlan's legs are one fact and one lookup");
+-    combiner
+-        .combine(plan, legs, WORKING_SET_BYTES)
+-        .map_err(|cause| not_answered(Stage::Combine(cause)))?
++    let _unjoined = combiner.combine(plan, legs, WORKING_SET_BYTES);
++    fact_result
++        .batches()
+         .to_rows()
+         .map_err(|cause| Fault::Unreadable {
+             case: case.name().to_owned(),

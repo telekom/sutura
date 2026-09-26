@@ -31,11 +31,11 @@
 //!   `None` would still pass. Every other bound adapter declares `false` and always answers
 //!   `None`.
 
-use sutura_domain::plan::Executable;
+use sutura_domain::plan::{Executable, FederationCombiner, LegResult, Legs};
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
 use sutura_domain::warehouse::{PreFlight, RowSet, Warehouse};
 
-use crate::corpus::{self, Case};
+use crate::corpus::{self, Case, FederatedCase};
 use crate::{Conformed, Declination, Fault, Outcome};
 
 /// What every comparison in this pack is made at.
@@ -303,6 +303,103 @@ where
         // being batches, and a column whose Arrow type this workspace does not map is its own fault
         // rather than a content disagreement: the number was never read, so reporting it as a wrong
         // number would name the wrong defect.
+        .to_rows()
+        .map_err(|cause| Fault::Unreadable {
+            case: case.name().to_owned(),
+            cause,
+        })
+}
+
+/// Which stage of a federated answer did not answer - [`Fault::NotAnswered`]'s cause for the
+/// federated pack, so the one fault vocabulary names which of three typed errors stopped it.
+#[derive(Debug, thiserror::Error)]
+pub enum Stage<F, L, C>
+where
+    F: core::error::Error + 'static,
+    L: core::error::Error + 'static,
+    C: core::error::Error + 'static,
+{
+    #[error("the fact leg did not answer")]
+    Fact(#[source] F),
+    #[error("the lookup leg did not answer")]
+    Lookup(#[source] L),
+    #[error("the combine did not answer")]
+    Combine(#[source] C),
+}
+
+/// The federated pack's fault: the one [`Fault`] vocabulary, with a [`Stage`] as its cause.
+pub type FederatedFault<Fact, Lookup, Combiner> =
+    Fault<Stage<<Fact as Warehouse>::Error, <Lookup as Warehouse>::Error, <Combiner as FederationCombiner>::Error>>;
+
+/// The federated pack's outcome, named for `clippy.toml`'s type-complexity threshold as [`Answered`] is.
+pub type FederatedConformed<Fact, Lookup, Combiner> = Result<Outcome, FederatedFault<Fact, Lookup, Combiner>>;
+
+/// One federated case's rows, or the fault that stopped them.
+type FederatedAnswered<Fact, Lookup, Combiner> = Result<RowSet, FederatedFault<Fact, Lookup, Combiner>>;
+
+/// The ceiling every federated case combines under. The corpus is a few rows, so no case nears it.
+const WORKING_SET_BYTES: u64 = 1 << 30;
+
+/// Each leg executes on its own warehouse, and the combine above them returns the reference's rows.
+///
+/// The three arrive as one tuple so [`crate::conduct`] can hold them as one fixture. **Limit: two
+/// in-process legs and whatever combiner the binding supplies.** No order is asserted, because a
+/// federated plan claims none, and nothing here reaches a network or a second identity.
+///
+/// # Errors
+///
+/// A [`FederatedFault`] naming the case, and for an unanswered one the [`Stage`] that stopped.
+pub fn federated_content_agrees<Fact, Lookup, Combiner>(
+    federation: &(Fact, Lookup, Combiner),
+) -> FederatedConformed<Fact, Lookup, Combiner>
+where
+    Fact: Warehouse,
+    Lookup: Warehouse,
+    Combiner: FederationCombiner,
+{
+    for case in corpus::federated_cases() {
+        let answered = combined(federation, &case)?;
+        agree_on_content(case.expected(), &answered, TOLERANCE).map_err(|disagreement| Fault::Content {
+            case: case.name().to_owned(),
+            disagreement: Box::new(disagreement),
+        })?;
+    }
+    Ok(Outcome::Held)
+}
+
+/// One federated case's combined rows: both legs, then the combine, then the decode.
+#[expect(
+    clippy::expect_used,
+    clippy::unwrap_in_result,
+    reason = "`FederatedPlan::new` refuses anything but one fact and one lookup leg, so `Legs::of` cannot refuse"
+)]
+fn combined<Fact, Lookup, Combiner>(
+    federation: &(Fact, Lookup, Combiner),
+    case: &FederatedCase,
+) -> FederatedAnswered<Fact, Lookup, Combiner>
+where
+    Fact: Warehouse,
+    Lookup: Warehouse,
+    Combiner: FederationCombiner,
+{
+    let (ref fact, ref lookup, ref combiner) = *federation;
+    let not_answered = |cause| Fault::NotAnswered {
+        case: case.name().to_owned(),
+        cause,
+    };
+    let plan = case.plan();
+    let fact_result = fact
+        .execute(Executable::Leg(plan.fact()), &corpus::presented(), corpus::deadline())
+        .map(|batches| LegResult::of(plan.fact(), batches))
+        .map_err(|cause| not_answered(Stage::Fact(cause)))?;
+    let lookup_result = lookup
+        .execute(Executable::Leg(plan.lookup()), &corpus::presented(), corpus::deadline())
+        .map(|batches| LegResult::of(plan.lookup(), batches))
+        .map_err(|cause| not_answered(Stage::Lookup(cause)))?;
+    let legs = Legs::of(&fact_result, &lookup_result).expect("a FederatedPlan's legs are one fact and one lookup");
+    combiner
+        .combine(plan, legs, WORKING_SET_BYTES)
+        .map_err(|cause| not_answered(Stage::Combine(cause)))?
         .to_rows()
         .map_err(|cause| Fault::Unreadable {
             case: case.name().to_owned(),

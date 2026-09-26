@@ -30,7 +30,7 @@
 //!   DELETE)."
 //!
 //! Go's `net/http` reference documents no status-driven retry anywhere in `Client`, `Transport` or
-//! `RoundTripper`. 9 refusal reasons land on `422` below, documented the other way round from the
+//! `RoundTripper`. 10 refusal reasons land on `422` below, documented the other way round from the
 //! premise: "Clients that receive a `422` response should expect that repeating the request
 //! without modification will fail with the same error."
 //!
@@ -91,13 +91,17 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             StatusCode::UNPROCESSABLE_ENTITY,
             format!("`{first}` and `{other}` do not share a model and a time column"),
         ),
-        // 422. Every metric named resolved and every constraint checked - this deployment does not
-        // yet turn more than one into one statement. `requested` is a count this deployment
-        // computed, safe to say back.
-        RefusalReason::MultiMetricNotExecutable { requested } => (
+        // 422, the same pair that governs the dimension count. Named so the caller can act on the
+        // number without a second request: the sentence carries what they asked for and the bound.
+        RefusalReason::TooManyMetrics { requested, limit } => (
             StatusCode::UNPROCESSABLE_ENTITY,
-            format!("this deployment does not yet answer a question naming {requested} metrics together"),
+            format!("{requested} metrics were asked for and the maximum is {limit}"),
         ),
+        // 422. Well formed, and not a question: the caller believes something about the second
+        // occurrence that we do not, which is why the domain refuses rather than deduplicating.
+        RefusalReason::DuplicateMetricName { ref metric } => {
+            (StatusCode::UNPROCESSABLE_ENTITY, format!("`{metric}` appears more than once"))
+        }
         // 422. The metric exists, the request is well formed, and the grain asked for is one nobody
         // rendered - so the content is understood and cannot be processed, which is what 422 is for.
         // Not 404: the metric IS there, and a caller told the name was not found would go looking
@@ -235,6 +239,14 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         }
         RefusalReason::FederatedAnswerNotWellFormed { .. } => (StatusCode::CONFLICT, federated_answer_not_well_formed()),
         RefusalReason::PlanTablesShareAnIdentifier { .. } => (StatusCode::CONFLICT, plan_tables_share_an_identifier()),
+        // 409, with the federation group above - a shape this build does not execute.
+        RefusalReason::MultiMetricFederationNotExecutable { ref metrics } => {
+            (StatusCode::CONFLICT, multi_metric_federation_not_executable(metrics))
+        }
+        // 409. `top` names no metric to rank by once there is more than one.
+        RefusalReason::MultiMetricTopNotExecutable { ref metrics } => {
+            (StatusCode::CONFLICT, multi_metric_top_not_executable(metrics))
+        }
         // 503, and the only refusal where retrying is a reasonable thing for a caller to do. It is
         // the variant an identity failure will use, and today it is raised by a name comparison -
         // the plan's data system against the adapter this process opened - so today's cause is a
@@ -430,6 +442,30 @@ fn plan_tables_share_an_identifier() -> String {
     )
 }
 
+/// The metrics a refusal names, comma-joined - catalog-authored names, safe to echo back.
+fn joined_metric_names(metrics: &[sutura_domain::model::MetricName]) -> String {
+    metrics
+        .iter()
+        .map(sutura_domain::model::MetricName::as_str)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn multi_metric_federation_not_executable(metrics: &[sutura_domain::model::MetricName]) -> String {
+    format!(
+        "{} were asked together, and the question also reaches a dimension on another data system; \
+         this build does not federate several metrics",
+        joined_metric_names(metrics)
+    )
+}
+
+fn multi_metric_top_not_executable(metrics: &[sutura_domain::model::MetricName]) -> String {
+    format!(
+        "{} were asked together with `top`, which names no metric to rank by",
+        joined_metric_names(metrics)
+    )
+}
+
 /// How long until a refusal's own window makes the same question answerable again, where that is a
 /// fact this replica can name rather than a guess.
 ///
@@ -442,7 +478,10 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         RefusalReason::BudgetExhausted { reset_after_seconds } => Some(reset_after_seconds),
         RefusalReason::MetricUnknown { .. }
         | RefusalReason::MetricsSpanDifferentModels { .. }
-        | RefusalReason::MultiMetricNotExecutable { .. }
+        | RefusalReason::TooManyMetrics { .. }
+        | RefusalReason::DuplicateMetricName { .. }
+        | RefusalReason::MultiMetricFederationNotExecutable { .. }
+        | RefusalReason::MultiMetricTopNotExecutable { .. }
         | RefusalReason::GrainNotSupported { .. }
         | RefusalReason::DimensionNotPermitted { .. }
         | RefusalReason::DimensionNotFilterable { .. }
@@ -505,15 +544,20 @@ fn too_much_data(bound: ResultBound) -> String {
     }
 }
 
+/// The rest of `tests::every_reason`'s fixture list, split into its own file for `cargo xtask
+/// max-lines`'s per-file cap.
+#[cfg(test)]
+mod second_half;
+
 #[cfg(test)]
 mod tests {
     use axum::http::StatusCode;
-    use sutura_domain::model::{DimensionName, Grain, MetricName, SourceName, TableName};
+    use sutura_domain::model::{DimensionName, Grain, MetricName, TableName};
     use sutura_domain::query::{RefusalReason, ResultBound};
 
     use super::{refused, retry_after};
 
-    fn metric() -> MetricName {
+    pub(super) fn metric() -> MetricName {
         MetricName::parse("revenue").expect("a test metric is a metric")
     }
 
@@ -525,7 +569,7 @@ mod tests {
     ///
     /// Named rather than written out at the signature: `type_complexity` is a fair reading
     /// complaint about the tuple, and these three are exactly what a refused caller is given.
-    type Expected = (RefusalReason, StatusCode, &'static str);
+    pub(super) type Expected = (RefusalReason, StatusCode, &'static str);
 
     /// Every variant the domain has, with the status it is on the wire.
     ///
@@ -551,9 +595,14 @@ mod tests {
                 "metrics_span_different_models",
             ),
             (
-                RefusalReason::MultiMetricNotExecutable { requested: 2 },
+                RefusalReason::TooManyMetrics { requested: 9, limit: 8 },
                 StatusCode::UNPROCESSABLE_ENTITY,
-                "multi_metric_not_executable",
+                "too_many_metrics",
+            ),
+            (
+                RefusalReason::DuplicateMetricName { metric: metric() },
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "duplicate_metric_name",
             ),
             (
                 RefusalReason::GrainNotSupported {
@@ -626,98 +675,7 @@ mod tests {
         reasons
     }
 
-    /// The rest of [`every_reason`]'s list, split out for the same reason.
-    fn every_reason_the_second_half() -> Vec<Expected> {
-        vec![
-            (
-                RefusalReason::FederationNotExecutable,
-                StatusCode::CONFLICT,
-                "federation_not_executable",
-            ),
-            (
-                RefusalReason::FederationLinkAmbiguous {
-                    source: SourceName::parse("warehouse").expect("a test source is a source"),
-                },
-                StatusCode::CONFLICT,
-                "federation_link_ambiguous",
-            ),
-            (
-                RefusalReason::FederationLinkCompound {
-                    source: SourceName::parse("warehouse").expect("a test source is a source"),
-                    relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
-                        .expect("a test relationship is a relationship"),
-                },
-                StatusCode::CONFLICT,
-                "federation_link_compound",
-            ),
-            (
-                RefusalReason::MeasureDoesNotFederate {
-                    metric: MetricName::parse("active_subscriptions").expect("a test metric is a metric"),
-                    aggregate: sutura_domain::model::Aggregate::CountDistinct,
-                },
-                StatusCode::CONFLICT,
-                "measure_does_not_federate",
-            ),
-            (
-                RefusalReason::FederatedAnswerNotWellFormed {
-                    federated: sutura_domain::plan::FederatedAnswerRefusal::AmbiguousLink,
-                },
-                StatusCode::CONFLICT,
-                "federated_answer_not_well_formed",
-            ),
-            (
-                RefusalReason::PlanTablesShareAnIdentifier {
-                    table: TableName::parse("orders").expect("a test table is a table"),
-                },
-                StatusCode::CONFLICT,
-                "plan_tables_share_an_identifier",
-            ),
-            (
-                RefusalReason::SourceUnavailable {
-                    source: sutura_domain::model::SourceName::parse("local").expect("a test source is a source"),
-                },
-                StatusCode::SERVICE_UNAVAILABLE,
-                "source_unavailable",
-            ),
-            (
-                RefusalReason::CredentialUnavailable {
-                    source: sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source"),
-                },
-                StatusCode::FORBIDDEN,
-                "credential_unavailable",
-            ),
-            (
-                RefusalReason::SourceRefused {
-                    source: sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source"),
-                },
-                StatusCode::FORBIDDEN,
-                "source_refused",
-            ),
-            (
-                RefusalReason::DeadlineExceeded { budget_seconds: 29 },
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "deadline_exceeded",
-            ),
-            (
-                RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
-                StatusCode::TOO_MANY_REQUESTS,
-                "budget_exhausted",
-            ),
-            (
-                RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "top_over_uncertified_rows",
-            ),
-            (
-                RefusalReason::CrossModelRatioNotExecutable {
-                    metric: metric(),
-                    model: sutura_domain::model::ModelName::parse("customers").expect("a test model is a model"),
-                },
-                StatusCode::CONFLICT,
-                "cross_model_ratio_not_executable",
-            ),
-        ]
-    }
+    use super::second_half::every_reason_the_second_half;
 
     #[test]
     fn every_refusal_carries_a_status_a_code_and_a_sentence() {
@@ -763,7 +721,7 @@ mod tests {
 
     #[test]
     fn every_refusal_has_a_distinct_code() {
-        // The status is shared on purpose - 9 refusal reasons land on `422` - so the code is what
+        // The status is shared on purpose - 10 refusal reasons land on `422` - so the code is what
         // a client has to be able to branch on, and two variants sharing one would make that
         // impossible. THE NUMBER HERE IS PROSE: it said four while `docs/serving.md` mapped five,
         // then five while this file gained a sixth arm, and every OTHER gate stayed green both

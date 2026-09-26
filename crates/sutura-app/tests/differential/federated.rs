@@ -552,7 +552,10 @@ where
                      one refuses, not {from_one:?}"
                 );
                 assert!(
-                    matches!(reason, RefusalReason::MeasureDoesNotFederate { .. }),
+                    matches!(
+                        reason,
+                        RefusalReason::MeasureDoesNotFederate { .. } | RefusalReason::MultiMetricFederationNotExecutable { .. }
+                    ),
                     "{name}: a two-source question this corpus refuses must say why, not {reason:?}"
                 );
                 Reached::RefusedAsUnfederatable

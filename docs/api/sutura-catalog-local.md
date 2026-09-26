@@ -379,8 +379,14 @@ Why a model document could not become a domain `Model`.
 pub struct EndpointDoc
 ```
 
-One end of a relationship, and the grain an origin is truncated to when a join key's
-`grain` is present, making it a truncated equality rather than a plain one.
+One end of a relationship: the model a join reaches from or to, and - for the single-pair
+form - the column that is the one equality.
+
+`model` is always present: it names the two endpoints a relationship links. `column` is
+present for the single-pair form (one `origin.column = target.column` equality) and absent
+for the compound form, where the `keys:` list names the columns. Optional because the two
+forms are mutually exclusive - `RelationshipDoc::into_domain` refuses a document that
+declares both a `column` and `keys:`, and one that declares neither.
 
 #### Implements
 
@@ -395,13 +401,38 @@ pub struct JoinKeyDoc
 One term of a compound join, as the document spells it.
 
 A single column pair keeps the byte shape every existing relationship document has:
-`origin: { model, column }` / `target: { model, column }` outside a `keys:` list stays a plain
-equality. A compound join declares a `keys:` list, each entry `{ origin, target }` or
-`{ origin, grain, target }` - the origin column, truncated to `grain` for a truncated key.
+`origin: { model, column }` / `target: { model, column }` and no `keys:` list stays a plain
+equality. A compound join declares a `keys:` list and no `column`s on either endpoint, each
+entry `{ origin, target }` or `{ origin, grain, target }` - the origin column, truncated to
+`grain` for a truncated key.
 
 #### Implements
 
 `Debug`, `Deserialize<'de>`
+
+### `enum InvalidRelationshipDocument`
+
+```rust
+pub enum InvalidRelationshipDocument
+```
+
+Why a relationship document cannot become a domain `Relationship`.
+
+The two join forms a relationship may take - one `origin.column = target.column` pair, or a
+`keys:` list - are mutually exclusive, and a document that writes neither is missing a join.
+Both violations are a property of the DOCUMENT's shape, so they refuse here rather than in
+the domain: the domain's `JoinKeys` already refuses an empty key set, which is what makes
+`Self::EmptyKeys` the domain's empty-set refusal wrapped in the document's name.
+
+#### Variants
+
+- `Both` - The document declared both a `keys:` list and a `column` on an endpoint.
+- `EmptyKeys` - The document declared a `keys:` list with nothing in it.
+- `Neither` - The document declared neither a column pair nor a `keys:` list.
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ### `struct RelationshipDoc`
 
@@ -412,7 +443,7 @@ pub struct RelationshipDoc
 #### Methods
 
 ```rust
-pub fn into_domain(self) -> Result<Relationship, InvalidJoinKeys>
+pub fn into_domain(self) -> Result<Relationship, InvalidRelationshipDocument>
 ```
 
 #### Implements

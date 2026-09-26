@@ -3,7 +3,18 @@ source: crates/sutura-app/tests/golden/catalogs.rs
 expression: plan
 ---
 source: local
-metric: recurring_revenue
+measures:
+  - metric: recurring_revenue
+    label: recurring_revenue
+    measure:
+      simple:
+        term:
+          aggregate:
+            aggregate: sum
+            column:
+              table: fct_subscription_monthly
+              column: mrr_cents
+    guard: []
 table: fct_subscription_monthly
 joins:
   - relationship: subscription_customer
@@ -28,15 +39,6 @@ keys:
     column:
       table: fct_subscription_monthly
       column: contract_term
-measure:
-  simple:
-    term:
-      aggregate:
-        aggregate: sum
-        column:
-          table: fct_subscription_monthly
-          column: mrr_cents
-measure_label: recurring_revenue
 filters:
   - origin: definition
     predicate:

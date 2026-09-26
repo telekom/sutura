@@ -117,7 +117,7 @@ mod tests {
         .expect("the example question compiles");
         match compiled {
             Compiled::Planned { ref plan } => {
-                assert_eq!(plan.metric().as_str(), "revenue");
+                assert_eq!(plan.measures().first().metric().as_str(), "revenue");
                 // The fact table the model maps to, read off the plan rather than off the README,
                 // so the plan and the documented shape cannot drift.
                 assert_eq!(plan.table_name().as_str(), "fct_order");

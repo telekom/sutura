@@ -8,14 +8,53 @@ repository.workspace = true
 publish = false
 description = "A SemanticCatalog adapter over an OpenMetadata deployment - the richest of the three measured metadata sources, and still a declaring one."
 
+[features]
+# Off by default, for the reason `sutura-exec-bigquery`'s `wire` feature is: what arrives with it is
+# an outbound TLS stack, and no published binary links one it did not ask for -
+# `.agents/skills/sutura/crate-map/SKILL.md`'s "Why a networked adapter hides behind a default-off
+# feature". `dep:ureq` rather than a plain feature name, so the optional dependency below has no
+# feature of its own a caller could enable without meaning to.
+http = ["dep:ureq", "dep:sutura-tls", "dep:sutura-http-client"]
+# The loopback fake (`sutura_http_client::test_support`, re-exported as `crate::test_support`) a
+# reader's own tests AND `sutura-cli`'s served-binary suite need - kept OUT of `http` on purpose
+# (issue #970's review), unlike the trade `sutura-catalog-datahub`'s first cut made: a release
+# build asks for `--features openmetadata` only, never this one, so the fake never reaches a
+# shipped binary at all rather than riding along as dead code in it. `sutura-cli`'s own
+# `[dev-dependencies]` is the only place this is enabled outside this crate's own `--all-features`
+# test run.
+fake = ["sutura-http-client/test"]
+
 [dependencies]
 sutura-domain = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+# The real `HttpSnapshotReader` (`src/http.rs`), behind the `http` feature above. `ureq` rather than
+# a second client: `sutura-exec-bigquery`'s wire already resolves this version and feature set, so
+# nothing new enters `Cargo.lock` - the same argument `docs/adr/0018` makes, and
+# `cargo xtask check-shared-client` is what holds it.
+ureq = { workspace = true, optional = true }
+# The loaded outbound trust anchors a deployment's `security.outbound.transport_anchors` resolves
+# to, behind the same default-off `http` feature as `ureq` - see `sutura-catalog-datahub`'s own
+# manifest comment for why this arrives with the TLS stack and not in the serde + thiserror +
+# sutura-domain library closure. `sutura-tls` carries no network client - it reads bytes and returns
+# `CertificateDer`; folding them into `ureq::tls::RootCerts` is `sutura-http-client`'s own decision.
+sutura-tls = { workspace = true, optional = true }
+# `Endpoint`, `ReadBounds`/`Budget`, the TLS anchor fold and `rotating_agent` this crate's own
+# `src/http.rs` builds on - shared with `sutura-catalog-datahub` since issue #970's review found the
+# two byte-for-byte identical. `.agents/skills/sutura/crate-map/SKILL.md`'s "sutura-tls" section is
+# the precedent: a crate outside every `xtask/src/boundaries/adapters.rs` class, so two "metadata
+# providers" depending on it is not the forbidden edge.
+sutura-http-client = { workspace = true, optional = true }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
 serde_json = { workspace = true }
+# The TLS handshake cells (`tests/http_reader.rs::tls_anchors`): the loopback `rustls`/`rcgen`
+# harness itself now lives in `sutura-http-client`'s `tls-test` feature (issue #970's
+# review; shared with `sutura-catalog-datahub` for the same reason `test` above is), pulled
+# in as a dev-dependency only - nothing outside this crate's own test binary needs it, so it never
+# folds into the `http` feature the way `test` does.
+sutura-http-client = { workspace = true, features = ["tls-test"] }

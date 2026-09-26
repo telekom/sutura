@@ -61,8 +61,8 @@ mod conformance {
   never called, so *held to the same test bodies* is a statement about two methods and not about
   `Warehouse`. Three of those five carry guarantees of their own in
   `.agents/skills/sutura/invariants`, held by other mechanisms.
-- **That the corpus is exhaustive.** It is eight questions over one table; `corpus` names the
-  federated cases that still belong to another suite.
+- **That the corpus is exhaustive.** It is eight questions over one table and one over two
+  sources; `corpus` names the federated cases that still belong to another suite.
 - **That every adapter is held IS held now, and not by anything in this crate.** A pack is bound
   where an adapter's own crate binds it, so which adapters conform used to be a reading of which
   crates carry a `tests/conformance.rs` - deleting one left `just validate` green.
@@ -653,11 +653,14 @@ cases were values in this module. The fixture table (`corpus/conformance_events.
 precedent: a tracked data file read at compile time, served from the file rather than from a
 copied constant.
 
-# What this corpus does NOT contain, stated so nobody reads it as the whole suite
+# The federated cases, and the one adapter pair that runs them
 
-- **The three cases `docs/adr/0012` names** - a filter on a remote dimension over an orphan key,
-  a ratio whose denominator is zero for one subgroup, and a `CountDistinct` spanning two join
-  keys. Each needs a second table and a federated plan; none is here.
+The three cases `docs/adr/0012` names - a filter on a remote dimension over an orphan key, a
+ratio whose denominator is zero for one subgroup, and a `CountDistinct` spanning two join keys -
+are `.case` files too. `federated_cases` holds the two with an answer; the `CountDistinct` one
+is refused by `FederatedPlan::new` and asserted as that refusal, since there is no plan to
+execute. Only `tests/federated_bound.rs` binds the two-warehouse arm, over two in-process
+engines of ONE kind, so these rows say nothing yet about any other adapter.
 
 # Null placement in a group key: decided, and what the null row does and does NOT detect
 
@@ -789,6 +792,35 @@ pub const fn leg(&self) -> &LegPlan
 pub const fn name(&self) -> &'static str
 ```
 
+### `struct FederatedCase`
+
+```rust
+pub struct FederatedCase
+```
+
+One question over two sources, and the answer to it.
+
+Separate from `Case` because the executable is a `FederatedPlan` - two legs and the combine
+above them - rather than one `QueryPlan`.
+
+#### Methods
+
+```rust
+pub const fn expected(&self) -> &RowSet
+```
+
+```rust
+pub const fn name(&self) -> &'static str
+```
+
+```rust
+pub const fn plan(&self) -> &FederatedPlan
+```
+
+#### Implements
+
+`Debug`
+
 ### `fn source`
 
 ```rust
@@ -892,6 +924,31 @@ needed and now means something narrower: `nextest` gives each test its own proce
 processes of THIS worktree write this path at once, and a reader must not see a half-written
 file. Those processes write identical bytes - which is the claim the old path could not make.
 
+### `fn lookup_on_disk`
+
+```rust
+pub fn lookup_on_disk() -> std::path::PathBuf
+```
+
+The federated lookup table on a filesystem, written as `on_disk` writes the corpus.
+
+### `fn lookup_source`
+
+```rust
+pub fn lookup_source() -> sutura_domain::model::SourceName
+```
+
+The source a federated case's lookup leg resolves to - never `source`, because
+`FederatedPlan::new` refuses two legs on one source.
+
+### `fn lookup_table`
+
+```rust
+pub fn lookup_table() -> sutura_domain::model::TableName
+```
+
+The table a federated case's lookup leg reads.
+
 ### `fn cases`
 
 ```rust
@@ -916,6 +973,14 @@ pub fn leg_case() -> LegCase
 ```
 
 The one leg in the corpus.
+
+### `fn federated_cases`
+
+```rust
+pub fn federated_cases() -> Vec<FederatedCase>
+```
+
+Every federated question in the corpus with an answer, read from its `.case` file.
 
 ### `constant TABLE`
 
@@ -955,6 +1020,25 @@ per adapter; nothing here panics, so a pack can also be called directly.
   CANNED transport, never a live endpoint, so a real `BigQuery` project silently answering
   `None` would still pass. Every other bound adapter declares `false` and always answers
   `None`.
+
+### `enum Stage`
+
+```rust
+pub enum Stage<F, L, C>
+```
+
+Which stage of a federated answer did not answer - `Fault::NotAnswered`'s cause for the
+federated pack, so the one fault vocabulary names which of three typed errors stopped it.
+
+#### Variants
+
+- `Fact`
+- `Lookup`
+- `Combine`
+
+#### Implements
+
+`Debug`, `Display`, `Error`
 
 ### `fn labels_are_the_plans_own`
 
@@ -1093,6 +1177,30 @@ It is the beginning of what a file-backed corpus needs anyway: a corpus the pack
 rather than one it calls. Every other behaviour still reads `corpus::cases` directly, so this
 is one seam and not a parameter threaded through the pack.
 
+### `fn federated_content_agrees`
+
+```rust
+pub fn federated_content_agrees<Fact, Lookup, Combiner>(federation: &(Fact, Lookup, Combiner)) -> FederatedConformed<Fact, Lookup, Combiner>
+```
+
+Each leg executes on its own warehouse, and the combine above them returns the reference's rows.
+
+The three arrive as one tuple so `crate::conduct` can hold them as one fixture. **Limit: two
+in-process legs and whatever combiner the binding supplies.** No order is asserted, because a
+federated plan claims none, and nothing here reaches a network or a second identity.
+
+# Errors
+
+A `FederatedFault` naming the case, and for an unanswered one the `Stage` that stopped.
+
+### `type_alias FederatedFault`
+
+The federated pack's fault: the one `Fault` vocabulary, with a `Stage` as its cause.
+
+### `type_alias FederatedConformed`
+
+The federated pack's outcome, named for `clippy.toml`'s type-complexity threshold as `Answered` is.
+
 ## Module `venue`
 
 Whether this environment can stand a fixture up, and what a DECLARED absence costs.
@@ -1163,6 +1271,15 @@ merely declared, and the reason the harness cannot is a dependency rule that has
 - `Absent` - The environment this adapter needs is not here, so nothing was asked of it.
 
 #### Methods
+
+```rust
+pub fn federated(fact: Fixture<F>, lookup: Fixture<L>, combiner: impl FnOnce() -> C) -> Self
+```
+
+Two warehouses and the combiner above them, standing only where both warehouses stood up.
+
+The combiner is built only then, and the fact side's absence is the one reported when both
+are absent.
 
 ```rust
 pub const fn missing(&self) -> Option<&Missing>

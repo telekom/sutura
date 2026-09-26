@@ -318,6 +318,25 @@ impl CatalogUnderTest for sutura_catalog_okf::OkfCatalog {
     }
 }
 
+/// The third-on-disk catalog: `DataContract`, opened over a directory of ODCS v3 contracts.
+///
+/// Like `markdown` and `okf` its corpus is on disk, but it is NOT the example markdown - ODCS is a
+/// different vocabulary from a directory of `kind:`-tagged documents, so it opens over its own
+/// contracts under `examples/datacontract`. The universal cells hold because the contract bundle is
+/// measured against the adapter's declaration, which is the whole point of the `declaring` path.
+impl CatalogUnderTest for sutura_catalog_datacontract::DataContractCatalog {
+    const NAME: &'static str = "datacontract";
+
+    fn open() -> Self {
+        Self::new(source(), datacontract_root(), version())
+    }
+}
+
+/// The directory of ODCS v3 contract documents this suite opens the `datacontract` catalog over.
+fn datacontract_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/datacontract")
+}
+
 /// The directory of OKF Table Schema descriptors this suite opens the `okf` catalog over.
 fn okf_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/okf")
@@ -723,6 +742,20 @@ macro_rules! registered {
         // Its corpus is the descriptors under `examples/okf`, which a directory of Table Schema files
         // is what a deployment without a metadata service actually reads.
         $cell!(okf, declaring, sutura_catalog_okf::OkfCatalog);
+        // `sutura-catalog-datacontract`, the third on-disk vocabulary and the one for interface
+        // catalogues exported as data-contract YAML: a DECLARING adapter over a directory of ODCS
+        // v3 contracts. It provides Structure and may-provide Descriptions, ColumnTypes,
+        // ColumnDescriptions and (v3.1+) Relationships under the rdbms target-uniqueness rule, and
+        // declares the metric, the grain, the filter, the allowlist, the anchor and the cardinality
+        // out - `docs/what-a-data-contract-can-carry.md` is the field-by-field finding, `#973` the
+        // issue. It gets the universal cells and no golden-only cell and is measured against its
+        // own declaration - `docs/adr/0011`, `docs/adr/0016`. Its corpus is the contracts under
+        // `examples/datacontract`.
+        $cell!(
+            datacontract,
+            declaring,
+            sutura_catalog_datacontract::DataContractCatalog
+        );
         // `sutura-catalog-openmetadata`, the richest of the three measured metadata sources and still
         // a DECLARING connector: it needs a service, and it keeps two half-a-definition slots. It
         // supplies the physical model, the descriptions and the declared non-duplicating joins, and

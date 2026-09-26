@@ -367,6 +367,43 @@ mod content {
             "{hidden:?}"
         );
     }
+    #[test]
+    fn an_empty_relationship_keys_list_fails_the_load_as_a_relationship_document() {
+        // PR #1019 left this unwired: the domain's `InvalidJoinKeys::Empty` was already refused
+        // by `JoinKeys::of`, but nothing asserted that a `keys: []` DOCUMENT reaches
+        // `LocalCatalogError::Relationship` through a real directory. The refusal fires in
+        // `absorb_definition`, before assembly - so the twin below (the same relationship with one
+        // key) is what shows the loop reads the model, and the `keys: []` swap is what shows the
+        // empty set is the one fault.
+        let usage = "---\nkind: model\nname: daily_usage\nsource: local\ntable: fct_usage_daily\ncolumns: [usage_date, subscription_key]\n---\n";
+        let subscriptions = "---\nkind: model\nname: subscriptions\nsource: local\ntable: dim_subscriptions\ncolumns: [subscription_key, month]\n---\n";
+        let full = "---\nkind: relationship\nname: usage_subscription\norigin: { model: daily_usage }\ntarget: { model: subscriptions }\njoin_type: many_to_one\nkeys:\n  - { origin: subscription_key, target: subscription_key }\n---\n";
+        let empty = "---\nkind: relationship\nname: usage_subscription\norigin: { model: daily_usage }\ntarget: { model: subscriptions }\njoin_type: many_to_one\nkeys: []\n---\n";
+        drop(
+            outcome_of(
+                "relationship-empty-keys-twin",
+                &[("usage.md", usage), ("subscriptions.md", subscriptions), ("doc.md", full)],
+            )
+            .expect("the same relationship with one key loads"),
+        );
+
+        let err = outcome_of(
+            "relationship-empty-keys",
+            &[("usage.md", usage), ("subscriptions.md", subscriptions), ("doc.md", empty)],
+        )
+        .expect_err("`keys: []` joins nothing");
+        assert!(
+            matches!(
+                err,
+                LocalCatalogError::Relationship {
+                    cause: crate::document::InvalidRelationshipDocument::EmptyKeys(_),
+                    ..
+                }
+            ),
+            "an empty keys list must reach the Relationship refusal naming the empty set: {err:?}"
+        );
+        assert!(names_the_document(&err), "{err}");
+    }
 
     #[test]
     fn a_note_that_does_not_hold_together_with_the_definitions_fails_the_load() {

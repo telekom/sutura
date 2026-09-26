@@ -50,7 +50,7 @@
 //! went, which only a splitter can know. It belongs to the branch that builds one.
 
 use crate::measure::{Measure, Term, ZeroDenominator};
-use crate::model::{Aggregate, ColumnName};
+use crate::model::{Aggregate, ColumnName, ModelName};
 
 /// An aggregate that descends as written, paired with the function that re-aggregates it above.
 ///
@@ -230,16 +230,24 @@ impl Descent {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum Carried {
     /// One aggregate the leg computes and hands up as one column.
-    Aggregated { pushed: Pushed, column: ColumnName },
+    Aggregated {
+        pushed: Pushed,
+        column: ColumnName,
+        model: Option<ModelName>,
+    },
     /// A conditional count the leg computes and hands up as one column.
     ///
     /// Its own variant rather than an [`Aggregated`](Self::Aggregated) with a `Count`, for the
     /// reason [`Term::CountIf`] is its own term: `COUNT(col)` counts non-null rows and would count
     /// the `false` ones too.
-    CountIf { column: ColumnName },
+    CountIf { column: ColumnName, model: Option<ModelName> },
     /// No aggregate in the leg at all: the column travels as a grouping key, and the aggregate
     /// [`Pulled`] names runs above the rows it carried.
-    Keys { pulled: Pulled, column: ColumnName },
+    Keys {
+        pulled: Pulled,
+        column: ColumnName,
+        model: Option<ModelName>,
+    },
 }
 
 impl Carried {
@@ -247,7 +255,20 @@ impl Carried {
     #[inline]
     pub const fn column(&self) -> &ColumnName {
         match *self {
-            Self::Aggregated { ref column, .. } | Self::CountIf { ref column } | Self::Keys { ref column, .. } => column,
+            Self::Aggregated { ref column, .. } | Self::CountIf { ref column, .. } | Self::Keys { ref column, .. } => column,
+        }
+    }
+
+    /// The model this leaf reads, copied from the term by [`descend`](crate::federation::descend).
+    ///
+    /// `None` for every term written before `telekom/sutura#780`'s vocabulary (`AggregatedColumn::new`
+    /// sets no model). A term that names a model explicitly - including the metric's own - carries
+    /// `Some`, because `descend` has no metric to compare against and copies the field. The combiner
+    /// reads a `Some` leaf off the second fact leg only when the plan carries one; a splitter that
+    /// builds a second fact leg must first erase the metric's own model to `None`, and none does yet.
+    pub const fn model(&self) -> Option<&ModelName> {
+        match *self {
+            Self::Aggregated { ref model, .. } | Self::CountIf { ref model, .. } | Self::Keys { ref model, .. } => model.as_ref(),
         }
     }
 
@@ -362,16 +383,18 @@ impl Federation {
 pub fn descend(term: &Term) -> Above {
     match *term {
         // `COUNTIF` in one dialect, `SUM(CASE WHEN ..)` in another, and a count either way: it
-        // descends as written and the combine adds the leg counts. The term's `model` is not
-        // carried past this point: `sutura_semantic::plan::plan` refuses a cross-model ratio
-        // before a federated splitter is ever reached, so every term this function sees names
-        // either no model or the metric's own - `telekom/sutura#780`'s vocabulary, and the plan
-        // half that is not yet built.
-        Term::CountIf { ref column, .. } => Above::Total(Carried::CountIf { column: column.clone() }),
+        // descends as written and the combine adds the leg counts. The term's `model` travels on
+        // the `Carried` leaf so a two-fact splitter can route each leaf to the fact leg over the
+        // model it reads - `telekom/sutura#780`'s second fact leg.
+        Term::CountIf { ref column, ref model } => Above::Total(Carried::CountIf {
+            column: column.clone(),
+            model: model.clone(),
+        }),
         Term::Aggregate(ref inner) => match Descent::of(inner.aggregate()) {
             Descent::AsWritten(pushed) => Above::Total(Carried::Aggregated {
                 pushed,
                 column: inner.column().clone(),
+                model: inner.model().cloned(),
             }),
             // Two columns off one term, and the division that turns them back into an average
             // happens here - above every leg, exactly once.
@@ -383,16 +406,19 @@ pub fn descend(term: &Term) -> Above {
                 numerator: Box::new(Above::Total(Carried::Aggregated {
                     pushed: numerator,
                     column: inner.column().clone(),
+                    model: inner.model().cloned(),
                 })),
                 denominator: Box::new(Above::Total(Carried::Aggregated {
                     pushed: denominator,
                     column: inner.column().clone(),
+                    model: inner.model().cloned(),
                 })),
                 zero_denominator,
             },
             Descent::AsGroupingKey(pulled) => Above::Total(Carried::Keys {
                 pulled,
                 column: inner.column().clone(),
+                model: inner.model().cloned(),
             }),
         },
     }

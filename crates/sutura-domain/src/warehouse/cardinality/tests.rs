@@ -69,7 +69,7 @@ fn both_join_types_that_promise_a_unique_target_yield_a_probe() {
         let relationship = joined("customers", "customer_key", join_type);
         let key = DeclaredKey::promised_by(&relationship, &definitions).expect("this join type promises a unique target");
         assert_eq!(key.model().as_str(), "customers");
-        assert_eq!(key.keys()[0].target().as_str(), "customer_key");
+        assert_eq!(key.keys().first().target().as_str(), "customer_key");
         assert_eq!(key.source().as_str(), "local");
         assert_eq!(key.table().to_string(), "customers");
         assert_eq!(key.relationship().as_str(), "orders_customer");

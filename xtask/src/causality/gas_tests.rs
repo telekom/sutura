@@ -10,6 +10,10 @@
 //!
 //! `github.com/telekom/sutura#1016` added the fourth: `causality::tests_only`'s own dispatch,
 //! reached over a `Separable::revert`-empty diff rather than an inseparable one.
+//!
+//! `github.com/telekom/sutura#1025` added the fifth: `super::edited::touches` routing a file with
+//! NO added marker into `test_files` at all, over a diff whose only change is an added line
+//! inside a test that already existed.
 
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -410,6 +414,185 @@ fn a_tests_only_claim_cell_whose_mutation_does_not_kill_is_refused() {
 fn a_tests_only_claim_cell_with_no_committed_patch_is_refused_as_missing() {
     assert_eq!(
         tests_only_claim_case(true, Mutation::Missing, None),
+        Verdict::Fail,
+        "a declared cell with no patch must refuse as missing"
+    );
+}
+
+/// `github.com/telekom/sutura#1025`'s own fixture: `src/lib.rs` carries BOTH `f` and its test
+/// AT INIT already, and the measured diff only ADDS a second assertion inside
+/// `the_existing_one`'s body - no `#[test]`, no `mod tests`, and `f` itself never changes. Before
+/// this decision `plan()` read this file's added line as `Adds::Nothing` (no marker), sent it to
+/// `impl_only`, and - with nothing else in the diff - `causality::run` reached `Plan::NotRequired`
+/// unconditionally: `Verdict::Pass` from any case below is reachable ONLY through
+/// `edited::touches` routing the file into `test_files` instead.
+///
+/// The mutation targets `f`'s return value, in `src/lib.rs`'s PRODUCTION region rather than its
+/// test one - `claim::rot`'s TEXT half refuses a patch that rewrites the `#[cfg(test)]` region
+/// byte-for-byte, and the PATH half refuses any patch at all against a `/tests/` target, which
+/// this file is not.
+///
+/// Every case also asserts that `Scan::of` NAMES the touched test: `plan`'s `edited::touches`
+/// and `Scan::of`'s `edited::touched_in` are separately breakable, and a break of the naming
+/// path alone still answers `Verdict::Fail` - from `report_unreadable`, the wrong refusal.
+fn edited_assertion_case(declare: bool, mutation: Mutation) -> Verdict {
+    assert!(
+        std::env::var_os("NEXTEST").is_some(),
+        "this fixture moves the process's current directory, so it must have the process to \
+         itself: run it under `just test`."
+    );
+    let dir = std::env::temp_dir().join(format!(
+        "sutura-causality-edited-assertion-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _swept = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    git(&dir, &["init", "-q", "-b", "main"]);
+    git(&dir, &["config", "user.email", "test@example.com"]);
+    git(&dir, &["config", "user.name", "test"]);
+
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[profile.ci]\ninherits = \"dev\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    let base_content = "pub fn f() -> u8 { 1 }\n\n#[cfg(test)]\nmod tests {\n    use super::f;\n\n    #[test]\n    fn the_existing_one() {\n        assert_eq!(f(), 1);\n    }\n}\n";
+    std::fs::write(dir.join("src/lib.rs"), base_content).unwrap();
+    std::fs::write(dir.join("flake.nix"), "{ }\n").unwrap();
+
+    // THE HEAD CONTENT, built here and reused below: the ONLY difference from `base_content` is
+    // the added assertion line inside the existing test's body.
+    let head_content = base_content.replacen(
+        "        assert_eq!(f(), 1);\n",
+        "        assert_eq!(f(), 1);\n        assert_ne!(f(), 0);\n",
+        1,
+    );
+
+    // THE PATCH GOES INTO THE INIT COMMIT, BEFORE `base` IS CAPTURED - same placement
+    // `tests_only_claim_case` uses and for the same reason: a patch committed alongside the
+    // measured diff would itself be a second changed file with something to revert, and
+    // `separable.revert` would no longer be empty. Diffed against `head_content`, because
+    // `kill_cell` applies the mutation to the checkout AT HEAD, never at base.
+    let mutated: Option<String> = match mutation {
+        Mutation::Kills => Some(head_content.replacen("pub fn f() -> u8 { 1 }", "pub fn f() -> u8 { 9 }", 1)),
+        Mutation::DoesNotKill => Some(head_content.replacen("pub fn f() -> u8 { 1 }", "pub fn f() -> u8 { 1 } // same", 1)),
+        Mutation::Missing => None,
+    };
+    if let Some(mutated) = mutated {
+        std::fs::write(dir.join(".old.rs"), &head_content).unwrap();
+        std::fs::write(dir.join(".new.rs"), &mutated).unwrap();
+        let diffed = git_output(&dir, &["diff", "--no-index", "--", ".old.rs", ".new.rs"]);
+        let patch = String::from_utf8_lossy(&diffed.stdout)
+            .replace(".old.rs", "src/lib.rs")
+            .replace(".new.rs", "src/lib.rs");
+        std::fs::remove_file(dir.join(".old.rs")).unwrap();
+        std::fs::remove_file(dir.join(".new.rs")).unwrap();
+        std::fs::create_dir_all(dir.join("devco/claim-mutations")).unwrap();
+        std::fs::write(dir.join("devco/claim-mutations/the_existing_one.patch"), &patch).unwrap();
+    }
+
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "init"]);
+    let base = String::from_utf8(git_output(&dir, &["rev-parse", "HEAD"]).stdout)
+        .expect("utf8")
+        .trim()
+        .to_owned();
+
+    // THE WHOLE MEASURED DIFF: one added line inside `the_existing_one`'s body. `f` is
+    // byte-identical to base, so `separable.revert` is empty - there is truly nothing else here
+    // to revert.
+    std::fs::write(dir.join("src/lib.rs"), &head_content).unwrap();
+    git(&dir, &["add", "-A"]);
+    let message = if declare {
+        "test: strengthen the existing assertion\n\nClaim-Cell: the_existing_one"
+    } else {
+        "test: strengthen the existing assertion"
+    };
+    git(&dir, &["commit", "-q", "-m", message]);
+
+    let original = std::env::current_dir().expect("a current directory");
+    std::env::set_current_dir(&dir).expect("point the process at the fixture repo");
+    let named = scan_of_runnable_names(&base);
+    let verdict = super::run(&[String::from("--since"), base]);
+    std::env::set_current_dir(&original).expect("restore the current directory");
+    drop(std::fs::remove_dir_all(&dir));
+    assert_eq!(
+        named,
+        Some(vec![String::from("the_existing_one")]),
+        "`Scan::of` must NAME the touched test, or the verdict comes from the wrong refusal"
+    );
+    verdict
+}
+
+/// The test names `Scan::of` finds on `run`'s own path, or `None` short of `Scan::Runnable`.
+fn scan_of_runnable_names(base: &str) -> Option<Vec<String>> {
+    let commit = super::provenance::Commit::parse(base)?;
+    let files = super::changed_with_additions(&commit)?;
+    let read = |path: &str| std::fs::read_to_string(path).ok();
+    let plan = super::plan::plan(&files, &read);
+    let test_files = match plan {
+        super::plan::Plan::Separable(sep) => sep.test_files,
+        _ => return None,
+    };
+    match super::scoped::Scan::of(&files, &test_files, &read) {
+        super::scoped::Scan::Runnable(scoped) => Some(
+            scoped
+                .tests()
+                .iter()
+                .map(super::place::AddedTest::name)
+                .map(String::from)
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
+/// **THE RED-ON-BASE CELL FOR THIS ISSUE.** No `Claim-Cell:` trailer at all, over a diff whose
+/// only change is an added line inside an existing test - the exact shape that reached
+/// `Plan::NotRequired` unconditionally before this decision. `Verdict::Fail` is NEW behaviour
+/// here, not a pin of an existing one: neutralising `edited::touches` with `&& false` in
+/// `plan()`'s `Adds::Nothing` arm - keeping the field read, so the check still compiles and
+/// runs - reproduces the base tree's answer, `Verdict::Pass`, confirmed by hand.
+#[test]
+fn an_edited_assertion_with_no_claim_cell_is_refused() {
+    assert_eq!(
+        edited_assertion_case(false, Mutation::Missing),
+        Verdict::Fail,
+        "an added line inside an existing test with no `Claim-Cell:` trailer must refuse - the \
+         old classification answered `Verdict::Pass` unconditionally here"
+    );
+}
+
+/// The declared half: a complete declaration over an edited existing test is EVALUATED, and a
+/// mutation that kills by the cell's own assertion is accepted.
+#[test]
+fn a_declared_edited_assertion_claim_cell_is_evaluated() {
+    assert_eq!(
+        edited_assertion_case(true, Mutation::Kills),
+        Verdict::Pass,
+        "a complete declaration over an edited existing test must be consulted, and its killing \
+         mutation accepted"
+    );
+}
+
+/// The arm is reached, not merely declared: a mutation that applies but does not kill is refused.
+#[test]
+fn an_edited_assertion_claim_cell_whose_mutation_does_not_kill_is_refused() {
+    assert_eq!(
+        edited_assertion_case(true, Mutation::DoesNotKill),
+        Verdict::Fail,
+        "reaching the arm and finding the mutation does not kill must refuse"
+    );
+}
+
+/// A declaration with no committed patch is `Cause::MissingPatch`, not treated as though
+/// nothing were declared.
+#[test]
+fn an_edited_assertion_claim_cell_with_no_committed_patch_is_refused_as_missing() {
+    assert_eq!(
+        edited_assertion_case(true, Mutation::Missing),
         Verdict::Fail,
         "a declared cell with no patch must refuse as missing"
     );

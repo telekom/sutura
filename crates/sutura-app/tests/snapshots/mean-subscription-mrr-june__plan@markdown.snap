@@ -3,7 +3,18 @@ source: crates/sutura-app/tests/golden/catalogs.rs
 expression: plan
 ---
 source: local
-metric: mean_subscription_mrr
+measures:
+  - metric: mean_subscription_mrr
+    label: mean_subscription_mrr
+    measure:
+      simple:
+        term:
+          aggregate:
+            aggregate: avg
+            column:
+              table: fct_subscription_monthly
+              column: mrr_cents
+    guard: []
 table: fct_subscription_monthly
 joins: []
 bucket:
@@ -13,15 +24,6 @@ bucket:
     table: fct_subscription_monthly
     column: month
 keys: []
-measure:
-  simple:
-    term:
-      aggregate:
-        aggregate: avg
-        column:
-          table: fct_subscription_monthly
-          column: mrr_cents
-measure_label: mean_subscription_mrr
 filters:
   - origin: definition
     predicate:

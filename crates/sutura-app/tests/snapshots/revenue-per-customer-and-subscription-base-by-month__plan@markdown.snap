@@ -1,0 +1,73 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: plan
+---
+source: local
+measures:
+  - metric: revenue_per_customer
+    label: revenue_per_customer
+    measure:
+      ratio:
+        numerator:
+          aggregate:
+            aggregate: sum
+            column:
+              table: fct_subscription_monthly
+              column: mrr_cents
+        denominator:
+          aggregate:
+            aggregate: count_distinct
+            column:
+              table: fct_subscription_monthly
+              column: customer_key
+        zero_denominator: yields_null
+    guard:
+      - equals:
+          column:
+            table: fct_subscription_monthly
+            column: status
+          param: 0
+  - metric: subscription_base
+    label: subscription_base
+    measure:
+      simple:
+        term:
+          aggregate:
+            aggregate: count_distinct
+            column:
+              table: fct_subscription_monthly
+              column: subscription_key
+    guard: []
+table: fct_subscription_monthly
+joins: []
+bucket:
+  label: period
+  grain: month
+  column:
+    table: fct_subscription_monthly
+    column: month
+keys: []
+filters:
+  - origin: definition
+    predicate:
+      at_or_after:
+        column:
+          table: fct_subscription_monthly
+          column: month
+        param: 1
+  - origin: definition
+    predicate:
+      before:
+        column:
+          table: fct_subscription_monthly
+          column: month
+        param: 2
+params:
+  - Text: active
+  - Date: 2026-01-01
+  - Date: 2026-07-01
+range:
+  start: 2026-01-01
+  end: 2026-07-01
+max_rows: 10000
+top: ~

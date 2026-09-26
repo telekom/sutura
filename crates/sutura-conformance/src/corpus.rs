@@ -24,11 +24,14 @@
 //! precedent: a tracked data file read at compile time, served from the file rather than from a
 //! copied constant.
 //!
-//! # What this corpus does NOT contain, stated so nobody reads it as the whole suite
+//! # The federated cases, and the one adapter pair that runs them
 //!
-//! - **The three cases `docs/adr/0012` names** - a filter on a remote dimension over an orphan key,
-//!   a ratio whose denominator is zero for one subgroup, and a `CountDistinct` spanning two join
-//!   keys. Each needs a second table and a federated plan; none is here.
+//! The three cases `docs/adr/0012` names - a filter on a remote dimension over an orphan key, a
+//! ratio whose denominator is zero for one subgroup, and a `CountDistinct` spanning two join keys -
+//! are `.case` files too. [`federated_cases`] holds the two with an answer; the `CountDistinct` one
+//! is refused by [`FederatedPlan::new`] and asserted as that refusal, since there is no plan to
+//! execute. Only `tests/federated_bound.rs` binds the two-warehouse arm, over two in-process
+//! engines of ONE kind, so these rows say nothing yet about any other adapter.
 //!
 //! # Null placement in a group key: decided, and what the null row does and does NOT detect
 //!
@@ -104,8 +107,8 @@ use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::identity::Presented;
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::plan::{
-    LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin,
-    QueryPlan, ResultLabel, StatementTables,
+    FederatedPlan, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlanTerm,
+    PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
 };
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
@@ -116,6 +119,10 @@ const SOURCE: &str = "conformance";
 
 /// The one table every case reads.
 pub const TABLE: &str = "conformance_events";
+
+/// The second source a federated case's lookup leg reads, and its one table.
+const LOOKUP_SOURCE: &str = "conformance_lookup";
+const LOOKUP_TABLE: &str = "conformance_regions";
 
 /// One question, and the answer to it.
 ///
@@ -289,17 +296,38 @@ pub const fn csv() -> &'static str {
 /// file. Those processes write identical bytes - which is the claim the old path could not make.
 #[must_use]
 pub fn on_disk() -> PathBuf {
-    static WRITTEN: LazyLock<PathBuf> = LazyLock::new(materialise);
+    static WRITTEN: LazyLock<PathBuf> = LazyLock::new(|| materialise(TABLE, csv()));
     WRITTEN.clone()
 }
 
-/// Writes the corpus where an adapter can attach it.
-fn materialise() -> PathBuf {
+/// The federated lookup table on a filesystem, written as [`on_disk`] writes the corpus.
+#[must_use]
+pub fn lookup_on_disk() -> PathBuf {
+    static WRITTEN: LazyLock<PathBuf> =
+        LazyLock::new(|| materialise(LOOKUP_TABLE, include_str!("../corpus/conformance_regions.csv")));
+    WRITTEN.clone()
+}
+
+/// The source a federated case's lookup leg resolves to - never [`source`], because
+/// `FederatedPlan::new` refuses two legs on one source.
+#[must_use]
+pub fn lookup_source() -> SourceName {
+    SourceName::parse(LOOKUP_SOURCE).expect("the lookup source name is a name")
+}
+
+/// The table a federated case's lookup leg reads.
+#[must_use]
+pub fn lookup_table() -> TableName {
+    TableName::parse(LOOKUP_TABLE).expect("the lookup table name is a name")
+}
+
+/// Writes `bytes` as `<table>.csv` where an adapter can attach it.
+fn materialise(table: &str, bytes: &str) -> PathBuf {
     let dir = state_dir().join(PURPOSE);
     std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("could not create {}: {e}", dir.display()));
-    let staged = dir.join(format!("{TABLE}.{}.csv", std::process::id()));
-    let final_path = dir.join(format!("{TABLE}.csv"));
-    std::fs::write(&staged, csv()).unwrap_or_else(|e| panic!("could not write {}: {e}", staged.display()));
+    let staged = dir.join(format!("{table}.{}.csv", std::process::id()));
+    let final_path = dir.join(format!("{table}.csv"));
+    std::fs::write(&staged, bytes).unwrap_or_else(|e| panic!("could not write {}: {e}", staged.display()));
     std::fs::rename(&staged, &final_path).unwrap_or_else(|e| panic!("could not rename onto {}: {e}", final_path.display()));
     final_path
 }
@@ -451,6 +479,40 @@ fn range_bindings() -> PlanBindings {
     ];
     PlanBindings::parse(filters, vec![ParamValue::Date(day(1)), ParamValue::Date(day(3))])
         .expect("the corpus range binds its two bounds in placeholder order")
+}
+
+/// One question over two sources, and the answer to it.
+///
+/// Separate from [`Case`] because the executable is a [`FederatedPlan`] - two legs and the combine
+/// above them - rather than one [`QueryPlan`].
+#[derive(Debug)]
+pub struct FederatedCase {
+    name: &'static str,
+    plan: FederatedPlan,
+    expected: RowSet,
+}
+
+impl FederatedCase {
+    #[inline]
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    #[inline]
+    pub const fn plan(&self) -> &FederatedPlan {
+        &self.plan
+    }
+
+    #[inline]
+    pub const fn expected(&self) -> &RowSet {
+        &self.expected
+    }
+}
+
+/// Every federated question in the corpus with an answer, read from its `.case` file.
+#[must_use]
+pub fn federated_cases() -> Vec<FederatedCase> {
+    case_files::load_federated()
 }
 
 #[cfg(test)]

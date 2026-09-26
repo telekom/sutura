@@ -95,13 +95,13 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
     // `FederationLinkCompound` rather than reused from `FederationLinkAmbiguous`, which names two
     // RELATIONSHIPS crossing at once and would tell a caller something untrue about one correctly
     // declared relationship with more than one key.
-    if relationship.keys().as_slice().len() != 1 {
+    if relationship.keys().len() != 1 {
         return Err(PlanError::Refused(RefusalReason::FederationLinkCompound {
             source: remote_source.clone(),
             relationship: relationship.name().clone(),
         }));
     }
-    let crossing_key = relationship.keys().as_slice().first().ok_or(PlanError::NoRemoteJoin)?;
+    let crossing_key = relationship.keys().first();
 
     // The fact leg groups by its local dimension keys plus the join origin, so the lookup leg can be
     // joined to it above.
@@ -153,11 +153,11 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
     let mut terms: Vec<LegTerm> = Vec::with_capacity(leaf_labels.len());
     for (leaf, &label) in federation.carried().iter().zip(leaf_labels.iter()) {
         let plan_term = match **leaf {
-            Carried::Aggregated { pushed, ref column } => PlanTerm::Aggregate {
+            Carried::Aggregated { pushed, ref column, .. } => PlanTerm::Aggregate {
                 aggregate: pushed.push(),
                 column: PlanColumn::new(own_table.clone(), column.clone()),
             },
-            Carried::CountIf { ref column } => PlanTerm::CountIf {
+            Carried::CountIf { ref column, .. } => PlanTerm::CountIf {
                 column: PlanColumn::new(own_table.clone(), column.clone()),
             },
             // Unreachable: the refusal above returned for any Keys leaf.
@@ -237,6 +237,9 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
         ResultLabel::measure(metric.name()),
         bucket,
         fact,
+        // No second fact leg from a question: `plan` refuses a cross-model ratio before this
+        // splitter runs (`telekom/sutura#780`), because no shape of it renders a second leg yet.
+        None,
         lookup,
         include_unmatched,
         federation,
