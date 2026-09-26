@@ -18,6 +18,9 @@
 //! every category. A new adapter arrives by registering it in the registry (or by being a crate);
 //! no workflow line is asked to know its name in advance.
 //!
+//! `Cargo.lock` is named by no crate or registry; [`lockfile`] attributes its diff to the adapters
+//! the changed packages reach, and fails closed to `core` on anything else, so it only narrows.
+//!
 //! **That fail-open is held at the OUTPUT boundary, not only in `Categories::needs`, and the
 //! difference is the whole reason `crate_categories` exists.** A workflow condition reads an
 //! emitted line; a name that is never emitted is not `false` but ABSENT, renders `''`, and matches
@@ -32,6 +35,9 @@
 //! same absent-is-not-`false` failure, one boundary further out, and `ci-aggregate` reads that
 //! `''` too - so it agrees the skip was allowed. `every_emitted_category_is_republished_as_a_ci_job_output`
 //! holds the two lists together; nothing else does.
+
+#[path = "affected/lockfile.rs"]
+mod lockfile;
 
 use std::collections::BTreeSet;
 use std::io::Write as _;
@@ -108,8 +114,8 @@ impl Categories {
 /// Derive the categories a diff selects, report them and append them to `GITHUB_OUTPUT`. Called
 /// from [`crate::changes::run_classify`] beside the area emission, so CI reads one classification, one
 /// verdict.
-pub(crate) fn finish(paths: &[String]) -> Categories {
-    let cats = derive(paths);
+pub(crate) fn finish(paths: &[String], base: Option<&str>) -> Categories {
+    let cats = derive(paths, base);
     print_report(&cats);
     write_github_output(&cats);
     cats
@@ -130,17 +136,25 @@ fn print_report(cats: &Categories) {
     }
 }
 
-fn derive(paths: &[String]) -> Categories {
+fn derive(paths: &[String], base: Option<&str>) -> Categories {
     let root = Path::new(".");
-    derive_from(paths, registry_categories(root), root)
+    derive_from(paths, registry_categories(root), root, base)
 }
 
 /// [`derive()`] with the registry read handed in, so a test can BREAK that read and compare the
 /// emitted lines against a successful one. Injected rather than reached for: the property this
 /// module documents is about what a *failed* read emits, and a read that only fails when the
 /// working tree is damaged is a property nothing can assert.
-fn derive_from(paths: &[String], registry: Result<BTreeSet<String>, String>, root: &Path) -> Categories {
-    let (mut core, selected, mut reasons) = select(paths, registry.as_ref().ok());
+fn derive_from(paths: &[String], registry: Result<BTreeSet<String>, String>, root: &Path, base: Option<&str>) -> Categories {
+    // A failed read leaves `locks` as `None`, and `select` then fails `Cargo.lock` closed to `core`.
+    let locks = if let Some(base) = base
+        && paths.iter().any(|p| p == "Cargo.lock")
+    {
+        lockfile::build_locks(root, base)
+    } else {
+        None
+    };
+    let (mut core, selected, mut reasons) = select(paths, registry.as_ref().ok(), locks.as_ref());
     let declared = match registry {
         Ok(mut set) => {
             set.insert(String::from(IDENTITY));
@@ -165,7 +179,7 @@ fn derive_from(paths: &[String], registry: Result<BTreeSet<String>, String>, roo
 /// Which categories the changed paths select. `core` is set when any path matches no category, and
 /// subsumes everything; the reasons say exactly which path did it, so a category nobody can see is
 /// reported rather than assumed harmless.
-fn select(paths: &[String], declared: Option<&BTreeSet<String>>) -> Selection {
+fn select(paths: &[String], declared: Option<&BTreeSet<String>>, locks: Option<&lockfile::Locks>) -> Selection {
     let mut selected = BTreeSet::new();
     let mut reasons = Vec::new();
     let mut core = paths.is_empty();
@@ -173,7 +187,9 @@ fn select(paths: &[String], declared: Option<&BTreeSet<String>>) -> Selection {
         reasons.push(String::from("no changed paths - running every category"));
     }
     for path in paths {
-        if IDENTITY_PATHS.iter().any(|p| path.starts_with(p)) {
+        if path == "Cargo.lock" {
+            lockfile::handle_lock(locks, &mut selected, &mut core, &mut reasons);
+        } else if IDENTITY_PATHS.iter().any(|p| path.starts_with(p)) {
             selected.insert(String::from(IDENTITY));
         } else if let Some(tail) = crate_tail(path, DATA_SOURCE_PATH) {
             selected.insert(format!("data_source_{tail}"));
@@ -421,7 +437,7 @@ mod tests {
             ]
             .map(String::from),
         );
-        derive_from(&owned, Ok(declared), Path::new("."))
+        derive_from(&owned, Ok(declared), Path::new("."), None)
     }
 
     #[test]
@@ -642,7 +658,7 @@ macro_rules! registered {
         );
         // An empty diff falls open to `core`, so every declared category is emitted; the crate
         // floor adds whatever `select()` can name from a changed path.
-        let cats = derive_from(&[], registry_categories(&root), &root);
+        let cats = derive_from(&[], registry_categories(&root), &root, None);
         assert!(cats.core, "an empty diff must fall open to core");
         let mut floor_reasons = Vec::new();
         let mut expected = emitted_names(&cats);
@@ -703,8 +719,13 @@ macro_rules! registered {
         );
 
         let paths = vec![String::from("crates/sutura-exec-duckdb/src/lib.rs")];
-        let read = derive_from(&paths, registry_categories(&root), &root);
-        let broken = derive_from(&paths, Err(String::from("planted: the registry could not be read")), &root);
+        let read = derive_from(&paths, registry_categories(&root), &root, None);
+        let broken = derive_from(
+            &paths,
+            Err(String::from("planted: the registry could not be read")),
+            &root,
+            None,
+        );
 
         assert!(!read.core, "one adapter path selects one category");
         assert!(broken.core, "a registry the derive cannot read must fail open");
