@@ -531,6 +531,9 @@ fn scan_of_runnable_names(base: &str) -> Option<Vec<String>> {
     let commit = super::provenance::Commit::parse(base)?;
     let files = super::changed_with_additions(&commit)?;
     let read = |path: &str| std::fs::read_to_string(path).ok();
+    // The BASE image is the commit `--since` names, never HEAD: passing `read` for both would
+    // resolve Shape A's removed-line numbers against the wrong file whenever base and HEAD
+    // disagree on it, the same misalignment `commit_added_names` closed in `claim.rs`.
     let plan = super::plan::plan(&files, &read);
     let test_files = match plan {
         super::plan::Plan::Separable(sep) => sep.test_files,
@@ -618,4 +621,91 @@ fn a_tests_only_diff_declaring_one_of_two_additions_refuses_the_undeclared_one()
         "a partial declaration must refuse over the undeclared remainder, not ride on the \
          declared cell's own passing proof"
     );
+}
+
+/// Run the public causality entry point over one changed test file in a real Git repository.
+/// Both shapes below use only APIs present on base, so their cells can fail by verdict there.
+fn changed_test_shape(base_content: &str, head_content: &str) -> Verdict {
+    changed_tree(&[("src/lib.rs", base_content)], &[("src/lib.rs", head_content)])
+}
+
+/// [`changed_test_shape`] over any set of files: every base file is removed before the head set
+/// is written, so a path in `base` and not in `head` is a rename or a deletion to git.
+fn changed_tree(base_files: &[(&str, &str)], head_files: &[(&str, &str)]) -> Verdict {
+    assert!(
+        std::env::var_os("NEXTEST").is_some(),
+        "this fixture changes the process directory; run it under `just test`"
+    );
+    let dir = std::env::temp_dir().join(format!(
+        "sutura-causality-changed-test-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    drop(std::fs::remove_dir_all(&dir));
+    std::fs::create_dir_all(dir.join("src")).expect("temp crate");
+    git(&dir, &["init", "-q", "-b", "main"]);
+    git(&dir, &["config", "user.email", "test@example.com"]);
+    git(&dir, &["config", "user.name", "test"]);
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("flake.nix"), "{ }\n").unwrap();
+    for (path, content) in base_files {
+        std::fs::write(dir.join(path), content).unwrap();
+    }
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "init"]);
+    let base = String::from_utf8(git_output(&dir, &["rev-parse", "HEAD"]).stdout)
+        .expect("utf8")
+        .trim()
+        .to_owned();
+    for (path, _) in base_files {
+        std::fs::remove_file(dir.join(path)).unwrap();
+    }
+    for (path, content) in head_files {
+        std::fs::write(dir.join(path), content).unwrap();
+    }
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "test: change an existing test"]);
+
+    let original = std::env::current_dir().expect("current directory");
+    std::env::set_current_dir(&dir).expect("fixture directory");
+    let verdict = super::run(&[String::from("--since"), base]);
+    std::env::set_current_dir(&original).expect("restore directory");
+    drop(std::fs::remove_dir_all(&dir));
+    verdict
+}
+
+#[test]
+fn deleting_an_existing_assertion_is_refused() {
+    let base = "pub fn f() -> u8 { 1 }\n#[cfg(test)]\nmod tests {\n    use super::f;\n    #[test]\n    fn existing() {\n        assert_eq!(f(), 1);\n    }\n}\n";
+    let head = base.replace("        assert_eq!(f(), 1);\n", "");
+    assert_eq!(changed_test_shape(base, &head), Verdict::Fail);
+}
+
+#[test]
+fn editing_a_called_test_helper_is_refused_without_a_claim() {
+    let base = "#[cfg(test)]\nmod tests {\n    fn helper() -> u8 { 1 }\n    #[test]\n    fn existing() {\n        assert_eq!(helper(), 1);\n    }\n}\n";
+    let head = base.replace("fn helper() -> u8 { 1 }", "fn helper() -> u8 { 2 }");
+    assert_eq!(changed_test_shape(base, &head), Verdict::Fail);
+}
+
+#[test]
+fn deleting_a_called_test_helpers_assertion_is_refused() {
+    let base = "#[cfg(test)]\nmod tests {\n    fn helper() {\n        assert_eq!(2 + 2, 4);\n    }\n    #[test]\n    fn existing() {\n        helper();\n    }\n}\n";
+    let head = base.replace("        assert_eq!(2 + 2, 4);\n", "");
+    assert_eq!(changed_test_shape(base, &head), Verdict::Fail);
+}
+
+/// A MOVED file is read at base under the path it had there. `git diff` reports a moved-and-edited
+/// file as a rename, and reading its pre-image at the new path found nothing, so every such file
+/// with a removed line was refused as unreadable - a crate split could not pass at all.
+#[test]
+fn a_moved_file_is_read_at_base_under_its_old_path() {
+    let body = "pub fn f() -> u8 {\n    // one\n    1\n}\n\npub fn g() -> u8 {\n    2\n}\n";
+    let base = [("src/lib.rs", "mod a;\n"), ("src/a.rs", body)];
+    let head = [("src/lib.rs", "mod b;\n"), ("src/b.rs", &*body.replace("    // one\n", ""))];
+    assert_eq!(changed_tree(&base, &head), Verdict::Pass);
 }

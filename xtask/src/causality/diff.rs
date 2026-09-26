@@ -18,6 +18,9 @@ use super::regions::AddedLine;
 pub(crate) struct ChangedFile {
     /// Repo-relative, with forward slashes, as git prints it.
     pub(crate) path: String,
+    /// Where this file sat at BASE: [`Self::path`] unless git reports a rename, and the path every
+    /// [`RemovedLine`] must be read under, because that is the only image a removed line exists in.
+    pub(crate) before: String,
     /// The lines this diff added, in file order.
     pub(crate) added: Vec<AddedLine>,
     /// The lines this diff REMOVED, in file order.
@@ -119,6 +122,8 @@ fn parse_diff(text: &str) -> Vec<ChangedFile> {
     // EMPTY change set, which `super::reverted` read as *nothing changed*. Headers occur only
     // before a file's first `@@`, so that is where they are read.
     let mut in_hunk = false;
+    // `--- a/<path>` precedes `+++ b/<path>`, and names a different path when git saw a rename.
+    let mut before: Option<String> = None;
 
     for line in text.lines() {
         if line.starts_with("diff --git ") {
@@ -126,6 +131,11 @@ fn parse_diff(text: &str) -> Vec<ChangedFile> {
                 files.push(done);
             }
             in_hunk = false;
+            before = None;
+            continue;
+        }
+        if let Some(rest) = (!in_hunk).then(|| line.strip_prefix("--- a/")).flatten() {
+            before = Some(String::from(rest));
             continue;
         }
         // Guarded by `in_hunk` for the same reason: an ADDED line spelling `++ b/x` arrives here
@@ -136,6 +146,7 @@ fn parse_diff(text: &str) -> Vec<ChangedFile> {
             }
             current = Some(ChangedFile {
                 path: String::from(rest),
+                before: before.take().unwrap_or_else(|| String::from(rest)),
                 added: Vec::new(),
                 removed: Vec::new(),
             });

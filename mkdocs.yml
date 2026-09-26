@@ -258,6 +258,7 @@ nav:
           - sutura-catalog-datacontract: api/sutura-catalog-datacontract.md
           - sutura-catalog-openmetadata: api/sutura-catalog-openmetadata.md
           - sutura-catalog-rdbms: api/sutura-catalog-rdbms.md
+          - sutura-catalog-wren: api/sutura-catalog-wren.md
           - sutura-semantic: api/sutura-semantic.md
           - sutura-sql: api/sutura-sql.md
           - sutura-exec-datafusion: api/sutura-exec-datafusion.md

@@ -43,6 +43,7 @@ pub(crate) fn manifest(name: &str) -> String {
 pub(crate) fn changed(path: &str, first: usize, texts: &[&str]) -> ChangedFile {
     ChangedFile {
         path: String::from(path),
+        before: String::from(path),
         added: added_from(first, texts),
         removed: Vec::new(),
     }
@@ -56,6 +57,7 @@ pub(crate) fn changed(path: &str, first: usize, texts: &[&str]) -> ChangedFile {
 pub(crate) fn changed_removing(path: &str, at: usize, added: &[&str], was: usize, removed: &[&str]) -> ChangedFile {
     ChangedFile {
         path: String::from(path),
+        before: String::from(path),
         added: added_from(at, added),
         removed: removed
             .iter()

@@ -43,6 +43,7 @@ members = [
   # Declared, not defaulted; measured against its own declaration rather than the golden oracle -
   # `docs/what-openmetadata-can-carry.md` is the finding, `#152` the issue.
   "crates/sutura-catalog-openmetadata",
+  "crates/sutura-catalog-wren",
   "crates/sutura-semantic",
   # Rendering, and a SEPARATE crate from the compiler on purpose. `sutura-semantic` stops at a
   # plan because the `Warehouse` port carries one, so the generator is reachable from SQL adapters
@@ -147,6 +148,7 @@ sutura-catalog-rdbms = { path = "crates/sutura-catalog-rdbms" }
 sutura-catalog-okf = { path = "crates/sutura-catalog-okf" }
 sutura-catalog-datacontract = { path = "crates/sutura-catalog-datacontract" }
 sutura-catalog-openmetadata = { path = "crates/sutura-catalog-openmetadata" }
+sutura-catalog-wren = { path = "crates/sutura-catalog-wren" }
 sutura-semantic = { path = "crates/sutura-semantic" }
 sutura-sql = { path = "crates/sutura-sql" }
 sutura-app = { path = "crates/sutura-app" }
@@ -959,9 +961,8 @@ overflow-checks = false
 # Pointless in a sandbox: each derivation starts with an empty target directory, so the
 # incremental artifacts are computed, written and then discarded with the sandbox.
 incremental = false
-# Matches the shipped profiles, and cheaper here: no landing pads and no unwind tables to
-# emit. A link check that linked a panic strategy we do not ship would be checking the
-# wrong binary.
+# Matches the shipped profiles, and cheaper here: no landing pads and no unwind tables to emit. A
+# link check that linked a panic strategy we do not ship would be checking the wrong binary.
 panic = "abort"
 
 # opt-level 0 for DEPENDENCIES and BUILD SCRIPTS, overriding what `dev` sets. This is where

@@ -5,15 +5,15 @@ description: The two tracks for BigQuery, Postgres and Oracle - one source is a 
 
 # Federating across different data systems
 
-Status: accepted, and **partly built** - amended five times, in place, by the blocks below. *Nothing
+Status: accepted, and **partly built** - amended in place by the blocks below. *Nothing
 here is built* was the status when this was written and is corrected rather than left: the splitter,
 the leg types, the per-dialect rendering, the combine and the orchestrating call all exist,
 `sutura-exec-datafusion` executes a leg, and a deployment can hold two KINDS of data system at
 once (*Second amendment, 2026-09-16*; *Third amendment, 2026-09-19* widens a dimension's `via` to a
 chain; *Fourth amendment, 2026-09-21* retires the working-set and deadline figures against the
 records that now carry them; *Fifth amendment, 2026-09-22* is the one that closes the largest absence
-this record carried - **the second driven port designed below is BUILT**). What is still unbuilt is
-track 1 beyond the dialects that ship. It decides a shape and an order; the code it led to is cited
+this record carried - **the second driven port designed below is BUILT**). Oracle now has a linked
+adapter; the seventh amendment records its evidence limit. The code this decision led to is cited
 beside each amendment. **Read
 *Amendment, 2026-09-16* before citing the `feat/source-registry` bullet under *The order, by
 branch*** - it names an absence that has since become false.
@@ -1335,7 +1335,24 @@ from which - not that anybody opted in.
 answer's spend charge sums both legs' estimates against **one** subject key (`docs/adr/0030`,
 all-or-nothing) regardless of which leg ran as whom. Two authorization domains, one budget.
 
-## Seventh amendment, 2026-09-26: the comparison half of *How a cross-source join key is declared and compared* is decided
+## Seventh amendment, 2026-09-26: Oracle is linked, with no observed execution
+
+The statements above that Oracle is uncompiled, its driver untried under `just validate`, and
+Arrow Flight SQL is the route in use are historical. `sutura-cli` now links
+`sutura-exec-oracle` and the pure-Rust `oracledb` client behind a default-off `oracle` feature.
+Both composition roots use that adapter. The all-features `just validate` builds it;
+`nix/shipped.nix` excludes `oracle` from the release feature list. The repository records no live
+Oracle execution: the Oracle goldens declare `Venue::ByHandOnly` and prove rendering only.
+
+The `LIMIT 10001` example and the pending row-limit change above are historical too.
+`sutura-sql::generate` moves Oracle's limit to a `Fetch` node, and a golden checks
+`FETCH FIRST n ROWS ONLY`. That does not prove a database accepted the statement. The quoted
+identifier case concern above still needs a live Oracle cell.
+
+The direct driver does not supply per-subject token authentication. ADR 0008 keeps that decision
+deferred; the adapter's own header records the separate transport and redirect limits.
+
+## Eighth amendment, 2026-09-26: the comparison half of *How a cross-source join key is declared and compared* is decided
 
 **The *What is explicitly not decided* bullet of that name is half-spent, and the half that is spent
 is the comparison half.** Left above as written, per the amendment convention; the correction is
@@ -1353,7 +1370,7 @@ declaration. The smallest design that would move the check earlier - a classifie
 text to a kind, in `federated_plan` - does not exist today. That is the half this amendment does not
 close.
 
-## Eighth amendment, 2026-09-26: `describes_identity()` is no longer a constant returning `false`
+## Ninth amendment, 2026-09-26: `describes_identity()` is no longer a constant returning `false`
 
 The Identity section (line 937) said *There is no per-caller identity, `describes_identity()` is a
 `const fn` returning `false` printed on every boot, and the bearer token authenticates the

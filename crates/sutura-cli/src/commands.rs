@@ -11,6 +11,7 @@
 //! matching on a variant. Every message is built from a typed error's own `Display`, so the variant
 //! is still what decided the wording.
 
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -341,13 +342,31 @@ fn prompt_inputs(settings: &sutura_config::PromptSettings) -> Result<ResolvedPro
         None => None,
         Some(configured) => {
             let path = configured.path();
-            Some(std::fs::read_to_string(path).map_err(|e| {
+            let file = std::fs::File::open(path).map_err(|e| {
                 format!(
                     "prompt.instructions_file is {} and it could not be read: {e}\nremove the key to \
                      render the prompt without an operator section",
                     path.display()
                 )
-            })?)
+            })?;
+            let cap = settings.instructions_max_bytes().get();
+            let bound = u64::try_from(cap)
+                .map_err(|cause| format!("prompt.instructions_max_bytes exceeds the supported size: {cause}"))?;
+            let mut bytes = Vec::new();
+            file.take(bound + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|e| format!("prompt.instructions_file is {} and it could not be read: {e}", path.display()))?;
+            if bytes.len() > cap {
+                return Err(format!(
+                    "prompt.instructions_file is at least {} bytes, above the {} byte prompt.instructions_max_bytes cap",
+                    bytes.len(),
+                    cap
+                ));
+            }
+            Some(
+                String::from_utf8(bytes)
+                    .map_err(|e| format!("prompt.instructions_file is {} and it is not UTF-8: {e}", path.display()))?,
+            )
         }
     };
     Ok((prose, instructions))
@@ -772,6 +791,49 @@ mod tests {
         ))
         .expect("a readable file is read");
         assert_eq!(instructions.as_deref(), Some("Prefer the month grain.\n"));
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn instructions_at_the_cap_load_and_one_byte_over_refuses_before_rendering() {
+        let dir = std::env::temp_dir().join(format!("sutura-cli-prompt-bound-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        std::fs::create_dir_all(&dir).expect("scratch directory");
+        let path = dir.join("instructions.md");
+        let configured = sutura_config::InstructionsFile::parse(path.to_string_lossy().as_ref()).expect("path");
+        let settings = sutura_config::PromptSettings::new(Some(configured), sutura_config::CatalogProse::Quoted);
+        let at_cap = "x".repeat(32 * 1024);
+        std::fs::write(&path, &at_cap).expect("at-cap file");
+        let (_, loaded) = prompt_inputs(&settings).expect("at-cap instructions load");
+        assert_eq!(loaded.as_deref(), Some(at_cap.as_str()));
+
+        std::fs::write(&path, format!("{at_cap}x")).expect("over-cap file");
+        let error = prompt_inputs(&settings).expect_err("over-cap instructions refuse");
+        assert!(error.contains("prompt.instructions_file"), "{error}");
+        assert!(error.contains("32769"), "{error}");
+        assert!(error.contains("32768"), "{error}");
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn a_configured_instructions_limit_reaches_the_file_read() {
+        let dir = std::env::temp_dir().join(format!("sutura-cli-prompt-custom-bound-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        std::fs::create_dir_all(&dir).expect("scratch directory");
+        let path = dir.join("instructions.md");
+        std::fs::write(&path, "x".repeat(65)).expect("instructions file");
+        let overlay = format!(
+            "prompt:\n  instructions_file: {}\n  instructions_max_bytes: 64\n",
+            path.display()
+        );
+        let settings = sutura_config::Settings::load(
+            &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+        )
+        .expect("configured limit loads");
+        let error = prompt_inputs(settings.prompt()).expect_err("one byte above the configured cap refuses");
+        assert!(error.contains("prompt.instructions_file"), "{error}");
+        assert!(error.contains("65"), "{error}");
+        assert!(error.contains("64"), "{error}");
         drop(std::fs::remove_dir_all(&dir));
     }
 

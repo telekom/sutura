@@ -1,0 +1,12 @@
+diff --git a/xtask/src/affected/lockfile.rs b/xtask/src/affected/lockfile.rs
+--- a/xtask/src/affected/lockfile.rs
++++ b/xtask/src/affected/lockfile.rs
+@@ -281,7 +281,7 @@ pub(super) fn attribute(base: &str, head: &str) -> Attribution {
+             Changed::Base(k) => (k, &base_reverse, &base_boundaries),
+         };
+         let reached = bfs_to_members(key, reverse, boundaries);
+-        if reached.is_empty() {
++        if reached.is_empty() && false {
+             return Attribution::Core(format!(
+                 "Cargo.lock: changed package `{}` {} reaches no workspace member - running every category",
+                 key.0, key.1

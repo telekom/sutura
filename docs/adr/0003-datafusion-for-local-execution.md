@@ -173,11 +173,13 @@ stays a reference for the federation stage rather than becoming a dependency.
 ## Amendment, 2026-09-26: DuckDB is no longer the only thing that executes the SQL we render
 
 The Context section (line 48) said of DuckDB: *it is the only thing in the repository that EXECUTES
-the SQL we render*. Postgres (`EXECUTES_LEGS = true`,
-`crates/sutura-exec-postgres/src/lib.rs:742`), DuckDB (`crates/sutura-exec-duckdb/src/lib.rs:539`),
-Oracle (`crates/sutura-exec-oracle/src/lib.rs:597`), BigQuery
-(`crates/sutura-exec-bigquery/src/lib.rs:698`), and the DataFusion engine
-(`crates/sutura-exec-datafusion/src/lib.rs:672`) all execute rendered SQL. DuckDB was the only one
-when this was written; it is no longer. What remains true is the original claim's purpose: without a
-real SQL engine somewhere in the loop, the rendering half of the compiler would be vouched for by
-parsing alone. There are now several engines in that loop.
+the SQL we render*. Every SQL-speaking adapter now executes what `sutura_sql::generate` renders:
+Postgres (`crates/sutura-exec-postgres/src/lib.rs:50`), ClickHouse
+(`crates/sutura-exec-clickhouse/src/lib.rs:93`), BigQuery (`crates/sutura-exec-bigquery/src/lib.rs:119`)
+and Oracle (`crates/sutura-exec-oracle/src/lib.rs:74`), beside DuckDB. DuckDB was the only one when
+this was written; it is no longer. **The limit, next to the claim:** Oracle's adapter is linked but
+the repository records no live Oracle execution (`docs/adr/0007`'s Seventh amendment), and the
+DataFusion engine is not one of these - it generates no SQL at all and executes a `LogicalPlan`
+built from the plan. What remains true is the original claim's purpose: without a real SQL engine
+somewhere in the loop, the rendering half of the compiler would be vouched for by parsing alone.
+There are now several engines in that loop.

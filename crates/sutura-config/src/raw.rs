@@ -648,5 +648,7 @@ pub(crate) struct RawPrompt {
     #[serde(default)]
     pub(crate) instructions_file: Option<String>,
     #[serde(default)]
+    pub(crate) instructions_max_bytes: Option<u64>,
+    #[serde(default)]
     pub(crate) catalog_prose: Option<String>,
 }

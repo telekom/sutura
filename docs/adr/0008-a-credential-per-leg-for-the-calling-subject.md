@@ -2177,7 +2177,21 @@ checked once before anything reaches an adapter - so an assertion valid at the s
 and expired at the end is refused by the data system, not here. `Presented` carries no validity at
 all, so an adapter cannot make the check either.
 
-## Third amendment, 2026-09-26: an adapter carries a per-subject credential, and the two-subject test is written
+## Third amendment, 2026-09-26: an Oracle adapter exists under the shared posture
+
+The Oracle section's "no Oracle driver" and "nobody has tried building `oracledb` here" statements
+are historical. `sutura-exec-oracle` now links the pure-Rust `oracledb` client behind
+`sutura-cli`'s default-off `oracle` feature. It compiles in the all-features `just validate`
+checks; the repository records no live Oracle execution.
+
+The adapter opens one connection under the deployment's declared user. The composition root
+checks the declared posture against `OracleWarehouse::IMPERSONATION` before opening it, so an
+Oracle source declared for impersonation is refused at startup. The adapter has no path for a
+caller's credential. This changes the old absence of a driver, not the token-authentication gap
+or the deferred impersonation decision above. ADR 0007 records what Oracle SQL now renders and
+what the render-only venue cannot prove.
+
+## Fourth amendment, 2026-09-26: an adapter carries a per-subject credential, and the two-subject test is written
 
 Two present-tense statements this record made about the *absence* of a per-subject adapter are
 now false, and are left in place because the rest of this record is the argument that made them
@@ -2211,7 +2225,7 @@ surface's capability gate and the identity pool's provider, and neither candidat
 here does. This amendment corrects the record's claim about what is built; it does not claim a
 run that has not been observed.
 
-## Fourth amendment, 2026-09-26: six present-tense sentences this record's body, correction table and amendment blocks made are now false
+## Fifth amendment, 2026-09-26: six present-tense sentences this record's body, correction table and amendment blocks made are now false
 
 Six statements this record made in present tense are now false, and are
 left in place because each is part of the argument that made checking it worthwhile. This block
