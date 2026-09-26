@@ -1,7 +1,7 @@
 # Exemptions from the 1000-line file limit enforced by `cargo xtask max-lines`.
 #
 # One glob per line; `#` starts a comment. `*` stays inside one path segment, `**` crosses
-# segments, and a pattern with no `/` matches that file name at any depth.
+# segments. A pattern with no `/` matches at any depth except under `crates/` and `xtask/`.
 #
 # Two sections, and the difference between them is the whole point:
 #

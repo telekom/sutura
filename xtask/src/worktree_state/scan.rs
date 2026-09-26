@@ -246,6 +246,7 @@ const MUTATIONS: &[&str] = &[
     "fs::write",
     "fs::rename",
     "fs::copy",
+    "hard_link",
     "fs::remove",
     "remove_dir",
     "remove_file",
@@ -794,6 +795,16 @@ fn go() {
 }
 "#;
         assert_eq!(only(Language::Rust, read), Keyed::Unwritten);
+    }
+
+    #[test]
+    fn a_hard_link_to_a_shared_path_is_a_write() {
+        let text = r#"
+fn go() {
+    std::fs::hard_link("source", "/tmp/sutura-shared/link").unwrap();
+}
+"#;
+        assert_eq!(only(Language::Rust, text), Keyed::Shared);
     }
 
     #[test]

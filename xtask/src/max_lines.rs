@@ -61,7 +61,7 @@ const NEAR_CAP_REPORTED: usize = 5;
 /// Hand-written source. An ignore pattern pointing here is rejected outright and the gate
 /// fails: the fix for a 1200-line module is to split it, and an exemption list that can
 /// swallow first-party code is a gate that quietly stops gating.
-const UNEXEMPTABLE_PREFIXES: &[&str] = &["crates/", "xtask/"];
+const UNEXEMPTABLE_PREFIXES: &[&str] = &["crates", "xtask"];
 
 /// Patterns from the ignore file, split by what they promise.
 struct Ignores {
@@ -232,9 +232,9 @@ fn measure(census: repo::Census, must_judge: &[&str], max: usize, ignores: &Igno
             return;
         }
         measured.over_cap.push(String::from(rel));
-        if ignores.warn.iter().any(|p| repo::matches(p, rel)) {
+        if ignores.warn.iter().any(|p| matches_ignore(p, rel)) {
             measured.warnings.push((String::from(rel), lines));
-        } else if !ignores.silent.iter().any(|p| repo::matches(p, rel)) {
+        } else if !ignores.silent.iter().any(|p| matches_ignore(p, rel)) {
             measured.violations.push((String::from(rel), lines));
         }
     })?;
@@ -327,7 +327,7 @@ fn headroom(under_cap: &[(&str, usize)], ignores: &Ignores, max: usize, keep: us
     let mut near: Vec<(&str, usize)> = under_cap
         .iter()
         .copied()
-        .filter(|(rel, _)| !ignores.all().any(|pattern| repo::matches(pattern, rel)))
+        .filter(|(rel, _)| !ignores.all().any(|pattern| matches_ignore(pattern, rel)))
         .collect();
     // Stable, over a path-sorted listing, so equal headroom prints in path order rather than in
     // whatever order the walk happened to reach two files in.
@@ -357,12 +357,13 @@ fn headroom(under_cap: &[(&str, usize)], ignores: &Ignores, max: usize, keep: us
 fn inert_entries(ignores: &Ignores, files: &[String], over_cap: &[String]) -> Vec<String> {
     let mut inert = Vec::new();
     for pattern in ignores.all().filter(|pattern| is_literal(pattern)) {
-        let present = files.iter().any(|rel| repo::matches(pattern, rel));
+        let present = files.iter().any(|rel| matches_ignore(pattern, rel));
         if !present {
             inert.push(format!(
                 "`{pattern}` names no file in the tree - it was renamed or deleted and the exemption outlived it"
             ));
-        } else if ignores.warn.iter().any(|warned| warned == pattern) && !over_cap.iter().any(|rel| repo::matches(pattern, rel)) {
+        } else if ignores.warn.iter().any(|warned| warned == pattern) && !over_cap.iter().any(|rel| matches_ignore(pattern, rel))
+        {
             inert.push(format!(
                 "`[warn]` `{pattern}` is under the cap, so it prints nothing - the promise to split was kept and the argument for the exemption stayed"
             ));
@@ -442,11 +443,22 @@ fn parse_max_lines(args: &[String]) -> Result<usize, String> {
     }
 }
 
-/// A pattern is unexemptable if it reaches into first-party source. Checked on the raw
-/// pattern text, so a wildcard cannot sneak past by matching nothing today.
+/// A pattern is unexemptable if its first segment can name first-party source, including a glob
+/// that matches nothing today.
 fn is_unexemptable(pattern: &str) -> bool {
     let normalized = pattern.trim_start_matches("./");
-    UNEXEMPTABLE_PREFIXES.iter().any(|prefix| normalized.starts_with(prefix))
+    let Some((first, _)) = normalized.split_once('/') else {
+        return false;
+    };
+    UNEXEMPTABLE_PREFIXES.iter().any(|root| repo::matches(first, root))
+}
+
+/// A bare ignore pattern still covers generated files at any depth, but never first-party source.
+fn matches_ignore(pattern: &str, rel: &str) -> bool {
+    let protected = rel
+        .split_once('/')
+        .is_some_and(|(first, _)| UNEXEMPTABLE_PREFIXES.contains(&first));
+    (pattern.contains('/') || !protected) && repo::matches(pattern, rel)
 }
 
 #[cfg(test)]
@@ -754,8 +766,25 @@ mod tests {
         assert!(is_unexemptable("crates/sutura-domain/src/lib.rs"));
         assert!(is_unexemptable("./xtask/src/main.rs"));
         assert!(is_unexemptable("crates/**"));
+        assert!(is_unexemptable("**/lib.rs"));
         assert!(!is_unexemptable("Cargo.lock"));
         assert!(!is_unexemptable("docs/generated/openapi.json"));
+    }
+
+    #[test]
+    fn a_bare_ignore_cannot_exempt_a_nested_source() {
+        let ignores = Ignores::parse("[silent]\nlib.rs\n");
+        let files = vec![String::from("crates/sutura-domain/src/lib.rs")];
+        assert!(
+            inert_entries(&ignores, &files, &[])
+                .iter()
+                .any(|problem| problem.contains("lib.rs"))
+        );
+        let locks = Ignores::parse("[silent]\nCargo.lock\n");
+        assert_eq!(
+            inert_entries(&locks, &[String::from("fuzz/Cargo.lock")], &[]),
+            [] as [String; 0]
+        );
     }
 
     #[test]

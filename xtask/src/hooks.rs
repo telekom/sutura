@@ -216,7 +216,7 @@ fn decide_install_types(text: &str) -> Verdict {
         .lines()
         .map(str::trim_start)
         .find_map(|line| line.strip_prefix(INSTALL_TYPES_KEY))
-        .map(stages)
+        .map(flow_stages)
     else {
         eprintln!("xtask check-hook-tiers: read no `{INSTALL_TYPES_KEY}` out of {CONFIG}\n");
         eprintln!("A reader that stopped matching this key cannot tell an unchanged file from one");
@@ -330,8 +330,8 @@ pub(crate) fn hooks(text: &str) -> Vec<Hook> {
         if trimmed.starts_with('#') {
             continue;
         }
-        if let Some(list) = trimmed.strip_prefix("default_stages:") {
-            defaults = stages(list);
+        if trimmed.starts_with("default_stages:") {
+            defaults = stages(&lines, index);
             continue;
         }
         if let Some(id) = trimmed.strip_prefix("- id:") {
@@ -350,8 +350,8 @@ pub(crate) fn hooks(text: &str) -> Vec<Hook> {
         let Some(hook) = out.last_mut() else {
             continue;
         };
-        if let Some(list) = trimmed.strip_prefix("stages:") {
-            hook.stages = stages(list);
+        if trimmed.starts_with("stages:") {
+            hook.stages = stages(&lines, index);
             continue;
         }
         if let Some(value) = trimmed.strip_prefix("always_run:") {
@@ -422,8 +422,35 @@ fn anchor(value: &str) -> Option<(String, String)> {
     Some((String::from(name), String::from(anchored.trim())))
 }
 
-/// The stage names in a `[a, b]` flow sequence.
-fn stages(list: &str) -> Vec<String> {
+/// The stage names in a flow or block sequence.
+fn stages(lines: &[&str], at: usize) -> Vec<String> {
+    let Some(raw) = lines.get(at) else {
+        return Vec::new();
+    };
+    let Some((_, list)) = raw.split_once(':') else {
+        return Vec::new();
+    };
+    if list.trim().is_empty() {
+        let indent = raw.len().saturating_sub(raw.trim_start().len());
+        let mut found = Vec::new();
+        for line in lines.iter().skip(at.saturating_add(1)) {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            if line.len().saturating_sub(line.trim_start().len()) <= indent {
+                break;
+            }
+            if let Some(stage) = trimmed.strip_prefix("- ") {
+                found.push(String::from(stage.split_once(" #").map_or(stage, |(name, _)| name).trim()));
+            }
+        }
+        return found;
+    }
+    flow_stages(list)
+}
+
+fn flow_stages(list: &str) -> Vec<String> {
     list.trim()
         .trim_start_matches('[')
         .trim_end_matches(']')
@@ -611,6 +638,23 @@ mod tests {
             "        stages: [pre-push]\n",
         );
         assert_eq!(super::decide(&super::hooks(FORMAT_ON_PUSH)), Verdict::Fail);
+    }
+
+    #[test]
+    fn a_block_stage_sequence_cannot_hide_a_compiling_push_hook() {
+        let block = PUSH_COMPILES
+            .replace("default_stages: [pre-commit]", "default_stages:\n  - pre-commit")
+            .replace(
+                "stages: [pre-push]",
+                "stages:\n          # an allowed YAML comment\n\n          - pre-push",
+            );
+        let hooks = super::hooks(&block);
+        let compile = hooks
+            .iter()
+            .find(|hook| hook.id == "rust-clippy-push")
+            .expect("the compiling hook");
+        assert!(compile.runs_at(super::PUSH));
+        assert_eq!(super::decide(&hooks), Verdict::Fail);
     }
 
     #[test]

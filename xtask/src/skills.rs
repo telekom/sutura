@@ -434,7 +434,7 @@ fn library_problems(root: &Path) -> Vec<String> {
                 problems.push(format!("could not read `{LIBRARY_DIR}/{rel}/SKILL.md`"));
                 continue;
             };
-            if !body.contains("## Provenance") {
+            if !provenance_section(&body) {
                 problems.push(format!(
                     "`{LIBRARY_DIR}/{rel}/SKILL.md` has no `## Provenance` section - record the upstream, licence and local status"
                 ));
@@ -445,6 +445,35 @@ fn library_problems(root: &Path) -> Vec<String> {
         }
     }
     problems
+}
+
+/// A section heading outside fenced examples, where a reader will see it as provenance.
+fn provenance_section(body: &str) -> bool {
+    let mut fence: Option<(u8, usize)> = None;
+    for raw in body.lines() {
+        let indent = raw.len().saturating_sub(raw.trim_start_matches(' ').len());
+        if indent > 3 {
+            continue;
+        }
+        let line = raw.trim();
+        let first = line.as_bytes().first().copied();
+        let marker = first.filter(|byte| *byte == b'`' || *byte == b'~');
+        let width = marker.map_or(0, |byte| line.bytes().take_while(|next| *next == byte).count());
+        if width >= 3 {
+            match fence {
+                None => fence = marker.map(|byte| (byte, width)),
+                Some((active, opened))
+                    if marker == Some(active) && width >= opened && line.get(width..).is_some_and(str::is_empty) =>
+                {
+                    fence = None;
+                }
+                Some(_) => {}
+            }
+        } else if fence.is_none() && line == "## Provenance" {
+            return true;
+        }
+    }
+    false
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
@@ -592,6 +621,22 @@ mod tests {
         let json = r#"{"intents":[{"intent":"x","group":"engineering","skill":"rust"}]}"#;
         assert_eq!(intent_targets(json), vec![String::from("engineering/rust")]);
         assert!(intent_targets("{}").is_empty(), "an intentless payload yields no targets");
+    }
+
+    #[test]
+    fn a_fenced_provenance_example_does_not_satisfy_the_library_gate() {
+        let tree = crate::scratch_tree::Tree::of(
+            "fenced-provenance",
+            &[(
+                ".agents/skill-library/group/example/SKILL.md",
+                b"---\nname: example\n---\n````md\n```\n## Provenance\n````\n    ## Provenance\n",
+            )],
+        );
+        let problems = super::library_problems(tree.root());
+        assert!(
+            problems.iter().any(|problem| problem.contains("no `## Provenance` section")),
+            "{problems:?}"
+        );
     }
 
     // NOTE: there is deliberately no test here that reads the real router and the real
