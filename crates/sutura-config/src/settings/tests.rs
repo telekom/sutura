@@ -963,3 +963,8 @@ mod tools;
 /// `#[cfg(test)]` reason as `governance` above.
 #[cfg(test)]
 mod rdbms_catalog;
+
+/// The depth bound on the merged value-tree walk. Same `#[cfg(test)]` reason as `governance`
+/// above.
+#[cfg(test)]
+mod merge_depth;
