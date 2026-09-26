@@ -274,7 +274,11 @@ pub struct TokenRequirement<'inbound> {
     /// `None` in the `direct` mode, and that asymmetry is the decision rather than an omission: an
     /// access token's lifetime is the authorization server's to choose and a ceiling here would refuse
     /// tokens an issuer minted correctly. In `behind-gateway` there is a ceiling because the record
-    /// calls the assertion short-lived, and a claim nothing enforces is what review found.
+    /// calls the assertion short-lived, and [`ProofLifetime::parse`] enforces it: a configured value
+    /// above [`ProofLifetime::MAX_SECONDS`] is refused at boot as
+    /// [`InvalidInboundValue::LifetimeOutOfRange`]. The ceiling bounds the replay window of a captured
+    /// assertion, not the assertion's binding to a request - see the module documentation on why a
+    /// nonce store is still absent.
     max_lifetime: Option<ProofLifetime>,
 }
 
