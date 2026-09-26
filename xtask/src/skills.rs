@@ -15,6 +15,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::Verdict;
+use crate::markdown;
 use crate::repo;
 
 const SKILLS_DIR: &str = ".agents/skills";
@@ -404,6 +405,20 @@ mod link_tests {
     }
 }
 
+/// Whether `body` carries a `## Provenance` heading in its prose.
+///
+/// [`markdown::prose`] blanks fenced blocks, HTML comments and inline code spans, so the heading
+/// text quoted inside a code fence - which a substring match accepted - is not a section, and
+/// neither is one indented into a code block (a tab, or four spaces). An unlexable body (an
+/// unclosed fence or comment) is a refusal, never a pass.
+fn provenance_heading(body: &str) -> Result<bool, markdown::Unlexable> {
+    let lines = markdown::prose(body)?;
+    Ok(lines.iter().any(|line| {
+        let heading = line.trim_start_matches(' ');
+        line.len().saturating_sub(heading.len()) <= 3 && heading.trim_end() == "## Provenance"
+    }))
+}
+
 /// Library skills are exempt from routing but not from provenance. An imported skill with no
 /// upstream recorded cannot be updated, audited for licence, or compared against upstream
 /// later - which is how a mirror silently becomes a fork nobody can reconcile.
@@ -434,10 +449,16 @@ fn library_problems(root: &Path) -> Vec<String> {
                 problems.push(format!("could not read `{LIBRARY_DIR}/{rel}/SKILL.md`"));
                 continue;
             };
-            if !provenance_section(&body) {
-                problems.push(format!(
-                    "`{LIBRARY_DIR}/{rel}/SKILL.md` has no `## Provenance` section - record the upstream, licence and local status"
-                ));
+            match provenance_heading(&body) {
+                Ok(true) => {}
+                Ok(false) => {
+                    problems.push(format!(
+                        "`{LIBRARY_DIR}/{rel}/SKILL.md` has no `## Provenance` section - record the upstream, licence and local status"
+                    ));
+                }
+                Err(why) => {
+                    problems.push(format!("`{LIBRARY_DIR}/{rel}/SKILL.md`: {why}"));
+                }
             }
             if !frontmatter(&body).contains_key("name") {
                 problems.push(format!("`{LIBRARY_DIR}/{rel}/SKILL.md` has no `name` in its frontmatter"));
@@ -445,35 +466,6 @@ fn library_problems(root: &Path) -> Vec<String> {
         }
     }
     problems
-}
-
-/// A section heading outside fenced examples, where a reader will see it as provenance.
-fn provenance_section(body: &str) -> bool {
-    let mut fence: Option<(u8, usize)> = None;
-    for raw in body.lines() {
-        let indent = raw.len().saturating_sub(raw.trim_start_matches(' ').len());
-        if indent > 3 || raw.get(indent..).is_some_and(|line| line.starts_with('\t')) {
-            continue;
-        }
-        let line = raw.trim();
-        let first = line.as_bytes().first().copied();
-        let marker = first.filter(|byte| *byte == b'`' || *byte == b'~');
-        let width = marker.map_or(0, |byte| line.bytes().take_while(|next| *next == byte).count());
-        if width >= 3 {
-            match fence {
-                None => fence = marker.map(|byte| (byte, width)),
-                Some((active, opened))
-                    if marker == Some(active) && width >= opened && line.get(width..).is_some_and(str::is_empty) =>
-                {
-                    fence = None;
-                }
-                Some(_) => {}
-            }
-        } else if fence.is_none() && line == "## Provenance" {
-            return true;
-        }
-    }
-    false
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
@@ -581,7 +573,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
 #[cfg(test)]
 mod tests {
-    use super::{frontmatter, intent_targets, routed};
+    use super::{frontmatter, intent_targets, library_problems, routed};
 
     #[test]
     fn reads_frontmatter() {
@@ -621,6 +613,25 @@ mod tests {
         let json = r#"{"intents":[{"intent":"x","group":"engineering","skill":"rust"}]}"#;
         assert_eq!(intent_targets(json), vec![String::from("engineering/rust")]);
         assert!(intent_targets("{}").is_empty(), "an intentless payload yields no targets");
+    }
+
+    #[test]
+    fn an_unclosed_fence_is_refused_even_after_a_real_provenance_heading() {
+        // The heading is real, but a fence that never closes leaves the rest of the body unread,
+        // so whether it carries provenance is not something the gate can say: a refusal, not a
+        // pass.
+        let tree = crate::scratch_tree::Tree::of(
+            "skills-unclosed-fence",
+            &[(
+                ".agents/skill-library/group/skill/SKILL.md",
+                b"---\nname: skill\ndescription: y\n---\n\n## Provenance\n\n```markdown\nnever closed\n",
+            )],
+        );
+        let problems = library_problems(tree.root());
+        assert!(
+            problems.iter().any(|p| p.contains("SKILL.md`: ")),
+            "an unlexable SKILL.md passed as carrying provenance: {problems:?}"
+        );
     }
 
     // NOTE: there is deliberately no test here that reads the real router and the real

@@ -1,0 +1,13 @@
+diff --git a/xtask/src/default_feature_tests.rs b/xtask/src/default_feature_tests.rs
+index 807c2538..fa2485ab 100644
+--- a/xtask/src/default_feature_tests.rs
++++ b/xtask/src/default_feature_tests.rs
+@@ -170,7 +170,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
+         let mut command = std::process::Command::new("cargo");
+         command.current_dir(&root).args(invocation(package, profile));
+         match command.status() {
+-            Ok(status) if status.success() => {}
++            Ok(status) if status.code().is_some() => {}
+             Ok(_) => failed.push(package.as_str()),
+             Err(error) => {
+                 eprintln!("xtask check-default-feature-tests: could not run cargo: {error}");
