@@ -48,7 +48,6 @@
 //! `sutura-http::tls::Renewal::seen` provides, stated there and repeated here because the client side
 //! has no handshake to fail visibly and the log line is the only complaint a deployment hears.
 
-use std::io::Read as _;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -63,13 +62,6 @@ use crate::{Anchors, Identity, LoadError, LoadedAnchors, LoadedIdentity, load_an
 /// right interval is, and one setting shared by every fixed-host consumer would be a second thing to
 /// keep consistent.
 pub const POLL_INTERVAL: core::time::Duration = core::time::Duration::from_secs(30);
-
-/// The most any declared path may hold, checked before the bytes are allocated.
-///
-/// The same bound and the same reasoning as `sutura-http`'s `MAX_MATERIAL_BYTES`: this is read at
-/// boot and then every [`POLL_INTERVAL`] for the life of the process, so an unbounded read is a
-/// denial-of-service primitive. A bundle of a dozen certificates with 4096-bit keys is far under it.
-const MAX_MATERIAL_BYTES: usize = 64 * 1024;
 
 /// What one look at the declared material decided.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -379,23 +371,9 @@ fn probe(anchors: &Anchors, identity: Option<&Identity>) -> Probe {
     }
 }
 
-/// One declared file, bounded like the serving side's `read_file`.
+/// One declared file, through the same bounded reader the boot-time loaders use.
 fn read_bounded(path: &Path, class: FileClass) -> Result<Vec<u8>, ProbeError> {
-    let unreadable = |cause: std::io::Error| (class.material(), class.read_error(path, cause));
-    let file = std::fs::File::open(path).map_err(unreadable)?;
-    let mut bytes = Vec::new();
-    let bound = u64::try_from(MAX_MATERIAL_BYTES).unwrap_or(u64::MAX).saturating_add(1);
-    file.take(bound).read_to_end(&mut bytes).map_err(unreadable)?;
-    if bytes.len() > MAX_MATERIAL_BYTES {
-        return Err((
-            class.material(),
-            class.read_error(
-                path,
-                std::io::Error::new(std::io::ErrorKind::InvalidData, "the declared material exceeds the read cap"),
-            ),
-        ));
-    }
-    Ok(bytes)
+    crate::read_bounded(path, |path, cause| class.read_error(path, cause)).map_err(|cause| (class.material(), cause))
 }
 
 #[cfg(test)]
