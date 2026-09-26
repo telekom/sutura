@@ -1,15 +1,18 @@
 //! Attributing a `Cargo.lock` diff to adapter categories through the reverse dependency closure.
 //!
 //! Every changed `[[package]]` is walked in reverse through **external** packages and **stops** at
-//! the first workspace member(s) reached, never through them - the same rule a path change follows,
+//! the first workspace member reached, never through it - the same rule a path change follows,
 //! where `crates/sutura-exec-duckdb/` selects `data_source_duckdb` although `sutura-app` depends on
-//! it. The members reached map to categories through [`super::category_from_crate`], the one mapping
-//! the path selection also uses.
+//! it. A workspace member is a package with no `source` line (a path dependency), which covers
+//! every `crates/` member plus the non-`crates` members (`sutura-dev`, `xtask`); the members reached
+//! map to categories through [`super::category_from_crate`], the one mapping the path selection
+//! also uses.
 //!
-//! **Fails closed to `core`** on anything it cannot attribute: an unparseable lock, a `[patch]`
-//! section, a dependency string that names no package, a changed `source`, a reached member on
-//! neither adapter axis (a shared crate, or a root outside `crates/` such as `xtask`), or a diff
-//! with no package change at all (checksum, lock version, formatting). It can only narrow.
+//! **Fails closed to `core`** on anything it cannot attribute: a lock with no `[[package]]` block
+//! or a `[[package]]` with a `name` but no `version`, a `[patch]` section, a dependency string that
+//! names no package, a changed `source` or `checksum`, a reached member on neither adapter axis (a
+//! shared crate, `sutura-dev`, `xtask`), a root, or a diff with no package change at all (lock
+//! version, formatting). It can only narrow.
 //!
 //! **Limit.** A lock records no feature flags: a `[features]` edit that resolves to the same
 //! versions leaves `Cargo.lock` unchanged and is invisible here. The line scan mirrors
@@ -18,14 +21,12 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::Path;
 
-/// The base and head `Cargo.lock` text plus the workspace member names, so the parent's
-/// `select` can attribute a `Cargo.lock` diff to adapter categories via the reverse
-/// dependency closure. Constructed by the parent's `derive_from` from a git base ref;
-/// injected by tests.
+/// The base and head `Cargo.lock` text, so the parent's `select` can attribute a `Cargo.lock` diff
+/// to adapter categories via the reverse dependency closure. Constructed by the parent's
+/// `derive_from` from a git base ref; injected by tests.
 pub(super) struct Locks {
     pub(super) base: String,
     pub(super) head: String,
-    pub(super) members: BTreeSet<String>,
 }
 
 /// The category attribution of a `Cargo.lock` diff, or a refusal to attribute.
@@ -42,10 +43,13 @@ type Key = (String, String);
 /// Each package, and the packages that list it as a dependency.
 type Reverse = BTreeMap<Key, BTreeSet<Key>>;
 
-/// One parsed `[[package]]` block: its raw dependency strings and optional `source`.
+/// One parsed `[[package]]` block: its raw dependency strings, optional `source`, and optional
+/// `checksum`. A workspace member has no `source`; a `checksum` change is a content change.
+#[derive(PartialEq)]
 struct Package {
     deps: Vec<String>,
     source: Option<String>,
+    checksum: Option<String>,
 }
 
 /// The parsed lockfile graph, keyed by `(name, version)`.
@@ -74,7 +78,8 @@ impl Graph {
     }
 }
 
-/// Parse a `Cargo.lock` into a [`Graph`]. Returns `None` on a `[patch]` section (fail-closed).
+/// Parse a `Cargo.lock` into a [`Graph`]. Returns `None` (fail-closed) on a `[patch]` section, a
+/// lock with no `[[package]]` block, or a `[[package]]` with a `name` but no `version`.
 fn parse(lock: &str) -> Option<Graph> {
     let mut packages: BTreeMap<Key, Package> = BTreeMap::new();
     let mut by_name: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -82,8 +87,10 @@ fn parse(lock: &str) -> Option<Graph> {
     let mut name: Option<String> = None;
     let mut version: Option<String> = None;
     let mut source: Option<String> = None;
+    let mut checksum: Option<String> = None;
     let mut deps: Vec<String> = Vec::new();
     let mut in_deps = false;
+    let mut malformed = false;
 
     for line in lock.lines() {
         let trimmed = line.trim();
@@ -95,15 +102,17 @@ fn parse(lock: &str) -> Option<Graph> {
             return None;
         }
 
-        if trimmed.starts_with("[[package]]") {
-            flush(&mut packages, &mut by_name, &mut name, &mut version, &mut source, &mut deps);
-            in_deps = false;
-            continue;
-        }
-
-        // Any other `[section]` ends the current package and the deps block.
+        // A `[[package]]` or any other `[section]` ends the current package and the deps block.
         if trimmed.starts_with('[') {
-            flush(&mut packages, &mut by_name, &mut name, &mut version, &mut source, &mut deps);
+            malformed |= flush(
+                &mut packages,
+                &mut by_name,
+                &mut name,
+                &mut version,
+                &mut source,
+                &mut checksum,
+                &mut deps,
+            );
             in_deps = false;
             continue;
         }
@@ -129,38 +138,57 @@ fn parse(lock: &str) -> Option<Graph> {
             version = Some(String::from(rest.trim_matches('"')));
         } else if let Some(rest) = trimmed.strip_prefix("source = ") {
             source = Some(String::from(rest.trim_matches('"')));
+        } else if let Some(rest) = trimmed.strip_prefix("checksum = ") {
+            checksum = Some(String::from(rest.trim_matches('"')));
         } else if trimmed == "dependencies = [" {
             in_deps = true;
         }
     }
-    flush(&mut packages, &mut by_name, &mut name, &mut version, &mut source, &mut deps);
+    malformed |= flush(
+        &mut packages,
+        &mut by_name,
+        &mut name,
+        &mut version,
+        &mut source,
+        &mut checksum,
+        &mut deps,
+    );
 
+    // A lock with no `[[package]]` block, or a `[[package]]` with no `version`, is not a
+    // `Cargo.lock` the walk can attribute - fail closed rather than treating it as empty.
+    if malformed || packages.is_empty() {
+        return None;
+    }
     Some(Graph { packages, by_name })
 }
 
-/// Push the current package (if complete) into the maps and reset the accumulators.
+/// Push the current package (if complete) into the maps and reset the accumulators. Returns
+/// `true` if a `[[package]]` with a `name` but no `version` was seen (a malformed lock).
 fn flush(
     packages: &mut BTreeMap<Key, Package>,
     by_name: &mut BTreeMap<String, Vec<String>>,
     name: &mut Option<String>,
     version: &mut Option<String>,
     source: &mut Option<String>,
+    checksum: &mut Option<String>,
     deps: &mut Vec<String>,
-) {
+) -> bool {
     let Some(n) = name.take() else {
         // No package was being accumulated, but the top-level `version = 4` line or a stale
         // section may have left state. Reset everything so the next `[[package]]` starts clean.
         version.take();
         source.take();
+        checksum.take();
         deps.clear();
-        return;
+        return false;
     };
     let Some(v) = version.take() else {
-        // A `[[package]]` with a `name` but no `version` is malformed. Rather than inheriting a
-        // stale version (e.g. the top-level `version = 4`), reset and skip this package.
+        // A `[[package]]` with a `name` but no `version` is malformed - it cannot be keyed, and
+        // inheriting a stale version (e.g. the top-level `version = 4`) would invent a package.
         source.take();
+        checksum.take();
         deps.clear();
-        return;
+        return true;
     };
     let key = (n.clone(), v.clone());
     by_name.entry(n).or_default().push(v);
@@ -169,8 +197,10 @@ fn flush(
         Package {
             deps: std::mem::take(deps),
             source: source.take(),
+            checksum: checksum.take(),
         },
     );
+    false
 }
 
 /// A changed package and which graph to walk its reverse closure in.
@@ -183,11 +213,12 @@ enum Changed {
 
 /// Attribute a `Cargo.lock` diff to adapter categories.
 ///
-/// `members` is the set of workspace member package names as they appear in `Cargo.lock`
-/// (e.g. `"sutura-exec-duckdb"`, `"sutura-domain"`). Each reachable member is mapped to a
-/// category through [`super::category_from_crate`]; a member on neither axis is **shared** and
-/// forces `Core`.
-pub(super) fn attribute(base: &str, head: &str, members: &BTreeSet<String>) -> Attribution {
+/// Each changed package is walked in reverse through external packages until it reaches a
+/// workspace member - a package with no `source` line (a path dependency), which covers every
+/// `crates/` member plus the non-`crates` members (`sutura-dev`, `xtask`). Each reachable member
+/// is mapped to a category through [`super::category_from_crate`]; a member on neither axis is
+/// **shared** and forces `Core`.
+pub(super) fn attribute(base: &str, head: &str) -> Attribution {
     let Some(base_graph) = parse(base) else {
         return Attribution::Core(String::from(
             "Cargo.lock: base lockfile has a [patch] section or could not be parsed - running every category",
@@ -199,28 +230,38 @@ pub(super) fn attribute(base: &str, head: &str, members: &BTreeSet<String>) -> A
         ));
     };
 
-    // A changed `source` on a package present in both locks is a fail-closed trigger: the same
-    // version is now resolved from a different place (registry → git, or a different registry),
-    // so version-based attribution no longer holds.
+    // A package in both locks with a changed `source` (the same version resolved from another
+    // place) or `checksum` (the same version republished with other content) is a fail-closed
+    // trigger even beside a change that narrows: version-based attribution no longer holds.
     for (key, head_pkg) in &head_graph.packages {
-        if let Some(base_pkg) = base_graph.packages.get(key)
-            && base_pkg.source != head_pkg.source
-        {
-            return Attribution::Core(format!(
-                "Cargo.lock: `{}` {} changed source - running every category",
-                key.0, key.1
-            ));
-        }
+        let Some(base_pkg) = base_graph.packages.get(key) else {
+            continue;
+        };
+        let field = if base_pkg.source != head_pkg.source {
+            "source"
+        } else if base_pkg.checksum != head_pkg.checksum {
+            "checksum"
+        } else {
+            continue;
+        };
+        return Attribution::Core(format!(
+            "Cargo.lock: `{}` {} changed {field} - running every category",
+            key.0, key.1
+        ));
     }
+    // The walk stops at workspace members: packages with no `source` (path dependencies), which
+    // covers every `crates/` member plus the non-`crates` members (`sutura-dev`, `xtask`). A
+    // boundary is taken from the same graph the walk uses, so a removed package stops at base's
+    // members and an added one at head's.
+    let head_boundaries = sourceless_names(&head_graph);
+    let base_boundaries = sourceless_names(&base_graph);
 
     let changed = diff_packages(&base_graph, &head_graph);
     if changed.is_empty() {
-        // The lockfile is in the diff but no package was added, removed, or had a dependency
-        // change. That means a checksum-only change, a lock-version line change, or a formatting
-        // change - all of which the old code ran everything for. A checksum-only change (same
-        // version republished with different content) is a supply-chain anomaly. Fail closed.
+        // The lockfile is in the diff but no package was added, removed, or changed: a lock-version
+        // line or a formatting change. Nothing to attribute, so fail closed.
         return Attribution::Core(String::from(
-            "Cargo.lock: diff has no package changes (checksum/version/format-only) - running every category",
+            "Cargo.lock: diff has no package changes (version/format-only) - running every category",
         ));
     }
 
@@ -235,11 +276,11 @@ pub(super) fn attribute(base: &str, head: &str, members: &BTreeSet<String>) -> A
 
     let mut categories = BTreeSet::new();
     for change in &changed {
-        let (key, reverse) = match change {
-            Changed::Head(k) => (k, &head_reverse),
-            Changed::Base(k) => (k, &base_reverse),
+        let (key, reverse, boundaries) = match change {
+            Changed::Head(k) => (k, &head_reverse, &head_boundaries),
+            Changed::Base(k) => (k, &base_reverse, &base_boundaries),
         };
-        let reached = bfs_to_members(key, reverse, members);
+        let reached = bfs_to_members(key, reverse, boundaries);
         if reached.is_empty() {
             return Attribution::Core(format!(
                 "Cargo.lock: changed package `{}` {} reaches no workspace member - running every category",
@@ -269,15 +310,15 @@ pub(super) fn attribute(base: &str, head: &str, members: &BTreeSet<String>) -> A
 
 /// The changed packages between base and head, tagged with which graph to walk.
 ///
-/// A package is changed if it is added (in head only), removed (in base only), or has a
-/// different `dependencies` set (in both). Source changes are caught earlier in [`attribute`].
+/// A package is changed if it is added (in head only), removed (in base only), or differs in any
+/// field (in both). A changed `source` or `checksum` is refused earlier in [`attribute`].
 fn diff_packages(base: &Graph, head: &Graph) -> Vec<Changed> {
     let mut changed = Vec::new();
     for (key, pkg) in &head.packages {
         match base.packages.get(key) {
             None => changed.push(Changed::Head(key.clone())),
             Some(base_pkg) => {
-                if pkg.deps != base_pkg.deps {
+                if pkg != base_pkg {
                     changed.push(Changed::Head(key.clone()));
                 }
             }
@@ -304,10 +345,21 @@ fn reverse_closure(graph: &Graph) -> Result<Reverse, String> {
     Ok(reverse)
 }
 
-/// The members a reverse walk from `start` stops at. A package nothing depends on is a root, and a
-/// root outside `members` (`xtask`) is returned too, so it maps to no category and fails closed:
-/// walking past it would narrow a package that `xtask` also builds.
-fn bfs_to_members(start: &Key, reverse: &Reverse, members: &BTreeSet<String>) -> BTreeSet<String> {
+/// The names of packages with no `source` line - the workspace members (path dependencies),
+/// including non-`crates` members like `sutura-dev` and `xtask`. The walk stops at these.
+fn sourceless_names(graph: &Graph) -> BTreeSet<String> {
+    graph
+        .packages
+        .iter()
+        .filter(|(_, pkg)| pkg.source.is_none())
+        .map(|(key, _)| key.0.clone())
+        .collect()
+}
+
+/// The members a reverse walk from `start` stops at: packages with no `source` (path
+/// dependencies). A package nothing depends on is a root and is returned too, so a root that is no
+/// adapter maps to no category and fails closed.
+fn bfs_to_members(start: &Key, reverse: &Reverse, boundaries: &BTreeSet<String>) -> BTreeSet<String> {
     let mut reached: BTreeSet<String> = BTreeSet::new();
     let mut visited: BTreeSet<Key> = BTreeSet::new();
     let mut queue: VecDeque<Key> = VecDeque::new();
@@ -316,7 +368,7 @@ fn bfs_to_members(start: &Key, reverse: &Reverse, members: &BTreeSet<String>) ->
     while let Some(current) = queue.pop_front() {
         // A member or a root is a boundary: record it, never walk through it.
         let parents = reverse.get(&current);
-        if members.contains(&current.0) || parents.is_none() {
+        if boundaries.contains(&current.0) || parents.is_none() {
             reached.insert(current.0.clone());
             continue;
         }
@@ -329,8 +381,8 @@ fn bfs_to_members(start: &Key, reverse: &Reverse, members: &BTreeSet<String>) ->
     reached
 }
 
-/// Read the base and head `Cargo.lock` plus the workspace member names for lock attribution.
-/// Returns `None` on any read failure - `select` then fails `Cargo.lock` closed to `core`.
+/// Read the base and head `Cargo.lock` text for lock attribution. Returns `None` on any read
+/// failure - `select` then fails `Cargo.lock` closed to `core`.
 pub(super) fn build_locks(root: &Path, base: &str) -> Option<Locks> {
     let head = std::fs::read_to_string(root.join("Cargo.lock")).ok()?;
     let out = std::process::Command::new("git")
@@ -344,7 +396,6 @@ pub(super) fn build_locks(root: &Path, base: &str) -> Option<Locks> {
     Some(Locks {
         base: String::from_utf8_lossy(&out.stdout).into_owned(),
         head,
-        members: super::crate_dirs(root).ok()?.into_iter().collect(),
     })
 }
 
@@ -359,7 +410,7 @@ pub(super) fn handle_lock(locks: Option<&Locks>, selected: &mut BTreeSet<String>
                 "Cargo.lock changed without a base ref to diff against - running every category",
             ))
         },
-        |locks| attribute(&locks.base, &locks.head, &locks.members),
+        |locks| attribute(&locks.base, &locks.head),
     );
     match attribution {
         Attribution::Selected(cats) => selected.extend(cats),
@@ -375,7 +426,7 @@ mod tests {
     use super::*;
 
     /// The real workspace's shape: a shared domain crate, two adapters, a shared composition root
-    /// that depends on both, and `xtask`, a root outside `crates/` and so outside `members()`.
+    /// that depends on both, and `xtask`, a member outside `crates/`. Members have no `source`.
     const LOCK: &str = "\
 version = 4
 
@@ -454,12 +505,6 @@ dependencies = [
 ]
 ";
 
-    const MEMBERS: &[&str] = &["sutura-domain", "sutura-exec-duckdb", "sutura-exec-postgres", "sutura-app"];
-
-    fn members() -> BTreeSet<String> {
-        MEMBERS.iter().map(|s| String::from(*s)).collect()
-    }
-
     fn bump(lock: &str, name: &str, from: &str, to: &str) -> String {
         let head = lock.replace(
             &format!("\"{name}\"\nversion = \"{from}\""),
@@ -470,14 +515,14 @@ dependencies = [
     }
 
     fn core_reason(base: &str, head: &str) -> String {
-        match attribute(base, head, &members()) {
+        match attribute(base, head) {
             Attribution::Core(why) => why,
             Attribution::Selected(cats) => panic!("must fail closed to core, selected {cats:?}"),
         }
     }
 
     fn narrowed(base: &str, head: &str) -> BTreeSet<String> {
-        match attribute(base, head, &members()) {
+        match attribute(base, head) {
             Attribution::Selected(cats) => cats,
             Attribution::Core(why) => panic!("must narrow, fell to core: {why}"),
         }
@@ -523,8 +568,11 @@ dependencies = [
 
     #[test]
     fn a_lock_that_is_not_a_lockfile_fails_closed_to_core() {
-        core_reason("this is not a lockfile", LOCK);
-        core_reason(LOCK, "garbage");
+        assert!(core_reason("this is not a lockfile", LOCK).contains("could not be parsed"));
+        assert!(core_reason(LOCK, "garbage").contains("could not be parsed"));
+        let unversioned = LOCK.replacen("version = \"0.7.12\"\n", "", 1);
+        assert_ne!(unversioned, LOCK);
+        assert!(core_reason(LOCK, &unversioned).contains("could not be parsed"));
     }
 
     #[test]
@@ -551,6 +599,68 @@ dependencies = [
         assert!(core_reason(LOCK, LOCK).contains("no package changes"));
     }
 
+    #[test]
+    fn a_changed_checksum_fails_closed_to_core_beside_a_change_that_narrows() {
+        let narrowing = bump(LOCK, "libduckdb-sys", "1.10.0", "1.11.0");
+        let arrow = "name = \"arrow-array\"\nversion = \"59.2.0\"\n";
+        let head = narrowing.replacen(arrow, &format!("{arrow}checksum = \"0123abcd\"\n"), 1);
+        assert_ne!(head, narrowing);
+        let why = core_reason(LOCK, &head);
+        assert!(why.contains("`arrow-array` 59.2.0 changed checksum"), "{why}");
+    }
+
+    #[test]
+    fn the_walk_stops_at_a_member_outside_crates() {
+        let base = format!(
+            "{}\
+[[package]]
+name = \"jsonwebtoken\"
+version = \"11.1.0\"
+source = \"registry+https://github.com/rust-lang/crates.io-index\"
+
+[[package]]
+name = \"sutura-dev\"
+version = \"0.5.1\"
+dependencies = [
+ \"jsonwebtoken\",
+]
+",
+            LOCK.replacen(
+                " \"sutura-domain\",\n \"tempfile\",",
+                " \"sutura-domain\",\n \"sutura-dev\",\n \"tempfile\",",
+                1
+            )
+        );
+        let why = core_reason(&base, &bump(&base, "jsonwebtoken", "11.1.0", "11.1.1"));
+        assert!(why.contains("shared crate `sutura-dev`"), "{why}");
+    }
+
+    #[test]
+    fn a_changed_package_that_reaches_no_member_fails_closed_to_core() {
+        // An external cycle reaching no member: without the guard the walk selects nothing.
+        let head = format!(
+            "{LOCK}\
+[[package]]
+name = \"cyc-a\"
+version = \"1.0.0\"
+source = \"registry+https://github.com/rust-lang/crates.io-index\"
+dependencies = [
+ \"cyc-b 1.0.0\",
+]
+
+[[package]]
+name = \"cyc-b\"
+version = \"1.0.0\"
+source = \"registry+https://github.com/rust-lang/crates.io-index\"
+dependencies = [
+ \"cyc-a 1.0.0\",
+]
+"
+        );
+        let why = core_reason(LOCK, &head);
+        assert!(why.contains("reaches no workspace member"), "{why}");
+    }
+
     fn declared() -> BTreeSet<String> {
         ["data_source_duckdb", "data_source_postgres", "catalog_local", "identity"]
             .into_iter()
@@ -564,7 +674,6 @@ dependencies = [
         let locks = Locks {
             base: String::from(LOCK),
             head,
-            members: members(),
         };
         let (core, selected, reasons) = super::super::select(&[String::from("Cargo.lock")], Some(&declared()), Some(&locks));
         assert!(!core, "a duckdb-only lock change must not run everything: {reasons:?}");
