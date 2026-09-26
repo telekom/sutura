@@ -989,11 +989,8 @@ execute - but that is an absence rather than a mechanism: `ColumnType`'s own doc
 as what holds "never a cast", not the type system, because nothing here stops a future reader of
 `Self::data_type` from treating it as one.
 
-**Column prose is parsed and pinned, and reaches no rendering surface today.** No composition
-root's prompt, tool result or HTTP body names a column - `sutura_app::prompt`'s own header states
-that as a deliberate absence - so this type has nothing to gate behind `prompt.catalog_prose` yet.
-If a future surface renders it, it goes through that same gate, the way every other quoted
-description does.
+**Column prose is parsed and pinned.** The opt-in physical-schema listing quotes it under
+`prompt.catalog_prose`; a deployment omitting catalog prose omits it on both prompt and tool.
 
 #### Methods
 
@@ -1061,6 +1058,10 @@ between a governed answer and a stack trace.
 type is inferred from it, and `Relationship`'s own `JoinType` is unaffected either way.
 
 #### Methods
+
+```rust
+pub const fn audience(&self) -> Option<&Audience>
+```
 
 ```rust
 pub fn column(&self, name: &ColumnName) -> Option<&Column>
@@ -1131,6 +1132,12 @@ pub const fn table_name(&self) -> &TableName
 ```
 
 The table's own name, without whatever sits above it.
+
+```rust
+pub fn with_audience(self, audience: Audience) -> Self
+```
+
+Declares who may see this model in an opted-in physical-schema listing.
 
 ```rust
 pub fn with_primary_key(self, primary_key: impl IntoIterator<Item>) -> Result<Self, InconsistentDefinitions>
@@ -1977,10 +1984,10 @@ the fix for that other half.
 
 ### `constant MAX_DEFINITIONS_BYTES`
 
-The most bytes a whole `Definitions` may carry of authored content beyond its own identifiers.
+The most bytes a whole `Definitions` may carry of authored content and physical model identifiers.
 
-Every column a model declares, every required filter and dimension value a metric declares, and
-every model's and metric's description count toward it.
+Every model and table name, every column a model declares, every required filter and dimension
+value a metric declares, and every model's and metric's description count toward it.
 
 **The count `MAX_VALUES_PER_DIMENSION`'s own note names as missing**: that bound is one
 dimension's, and nothing capped how many dimensions a metric declares, how many required filters
@@ -1998,10 +2005,11 @@ sum to 922 bytes - one column (`subscriptions.mrr_cents`) carries a declared typ
 description, and that is what moved this half from the earlier column-blind measurement's
 under-1-KiB figure at all, not past any round number. Descriptions are the rest of it, at 24053
 bytes (~23.5 KiB) across eleven metrics and five models - each individually inside
-`MAX_DESCRIPTION_BYTES`, and it is their COUNT that was uncapped. `Definitions::authored_bytes`
-over the loaded corpus reads 24975 bytes, ~24.4 KiB in total.
+`MAX_DESCRIPTION_BYTES`, and it is their COUNT that was uncapped. Counting the five model names
+and table paths adds 120 bytes; `Definitions::authored_bytes` over the loaded corpus reads 25095
+bytes, ~24.5 KiB in total.
 
-`MAX_DEFINITIONS_BYTES` is 128 KiB: about 5.25 times that reference catalog's ~24.4 KiB, less
+`MAX_DEFINITIONS_BYTES` is 128 KiB: about 5.2 times that reference catalog's ~24.5 KiB, less
 headroom than the ~6.5 times an earlier, column-blind measurement claimed - restated here rather
 than left to say a smaller bundle than the corpus now is. Still more than
 `crate::knowledge::MAX_KNOWLEDGE_BYTES`'s five times its own reference, because a definitions
@@ -6272,6 +6280,12 @@ pub fn metrics(&self) -> impl Iterator<Item> + '_
 ```
 
 Every metric this caller may see.
+
+```rust
+pub fn models(&self) -> impl Iterator<Item> + '_
+```
+
+Models with an explicit audience visible to this caller. A whole-bundle view sees all.
 
 ```rust
 pub const fn pinned(&self) -> &'a PinnedDefinitions

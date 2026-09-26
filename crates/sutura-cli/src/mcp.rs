@@ -199,6 +199,7 @@ where
             std::sync::Arc::clone(&service),
             permitted,
             prose,
+            settings.prompt().list_physical_schema(),
             admission,
             reply,
             instructions,
@@ -276,7 +277,7 @@ where
     // One read, two uses: `agent_instructions` both renders the prompt and returns the operator's
     // raw text it read to do so, so the surface gets the SAME text the prompt folded in - never a
     // second read of the same path that could disagree with the first.
-    let (instructions, operator_instructions) = agent_instructions(service.definitions(), settings)?;
+    let (instructions, operator_instructions) = agent_instructions(service.definitions(), settings, true)?;
     let operator_instructions = operator_instructions.map(std::sync::Arc::from);
     Ok((
         service,

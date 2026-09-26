@@ -242,11 +242,20 @@ pub struct ModelDoc {
     /// [`sutura_domain::catalog::Model::with_primary_key`]'s own doc.
     #[serde(default)]
     primary_key: BTreeSet<ColumnName>,
+    /// An absent declaration stays invisible in caller-scoped physical-schema listings.
+    #[serde(default, with = "serde_norway::with::singleton_map")]
+    audience: Option<AudienceDoc>,
 }
 
 /// Why a model document could not become a domain [`Model`].
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidModelDocument {
+    #[error("model {model}'s audience declaration is not usable as one")]
+    Audience {
+        model: ModelName,
+        #[source]
+        cause: InvalidAudienceDeclaration,
+    },
     /// One column's own `description:` is not usable prose.
     #[error("column {column}'s description is not usable")]
     ColumnDescription {
@@ -265,6 +274,14 @@ pub enum InvalidModelDocument {
 
 impl ModelDoc {
     pub fn into_domain(self, description: Description) -> Result<Model, InvalidModelDocument> {
+        let audience =
+            self.audience
+                .map(AudienceDoc::into_domain)
+                .transpose()
+                .map_err(|cause| InvalidModelDocument::Audience {
+                    model: self.name.clone(),
+                    cause,
+                })?;
         let mut columns = Vec::with_capacity(self.columns.len());
         for entry in self.columns {
             let name = entry.name().clone();
@@ -274,7 +291,11 @@ impl ModelDoc {
                     .map_err(|cause| InvalidModelDocument::ColumnDescription { column: name, cause })?,
             );
         }
-        Model::new(self.name, self.source, self.table, columns, description)
+        let mut model = Model::new(self.name, self.source, self.table, columns, description);
+        if let Some(audience) = audience {
+            model = model.with_audience(audience);
+        }
+        model
             .with_primary_key(self.primary_key)
             .map_err(|cause| InvalidModelDocument::PrimaryKey(Box::new(cause)))
     }

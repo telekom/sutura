@@ -35,12 +35,9 @@
 //! which costs a turn and teaches it the wrong model of what it is talking to. What replaces it is
 //! one short section saying the field does not exist and that there is no way to widen it.
 //!
-//! **No column, no table, no model and no measure expression.** This is the same content `GET
-//! /v1/catalog` already returns and deliberately not one field more: a metric's name, its prose,
-//! its grains, its dimensions and their permitted values. A caller needs those to ask a valid
-//! question; it needs no column name to do it, and a column name in an agent's context is a name it
-//! will eventually try to use. The `tests` module below asserts that no model name, table name or
-//! column name from the bundle appears in the output.
+//! **No measure expression.** By default the prompt also omits models, tables and columns. A
+//! deployment can opt into a descriptive physical-schema listing; it does not make those names
+//! queryable or certify a metric. The default-absence and enabled cases are tested separately.
 //!
 //! **Nothing about identity.** There is none - the deployment token authenticates the deployment and
 //! not the caller - and a prompt that mentioned per-caller scoping would describe a control that does
@@ -105,6 +102,9 @@ use sutura_domain::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS};
 // and because those sections share a decision the rest of this document does not have to make: what a
 // declared capability licenses the text to claim.
 mod knowledge;
+mod physical;
+
+pub use physical::physical_schema;
 
 // Everything a refusal costs an agent to read: the guide table, the total match over
 // `RefusalReason`, and the section the prompt renders from them. Its own module for the reason
@@ -250,6 +250,7 @@ pub struct PromptInputs<'a> {
     tools: &'a [Tool],
     prose: CatalogProse,
     instructions: Option<&'a str>,
+    list_physical_schema: bool,
 }
 
 impl<'a> PromptInputs<'a> {
@@ -265,7 +266,14 @@ impl<'a> PromptInputs<'a> {
             tools,
             prose,
             instructions,
+            list_physical_schema: false,
         }
+    }
+
+    #[must_use]
+    pub const fn listing_physical_schema(mut self, enabled: bool) -> Self {
+        self.list_physical_schema = enabled;
+        self
     }
 
     #[inline]
@@ -312,6 +320,11 @@ pub fn render(pinned: &PinnedDefinitions, inputs: &PromptInputs<'_>) -> String {
         knowledge::declaration(notes, knowledge::Audience::Prompt),
         knowledge::glossary(notes, inputs.prose, knowledge::Audience::Prompt),
         physical_schema_guidance(pinned),
+        if inputs.list_physical_schema {
+            physical_schema(&ScopedView::everything(pinned), inputs.prose)
+        } else {
+            String::new()
+        },
         metrics(pinned, inputs.prose),
         knowledge::examples(notes, inputs.prose, knowledge::Audience::Prompt),
         provenance(inputs),

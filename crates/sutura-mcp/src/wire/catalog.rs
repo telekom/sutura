@@ -94,6 +94,8 @@ pub struct CatalogContent {
     #[serde(skip)]
     notice: &'static str,
     metrics: Vec<MetricContent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    models: Option<Vec<ModelContent>>,
     /// The knowledge sections - glossary, caveats, terms recorded as undefined, worked examples -
     /// audience-scoped through the same [`ScopedView`] that narrowed the metrics, descriptive only,
     /// bounded by the bundle's own knowledge cap (`MAX_KNOWLEDGE_BYTES`). `catalog_prose` decides
@@ -112,6 +114,22 @@ pub struct CatalogContent {
     /// it is read from `prompt.instructions_file` fresh and repeated in full on every call.
     #[serde(skip_serializing_if = "Option::is_none")]
     instructions: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ModelContent {
+    name: String,
+    table: String,
+    #[serde(skip_serializing_if = "Carried::is_absent")]
+    description: Carried,
+    columns: Vec<ColumnContent>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ColumnContent {
+    name: String,
+    #[serde(skip_serializing_if = "Carried::is_absent")]
+    description: Carried,
 }
 
 /// One metric, as much of it as a caller needs to ask a valid question.
@@ -156,7 +174,7 @@ impl CatalogContent {
     /// the defect this surface shipped until it took the view. `ScopedView` borrows the bundle, so
     /// this builder cannot reach `SemanticCatalog::load` - the knowledge sections and the metrics
     /// are filtered by the caller's own grant, never by a call the renderer omits.
-    pub fn of(view: &ScopedView<'_>, prose: CatalogProse, instructions: Option<&str>) -> Self {
+    pub fn of(view: &ScopedView<'_>, prose: CatalogProse, instructions: Option<&str>, list_physical_schema: bool) -> Self {
         let metrics = view
             .metrics()
             .map(|metric| MetricContent {
@@ -188,6 +206,22 @@ impl CatalogContent {
         // `catalog_knowledge` quotes note bodies under the same `prose` the descriptions follow, so
         // a deployment that withholds catalog prose withholds it from the knowledge tool too.
         let knowledge = sutura_app::prompt::catalog_knowledge(view, prose);
+        let models = list_physical_schema.then(|| {
+            view.models()
+                .map(|model| ModelContent {
+                    name: String::from(model.name().as_str()),
+                    table: model.table().to_string(),
+                    description: Carried::under(prose, model.description()),
+                    columns: model
+                        .columns()
+                        .map(|column| ColumnContent {
+                            name: String::from(column.name().as_str()),
+                            description: Carried::under(prose, column.description()),
+                        })
+                        .collect(),
+                })
+                .collect()
+        });
         // The operator's own text is DEPLOYMENT-WIDE - the same for every caller - so it gets its
         // own section and heading, outside the untrusted-catalog notice, and a preamble written for
         // a tool that returns no refusal rules. Rendered here rather than by `catalog_knowledge`
@@ -201,6 +235,7 @@ impl CatalogContent {
             catalog_prose: prose.as_str(),
             notice: prose::notice(prose),
             metrics,
+            models,
             knowledge,
             instructions,
         }
@@ -249,6 +284,29 @@ impl CatalogContent {
                 out.push(')');
                 if let Some(description) = dimension.description.words() {
                     push_prose(&mut out, description, "    description:");
+                }
+            }
+        }
+        if let Some(models) = &self.models {
+            out.push_str("\n\nPhysical schema (descriptive only; no metric certified):");
+            if models.is_empty() {
+                out.push_str("\n  no visible models");
+            }
+            for model in models {
+                out.push_str("\n\nmodel ");
+                out.push_str(&model.name);
+                out.push_str(" (table ");
+                out.push_str(&model.table);
+                out.push(')');
+                if let Some(description) = model.description.words() {
+                    push_prose(&mut out, description, "  description:");
+                }
+                for column in &model.columns {
+                    out.push_str("\n  column ");
+                    out.push_str(&column.name);
+                    if let Some(description) = column.description.words() {
+                        push_prose(&mut out, description, "    description:");
+                    }
                 }
             }
         }

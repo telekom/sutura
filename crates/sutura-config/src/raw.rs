@@ -651,4 +651,6 @@ pub(crate) struct RawPrompt {
     pub(crate) instructions_max_bytes: Option<u64>,
     #[serde(default)]
     pub(crate) catalog_prose: Option<String>,
+    #[serde(default)]
+    pub(crate) list_physical_schema: bool,
 }

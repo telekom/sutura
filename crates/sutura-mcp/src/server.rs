@@ -214,6 +214,7 @@ pub struct AgentSurface<S> {
     /// How catalog descriptions are treated, so the tool honours `prompt.catalog_prose` the same
     /// way the prompt does - an operator who omits the prose there must not ship it through here.
     prose: sutura_app::prompt::CatalogProse,
+    list_physical_schema: bool,
     /// How many questions may be executing at once, and how long a call waits for a turn.
     ///
     /// Held by value and not behind an `Option`: a deployment that forgot to bound its execution is
@@ -308,11 +309,18 @@ impl<S> AgentSurface<S> {
             service,
             asking,
             prose,
+            list_physical_schema: false,
             admission,
             reply,
             instructions,
             operator_instructions,
         }
+    }
+
+    #[must_use]
+    pub const fn listing_physical_schema(mut self, enabled: bool) -> Self {
+        self.list_physical_schema = enabled;
+        self
     }
 
     /// Who this call is attributed to and what it may invoke, resolved from `self.asking` and - under
@@ -445,6 +453,7 @@ where
                     asked.context(),
                     self.prose,
                     self.operator_instructions.as_deref(),
+                    self.list_physical_schema,
                 )
             }
             Capability::AskMetric => {
@@ -712,6 +721,7 @@ fn describe<S>(
     context: &sutura_domain::identity::RequestContext,
     prose: sutura_app::prompt::CatalogProse,
     operator_instructions: Option<&str>,
+    list_physical_schema: bool,
 ) -> CallToolResult
 where
     S: Surface,
@@ -727,7 +737,7 @@ where
     // The operator's own text - the raw value, before it was folded into the rendered prompt - rides
     // the catalog tool so a gateway that surfaces only tools (and never delivers
     // `initialize.instructions`) still reaches the operator's rules.
-    let listing = CatalogContent::of(&view, prose, operator_instructions);
+    let listing = CatalogContent::of(&view, prose, operator_instructions, list_physical_schema);
     let mut result = CallToolResult::success(vec![ContentBlock::text(listing.as_text())]);
     // `ok()` rather than a propagated error, for the reason `produced` gives: the content is strings,
     // numbers and vectors, so serializing it cannot fail, and there is no `unwrap` in this workspace
