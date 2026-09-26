@@ -388,23 +388,23 @@ fn harvest_table(entity: &Value) -> Result<crate::document::Table, HttpReaderErr
         })?
         .to_owned();
     // The service/database FQN answer. OpenMetadata tables live under a service; this adapter maps
-    // that to a `sources.<alias>`. The service lives in the first segment of the fully-qualified
-    // name (`service.database.schema.table`) when present, otherwise under `databaseSchema`. We
-    // prefer a top-level `service.name` when a real instance nests one, and fall back to the FQN's
-    // first segment.
+    // that to a `sources.<alias>`. We prefer a top-level `service.name` when a real instance
+    // nests one, and fall back to the table's own fully-qualified name's first segment
+    // (`service.database.schema.table`) - `split_fqn`, not a naive `.split('.')`, because the
+    // first segment can itself be quoted if the service name holds a `.` or a `"`.
     let service = entity
         .get("service")
         .and_then(|service| service.get("name"))
         .and_then(Value::as_str)
+        .map(str::to_owned)
         .or_else(|| {
             let fqn = entity.get("fullyQualifiedName").and_then(Value::as_str)?;
-            fqn.split('.').next()
+            split_fqn(fqn)?.into_iter().next()
         })
         .ok_or(HttpReaderError::UnexpectedShape {
             entity: ENTITY,
             field: "service.name / fullyQualifiedName",
-        })?
-        .to_owned();
+        })?;
     let description = entity.get("description").and_then(Value::as_str).map(str::to_owned);
     let columns = entity
         .get("columns")
@@ -520,10 +520,11 @@ fn harvest_relationship(
     // The origin is the enclosing table's own column set. The crate's own shape carries one column
     // per side, so a side declaring more than one is refused by name rather than narrowed.
     let origin_column = one_referenced(element, "columns", entity)?;
-    // `referredColumns` carries a fully qualified column name (`service.schema.table.column`,
-    // possibly quoted where a segment holds its own `.`), never a bare column name and never a
-    // separate `referencedTable` field - there is no such field on the wire. The target table and
-    // column are its last two unquoted segments.
+    // `referredColumns` carries a fully qualified column name
+    // (`service.database.schema.table.column`, exactly five segments, quoted per
+    // `FullyQualifiedName`'s own grammar where a segment holds its own `.` or `"`), never a bare
+    // column name and never a separate `referencedTable` field - there is no such field on the
+    // wire. `split_fqn_tail` is the strict parser; see its own header for what it refuses and why.
     let referred = one_referenced(element, "referredColumns", entity)?;
     let (target_model, target_column) = split_fqn_tail(&referred).ok_or(HttpReaderError::UnexpectedShape {
         entity,
@@ -558,23 +559,80 @@ fn one_referenced(element: &Value, field: &'static str, entity: &'static str) ->
         .ok_or(HttpReaderError::UnexpectedShape { entity, field })
 }
 
-/// Splits a fully qualified name (`service.schema.table.column`) into its last two segments - the
-/// table and the column `referredColumns` names - respecting `OpenMetadata`'s own quoting: a
-/// segment containing a literal `.` is wrapped in double quotes there, so a dot inside a quoted
-/// span is never a separator. `None` when fewer than two segments are present.
-fn split_fqn_tail(fqn: &str) -> Option<(String, String)> {
+/// Splits a fully qualified name into its dot-separated segments, decoded per
+/// `FullyQualifiedName`'s own grammar (`FullyQualifiedName.java`, measured against
+/// `open-metadata/OpenMetadata@main`): a segment containing a literal `.` or `"` is wrapped in
+/// `"..."`, with an embedded `"` doubled (`""`) rather than escaped any other way - `quoteName`'s
+/// own doc comment states exactly that pair, and `isQuotedName`/`decodeQuotedName` are the two
+/// halves this walk mirrors. `None` on a segment that never closes its quote, on a bare `"`
+/// outside one, or on an empty segment (two `.` in a row, or a leading or trailing one) - the
+/// shape a hand-rolled `char == '"' => toggle` parser (the round-2 review's own probe) accepts
+/// silently and gets wrong on an escaped `""` or an unterminated quote.
+fn split_fqn(fqn: &str) -> Option<Vec<String>> {
     let mut segments = Vec::new();
-    let mut current = String::new();
-    let mut quoted = false;
-    for ch in fqn.chars() {
-        match ch {
-            '"' => quoted = !quoted,
-            '.' if !quoted => segments.push(core::mem::take(&mut current)),
-            other => current.push(other),
+    let mut chars = fqn.chars().peekable();
+    loop {
+        let mut segment = String::new();
+        match chars.peek() {
+            None => return None,
+            Some('"') => {
+                let _ignored = chars.next();
+                loop {
+                    match chars.next() {
+                        None => return None,
+                        Some('"') => {
+                            if chars.peek() == Some(&'"') {
+                                let _ignored = chars.next();
+                                segment.push('"');
+                            } else {
+                                break;
+                            }
+                        }
+                        Some(other) => segment.push(other),
+                    }
+                }
+            }
+            Some(_) => {
+                while let Some(&c) = chars.peek() {
+                    if c == '.' {
+                        break;
+                    }
+                    if c == '"' {
+                        // A bare quote outside a quoted segment is not this grammar: `quoteName`
+                        // wraps any name containing one, so an unquoted run can never carry one.
+                        return None;
+                    }
+                    segment.push(c);
+                    let _ignored = chars.next();
+                }
+            }
+        }
+        if segment.is_empty() {
+            return None;
+        }
+        segments.push(segment);
+        match chars.next() {
+            None => break,
+            Some('.') => {}
+            Some(_) => return None,
         }
     }
-    segments.push(current);
-    if segments.len() < 2 {
+    Some(segments)
+}
+
+/// Splits a column's fully qualified name into its table and column names - the last two of
+/// exactly `service.database.schema.table.column`'s five segments. `FullyQualifiedName.
+/// getColumnName`/`getTableFQN` (measured against `main`) accept FIVE OR MORE - a nested
+/// struct column's own children extend the name past the fifth segment
+/// (`service.database.schema.table.column.child1.child2`) - but a `FOREIGN_KEY` constraint never
+/// targets a struct member, only a column, so this crate narrows to exactly five and refuses
+/// anything else by name rather than silently taking the fifth segment of a longer path and
+/// dropping the rest, the way the upstream helper does. **Stated limit, not a bug**: a real
+/// instance whose referred column is itself a struct member (unusual for a primary/foreign key)
+/// is refused here rather than read as the wrong column.
+fn split_fqn_tail(fqn: &str) -> Option<(String, String)> {
+    let mut segments = split_fqn(fqn)?;
+    if segments.len() != 5 {
         return None;
     }
     let column = segments.pop()?;
@@ -630,4 +688,88 @@ fn harvest_metric(entity: &Value) -> Result<crate::document::Metric, HttpReaderE
     }
     serde_json::from_value(Value::Object(document))
         .map_err(|cause| HttpReaderError::NotTheCanonicalShape { entity: ENTITY, cause })
+}
+
+#[cfg(test)]
+mod fqn_tests {
+    use super::{split_fqn, split_fqn_tail};
+
+    #[test]
+    fn a_five_segment_fqn_gives_the_table_and_the_column() {
+        assert_eq!(
+            split_fqn_tail("warehouse.default.sales.customers.customer_id"),
+            Some((String::from("customers"), String::from("customer_id")))
+        );
+    }
+
+    #[test]
+    fn a_two_segment_fqn_is_refused() {
+        assert_eq!(split_fqn_tail("table.column"), None);
+    }
+
+    #[test]
+    fn a_four_segment_fqn_is_refused() {
+        assert_eq!(split_fqn_tail("warehouse.sales.customers.customer_id"), None);
+    }
+
+    #[test]
+    fn a_six_segment_fqn_is_refused() {
+        // A nested struct column's own child - a real, but out-of-scope, OpenMetadata shape:
+        // `getColumnName`/`getTableFQN` accept it upstream, and this crate refuses it by name
+        // instead, per `split_fqn_tail`'s own header.
+        assert_eq!(split_fqn_tail("warehouse.default.sales.customers.address.city"), None);
+    }
+
+    #[test]
+    fn an_unterminated_quote_is_refused() {
+        assert_eq!(split_fqn(r#"warehouse.default.sales."customers.customer_id"#), None);
+    }
+
+    #[test]
+    fn a_bare_quote_outside_a_quoted_segment_is_refused() {
+        assert_eq!(split_fqn(r#"ware"house.default.sales.customers.customer_id"#), None);
+    }
+
+    #[test]
+    fn an_empty_segment_from_two_consecutive_dots_is_refused() {
+        assert_eq!(split_fqn("warehouse..sales.customers.customer_id"), None);
+    }
+
+    #[test]
+    fn a_leading_or_trailing_dot_is_refused() {
+        assert_eq!(split_fqn(".warehouse.default.sales.customers"), None);
+        assert_eq!(split_fqn("warehouse.default.sales.customers."), None);
+    }
+
+    /// **The escaped-quote happy cell** - a segment holding a literal `"` is doubled per
+    /// `FullyQualifiedName.quoteName`'s own doc comment, and `split_fqn` must decode it back to
+    /// the one literal quote rather than leaving the escape in the segment or refusing it.
+    #[test]
+    fn a_segment_with_an_escaped_quote_decodes_to_one_literal_quote() {
+        assert_eq!(
+            split_fqn_tail(r#"warehouse.default."my ""weird"" schema".customers.customer_id"#),
+            Some((String::from("customers"), String::from("customer_id")))
+        );
+        assert_eq!(
+            split_fqn(r#"warehouse.default."my ""weird"" schema".customers.customer_id"#).map(|s| s[2].clone()),
+            Some(String::from(r#"my "weird" schema"#))
+        );
+    }
+
+    /// A segment holding a literal `.` (quoted, per the same grammar) must not be split on that
+    /// internal dot - `warehouse.default."sales.eu".customers.customer_id` is still five segments,
+    /// the third being the literal text `sales.eu`.
+    #[test]
+    fn a_quoted_segment_holding_a_literal_dot_is_not_split_on_it() {
+        assert_eq!(
+            split_fqn(r#"warehouse.default."sales.eu".customers.customer_id"#),
+            Some(vec![
+                String::from("warehouse"),
+                String::from("default"),
+                String::from("sales.eu"),
+                String::from("customers"),
+                String::from("customer_id"),
+            ])
+        );
+    }
 }

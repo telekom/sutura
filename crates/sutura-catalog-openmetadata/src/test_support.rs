@@ -42,7 +42,7 @@ pub fn tables_page() -> serde_json::Value {
         "data": [
             {
                 "name": "orders",
-                "fullyQualifiedName": "warehouse.sales.orders",
+                "fullyQualifiedName": "warehouse.default.sales.orders",
                 "description": "Net revenue orders, in minor units.",
                 "columns": [
                     {"name": "order_id", "dataType": "STRING", "constraint": "PRIMARY_KEY", "description": "The order's own identifier."},
@@ -55,14 +55,18 @@ pub fn tables_page() -> serde_json::Value {
                     {
                         "constraintType": "FOREIGN_KEY",
                         "columns": ["customer_id"],
-                        "referredColumns": ["warehouse.sales.customers.customer_id"],
+                        // The full five-segment column FQN a real instance serves
+                        // (`service.database.schema.table.column`) - `FullyQualifiedName.
+                        // getColumnName` (measured against `open-metadata/OpenMetadata@main`)
+                        // reads its column name from exactly this fifth segment.
+                        "referredColumns": ["warehouse.default.sales.customers.customer_id"],
                         "relationshipType": "ONE_TO_MANY",
                     }
                 ],
             },
             {
                 "name": "customers",
-                "fullyQualifiedName": "warehouse.sales.customers",
+                "fullyQualifiedName": "warehouse.default.sales.customers",
                 "description": "The customer dimension.",
                 "columns": [
                     {"name": "customer_id", "dataType": "STRING"},

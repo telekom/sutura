@@ -100,11 +100,47 @@ impl Scripted {
     }
 }
 
-/// Every request this fake server has answered, in order: `authorization` header or `None`.
-pub type CapturedAuthorizations = Vec<Option<String>>;
+/// One request this fake server answered: its request line, and its `authorization` header.
+///
+/// The request LINE (`METHOD /path?query HTTP/1.1`) is the one thing that proves what a reader
+/// actually dialled - `?fields=`, `?limit=`, the exact path - and not only that it dialled
+/// SOMETHING.
+///
+/// **Why the request line and not only the header.** Issue #970's round-2 review measured that a
+/// suite asserting on `authorization` alone cannot see a query-parameter regression: deleting
+/// `http.rs`'s own `fields_param` construction left every existing test green, because none of
+/// them read the URL a request carried. This type is the fix - a test that wants to prove a query
+/// parameter reached the wire reads [`Self::request_line`], not a bearer header that says nothing
+/// about it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapturedRequest {
+    request_line: String,
+    authorization: Option<String>,
+}
+
+impl CapturedRequest {
+    /// The request line, verbatim off the wire (`GET /api/v1/tables?limit=1000 HTTP/1.1`) - no
+    /// trailing `\r\n`.
+    #[must_use]
+    pub fn request_line(&self) -> &str {
+        &self.request_line
+    }
+
+    /// The `authorization` header's value, if the request carried one.
+    #[must_use]
+    pub fn authorization(&self) -> Option<&str> {
+        self.authorization.as_deref()
+    }
+}
+
+/// Every request this fake server has answered, in order.
+pub type CapturedAuthorizations = Vec<CapturedRequest>;
 
 /// A real local HTTP/1.1 server answering one [`Scripted`] response per connection, in order, then
-/// closing. Captures each request's `authorization` header so a test can assert the bearer was sent.
+/// closing.
+///
+/// Captures each request's line and `authorization` header so a test can assert both the exact
+/// URL dialled and that the bearer was sent.
 pub struct FakeServer {
     addr: SocketAddr,
     handle: Option<thread::JoinHandle<CapturedAuthorizations>>,
@@ -118,16 +154,16 @@ impl FakeServer {
         // `answers` and calling `accept()` exactly that many times is what lets this thread exit
         // once the last scripted answer has been served, with no further accept ever attempted.
         let handle = thread::spawn(move || {
-            let mut authorizations = Vec::new();
+            let mut requests = Vec::new();
             for answer in answers {
                 let Ok((mut stream, _)) = listener.accept() else { break };
-                authorizations.push(read_authorization(&mut stream));
+                requests.push(read_request(&mut stream));
                 if !answer.delay.is_zero() {
                     thread::sleep(answer.delay);
                 }
                 write_response(&mut stream, answer.status, &answer.body);
             }
-            authorizations
+            requests
         });
         Self {
             addr,
@@ -147,7 +183,7 @@ impl FakeServer {
         self.addr
     }
 
-    /// Joins the server thread and returns every request's `authorization` header, in order.
+    /// Joins the server thread and returns every request it answered, in order.
     ///
     /// Only called by a test that knows exactly how many connections it will make - a test that
     /// deliberately stops short drops the server instead, and the abandoned thread exits with the
@@ -161,13 +197,12 @@ impl FakeServer {
     }
 }
 
-/// Reads one HTTP request up to its blank line and returns its `authorization` header, if any. This
-/// reader is never asked to read a GET body, so it does not look for one.
-fn read_authorization(stream: &mut TcpStream) -> Option<String> {
+/// Reads one HTTP request up to its blank line and returns its request line and `authorization`
+/// header, if any. This reader is never asked to read a GET body, so it does not look for one.
+fn read_request(stream: &mut TcpStream) -> CapturedRequest {
     let mut buf = Vec::new();
     let mut chunk = [0_u8; 4096];
-    loop {
-        let read = stream.read(&mut chunk).ok()?;
+    while let Ok(read) = stream.read(&mut chunk) {
         if read == 0 {
             break;
         }
@@ -176,10 +211,16 @@ fn read_authorization(stream: &mut TcpStream) -> Option<String> {
             break;
         }
     }
-    String::from_utf8_lossy(&buf)
+    let text = String::from_utf8_lossy(&buf);
+    let request_line = text.lines().next().unwrap_or_default().to_owned();
+    let authorization = text
         .lines()
         .find(|line| line.to_ascii_lowercase().starts_with("authorization:"))
-        .map(|line| line.split_once(':').map_or("", |(_, value)| value).trim().to_owned())
+        .map(|line| line.split_once(':').map_or("", |(_, value)| value).trim().to_owned());
+    CapturedRequest {
+        request_line,
+        authorization,
+    }
 }
 
 fn write_response(stream: &mut TcpStream, status: u16, body: &[u8]) {

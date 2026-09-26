@@ -83,13 +83,42 @@ mod tests {
         let seen = server.finish();
         drop(read.expect("two well-formed pages read"));
         assert_eq!(seen.len(), 2, "one request per entity kind");
-        for authorization in seen {
+        for request in seen {
             assert_eq!(
-                authorization.as_deref(),
+                request.authorization(),
                 Some("Bearer pat-under-test"),
                 "every request carries the same bearer"
             );
         }
+    }
+
+    /// **The exact request each read makes, byte for byte - not merely that a request happened.**
+    /// The round-2 review measured that a suite asserting on `authorization` alone cannot see a
+    /// query-parameter regression: deleting `http.rs`'s own `fields_param` construction left every
+    /// test in this file green, because none of them read the request line. This cell does.
+    ///
+    /// RED/GREEN mutation: delete the `fields_param` construction in `HttpSnapshotReader::fetch`
+    /// (or its `&fields_param` interpolation into the URL) - the tables request would then carry
+    /// no `fields=` at all, and this assertion goes red.
+    #[test]
+    fn the_tables_and_metrics_requests_carry_their_exact_query_parameters() {
+        let server = FakeServer::start(happy_path_answers());
+        let read = reader(&server, 10, GENEROUS_CAP).read();
+        let seen = server.finish();
+        drop(read.expect("two well-formed pages read"));
+        assert_eq!(seen.len(), 2, "one request per entity kind");
+        assert_eq!(
+            seen[0].request_line(),
+            "GET /api/v1/tables?limit=1000&fields=columns,tableConstraints HTTP/1.1",
+            "the tables request must ask for the two relationship-backed fields TableResource \
+             only populates when named"
+        );
+        assert_eq!(
+            seen[1].request_line(),
+            "GET /api/v1/metrics?limit=1000 HTTP/1.1",
+            "the metrics request needs no `fields=` - MetricResource returns metricType/\
+             granularity/metricExpression/measures unconditionally"
+        );
     }
 
     /// **A 401 is a typed refusal, and `OpenMetadata`'s own response text never reaches `Display` or
@@ -295,7 +324,10 @@ mod tests {
 
     /// **A foreign key whose `referredColumns` entry cannot be split into a table and a column is
     /// refused BY NAME, not read as a dangling join.** `referredColumns` carries a fully qualified
-    /// name (`service.schema.table.column`); a bare column name with no `.` has no table to derive.
+    /// name (`service.database.schema.table.column`, exactly five segments); a bare column name
+    /// with no `.` at all is nowhere close, and `split_fqn_tail`'s own unit cells cover the
+    /// stricter shapes (wrong segment count, an unterminated quote) this integration cell does not
+    /// need to repeat over the wire.
     ///
     /// RED/GREEN mutation: replace `split_fqn_tail`'s `.ok_or(UnexpectedShape { field:
     /// "tableConstraints[].referredColumns[0]" })?` in `harvest_relationship` with

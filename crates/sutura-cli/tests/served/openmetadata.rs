@@ -165,7 +165,7 @@ mod tests {
         assert!(
             authorizations
                 .iter()
-                .all(|seen| seen.as_deref() == Some("Bearer pat-under-test")),
+                .all(|seen| seen.authorization() == Some("Bearer pat-under-test")),
             "every OpenMetadata page request must carry the token_file's bearer, got: {authorizations:?}"
         );
     }

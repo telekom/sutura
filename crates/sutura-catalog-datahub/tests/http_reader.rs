@@ -84,9 +84,9 @@ mod tests {
         let seen = server.finish();
         drop(read.expect("three well-formed pages read"));
         assert_eq!(seen.len(), 3, "one request per entity type");
-        for authorization in seen {
+        for request in seen {
             assert_eq!(
-                authorization.as_deref(),
+                request.authorization(),
                 Some("Bearer pat-under-test"),
                 "every request carries the same bearer"
             );
