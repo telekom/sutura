@@ -434,7 +434,7 @@ fn library_problems(root: &Path) -> Vec<String> {
                 problems.push(format!("could not read `{LIBRARY_DIR}/{rel}/SKILL.md`"));
                 continue;
             };
-            if !body.contains("## Provenance") {
+            if !provenance_section(&body) {
                 problems.push(format!(
                     "`{LIBRARY_DIR}/{rel}/SKILL.md` has no `## Provenance` section - record the upstream, licence and local status"
                 ));
@@ -445,6 +445,35 @@ fn library_problems(root: &Path) -> Vec<String> {
         }
     }
     problems
+}
+
+/// A section heading outside fenced examples, where a reader will see it as provenance.
+fn provenance_section(body: &str) -> bool {
+    let mut fence: Option<(u8, usize)> = None;
+    for raw in body.lines() {
+        let indent = raw.len().saturating_sub(raw.trim_start_matches(' ').len());
+        if indent > 3 || raw.get(indent..).is_some_and(|line| line.starts_with('\t')) {
+            continue;
+        }
+        let line = raw.trim();
+        let first = line.as_bytes().first().copied();
+        let marker = first.filter(|byte| *byte == b'`' || *byte == b'~');
+        let width = marker.map_or(0, |byte| line.bytes().take_while(|next| *next == byte).count());
+        if width >= 3 {
+            match fence {
+                None => fence = marker.map(|byte| (byte, width)),
+                Some((active, opened))
+                    if marker == Some(active) && width >= opened && line.get(width..).is_some_and(str::is_empty) =>
+                {
+                    fence = None;
+                }
+                Some(_) => {}
+            }
+        } else if fence.is_none() && line == "## Provenance" {
+            return true;
+        }
+    }
+    false
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
