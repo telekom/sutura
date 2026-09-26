@@ -39,23 +39,25 @@
 //!
 //! # The scope, which is the limit that matters most here
 //!
-//! `guidance::tree_problems` passes `text_files`, so this rule reads `md`, `nix`, `yml`, `yaml`,
-//! `toml` and `sh` and **no `.rs` file at all** - `guidance::in_scope` says why, and the reason is
-//! good: a rule table written in Rust holds the very phrases it forbids, so a widened scope makes
-//! this gate report itself. The consequence, stated rather than left to be discovered: **no gate in
-//! this repository can refuse a leg-2 overstatement in a Rust comment.** Five of the sites this
-//! rule's own wordings were harvested from were doc comments
+//! `guidance::tree_problems` passes `text_files` plus every `.rs` file, so this rule reads `md`,
+//! `nix`, `yml`, `yaml`, `toml` and `sh` as written, and `.rs` through [`absences::prose`], which
+//! keeps `///` and `//!` doc comments only. A rule table written in Rust holds the very phrases it
+//! forbids, which is why `guidance::in_scope` excludes `.rs` for everything else that judges a
+//! sentence; here the WORDINGS are string literals, not doc comments, so the rule does not report
+//! itself. A `//` line comment, a `/* */` block comment and a string literal in `.rs` are not read,
+//! and that is the limit: an overstatement there rests on review. Five of the sites this rule's own wordings were harvested from were doc comments
 //! (`sutura-exec-bigquery`'s `principal.rs` and `transport.rs`, `sutura-cli`'s `serve/broker.rs`,
-//! `sutura-config`'s `sources/workload_identity.rs` and `raw.rs`), and every one of them rests on
-//! review. Widening `contradicted_claims` to `files` was priced and declined for `in_scope`'s
-//! reason; what is added instead is a wording per sentence found, which at least holds the SIBLINGS
-//! of a corrected page.
+//! `sutura-config`'s `sources/workload_identity.rs` and `raw.rs`), and widening to doc comments
+//! holds them where it held nothing before. Widening `contradicted_claims` to `files` was priced
+//! and declined for `in_scope`'s reason; what is added instead is a wording per sentence found,
+//! which at least holds the SIBLINGS of a corrected page.
 //!
 //! It reaches no `.py` and no commit message either - nothing in `check-guidance` reads git
 //! history.
 
 use std::path::Path;
 
+use super::absences::prose;
 use super::claims::flatten;
 
 /// Every wording of *leg 2 is proven* that has been found in this repository.
@@ -89,9 +91,10 @@ const EXCEPT: &[&str] = &[
 
 /// Everything wrong with how this tree states leg 2's state.
 ///
-/// `files` is the prose scope `guidance::run` already computed, read through
-/// a text-backed `read` closure exactly as [`super::claims::contradicted_claims`] reads it - so an
-/// unreadable page reports itself once, through the one reader every check here shares.
+/// `files` is the prose scope plus every `.rs` file, read through a text-backed `read` closure
+/// exactly as [`super::claims::contradicted_claims`] reads it, and each one through [`prose`] - a
+/// `.rs` file's doc comments, anything else as written - so an unreadable page reports itself once,
+/// through the one reader every check here shares.
 pub(super) fn problems(root: &Path, read: &crate::causality::regions::PostImage<'_>, files: &[String]) -> Vec<String> {
     let Some(citable) = crate::venues::leg_two_citable(root) else {
         return vec![String::from(
@@ -112,7 +115,7 @@ pub(super) fn problems(root: &Path, read: &crate::causality::regions::PostImage<
         let Some(text) = read(path) else {
             continue;
         };
-        problems.extend(stated_in(path, &text));
+        problems.extend(stated_in(path, &prose(path, &text)));
     }
     problems
 }
@@ -214,8 +217,10 @@ mod tests {
         // three from coming back once the page is corrected.
         //
         // The LIMIT, because this cell proves less than it looks like it does: it holds the
-        // literals, in prose files. The same three claims in a Rust comment are refused by nothing
-        // - see this module's own header - and a paraphrase of any of them escapes.
+        // literals, in prose files. The same three claims in a `//` line comment or a block comment
+        // are still refused by nothing - see this module's own header - and a paraphrase of any of
+        // them escapes. A `///` or `//!` doc comment IS refused, which
+        // `a_doc_comment_overstatement_in_rust_is_refused_but_a_string_literal_is_not` holds.
         for wording in [
             "An exchange HAS run against real STS and `iamcredentials`",
             "What proved leg 2 for BigQuery, hosted",
@@ -226,6 +231,63 @@ mod tests {
             assert_eq!(found.len(), 1, "an unregistered wording: {wording}\n{found:?}");
             assert!(found[0].contains("no leg-2 row"), "{found:?}");
         }
+    }
+
+    #[test]
+    fn a_doc_comment_overstatement_in_rust_is_refused_but_a_string_literal_is_not() {
+        // **RED against base by assertion, not by missing-fn.** Before the scope was widened,
+        // `problems` read a `.rs` file as raw text, so a wording in a `///` doc comment and one
+        // in a string literal were both found - two problems. After the widening, `problems`
+        // routes `.rs` through `absences::prose`, which reads `///` and `//!` only and blanks a
+        // string literal to an empty line - one problem, the doc comment. This cell drives the
+        // rule's public entry (`problems`) against a fixture tree, so the assertion is what
+        // fails on base, not a missing `use super::prose`.
+        let root = std::env::temp_dir().join(format!("sutura-leg-two-doc-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&root));
+        std::fs::create_dir_all(root.join("docs")).expect("fixture root");
+        // A venue page whose two leg-2 rows carry no citable verdict, which is the condition.
+        std::fs::write(
+            root.join("docs/where-identity-is-proven.md"),
+            "| Claim | Fake at the port |\n| --- | --- |\n\
+             | Whether two distinct subjects resolve to two distinct principals | **wired** |\n\
+             | A served binary executes as a verified human caller through the declared per-source map | - |\n",
+        )
+        .expect("fixture venue page");
+        // A `.rs` file with one registered wording in a `///` doc comment and a different one
+        // in a string literal. On base both are found (raw text); after the widening only the
+        // doc comment survives `prose`.
+        let rel = "crates/sutura-exec-bigquery/src/principal.rs";
+        std::fs::create_dir_all(root.join("crates/sutura-exec-bigquery/src")).expect("fixture crate dir");
+        std::fs::write(
+            root.join(rel),
+            concat!(
+                "//! Module doc.\n",
+                "/// Leg 2 (a source executing AS them) is proven for BigQuery.\n",
+                "fn f() -> &'static str {\n",
+                "    \"leg 2 is proven here for BigQuery only\"\n",
+                "}\n",
+            ),
+        )
+        .expect("fixture claimant");
+        let files = vec![String::from(rel)];
+        let read = |rel: &str| std::fs::read_to_string(root.join(rel)).ok();
+        let found = super::problems(&root, &read, &files);
+        drop(std::fs::remove_dir_all(&root));
+        // One problem: the `///` doc comment. The string literal is blanked by `prose`, so on
+        // base this is 2 and the assertion fails by its own count.
+        assert_eq!(
+            found.len(),
+            1,
+            "expected one finding (the doc comment), the string literal must be blanked: {found:?}"
+        );
+        assert!(
+            found[0].contains("no leg-2 row"),
+            "the doc comment overstatement was not reported: {found:?}"
+        );
+        assert!(
+            found[0].contains("Leg 2 (a source executing AS them) is proven"),
+            "the reported finding should name the doc comment wording, not the string literal: {found:?}"
+        );
     }
 
     #[test]

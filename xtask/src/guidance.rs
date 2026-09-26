@@ -7,8 +7,9 @@
 //!
 //! Scope: documentation and configuration (`.md`, `.nix`, `.yml`, `.yaml`, `.toml`, `.sh`) for
 //! everything that judges a SENTENCE - Rust source is deliberately out of that, see the filter in
-//! `run` - plus Rust source for the two checks that judge a CITATION, which is resolvable rather
-//! than read, and for `versions`, which judges a TOKEN beside a name read out of the manifests.
+//! `run` - plus Rust source for the two citation checks (a CITATION is resolvable rather than
+//! read), for `versions` (a TOKEN beside a name read out of the manifests), and for the leg-2 rule
+//! (`///` and `//!` doc comments, through `absences::prose`).
 //!
 //! Eleven checks, one theme: a claim in prose is only as good as the thing that verifies it.
 //!
@@ -429,10 +430,16 @@ fn tree_problems(
 ) -> TreeVerdict {
     let mut problems = stale_phrases(read, text_files);
     problems.extend(contradicted_claims(root, read, text_files));
-    // `text_files`, and the CONDITION comes from another gate's parser rather than from a needle in
-    // a page: `crate::venues::leg_two_citable` reads the claims matrix. Its own module header
-    // carries why this is not a `CONTRADICTED` row and what the pair does not reach.
-    problems.extend(leg_two::problems(root, read, text_files));
+    // `text_files` plus every `.rs`, whose doc comments the rule reads through `absences::prose`.
+    // The CONDITION comes from another gate's parser rather than from a needle in a page:
+    // `crate::venues::leg_two_citable` reads the claims matrix. Its own module header carries why
+    // this is not a `CONTRADICTED` row and what the pair does not reach.
+    let leg_two_files: Vec<String> = text_files
+        .iter()
+        .chain(files.iter().filter(|f| has_ext(f, &["rs"])))
+        .cloned()
+        .collect();
+    problems.extend(leg_two::problems(root, read, &leg_two_files));
     problems.extend(count_mismatches(read, files, text_files));
     problems.extend(bad_task_references(read, text_files));
     // `files` and `text_files`, like `count_mismatches`: the mechanism is derived from ANY file, and

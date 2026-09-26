@@ -154,7 +154,7 @@ pool, and the venue that would is `wired`.
 **The limit on this record's own class of defect:** `0034` is not in `check-guidance`'s leg-2
 exemption list, so a page here stating a registered *leg 2 is proven* wording is refused; nothing
 refuses the two sentences this amendment corrects, because they overstate a NEGATIVE. No gate reads
-them, and none reads a Rust comment at all.
+them, and in Rust the leg-2 rule reads `///` and `//!` doc comments only.
 
 ## Fourth amendment, 2026-09-22: the declared map's VALUES decide something again
 
