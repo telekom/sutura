@@ -37,34 +37,44 @@
 
 use sutura_domain::model::{IdentifierCase, Qualification};
 
-/// Declares [`Dialect`] and [`ALL`] from ONE list, so a variant cannot exist without being in it.
-macro_rules! dialects {
-    ($($variant:ident),+ $(,)?) => {
-        /// The data systems a statement can be rendered for.
-        ///
-        /// A closed set rather than a passthrough of the dialect layer's thirty-three, because each
-        /// entry here is a claim that we generate correct SQL for it and have a golden that says so.
-        /// Adding one is a feature flag, a match arm and a snapshot.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
-        #[serde(rename_all = "snake_case")]
-        pub enum Dialect {
+/// Declares the enum it is handed and [`ALL`] from its ONE variant list, so a variant cannot exist
+/// without being listed.
+macro_rules! with_all {
+    ($(#[$meta:meta])* pub enum $name:ident { $($variant:ident),+ $(,)? }) => {
+        $(#[$meta])*
+        pub enum $name {
             $($variant),+
         }
 
         /// Every dialect, in declaration order, for iterating a golden suite over all of them.
         ///
         /// **The enum and this list are one macro input, so the edge between them is held by
-        /// construction.** A variant added to the `dialects!` list is in both; there is no second
-        /// place to forget it. A sixth variant still does not compile until seven production
-        /// exhaustive matches over `Dialect` answer for it: `as_str`, `placeholder_style`,
-        /// `identifier_quote`, `date_trunc_shape`, `qualification` and `identifier_case` in this
-        /// file, and `dialect_type` in [`mod@crate::generate`]. `github.com/telekom/sutura#410`
-        /// measured the hand-restated list this replaces.
-        pub const ALL: &[Dialect] = &[$(Dialect::$variant),+];
+        /// construction.** A variant added to the enum is in both; there is no second place to
+        /// forget it. A sixth variant still does not compile until seven production exhaustive
+        /// matches over `Dialect` answer for it: `as_str`, `placeholder_style`, `identifier_quote`,
+        /// `date_trunc_shape`, `qualification` and `identifier_case` in this file, and
+        /// `dialect_type` in [`mod@crate::generate`]. `github.com/telekom/sutura#410` measured the
+        /// hand-restated list this replaces.
+        pub const ALL: &[$name] = &[$($name::$variant),+];
     };
 }
 
-dialects!(DuckDb, Postgres, ClickHouse, BigQuery, Oracle);
+with_all! {
+    /// The data systems a statement can be rendered for.
+    ///
+    /// A closed set rather than a passthrough of the dialect layer's thirty-three, because each entry
+    /// here is a claim that we generate correct SQL for it and have a golden that says so. Adding one
+    /// is a feature flag, a match arm and a snapshot.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Dialect {
+        DuckDb,
+        Postgres,
+        ClickHouse,
+        BigQuery,
+        Oracle,
+    }
+}
 
 /// How a bind parameter is written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
