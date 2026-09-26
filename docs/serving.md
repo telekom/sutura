@@ -481,14 +481,17 @@ without an orchestrator being reconfigured. It carries no version, no build iden
 dependency list, no configuration and no catalog content, because an unauthenticated caller can
 always reach it - so every field it might have is a field handed to anybody who can route a packet.
 
-**A limit on the allowlist, not on the two routes above.** `/health` and `/metrics` are the existing
-shape of a plain, non-wildcard `.route(` merged at the top level of `assemble` outside the version
-prefix and outside `Ungoverned::mount` - and nothing new here holds that shape. A future route
-merged the same way is not caught by the `Ungoverned` type (it never touches the mount), by
-`check-boundaries`' text scan (only `.nest`/`.nest_service`/`.route_service`/`.fallback_service` and
-a wildcard `.route` are needles - a named `.route(` is deliberately not one, for the reason stated
-at `xtask/src/boundaries/ungoverned.rs`), by `ungoverned_routes()`'s allowlist record (nothing is
-recorded for it to check), or by a behaviour cell (none dials it). It is held by review alone.
+**A limit on the allowlist, not on the two routes above.** A route merged at the top level of
+`assemble`, outside the version prefix and outside `Ungoverned::mount`, is caught by
+`check-boundaries`' `ungoverned` half only when it is written as a literal `.route(`: any `.route(`
+in `sutura-http` or `sutura-cli` is a needle, and a hit passes only inside `Ungoverned::mount`,
+inside a `#[cfg(test)] mod tests` block, in a file whose path ends in `tests.rs` (by naming
+convention - see the limit note in `ungoverned.rs`), or at a site recorded in
+`ungoverned::ALLOWED_ROUTES` (`/openapi.json` in `router.rs`, the RFC 9728 well-known path in
+`routes/protected_resource.rs`). `/health` and `/metrics` are merged through
+`.routes(utoipa_axum::routes!(..))`, whose `.route(` is inside the macro, so they are invisible to
+the needle - and **a future route merged the same way is too**. That shape is held by review alone,
+the limit stated at `xtask/src/boundaries/ungoverned.rs`.
 
 The interface description is served everywhere except production, where it is off by default. It
 describes the surface, which is business information even with no row of data in it.
