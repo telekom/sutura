@@ -108,7 +108,7 @@ use crate::warm_start::WARM_PROFILE;
 /// it. `Isolated::of` is the only thing that returns one, and it returns one only after cargo has
 /// reported what it removed.
 #[derive(Debug)]
-pub(super) struct Isolated {
+pub(crate) struct Isolated {
     /// The tree the removal resolved the workspace from, and the tree the run happens in.
     dir: PathBuf,
     /// The directory the artifacts were removed from, and the directory the run builds into.
@@ -140,7 +140,7 @@ impl Isolated {
     /// A failure to clean is an ERROR rather than a warning, because the run that follows it is
     /// exactly the run whose verdict cannot be trusted. `super::runner::cargo_test` turns it into
     /// the run's own failure text, which is where every other subprocess failure in this gate goes.
-    pub(super) fn of(dir: &Path, target: &Path) -> Result<Self, String> {
+    pub(crate) fn of(dir: &Path, target: &Path) -> Result<Self, String> {
         let removal = clean(dir, target)
             .output()
             .map_err(|e| format!("could not run cargo clean in {}: {e}", dir.display()))?;
@@ -181,7 +181,7 @@ impl Isolated {
     /// A COUNT AND NOT A GUARANTEE: it is cargo's own number for the files it took out of this
     /// directory at this profile. Zero on a cold directory is right; zero on a warm one is the tell
     /// that this removal is not reaching what the run reuses, which is the defect that shipped.
-    pub(super) const fn removed(&self) -> usize {
+    pub(crate) const fn removed(&self) -> usize {
         self.removed
     }
 

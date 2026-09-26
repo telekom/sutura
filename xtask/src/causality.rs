@@ -29,7 +29,7 @@
 //!
 //! WHICH FILE IS WHICH. [`diff`] reads the diff into added lines that carry their post-image
 //! line numbers; [`regions`] decides which of those lines are test code, by where they sit in
-//! the file rather than by what the added set happens to contain; [`plan()`] sorts the result into
+//! the file rather than by what the added set happens to contain; [`plan::plan_with_base`] sorts the result into
 //! what to revert, what to hold and what to measure. That middle module's own doc records the
 //! defect the earlier shape produced and the limits of what replaced it - a tests-only branch
 //! reported as "changes behaviour and adds tests in one file", which is a different message asking
@@ -101,7 +101,7 @@ mod edited;
 mod features;
 #[cfg(test)]
 mod fixtures;
-mod isolation;
+pub(crate) mod isolation;
 mod membership;
 mod names;
 mod place;
@@ -125,6 +125,7 @@ pub(crate) mod rot;
 mod runner;
 mod scoped;
 mod stack;
+mod weakens;
 mod worktree;
 
 use base::{BaseOutcome, classify_base, report_base, tail};
@@ -132,11 +133,11 @@ use coverage::{Coverage, Scope};
 use diff::changed_with_additions;
 use features::{Activation, BaseText, Trees};
 use place::AddedTest;
-use plan::{Plan, Separable, plan};
+use plan::{Plan, Separable, plan_with_base};
 use provenance::{Commit, Moved, Reach};
 use refusals::{
-    report_enabled_tests, report_head_failure, report_unclaimed_additions, report_unnamed_tests, report_unread_manifests,
-    report_unreadable,
+    report_deleted_tests, report_enabled_tests, report_head_failure, report_unclaimed_additions, report_unnamed_tests,
+    report_unread_manifests, report_unreadable,
 };
 use relocation::{Claim, Images, Relocation};
 use remedies::{
@@ -467,13 +468,15 @@ fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], rea
 /// covers everything - there is no ordinary proof to compose it with here, because nothing was
 /// reverted for one to run against.
 ///
-/// **THE LIMIT, NARROWED BY `github.com/telekom/sutura#1025`.** `Scan::of` used to read only
-/// ADDED tests - an added `#[test]` attribute or test-module declaration - so an assertion edited
-/// inside an EXISTING test, in a file whose production code did not change, reached
-/// `Plan::NotRequired` untouched. `super::edited` now names that test too, from the PRE-existing
-/// attribute rather than an added one, so it reaches this same arm. What is still not reached: a
-/// pure DELETION of an assertion, which adds no line either extractor can find, and an edit inside
-/// a `#[cfg(test)]` helper a test calls - `super::edited`'s own header states both.
+/// **THE LIMIT, NARROWED BY `github.com/telekom/sutura#1025` then `github.com/telekom/sutura#1031`.**
+/// `Scan::of` used to read only ADDED tests - an added `#[test]` attribute or test-module
+/// declaration - so an assertion edited inside an EXISTING test, in a file whose production code
+/// did not change, reached `Plan::NotRequired` untouched. `super::edited` now names that test too,
+/// from the PRE-existing attribute rather than an added one, so it reaches this same arm; an edit
+/// inside a `#[cfg(test)]` HELPER a test calls is named the same way
+/// (`edited::edited_helper_caller`), and a pure DELETION of an assertion is a named
+/// `Plan::DeletedTests` refusal before `tests_only` is ever reached. The remaining gap - a helper
+/// a test calls from a DIFFERENT file - is `super::edited`'s own stated limit.
 fn tests_only(
     root: &Path,
     at: &Commit,
@@ -612,11 +615,19 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         Relocation::Refused(broken) => return relocation::report_refused(&broken),
     }
 
-    match plan(&files, &working_tree) {
+    match plan_with_base(&files, &working_tree, &base_tree) {
         Plan::NotRequired => {
             println!("xtask test-causality: no changed tests - nothing to prove");
             Verdict::Pass
         }
+        Plan::DeletedTests(deleted) => {
+            // A COMMIT MAY WAIVE A NAMED DELETION, and the trailer is a CLAIM this CHECKS against
+            // `removed_in`'s own answer - `super::weakens`'s own header carries why it mirrors
+            // `Claim-Cell:` rather than a blanket override.
+            let waived = weakens::Waived::of(&worktree::messages(&root, &at));
+            report_deleted_tests(&deleted, &waived)
+        }
+        Plan::BaseUnreadable(files) => report_unreadable(&files),
         Plan::NotSeparable {
             files: inseparable,
             build_inputs,

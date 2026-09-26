@@ -64,9 +64,11 @@
 //!
 //! A NAME NEED NOT COME FROM AN ADDED ATTRIBUTE ANY MORE - `github.com/telekom/sutura#1025`.
 //! `super::edited` reads the same [`function_name`] over a PRE-existing attribute whose item an
-//! added line lands inside, so an edited assertion is named the same way an added test is. Its own
-//! header carries the one shape that still names nothing: a pure deletion, which adds no line for
-//! either extractor to find.
+//! added line lands inside, so an edited assertion is named the same way an added test is.
+//! `github.com/telekom/sutura#1031` closes the sibling: an added line inside a `#[cfg(test)]`
+//! HELPER fn a test calls is named through `edited::edited_helper_caller`, so it reaches the same
+//! proof arms. `super::edited`'s own header carries the shapes that still name nothing - a pure
+//! deletion (now a `DeletedTests` refusal, not a pass) and a helper in a DIFFERENT file.
 
 use std::collections::BTreeSet;
 
@@ -252,9 +254,19 @@ impl Scan {
                 }
             }
             // `github.com/telekom/sutura#1025`: a test this diff did not ADD but whose item an
-            // added line lands inside - an edited assertion, most often. Independent of
-            // `named`/`declared` above, which count only ADDED attribute lines: a body-only edit
-            // adds no attribute at all, so those two stay at zero however many of these this finds.
+            // added line lands inside - an edited assertion, most often. `github.com/telekom/sutura#1031`
+            // closes the sibling shape - an added line inside a `#[cfg(test)]` helper fn a test
+            // calls, reached by name here. Both are "a test this diff changed without adding it",
+            // so both name the test the same way; each is independent of `named`/`declared`
+            // above, which count only ADDED attribute lines - a body-only edit adds no attribute
+            // at all.
+            let scope = crate::causality::regions::scope(&file.path, read);
+            for name in edited::edited_helper_caller(&lines, &file.added, &scope) {
+                let one = AddedTest::at(&file.path, &at, name);
+                if !runnable.contains(&one) {
+                    runnable.push(one);
+                }
+            }
             let touched = edited::touched_in(&lines, &file.added);
             let touched_any = !touched.is_empty();
             for one in touched {

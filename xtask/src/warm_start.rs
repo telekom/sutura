@@ -76,6 +76,11 @@ mod deps_targets;
 #[cfg(test)]
 mod sweep;
 
+/// The two shipped-feature-set gates clean first-party artifacts before building (#1047).
+///
+/// Its own module for [`pairing`]'s reason - a different claim over the same gate.
+mod clean_first;
+
 /// The nix module that unpacks the inherited artifacts into the directory.
 const WARMER: &str = "nix/cargo-env.nix";
 
@@ -181,6 +186,15 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         "xtask check-warm-start: ok - {} app(s) consume the artifacts at profile {WARM_PROFILE}, each in the directory {WARMER} warmed",
         consumers.count()
     );
+    // THE CLEAN BEFORE THE FIRST BUILD in the two other gates that share this directory with
+    // `causality` - `clean_first`'s header says what the textual read does not reach.
+    match clean_first::holds(&root) {
+        Ok(held) => println!("xtask check-warm-start: ok - {held} warmed gate(s) clean first-party artifacts before building"),
+        Err(why) => {
+            eprintln!("xtask check-warm-start: {why}");
+            return Verdict::Fail;
+        }
+    }
     // THE PAIRING, which is the other half of what makes an inherited artifact usable: the
     // directory and the profile say WHERE the closure is and HOW it was built, and the sweep says
     // that nothing in it still names a build root it no longer sits in.
