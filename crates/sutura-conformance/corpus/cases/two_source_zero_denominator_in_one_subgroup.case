@@ -1,0 +1,16 @@
+# `share_cents` sums to zero for one subgroup only - the orphan on day 1, whose numerator is 50.
+# That subgroup is null and every other one is its own quotient, divided once above the join.
+name: two-source-zero-denominator-in-one-subgroup
+metric: share_of_total
+aggregate: ratio
+numerator: sum amount_cents
+denominator: sum share_cents
+zero_denominator: yields_null
+keys: region_name
+lookup: conformance_regions
+rows:
+text:Eastern	text:2026-01-01	real:0.2916666666666667
+text:Northern	text:2026-01-01	real:0.5
+null	text:2026-01-01	null
+text:Eastern	text:2026-01-02	real:0.6
+text:Northern	text:2026-01-02	real:0.8125

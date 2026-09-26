@@ -1,0 +1,9 @@
+# `collation_key` values recur under both regions, the join key, so per-region distinct counts
+# summed above the join over-count: day 1 holds 2 distinct values and its per-region counts sum to
+# 4. The domain refuses the leaf at construction, and that refusal is the whole case - no rows.
+name: two-source-distinct-value-spanning-join-keys
+metric: distinct_collation_keys
+aggregate: count_distinct
+column: collation_key
+keys:
+lookup: conformance_regions

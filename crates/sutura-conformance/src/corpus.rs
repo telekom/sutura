@@ -24,13 +24,14 @@
 //! precedent: a tracked data file read at compile time, served from the file rather than from a
 //! copied constant.
 //!
-//! # What this corpus does NOT contain, stated so nobody reads it as the whole suite
+//! # The federated cases, and the one adapter pair that runs them
 //!
-//! - **The three cases `docs/adr/0012` names** - a filter on a remote dimension over an orphan key,
-//!   a ratio whose denominator is zero for one subgroup, and a `CountDistinct` spanning two join
-//!   keys. [`federated_cases`] holds one federated plan, a plain sum over a second table, and none
-//!   of the three. It is a value in this module, not a file: the `.case` loader reads no federated
-//!   plan.
+//! The three cases `docs/adr/0012` names - a filter on a remote dimension over an orphan key, a
+//! ratio whose denominator is zero for one subgroup, and a `CountDistinct` spanning two join keys -
+//! are `.case` files too. [`federated_cases`] holds the two with an answer; the `CountDistinct` one
+//! is refused by [`FederatedPlan::new`] and asserted as that refusal, since there is no plan to
+//! execute. Only `tests/federated_bound.rs` binds the two-warehouse arm, over two in-process
+//! engines of ONE kind, so these rows say nothing yet about any other adapter.
 //!
 //! # Null placement in a group key: decided, and what the null row does and does NOT detect
 //!
@@ -103,17 +104,15 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use sutura_domain::calendar::{Date, TimeRange};
-use sutura_domain::federation::Federation;
 use sutura_domain::identity::Presented;
-use sutura_domain::measure::{AggregatedColumn, Measure, Term};
-use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, QualifiedTable, SourceName, TableName};
+use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::plan::{
-    AnswerKey, FederatedPlan, InternalLabel, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey,
-    PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
+    FederatedPlan, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlanTerm,
+    PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
 };
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
-use sutura_domain::warehouse::{ParamValue, RowSet, Value};
+use sutura_domain::warehouse::{ParamValue, RowSet};
 
 /// The data system name every plan in this corpus resolves to.
 const SOURCE: &str = "conformance";
@@ -510,86 +509,10 @@ impl FederatedCase {
     }
 }
 
-/// Every federated question in the corpus: one, hand-built.
-///
-/// `total-by-region-and-day`'s sum, with the region's display name read off a lookup table on a
-/// second source. The null region has no lookup row and survives the join because the plan
-/// includes unmatched fact rows.
+/// Every federated question in the corpus with an answer, read from its `.case` file.
 #[must_use]
 pub fn federated_cases() -> Vec<FederatedCase> {
-    let region = DimensionName::parse("region").expect("a corpus dimension is a dimension");
-    let lookup_table = QualifiedTable::parse(LOOKUP_TABLE).expect("the lookup table is a table");
-    let lookup_column = |name: &str| {
-        PlanColumn::new(
-            lookup_table.name().clone(),
-            ColumnName::parse(name).expect("a lookup column name is a name"),
-        )
-    };
-    let link = ResultLabel::internal(InternalLabel::Link);
-    let fact = LegPlan::Fact {
-        source: source(),
-        metric: metric("amount_total"),
-        tables: StatementTables::only(table()),
-        bucket: bucket(),
-        keys: vec![PlanKey::new(link.clone(), column("region"))],
-        terms: vec![LegTerm::new(
-            PlanTerm::Aggregate {
-                aggregate: Aggregate::Sum,
-                column: column("amount_cents"),
-            },
-            ResultLabel::internal(InternalLabel::Leaf(0)),
-        )],
-        bindings: range_bindings(),
-        range: range(),
-    };
-    let lookup = LegPlan::Lookup {
-        source: lookup_source(),
-        keys: vec![
-            PlanKey::new(link, lookup_column("region")),
-            PlanKey::new(ResultLabel::dimension(&region), lookup_column("region_name")),
-        ],
-        table: lookup_table,
-        bindings: PlanBindings::none(),
-    };
-    let measure = Measure::Simple(Term::Aggregate(AggregatedColumn::new(
-        Aggregate::Sum,
-        ColumnName::parse("amount_cents").expect("a corpus column name is a name"),
-    )));
-    let plan = FederatedPlan::new(
-        metric("amount_total"),
-        ResultLabel::measure(&metric("amount_total")),
-        bucket(),
-        fact,
-        None,
-        lookup,
-        true,
-        Federation::of(&measure),
-        vec![AnswerKey::lookup(ResultLabel::dimension(&region))],
-    )
-    .expect("the hand-built federated plan is a plan");
-    let row = |name: Option<&str>, of_january: u8, cents: i64| {
-        vec![
-            name.map_or(Value::Null, |n| Value::Text(String::from(n))),
-            Value::Text(day(of_january).to_iso()),
-            Value::Integer(cents),
-        ]
-    };
-    let expected = RowSet::new(
-        vec![String::from("region"), String::from("period"), String::from("amount_total")],
-        vec![
-            row(Some("Eastern"), 1, 350),
-            row(Some("Eastern"), 2, 150),
-            row(Some("Northern"), 1, 400),
-            row(Some("Northern"), 2, 1300),
-            row(None, 1, 50),
-        ],
-    )
-    .expect("the expected rows are well-formed");
-    vec![FederatedCase {
-        name: "total-by-region-name-and-day-over-two-sources",
-        plan,
-        expected,
-    }]
+    case_files::load_federated()
 }
 
 #[cfg(test)]

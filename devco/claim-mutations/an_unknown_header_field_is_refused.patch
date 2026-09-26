@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-conformance/src/corpus/case_files.rs b/crates/sutura-conformance/src/corpus/case_files.rs
+--- a/crates/sutura-conformance/src/corpus/case_files.rs
++++ b/crates/sutura-conformance/src/corpus/case_files.rs
+@@ -369,11 +369,7 @@
+             }
+             let (field, value) = split_field(file, line)?;
+             let Some(&field) = known.iter().find(|&&known| known == field) else {
+-                return Err(CaseError::UnknownValue {
+-                    file,
+-                    field: "header",
+-                    value: field.to_owned(),
+-                });
++                continue;
+             };
+             if fields.iter().any(|&(seen, _)| seen == field) {
+                 return Err(CaseError::DuplicateField { file, field });
