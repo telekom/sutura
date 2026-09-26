@@ -279,6 +279,12 @@ mod leg_refusal_test;
 #[cfg(test)]
 mod top_test;
 
+/// The accepted two-leg dry-run count cell - each leg's own warehouse sees exactly one
+/// `dry_run` on an accepted answer. Split out for the same `max-lines` reason; its own header
+/// states why the counting fake lives in that `#[cfg(test)]` file rather than in `tests_support`.
+#[cfg(test)]
+mod dry_run_count_test;
+
 #[test]
 fn a_federated_fact_preflight_refusal_is_not_a_partial_answer() {
     let shared = shared();

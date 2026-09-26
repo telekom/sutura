@@ -1,0 +1,21 @@
+diff --git a/crates/sutura-app/src/federated.rs b/crates/sutura-app/src/federated.rs
+--- a/crates/sutura-app/src/federated.rs
++++ b/crates/sutura-app/src/federated.rs
+@@ -220,13 +220,10 @@
+         Err(LegError::Failure(error)) => return Err(error),
+     };
+     // The SAME `Deadline`, shared rather than divided (`docs/adr/0029` decision 3).
+-    let lookup_preflight = match dry_run_leg::<_, B, C>(lookup_warehouse, &credentials, plan.lookup(), deadline) {
+-        Ok(preflight) => preflight,
+-        Err(LegError::Refusal(reason)) => {
+-            return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
+-        }
+-        Err(LegError::Failure(error)) => return Err(error),
+-    };
++    // MUTATION: skip the lookup leg's own `dry_run_leg` call - the warehouse never sees the
++    // dry-run, so the counter the cell asserts on stays at zero. `lookup_warehouse` and
++    // `plan.lookup()` stay used by `run_leg` below, so this is an assertion kill, not a compile one.
++    let lookup_preflight = PreFlight::NotAsked;
+     // Only a `Some` leg is counted, and a leg that priced nothing contributes nothing - "not
+     // counted", never "free". Nothing is charged at all when NEITHER leg priced, so an
+     // all-`None` federated answer (every adapter but BigQuery, today) never touches the ledger.
