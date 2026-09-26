@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-app/src/prompt/knowledge.rs b/crates/sutura-app/src/prompt/knowledge.rs
+--- a/crates/sutura-app/src/prompt/knowledge.rs
++++ b/crates/sutura-app/src/prompt/knowledge.rs
+@@ -151,9 +151,7 @@ const fn claim(capability: Capability, audience: Audience) -> Claim {
+             declared: "**Caveats** - things to know before trusting a number. Each one is printed under the metric it is \
+                        about and applies to every question about that metric.",
+             empty: if audience.is_scoped() {
+-                "**Caveats**, and none is visible to you. This deployment keeps them; a caveat about a metric you \
+-                 cannot see is withheld along with that metric - which is not a statement that no trap exists for \
+-                 what you CAN ask about."
++                "**Caveats**, and none is visible to you. This deployment keeps them."
+             } else {
+                 "**Caveats**, and none is recorded yet. This deployment keeps them, printed under the metric each \
+                  one is about, and today no metric has one - which is not a statement that there are no traps."

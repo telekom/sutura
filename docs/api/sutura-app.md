@@ -1164,11 +1164,13 @@ as unbounded.
 
 **Section order is `declaration`, `glossary`, `not_defined`, `caveats`, `examples` - fixed, and
 deliberately not the prompt's own order.** The declaration's own sentences ("listed below", "at
-the end of this document") are true only of the document that renders them; `knowledge::Audience`
-carries which one this is, and the order here is what makes its `Tool` wording true. Reordering
-this list without updating `knowledge::claim`'s tool-branch text (or vice versa) is exactly the
-drift round 2 of #971's review found - `tests::the_tool_reply_orders_its_sections_as_claimed`
-holds the two together.
+the end of this document" for the prompt, "at the end of these knowledge sections" for the tool)
+are true only of the document that renders them; `knowledge::Audience` carries which one this is,
+and the order here is what makes its `Tool` wording true. Reordering
+this list without updating `knowledge::claim`'s tool-branch text (or vice versa) makes the
+declaration point at a position the reply no longer puts the section in - a caller passing the
+wrong audience, or this list and `knowledge::claim` drifting apart, is caught by
+`tests::tool_audience::the_tool_reply_orders_its_sections_so_the_declarations_position_claims_hold`.
 
 ### `fn tool_operator_instructions`
 
