@@ -1,0 +1,28 @@
+version: 1.0.0
+kind: DataContract
+id: 22222222-bbbb-4b2a-a65f-222222222222
+status: active
+name: customers
+apiVersion: v3.1.0
+description:
+  usage: The people who place orders, one row per person.
+schema:
+  - name: customers
+    physicalName: dim_customer
+    description: The people who place orders, one row per person.
+    properties:
+      - name: id
+        physicalType: bigint
+        logicalType: integer
+        description: The customer's unique identifier.
+        primaryKey: true
+        primaryKeyPosition: 1
+        required: true
+      - name: name
+        physicalType: varchar(64)
+        logicalType: string
+        description: The customer's display name.
+      - name: country
+        physicalType: varchar(2)
+        logicalType: string
+        description: The country the customer is registered in.

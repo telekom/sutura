@@ -1,0 +1,91 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+assertion_line: 36
+expression: pinned.definitions()
+---
+models:
+  customers:
+    name: customers
+    source: local
+    table: dim_customer
+    columns:
+      country:
+        name: country
+        data_type: varchar(2)
+        description: The country the customer is registered in.
+        nullable: ~
+      id:
+        name: id
+        data_type: bigint
+        description: "The customer's unique identifier."
+        nullable: false
+      name:
+        name: name
+        data_type: varchar(64)
+        description: "The customer's display name."
+        nullable: ~
+    primary_key:
+      - id
+    description: "The people who place orders, one row per person."
+  orders:
+    name: orders
+    source: local
+    table: fct_order
+    columns:
+      customer_id:
+        name: customer_id
+        data_type: bigint
+        description: The customer who placed the order.
+        nullable: false
+      id:
+        name: id
+        data_type: bigint
+        description: "The order's unique identifier."
+        nullable: false
+      region:
+        name: region
+        data_type: varchar(2)
+        description: The region the order was placed in.
+        nullable: ~
+      total:
+        name: total
+        data_type: double
+        description: "The order's total value."
+        nullable: ~
+    primary_key:
+      - id
+    description: "Orders, one row per placed order."
+  products:
+    name: products
+    source: local
+    table: dim_product
+    columns:
+      id:
+        name: id
+        data_type: bigint
+        description: "The product's unique identifier."
+        nullable: false
+      list_price:
+        name: list_price
+        data_type: double
+        description: "The product's list price."
+        nullable: ~
+      sku:
+        name: sku
+        data_type: varchar(32)
+        description: "The product's stock-keeping unit."
+        nullable: false
+    primary_key:
+      - id
+    description: "The products that can be ordered, one row per product."
+relationships:
+  orders_customers_fk__e2892c9b47f3d914:
+    name: orders_customers_fk__e2892c9b47f3d914
+    origin_model: orders
+    target_model: customers
+    join_type: many_to_one
+    keys:
+      - Equal:
+          origin: customer_id
+          target: id
+metrics: {}

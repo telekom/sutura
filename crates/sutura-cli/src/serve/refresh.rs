@@ -189,6 +189,7 @@ pub(crate) fn drive(catalogs: &OpenedCatalogs, pinned: &PinnedDefinitions, decla
         OpenedCatalogs::Okf(catalogs) => spawn(catalogs.clone(), pinned.clone(), interval),
         #[cfg(feature = "openmetadata")]
         OpenedCatalogs::Openmetadata(catalogs) => spawn(catalogs.clone(), pinned.clone(), interval),
+        OpenedCatalogs::DataContract(catalogs) => spawn(catalogs.clone(), pinned.clone(), interval),
     }
 }
 
