@@ -62,6 +62,12 @@ Why this data system could not answer.
   The cause is kept rather than discarded: "not a date" and "a date in the year 40 000" send a
   reader to different places.
 - `Shape`
+- `OverBudget` - The collected result would cost more than this adapter's materialisation budget to hold.
+
+  The sibling of `Self::Shape` for the byte budget the port's
+  `result_did_not_fit` reads: a
+  result refused for crossing it is *the result did not fit*, never a data-system failure,
+  so a caller is refused rather than told to retry.
 - `KeyCounts` - A key probe's result was not the pair of counts its statement projects.
 
   A defect in the rendering or in this adapter's value mapping, never anything about the data:
@@ -162,7 +168,7 @@ from drifting from the other fixture adapters. Use `Self::attach_csv` for CSVs o
 deliberately simple fixture format. Available only with the default-off `fixtures` feature.
 
 ```rust
-pub fn in_memory(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture) -> Result<Self, DuckDbError>
+pub fn in_memory(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, result_budget: sutura_domain::warehouse::ResultBudget) -> Result<Self, DuckDbError>
 ```
 
 Opens a database that exists only for this process.
@@ -170,10 +176,11 @@ Opens a database that exists only for this process.
 What the golden suite uses: a fixture that is built from a committed CSV every run cannot
 drift from the CSV, and a database file in the repository would be a binary nobody reviews.
 **The posture is a parameter and has no default**, for the reason the port gives: a defaulted
-posture would be a claim about who a query runs as that nobody made.
+posture would be a claim about who a query runs as that nobody made. The budget likewise has
+no default, for the same reason the field does - a call site with no budget does not compile.
 
 ```rust
-pub fn open(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, path: &Path) -> Result<Self, DuckDbError>
+pub fn open(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, path: &Path, result_budget: sutura_domain::warehouse::ResultBudget) -> Result<Self, DuckDbError>
 ```
 
 Opens a database file.

@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-datahub/src/lib.rs b/crates/sutura-catalog-datahub/src/lib.rs
+index a96e82f63..31f8d48e5 100644
+--- a/crates/sutura-catalog-datahub/src/lib.rs
++++ b/crates/sutura-catalog-datahub/src/lib.rs
+@@ -444,7 +444,7 @@ impl<R: AspectReader> DataHubCatalog<R> {
+             .map(|dimension| {
+                 dimension.clone().into_domain().map_err(|cause| DataHubError::EmptyViaChain {
+                     metric: metric.name().to_owned(),
+-                    dimension: dimension.name().clone(),
++                    dimension: content.dimensions().first().unwrap_or(dimension).name().clone(),
+                     cause,
+                 })
+             })

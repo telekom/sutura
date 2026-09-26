@@ -89,7 +89,18 @@ Why this data system could not answer.
 - `ValueDecode` - A value this adapter asked the driver to decode did not decode.
 - `NotFinite` - A `BINARY_DOUBLE` column came back as a value that is not a number.
 - `Shape`
+- `OverBudget` - The collected result would cost more than this adapter's materialisation budget to hold.
+
+  The sibling of `Self::Shape` for the byte budget the port's
+  `result_did_not_fit` reads: a
+  result refused for crossing it is *the result did not fit*, never a data-system failure, so
+  a caller is refused rather than told to retry.
 - `KeyCounts` - A key probe's result was not the pair of counts its statement projects.
+
+  A defect in the rendering or in this adapter's value mapping, never anything about the data:
+  the probe projects two aggregates over no group, so one row of two integers is the only
+  shape it can have. It travels as an `Err` from the port, which the boot path reads as *this
+  declaration went unchecked* rather than as a violated one.
 - `Render`
 - `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
 - `PresentedDisagreesWithPosture`
@@ -111,14 +122,14 @@ An Oracle connection, behind the `Warehouse` port.
 ### Methods
 
 ```rust
-pub fn connect(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, host: &str, port: u16, service_name: &str, user: &str, password: &str) -> Result<Self, OracleError>
+pub fn connect(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, host: &str, port: u16, service_name: &str, user: &str, password: &str, result_budget: sutura_domain::warehouse::ResultBudget) -> Result<Self, OracleError>
 ```
 
 Opens one connection over a plain TCP EZCONNECT string (`host:port/service_name`), with no
 transport security at all.
 
 ```rust
-pub fn connect_fixture(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, host: &str, port: u16, credential: &fixture::FixtureCredential) -> Result<Self, OracleError>
+pub fn connect_fixture(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, host: &str, port: u16, credential: &fixture::FixtureCredential, result_budget: sutura_domain::warehouse::ResultBudget) -> Result<Self, OracleError>
 ```
 
 A connection config's host/port/credential for the fixture tier - the counterpart of
@@ -127,7 +138,7 @@ A connection config's host/port/credential for the fixture tier - the counterpar
 publishes - it is the image's name for itself.
 
 ```rust
-pub fn connect_secured(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, host: &str, port: u16, service_name: &str, user: &str, password: &str, wallet: Option<&OracleWallet>) -> Result<Self, OracleError>
+pub fn connect_secured(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, host: &str, port: u16, service_name: &str, user: &str, password: &str, result_budget: sutura_domain::warehouse::ResultBudget, wallet: Option<&OracleWallet>) -> Result<Self, OracleError>
 ```
 
 Opens one connection over `tcps://host:port/service_name`, with the driver's own wallet-based

@@ -43,7 +43,8 @@ const QUERY: Subject = Subject {
     // answer over only the first metric named. 29: this diff also added
     // `MultiMetricTopNotExecutable` - `top` names no metric to rank by, and this build's two
     // rendering paths disagreed about which measure it meant once there was more than one.
-    variants: variants(29),
+    // 30: questions over the filter-count limit refuse before parsing their items.
+    variants: variants(30),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

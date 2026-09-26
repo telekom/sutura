@@ -791,8 +791,8 @@ fn open_engine(
         (false, true, true, true, true) => files::open_files(pinned, &grouped.files, registry, runtime).map(OpenedSources::Files),
         (true, false, true, true, true) => bigquery::open_bigquery(&grouped.bigquery, registry, request_timeout, outbound),
         (true, true, false, true, true) => postgres::open_postgres(&grouped.postgres, registry),
-        (true, true, true, false, true) => clickhouse::open_clickhouse(&grouped.clickhouse, registry),
-        (true, true, true, true, false) => oracle::open_oracle(&grouped.oracle, registry),
+        (true, true, true, false, true) => clickhouse::open_clickhouse(&grouped.clickhouse, registry, runtime),
+        (true, true, true, true, false) => oracle::open_oracle(&grouped.oracle, registry, runtime),
         // Unreachable: `declared` is non-empty (checked above) and every entry falls into exactly
         // one of the groups, so this arm can only be reached if nothing ran - which cannot happen.
         // Written as a fallback rather than an unwrap the workspace denies.

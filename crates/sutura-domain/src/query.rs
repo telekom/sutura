@@ -45,6 +45,9 @@ pub const MAX_DIMENSIONS: usize = 4;
 /// asking about fewer metrics.
 pub const MAX_METRICS: usize = 8;
 
+/// The most filters one question may ask the catalog to resolve.
+pub const MAX_FILTERS: usize = 16;
+
 /// The longest span of history one question may ask about, in days.
 ///
 /// **This is the bound the [`TimeRange`] newtype does not provide.** That type refuses an *absent*
@@ -279,6 +282,8 @@ pub enum RefusalReason {
     DuplicateDimension { dimension: DimensionName },
     /// More group-by keys than [`MAX_DIMENSIONS`].
     TooManyDimensions { requested: usize, limit: usize },
+    /// More filters than [`MAX_FILTERS`], refused before any filter is parsed.
+    TooManyFilters { requested: usize, limit: usize },
     /// The result was too much data to certify, and [`ResultBound`] says which bound said so.
     ///
     /// **The refusal that replaced a silent truncation, and it was a wrong-number bug.** The cap
@@ -651,6 +656,7 @@ impl RefusalReason {
             Self::DimensionValueNotAllowed { .. } => "dimension_value_not_allowed",
             Self::DuplicateDimension { .. } => "duplicate_dimension",
             Self::TooManyDimensions { .. } => "too_many_dimensions",
+            Self::TooManyFilters { .. } => "too_many_filters",
             Self::ResultTooLarge { .. } => "result_too_large",
             Self::TimeRangeTooLong { .. } => "time_range_too_long",
             Self::PlanSpansTooManySources { .. } => "plan_spans_too_many_sources",
@@ -865,6 +871,10 @@ mod tests {
                 dimension: DimensionName::parse("region").expect("a test dimension"),
             },
             RefusalReason::TooManyDimensions { requested: 5, limit: 4 },
+            RefusalReason::TooManyFilters {
+                requested: 17,
+                limit: 16,
+            },
             RefusalReason::ResultTooLarge {
                 bound: ResultBound::Rows { limit: 10_000 },
             },

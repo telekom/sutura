@@ -130,7 +130,14 @@ mod tests {
     #[test]
     fn each_variant_answers_its_own_wrapped_adapters_capability() {
         let duckdb = TwoKinds::DuckDb(
-            sutura_exec_duckdb::DuckDbWarehouse::in_memory(source("a"), shared()).expect("an in-memory database opens"),
+            sutura_exec_duckdb::DuckDbWarehouse::in_memory(
+                source("a"),
+                shared(),
+                sutura_domain::warehouse::ResultBudget::of_bytes(
+                    core::num::NonZeroUsize::new(1024 * 1024).expect("a test budget is positive"),
+                ),
+            )
+            .expect("an in-memory database opens"),
         );
         let engine = TwoKinds::DataFusion(
             sutura_exec_datafusion::DataFusionWarehouse::new(

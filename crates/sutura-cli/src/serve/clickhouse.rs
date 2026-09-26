@@ -24,11 +24,13 @@
 pub(crate) fn open_clickhouse(
     declared: &[&sutura_domain::model::SourceName],
     registry: &sutura_config::SourceRegistry,
+    runtime: sutura_config::RuntimeSettings,
 ) -> Result<super::OpenedSources, String> {
     let mut engines: Option<sutura_app::Warehouses<super::ClickHouseSource>> = None;
     for source in declared {
         let configured = super::configured_source(source, registry)?;
-        let engine = crate::clickhouse::build(source, configured)?;
+        let working_set = sutura_exec_datafusion::WorkingSet::of_bytes(runtime.working_set().bytes());
+        let engine = crate::clickhouse::build(source, configured, working_set)?;
         engines = Some(match engines {
             None => sutura_app::Warehouses::of(engine),
             Some(open) => open.and(engine).map_err(super::flatten)?,
@@ -50,6 +52,7 @@ pub(crate) fn open_clickhouse(
 pub(crate) fn open_clickhouse(
     declared: &[&sutura_domain::model::SourceName],
     _registry: &sutura_config::SourceRegistry,
+    _runtime: sutura_config::RuntimeSettings,
 ) -> Result<super::OpenedSources, String> {
     let named = declared
         .iter()
