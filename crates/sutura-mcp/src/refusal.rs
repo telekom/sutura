@@ -94,6 +94,9 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         RefusalReason::TooManyDimensions { requested, limit } => {
             format!("{requested} dimensions were asked for; at most {limit} are allowed")
         }
+        RefusalReason::TooManyFilters { requested, limit } => {
+            format!("{requested} filters were asked for; at most {limit} are allowed")
+        }
         // The one refusal that is decided AFTER a data system has answered, which is why it names a
         // bound rather than a field: nothing about the question was wrong, and the same question over
         // a narrower range or with fewer dimensions is answerable.

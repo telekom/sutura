@@ -448,7 +448,14 @@ where
                 )
             }
             Capability::AskMetric => {
-                let query = question(request)?;
+                let query = match question(request)? {
+                    QuestionAdmission::Query(query) => query,
+                    QuestionAdmission::Refused(reason) => {
+                        return Ok(CallToolResponse::Complete(produced(
+                            &sutura_domain::query::ToolOutcome::Refusal { reason },
+                        )));
+                    }
+                };
                 // Cloned here and not read through `asked` inside the closure below: the port call
                 // moves to the blocking pool through `spawn_carrying_span`, whose closure has to be
                 // `'static`, while `asked` may borrow this call's own `context` under `PerRequest` -
@@ -550,14 +557,20 @@ fn catalog(request: CallToolRequestParams) -> Result<DescribeCatalogArgs, ErrorD
 /// **This is the whole translation an adapter is allowed to do**: read the wire shape, parse each
 /// field into the newtype that establishes its invariant, hand over a `Query`. Nothing here decides
 /// what may be asked.
-fn question(request: CallToolRequestParams) -> Result<Query, ErrorData> {
+enum QuestionAdmission {
+    Query(Query),
+    Refused(sutura_domain::query::RefusalReason),
+}
+
+fn question(request: CallToolRequestParams) -> Result<QuestionAdmission, ErrorData> {
     // `Value::Object` rather than the map directly, because `from_value` is what applies
     // `deny_unknown_fields` - and an absent `arguments` is an empty object, so a call with no
     // arguments fails on the missing required fields rather than on a different message.
     let arguments = serde_json::Value::Object(request.arguments.unwrap_or_default());
     let args: AskArgs = serde_json::from_value(arguments).map_err(|cause| invalid(&MalformedQuestion::NotAnObject { cause }))?;
     match Query::try_from(args) {
-        Ok(query) => Ok(query),
+        Ok(query) => Ok(QuestionAdmission::Query(query)),
+        Err(MalformedQuestion::Refused(reason)) => Ok(QuestionAdmission::Refused(reason)),
         // The caller asked nothing wrong here; this deployment's own clock could not be read.
         // `invalid()` renders every other arm as the caller's mistake, which this is not.
         Err(MalformedQuestion::Range(sutura_runtime::relative_range::RangeResolutionError::Clock(cause))) => {
