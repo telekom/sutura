@@ -2176,3 +2176,17 @@ for what this query may take* refusal. What exists is the bound `still_usable_at
 checked once before anything reaches an adapter - so an assertion valid at the start of a long answer
 and expired at the end is refused by the data system, not here. `Presented` carries no validity at
 all, so an adapter cannot make the check either.
+
+## Third amendment, 2026-09-26: an Oracle adapter exists under the shared posture
+
+The Oracle section's "no Oracle driver" and "nobody has tried building `oracledb` here" statements
+are historical. `sutura-exec-oracle` now links the pure-Rust `oracledb` client behind
+`sutura-cli`'s default-off `oracle` feature. It compiles in the all-features `just validate`
+checks; the repository records no live Oracle execution.
+
+The adapter opens one connection under the deployment's declared user. The composition root
+checks the declared posture against `OracleWarehouse::IMPERSONATION` before opening it, so an
+Oracle source declared for impersonation is refused at startup. The adapter has no path for a
+caller's credential. This changes the old absence of a driver, not the token-authentication gap
+or the deferred impersonation decision above. ADR 0007 records what Oracle SQL now renders and
+what the render-only venue cannot prove.
