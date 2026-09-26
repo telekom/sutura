@@ -87,7 +87,7 @@ async fn an_unknown_metric_is_a_404_naming_the_snapshot_that_does_not_define_it(
     let app = app(settings(Environment::Development, ""));
     let (status, code, detail) = refusal(
         &app,
-        r#"{"metric":"gross_margin","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#,
+        r#"{"metrics":["gross_margin"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#,
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
@@ -104,14 +104,14 @@ async fn a_question_that_is_well_formed_and_out_of_bounds_is_a_422() {
     let app = app(settings(Environment::Development, ""));
     let range = r#""range":{"start":"2026-06-01","end":"2026-07-01"}"#;
 
-    let (status, code, detail) = refusal(&app, &format!(r#"{{"metric":"revenue","grain":"year",{range}}}"#)).await;
+    let (status, code, detail) = refusal(&app, &format!(r#"{{"metrics":["revenue"],"grain":"year",{range}}}"#)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(code, "grain_not_supported");
     assert!(detail.contains("year"), "{detail}");
 
     let (status, code, detail) = refusal(
         &app,
-        r#"{"metric":"revenue","grain":"month","range":{"start":"0001-01-01","end":"9999-12-31"}}"#,
+        r#"{"metrics":["revenue"],"grain":"month","range":{"start":"0001-01-01","end":"9999-12-31"}}"#,
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -124,7 +124,7 @@ async fn a_question_that_is_well_formed_and_out_of_bounds_is_a_422() {
 
     let (status, code, _) = refusal(
         &app,
-        &format!(r#"{{"metric":"revenue","grain":"month",{range},"dimensions":["region","region"]}}"#),
+        &format!(r#"{{"metrics":["revenue"],"grain":"month",{range},"dimensions":["region","region"]}}"#),
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -132,7 +132,7 @@ async fn a_question_that_is_well_formed_and_out_of_bounds_is_a_422() {
 
     let (status, code, detail) = refusal(
         &app,
-        &format!(r#"{{"metric":"revenue","grain":"month",{range},"dimensions":["one","two","three","four","five"]}}"#),
+        &format!(r#"{{"metrics":["revenue"],"grain":"month",{range},"dimensions":["one","two","three","four","five"]}}"#),
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -156,7 +156,7 @@ async fn asking_outside_what_the_catalog_permits_is_a_403() {
 
     let (status, code, detail) = refusal(
         &app,
-        &format!(r#"{{"metric":"revenue","grain":"month",{range},"dimensions":["channel"]}}"#),
+        &format!(r#"{{"metrics":["revenue"],"grain":"month",{range},"dimensions":["channel"]}}"#),
     )
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
@@ -165,7 +165,9 @@ async fn asking_outside_what_the_catalog_permits_is_a_403() {
 
     let (status, code, detail) = refusal(
         &app,
-        &format!(r#"{{"metric":"revenue","grain":"month",{range},"filters":[{{"dimension":"region","value":"east"}}]}}"#),
+        &format!(
+            r#"{{"metrics":["revenue"],"grain":"month",{range},"filters":[{{"op":"eq","dimension":"region","value":"east"}}]}}"#
+        ),
     )
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
@@ -194,7 +196,7 @@ async fn a_question_that_spans_two_data_systems_is_refused_until_a_leg_executes(
     );
     let (status, code, detail) = refusal(
         &app,
-        r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["region"]}"#,
+        r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["region"]}"#,
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT, "{detail}");
@@ -344,7 +346,7 @@ async fn a_refusal_keeps_the_envelope_a_client_already_parses() {
     // written against the old surface still finds everything it read, now with a status that agrees
     // with the body.
     let app = app(settings(Environment::Development, ""));
-    let unknown = r#"{"metric":"gross_margin","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
+    let unknown = r#"{"metrics":["gross_margin"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
     let (status, body) = call(&app, request("POST", "/v1/query", None, Body::from(unknown))).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
     assert!(body.contains(r#""outcome":"refusal""#), "{body}");
@@ -357,7 +359,7 @@ async fn a_body_carrying_sql_is_a_bad_request_and_the_field_is_named() {
     // The governance boundary, through a real JSON parser. Without `deny_unknown_fields` this is a
     // `200` answering a different question than the caller believes they asked.
     let app = app(settings(Environment::Development, ""));
-    let smuggled = r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},
+    let smuggled = r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},
                        "sql":"select * from orders"}"#;
     let (status, body) = call(&app, request("POST", "/v1/query", None, Body::from(smuggled))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);

@@ -284,7 +284,7 @@ fn examples() -> Vec<Example> {
                 "how much recurring revenue did each segment bring in June",
                 "wie viel wiederkehrender Umsatz kam im Juni pro Segment",
             ],
-            Query::new(
+            Query::single(
                 metric("recurring_revenue"),
                 Grain::Month,
                 june(),
@@ -300,7 +300,7 @@ fn examples() -> Vec<Example> {
                 "how has the churn rate developed this year",
                 "wie hat sich die Abwanderungsrate entwickelt",
             ],
-            Query::new(metric("churn_rate"), Grain::Month, half_year, Vec::new(), Vec::new()),
+            Query::single(metric("churn_rate"), Grain::Month, half_year, Vec::new(), Vec::new()),
         ),
         // "Two filters and nothing to group by: this asks for one number rather than a breakdown."
         // The order of the two is the document's own, and it is content: filters are a list.
@@ -310,7 +310,7 @@ fn examples() -> Vec<Example> {
                 "what are business customers in the north worth per month",
                 "Umsatz der Firmenkunden im Norden",
             ],
-            Query::new(
+            Query::single(
                 metric("recurring_revenue"),
                 Grain::Month,
                 june(),

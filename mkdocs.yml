@@ -241,6 +241,7 @@ nav:
       - What an agent identity can carry: what-agent-identity-can-carry.md
       - What an OKF-style catalog can carry: what-okf-can-carry.md
       - What an OpenMetadata catalog can carry: what-openmetadata-can-carry.md
+      - What an Open Data Contract Standard catalog can carry: what-a-data-contract-can-carry.md
       - Changelog: changelog.md
   - Building it:
       - Architecture: architecture.md

@@ -432,6 +432,19 @@ pub enum PlanPredicate {
         column: PlanColumn,
         param: usize,
     },
+    /// `column IN (param, param, ..)` - one or more values, `github.com/telekom/sutura#968`.
+    /// [`crate::nonempty::NonEmpty`] rather than a plain `Vec`: an empty `IN ()` is either a
+    /// syntax error or, rendered as `NOT IN ()`, a silently vanished filter (fail-open), and a
+    /// producer cannot reach this variant with zero placeholders to fill.
+    In {
+        column: PlanColumn,
+        params: crate::nonempty::NonEmpty<usize>,
+    },
+    /// `column NOT IN (param, param, ..)` - [`Self::In`]'s negation, same reason for `NonEmpty`.
+    NotIn {
+        column: PlanColumn,
+        params: crate::nonempty::NonEmpty<usize>,
+    },
     IsTrue {
         column: PlanColumn,
     },
@@ -448,11 +461,15 @@ impl PlanPredicate {
             | Self::Before { ref column, .. }
             | Self::Equals { ref column, .. }
             | Self::NotEquals { ref column, .. }
+            | Self::In { ref column, .. }
+            | Self::NotIn { ref column, .. }
             | Self::IsTrue { ref column }
             | Self::IsNotNull { ref column } => column,
         }
     }
 
+    /// The one parameter a single-valued predicate binds. `None` for `In`/`NotIn` too - see
+    /// [`Self::bound_params`] for the shape that covers every variant.
     #[inline]
     pub const fn param(&self) -> Option<usize> {
         match *self {
@@ -460,10 +477,28 @@ impl PlanPredicate {
             | Self::Before { param, .. }
             | Self::Equals { param, .. }
             | Self::NotEquals { param, .. } => Some(param),
-            Self::IsTrue { .. } | Self::IsNotNull { .. } => None,
+            Self::In { .. } | Self::NotIn { .. } | Self::IsTrue { .. } | Self::IsNotNull { .. } => None,
+        }
+    }
+
+    /// Every parameter index this predicate binds, in placeholder order - zero for `IsTrue`/
+    /// `IsNotNull`, one for a comparing predicate, one per value for `In`/`NotIn`. The one place
+    /// [`bindings::PlanBindings::parse`] walks all eight variants without matching on which one.
+    #[inline]
+    pub(crate) fn bound_params(&self) -> BoundParams<'_> {
+        match *self {
+            Self::AtOrAfter { param, .. }
+            | Self::Before { param, .. }
+            | Self::Equals { param, .. }
+            | Self::NotEquals { param, .. } => BoundParams::One(Some(param)),
+            Self::In { ref params, .. } | Self::NotIn { ref params, .. } => BoundParams::Many(params.into_iter()),
+            Self::IsTrue { .. } | Self::IsNotNull { .. } => BoundParams::None,
         }
     }
 }
+
+mod bound_params;
+pub(crate) use bound_params::BoundParams;
 
 /// Where a predicate came from.
 ///

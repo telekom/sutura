@@ -1,5 +1,5 @@
 {
-  "metric": "revenue",
+  "metrics": ["revenue"],
   "grain": "month",
   "range": {
     "start": "2026-06-01",

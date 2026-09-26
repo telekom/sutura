@@ -62,21 +62,24 @@ Every reason you can be given, and what to do about each:
 - **metric_unknown** - no metric of that name is defined here.
   Use a name from the metric list below, exactly as spelled. Do not try a variant spelling, a
   plural, or a name you remember from another deployment: the list is the whole of what exists.
+- **metrics_span_different_models** - two named metrics do not share a model or a time column.
+  Ask about each metric separately - one at a time executes.
+- **multi_metric_not_executable** - every metric agreed, but this build runs only one.
+  Ask about each metric separately - a capability gap, not the question.
 - **grain_not_supported** - the metric exists and does not declare that time resolution.
-  Ask at a grain the metric lists. A finer grain is not a narrower version of the same question here
-  - it is a number nobody certified, which is why it is refused rather than approximated.
+  Ask at a grain the metric lists. A finer grain is not a narrower version of the same question - it
+  is a number nobody certified, so it is refused rather than approximated.
 - **dimension_not_permitted** - the metric does not declare that dimension.
-  Use one of the dimensions listed under that metric. There is no way to reach an attribute a metric
-  did not declare, so do not substitute a similar-sounding name.
+  Use one of the dimensions listed under that metric - do not substitute a similar-sounding name for
+  one it did not declare.
 - **dimension_not_filterable** - the dimension can be grouped by and not filtered, because the
   definitions declare no set of values for it.
   Drop the filter, group by the dimension instead, and read the row you wanted out of the result.
-- **dimension_value_not_allowed** - the dimension is filterable and the value is not one the
-  definitions declare.
+- **dimension_value_not_allowed** - the value is not one the definitions declare for that dimension.
   Use a value from that dimension's list below. The refusal does not repeat your value back to you,
   on purpose, so compare against the list rather than expecting a correction.
 - **duplicate_dimension** - the same dimension was sent twice in one question.
-  Send it once. It is refused rather than de-duplicated because a caller who sent it twice believed
+  Send it once - refused rather than de-duplicated, since a caller sending it twice believed
   something about the result that is not true.
 - **too_many_dimensions** - more group-by keys than one question may carry.
   Ask a narrower question, or ask two questions. Do not resend the same list.
@@ -216,12 +219,10 @@ subscriptions, every answer for it is narrowed that way and no argument you send
 
 ## The operations you have
 
-- `catalog` - Returns every metric this deployment defines, with its grains, its dimensions and the
-  values a filter may use, plus the version and digest of the snapshot. Takes no arguments. Reading
-  it cannot change what a question means.
-- `query` - Answers one question. Takes a metric, a grain, a bounded period, up to four dimensions
-  to group by, and equality filters over declared values. Returns either an answer with its
-  provenance or a refusal with a typed reason.
+- `catalog` - Returns every metric this deployment defines - grains, dimensions, filter values, the
+  version and digest. Takes no arguments and cannot change what a question means.
+- `query` - Answers one question. Takes a period, up to four dimensions, and filters - equality or a
+  set. One metric or a matching set - only one executes. Returns an answer or a refusal.
 
 ## What this deployment records about its own definitions
 
@@ -268,7 +269,7 @@ which phrase you resolved and what you resolved it to, so the person can correct
 ## The metrics this deployment defines
 
 - Definitions version: `example-single-player`
-- Definitions digest: `c14afabdc65d0088523cfc6b805311547998c12ab1b540fd970b4f369b609270`
+- Definitions digest: `b0e74ef1b790cff7171094fec4b9389913e7940bf7c9a2abdec2269c3e29e538`
 
 11 metrics, and they are the whole of what may be asked about.
 

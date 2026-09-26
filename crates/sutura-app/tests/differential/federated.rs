@@ -136,7 +136,7 @@ fn bundle(catalog: &Path) -> PinnedDefinitions {
 /// Compile only: these topology witnesses open no execution adapter.
 fn compiled_dimensions(pinned: &PinnedDefinitions, dimensions: &str) -> Compiled {
     let query = serde_norway::from_str(&format!(
-        "metric: recurring_revenue\ngrain: month\nrange: {{ start: 2026-06-01, end: 2026-07-01 }}\n\
+        "metrics: [recurring_revenue]\ngrain: month\nrange: {{ start: 2026-06-01, end: 2026-07-01 }}\n\
          dimensions: [{dimensions}]\n"
     ))
     .expect("the topology question is valid");
@@ -213,7 +213,7 @@ fn top_on_a_federated_plan_ranks_the_combine_when_a_key_is_lookup_side() {
     let one = bundle(&corpus.one_source);
     let two = bundle(&corpus.two_source);
     let case_2: Query = serde_norway::from_str(
-        "metric: recurring_revenue\ngrain: month\nrange: { start: 2026-07-01, end: 2026-08-01 }\n\
+        "metrics: [recurring_revenue]\ngrain: month\nrange: { start: 2026-07-01, end: 2026-08-01 }\n\
          dimensions: [region]\ntop: { n: 3, by: metric, direction: desc }\n",
     )
     .expect("a top question is a question");

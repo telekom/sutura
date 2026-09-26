@@ -71,6 +71,7 @@ mod tests {
     use std::io::{BufRead as _, BufReader, Write as _};
     use std::path::{Path, PathBuf};
     use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
+    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
     use std::time::{Duration, Instant};
 
@@ -478,7 +479,7 @@ mod tests {
             );
         }
         serde_json::json!({
-            "metric": metric,
+            "metrics": [metric],
             "grain": GRAIN,
             "range": { "start": start, "end": end },
         })
@@ -758,8 +759,14 @@ mod tests {
     /// `CARGO_TARGET_TMPDIR` is defined for an integration target and lives inside `target/`, which
     /// is the same choice `tests/declared_source.rs` makes: the file a subprocess reads is under the
     /// directory a build already owns rather than in a shared system temporary.
+    ///
+    /// **One directory per CALL**: a path shared by case let one test's `fs::write` truncate
+    /// `base.yaml` under another's reading child, which fell back to the defaults' relative `catalog`
+    /// root and refused. The pid separates nextest's processes, the counter `cargo test`'s threads.
     fn settings_tree(case: &str, base_yaml: &str) -> PathBuf {
-        let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(case);
+        static CALLS: AtomicU32 = AtomicU32::new(0);
+        let call = CALLS.fetch_add(1, Ordering::Relaxed);
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{case}-{}-{call}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("a directory under the target dir is creatable");
         std::fs::write(dir.join("base.yaml"), base_yaml).expect("the settings file is writable");
         dir
@@ -957,12 +964,10 @@ mod tests {
             &format!(
                 "security:\n  identity: \"single-user\"\n  single_user_because: \"a unit test reads its \
                  own fixture files as one identity\"\n\
-                 catalogs:\n  \
-                   - name: \"model\"\n    \
-                     kind: \"rdbms\"\n    \
-                     dir: \"{}\"\n    \
-                     data_dir: \"{}\"\n    \
-                     version: \"{VERSION}\"\n\
+                 catalogs:\n  - {{name: \"model\", kind: \"rdbms\", dir: \"{}\", data_dir: \"{}\", version: \"{VERSION}\", \
+                 environment: \"test\", source_alias: \"{SOURCE}\", connection: {{host: \"127.0.0.1\", port: 5432, \
+                 database: \"dictionary\", user: \"reader\", password_file: \"/run/secrets/dictionary\", \
+                 transport_mode: \"plaintext\"}}}}\n\
                  sources:\n  \
                    {SOURCE}:\n    \
                      kind: \"files\"\n    \

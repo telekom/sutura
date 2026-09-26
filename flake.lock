@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "arrow-adbc-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1784901828,
+        "narHash": "sha256-unrLXYqCKo0Q3YRtet82jgwsow7n6vIbkaZsGzoh+co=",
+        "owner": "apache",
+        "repo": "arrow-adbc",
+        "rev": "a3f81c6feb1133ba80600ac32e6d7c0b0b407e18",
+        "type": "github"
+      },
+      "original": {
+        "owner": "apache",
+        "ref": "apache-arrow-adbc-24",
+        "repo": "arrow-adbc",
+        "type": "github"
+      }
+    },
     "bigquery-adbc-src": {
       "flake": false,
       "locked": {
@@ -85,6 +102,7 @@
     },
     "root": {
       "inputs": {
+        "arrow-adbc-src": "arrow-adbc-src",
         "bigquery-adbc-src": "bigquery-adbc-src",
         "crane": "crane",
         "flake-utils": "flake-utils",

@@ -717,6 +717,7 @@ in
     crossPackages
     crossTargets
     featurePackages
+    hostRustTarget
     imageTargets
     keyFor
     nativeBinaries

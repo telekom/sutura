@@ -92,15 +92,14 @@ pub(crate) fn bundle() -> PinnedDefinitions {
 /// The same bundle with no anchor, so it validates against a data system that answers nothing.
 ///
 /// **Only for tests about what happens AFTER startup.** Not the default fixture - see the module
-/// documentation for why - but what lets a service start over a warehouse that then fails every
-/// question.
+/// documentation for why - but what lets a service start over a warehouse that then fails every question.
 pub(crate) fn unanchored_bundle() -> PinnedDefinitions {
     pinned(None)
 }
 
 /// A question the bundle above can answer, for a test that needs to reach the warehouse.
 pub(crate) fn a_question() -> sutura_domain::query::Query {
-    sutura_domain::query::Query::new(metric_name(), Grain::Month, june(), Vec::new(), Vec::new())
+    sutura_domain::query::Query::single(metric_name(), Grain::Month, june(), Vec::new(), Vec::new())
 }
 
 /// The port's deadline every fake surface here executes under - a generous budget, since none of
@@ -914,11 +913,11 @@ pub(crate) fn declared_inbound(settings: &sutura_config::Settings) -> sutura_con
 
 // ---------------------------------------------------- driving the real router ----
 
-/// A well formed question the fakes above answer.
-///
-/// One literal, because four test modules were each carrying their own copy and a question that
-/// stopped being answerable in one of them would have gone on passing in the other three.
-pub(crate) const A_QUESTION: &str = r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
+/// A well formed question the fakes above answer. One literal, because four test modules were
+/// each carrying their own copy and a question that stopped being answerable in one of them would
+/// have gone on passing in the other three.
+pub(crate) const A_QUESTION: &str =
+    r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
 
 /// A request with a peer address attached.
 ///

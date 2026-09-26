@@ -588,6 +588,6 @@ async fn an_invisible_metric_is_refused_byte_identically_to_an_unknown_one() {
 
 /// One question about `metric`, through the real router.
 async fn ask_about(app: &axum::Router, token: &str, metric: &str) -> (StatusCode, String) {
-    let body = format!(r#"{{"metric":"{metric}","grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}}}}"#);
+    let body = format!(r#"{{"metrics":["{metric}"],"grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}}}}"#);
     call(app, request("POST", "/v1/query", Some(token), axum::body::Body::from(body))).await
 }
