@@ -25,6 +25,19 @@ static SEQ: AtomicUsize = AtomicUsize::new(0);
 
 #[test]
 fn an_unbuildable_base_with_nothing_held_refuses_an_unclaimed_test() {
+    const CHILD: &str = "SUTURA_CAUSALITY_UNBUILDABLE_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = Command::new(std::env::current_exe().expect("the test executable has a path"))
+            .args([
+                "--exact",
+                "causality::gas_tests::an_unbuildable_base_with_nothing_held_refuses_an_unclaimed_test",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .expect("the test executable runs");
+        assert!(output.status.success(), "the unclaimed test must be refused");
+        return;
+    }
     assert!(std::env::var_os("NEXTEST").is_some(), "run through `just test`");
     let dir = std::env::temp_dir().join(format!(
         "sutura-causality-unbuildable-{}-{}",
