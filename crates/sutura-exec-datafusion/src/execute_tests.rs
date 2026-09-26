@@ -950,29 +950,13 @@ fn a_plan_with_no_predicate_is_refused_as_an_unfiltered_scan() {
 /// before the lookup - which would otherwise drop the qualifier and answer from `orders`.
 #[test]
 fn a_qualified_table_name_is_refused_before_any_lookup() {
-    let bounds = PlanBindings::parse(
-        vec![
-            PlanFilter::new(
-                PredicateOrigin::Definition,
-                PlanPredicate::AtOrAfter {
-                    column: on("order_date"),
-                    param: 0,
-                },
-            ),
-            PlanFilter::new(
-                PredicateOrigin::Definition,
-                PlanPredicate::Before {
-                    column: on("order_date"),
-                    param: 1,
-                },
-            ),
-        ],
-        vec![ParamValue::Date(day("2026-06-01")), ParamValue::Date(day("2026-08-01"))],
-    )
-    .expect("a test plan binds its two range bounds in placeholder order");
+    // `plan()`'s own range bounds, so the plan is one the unqualified table would answer.
+    let bounded = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
+    let bounds =
+        PlanBindings::parse(bounded.filters().to_vec(), bounded.params().to_vec()).expect("a plan's own bindings bind again");
     let qualified = QualifiedTable::parse("dataset.orders").expect("a two-part name parses");
-    let plan = plan_over(StatementTables::only(qualified), bounds);
-    let outcome = answerable().execute(Executable::Query(&plan), &crate::test_leg(), crate::test_deadline());
+    let query = plan_over(StatementTables::only(qualified), bounds);
+    let outcome = answerable().execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline());
     assert!(
         matches!(outcome, Err(DataFusionError::QualifiedTableUnreachable { .. })),
         "{outcome:?}"

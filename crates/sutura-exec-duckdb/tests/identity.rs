@@ -9,7 +9,7 @@ mod identity {
     use sutura_conformance::corpus;
     use sutura_domain::identity::{Presented, PrincipalName, Secret};
     use sutura_domain::plan::Executable;
-    use sutura_domain::warehouse::Warehouse as _;
+    use sutura_domain::warehouse::{ResultBudget, Warehouse as _};
     use sutura_exec_duckdb::{DuckDbError, DuckDbWarehouse};
 
     fn subjects() -> [Presented; 2] {
@@ -27,7 +27,8 @@ mod identity {
     /// An empty in-memory database: nothing to prepare against, so a missing guard answers a
     /// `Prepare` or `Execute` error rather than the refusal, and the assertion names the difference.
     fn warehouse() -> DuckDbWarehouse {
-        DuckDbWarehouse::in_memory(corpus::source(), corpus::posture()).expect("an in-memory database opens")
+        let budget = ResultBudget::of_bytes(core::num::NonZeroUsize::new(1024 * 1024).expect("a mebibyte is positive"));
+        DuckDbWarehouse::in_memory(corpus::source(), corpus::posture(), budget).expect("an in-memory database opens")
     }
 
     #[test]
