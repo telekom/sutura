@@ -72,7 +72,8 @@ pub(crate) const fn description(capability: Capability) -> &'static str {
              name these metrics, any worked examples, caveats, and the deployment operator's own \
              instructions. Read this before asking a question - it is the only way to know what a \
              valid question is, and every answer carries the same definition version and digest this \
-             listing does. It returns definitions and catalog knowledge, never data rows."
+             listing does. When enabled by the deployment, it also lists caller-visible physical \
+             models and columns. It returns definitions and catalog knowledge, never data rows."
         }
         Capability::AskMetric => {
             "Answer one governed question about a certified metric. \
