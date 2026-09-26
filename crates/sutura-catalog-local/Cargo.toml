@@ -11,6 +11,7 @@ description = "A SemanticCatalog adapter over a directory of markdown documents 
 
 [dependencies]
 sutura-domain = { workspace = true }
+sutura-bounded-read = { workspace = true }
 serde = { workspace = true }
 serde_norway = { workspace = true }
 thiserror = { workspace = true }

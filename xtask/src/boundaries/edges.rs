@@ -386,6 +386,23 @@ pub(crate) const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
                   or a `RootCertStore` is each adapter's own job, with its own crypto provider",
         edges: Edges::Normal,
     },
+    // `github.com/telekom/sutura#1045`: the bounded single-open document read and sorted walk the
+    // three on-disk catalog adapters share. The `sutura/tls` precedent licenses an unprefixed,
+    // pure-read crate that joins no forbidden class by construction; the half that still needs a
+    // control is the `sutura-tls` paragraph's own "no `sutura-config`" clause - a settings crate
+    // parses paths and never reads bytes, so a settings edge back into this read would be a
+    // settings crate doing the file I/O it exists to leave to an adapter. One recall-held sentence
+    // is not a control; this row is.
+    ForbiddenEdge {
+        from: "sutura-bounded-read",
+        forbidden: "sutura-config",
+        why: "a settings crate parses a declaration and never reads bytes, so a settings dependency \
+              in this read's tree would be a settings crate doing the file I/O it exists to leave to \
+              an adapter - exactly the `sutura-tls` paragraph's 'no `sutura-config`' clause, now held",
+        instead: "keep this crate a read of the directory an adapter hands it; the settings crate \
+                  names a path and the adapter that opens the data system decides which file that is",
+        edges: Edges::Normal,
+    },
     // `github.com/telekom/sutura#929`'s boundary audit, sixth finding, and the hole it closes is a
     // PREFIX rather than a crate. `boundaries::application` refuses any `sutura-exec-*` name in
     // `sutura-app`'s normal tree with a one-line `starts_with`, so a combiner in a crate whose name
@@ -674,16 +691,20 @@ mod tests {
                     {"id": "ring", "name": "ring"},
                     {"id": "app", "name": "sutura-app"},
                     {"id": "combiner", "name": "a-combiner"},
+                    {"id": "br", "name": "sutura-bounded-read"},
+                    {"id": "cfg", "name": "sutura-config"},
                     {"id": "df", "name": "datafusion"}
                 ],
                 "resolve": {"nodes": [
-                    {"id": "sem", "deps": [{"pkg": "sql"}, {"pkg": "tls"}, {"pkg": "app"}]},
+                    {"id": "sem", "deps": [{"pkg": "sql"}, {"pkg": "tls"}, {"pkg": "app"}, {"pkg": "br"}]},
                     {"id": "sql", "deps": [{"pkg": "pg"}]},
                     {"id": "pg", "deps": []},
                     {"id": "tls", "deps": [{"pkg": "ring"}]},
                     {"id": "ring", "deps": []},
                     {"id": "app", "deps": [{"pkg": "combiner"}]},
                     {"id": "combiner", "deps": [{"pkg": "df"}]},
+                    {"id": "br", "deps": [{"pkg": "cfg"}]},
+                    {"id": "cfg", "deps": []},
                     {"id": "df", "deps": []}
                 ]}
             }"#,

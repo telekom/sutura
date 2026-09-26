@@ -2,5 +2,6 @@
 source: crates/sutura-cli/tests/example.rs
 expression: reason
 ---
-MultiMetricNotExecutable:
-  requested: 2
+TooManyMetrics:
+  requested: 9
+  limit: 8

@@ -2,5 +2,5 @@
 source: crates/sutura-app/tests/golden/data_systems.rs
 expression: reason
 ---
-MultiMetricNotExecutable:
-  requested: 2
+DuplicateMetricName:
+  metric: recurring_revenue

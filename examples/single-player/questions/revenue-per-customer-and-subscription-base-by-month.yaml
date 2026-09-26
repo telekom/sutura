@@ -1,0 +1,5 @@
+metrics: [revenue_per_customer, subscription_base]
+grain: month
+range:
+  start: 2026-01-01
+  end: 2026-07-01

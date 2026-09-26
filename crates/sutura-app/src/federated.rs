@@ -40,8 +40,8 @@
 //! submitted with that subject's own credential and that source's configured byte ceiling.
 
 use sutura_domain::identity::{Agreed, BoundToTheRequest, CredentialBroker, RequestContext, SourceSet};
-use sutura_domain::model::SourceName;
-use sutura_domain::pinned::PinnedDefinitions;
+use sutura_domain::model::{MetricName, SourceName};
+use sutura_domain::pinned::{PinnedDefinitions, Provenance};
 use sutura_domain::plan::{FederatedPlan, FederationCombiner, LegPlan, LegResult, Legs, RowCeiling};
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::source::ExecutedAs;
@@ -392,10 +392,25 @@ where
     Ok(Answered::under(
         &credentials,
         ToolOutcome::Answer {
-            provenance: pinned.provenance(executed_as),
+            provenance: certified_provenance(pinned, executed_as, plan.metric())?,
             rows: answer,
         },
     ))
+}
+
+/// The provenance for a federated leg's single metric, or the typed cause a splitter or registry
+/// invariant that changed would leave behind.
+///
+/// Its own function rather than a `map_err` closure repeated at [`answer_federated`]'s and
+/// [`ranked_answer`]'s exit points: a federated plan names exactly one metric (`FederatedPlan::metric`
+/// is a field, not a first-of-several), so there is one certification to compute and two places
+/// that need it.
+type Certified<E, M, C> = Result<Provenance, ServiceError<E, M, C>>;
+
+fn certified_provenance<E, M, C>(pinned: &PinnedDefinitions, executed_as: ExecutedAs, metric: &MetricName) -> Certified<E, M, C> {
+    pinned
+        .provenance_for(executed_as, [metric])
+        .map_err(|cause| ServiceError::AnswersDoNotCertify { cause })
 }
 
 /// Either case's `top`, applied to an already-answer answer - split out of [`answer_federated`]
@@ -447,7 +462,7 @@ where
     Ok(Answered::under(
         credentials,
         ToolOutcome::Answer {
-            provenance: pinned.provenance(executed_as),
+            provenance: certified_provenance(pinned, executed_as, plan.metric())?,
             rows: ranked,
         },
     ))

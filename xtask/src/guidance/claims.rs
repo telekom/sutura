@@ -761,7 +761,7 @@ SQL goldens read the cap";
             .iter()
             .find(|counted| counted.name == "refusal reasons that land on `422`")
             .expect("the entry stays registered");
-        assert_eq!(super::counts::tally(&read, &files, entry), 9);
+        assert_eq!(super::counts::tally(&read, &files, entry), 10);
     }
 
     #[test]

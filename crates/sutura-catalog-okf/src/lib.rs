@@ -59,17 +59,6 @@ use sutura_domain::pinned::{
 /// The extensions a Table Schema catalog document may carry.
 const DOCUMENT_EXTENSIONS: &[&str] = &["yaml", "yml"];
 
-/// The most documents a catalog root may hold - a startup bound, walk refused as soon as it crosses.
-const MAX_CATALOG_DOCUMENTS: usize = 1_000;
-/// The most bytes a catalog root's documents may sum to - a startup bound, enforced on the READ
-/// itself (each file is opened once, `fstat`'d on that handle for being a regular file and for its
-/// size, and the read is done in chunks capped at the bytes the aggregate had left), so
-/// a document that crosses the aggregate bound is refused rather than allocated even if it grows or
-/// is swapped after the walk. Mirrors `sutura-catalog-local`'s `MAX_CATALOG_BYTES` for the same
-/// reason that crate has one: a served catalog directory is operator-mounted, and an unbounded
-/// aggregate read is a startup cost nobody asked to pay.
-const MAX_CATALOG_BYTES: u64 = 16 * 1024 * 1024;
-
 /// The two halves of a bundle's content, read and checked but not yet pinned.
 type Content = (Definitions, Knowledge);
 
@@ -112,53 +101,8 @@ impl OkfCatalog {
     /// stray `README.md` does not break a load. A regular file with the right extension and the wrong
     /// content still fails loudly at deserialisation.
     fn documents(&self) -> Result<Vec<PathBuf>, OkfCatalogError> {
-        if !self.root.is_dir() {
-            return Err(OkfCatalogError::NotADirectory { path: self.root.clone() });
-        }
-        let mut found = BTreeSet::new();
-        let mut pending = vec![self.root.clone()];
-        while let Some(directory) = pending.pop() {
-            let entries = std::fs::read_dir(&directory).map_err(|cause| OkfCatalogError::Io {
-                path: directory.clone(),
-                cause,
-            })?;
-            for entry in entries {
-                let entry = entry.map_err(|cause| OkfCatalogError::Io {
-                    path: directory.clone(),
-                    cause,
-                })?;
-                let path = entry.path();
-                let kind = entry.file_type().map_err(|cause| OkfCatalogError::Io {
-                    path: path.clone(),
-                    cause,
-                })?;
-                #[expect(
-                    clippy::filetype_is_file,
-                    reason = "a catalog document is a regular file - a link, a socket or a device node is not, and skipping those is the point"
-                )]
-                let is_document = kind.is_file()
-                    && path
-                        .extension()
-                        .and_then(|ext| ext.to_str())
-                        .is_some_and(|ext| DOCUMENT_EXTENSIONS.contains(&ext));
-                if kind.is_dir() {
-                    pending.push(path);
-                } else if is_document {
-                    found.insert(path);
-                    if found.len() > MAX_CATALOG_DOCUMENTS {
-                        return Err(OkfCatalogError::TooManyDocuments {
-                            path: self.root.clone(),
-                            found: found.len(),
-                            limit: MAX_CATALOG_DOCUMENTS,
-                        });
-                    }
-                }
-            }
-        }
-        if found.is_empty() {
-            return Err(OkfCatalogError::Empty { path: self.root.clone() });
-        }
-        Ok(found.into_iter().collect())
+        sutura_bounded_read::walk(&self.root, DOCUMENT_EXTENSIONS, sutura_bounded_read::MAX_CATALOG_DOCUMENTS)
+            .map_err(map_walk_error)
     }
 
     /// Turns one Table Schema descriptor file on disk into a domain [`Model`].
@@ -251,34 +195,25 @@ impl OkfCatalog {
     /// The byte bound is enforced on the READ itself, not on a `stat` taken separately from it -
     /// each file is opened ONCE and everything is read through that same handle, so a document
     /// that grows, or is swapped, between the walk and the read cannot slip past the bound. The
-    /// refusal paths and their exact reach are [`read_document`]'s contract.
+    /// refusal paths and their exact reach are [`sutura_bounded_read::read_document`]'s contract.
     fn read_all(&self) -> Result<Content, OkfCatalogError> {
         let mut models = Vec::new();
         let mut total_bytes: u64 = 0;
         for path in self.documents()? {
-            // ONE open per descriptor, still, and now one that does not follow a symlink into it
-            // and does not block on what the walk did not see: `O_NOFOLLOW` makes a document
-            // swapped for a symlink a refusal at open, `O_NONBLOCK` makes a swapped FIFO `ENXIO`
-            // rather than a boot that never returns. What the opened handle IS is still checked
-            // on the handle, below.
+            // ONE open per descriptor, still, and everything about the file decided from the handle
+            // that is actually read - the read, the regular-file check, the byte budget and the
+            // post-read recheck all live in `sutura_bounded_read::read_document`, on the ONE handle
+            // it opened. The refusal half, the `O_NOFOLLOW` / `O_NONBLOCK` / `O_CLOEXEC` flags, is
+            // that crate's open.
             //
             // "Opened once" is held by `cargo xtask check-catalog-opened-once`, a static gate that
-            // refuses any path-based `std::fs` read in this crate's non-test source outside the
-            // registered `read_dir` walk: a hand mutation that appends a second, unguarded
-            // `std::fs::read_to_string(&path)` right after this block is killed by that gate rather
-            // than by a swap-timing test. The limit: a second `rustix::fs::open` of the path, a
-            // read through an alias (`use std::fs as disk;`) or a helper in another crate escapes
-            // the text scan.
-            let flags = rustix::fs::OFlags::RDONLY
-                .union(rustix::fs::OFlags::NOFOLLOW)
-                .union(rustix::fs::OFlags::NONBLOCK)
-                .union(rustix::fs::OFlags::CLOEXEC);
-            let fd = rustix::fs::open(&path, flags, rustix::fs::Mode::empty()).map_err(|cause| OkfCatalogError::Open {
-                path: path.clone(),
-                cause,
-            })?;
-            let ReadDocument { text, consumed } = read_document(&fd, &path, &self.root, total_bytes)?;
-            total_bytes += consumed;
+            // refuses any path-based `std::fs` read in this crate's non-test source: a hand
+            // mutation that appends a second, unguarded `std::fs::read_to_string(&path)` right
+            // after this call is killed by that gate rather than by a swap-timing test. The limit:
+            // a second `rustix::fs::open` of the path or a read through an alias
+            // (`use std::fs as disk;`) escapes the text scan.
+            let text = sutura_bounded_read::read_document(&self.root, &path, total_bytes).map_err(map_read_error)?;
+            total_bytes += text.len() as u64;
             models.push(self.descriptor_to_model(&path, &text)?);
         }
         let definitions =
@@ -290,109 +225,40 @@ impl OkfCatalog {
         Ok((definitions, knowledge))
     }
 }
-/// The text of one descriptor, and the number of bytes it consumed from the aggregate budget.
-///
-/// A plain struct rather than a `(String, u64)` return: the two are always read together, and the
-/// named field keeps the "one document" boundary legible in [`OkfCatalog::read_all`].
-#[derive(Debug)]
-struct ReadDocument {
-    text: String,
-    consumed: u64,
+
+/// Maps a [`sutura_bounded_read::WalkError`] into this adapter's own refusal variants, carrying the
+/// same message each variant rendered before this crate existed.
+fn map_walk_error(cause: sutura_bounded_read::WalkError) -> OkfCatalogError {
+    match cause {
+        sutura_bounded_read::WalkError::NotADirectory { path } => OkfCatalogError::NotADirectory { path },
+        sutura_bounded_read::WalkError::Io { path, cause } => OkfCatalogError::Io { path, cause },
+        sutura_bounded_read::WalkError::TooManyDocuments { path, found, limit } => {
+            OkfCatalogError::TooManyDocuments { path, found, limit }
+        }
+        sutura_bounded_read::WalkError::Empty { path } => OkfCatalogError::Empty { path },
+    }
 }
 
-/// Reads one descriptor's bytes against the aggregate byte bound.
-///
-/// Bounded on the OPENED HANDLE: the descriptor is `fstat`'d for being a regular file, its
-/// size against the remaining budget is the fast path that refuses a legitimately-oversized
-/// file before anything is read, and the read itself is done in chunks capped at the bytes
-/// the aggregate had left - so a file that lies about its size, or grows while it is being
-/// read, is refused as [`OkfCatalogError::TooLarge`] rather than allocated.
-///
-/// The OPEN is the other half, and it is where a document swapped after the walk is caught:
-/// `O_NOFOLLOW` makes a final-component symlink a refusal at open rather than a read of
-/// whatever it pointed at, and `O_NONBLOCK` makes a swapped FIFO `ENXIO` rather than an open
-/// that blocks the boot before the `fstat` runs. What these do NOT refuse is a document
-/// swapped for a regular file at a different path - the walk named a path, and the handle
-/// opened is of whatever that path names now; the bound still holds, on the handle. `root`
-/// is the catalog root, carried only so the `TooLarge` text can name the catalog as the
-/// other variants do.
-fn read_document(fd: impl rustix::fd::AsFd, path: &Path, root: &Path, total_bytes: u64) -> Result<ReadDocument, OkfCatalogError> {
-    // `fstat` on the descriptor we are about to read from: this is the file actually being
-    // read, not a separately-named path. A non-regular file that opens anyway - a device, for
-    // one - is refused here rather than read; a swapped symlink and a swapped FIFO are refused
-    // at the open itself (`O_NOFOLLOW` / `O_NONBLOCK`), before this check runs.
-    let stat = rustix::fs::fstat(fd.as_fd()).map_err(|cause| OkfCatalogError::Open {
-        path: path.to_path_buf(),
-        cause,
-    })?;
-    if rustix::fs::FileType::from_raw_mode(stat.st_mode) != rustix::fs::FileType::RegularFile {
-        return Err(OkfCatalogError::NotARegularFile {
-            path: path.to_path_buf(),
-        });
-    }
-    let remaining = MAX_CATALOG_BYTES - total_bytes.min(MAX_CATALOG_BYTES);
-    if stat.st_size.cast_unsigned() > remaining {
-        let found = total_bytes.saturating_add(stat.st_size.cast_unsigned());
-        return Err(OkfCatalogError::TooLarge {
-            path: root.to_path_buf(),
-            document: path.to_path_buf(),
+/// Maps a [`sutura_bounded_read::ReadError`] into this adapter's own refusal variants. `TooLarge`
+/// names the document that crossed the bound with `document` and the catalog root with `root`, the
+/// same roles the message text gives them.
+fn map_read_error(cause: sutura_bounded_read::ReadError) -> OkfCatalogError {
+    match cause {
+        sutura_bounded_read::ReadError::Open { path, cause } => OkfCatalogError::Open { path, cause },
+        sutura_bounded_read::ReadError::NotARegularFile { path } => OkfCatalogError::NotARegularFile { path },
+        sutura_bounded_read::ReadError::TooLarge {
+            root,
+            document,
             found,
-            limit: MAX_CATALOG_BYTES,
-        });
-    }
-    // The read is on the descriptor itself, in bounded chunks: a document that grows while it
-    // is being read cannot allocate past the bytes the aggregate had left, in any one chunk.
-    let mut buf = Vec::new();
-    let mut chunk = [0u8; 16 * 1024];
-    loop {
-        let n = rustix::io::read(fd.as_fd(), &mut chunk).map_err(|cause| OkfCatalogError::Io {
-            path: path.to_path_buf(),
-            cause: cause.into(),
-        })?;
-        if n == 0 {
-            break;
-        }
-        if buf.len() as u64 + n as u64 > remaining.saturating_add(1) {
-            let found = total_bytes.saturating_add(remaining.saturating_add(1));
-            return Err(OkfCatalogError::TooLarge {
-                path: root.to_path_buf(),
-                document: path.to_path_buf(),
-                found,
-                limit: MAX_CATALOG_BYTES,
-            });
-        }
-        match chunk.get(..n) {
-            Some(read) => buf.extend_from_slice(read),
-            // `read` never reports more bytes than the chunk held; the bound is the one
-            // guard if it ever did.
-            None => {
-                return Err(OkfCatalogError::TooLarge {
-                    path: path.to_path_buf(),
-                    document: path.to_path_buf(),
-                    found: total_bytes.saturating_add(u64::try_from(n).unwrap_or(u64::MAX)),
-                    limit: MAX_CATALOG_BYTES,
-                });
-            }
-        }
-    }
-    let text = String::from_utf8(buf).map_err(|cause| OkfCatalogError::Io {
-        path: path.to_path_buf(),
-        cause: std::io::Error::new(std::io::ErrorKind::InvalidData, cause),
-    })?;
-    // `take` caps the read; if the file actually held more than `remaining` bytes, what arrived
-    // still is - so re-check the length of what was READ, which closes the case of a file that
-    // grew between the `fstat` and the read.
-    if text.len() as u64 > remaining {
-        let found = total_bytes.saturating_add(text.len() as u64);
-        return Err(OkfCatalogError::TooLarge {
-            path: root.to_path_buf(),
-            document: path.to_path_buf(),
+            limit,
+        } => OkfCatalogError::TooLarge {
+            path: root,
+            document,
             found,
-            limit: MAX_CATALOG_BYTES,
-        });
+            limit,
+        },
+        sutura_bounded_read::ReadError::Io { path, cause } => OkfCatalogError::Io { path, cause },
     }
-    let consumed = text.len() as u64;
-    Ok(ReadDocument { text, consumed })
 }
 
 /// Why a directory could not be read as an OKF catalog.
@@ -481,7 +347,7 @@ pub enum OkfCatalogError {
     /// text names "the catalog", so the path in it has to be the catalog's, not one file's.
     /// `document` is the one whose bytes pushed the running total past `limit`. `found` is that
     /// running total. The bound is enforced on the read itself ([`OkfCatalog::read_all`] and
-    /// [`read_document`]): the refusing total comes from the handle's own `metadata()` before the
+    /// [`sutura_bounded_read::read_document`]): the refusing total comes from the handle's own `metadata()` before the
     /// read, or from what the capped read actually delivered if a file grew in between.
     #[error("the catalog at {path} holds more than {limit} bytes of documents (the read stopped at {document}, {found} found)")]
     TooLarge {

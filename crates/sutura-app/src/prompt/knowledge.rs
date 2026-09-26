@@ -80,8 +80,9 @@ use super::{CatalogProse, quote, wrap};
 /// module's text, but not every sentence in it is true in both: a position word like "below" or "at
 /// the end" is true only of the document that actually puts the section there, and the prompt alone
 /// has a refusal-reason table for an absence declaration to point at. A caller passing the wrong
-/// variant is exactly how round 2 of #971's review found the tool pointing "below" at a glossary
-/// rendered above it, and "above, after the refusal section" at a section the tool never renders.
+/// variant lets a position claim point at a section the rendered document never puts there - the
+/// tool, for instance, must not say "above, after the refusal section" about a section it never
+/// renders.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Audience {
     /// `render`'s own document, in its fixed section order, with a refusal-reason table above the
@@ -184,15 +185,20 @@ const fn claim(capability: Capability, audience: Audience) -> Claim {
                      list is the only authority on what may be asked.",
         },
         Capability::Examples => Claim {
-            declared: "**Worked questions** - real questions with the request that answers each, at the end of this \
-                       document. They are the shape to copy.",
+            declared: if audience.is_tool() {
+                "**Worked questions** - real questions with the request that answers each, at the end of these \
+                 knowledge sections. They are the shape to copy."
+            } else {
+                "**Worked questions** - real questions with the request that answers each, at the end of this \
+                 document. They are the shape to copy."
+            },
             empty: if audience.is_scoped() {
                 "**Worked questions**, and none is visible to you. This deployment keeps them; whether it holds one \
                  beyond what your own grant covers is not something this reply can tell you - compose from the \
                  metric list you can see."
             } else if audience.is_tool() {
-                "**Worked questions**, and none is recorded yet. This deployment keeps them, at the end of this \
-                 document, and today there are none - so compose from the metric list above."
+                "**Worked questions**, and none is recorded yet. This deployment keeps them, at the end of these \
+                 knowledge sections, and today there are none - so compose from the metric list above."
             } else {
                 "**Worked questions**, and none is recorded yet. This deployment keeps them, at the end of this \
                  document, and today there are none - so compose from the metric list and the bounds above."

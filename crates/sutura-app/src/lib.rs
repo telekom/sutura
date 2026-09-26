@@ -247,6 +247,15 @@ pub enum ServiceError<E, M, C> {
         #[source]
         cause: UnreadableCell,
     },
+    /// The bundle could not compute a per-metric digest for this answer.
+    ///
+    /// Reachable only if a metric the compiled plan certifies is not in the bundle that compiled
+    /// it - a splitter or registry invariant that changed, not something a caller can provoke.
+    #[error("the bundle could not certify the metrics this answer was formed over")]
+    AnswersDoNotCertify {
+        #[source]
+        cause: sutura_domain::definitions::NotDigestible,
+    },
 }
 
 /// The federated path's own wiring, in the three shapes it cannot answer for.
@@ -743,13 +752,13 @@ where
     // settings tree - `executed_as` was taken from the registry above, beside the warehouse this
     // question actually ran on. A field derived from configuration would report what was configured
     // rather than what ran, and the two disagreeing is the case the field exists for.
-    Ok(Answered::under(
-        &credentials,
-        ToolOutcome::Answer {
-            provenance: pinned.provenance(executed_as),
-            rows,
-        },
-    ))
+    //
+    // The per-metric digests follow the question's metric order, which is also the column order a
+    // measure occupies in the rows, so the Nth digest certifies the Nth measure column.
+    let provenance = pinned
+        .provenance_for(executed_as, query.metrics())
+        .map_err(|cause| ServiceError::AnswersDoNotCertify { cause })?;
+    Ok(Answered::under(&credentials, ToolOutcome::Answer { provenance, rows }))
 }
 
 /// The refusal for a deadline that ran out, naming the budget it was opened with.

@@ -4,16 +4,18 @@
 //! "opened once" was held by review alone, because a swap-timing test cannot land in the
 //! sub-microsecond window between two back-to-back opens.
 //!
-//! This is a STATIC mechanism: a text scan over the three file catalogs' non-test source that
-//! refuses any path-based read outside a committed list of registered call sites. It is the same
+//! This is a STATIC mechanism: a text scan over the non-test source of the three file catalogs and
+//! of `sutura-bounded-read`, the crate whose walk and open they share, that refuses any path-based
+//! read outside a committed list of registered call sites. It is the same
 //! shape as `check-answer-path-caches` and `check-bounded-wait`: a rule the code cannot state about
 //! itself, read as text, starting from a tree that already obeys it.
 //!
 //! # The rule
 //!
-//! Over the non-test `.rs` files of `sutura-catalog-local`, `sutura-catalog-okf` and
-//! `sutura-catalog-datacontract`, every occurrence of one of [`NEEDLES`] must match a [`Registered`] entry - a file and a needle - or it is a
-//! violation naming the file and line. [`REGISTERED`] is the committed list, and adding or removing
+//! Over the non-test `.rs` files of `sutura-catalog-local`, `sutura-catalog-okf`,
+//! `sutura-catalog-datacontract` and `sutura-bounded-read`, every occurrence of one of [`NEEDLES`]
+//! must match a [`Registered`] entry - a file and a needle - or it is a violation naming the file
+//! and line. [`REGISTERED`] is the committed list, and adding or removing
 //! an entry is an architecture decision, exactly as the tables in `check-newtype-leaks` and
 //! `check-answer-path-caches` are.
 //!
@@ -24,7 +26,7 @@
 //! is a function in a third crate that reads a path, called from here. `use std::fs;` followed by
 //! `fs::read_to_string` is also not found - the bare `fs::` spelling was removed to avoid
 //! double-matching with the `std::fs::` prefixed needles (the former is a substring of the latter),
-//! and neither catalog crate uses `use std::fs;` today. Renaming on import is the same blind spot
+//! and no crate in scope uses `use std::fs;` today. Renaming on import is the same blind spot
 //! `check-bounded-wait`'s header records for `Stdio::piped()`.
 //!
 //! **Test code is not scanned.** A file named `tests.rs` or one under any `tests/` directory is out
@@ -80,33 +82,24 @@ struct Registered {
 
 /// The committed list of call sites where a path-based read is the registered one.
 ///
-/// One entry per file catalog: the `std::fs::read_dir` that walks the catalog root in
-/// each adapter's `documents()` function. The `rustix::fs::open` that follows the walk is the safe
-/// open this gate exists to protect, and it is not a `std::fs` call - so no other needle is
-/// registered, and any `std::fs::read_to_string`, `File::open` or `OpenOptions` in either crate's
-/// non-test source is a violation.
-const REGISTERED: &[Registered] = &[
-    Registered {
-        file: "crates/sutura-catalog-local/src/lib.rs",
-        needle: "std::fs::read_dir(",
-    },
-    Registered {
-        file: "crates/sutura-catalog-okf/src/lib.rs",
-        needle: "std::fs::read_dir(",
-    },
-    Registered {
-        file: "crates/sutura-catalog-datacontract/src/lib.rs",
-        needle: "std::fs::read_dir(",
-    },
-];
+/// One entry: the `std::fs::read_dir` in `sutura-bounded-read`'s `walk`, which every file catalog's
+/// `documents()` calls. The `rustix::fs::open` in its `read_document` is the safe open this gate
+/// exists to protect, and it is not a `std::fs` call - so no other needle is registered, and any
+/// `std::fs::read_to_string`, `File::open` or `OpenOptions` in a scoped crate's non-test source is
+/// a violation.
+const REGISTERED: &[Registered] = &[Registered {
+    file: "crates/sutura-bounded-read/src/walk.rs",
+    needle: "std::fs::read_dir(",
+}];
 
-/// The file catalogs this gate walks. Trailing `/` so a sibling whose name merely starts with the
-/// same prefix cannot match. A LIST, not a prefix rule: a new catalog that opens files is outside
-/// this gate until it is added here.
+/// The file catalogs, and the crate whose walk and open they share, that this gate walks. Trailing
+/// `/` so a sibling whose name merely starts with the same prefix cannot match. A LIST, not a
+/// prefix rule: a new catalog that opens files is outside this gate until it is added here.
 const SCOPE: &[&str] = &[
     "crates/sutura-catalog-local/src/",
     "crates/sutura-catalog-okf/src/",
     "crates/sutura-catalog-datacontract/src/",
+    "crates/sutura-bounded-read/src/",
 ];
 
 /// The files [`REGISTERED`] names - this gate cannot have a verdict without reading each of them,
@@ -270,11 +263,11 @@ mod tests {
         assert!(NEEDLES.contains(&"OpenOptions::"));
     }
 
-    /// The registered `read_dir` in each catalog crate is registered.
+    /// The shared walk's `read_dir` is registered, and a catalog's own is not.
     #[test]
     fn the_walk_is_registered() {
-        assert!(is_registered("crates/sutura-catalog-local/src/lib.rs", "std::fs::read_dir("));
-        assert!(is_registered("crates/sutura-catalog-okf/src/lib.rs", "std::fs::read_dir("));
+        assert!(is_registered("crates/sutura-bounded-read/src/walk.rs", "std::fs::read_dir("));
+        assert!(!is_registered("crates/sutura-catalog-local/src/lib.rs", "std::fs::read_dir("));
     }
 
     /// A `read_to_string` in a registered file is still a violation: only `read_dir` is registered
@@ -282,7 +275,7 @@ mod tests {
     #[test]
     fn read_to_string_in_a_registered_file_is_still_a_violation() {
         assert!(!is_registered(
-            "crates/sutura-catalog-local/src/lib.rs",
+            "crates/sutura-bounded-read/src/walk.rs",
             "std::fs::read_to_string("
         ));
     }
@@ -323,11 +316,11 @@ mod tests {
         let tree = crate::scratch_tree::Tree::of(
             "catalog-opened-once-registered",
             &[(
-                "crates/sutura-catalog-local/src/lib.rs",
-                b"fn documents() {\n    let entries = std::fs::read_dir(&dir);\n}\n",
+                "crates/sutura-bounded-read/src/walk.rs",
+                b"fn walk() {\n    let entries = std::fs::read_dir(&dir);\n}\n",
             )],
         );
-        let found = scan_over(&tree, &["crates/sutura-catalog-local/src/lib.rs"]).expect("a readable tree scans");
+        let found = scan_over(&tree, &["crates/sutura-bounded-read/src/walk.rs"]).expect("a readable tree scans");
         assert!(found.violations.is_empty(), "{:?}", found.violations);
     }
 

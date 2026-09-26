@@ -35,6 +35,15 @@ pub type MetricNames = NonEmpty<MetricName>;
 /// scan with a plausible name, and the cost lands on a shared data system. Four covers the questions
 /// a person asks and refuses the ones a loop generates.
 pub const MAX_DIMENSIONS: usize = 4;
+/// The most metrics one question may name together.
+///
+/// A bound for the same reason the time range and the dimension count are bounded: each
+/// additional metric is one more certified column the deployment computes for every row it
+/// already reads, so the cost multiplies the groups rather than the scan. Eight covers the
+/// questions a person asks - a handful of KPIs over the same break-down - and refuses a loop
+/// that enumerates a catalog. A set larger than this is the same refusal a caller narrows by
+/// asking about fewer metrics.
+pub const MAX_METRICS: usize = 8;
 
 /// The longest span of history one question may ask about, in days.
 ///
@@ -234,18 +243,26 @@ pub enum RefusalReason {
     /// metric named against the first, so the pair reported is always the first metric and the
     /// first one that disagreed with it, never a third-party guess at which is "wrong".
     MetricsSpanDifferentModels { first: MetricName, other: MetricName },
-    /// A question named more than one metric, and every one of them resolved: same model, time
-    /// column, grain and dimensions.
+    /// More metrics than [`MAX_METRICS`] one question may name together.
+    TooManyMetrics { requested: usize, limit: usize },
+    /// The same metric named twice in one question. Refused rather than de-duplicated, the same way
+    /// a duplicated dimension is: a caller who sent it twice believes something about the result
+    /// that is not true.
+    DuplicateMetricName { metric: MetricName },
+    /// A question named more than one metric and also reached a remote dimension.
     ///
-    /// **The boundary this build has not moved past yet.** `sutura_semantic::resolve` validates a
-    /// whole [`crate::query::MetricNames`] set exactly as it validates one - every metric's grain,
-    /// every requested dimension against every metric, every filter value against every metric's
-    /// own allowlist - but the plan stage does not yet decompose more than one metric into one
-    /// statement's select list, so a fully valid multi-metric question is refused here rather than
-    /// answered under a shape nothing has certified. `requested` is the count, a number this
-    /// deployment computed and safe to log - not any of the metric names, which the two refusals
-    /// above already report where they are the reason.
-    MultiMetricNotExecutable { requested: usize },
+    /// **A multi-metric question never federates.** The combiner links exactly two legs on one
+    /// column and produces one measure column; there is no shape here for several certified
+    /// columns arriving through a join. Refused by name, naming every metric asked, rather than
+    /// silently answered as though only the first metric had been named.
+    MultiMetricFederationNotExecutable { metrics: Vec<MetricName> },
+    /// A question named more than one metric and also asked for `top`.
+    ///
+    /// **`top` names no metric to rank by**, and the two rendering paths disagree about which
+    /// measure column it means once there is more than one: this workspace's own wiring, not a
+    /// caller-narrowable question. Refused by name, naming every metric asked, rather than ranking
+    /// by whichever measure a given adapter happens to read.
+    MultiMetricTopNotExecutable { metrics: Vec<MetricName> },
     /// The metric exists and does not declare that grain. Not a narrower question: a grain the
     /// author did not render is a number nobody certified.
     GrainNotSupported { metric: MetricName, grain: Grain },
@@ -624,7 +641,10 @@ impl RefusalReason {
         match self {
             Self::MetricUnknown { .. } => "metric_unknown",
             Self::MetricsSpanDifferentModels { .. } => "metrics_span_different_models",
-            Self::MultiMetricNotExecutable { .. } => "multi_metric_not_executable",
+            Self::TooManyMetrics { .. } => "too_many_metrics",
+            Self::DuplicateMetricName { .. } => "duplicate_metric_name",
+            Self::MultiMetricFederationNotExecutable { .. } => "multi_metric_federation_not_executable",
+            Self::MultiMetricTopNotExecutable { .. } => "multi_metric_top_not_executable",
             Self::GrainNotSupported { .. } => "grain_not_supported",
             Self::DimensionNotPermitted { .. } => "dimension_not_permitted",
             Self::DimensionNotFilterable { .. } => "dimension_not_filterable",
@@ -809,7 +829,22 @@ mod tests {
                 first: MetricName::parse("revenue").expect("a test metric"),
                 other: MetricName::parse("margin").expect("a test metric"),
             },
-            RefusalReason::MultiMetricNotExecutable { requested: 2 },
+            RefusalReason::TooManyMetrics { requested: 9, limit: 8 },
+            RefusalReason::DuplicateMetricName {
+                metric: MetricName::parse("revenue").expect("a test metric"),
+            },
+            RefusalReason::MultiMetricFederationNotExecutable {
+                metrics: vec![
+                    MetricName::parse("revenue").expect("a test metric"),
+                    MetricName::parse("margin").expect("a test metric"),
+                ],
+            },
+            RefusalReason::MultiMetricTopNotExecutable {
+                metrics: vec![
+                    MetricName::parse("revenue").expect("a test metric"),
+                    MetricName::parse("margin").expect("a test metric"),
+                ],
+            },
             RefusalReason::GrainNotSupported {
                 metric: MetricName::parse("revenue").expect("a test metric"),
                 grain: Grain::Week,

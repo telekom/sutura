@@ -45,15 +45,18 @@ fn clickhouse_sum_widens_integer_results_without_changing_float_or_decimal_sums(
         column: col,
     };
     let clickhouse = render(
-        &super::term_expression(&term, Dialect::ClickHouse).into_inner(),
+        &super::term_expression(&term, None, Dialect::ClickHouse, &mut Vec::new()).into_inner(),
         Dialect::ClickHouse,
     )
     .expect("the sum renders for ClickHouse");
     assert!(clickhouse.contains("toTypeName"), "{clickhouse}");
     assert!(clickhouse.contains("Dynamic"), "{clickhouse}");
     for dialect in [Dialect::DuckDb, Dialect::Postgres, Dialect::BigQuery, Dialect::Oracle] {
-        let rendered =
-            render(&super::term_expression(&term, dialect).into_inner(), dialect).expect("the sum renders for this dialect");
+        let rendered = render(
+            &super::term_expression(&term, None, dialect, &mut Vec::new()).into_inner(),
+            dialect,
+        )
+        .expect("the sum renders for this dialect");
         assert!(!rendered.contains("accurateCastOrNull"), "{dialect}: {rendered}");
     }
 }
@@ -68,7 +71,7 @@ fn clickhouse_integer_sum_uses_a_cast_that_can_return_null_for_float_rows() {
         ),
     };
     let sql = render(
-        &super::term_expression(&term, Dialect::ClickHouse).into_inner(),
+        &super::term_expression(&term, None, Dialect::ClickHouse, &mut Vec::new()).into_inner(),
         Dialect::ClickHouse,
     )
     .expect("the sum renders for ClickHouse");

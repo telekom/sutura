@@ -268,13 +268,13 @@ pub enum InconsistentKnowledge {
     #[error("example {name} asks about metric {metric}, which is not defined")]
     ExampleUnknownMetric { name: NoteName, metric: MetricName },
     /// The example's question names more than one metric. `github.com/telekom/sutura#968` lets a
-    /// question NAME a set, but every such question is refused at plan time
-    /// (`RefusalReason::MultiMetricNotExecutable`) - loading it anyway would check only
+    /// question NAME a set, and a set whose every member shares model, time column, grain and
+    /// dimensions now executes as one grouped statement - but loading it anyway would check only
     /// `crate::query::Query::metric`'s first name (this module reads the compiler's own numbers,
-    /// not the compiler, and has no second-metric check to run) and then render it under
-    /// `EXAMPLES_INTRO`'s promise that a worked question is "one this deployment answers", which is
-    /// false for every one of these.
-    #[error("example {name} names {requested} metrics, and this deployment executes only one at a time")]
+    /// not the compiler, and has no second-metric check to run, so it cannot certify the rest of
+    /// the set) and then render it under `EXAMPLES_INTRO`'s promise that a worked question is "one
+    /// this deployment answers", which is false for one this module cannot certify.
+    #[error("example {name} names {requested} metrics, which this module cannot validate")]
     ExampleNamesMultipleMetrics { name: NoteName, requested: usize },
     #[error("example {name} asks metric {metric} at the {grain} grain, which it does not declare")]
     ExampleGrainNotSupported {

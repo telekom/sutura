@@ -71,10 +71,15 @@ pub use catalog::{CatalogBody, DimensionBody, MetricBody};
 pub struct QuestionBody {
     /// The metrics to ask about, at least one - `["revenue"]`.
     ///
-    /// Every one must be defined in this catalog. Naming more than one is accepted only when
-    /// every one shares a model, a time column, a grain and every dimension listed below
-    /// (`github.com/telekom/sutura#968`), and even then this deployment executes just one metric
-    /// at a time today, so a set of more than one is always refused - ask about each separately.
+    /// Every one must be defined in this catalog. A set of several is answered as one grouped
+    /// statement with one column per metric WHEN every one shares a model, a time column, a grain
+    /// and every dimension listed below (`github.com/telekom/sutura#968`); otherwise ask about each
+    /// separately. More than `MAX_METRICS` (8), or the same name repeated, is refused.
+    ///
+    /// `max_items` below is a literal - `utoipa`'s `#[schema]` parses only a number, not a const
+    /// path - so it is `sutura_domain::query::MAX_METRICS`'s value copied rather than named; the
+    /// test `the_metrics_schema_pins_max_metrics` in this module's own tests holds the two together.
+    #[schema(min_items = 1, max_items = 8)]
     metrics: Vec<String>,
     /// The time resolution to aggregate to.
     #[schema(example = "month")]
@@ -275,6 +280,15 @@ pub struct ProvenanceBody {
     #[schema(example = "2026.06.1")]
     definition_version: String,
     definition_digest: String,
+    /// One per metric this answer measured, in query order.
+    metric_digests: Vec<MetricDigestBody>,
+}
+
+/// One metric and the digest of its canonical form.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct MetricDigestBody {
+    metric: String,
+    digest: String,
 }
 
 /// One leg of an answer: which source it ran on, and which identity it ran as.
@@ -434,9 +448,16 @@ fn provenance_body(provenance: &Provenance) -> ProvenanceBody {
     ProvenanceBody {
         definition_version: String::from(provenance.version().as_str()),
         definition_digest: String::from(provenance.digest().as_str()),
+        metric_digests: provenance
+            .metric_digests()
+            .iter()
+            .map(|entry| MetricDigestBody {
+                metric: String::from(entry.metric().as_str()),
+                digest: String::from(entry.digest().as_str()),
+            })
+            .collect(),
     }
 }
-
 /// The same two fields, read straight off a bundle nothing executed against.
 ///
 /// The catalog endpoint describes a bundle rather than answering a question, so there is no
@@ -446,9 +467,10 @@ pub(crate) fn bundle_body(pinned: &PinnedDefinitions) -> ProvenanceBody {
     ProvenanceBody {
         definition_version: String::from(pinned.version().as_str()),
         definition_digest: String::from(pinned.digest().as_str()),
+        // Nothing executed against this bundle, so there are no metrics whose numbers to certify.
+        metric_digests: Vec::new(),
     }
 }
-
 /// Which identity each leg of one answer ran as.
 ///
 /// One entry per source the answer actually read, in source order, which for a mono-source answer is
@@ -486,7 +508,27 @@ mod tests {
     use sutura_domain::pinned::view::ScopedView;
     use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 
+    use utoipa::PartialSchema as _;
+
     use super::{CatalogBody, MalformedQuestion, Outcome, QuestionBody};
+
+    /// The literal `max_items` on `QuestionBody::metrics` (`utoipa`'s `#[schema]` parses only a
+    /// number, not a const path) agrees with the domain's own [`sutura_domain::query::MAX_METRICS`]
+    /// - the mechanism this module's own doc comment on that field promises.
+    #[test]
+    fn the_metrics_schema_pins_max_metrics() {
+        let utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(object)) = QuestionBody::schema() else {
+            panic!("QuestionBody is not an object schema");
+        };
+        let Some(utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Array(metrics))) = object.properties.get("metrics") else {
+            panic!("QuestionBody has no array schema for `metrics`");
+        };
+        assert_eq!(
+            metrics.max_items,
+            Some(sutura_domain::query::MAX_METRICS),
+            "the literal in #[schema(max_items = ..)] has drifted from MAX_METRICS"
+        );
+    }
 
     /// The deserialized body. Separate from [`parse`] so the `Result` that test asserts on is the
     /// conversion's, not the JSON parser's - the two failures are different tests.
@@ -920,3 +962,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod multi_metric_tests;

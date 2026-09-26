@@ -366,11 +366,13 @@ pub fn render(pinned: &PinnedDefinitions, inputs: &PromptInputs<'_>) -> String {
 ///
 /// **Section order is `declaration`, `glossary`, `not_defined`, `caveats`, `examples` - fixed, and
 /// deliberately not the prompt's own order.** The declaration's own sentences ("listed below", "at
-/// the end of this document") are true only of the document that renders them; `knowledge::Audience`
-/// carries which one this is, and the order here is what makes its `Tool` wording true. Reordering
-/// this list without updating `knowledge::claim`'s tool-branch text (or vice versa) is exactly the
-/// drift round 2 of #971's review found - `tests::the_tool_reply_orders_its_sections_as_claimed`
-/// holds the two together.
+/// the end of this document" for the prompt, "at the end of these knowledge sections" for the tool)
+/// are true only of the document that renders them; `knowledge::Audience` carries which one this is,
+/// and the order here is what makes its `Tool` wording true. Reordering
+/// this list without updating `knowledge::claim`'s tool-branch text (or vice versa) makes the
+/// declaration point at a position the reply no longer puts the section in - a caller passing the
+/// wrong audience, or this list and `knowledge::claim` drifting apart, is caught by
+/// `tests::tool_audience::the_tool_reply_orders_its_sections_so_the_declarations_position_claims_hold`.
 #[must_use]
 pub fn catalog_knowledge(view: &ScopedView<'_>, prose: CatalogProse) -> String {
     let (notes, scoped): (Cow<'_, Knowledge>, bool) = if view.is_everything() {
@@ -407,7 +409,8 @@ pub fn catalog_knowledge(view: &ScopedView<'_>, prose: CatalogProse) -> String {
             sections.push(what.join("\n\n"));
         }
     }
-    // Examples LAST, so `knowledge::claim`'s "at the end of this document" holds of this reply too.
+    // Examples LAST, so `knowledge::claim`'s "at the end of these knowledge sections" holds of this
+    // reply too (the operator instructions and `definitions:` trailer, when present, follow them).
     sections.push(knowledge::examples(notes, prose, audience));
     sections.retain(|section| !section.is_empty());
     sections.join("\n\n")
@@ -508,10 +511,10 @@ fn workflow(inputs: &PromptInputs<'_>) -> String {
     };
     steps.push(String::from(first));
     steps.push(String::from(
-        "Choose exactly ONE metric by name. If the user's question needs two metrics, ask two \
-         questions and combine the answers yourself; there is no way to ask for two at once. If no \
-         metric means what they asked for, say that plainly and name the closest one rather than \
-         answering with a different metric under their words.",
+        "Choose the metric or metrics by name. Several are answered together only when every one \
+         shares a model, a time column, a grain AND every dimension listed below; otherwise ask \
+         separately. If no metric means what they asked for, say that plainly and name the closest \
+         one rather than answering with a different metric under their words.",
     ));
     steps.push(String::from(
         "Choose a grain the metric lists, and a period with BOTH ends given as dates. There is no \

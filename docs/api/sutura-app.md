@@ -130,6 +130,10 @@ boundary gate bans `anyhow` for, arrived at by a different route.
   of a type this workspace does not map, or a value no domain cell can hold - a non-finite
   double, a day number that is not a date. No caller caused it and narrowing the question does
   not avoid it, which is why it is not a refusal a caller is told to act on.
+- `AnswersDoNotCertify` - The bundle could not compute a per-metric digest for this answer.
+
+  Reachable only if a metric the compiled plan certifies is not in the bundle that compiled
+  it - a splitter or registry invariant that changed, not something a caller can provoke.
 
 ### Implements
 
@@ -1160,11 +1164,13 @@ as unbounded.
 
 **Section order is `declaration`, `glossary`, `not_defined`, `caveats`, `examples` - fixed, and
 deliberately not the prompt's own order.** The declaration's own sentences ("listed below", "at
-the end of this document") are true only of the document that renders them; `knowledge::Audience`
-carries which one this is, and the order here is what makes its `Tool` wording true. Reordering
-this list without updating `knowledge::claim`'s tool-branch text (or vice versa) is exactly the
-drift round 2 of #971's review found - `tests::the_tool_reply_orders_its_sections_as_claimed`
-holds the two together.
+the end of this document" for the prompt, "at the end of these knowledge sections" for the tool)
+are true only of the document that renders them; `knowledge::Audience` carries which one this is,
+and the order here is what makes its `Tool` wording true. Reordering
+this list without updating `knowledge::claim`'s tool-branch text (or vice versa) makes the
+declaration point at a position the reply no longer puts the section in - a caller passing the
+wrong audience, or this list and `knowledge::claim` drifting apart, is caught by
+`tests::tool_audience::the_tool_reply_orders_its_sections_so_the_declarations_position_claims_hold`.
 
 ### `fn tool_operator_instructions`
 

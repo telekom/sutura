@@ -15,13 +15,14 @@ use std::collections::BTreeSet;
 
 use super::{
     AnchorPlan, NotAnAnchorsPlan, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate,
-    PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
+    PlanTerm, PlannedMeasure, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
 };
 use crate::calendar::{Date, TimeRange};
 use crate::catalog::{Anchor, AnchorValue, Audience, Definitions, Description, Metric, Model};
 use crate::knowledge::Knowledge;
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
+use crate::nonempty::NonEmpty;
 use crate::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
 use crate::warehouse::ParamValue;
 
@@ -205,6 +206,52 @@ fn a_question_shaped_plan_is_not_an_anchors_plan() {
             anchor: other,
         },
         "a plan checked against another metric's anchor is not that anchor's plan"
+    );
+}
+
+/// A plan computing more than one metric is never an anchor's own plan - an anchor's own question
+/// names exactly one, and the name comparison right after this check reads only the first measure,
+/// which would otherwise silently accept a plan that also computes others.
+#[test]
+fn a_plan_computing_more_than_one_metric_is_not_an_anchors_plan() {
+    let pinned = anchored();
+    let other = MetricName::parse("active_subscriptions").expect("a test metric is a metric");
+    let plan = QueryPlan::with_measures(
+        SourceName::parse("local").expect("a test source is a source"),
+        NonEmpty::of(
+            PlannedMeasure::new(
+                metric(),
+                ResultLabel::measure(&metric()),
+                PlanMeasure::Simple {
+                    term: PlanTerm::Aggregate {
+                        aggregate: Aggregate::Sum,
+                        column: column("mrr_amount"),
+                    },
+                },
+                Vec::new(),
+            ),
+            vec![PlannedMeasure::new(
+                other.clone(),
+                ResultLabel::measure(&other),
+                PlanMeasure::Simple {
+                    term: PlanTerm::Aggregate {
+                        aggregate: Aggregate::CountDistinct,
+                        column: column("subscription_key"),
+                    },
+                },
+                Vec::new(),
+            )],
+        ),
+        StatementTables::only(table()),
+        PlanBucket::new(ResultLabel::bucket(), Grain::Month, column("month")),
+        Vec::new(),
+        PlanBindings::none(),
+        certified(),
+    );
+    assert_eq!(
+        AnchorPlan::of(&plan, &pinned, &metric()).unwrap_err(),
+        NotAnAnchorsPlan::NotSingleMetric { measures: 2 },
+        "an anchor's own question names exactly one metric"
     );
 }
 

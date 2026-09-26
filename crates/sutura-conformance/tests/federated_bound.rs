@@ -7,7 +7,7 @@
 //! `DataFusion` combiner above them.
 //!
 //! **What this establishes:** the federated pack executes one leg on each warehouse, combines them,
-//! and lands on `corpus::federated_cases`' hand-built rows. **What it does not:** a second KIND of
+//! and lands on the rows each federated `.case` file states. **What it does not:** a second KIND of
 //! warehouse (both legs are one engine), order, or anything about identity - every leg runs under
 //! the corpus's one shared posture.
 

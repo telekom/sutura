@@ -1,0 +1,8 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: rendered(&query)
+---
+SELECT CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) AS "period", AVG(CASE WHEN "fct_subscription_monthly"."status" = ? THEN "fct_subscription_monthly"."mrr_cents" END) AS "mean_subscription_mrr", COUNT(DISTINCT "fct_subscription_monthly"."subscription_key") AS "subscription_base" FROM "fct_subscription_monthly" WHERE "fct_subscription_monthly"."month" >= ? AND "fct_subscription_monthly"."month" < ? GROUP BY CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) ORDER BY CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) NULLS LAST LIMIT 10001
+-- $1 = "active"
+-- $2 = 2026-01-01
+-- $3 = 2026-07-01

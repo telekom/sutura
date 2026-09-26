@@ -602,3 +602,160 @@ fn a_refused_question_never_reaches_the_broker() {
     assert!(matches!(outcome, ToolOutcome::Answer { .. }), "{outcome:?}");
     assert_eq!(broker.asked(), 1, "one mint per accepted question, and not one per leg");
 }
+
+/// More metrics than `MAX_METRICS` is refused before any per-metric check runs - checked once every
+/// name has resolved, so the same valid metric repeated past the cap is `TooManyMetrics`, not the
+/// duplicate-name refusal the sibling test below provokes.
+#[test]
+fn more_metrics_than_the_cap_is_refused_before_the_broker_is_asked() {
+    let (validated, registry, _question) = ready();
+    let broker = CountingBroker::default();
+
+    let over_the_cap = Query::new(
+        sutura_domain::query::MetricNames::of(metric(), vec![metric(); sutura_domain::query::MAX_METRICS]),
+        Grain::Month,
+        june(),
+        Vec::new(),
+        Vec::new(),
+    );
+    let outcome = answer(&validated, &over_the_cap, &asked_by_a_person(), &broker, &registry)
+        .expect("a refusal is an Ok")
+        .into_outcome();
+    assert!(
+        matches!(
+            outcome,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::TooManyMetrics {
+                    requested,
+                    limit: sutura_domain::query::MAX_METRICS
+                }
+            } if requested == sutura_domain::query::MAX_METRICS.saturating_add(1)
+        ),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        broker.asked(),
+        0,
+        "a question this deployment declines cost no broker round trip"
+    );
+}
+
+/// The same metric named twice in one question is refused rather than de-duplicated.
+#[test]
+fn the_same_metric_named_twice_is_refused_rather_than_deduplicated() {
+    let (validated, registry, _question) = ready();
+    let broker = CountingBroker::default();
+
+    let doubled = Query::new(
+        sutura_domain::query::MetricNames::of(metric(), vec![metric()]),
+        Grain::Month,
+        june(),
+        Vec::new(),
+        Vec::new(),
+    );
+    let outcome = answer(&validated, &doubled, &asked_by_a_person(), &broker, &registry)
+        .expect("a refusal is an Ok")
+        .into_outcome();
+    assert!(
+        matches!(
+            outcome,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::DuplicateMetricName { ref metric }
+            } if *metric == self::metric()
+        ),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        broker.asked(),
+        0,
+        "a question this deployment declines cost no broker round trip"
+    );
+}
+
+/// `top` names no metric to rank by, and this build's two rendering paths (SQL, the in-process
+/// engine) disagree about which measure it would mean once more than one is named - refused at
+/// compile time rather than ranking by whichever measure an adapter happens to read.
+#[test]
+fn top_with_more_than_one_metric_is_refused_before_a_plan_exists() {
+    let column = |raw: &str| ColumnName::parse(raw).expect("a test column is a column");
+    let model = Model::new(
+        ModelName::parse("orders").expect("a test model is a model"),
+        source(),
+        TableName::parse("orders").expect("a test table is a table"),
+        BTreeSet::from([
+            ColumnName::parse("amount_cents").expect("a test column is a column"),
+            column("order_date"),
+        ]),
+        Description::default(),
+    );
+    let revenue = Metric::new(
+        MetricName::parse("revenue").expect("a test metric is a metric"),
+        ModelName::parse("orders").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        None,
+        Description::default(),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate");
+    let orders = Metric::new(
+        MetricName::parse("orders_count").expect("a test metric is a metric"),
+        ModelName::parse("orders").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+            Aggregate::Count,
+            column("amount_cents"),
+        ))),
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        None,
+        Description::default(),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate");
+    let definitions = Definitions::assemble(vec![model], vec![], vec![revenue, orders]).expect("the test bundle is consistent");
+    let pinned = PinnedDefinitions::pin(
+        DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        definitions,
+        Knowledge::none(),
+        ContributionManifest::single(
+            SourceName::parse("local").expect("a test source is a source"),
+            Contribution::of(MetadataCapabilities::nothing()),
+        ),
+    )
+    .expect("the test definitions hash");
+
+    let asked = Query::new(
+        sutura_domain::query::MetricNames::of(
+            MetricName::parse("revenue").expect("a test metric is a metric"),
+            vec![MetricName::parse("orders_count").expect("a test metric is a metric")],
+        ),
+        Grain::Month,
+        june(),
+        Vec::new(),
+        Vec::new(),
+    )
+    .with_top(sutura_domain::query::Top::new(
+        sutura_domain::query::TopN::parse(3).expect("a positive top.n"),
+        sutura_domain::query::TopBy::Metric,
+        sutura_domain::query::TopDirection::Desc,
+    ));
+
+    let compiled = sutura_semantic::compile(
+        &asked,
+        &sutura_domain::pinned::view::ScopedView::everything(&pinned),
+        sutura_domain::plan::RowCeiling::DEFAULT,
+    )
+    .expect("a refusal is not a compile error");
+    let sutura_semantic::Compiled::Refused { reason } = compiled else {
+        panic!("expected a refusal, got {compiled:?}");
+    };
+    assert!(
+        matches!(reason, RefusalReason::MultiMetricTopNotExecutable { ref metrics } if metrics.len() == 2),
+        "{reason:?}"
+    );
+}

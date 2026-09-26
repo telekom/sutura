@@ -96,7 +96,7 @@ const ANSWER_PATH_TYPES: &[AnswerPathType] = &[
     },
     AnswerPathType {
         name: "AnchorPlan",
-        declared_in: "crates/sutura-domain/src/plan.rs",
+        declared_in: "crates/sutura-domain/src/plan/anchor.rs",
     },
     AnswerPathType {
         name: "Answered",

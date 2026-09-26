@@ -447,10 +447,10 @@ async fn a_caller_scoped_away_from_a_metric_does_not_receive_that_metrics_knowle
         !finance_knowledge.contains("that list and it is empty"),
         "any caller-scoped view must not claim the withheld absence list is empty: {finance_knowledge}"
     );
-    // Round 2 of #971's review: scoping away the fixture's ONLY glossary entry, caveat and example
-    // left the outsider reading "nothing is recorded in it yet" / "today no metric has one" - false
-    // for THIS caller, who cannot tell "nothing recorded" apart from "recorded, withheld from you".
-    // `flatten` joins on whitespace so a phrase split across `wrap`'s line breaks still matches.
+    // Scoping away the fixture's ONLY glossary entry, caveat and example must show the outsider
+    // why the sections are empty ("visible to you / withheld from you"), never that nothing is
+    // recorded - this caller cannot tell "nothing recorded" apart from "recorded, withheld from
+    // you". `flatten` joins on whitespace so a phrase split across `wrap`'s line breaks matches.
     let outsider_flat = flatten(outsider_knowledge);
     assert!(
         outsider_flat.contains("none of it is visible to you"),
@@ -461,7 +461,7 @@ async fn a_caller_scoped_away_from_a_metric_does_not_receive_that_metrics_knowle
         "a caller-scoped empty glossary must not claim the deployment's own glossary is empty: {outsider_knowledge}"
     );
     assert!(
-        outsider_flat.contains("none is visible to you"),
+        outsider_flat.contains("a caveat about a metric you cannot see is withheld along with that metric"),
         "a caller-scoped empty caveat declaration must say so is not visible, not that none is recorded: {outsider_knowledge}"
     );
     assert!(
