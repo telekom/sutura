@@ -52,13 +52,21 @@ pub enum CatalogKind {
     /// `sutura-catalog-okf` is an unconditional dependency of `sutura serve`, so this kind is
     /// openable by every build of this binary.
     Okf,
+    /// A directory of Open Data Contract Standard v3 contract documents, read by
+    /// `sutura-catalog-datacontract`.
+    ///
+    /// The on-disk vocabulary used when interface catalogues are exported as data-contract YAML.
+    /// `sutura-catalog-datacontract` is an unconditional dependency of `sutura serve`, so this kind
+    /// is openable by every build of this binary.
+    DataContract,
     /// An `OpenMetadata` deployment, decided by `sutura-catalog-openmetadata` over its own
     /// `SnapshotReader` port.
     ///
-    /// **A declarable kind no binary this repository ships can open yet, and that is deliberate.**
-    /// The crate decides a whole metric against a fake reader; a reader over a real deployment is
-    /// the follow-up `#152` names, so the composition root refuses this kind by name until one
-    /// exists rather than opening the recorded fixture against a real deployment's name.
+    /// **Openable behind `sutura-cli`'s default-off `openmetadata` feature; a build without it
+    /// refuses this kind by name**, for exactly the reason `SourceKind::BigQuery` is refused: an
+    /// operator who writes the word must be told the truth (the adapter is not linked) rather than
+    /// sent looking for a typo. The HTTP reader (`#152`'s follow-up this arm wires) reads the
+    /// deployment's `REST` API and maps it into the crate's recorded `Snapshot` shape.
     Openmetadata,
     /// An RDBMS dictionary, decided by `sutura-catalog-rdbms` over a `DictionaryReader` port.
     ///
@@ -76,7 +84,7 @@ pub struct UnknownCatalogKind {
 
 impl CatalogKind {
     /// Every accepted spelling, so a message and the parser cannot disagree.
-    pub const NAMES: &'static [&'static str] = &["markdown", "datahub", "okf", "openmetadata", "rdbms"];
+    pub const NAMES: &'static [&'static str] = &["markdown", "datahub", "okf", "datacontract", "openmetadata", "rdbms"];
 
     /// Reads the configured word.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownCatalogKind> {
@@ -84,6 +92,7 @@ impl CatalogKind {
             "markdown" => Ok(Self::Markdown),
             "datahub" => Ok(Self::Datahub),
             "okf" => Ok(Self::Okf),
+            "datacontract" => Ok(Self::DataContract),
             "openmetadata" => Ok(Self::Openmetadata),
             "rdbms" => Ok(Self::Rdbms),
             other => Err(UnknownCatalogKind {
@@ -100,6 +109,7 @@ impl CatalogKind {
             Self::Markdown => "markdown",
             Self::Datahub => "datahub",
             Self::Okf => "okf",
+            Self::DataContract => "datacontract",
             Self::Openmetadata => "openmetadata",
             Self::Rdbms => "rdbms",
         }
@@ -156,6 +166,9 @@ pub enum InvalidCatalogSettings {
     /// A `catalog.kind: datahub` entry did not declare a field only that kind needs.
     #[error("catalog.{field} is required when catalog.kind is datahub, and is empty or absent")]
     MissingForDatahub { field: &'static str },
+    /// A `catalog.kind: openmetadata` entry did not declare a field only that kind needs.
+    #[error("catalog.{field} is required when catalog.kind is openmetadata, and is empty or absent")]
+    MissingForOpenmetadata { field: &'static str },
     /// `catalogs[].refresh_seconds: 0` - `github.com/telekom/sutura#975`. Zero re-reads on every
     /// tick of whatever drives it, which is not a refresh interval; absent is how "never refresh"
     /// is written.
@@ -286,6 +299,36 @@ impl CatalogSettings {
     /// `DataHub` bounds are the only live example of the split.
     #[must_use]
     pub const fn with_datahub_bounds(mut self, deadline_seconds: Option<u64>, max_response_bytes: Option<u64>) -> Self {
+        self.deadline_seconds = deadline_seconds;
+        self.max_response_bytes = max_response_bytes;
+        self
+    }
+
+    /// Adds the two `catalog.kind: openmetadata`-only fields to an already-parsed entry.
+    ///
+    /// A separate step rather than two more parameters on [`Self::parse`], for the same reason
+    /// [`Self::with_datahub_reader`] is one: `parse_catalogs` calls it only when `kind` parsed as
+    /// [`CatalogKind::Openmetadata`], so every other kind is unaffected by fields only a reader over
+    /// a real deployment needs.
+    pub fn with_openmetadata_reader(mut self, endpoint: String, token_file: PathBuf) -> Result<Self, InvalidCatalogSettings> {
+        if endpoint.trim().is_empty() {
+            return Err(InvalidCatalogSettings::MissingForOpenmetadata { field: "endpoint" });
+        }
+        if token_file.as_os_str().is_empty() {
+            return Err(InvalidCatalogSettings::MissingForOpenmetadata { field: "token_file" });
+        }
+        self.endpoint = Some(endpoint);
+        self.token_file = Some(token_file);
+        Ok(self)
+    }
+
+    /// Adds the two `catalog.kind: openmetadata`-only bounds, when the deployment declared either.
+    ///
+    /// **Infallible, unlike [`Self::with_openmetadata_reader`], because `None` is a valid value
+    /// here rather than a missing required one** - it selects the reader's own recommended default
+    /// (`sutura_catalog_openmetadata::http::{DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES}`).
+    #[must_use]
+    pub const fn with_openmetadata_bounds(mut self, deadline_seconds: Option<u64>, max_response_bytes: Option<u64>) -> Self {
         self.deadline_seconds = deadline_seconds;
         self.max_response_bytes = max_response_bytes;
         self
@@ -450,7 +493,7 @@ mod tests {
     fn the_three_declaring_kinds_added_by_issue_970_parse_and_spell() {
         // `#970` added `okf`/`openmetadata`/`rdbms` to the closed vocabulary: adapters with a
         // crate and a recorded fixture and, at first, no composition root. Each parses and spells
-        // back its own word, and all five appear in `NAMES` so a refusal lists the whole set.
+        // back its own word, and all appear in `NAMES` so a refusal lists the whole set.
         for (kind, word) in [
             (CatalogKind::Okf, "okf"),
             (CatalogKind::Openmetadata, "openmetadata"),
@@ -460,6 +503,19 @@ mod tests {
             assert_eq!(kind.as_str(), word);
             assert!(CatalogKind::NAMES.contains(&word), "{word} is not in NAMES");
         }
+    }
+
+    #[test]
+    fn the_datacontract_kind_parses_and_spells() {
+        // `#973` added `datacontract` to the closed vocabulary, the same shape `#970`'s three
+        // kinds took above - kept as its own cell rather than folded into that one, so a future
+        // diff to either proves only what it touched.
+        assert_eq!(
+            CatalogKind::parse("datacontract").expect("datacontract is a kind"),
+            CatalogKind::DataContract
+        );
+        assert_eq!(CatalogKind::DataContract.as_str(), "datacontract");
+        assert!(CatalogKind::NAMES.contains(&"datacontract"));
     }
 
     #[test]
@@ -586,6 +642,54 @@ mod tests {
             InvalidCatalogSettings::MissingForDatahub {
                 field: "metric_property"
             }
+        );
+    }
+
+    #[test]
+    fn an_openmetadata_entrys_two_required_fields_and_two_optional_bounds_round_trip() {
+        let base = settings("metrics");
+        assert_eq!(base.endpoint(), None);
+        assert_eq!(base.token_file(), None);
+        assert_eq!(base.deadline_seconds(), None);
+        assert_eq!(base.max_response_bytes(), None);
+
+        let complete = base
+            .clone()
+            .with_openmetadata_reader(String::from("https://openmetadata.example"), PathBuf::from("/nowhere/token"))
+            .expect("all required fields are non-empty")
+            .with_openmetadata_bounds(Some(45), Some(1 << 20));
+        assert_eq!(complete.endpoint(), Some("https://openmetadata.example"));
+        assert_eq!(complete.token_file(), Some(Path::new("/nowhere/token")));
+        assert_eq!(complete.deadline_seconds(), Some(45));
+        assert_eq!(complete.max_response_bytes(), Some(1 << 20));
+
+        // Declaring neither bound is not a refusal - `None` is what selects the reader's own
+        // recommended default, resolved by the composition root rather than by this type.
+        let defaulted = base
+            .with_openmetadata_reader(String::from("https://openmetadata.example"), PathBuf::from("/nowhere/token"))
+            .expect("all required fields are non-empty");
+        assert_eq!(defaulted.deadline_seconds(), None);
+        assert_eq!(defaulted.max_response_bytes(), None);
+    }
+
+    #[test]
+    fn an_openmetadata_entry_missing_either_required_field_is_refused_naming_it() {
+        let base = settings("metrics");
+        let missing_endpoint = base
+            .clone()
+            .with_openmetadata_reader(String::new(), PathBuf::from("/nowhere/token"))
+            .expect_err("an empty endpoint is refused");
+        assert_eq!(
+            missing_endpoint,
+            InvalidCatalogSettings::MissingForOpenmetadata { field: "endpoint" }
+        );
+
+        let missing_token_file = base
+            .with_openmetadata_reader(String::from("https://openmetadata.example"), PathBuf::new())
+            .expect_err("an empty token_file is refused");
+        assert_eq!(
+            missing_token_file,
+            InvalidCatalogSettings::MissingForOpenmetadata { field: "token_file" }
         );
     }
 

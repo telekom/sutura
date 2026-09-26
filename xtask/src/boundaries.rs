@@ -1,6 +1,7 @@
-//! The architecture-boundary gate. TEN halves - four about which way dependencies point, one
-//! about the application specifically, two about the driving port, two about what the crossing
-//! looks like, and one about a SECOND graph the other nine never resolve:
+//! The architecture-boundary gate. ELEVEN halves - four about which way dependencies point, two
+//! about one named crate against a class (the application, and the shared HTTP client), two about
+//! the driving port, two about what the crossing looks like, and one about a SECOND graph the
+//! other ten never resolve:
 //!
 //! * the domain crate acquires no framework dependency ([`dependency_direction`])
 //! * a named crate cannot reach a named crate ([`forbidden_edges`])
@@ -15,6 +16,10 @@
 //!   entry or an intra-class comparison, added at `telekom/sutura#112` because neither sibling
 //!   rule above could see this edge at all: `FORBIDDEN_EDGES` has no row naming `sutura-app`, and
 //!   `sutura-app` joins none of `adapters`'s classes
+//! * `sutura-http-client` reaches no adapter, composition root, settings crate or transport over a normal
+//!   edge ([`no_adapter_in_shared_client`], and `shared_client`) - the identical third shape, for
+//!   the identical reason: it joins none of `adapters`'s classes either, and #970's review found
+//!   the gap the same way #112 found the one above
 //! * a driving port is not declared by one of its callers ([`declared_ports`], and `ports`) - the
 //!   one half that reads which crate declares a TRAIT rather than which crate depends on which
 //! * a caller of that port reaches the answer path THROUGH it ([`answer_through_the_port`], and
@@ -64,6 +69,7 @@ mod edges;
 mod harness;
 mod ports;
 mod second_workspace;
+mod shared_client;
 mod ungoverned;
 
 use crate::Verdict;
@@ -78,6 +84,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let packs = harness_reaches_no_adapter();
     let classes = adapter_classes();
     let application = no_adapter_in_application();
+    let shared_client = no_adapter_in_shared_client();
     let declared = declared_ports();
     let through = answer_through_the_port();
     let surface = typed_surface();
@@ -89,6 +96,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         packs,
         classes,
         application,
+        shared_client,
         declared,
         through,
         surface,
@@ -136,6 +144,43 @@ fn no_adapter_in_application() -> Verdict {
             }
             eprintln!();
             application::explain();
+            Verdict::Fail
+        }
+    }
+}
+
+/// The same third shape as [`no_adapter_in_application`], for `sutura-http-client` -
+/// `shared_client`'s own header is the argument for why the crate needed its own row rather than
+/// inheriting `sutura-tls`'s.
+fn no_adapter_in_shared_client() -> Verdict {
+    let meta = match crate::cargo_metadata(&["--all-features"]) {
+        Ok(value) => value,
+        Err(message) => {
+            eprintln!("xtask check-boundaries: {message}");
+            return Verdict::Fail;
+        }
+    };
+    match shared_client::check(&meta) {
+        Err(message) => {
+            eprintln!("xtask check-boundaries: {message}");
+            Verdict::Fail
+        }
+        Ok(report) if report.problems.is_empty() => {
+            println!(
+                "xtask check-boundaries: ok - {} reaches no adapter, composition root, settings crate or transport over a \
+                 normal edge ({} crate(s) in its normal tree)",
+                shared_client::SHARED_CLIENT,
+                report.tree_size
+            );
+            Verdict::Pass
+        }
+        Ok(report) => {
+            eprintln!("xtask check-boundaries: FAILED - the shared HTTP client reaches a forbidden crate:");
+            for problem in &report.problems {
+                eprintln!("  {problem}");
+            }
+            eprintln!();
+            shared_client::explain();
             Verdict::Fail
         }
     }

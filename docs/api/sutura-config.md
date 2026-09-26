@@ -1452,12 +1452,18 @@ that exists in a record rather than in a linked crate is still a word an operato
   needs no service: one YAML document per table, on disk, like `Self::Markdown`.
   `sutura-catalog-okf` is an unconditional dependency of `sutura serve`, so this kind is
   openable by every build of this binary.
+- `DataContract` - A directory of Open Data Contract Standard v3 contract documents, read by `sutura-catalog-datacontract`.
+
+  The on-disk vocabulary used when interface catalogues are exported as data-contract YAML.
+  `sutura-catalog-datacontract` is an unconditional dependency of `sutura serve`, so this kind
+  is openable by every build of this binary.
 - `Openmetadata` - An `OpenMetadata` deployment, decided by `sutura-catalog-openmetadata` over its own `SnapshotReader` port.
 
-  **A declarable kind no binary this repository ships can open yet, and that is deliberate.**
-  The crate decides a whole metric against a fake reader; a reader over a real deployment is
-  the follow-up `#152` names, so the composition root refuses this kind by name until one
-  exists rather than opening the recorded fixture against a real deployment's name.
+  **Openable behind `sutura-cli`'s default-off `openmetadata` feature; a build without it
+  refuses this kind by name**, for exactly the reason `SourceKind::BigQuery` is refused: an
+  operator who writes the word must be told the truth (the adapter is not linked) rather than
+  sent looking for a typo. The HTTP reader (`#152`'s follow-up this arm wires) reads the
+  deployment's `REST` API and maps it into the crate's recorded `Snapshot` shape.
 - `Rdbms` - An RDBMS dictionary, decided by `sutura-catalog-rdbms` over a `DictionaryReader` port.
 
   **A declarable kind no binary this repository ships can open yet, for the identical reason
@@ -1615,6 +1621,27 @@ binary in this repository could open until issue #202's reader arrived. `parse_c
 calls this only when `kind` parsed as `CatalogKind::Datahub`.
 
 ```rust
+pub const fn with_openmetadata_bounds(self, deadline_seconds: Option<u64>, max_response_bytes: Option<u64>) -> Self
+```
+
+Adds the two `catalog.kind: openmetadata`-only bounds, when the deployment declared either.
+
+**Infallible, unlike `Self::with_openmetadata_reader`, because `None` is a valid value
+here rather than a missing required one** - it selects the reader's own recommended default
+(`sutura_catalog_openmetadata::http::{DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES}`).
+
+```rust
+pub fn with_openmetadata_reader(self, endpoint: String, token_file: PathBuf) -> Result<Self, InvalidCatalogSettings>
+```
+
+Adds the two `catalog.kind: openmetadata`-only fields to an already-parsed entry.
+
+A separate step rather than two more parameters on `Self::parse`, for the same reason
+`Self::with_datahub_reader` is one: `parse_catalogs` calls it only when `kind` parsed as
+`CatalogKind::Openmetadata`, so every other kind is unaffected by fields only a reader over
+a real deployment needs.
+
+```rust
 pub fn with_rdbms(self, rdbms: RdbmsSettings) -> Self
 ```
 
@@ -1648,6 +1675,7 @@ Why a catalog configuration is not usable.
 - `EmptyCatalog` - No catalog was declared, so there is nothing to serve.
 - `DuplicateName` - Two catalogs share one declared name, so the contribution manifest could not tell them apart.
 - `MissingForDatahub` - A `catalog.kind: datahub` entry did not declare a field only that kind needs.
+- `MissingForOpenmetadata` - A `catalog.kind: openmetadata` entry did not declare a field only that kind needs.
 - `ZeroRefresh` - `catalogs[].refresh_seconds: 0` - `github.com/telekom/sutura#975`. Zero re-reads on every tick of whatever drives it, which is not a refresh interval; absent is how "never refresh" is written.
 - `Rdbms` - A `catalog.kind: rdbms` entry's own keys are not usable.
 - `RdbmsKeyOnOtherKind` - A catalog of another kind wrote an rdbms-only key - a key nothing would read, which is a configuration nobody can see, so it is refused the way `deny_unknown_fields` refuses one.

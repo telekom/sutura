@@ -10,11 +10,13 @@
 //! only a test one. What stays HERE is this crate's own test-local scaffolding (a token, a source
 //! name, the reader constructor, the cause-downcast helper) and every `#[test]`.
 //!
-//! `#[cfg(all(test, feature = "http"))]` on the whole file for two reasons: the `http` feature gates
-//! the reader itself, and wrapping the body in `#[cfg(test)] mod tests` is what lets
+//! `#[cfg(all(test, feature = "http", feature = "fake"))]` on the whole file for three
+//! reasons: the `http` feature gates the reader itself, `fake` gates the loopback fake
+//! this suite builds against (issue #970's review moved it out of `http` so a shipped binary
+//! never carries it), and wrapping the body in `#[cfg(test)] mod tests` is what lets
 //! `allow-expect-in-tests`/`allow-panic-in-tests` apply here - the same shape
 //! `tests/provisioned.rs`'s own header explains.
-#![cfg(all(test, feature = "http"))]
+#![cfg(all(test, feature = "http", feature = "fake"))]
 
 #[cfg(test)]
 mod tests {
@@ -82,9 +84,9 @@ mod tests {
         let seen = server.finish();
         drop(read.expect("three well-formed pages read"));
         assert_eq!(seen.len(), 3, "one request per entity type");
-        for authorization in seen {
+        for request in seen {
             assert_eq!(
-                authorization.as_deref(),
+                request.authorization(),
                 Some("Bearer pat-under-test"),
                 "every request carries the same bearer"
             );
@@ -517,166 +519,21 @@ mod tests {
     /// `a_declared_bundle_still_refuses_an_issuer_it_does_not_name` goes red if the fold trusts a
     /// foreign CA instead of the declared one; `absent_anchors_are_the_compiled_in_default_and_refuse_a_self_signed_peer`
     /// goes red if an absent declaration is treated as "trust the leaf".
+    /// The TLS loopback harness itself (`Issued`, `server_config`, `Scratch`, `TlsFakeServer`) now
+    /// lives in `sutura_http_client::tls_test_support`, shared with
+    /// `sutura-catalog-openmetadata`'s identical `tls_anchors` module since issue #970's review
+    /// found the two byte-for-byte the same (`cargo xtask check-jscpd`). What stays here is this
+    /// crate's own reader constructor and every `#[test]`.
     mod tls_anchors {
-        use std::io::{Read as _, Write as _};
-        use std::net::{SocketAddr, TcpListener, TcpStream};
-        use std::path::PathBuf;
-        use std::sync::Arc;
-        use std::thread;
-        use std::time::{Duration, Instant};
-
-        use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-        use sutura_tls::Anchors;
+        use sutura_http_client::tls_test_support::{Issued, Scratch, TlsFakeServer, declared_anchors, issue};
 
         use super::{DEPLOYMENT_PROPERTY, GENEROUS_CAP, bounds, http_cause, token};
         use sutura_catalog_datahub::AspectReader as _;
         use sutura_catalog_datahub::http::{Endpoint, HttpAspectReader, HttpReaderError};
-        use sutura_catalog_datahub::test_support::{Scripted, happy_path_answers};
-
-        /// A self-signed leaf whose SAN names the IP literal the reader dials (`127.0.0.1`),
-        /// freshly generated per call. `security.outbound` verification is by dial, so the SAN
-        /// must match the dialed address - a DNS-name-only cert would not verify against
-        /// `https://127.0.0.1:<port>`.
-        struct Issued {
-            certificate: rcgen::Certificate,
-            key: rcgen::KeyPair,
-        }
-
-        fn issue() -> Issued {
-            // `CertificateParams::new` reads a string SAN as an IP when it parses as one, so
-            // "127.0.0.1" becomes `SanType::IpAddress` - the SAN rustls checks an IP dial against.
-            let params =
-                rcgen::CertificateParams::new([String::from("127.0.0.1")]).expect("an IP subject alternative name parameterizes");
-            let key = rcgen::KeyPair::generate().expect("a key pair generates");
-            let certificate = params.self_signed(&key).expect("a self-signed leaf signs");
-            Issued { certificate, key }
-        }
-
-        fn server_config(issued: &Issued) -> Arc<rustls::ServerConfig> {
-            let chain: Vec<CertificateDer<'static>> = vec![issued.certificate.der().clone()];
-            let key = PrivateKeyDer::try_from(issued.key.serialize_der()).expect("a generated key is a usable private key");
-            let provider = Arc::new(rustls::crypto::ring::default_provider());
-            Arc::new(
-                rustls::ServerConfig::builder_with_provider(provider)
-                    .with_safe_default_protocol_versions()
-                    .expect("the default protocol versions are safe")
-                    .with_no_client_auth()
-                    .with_single_cert(chain, key)
-                    .expect("a freshly generated chain and its own key are a usable pair"),
-            )
-        }
-
-        /// A scratch directory this test owns, removed when it ends - the same fixture shape the
-        /// workspace's other outbound-TLS suites use.
-        struct Scratch(PathBuf);
-
-        impl Scratch {
-            fn new(name: &str) -> Self {
-                let path = std::env::temp_dir().join(format!("sutura-datahub-tls-{name}-{}", std::process::id()));
-                std::fs::create_dir_all(&path).expect("a scratch directory is creatable");
-                Self(path)
-            }
-
-            /// Writes a declared PEM bundle of exactly one certificate and returns its path - what
-            /// a composition root would read via `sutura_tls::load_anchors(&Anchors::Bundle(path))`.
-            fn bundle(&self, name: &str, certificate: &rcgen::Certificate) -> PathBuf {
-                let path = self.0.join(format!("{name}.pem"));
-                std::fs::write(&path, certificate.pem()).expect("a bundle writes");
-                path
-            }
-        }
-
-        impl Drop for Scratch {
-            fn drop(&mut self) {
-                let _ignored = std::fs::remove_dir_all(&self.0);
-            }
-        }
-
-        /// A loopback TLS server presenting one leaf and answering the scripted pages `read()`
-        /// makes - the SAME happy-path corpus [`super::super::test_support::FakeServer`] serves,
-        /// over TLS, so these cells prove the same read every other test certifies completes under
-        /// a declared bundle.
-        ///
-        /// Bounded by the answer count AND a deadline: a refused-handshake cell (the client never
-        /// sends a request and never reconnects after the refusal) must not hang the serve thread.
-        struct TlsFakeServer {
-            addr: SocketAddr,
-            handle: Option<thread::JoinHandle<()>>,
-        }
-
-        impl TlsFakeServer {
-            fn start(issued: &Issued, answers: Vec<Scripted>) -> Self {
-                let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port is free");
-                let addr = listener.local_addr().expect("a bound listener has a local address");
-                let config = server_config(issued);
-                let handle = thread::spawn(move || serve_until(&listener, &config, &answers));
-                Self {
-                    addr,
-                    handle: Some(handle),
-                }
-            }
-
-            fn endpoint(&self) -> String {
-                format!("https://{}", self.addr)
-            }
-        }
-
-        impl Drop for TlsFakeServer {
-            fn drop(&mut self) {
-                let _ignored = self.handle.take();
-            }
-        }
-
-        fn serve_until(listener: &TcpListener, config: &Arc<rustls::ServerConfig>, answers: &[Scripted]) {
-            let _ignored = listener.set_nonblocking(true);
-            let deadline = Instant::now() + Duration::from_secs(15);
-            let mut next = 0;
-            while next < answers.len() && Instant::now() < deadline {
-                match listener.accept() {
-                    Ok((stream, _)) => {
-                        // On Darwin, an accepted socket inherits the LISTENER's non-blocking flag -
-                        // undone here so the read/write calls below block normally rather than
-                        // racing a `WouldBlock` mid-handshake or mid-response.
-                        let _ignored = stream.set_nonblocking(false);
-                        serve_connection(stream, config, &answers[next]);
-                        next += 1;
-                    }
-                    Err(cause) if cause.kind() == std::io::ErrorKind::WouldBlock => {
-                        thread::sleep(Duration::from_millis(20));
-                    }
-                    Err(_) => break,
-                }
-            }
-        }
-
-        fn serve_connection(stream: TcpStream, config: &Arc<rustls::ServerConfig>, answer: &Scripted) {
-            let mut tcp: TcpStream = stream;
-            let mut connection = rustls::ServerConnection::new(Arc::clone(config)).expect("a server connection builds");
-            {
-                let mut tls = rustls::Stream::new(&mut connection, &mut tcp);
-                let mut request = [0_u8; 2048];
-                // Reading first drives the handshake to completion and consumes the client's request; a
-                // client that refused the handshake (an untrusted issuer) errors here, which is exactly
-                // what the negative cells below provoke - discarded rather than panicked on.
-                let _ignored = tls.read(&mut request);
-                let head = format!(
-                    "HTTP/1.1 {} OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
-                    answer.status_code(),
-                    answer.body().len()
-                );
-                let _ignored = tls.write_all(head.as_bytes());
-                let _ignored = tls.write_all(answer.body());
-            }
-            // A graceful `close_notify` before the socket drops - without it, a client whose read
-            // completes the whole body still sees an `UnexpectedEof` from rustls's own truncation
-            // guard (RFC 8446 6.1) rather than a clean end of stream.
-            connection.send_close_notify();
-            let _ignored = connection.complete_io(&mut tcp);
-        }
+        use sutura_catalog_datahub::test_support::happy_path_answers;
 
         fn declared(scratch: &Scratch, name: &str, issued: &Issued) -> sutura_tls::LoadedAnchors {
-            let bundle = scratch.bundle(name, &issued.certificate);
-            sutura_tls::load_anchors(&Anchors::Bundle(bundle)).expect("the freshly written bundle loads")
+            declared_anchors(scratch, name, issued)
         }
 
         fn reader(endpoint: &str, anchors: Option<sutura_tls::LoadedAnchors>) -> HttpAspectReader {

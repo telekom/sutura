@@ -55,6 +55,15 @@ pub(crate) enum OpenedCatalogs {
     /// `sutura-catalog-local` holds), so `catalog.kind: okf` is openable by every build of this
     /// binary.
     Okf(Vec<sutura_catalog_okf::OkfCatalog>),
+    /// An `OpenMetadata` deployment, behind this crate's default-off `openmetadata` feature - see
+    /// `Cargo.toml` for why it is default-off (artefact: it links an outbound TLS stack).
+    #[cfg(feature = "openmetadata")]
+    Openmetadata(Vec<sutura_catalog_openmetadata::OpenMetadataCatalog<sutura_catalog_openmetadata::http::HttpSnapshotReader>>),
+    /// A directory of ODCS v3 data-contract documents - `#973`. `sutura-catalog-datacontract` is an
+    /// unconditional dependency of this build (pure directory read, no TLS - the same shape
+    /// `sutura-catalog-okf` holds), so `catalog.kind: datacontract` is openable by every build of
+    /// this binary.
+    DataContract(Vec<sutura_catalog_datacontract::DataContractCatalog>),
 }
 
 /// Opens every catalog the settings declare.
@@ -90,16 +99,18 @@ pub(crate) fn open_catalog(
         sutura_config::CatalogKind::Markdown => Ok(OpenedCatalogs::Markdown(
             catalogs.each().map(open_one_markdown_catalog).collect(),
         )),
-        sutura_config::CatalogKind::Datahub => open_datahub_catalogs(catalogs, outbound),
-        // `Okf` is an unconditional dependency of this build, so its arm is always linked.
+        // `Okf` and `DataContract` are unconditional dependencies of this build, so their arms are
+        // always linked.
         sutura_config::CatalogKind::Okf => Ok(OpenedCatalogs::Okf(catalogs.each().map(open_one_okf_catalog).collect())),
-        // Declarable, and refused by name unconditionally: neither crate has a reader over
-        // anything but a recorded fixture, so no feature could make either kind honestly openable
-        // yet - `sutura_config::CatalogKind`'s own doc comment names each follow-up.
-        sutura_config::CatalogKind::Openmetadata => Err(String::from(
-            "catalog.kind: openmetadata names a metadata adapter with no reader over a real \
-             deployment yet - see the follow-up to github.com/telekom/sutura#152",
+        sutura_config::CatalogKind::DataContract => Ok(OpenedCatalogs::DataContract(
+            catalogs.each().map(open_one_data_contract_catalog).collect(),
         )),
+        sutura_config::CatalogKind::Datahub => open_datahub_catalogs(catalogs, outbound),
+        // `Openmetadata` is openable behind the `openmetadata` feature; a build without it gets
+        // the not-linked refusal `open_openmetadata_catalogs` returns.
+        sutura_config::CatalogKind::Openmetadata => open_openmetadata_catalogs(catalogs, outbound),
+        // Declarable, and refused by name unconditionally: the crate has no reader over anything
+        // but a recorded dictionary, so no feature could make it honestly openable yet.
         sutura_config::CatalogKind::Rdbms => Err(String::from(
             "catalog.kind: rdbms names a metadata adapter with no reader over a real dictionary \
              yet - see github.com/telekom/sutura#972",
@@ -118,6 +129,9 @@ pub(crate) fn load(catalogs: &OpenedCatalogs) -> Result<PinnedDefinitions, Strin
         #[cfg(feature = "datahub")]
         OpenedCatalogs::Datahub(catalogs) => load_each(catalogs),
         OpenedCatalogs::Okf(catalogs) => load_each(catalogs),
+        #[cfg(feature = "openmetadata")]
+        OpenedCatalogs::Openmetadata(catalogs) => load_each(catalogs),
+        OpenedCatalogs::DataContract(catalogs) => load_each(catalogs),
     }
 }
 
@@ -200,6 +214,23 @@ where
             combiner,
             working_set_bytes,
         ),
+        #[cfg(feature = "openmetadata")]
+        OpenedCatalogs::Openmetadata(catalogs) => LocalService::start_composed(
+            catalogs,
+            engines,
+            sutura_runtime::TracingAuditSink::new(),
+            broker,
+            combiner,
+            working_set_bytes,
+        ),
+        OpenedCatalogs::DataContract(catalogs) => LocalService::start_composed(
+            catalogs,
+            engines,
+            sutura_runtime::TracingAuditSink::new(),
+            broker,
+            combiner,
+            working_set_bytes,
+        ),
     }
     .map(|service| {
         service
@@ -248,6 +279,105 @@ fn open_one_okf_catalog(settings: &sutura_config::CatalogSettings) -> sutura_cat
     )
 }
 
+/// Opens every declared `openmetadata` catalog, behind this crate's `openmetadata` feature.
+#[cfg(feature = "openmetadata")]
+fn open_openmetadata_catalogs(
+    catalogs: &sutura_config::Catalogs,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<OpenedCatalogs, String> {
+    catalogs
+        .each()
+        .map(|settings| open_one_openmetadata_catalog(settings, outbound))
+        .collect::<Result<Vec<_>, String>>()
+        .map(OpenedCatalogs::Openmetadata)
+}
+
+/// The refusal for a build that did not link the `OpenMetadata` adapter.
+///
+/// **Two definitions of one signature rather than a `cfg` inside one body** - `crate::bigquery`'s
+/// `open_bigquery` precedent, the same shape `open_datahub_catalogs` holds. The message names the
+/// FEATURE, for the same reason: an operator can act on "build with `--features openmetadata`", and
+/// `cargo xtask check-feature-remedies` is what keeps that instruction honest.
+#[cfg(not(feature = "openmetadata"))]
+fn open_openmetadata_catalogs(
+    _catalogs: &sutura_config::Catalogs,
+    _outbound: Option<&sutura_tls::Declared>,
+) -> Result<OpenedCatalogs, String> {
+    Err(String::from(
+        "catalog.kind: openmetadata names a metadata adapter this binary was not built to link - \
+         build sutura-cli with --features openmetadata, or declare markdown catalogs",
+    ))
+}
+
+/// Opens one declared `openmetadata` catalog: the reader, bounded and authenticated, wrapped in
+/// `sutura_catalog_openmetadata::OpenMetadataCatalog`.
+///
+/// **The source mapping is a single fixed alias, the service the recorded corpus and this build's
+/// fake serve - `warehouse` - a real limit, not a placeholder**, for the same reason
+/// `open_one_datahub_catalog` fixes `bigquery`: `CatalogSettings` carries no platform-to-source
+/// mapping for an `openmetadata` entry. A deployment whose models live on a different service is
+/// not representable by this build's `openmetadata` composition yet - a real gap, named here rather
+/// than left for a reader to discover from a refusal at load time.
+///
+/// The read bounds and endpoint are resolved here, the same single-owner split the `datahub` arm
+/// holds: an absent `deadline_seconds`/`max_response_bytes` resolves to the reader's own constants,
+/// and the endpoint is parsed through `sutura_catalog_openmetadata::http::Endpoint::parse` because
+/// the reader REQUIRES one - this composition step cannot skip the parse even by accident. `outbound`
+/// closes the loop from `main`'s ONE boot-time resolution to the reader's own `ureq` agent.
+#[cfg(feature = "openmetadata")]
+fn open_one_openmetadata_catalog(
+    settings: &sutura_config::CatalogSettings,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<sutura_catalog_openmetadata::OpenMetadataCatalog<sutura_catalog_openmetadata::http::HttpSnapshotReader>, String> {
+    use sutura_catalog_openmetadata::http::{
+        DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, HttpSnapshotReader, ReadBounds,
+    };
+
+    let endpoint_raw = settings.endpoint().ok_or_else(|| {
+        format!(
+            "`catalogs.{}.endpoint` is required for catalog.kind: openmetadata",
+            settings.name()
+        )
+    })?;
+    let endpoint = Endpoint::parse(endpoint_raw)
+        .map_err(|cause| format!("`catalogs.{}.endpoint` is not a usable endpoint: {cause}", settings.name()))?;
+    let token = read_token(settings, "openmetadata")?;
+    let deadline_seconds = settings.deadline_seconds().unwrap_or(DEFAULT_TIMEOUT_SECONDS);
+    let max_response_bytes = settings.max_response_bytes().unwrap_or(DEFAULT_MAX_RESPONSE_BYTES);
+    let bounds = ReadBounds::parse(deadline_seconds, max_response_bytes).map_err(|cause| {
+        format!(
+            "`catalogs.{}.deadline_seconds`/`max_response_bytes` are not usable read bounds: {cause}",
+            settings.name()
+        )
+    })?;
+    let (reader, rotator) = HttpSnapshotReader::rotating_agent(bounds, outbound.cloned())
+        .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
+    crate::rotation::drive_rotation("security.outbound.transport_anchors (openmetadata reader)", rotator);
+    let reader = HttpSnapshotReader::rotating(endpoint, token, bounds, reader);
+    let mut sources = std::collections::BTreeMap::new();
+    drop(sources.insert(String::from("warehouse"), settings.name().clone()));
+    Ok(sutura_catalog_openmetadata::OpenMetadataCatalog::new(
+        settings.name().clone(),
+        settings.version().clone(),
+        sources,
+        reader,
+    ))
+}
+
+/// Opens one declared `datacontract` catalog: a directory of ODCS v3 contract documents, wrapped in
+/// `sutura_catalog_datacontract::DataContractCatalog`.
+///
+/// **Infallible - `DataContractCatalog::new` cannot fail** (the name and folder reads that can fail
+/// happen at `load`, not at open), so unlike its `datahub` sibling this takes no `Result`: the
+/// `DataContract` arm of `open_catalog` never refuses.
+fn open_one_data_contract_catalog(settings: &sutura_config::CatalogSettings) -> sutura_catalog_datacontract::DataContractCatalog {
+    sutura_catalog_datacontract::DataContractCatalog::new(
+        settings.name().clone(),
+        PathBuf::from(settings.dir()),
+        settings.version().clone(),
+    )
+}
+
 /// Opens every declared `datahub` catalog, behind this crate's `datahub` feature.
 #[cfg(feature = "datahub")]
 fn open_datahub_catalogs(
@@ -279,14 +409,15 @@ fn open_datahub_catalogs(
     ))
 }
 
-/// Reads a `catalog.kind: datahub` entry's declared token file into a `Secret`, at boot rather than
-/// on the first question - the same argument `BigQuery`'s `credential_file` is read for. Trimmed, so a
-/// file ending in the newline a text editor or `echo` ordinarily writes still reads as one token.
-#[cfg(feature = "datahub")]
-fn read_token(settings: &sutura_config::CatalogSettings) -> Result<sutura_domain::identity::Secret, String> {
+/// Reads a `catalog.kind: datahub`/`openmetadata` entry's declared token file into a `Secret`, at
+/// boot rather than on the first question - the same argument `BigQuery`'s `credential_file` is
+/// read for. Trimmed, so a file ending in the newline a text editor or `echo` ordinarily writes
+/// still reads as one token.
+#[cfg(any(feature = "datahub", feature = "openmetadata"))]
+fn read_token(settings: &sutura_config::CatalogSettings, kind: &'static str) -> Result<sutura_domain::identity::Secret, String> {
     let path = settings.token_file().ok_or_else(|| {
         format!(
-            "`catalogs.{}.token_file` is required for catalog.kind: datahub",
+            "`catalogs.{}.token_file` is required for catalog.kind: {kind}",
             settings.name()
         )
     })?;
@@ -355,7 +486,7 @@ fn open_one_datahub_catalog(
             )
         })?
         .to_owned();
-    let token = read_token(settings)?;
+    let token = read_token(settings, "datahub")?;
     let deadline_seconds = settings.deadline_seconds().unwrap_or(DEFAULT_TIMEOUT_SECONDS);
     let max_response_bytes = settings.max_response_bytes().unwrap_or(DEFAULT_MAX_RESPONSE_BYTES);
     let bounds = ReadBounds::parse(deadline_seconds, max_response_bytes).map_err(|cause| {

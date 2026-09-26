@@ -234,6 +234,7 @@ fn federated_plan_inner_join() -> sutura_domain::plan::FederatedPlan {
         ResultLabel::measure(&metric()),
         bucket("month"),
         fact,
+        None,
         lookup,
         false,
         federation,

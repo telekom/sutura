@@ -101,6 +101,16 @@ const FACT_TABLE: &str = "fact";
 /// The name the lookup leg is registered under. See [`FACT_TABLE`].
 const LOOKUP_TABLE: &str = "lookup";
 
+/// The second fact leg's side word, for the refusals it carries.
+///
+/// A third leg arrives only for a cross-model ratio (`telekom/sutura#780`): a second fact over a
+/// different model, joined above on the link and the time bucket. Its leaves are the ones whose
+/// `Carried::model` is `Some`; the first fact leg carries the rest.
+const SECOND_FACT: &str = "second_fact";
+
+/// The name the second fact leg is registered under. See [`FACT_TABLE`].
+const SECOND_FACT_TABLE: &str = "second_fact";
+
 /// The label the ambiguity probe counts under.
 ///
 /// In the reserved namespace, taken from the type rather than spelled, so it cannot collide with a
@@ -201,10 +211,11 @@ pub enum CombineError {
     /// The two legs' link columns carry kinds that can never match.
     #[error("the fact leg's link column is {fact} and the lookup leg's is {lookup}, so no row can match")]
     LinkTypeMismatch { fact: &'static str, lookup: &'static str },
-    /// A link value maps to more than one lookup row, which would double every measure under it.
+    /// A link value maps to more than one lookup row, or to more than one second-fact row in one
+    /// bucket, which would double every measure under it.
     ///
     /// Carries no key: a join key is exactly the caller data this workspace keeps out of a message.
-    #[error("a link value maps to more than one lookup row")]
+    #[error("a link value maps to more than one row of a leg joined on it")]
     AmbiguousLink,
     /// A carried leaf's column is not a type an exact total or comparison can be taken over.
     #[error("the carried leaf `{label}` came back as {arrow_type}, which no exact re-aggregation reads")]
@@ -333,8 +344,26 @@ impl DataFusionCombiner {
         let lookup = LegSchema::of(LOOKUP, legs.lookup().schema())?;
         let link = InternalLabel::Link.label();
         agreeing_link(fact.link_kind(&link)?, lookup.link_kind(&link)?)?;
-        let leaves = leaf_labels(plan, &fact)?;
+        // A cross-model ratio (`telekom/sutura#780`) carries a second fact leg; the two facts are
+        // joined above on the link and the bucket, so its link kind must agree with the first.
+        let second_fact = match (plan.second_fact(), legs.second_fact()) {
+            (Some(_), Some(batches)) => Some(LegSchema::of(SECOND_FACT, batches.schema())?),
+            (Some(_), None) => {
+                return Err(CombineError::MissingColumn {
+                    side: SECOND_FACT,
+                    label: link.clone(),
+                });
+            }
+            (None, _) => None,
+        };
+        if let Some(second) = &second_fact {
+            agreeing_link(fact.link_kind(&link)?, second.link_kind(&link)?)?;
+        }
+        let leaves = leaf_labels(plan, &fact, second_fact.as_ref())?;
         fact.projects(plan.bucket_label())?;
+        if let Some(second) = &second_fact {
+            second.projects(plan.bucket_label())?;
+        }
         for key in plan.keys() {
             match key.side() {
                 LegSide::Fact => fact.projects(key.label())?,
@@ -346,10 +375,20 @@ impl DataFusionCombiner {
         let context = SessionContext::new_with_config_rt(SessionConfig::new(), environment.into_runtime());
         register(&context, FACT_TABLE, FACT, legs.fact())?;
         register(&context, LOOKUP_TABLE, LOOKUP, legs.lookup())?;
+        if let (Some(_), Some(batches)) = (&second_fact, legs.second_fact()) {
+            register(&context, SECOND_FACT_TABLE, SECOND_FACT, batches)?;
+        }
 
-        refuse_ambiguous_link(&context, &link, ceiling_bytes, working_set).await?;
+        refuse_ambiguous_link(&context, LOOKUP_TABLE, &[&link], ceiling_bytes, working_set).await?;
+        // The second fact is joined on the link AND the bucket, so a second row for one pair fans
+        // every first-fact row under it out exactly as a second lookup row would.
+        if second_fact.is_some() {
+            let on = [link.as_str(), plan.bucket_label()];
+            refuse_ambiguous_link(&context, SECOND_FACT_TABLE, &on, ceiling_bytes, working_set).await?;
+        }
 
-        let logical = combine_plan(plan, &context, &link, &leaves).await?;
+        let second_table = second_fact.as_ref().map(|_| SECOND_FACT_TABLE);
+        let logical = combine_plan(plan, &context, &link, &leaves, second_table).await?;
         let frame = context
             .execute_logical_plan(logical)
             .await
@@ -452,24 +491,37 @@ fn answer_labels(plan: &FederatedPlan) -> Vec<String> {
     labels
 }
 
-/// One carried leaf: the label the splitter projected it under, and how its column re-aggregates.
+/// Every carried leaf, in `labels` order.
+type Leaves = Vec<Leaf>;
+
+/// One carried leaf: the label the splitter projected it under, how its column re-aggregates, and
+/// the registered table it is read from.
 ///
 /// A named alias because the spelled-out form is past `clippy.toml`'s type-complexity threshold,
-/// and naming it says which half of the pair is the label.
-type Leaves = Vec<(String, LeafKind)>;
+/// and naming it says which part of the triple is the label.
+type Leaf = (String, LeafKind, &'static str);
 
 /// The label of every carried leaf, in carried order, with its type judged.
 ///
 /// `labels(plan.federation())` is the SAME function the splitter names the fact leg's terms with, so
 /// the column a leaf is read from and the label it was projected under cannot disagree - there is no
-/// second copy of the naming rule.
-fn leaf_labels(plan: &FederatedPlan, fact: &LegSchema) -> Result<Leaves, CombineError> {
+/// second copy of the naming rule. A two-fact plan (`telekom/sutura#780`) reads a leaf whose
+/// `Carried::model` is `Some` off the second fact leg; every other leaf, and every leaf of a plan
+/// with no second fact, reads the first. Decided here once, with the table it names, so the
+/// expression built from a leaf cannot read a table this check did not.
+fn leaf_labels(plan: &FederatedPlan, fact: &LegSchema, second_fact: Option<&LegSchema>) -> Result<Leaves, CombineError> {
+    let carried = plan.federation().carried();
     labels(plan.federation())
         .into_iter()
-        .map(InternalLabel::label)
-        .map(|label| {
-            let kind = fact.leaf_kind(&label)?;
-            Ok((label, kind))
+        .zip(carried.iter())
+        .map(|(internal, carried)| {
+            let label = internal.label();
+            let (schema, table) = match (carried.model(), second_fact) {
+                (Some(_), Some(second)) => (second, SECOND_FACT_TABLE),
+                _ => (fact, FACT_TABLE),
+            };
+            let kind = schema.leaf_kind(&label)?;
+            Ok((label, kind, table))
         })
         .collect()
 }
@@ -497,10 +549,28 @@ async fn combine_plan(
     plan: &FederatedPlan,
     context: &SessionContext,
     link: &str,
-    leaves: &[(String, LeafKind)],
+    leaves: &[Leaf],
+    second_table: Option<&str>,
 ) -> Result<LogicalPlan, CombineError> {
     let fact = scan(context, FACT_TABLE).await?;
     let lookup = scan(context, LOOKUP_TABLE).await?;
+    // A second fact leg (`telekom/sutura#780`) is joined INNER on the link AND the bucket: both
+    // legs are grouped by both, so each first-fact row meets at most the one second-fact row of its
+    // own period. On the link alone a second fact with two periods fans every first-fact row out
+    // across both and multiplies the numerator. A row present in one fact and absent in the other is
+    // dropped rather than null-padded; the lookup join below is the splitter's decision, apart.
+    let mut builder = LogicalPlanBuilder::from(fact);
+    if let Some(table) = second_table {
+        let second = scan(context, table).await?;
+        let bucket = plan.bucket_label();
+        let on = [
+            qualified(FACT_TABLE, link).eq(qualified(table, link)),
+            qualified(FACT_TABLE, bucket).eq(qualified(table, bucket)),
+        ];
+        builder = builder
+            .join_on(second, JoinType::Inner, on)
+            .map_err(|cause| CombineError::Build { cause })?;
+    }
     // **The join kind is the splitter's decision, carried on the plan rather than guessed.** LEFT
     // keeps a fact row whose link value found no lookup row, with null remote keys; INNER drops it.
     // A NULL link value is decided identically under both, and by the join rather than by an arm of
@@ -511,7 +581,7 @@ async fn combine_plan(
         JoinType::Inner
     };
     let on = qualified(FACT_TABLE, link).eq(qualified(LOOKUP_TABLE, link));
-    let mut builder = LogicalPlanBuilder::from(fact)
+    let mut builder = builder
         .join_on(lookup, kind, [on])
         .map_err(|cause| CombineError::Build { cause })?;
 
@@ -567,15 +637,15 @@ fn schema_mismatch(cause: crate::DataFusionError) -> CombineError {
 /// **The division happens HERE and cannot happen in a leg**, which is `sutura_domain::federation`'s
 /// own shape: a `Carried` has no quotient variant, so a per-leg guard is unrepresentable and the
 /// [`ZeroDenominator`] the definition asked for is applied once, above every leg's rows.
-fn above_expression(above: &Above, leaves: &[(String, LeafKind)], cursor: &mut usize) -> Result<Expr, CombineError> {
+fn above_expression(above: &Above, leaves: &[Leaf], cursor: &mut usize) -> Result<Expr, CombineError> {
     match *above {
         Above::Total(ref carried) => {
-            let (label, kind) = leaves.get(*cursor).ok_or_else(|| CombineError::MissingColumn {
+            let &(ref label, kind, table) = leaves.get(*cursor).ok_or_else(|| CombineError::MissingColumn {
                 side: FACT,
                 label: InternalLabel::Leaf(*cursor).label(),
             })?;
             *cursor = cursor.saturating_add(1);
-            leaf_expression(carried, label, *kind)
+            leaf_expression(carried, qualified(table, label), kind)
         }
         Above::Quotient {
             ref numerator,
@@ -606,8 +676,7 @@ fn above_expression(above: &Above, leaves: &[(String, LeafKind)], cursor: &mut u
 /// Only three aggregates can arrive: `FederatedPlan::new` refuses a leaf whose `combine` has no
 /// re-aggregating function, so the fourth arm is a refusal for a plan this workspace's own
 /// constructor could not have built.
-fn leaf_expression(carried: &Carried, label: &str, kind: LeafKind) -> Result<Expr, CombineError> {
-    let column = qualified(FACT_TABLE, label);
+fn leaf_expression(carried: &Carried, column: Expr, kind: LeafKind) -> Result<Expr, CombineError> {
     let aggregate = carried.combine();
     match aggregate {
         Aggregate::Sum => Ok(leaf_sum(column, kind)),
@@ -645,32 +714,36 @@ fn leaf_sum(column: Expr, kind: LeafKind) -> Expr {
     }
 }
 
-/// Refuses a lookup leg whose link column maps a value to more than one row.
+/// Refuses a joined leg (`table`) that maps one value of its join columns (`on`) to more than one row.
 ///
-/// **A `DataFusion` plan rather than a walk**, and it reads no cell: group the lookup leg by its
-/// link column, count each group, keep the groups past one, and stop at the first. What the combine
+/// **A `DataFusion` plan rather than a walk**, and it reads no cell: group the leg by its join
+/// columns, count each group, keep the groups past one, and stop at the first. What the combine
 /// learns is whether that result is EMPTY.
 ///
 /// More than one lookup row for one link value doubles every measure joined to it, so it is refused
-/// rather than certified. Null links are excluded first, because a null link never joins at all -
+/// rather than certified. Null join values are excluded first, because a null never joins at all -
 /// two null-linked lookup rows duplicate nothing.
 ///
-/// **The cost, stated where it is paid:** the lookup leg is scanned twice, once here and once in the
+/// **The cost, stated where it is paid:** each checked leg is scanned twice, once here and once in the
 /// join. The alternative is a pre-aggregation joined into the same plan, which would have to read
 /// the count back out of the answer to refuse - so this is the shape that keeps the refusal
 /// separable from the number.
 async fn refuse_ambiguous_link(
     context: &SessionContext,
-    link: &str,
+    table: &str,
+    on: &[&str],
     ceiling_bytes: u64,
     working_set: WorkingSet,
 ) -> Result<(), CombineError> {
     let probe = probe_label();
-    let scanned = scan(context, LOOKUP_TABLE).await?;
-    let column = qualified(LOOKUP_TABLE, link);
+    let scanned = scan(context, table).await?;
+    let columns: Vec<Expr> = on.iter().map(|label| qualified(table, label)).collect();
+    let joinable = columns
+        .iter()
+        .fold(lit(true), |all, column| all.and(column.clone().is_not_null()));
     let logical = LogicalPlanBuilder::from(scanned)
-        .filter(column.clone().is_not_null())
-        .and_then(|filtered| filtered.aggregate(vec![column], vec![count(lit(1_i64)).alias(probe.as_str())]))
+        .filter(joinable)
+        .and_then(|filtered| filtered.aggregate(columns, vec![count(lit(1_i64)).alias(probe.as_str())]))
         .and_then(|grouped| {
             let counted = Expr::Column(Column::new_unqualified(probe.as_str()));
             grouped.filter(counted.gt(lit(1_i64)))

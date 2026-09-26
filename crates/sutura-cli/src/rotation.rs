@@ -15,7 +15,7 @@
 /// completes one answer and exits; there is no tick to keep. The handle still serves the material it
 /// was built with, which is the only material such a process ever had time to use. The boot line is
 /// still logged so a deployment can see why a one-shot did not start a poll.
-#[cfg(any(feature = "postgres", feature = "datahub"))]
+#[cfg(any(feature = "postgres", feature = "datahub", feature = "openmetadata"))]
 pub(crate) fn drive_rotation<T, E>(source: &'static str, rotator: Option<sutura_tls::Rotator<T, E>>)
 where
     T: Send + Sync + 'static,

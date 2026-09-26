@@ -144,6 +144,7 @@ pub(super) fn plan_for(measure_name: &str, measure: &Measure, include_unmatched:
         measure_label,
         bucket(),
         fact_leg(terms_for(&federation)),
+        None,
         lookup_leg(),
         include_unmatched,
         federation,

@@ -1,0 +1,30 @@
+version: 1.0.0
+kind: DataContract
+id: 33333333-cccc-4b2a-a65f-333333333333
+status: active
+name: products
+apiVersion: v3.0.2
+description:
+  usage: The products that can be ordered, one row per product.
+schema:
+  - name: products
+    physicalName: dim_product
+    description: The products that can be ordered, one row per product.
+    properties:
+      - name: id
+        physicalType: bigint
+        logicalType: integer
+        description: The product's unique identifier.
+        primaryKey: true
+        primaryKeyPosition: 1
+        required: true
+      - name: sku
+        physicalType: varchar(32)
+        logicalType: string
+        description: The product's stock-keeping unit.
+        unique: true
+        required: true
+      - name: list_price
+        physicalType: double
+        logicalType: number
+        description: The product's list price.
