@@ -10,7 +10,7 @@
 //! [`super::convert`] does with a `None` is refuse the item by name, never fall back to storing the
 //! raw text.
 //!
-//! Also why this lives beside the CLI's import command and not in `sutura_domain`: it is offline,
+//! Also why this lives in a catalog crate and not in `sutura_domain`: it is offline,
 //! authorship-time text recognition over a foreign format's strings, not a domain rule, and
 //! `AGENTS.md`'s "the boot path never parses foreign SQL" is about the boot path - nothing here
 //! runs there.

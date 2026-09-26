@@ -36,6 +36,10 @@ members = [
   # Declared, not defaulted; measured against its own declaration rather than the golden oracle -
   # `docs/what-openmetadata-can-carry.md` is the finding, `#152` the issue.
   "crates/sutura-catalog-openmetadata",
+  # The wren MDL converter: a foreign catalog project's `manifest.json` into sutura catalog
+  # documents, offline. No data system is opened and nothing is rendered (`sutura-sql`) or executed
+  # (`sutura-exec-*`), so it takes the `-catalog-` prefix. Only `sutura-cli` depends on it.
+  "crates/sutura-catalog-wren",
   "crates/sutura-semantic",
   # Rendering, and a SEPARATE crate from the compiler on purpose. `sutura-semantic` stops at a
   # plan because the `Warehouse` port carries one, so the generator is reachable from SQL adapters
@@ -124,6 +128,7 @@ sutura-catalog-datahub = { path = "crates/sutura-catalog-datahub" }
 sutura-catalog-rdbms = { path = "crates/sutura-catalog-rdbms" }
 sutura-catalog-okf = { path = "crates/sutura-catalog-okf" }
 sutura-catalog-openmetadata = { path = "crates/sutura-catalog-openmetadata" }
+sutura-catalog-wren = { path = "crates/sutura-catalog-wren" }
 sutura-semantic = { path = "crates/sutura-semantic" }
 sutura-sql = { path = "crates/sutura-sql" }
 sutura-app = { path = "crates/sutura-app" }

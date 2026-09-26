@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! `sutura import wren <dir> <out>`.
 //!
 //! `<dir>` is a `WrenAI` project directory - read as `<dir>/manifest.json`, the MDL manifest
@@ -17,16 +18,38 @@ use std::path::{Path, PathBuf};
 use std::{fs, io};
 
 /// What ran, for the two lines the command prints.
-pub(crate) struct Summary {
-    pub(crate) models: usize,
-    pub(crate) relationships: usize,
-    pub(crate) metrics: usize,
-    pub(crate) refusals: usize,
+pub struct Summary {
+    models: usize,
+    relationships: usize,
+    metrics: usize,
+    refusals: usize,
+}
+
+impl Summary {
+    #[must_use]
+    pub const fn models(&self) -> usize {
+        self.models
+    }
+
+    #[must_use]
+    pub const fn relationships(&self) -> usize {
+        self.relationships
+    }
+
+    #[must_use]
+    pub const fn metrics(&self) -> usize {
+        self.metrics
+    }
+
+    #[must_use]
+    pub const fn refusals(&self) -> usize {
+        self.refusals
+    }
 }
 
 /// Why an import wrote nothing, or stopped part-way through writing.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ImportError {
+pub enum ImportError {
     #[error("could not read {}: {source}", path.display())]
     Read { path: PathBuf, source: io::Error },
     #[error("{} is not a wren MDL manifest: {source}", path.display())]
@@ -45,9 +68,9 @@ pub(crate) enum ImportError {
 ///
 /// # Errors
 ///
-/// If `<source>/manifest.json` cannot be read or is not a wren manifest this converter's [`wire`]
+/// If `<source>/manifest.json` cannot be read or is not a wren MDL manifest this converter's [`wire`]
 /// module can parse, if `destination` already holds a file, or if it cannot be written to.
-pub(crate) fn import(source: &Path, destination: &Path) -> Result<Summary, ImportError> {
+pub fn import(source: &Path, destination: &Path) -> Result<Summary, ImportError> {
     let manifest_path = source.join("manifest.json");
     let text = fs::read_to_string(&manifest_path).map_err(|source| ImportError::Read {
         path: manifest_path.clone(),

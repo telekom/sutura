@@ -291,6 +291,7 @@ jobs:
       catalog_okf: ${{ steps.classify.outputs.catalog_okf }}
       catalog_openmetadata: ${{ steps.classify.outputs.catalog_openmetadata }}
       catalog_rdbms: ${{ steps.classify.outputs.catalog_rdbms }}
+      catalog_wren: ${{ steps.classify.outputs.catalog_wren }}
       # AREA axis, not category - published only because `pr-cache` (below) needs to know whether
       # a dependency input moved, to skip its own realise when nothing did (#980). NOT `deps` -
       # that area is the supply-chain axis (`deny.toml`, `Cargo.lock`) the `Supply chain` step
