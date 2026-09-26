@@ -23,6 +23,53 @@ use crate::Verdict;
 /// One unique temp directory per real-git test, so paths never collide under nextest.
 static SEQ: AtomicUsize = AtomicUsize::new(0);
 
+#[test]
+fn an_unbuildable_base_with_nothing_held_refuses_an_unclaimed_test() {
+    assert!(std::env::var_os("NEXTEST").is_some(), "run through `just test`");
+    let dir = std::env::temp_dir().join(format!(
+        "sutura-causality-unbuildable-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _swept = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    git(&dir, &["init", "-q", "-b", "main"]);
+    git(&dir, &["config", "user.email", "test@example.com"]);
+    git(&dir, &["config", "user.name", "test"]);
+
+    let head = "pub fn f(a: u8, b: u8) -> u8 { a + b }\n";
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[profile.ci]\ninherits = \"dev\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("src/lib.rs"), "pub fn f(a: u8) -> u8 { a }\n").unwrap();
+    std::fs::write(dir.join("flake.nix"), "{ }\n").unwrap();
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "init"]);
+    let base = String::from_utf8(git_output(&dir, &["rev-parse", "HEAD"]).stdout)
+        .expect("utf8")
+        .trim()
+        .to_owned();
+
+    std::fs::write(dir.join("src/lib.rs"), head).unwrap();
+    std::fs::create_dir_all(dir.join("tests")).unwrap();
+    std::fs::write(
+        dir.join("tests/claim.rs"),
+        "use wired::f;\n#[test]\nfn the_claim() { assert_eq!(f(1, 2), 3); }\n",
+    )
+    .unwrap();
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "feat: change f's signature"]);
+
+    let original = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&dir).unwrap();
+    let verdict = super::run(&[String::from("--since"), base]);
+    std::env::set_current_dir(original).unwrap();
+    drop(std::fs::remove_dir_all(dir));
+    assert_eq!(verdict, Verdict::Fail);
+}
+
 fn git(dir: &std::path::Path, args: &[&str]) {
     let out = git_output(dir, args);
     assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
