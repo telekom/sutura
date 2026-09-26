@@ -2634,9 +2634,6 @@ the drift is invisible until a caller trusts the schema. The derive that generat
 check-boundaries</code> against an allowlist, so putting a macro crate on a domain type is an
 architecture decision rather than a convenience. The derive goes on the wire type, which is
 where a wire format belongs anyway.</p>
-<p>A wire type is also allowed to be <em>worse</em> than a domain type, and should be. Every field of
-<code>AskArgs</code> is a plain string, because that is what arrives; each one is then parsed into the
-newtype that establishes its invariant, and a failure names the field.</p>
 <h1 id="deny_unknown_fields-and-what-it-is-for-here"><code>deny_unknown_fields</code>, and what it is for here<a class="headerlink" href="#deny_unknown_fields-and-what-it-is-for-here" title="Permanent link">&para;</a></h1>
 <p>The governance boundary, across a JSON parser. Without it an arguments object carrying <code>sql:</code> or
 <code>table:</code> deserializes cleanly with the extra key dropped on the floor, and a model that believes
@@ -2706,6 +2703,7 @@ the predicate's shape and never the source of a value.</p>
   <code>MalformedQuestion</code> has no arm for this case and does not need one. MCP's own
   <code>serde_json::from_value</code> step, in <code>crate::server</code>, is what can still fail this way here.
 - <code>Question</code> - Every other way a question can be malformed: which field, and none of the caller's own value at any link of the chain <code>crate::server</code>'s <code>invalid()</code> walks - see that type's own note. Shared with <code>sutura-http</code>, which parses the same six fields into the same domain types and would otherwise carry its own copy of this whole vocabulary.
+- <code>Refused</code>
 - <code>Range</code> - A relative <code>range</code> needs a failure mode the domain does not have and must not gain - see <code>sutura_runtime::relative_range</code>, the resolver <code>sutura-http</code> shares this variant's whole purpose with.</p>
 <h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
