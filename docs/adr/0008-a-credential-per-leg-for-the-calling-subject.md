@@ -122,7 +122,7 @@ omitted.
 | the boot path calls the port with no identity | Still true in substance, and the quoted call form is stale: `execute` no longer takes `&plan`. `verify_and_validate` still runs during composition, so the boot path is still a caller of the execution port                                                                                                                                      |
 | one process, one connection                   | Still true of the DuckDB adapter, and no longer true of the deployment: `crates/sutura-cli/src/serve.rs` opens one BigQuery adapter per declared source under a declared credential                                                                                                                                                               |
 | a data system is not even configurable        | False, and the row's own claim header is the false half. `crates/sutura-config/src/sources.rs` holds a `SourceRegistry` and a `SourceKind`, and the composition root dispatches on the configured kind. `defaults.yaml` still ships no ACTIVE `sources:` key - deliberately, and it says so - which is the narrow sense in which the cell is true |
-| the domain reads no clock                     | True of the identity path in `sutura-domain`. False of `sutura-app`, which calls `std::time::SystemTime::now()` on the record path. `sutura-domain` itself now reads `std::time::Instant` in `Deadline` (`crates/sutura-domain/src/warehouse/deadline.rs`), so the claim is about identity expiry alone, not about the crate's interior           |
+| the domain reads no clock                     | True of `sutura-domain`. False of `sutura-app`, which calls `std::time::SystemTime::now()` on the record path - so the claim is about the interior alone, not about both crates                                                                                                                                                                   |
 | the refusal enum already says so              | Stale. Identity IS a control now, not only a design target: `SourcePosture::deliverable_by` refuses at boot and `RefusalReason::CredentialUnavailable` refuses a subject with no credential at the source it reads                                                                                                                                |
 
 **And the citation this section closes on is dead.** `AGENTS.md`'s opening line still reads *e2e
@@ -754,7 +754,7 @@ the subject may not execute, or prepare a statement against tables the subject c
 has to be asked as the same principal as the question, or it answers a different question.
 
 **Which is why `dry_run`'s return type changes with its parameter, and the default body stays.**
-The default **was** `Ok(())`, and at the time that was defensible: with nothing to be wrong about, "nothing
+Today's default is `Ok(())`, and today that is defensible: with nothing to be wrong about, "nothing
 went wrong" is honest. With a subject in the signature it stops being honest, because `Ok(())` from an
 adapter that did not look is indistinguishable from `Ok(())` from an adapter that asked the data system
 and was told yes - so a defaulted pre-flight would read as "this subject may run this plan" for every
@@ -784,7 +784,7 @@ so it is worth a round trip and is not an authorization decision. Nothing in the
 it as one, and there is no mechanism that would stop it - `answer` calling `dry_run` and skipping a
 check on the strength of `Accepted` is a review question.
 
-That is the whole mechanism for "no downgrade". The signature **was** the fallback: an adapter with
+That is the whole mechanism for "no downgrade". Today's signature *is* the fallback: an adapter with
 no credential parameter runs as whatever the process is, and nothing anywhere had to decide that.
 After the change there is no code path that executes without something a broker produced, so
 "downgrading to the service identity" is not a mistake anyone can make quietly - it is a signature
@@ -2211,9 +2211,9 @@ surface's capability gate and the identity pool's provider, and neither candidat
 here does. This amendment corrects the record's claim about what is built; it does not claim a
 run that has not been observed.
 
-## Fourth amendment, 2026-09-26: four present-tense sentences this record's body and amendment blocks made about the absence of adapters, credentials and clocks are now false
+## Fourth amendment, 2026-09-26: six present-tense sentences this record's body, correction table and amendment blocks made are now false
 
-Four statements this record made in present tense about what does not exist are now false, and are
+Six statements this record made in present tense are now false, and are
 left in place because each is part of the argument that made checking it worthwhile. This block
 corrects them; the lines above it are older than the code.
 
@@ -2239,8 +2239,8 @@ repeated the original claims in present tense and is corrected here rather than 
 
 **Part 6's body prose** (line 1523) said *The domain reads no clock today, in either crate*.
 `sutura-domain` now reads `std::time::Instant`: `Deadline` holds one
-(`crates/sutura-domain/src/warehouse/deadline.rs:28`) and `Deadline::remaining_at` takes `Instant` as its argument. The correction table at line 125 has
-been narrowed from "True of `sutura-domain`" to "True of the identity path in `sutura-domain`",
+(`crates/sutura-domain/src/warehouse/deadline.rs:28`) and `Deadline::remaining_at` takes `Instant` as its argument. The correction table's row at line 125
+answers *True of `sutura-domain`*; it now holds of the identity path in `sutura-domain` only,
 because the clock the domain now reads is the deadline's own, not an identity-expiry clock. The
 spirit of the original claim - no identity-expiry clock in the domain - holds; the letter does not.
 
@@ -2250,3 +2250,10 @@ so this arrives with one*. `SourceRegistry` exists (`crates/sutura-config/src/so
 (`parse.rs:100`). The correction table at line 124 already corrected the configurability row; this
 design-prose sentence is technically stale but future-tense ("so this arrives with one"), and is
 corrected here rather than rewritten.
+
+**Part 1's decision prose** (lines 757 and 787) said *Today's default is `Ok(())`* and *Today's
+signature *is* the fallback*. Both describe the port before the change that part decides, and the
+change has landed: `execute` and `dry_run` both take `&Presented` and a `Deadline`, and `dry_run`'s
+default body returns `PreFlight::NotAsked` rather than `Ok(())`
+(`crates/sutura-domain/src/warehouse.rs:471`). The argument those two sentences make is why the
+signature changed, so they stay as written.

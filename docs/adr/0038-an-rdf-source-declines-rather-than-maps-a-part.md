@@ -72,8 +72,6 @@ folded cardinality - catalog cardinality is a trusted precondition nothing check
 this is not a preference. What the measurement added is that "turn the reasoner off" is not the whole
 mechanism, because two of the Data Cube specification's own normative constructs derive triples:
 
-**Corrected: cardinality is no longer unchecked everywhere.** It is checked against the data at boot where an adapter counts: `declared_keys::hold` (`crates/sutura-app/src/declared_keys.rs:140`) refuses `NotValidated::DeclaredKeyNotUnique` when `Warehouse::declared_key` contradicts a declared cardinality. It stays trusted where an adapter cannot count - the port defaults to `KeyUniqueness::NotAsked`, so such an adapter is not asked. The argument above holds unchanged for that case.
-
 1. **The abbreviated form.** A well-formed abbreviated cube is well-formed only once expanded by the
    specification's normalization algorithm, which is expressed as two sets of SPARQL Update
    operations - and the specification's own complete example is in that form. So reading only asserted
@@ -148,3 +146,13 @@ the number it reserved (0033) went to unrelated work, and #154's reserved 0032 w
 too. **A number check cannot see an unpushed branch**, so a reserved number is not a mechanism and
 neither is a careful check - the ordinal is resolved at merge, by whoever renames second, and a record
 whose number is cited by another page is the one that should keep it.
+
+## First amendment, 2026-09-26: catalog cardinality is checked against the data where an adapter counts
+
+*Reasoning is out of scope, and it is not a switch* says *catalog cardinality is a trusted
+precondition nothing checks against the data*. That is no longer true everywhere. A declared
+cardinality is checked against the data at boot where an adapter counts: `declared_keys::hold`
+(`crates/sutura-app/src/declared_keys.rs:140`) refuses `NotValidated::DeclaredKeyNotUnique` when
+`Warehouse::declared_key` contradicts it. It stays trusted where an adapter cannot count - the port
+defaults to `KeyUniqueness::NotAsked`, so such an adapter is not asked - and the argument that
+section makes holds unchanged for that case.

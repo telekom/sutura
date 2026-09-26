@@ -263,18 +263,16 @@ its own with the null group expected LAST.
 **What that case detects is NOT our statement of the placement, and the record should not be read
 as claiming it is.** Measured: the layer collapses `NULLS LAST` away for every target whose default
 is already nulls-last, so deleting `nulls_first: Some(false)` leaves `DuckDB`'s and Postgres's
-rendered SQL **byte-identical** and changes only `BigQuery`'s text - `BigQuery` IS bound to the
-packs now (`telekom/sutura#710`), but over a CANNED transport that answers every case from the
-corpus's own `Case::expected` rows rather than a live `GoogleSQL` endpoint, so a corpus cell
-executes the canned answer and still proves nothing about a real engine's own ordering. Our
-statement of the placement is held by `every_order_by_states_nulls_last`, over the AST, which is
-the right venue for a rendering decision.
+rendered SQL **byte-identical** and changes only `BigQuery`'s text - and `BigQuery` has no
+`execute_packs!` binding, so no corpus cell executes it. Our statement of the placement is held by
+`every_order_by_states_nulls_last`, over the AST, which is the right venue for a rendering
+decision.
 
-**Two things the case does buy.** `Behaviour::Order` over a null key pins the live bound engines'
-own default null ordering - `DuckDB`, Postgres, `ClickHouse` and the `datafusion` engine, which a
-version bump could change with no diff of ours, so this is a dependency regression detector rather
-than a check on first-party code. `Behaviour::Content` over the same row is first-party: a null key
-must be a GROUP and not a row a join or a filter dropped.
+**Two things the case does buy.** `Behaviour::Order` over a null key pins the three bound engines'
+own default null ordering - most usefully `datafusion`'s, which a version bump could change with no
+diff of ours, so this is a dependency regression detector rather than a check on first-party code.
+`Behaviour::Content` over the same row is first-party: a null key must be a GROUP and not a row a
+join or a filter dropped.
 
 **COLLATION has the field now, and one case uses it.** Every other key in the corpus is still
 all-lowercase ASCII with distinct first letters, so no bound engine's own collation can disagree
@@ -309,9 +307,8 @@ under a partial implementation:
   all: two customer keys sharing a subscription makes two exact distinct counts over-count when summed.
   A fixture whose keys never overlap passes with the wrong implementation.
 
-Each is a directory like any other case. All three are written now - see *Corrected* above - and
-naming them here was what stopped the corpus from being complete-looking and blind in exactly the
-places the design is hard.
+Each is a directory like any other case. Naming them here is not a substitute for writing them - it is
+what stops the corpus from being complete-looking and blind in exactly the places the design is hard.
 
 ## The corpus is files, not code
 
@@ -526,3 +523,20 @@ pack body.
   gate holds the shape: the default-feature walk keeps the closure to the interior, a `compile_feature`
   check refuses `default = ["compile"]`, and the `--all-features` lanes of `just test`/`just lint`
   build and run the compile cells, so neither direction is a switch nobody flips.
+
+## Amendment, 2026-09-26: `BigQuery` is bound to the packs, over a canned transport
+
+*What that case detects is NOT our statement of the placement* says `BigQuery` has no
+`execute_packs!` binding, so no corpus cell executes it, and *Two things the case does buy* counts
+three bound engines. Both are stale: five data systems bind the packs now (*Corrected* at the top of
+this record names them), and `BigQuery` is one of them (`telekom/sutura#710`). The conclusion of the
+first paragraph survives the correction, for a reason the old sentence did not give: `BigQuery`'s
+binding answers every case from the corpus's own `Case::expected` rows over a CANNED transport
+(`crates/sutura-exec-bigquery/tests/conformance.rs`), not a live `GoogleSQL` endpoint, so a corpus
+cell executes the canned answer and proves nothing about a real engine's own null ordering. Our
+statement of the placement is still held by `every_order_by_states_nulls_last`, over the AST.
+
+What `Behaviour::Order` over a null key pins is the default null ordering of the LIVE bound engines -
+`DuckDB`, Postgres, `ClickHouse` and the `datafusion` engine - which a version bump could change with
+no diff of ours. It is still a dependency regression detector, over four engines rather than three,
+and it says nothing about `BigQuery`.

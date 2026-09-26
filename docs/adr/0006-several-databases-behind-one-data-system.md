@@ -547,12 +547,9 @@ federation lands. Provenance does not change either: the digest already covers e
 so a catalog that moved a model to a second system already produces a different digest.
 
 One limit, stated so nobody over-claims in the other direction: the mechanism that row cites - dumped
-tool schemas and a byte-compare - **is built now**. `schemars` is a workspace dependency
-(`Cargo.toml:658`), used by `sutura-mcp` (`crates/sutura-mcp/Cargo.toml:77`,
-`src/tool.rs:107-109` - `schemars::schema_for!` over each capability's wire type). Every capability's
-generated schema is snapshotted with `cargo-insta`, so a new or widened field changes a snapshot and
-the test fails until somebody re-accepts it. What is also built and holds is `deny_unknown_fields` on
-both the domain query type and the wire body, with a test that provokes it.
+tool schemas and a byte-compare - is not built. `schemars` is not a dependency, and AGENTS.md's own
+canonical-sources table marks it planned. What is built and does hold is `deny_unknown_fields` on both
+the domain query type and the wire body, with a test that provokes it.
 
 ## What does not change
 
@@ -739,3 +736,17 @@ BigQuery.
 unproven. The two-subject test's venue in `docs/where-identity-is-proven.md` is `wired`: a job
 reaches the cells and no run has been observed. The broader claim that the re-key has not landed may
 still hold; the justification given for it does not.
+
+## Third amendment, 2026-09-26: the tool-schema byte-compare *One limit* calls unbuilt is built
+
+*One limit*, under *The tool surface: there is nothing to widen*, says the mechanism AGENTS.md's row
+cites - dumped tool schemas and a byte-compare - is not built, and that `schemars` is not a
+dependency. Both halves are now false. `schemars` is a workspace dependency (`Cargo.toml:658`), used
+by `sutura-mcp` (`crates/sutura-mcp/Cargo.toml:77`, `src/tool.rs:107-109` - `schemars::schema_for!`
+over each capability's wire type). Every capability's generated schema is snapshotted with
+`cargo-insta`, so a new or widened field changes a snapshot and the test fails until somebody
+re-accepts it. AGENTS.md no longer carries the canonical-sources table that paragraph cites.
+`deny_unknown_fields` on the domain query type and the wire body still holds, beside it.
+
+The section's conclusion does not change: the caller still has no field that names a source, so
+there is still nothing to widen. What changed is that a widening would now also move a snapshot.

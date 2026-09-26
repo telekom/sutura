@@ -17,8 +17,10 @@ the last section says so.
 
 ## What is compared, and where
 
-The combiner is `sutura-exec-datafusion`'s `DataFusionCombiner`, the sole
-implementor of `sutura_domain::plan::FederationCombiner`. The comparison happens
+The combiner is `sutura-exec-datafusion`'s `DataFusionCombiner`, the only
+implementor of `sutura_domain::plan::FederationCombiner` a published build links
+(`sutura-domain`'s `RefusingCombiner` also implements it, behind `cfg(any(test, feature =
+"fixtures"))`). The comparison happens
 in two places, and the split is the whole of the design:
 
 1. **Each leg's link column is classified to a kind from its Arrow schema**, before

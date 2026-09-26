@@ -289,9 +289,11 @@ own. There is no Arrow envelope, no encoder and no transport to carry one.
 
 *Enforced today:* the `Warehouse` port returns `ResultBatches` (Arrow) rather than a text blob,
 and provenance rides beside the rows as its own typed field rather than as text mixed into them.
-The shape of the guarantee is right: the envelope is Arrow, decoded to typed `Value` cells once
-at the presentation edge (`ResultBatches::to_rows`). The engine executing over Arrow *in
-process* is a different claim from results leaving as Arrow, and only the first is true.
+The shape of the guarantee is right at the port: `ResultBatches` is Arrow, decoded to typed
+`Value` cells once at the presentation edge (`ResultBatches::to_rows`), so what a transport sends
+is still rows and not Arrow. This does not claim results leave the process as Arrow. The engine
+executing over Arrow *in process* is a different claim from results leaving as Arrow, and only the
+first is true.
 
 ## The semantic compiler
 
