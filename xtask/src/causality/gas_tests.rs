@@ -626,6 +626,12 @@ fn a_tests_only_diff_declaring_one_of_two_additions_refuses_the_undeclared_one()
 /// Run the public causality entry point over one changed test file in a real Git repository.
 /// Both shapes below use only APIs present on base, so their cells can fail by verdict there.
 fn changed_test_shape(base_content: &str, head_content: &str) -> Verdict {
+    changed_tree(&[("src/lib.rs", base_content)], &[("src/lib.rs", head_content)])
+}
+
+/// [`changed_test_shape`] over any set of files: every base file is removed before the head set
+/// is written, so a path in `base` and not in `head` is a rename or a deletion to git.
+fn changed_tree(base_files: &[(&str, &str)], head_files: &[(&str, &str)]) -> Verdict {
     assert!(
         std::env::var_os("NEXTEST").is_some(),
         "this fixture changes the process directory; run it under `just test`"
@@ -646,14 +652,21 @@ fn changed_test_shape(base_content: &str, head_content: &str) -> Verdict {
     )
     .unwrap();
     std::fs::write(dir.join("flake.nix"), "{ }\n").unwrap();
-    std::fs::write(dir.join("src/lib.rs"), base_content).unwrap();
+    for (path, content) in base_files {
+        std::fs::write(dir.join(path), content).unwrap();
+    }
     git(&dir, &["add", "-A"]);
     git(&dir, &["commit", "-q", "-m", "init"]);
     let base = String::from_utf8(git_output(&dir, &["rev-parse", "HEAD"]).stdout)
         .expect("utf8")
         .trim()
         .to_owned();
-    std::fs::write(dir.join("src/lib.rs"), head_content).unwrap();
+    for (path, _) in base_files {
+        std::fs::remove_file(dir.join(path)).unwrap();
+    }
+    for (path, content) in head_files {
+        std::fs::write(dir.join(path), content).unwrap();
+    }
     git(&dir, &["add", "-A"]);
     git(&dir, &["commit", "-q", "-m", "test: change an existing test"]);
 
@@ -684,4 +697,15 @@ fn deleting_a_called_test_helpers_assertion_is_refused() {
     let base = "#[cfg(test)]\nmod tests {\n    fn helper() {\n        assert_eq!(2 + 2, 4);\n    }\n    #[test]\n    fn existing() {\n        helper();\n    }\n}\n";
     let head = base.replace("        assert_eq!(2 + 2, 4);\n", "");
     assert_eq!(changed_test_shape(base, &head), Verdict::Fail);
+}
+
+/// A MOVED file is read at base under the path it had there. `git diff` reports a moved-and-edited
+/// file as a rename, and reading its pre-image at the new path found nothing, so every such file
+/// with a removed line was refused as unreadable - a crate split could not pass at all.
+#[test]
+fn a_moved_file_is_read_at_base_under_its_old_path() {
+    let body = "pub fn f() -> u8 {\n    // one\n    1\n}\n\npub fn g() -> u8 {\n    2\n}\n";
+    let base = [("src/lib.rs", "mod a;\n"), ("src/a.rs", body)];
+    let head = [("src/lib.rs", "mod b;\n"), ("src/b.rs", &*body.replace("    // one\n", ""))];
+    assert_eq!(changed_tree(&base, &head), Verdict::Pass);
 }

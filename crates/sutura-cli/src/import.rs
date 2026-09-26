@@ -12,8 +12,6 @@
 //! person to read and commit; `sutura catalog <out>` (or a plain read of the files) is how a
 //! reviewer decides whether it says what the source system says.
 
-mod wren;
-
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -32,12 +30,14 @@ fn run(args: &[String]) -> Result<(), String> {
     let destination = arg(args, 2, "out-dir", usage)?;
     match kind.as_str() {
         "wren" => {
-            let summary = wren::import(Path::new(&source), Path::new(&destination)).map_err(|e| e.to_string())?;
+            let summary = sutura_catalog_wren::import(Path::new(&source), Path::new(&destination)).map_err(|e| e.to_string())?;
             println!(
                 "mapped {} models, {} relationships, {} metrics into {destination}",
-                summary.models, summary.relationships, summary.metrics
+                summary.models(),
+                summary.relationships(),
+                summary.metrics()
             );
-            println!("refused {} items - see {destination}/report.txt", summary.refusals);
+            println!("refused {} items - see {destination}/report.txt", summary.refusals());
             Ok(())
         }
         other => Err(format!(

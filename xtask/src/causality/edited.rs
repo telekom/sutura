@@ -152,21 +152,22 @@ pub(super) enum Deletion {
 /// a new test, a helper, or edited a DIFFERENT existing test never asked the deletion question for
 /// the one it silently weakened.
 ///
-/// Reads the BASE image for [`removed_in`] and removed lines in called helpers, and the POST-image for [`touched_in`], to
+/// Reads the BASE image - at `before`, where a renamed file sat - for [`removed_in`] and removed lines in
+/// called helpers, and the POST-image at `path` for [`touched_in`], to
 /// subtract a name #1025 already claims - the same test edited (an added line in its span) AND
 /// evidenced by a removed line carrying behaviour in its base span is one EDIT, not a deletion
 /// with nothing added in its place, and stays routed to proof rather than being named twice.
 pub(super) fn deletion_in(
     file_added: &[AddedLine],
     file_removed: &[RemovedLine],
-    path: &str,
+    (before, path): (&str, &str),
     base: &PostImage<'_>,
     read: &PostImage<'_>,
 ) -> Deletion {
     if file_removed.is_empty() {
         return Deletion::None;
     }
-    let Some(base_text) = base(path) else {
+    let Some(base_text) = base(before) else {
         return Deletion::BaseUnreadable;
     };
     let base_lines: Vec<&str> = base_text.lines().collect();
@@ -176,7 +177,7 @@ pub(super) fn deletion_in(
         .filter(|line| !carries_no_behaviour(&line.text))
         .map(|line| AddedLine::new(line.before, &line.text))
         .collect();
-    let base_scope = crate::causality::regions::scope(path, base);
+    let base_scope = crate::causality::regions::scope(before, base);
     for name in edited_helper_caller(&base_lines, &removed_behaviour, &base_scope) {
         if !deleted.contains(&name) {
             deleted.push(name);
@@ -771,7 +772,7 @@ mod tests {
         let base = tree(&[("crates/x/src/a.rs", base_image)]);
         let read = tree(&[("crates/x/src/a.rs", post_image)]);
         assert_eq!(
-            deletion_in(&added, &removed, "crates/x/src/a.rs", &base, &read),
+            deletion_in(&added, &removed, ("crates/x/src/a.rs", "crates/x/src/a.rs"), &base, &read),
             Deletion::None,
             "the same test's own edit, not a separate deletion"
         );
@@ -788,7 +789,13 @@ mod tests {
         let read = tree(&[("crates/x/src/a.rs", "#[test]\nfn t() {}\n")]);
         let unreadable_base = tree(&[]);
         assert_eq!(
-            deletion_in(&[], &removed, "crates/x/src/a.rs", &unreadable_base, &read),
+            deletion_in(
+                &[],
+                &removed,
+                ("crates/x/src/a.rs", "crates/x/src/a.rs"),
+                &unreadable_base,
+                &read
+            ),
             Deletion::BaseUnreadable
         );
     }

@@ -1,5 +1,5 @@
 use super::convert;
-use crate::import::wren::wire::Manifest;
+use crate::wire::Manifest;
 
 /// A manifest naming one instance of every refusal kind alongside one mapped model,
 /// relationship and pair of metrics - the unit-level twin of the golden fixture under

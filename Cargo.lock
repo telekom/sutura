@@ -4357,6 +4357,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sutura-catalog-wren"
+version = "0.5.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sutura-domain",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "sutura-cli"
 version = "0.5.1"
 dependencies = [
@@ -4367,7 +4377,6 @@ dependencies = [
  "rcgen",
  "rmcp",
  "rustls",
- "serde",
  "serde_json",
  "serde_norway",
  "sutura-app",
@@ -4376,6 +4385,7 @@ dependencies = [
  "sutura-catalog-local",
  "sutura-catalog-okf",
  "sutura-catalog-openmetadata",
+ "sutura-catalog-wren",
  "sutura-config",
  "sutura-dev",
  "sutura-domain",
