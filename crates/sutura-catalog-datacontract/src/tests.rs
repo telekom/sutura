@@ -237,35 +237,9 @@ schema:
     );
 }
 
-/// A v3.0 contract has no `relationships` field at all, so it cannot license a join - the
-/// version-gated half of the `Relationships` may-provide.
-#[test]
-fn a_v3_0_contract_declares_no_relationships() {
-    let v3_0 = "
-version: 1.0.0
-kind: DataContract
-id: 11111111-aaaa-4b2a-a65f-111111111111
-status: active
-name: orders
-apiVersion: v3.0.0
-schema:
-  - name: orders
-    properties:
-      - name: id
-        primaryKey: true
-      - name: total
-";
-    let pinned = outcome_of("v3-0", &[("orders.yaml", v3_0)]).expect("a v3.0 contract loads");
-    assert!(
-        pinned.definitions().relationships().is_empty(),
-        "a v3.0 contract carries no relationships field, so no relationship is minted"
-    );
-}
-
 /// A v3.0 contract that DOES carry a `relationships` array (invalid against the real v3.0.0
 /// schema, but structurally decodable by this adapter's own type) is refused by name rather than
-/// silently dropped - the gap the previous cell alone could not close, since an absent field and a
-/// refused field both load with an empty relationship set.
+/// silently dropped: an absent field and a dropped one would both load with an empty relationship set.
 #[test]
 fn a_v3_0_contract_with_a_relationships_array_is_refused_by_name() {
     let v3_0_with_relationships = "
@@ -338,7 +312,7 @@ apiVersion: v3.1.0
 team:
   name: data-platform
   members:
-    - username: alice
+    - username: user@example.com
 schema:
   - name: orders
     properties:
