@@ -26,6 +26,9 @@ mod conformance {
             Endpoint::plaintext(endpoint.host(), endpoint.port()),
             auth,
             &database,
+            sutura_domain::warehouse::ResultBudget::of_bytes(
+                core::num::NonZeroUsize::new(1024 * 1024 * 1024).expect("a gibibyte is positive"),
+            ),
         )
         .unwrap_or_else(|e| panic!("clickhouse did not open at {endpoint}: {e}"));
         warehouse

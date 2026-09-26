@@ -51,6 +51,15 @@ pub trait ClickHouseTransport {
         false
     }
 
+    /// Was this failure the endpoint sending back a response too large to read?
+    ///
+    /// `Warehouse::result_did_not_fit`'s delegate, one port further down - the wire-read cap lives
+    /// on the transport, so only it can recognise its own body-bound error. Defaulted to `false`,
+    /// the honest answer for an implementor with no such bound.
+    fn result_too_large(&self, _error: &Self::Error) -> bool {
+        false
+    }
+
     /// Was this failure the `Deadline` running out, either found spent before the request was
     /// sent or the endpoint stopping it? `Warehouse::deadline_exceeded`'s delegate, for the same
     /// reason as [`Self::source_refused`].
@@ -134,6 +143,15 @@ pub enum HttpError {
     /// structured.
     #[error("the endpoint refused the statement with status {status}: {message}")]
     ServerRefused { status: u16, message: String },
+    /// The response body was larger than this transport's configured cap - a result too large to
+    /// read off the wire, refused while it is being read rather than after the whole body has been
+    /// buffered.
+    ///
+    /// Classified as *the result did not fit* by
+    /// [`ClickHouseWarehouse::result_did_not_fit`](crate::ClickHouseWarehouse), so this never
+    /// reaches a caller as the `503` a transport failure would mean.
+    #[error("the response body exceeded the {limit}-byte read cap")]
+    BodyExceedsLimit { limit: usize },
     /// The rendered statement's own `?` count did not match the bound parameters - a defect in
     /// this crate's rewrite rather than in the plan; see [`rewrite_placeholders`].
     #[error("the rendered statement carried {found} placeholders, and {bound} parameters were bound")]
@@ -155,6 +173,11 @@ pub struct Http {
     endpoint: Endpoint,
     agent: ureq::Agent,
     auth: Option<BasicAuth>,
+    /// The most bytes this transport will read off the wire for one response body, enforced with
+    /// `BodyWithConfig::limit` while the body is read - a bound on a result too large to hold,
+    /// refused before the whole body is buffered. Derived by the composition root from the same
+    /// working-set ceiling that sizes the adapter's own decode budget.
+    max_response_bytes: u64,
     /// The database an unqualified table name resolves in, sent as the `database` field of every
     /// request. `None` is the server's default for this user - the only value a composition root
     /// can reach; the fixture tier sets one per open (`crate::fixture`).
@@ -177,13 +200,18 @@ const MAX_HEADER_BYTES: usize = 64 * 1024;
 impl Http {
     /// Opens the transport over `endpoint` with no TLS at all - a `plaintext` channel, or the
     /// fixture tier's loopback path.
+    ///
+    /// `max_response_bytes` is the most this transport reads off the wire for one response body;
+    /// the composition root derives it from the same working-set ceiling that sizes the decode
+    /// budget, so the wire read and the in-memory decode are one bound.
     #[must_use]
-    pub fn connect(endpoint: Endpoint, auth: Option<BasicAuth>) -> Self {
+    pub fn connect(endpoint: Endpoint, auth: Option<BasicAuth>, max_response_bytes: u64) -> Self {
         let agent = ureq::Agent::new_with_config(base_config().build());
         Self {
             endpoint,
             agent,
             auth,
+            max_response_bytes,
             database: None,
         }
     }
@@ -192,14 +220,21 @@ impl Http {
     /// `crate::tls::config` built from the declared channel. Both this and [`Self::connect`] are
     /// produced by the composition root, which is the only place that can see the declared
     /// `sutura_config::sources::transport::SourceTransport` - the same boundary
-    /// `PostgresWarehouse::connect_secured`'s own signature draws.
+    /// `PostgresWarehouse::connect_secured`'s own signature draws. `max_response_bytes` is
+    /// [`Self::connect`]'s.
     #[must_use]
-    pub fn connect_secured(endpoint: Endpoint, auth: Option<BasicAuth>, tls: ureq::tls::TlsConfig) -> Self {
+    pub fn connect_secured(
+        endpoint: Endpoint,
+        auth: Option<BasicAuth>,
+        tls: ureq::tls::TlsConfig,
+        max_response_bytes: u64,
+    ) -> Self {
         let agent = ureq::Agent::new_with_config(base_config().tls_config(tls).build());
         Self {
             endpoint,
             agent,
             auth,
+            max_response_bytes,
             database: None,
         }
     }
@@ -226,7 +261,7 @@ impl Http {
             request = request.header("Authorization", header);
         }
         let response = request.send(data).map_err(|cause| HttpError::Transport { cause })?;
-        read_answer(response).map(drop)
+        read_answer(response, self.max_response_bytes).map(drop)
     }
 
     /// The endpoint's URL with the `database` field already on it, if this transport has one.
@@ -282,7 +317,7 @@ impl ClickHouseTransport for Http {
             request = request.header("Authorization", header);
         }
         let response = request.send(&sent).map_err(|cause| HttpError::Transport { cause })?;
-        read_answer(response)
+        read_answer(response, self.max_response_bytes)
     }
 
     /// `Code: 497` is `NOT_ENOUGH_PRIVILEGES`, `Code: 516` is `AUTHENTICATION_FAILED` - the two
@@ -304,15 +339,30 @@ impl ClickHouseTransport for Http {
             _ => false,
         }
     }
+
+    fn result_too_large(&self, error: &Self::Error) -> bool {
+        matches!(*error, HttpError::BodyExceedsLimit { .. })
+    }
 }
 
 /// The body of a 2xx reply, or the server's own refusal text for any other status.
-fn read_answer(mut response: ureq::http::Response<ureq::Body>) -> RunResult<HttpError> {
+///
+/// The body read is bounded at `max_response_bytes` with `BodyWithConfig::limit`, so a result too
+/// large to read is refused while it is being read rather than after the whole body has been
+/// buffered in memory.
+fn read_answer(mut response: ureq::http::Response<ureq::Body>, max_response_bytes: u64) -> RunResult<HttpError> {
     let status = response.status();
     let body = response
         .body_mut()
+        .with_config()
+        .limit(max_response_bytes)
         .read_to_vec()
-        .map_err(|cause| HttpError::Transport { cause })?;
+        .map_err(|cause| match cause {
+            ureq::Error::BodyExceedsLimit(limit) if status.is_success() => HttpError::BodyExceedsLimit {
+                limit: usize::try_from(limit).unwrap_or(usize::MAX),
+            },
+            other => HttpError::Transport { cause: other },
+        })?;
     if status.is_success() {
         Ok(body)
     } else {
@@ -512,6 +562,12 @@ mod tests {
         (Deadline::opened_at(opened, budget), opened)
     }
 
+    /// An `Http` transport with a roomy body cap, for tests that only classify errors. The cap's
+    /// own assertions live in the body-reading cells; this helper just needs to get out of the way.
+    fn test_http() -> Http {
+        Http::connect(Endpoint::plaintext("localhost", 8123), None, 1 << 20)
+    }
+
     #[test]
     fn every_request_asks_the_server_for_standard_outer_join_nulls() {
         // Without this, an unmatched LEFT JOIN row answers `''` rather than `NULL` and six of the
@@ -634,7 +690,7 @@ mod tests {
             status: 500,
             message: String::from("Code: 159. DB::Exception: Timeout exceeded: elapsed 30.1 seconds, maximum: 30"),
         };
-        let http = Http::connect(Endpoint::plaintext("localhost", 8123), None);
+        let http = test_http();
         assert!(http.deadline_exceeded(&error));
     }
 
@@ -644,7 +700,7 @@ mod tests {
             status: 404,
             message: String::from("Code: 60. DB::Exception: Table does not exist"),
         };
-        let http = Http::connect(Endpoint::plaintext("localhost", 8123), None);
+        let http = test_http();
         assert!(!http.deadline_exceeded(&error));
         assert!(!http.source_refused(&error));
     }
@@ -655,7 +711,25 @@ mod tests {
             status: 403,
             message: String::from("Code: 497. DB::Exception: Not enough privileges"),
         };
-        let http = Http::connect(Endpoint::plaintext("localhost", 8123), None);
+        let http = test_http();
         assert!(http.source_refused(&error));
+    }
+    #[test]
+    fn a_body_past_the_read_cap_is_a_result_that_did_not_fit() {
+        let response = ureq::http::Response::builder()
+            .status(200)
+            .body(ureq::Body::builder().data(vec![b'x'; 17]))
+            .expect("a test response is valid");
+        let error = read_answer(response, 16).expect_err("the read stops at its byte cap");
+        assert!(matches!(error, HttpError::BodyExceedsLimit { limit: 16 }), "{error:?}");
+        let http = test_http();
+        assert!(
+            http.result_too_large(&error),
+            "a body cap is a result-too-large, not a dead end"
+        );
+        assert!(!http.result_too_large(&HttpError::ServerRefused {
+            status: 500,
+            message: String::from("Code: 60. DB::Exception: Table does not exist"),
+        }));
     }
 }

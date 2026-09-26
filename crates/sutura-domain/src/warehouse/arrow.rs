@@ -681,11 +681,9 @@ pub fn of_row_set(rows: &RowSet) -> Result<ResultBatches, MalformedRowSet> {
 /// `RecordBatch::try_new` would answer a different error for the same defect, and one of the two
 /// would be the one nobody had read.
 /// **It charges nothing against a [`ResultBudget`], and that is a limit rather than an oversight.**
-/// Its input is rows the caller already holds, so every byte this bound would refuse has been
-/// allocated before the call - a budget here would be a check after the spend, which is the exact
-/// shape [`Accumulating::push`] exists to avoid. The three adapters that reach here decode their own
-/// driver's vocabulary into a `RowSet` first and are therefore **outside the byte budget entirely**;
-/// bounding them means bounding their own decode loops, which is a change to each of them.
+/// Its input is rows the caller already holds, so a budget here would check after the spend.
+/// The row-speaking adapters charge their decode loops before calling this conversion; fakes
+/// that hand this function rows directly do not gain a byte bound from it.
 pub fn of_rows(columns: &[String], rows: &[Vec<Value>]) -> Result<ResultBatches, MalformedRowSet> {
     use std::sync::Arc;
 

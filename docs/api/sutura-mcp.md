@@ -772,10 +772,6 @@ check-boundaries` against an allowlist, so putting a macro crate on a domain typ
 architecture decision rather than a convenience. The derive goes on the wire type, which is
 where a wire format belongs anyway.
 
-A wire type is also allowed to be *worse* than a domain type, and should be. Every field of
-`AskArgs` is a plain string, because that is what arrives; each one is then parsed into the
-newtype that establishes its invariant, and a failure names the field.
-
 # `deny_unknown_fields`, and what it is for here
 
 The governance boundary, across a JSON parser. Without it an arguments object carrying `sql:` or
@@ -885,6 +881,7 @@ Why an arguments object is not a question.
   `MalformedQuestion` has no arm for this case and does not need one. MCP's own
   `serde_json::from_value` step, in `crate::server`, is what can still fail this way here.
 - `Question` - Every other way a question can be malformed: which field, and none of the caller's own value at any link of the chain `crate::server`'s `invalid()` walks - see that type's own note. Shared with `sutura-http`, which parses the same six fields into the same domain types and would otherwise carry its own copy of this whole vocabulary.
+- `Refused`
 - `Range` - A relative `range` needs a failure mode the domain does not have and must not gain - see `sutura_runtime::relative_range`, the resolver `sutura-http` shares this variant's whole purpose with.
 
 #### Implements

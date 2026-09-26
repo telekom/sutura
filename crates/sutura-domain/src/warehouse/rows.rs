@@ -111,6 +111,107 @@ impl RowSet {
     }
 }
 
+// These adapters collect domain rows before `of_row_set` clones each column and builds Arrow
+// arrays. Charge three copies of the row estimate to cover that conversion peak. One incoming row
+// is decoded before `push` can refuse it; ClickHouse also holds its separately bounded wire body.
+
+/// Why a row-collecting stream was refused under a byte budget.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum RowBudgetExceeded {
+    /// The rows collected so far, plus this one, would cost more to hold than the caller's budget
+    /// allows.
+    ///
+    /// Carries the BUDGET and never the demand, for the same reason
+    /// [`UnannouncedBatch::OverBudget`](super::arrow::UnannouncedBatch::OverBudget) does: the budget
+    /// is the number an operator configured and can act on.
+    #[error("a result would cost more than the {most_bytes}-byte materialisation budget to hold")]
+    OverBudget { most_bytes: usize },
+}
+
+impl RowBudgetExceeded {
+    /// The ceiling that was crossed, for an adapter's own error variant to carry to the caller.
+    #[inline]
+    #[must_use]
+    pub const fn most_bytes(&self) -> usize {
+        match *self {
+            Self::OverBudget { most_bytes } => most_bytes,
+        }
+    }
+}
+
+/// One result stream collected against a byte budget, so a result that will not fit is refused at
+/// the row that crosses the line rather than after every row has been collected.
+///
+/// An adapter decodes its driver's rows into the domain [`Value`]s fitting this collector's
+/// [`Self::push`], and refuses when the budget would be crossed - before the `RowSet` the whole
+/// result would be held as exists.
+#[derive(Debug)]
+pub struct Budgeted {
+    most_bytes: usize,
+    rows: Vec<Vec<Value>>,
+    bytes: usize,
+}
+
+impl Budgeted {
+    /// Starts reading a row stream, refusing past `budget` bytes of materialisation.
+    #[must_use]
+    pub const fn collecting(budget: super::arrow::ResultBudget) -> Self {
+        Self {
+            most_bytes: budget.bytes(),
+            rows: Vec::new(),
+            bytes: 0,
+        }
+    }
+
+    /// How many rows have been accepted so far, which a completeness check compares against.
+    #[inline]
+    #[must_use]
+    pub const fn delivered(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// What the accepted rows have already spent of the budget.
+    #[inline]
+    #[must_use]
+    pub const fn spent_bytes(&self) -> usize {
+        self.bytes
+    }
+
+    /// Keeps one row, refusing where it would take the stream past the budget.
+    ///
+    /// # Errors
+    ///
+    /// [`RowBudgetExceeded::OverBudget`] where this row would take the collected result over the
+    /// ceiling.
+    pub fn push(&mut self, cells: Vec<Value>) -> Result<(), RowBudgetExceeded> {
+        let rendered = cells
+            .iter()
+            .fold(0_usize, |bytes, cell| bytes.saturating_add(cell.rendered_len()));
+        let row = core::mem::size_of::<Vec<Value>>()
+            .saturating_add(cells.len().saturating_mul(core::mem::size_of::<Value>()))
+            .saturating_add(rendered);
+        let spending = self.bytes.saturating_add(row.saturating_mul(3));
+        if spending > self.most_bytes {
+            return Err(RowBudgetExceeded::OverBudget {
+                most_bytes: self.most_bytes,
+            });
+        }
+        self.bytes = spending;
+        self.rows.push(cells);
+        Ok(())
+    }
+
+    /// The checked result, under `columns`.
+    ///
+    /// # Errors
+    ///
+    /// [`MalformedRowSet::RowWidth`] for a ragged result, propagated from
+    /// [`RowSet::new`].
+    pub fn finish(self, columns: Vec<String>) -> Result<RowSet, MalformedRowSet> {
+        RowSet::new(columns, self.rows)
+    }
+}
+
 /// The rows one anchor's plan produced at boot.
 ///
 /// **A wrapper with a private field, so a boot result cannot be handed back as an answer without a
@@ -139,5 +240,66 @@ impl AnchorRows {
     #[must_use]
     pub const fn verified_at_boot(&self) -> &RowSet {
         &self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Budgeted, RowBudgetExceeded};
+    use crate::warehouse::ResultBudget;
+
+    fn budget(bytes: usize) -> ResultBudget {
+        ResultBudget::of_bytes(core::num::NonZeroUsize::new(bytes).expect("a test budget is positive"))
+    }
+
+    #[test]
+    fn a_collection_under_budget_delivers_every_row() {
+        // THE GRACEFUL LIMB, so the refusal assertion below is not passing against a collector that
+        // refuses everything. A roomy budget takes every row and renders them under the given
+        // columns, with the spent bytes counted as what the rows would cost to hold.
+        let mut collected = Budgeted::collecting(budget(1024));
+        for cells in [
+            vec![crate::warehouse::Value::Integer(1)],
+            vec![crate::warehouse::Value::Integer(2)],
+        ] {
+            collected.push(cells).expect("a roomy budget takes every row");
+        }
+        assert_eq!(collected.delivered(), 2);
+        let set = collected
+            .finish(vec![String::from("id")])
+            .expect("a rectangular result renders");
+        assert_eq!(set.rows().len(), 2);
+    }
+
+    #[test]
+    fn a_collection_that_would_cross_the_budget_is_refused_at_the_row() {
+        // THE MECHANISM `crates/exec-duckdb`, `crates/exec-clickhouse` and `crates/exec-oracle`
+        // share. A budget too small to hold the second row refuses ON that push - so the collector
+        // answers the rows that fitted and stops at the one that would cross, rather than
+        // collecting the whole result and checking afterwards. Sized from the collector's own cost
+        // model so it adapts to `size_of::<Value>` instead of pinning a magic number.
+        let single = vec![crate::warehouse::Value::Integer(1)];
+        let one_row_cost = core::mem::size_of::<Vec<crate::warehouse::Value>>()
+            .saturating_add(single.len().saturating_mul(core::mem::size_of::<crate::warehouse::Value>()))
+            .saturating_add(single.iter().map(crate::warehouse::Value::rendered_len).sum::<usize>())
+            .saturating_mul(3);
+        let mut collected = Budgeted::collecting(budget(one_row_cost));
+        collected
+            .push(single)
+            .expect("the first row, at most the budget in cost, fits");
+        assert_eq!(collected.delivered(), 1);
+        let error = collected
+            .push(vec![crate::warehouse::Value::Text(String::from(
+                "a value whose rendered bytes cross a tight budget",
+            ))])
+            .expect_err("a second row's text is charged on top of the first, so it crosses a budget sized to one row");
+        assert_eq!(
+            error,
+            RowBudgetExceeded::OverBudget {
+                most_bytes: one_row_cost
+            },
+            "the refusal names the BUDGET and never the demand, the same rule UnannouncedBatch::OverBudget follows"
+        );
+        assert_eq!(collected.delivered(), 1, "the row that crossed the line is not held");
     }
 }

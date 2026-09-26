@@ -59,7 +59,11 @@ const IMPERSONATION_DEFERRED: &str = "this adapter is one connection under the u
 /// A placement the dispatcher should have sent elsewhere; a source with no declared identity; the
 /// `impersonation-at-source` posture, which this adapter has nowhere to put; a password file that
 /// cannot be read or is empty; or a connection the listener or the database refused.
-pub(crate) fn build(source: &SourceName, configured: &sutura_config::ConfiguredSource) -> Result<OracleWarehouse, String> {
+pub(crate) fn build(
+    source: &SourceName,
+    configured: &sutura_config::ConfiguredSource,
+    working_set: sutura_exec_datafusion::WorkingSet,
+) -> Result<OracleWarehouse, String> {
     // Matched rather than read off accessors every kind would have to have, for the reason
     // `crate::clickhouse::build` gives.
     let sutura_config::SourcePlacement::Oracle {
@@ -97,6 +101,7 @@ pub(crate) fn build(source: &SourceName, configured: &sutura_config::ConfiguredS
         service_name.as_str(),
         user,
         exposed,
+        working_set.result_budget(),
     )
     .map_err(|cause| format!("`sources.{source}` did not open: {}", render(&cause)))
 }

@@ -108,6 +108,12 @@ lives, and this adapter's own `source_refused`/`deadline_exceeded` delegate to i
 - `NotFinite` - A floating-point column came back as a value that is not a number.
 - `MalformedResponse` - The response body was not the JSON shape this adapter reads.
 - `Shape`
+- `OverBudget` - The collected result would cost more than this adapter's materialisation budget to hold.
+
+  The sibling of `Self::Shape` for the byte budget the port's
+  `result_did_not_fit` reads: a
+  result refused for crossing it is *the result did not fit*, never a transport failure, so a
+  caller is refused rather than told to retry.
 - `KeyCounts` - A key probe's result was not the pair of counts its statement projects.
 
 ### Implements
@@ -128,7 +134,7 @@ canned implementor with no live endpoint; see this crate's own header.
 ### Methods
 
 ```rust
-pub fn connect_in_database(source: SourceName, posture: SourcePosture, endpoint: Endpoint, auth: BasicAuth, database: &str) -> Result<Self, FixtureError>
+pub fn connect_in_database(source: SourceName, posture: SourcePosture, endpoint: Endpoint, auth: BasicAuth, database: &str, result_budget: sutura_domain::warehouse::ResultBudget) -> Result<Self, FixtureError>
 ```
 
 Opens the adapter over `endpoint`, resolving every unqualified table name in `database`.
@@ -154,7 +160,7 @@ departure), the table is recreated, then the file is sent as the body of an
 `INSERT ... FORMAT CSVWithNames` the SERVER parses against those types.
 
 ```rust
-pub const fn of(source: SourceName, posture: SourcePosture, transport: T) -> Self
+pub const fn of(source: SourceName, posture: SourcePosture, transport: T, result_budget: sutura_domain::warehouse::ResultBudget) -> Self
 ```
 
 Opens an adapter over an already-constructed transport - `T = transport::Http` for a real
@@ -460,6 +466,11 @@ Why `Http` could not answer.
   `Http::source_refused` for the two matches this adapter makes against it, and their own
   stated limit: neither is a typed code, because the driver hands back text and nothing more
   structured.
+- `BodyExceedsLimit` - The response body was larger than this transport's configured cap - a result too large to read off the wire, refused while it is being read rather than after the whole body has been buffered.
+
+  Classified as *the result did not fit* by
+  `ClickHouseWarehouse::result_did_not_fit`, so this never
+  reaches a caller as the `503` a transport failure would mean.
 - `PlaceholderMismatch` - The rendered statement's own `?` count did not match the bound parameters - a defect in this crate's rewrite rather than in the plan; see `rewrite_placeholders`.
 - `DeadlineSpent` - The deadline was already spent before a request was ever sent.
 - `InvalidEndpoint`
@@ -484,21 +495,26 @@ here but the shape the client already has.
 #### Methods
 
 ```rust
-pub fn connect(endpoint: Endpoint, auth: Option<BasicAuth>) -> Self
+pub fn connect(endpoint: Endpoint, auth: Option<BasicAuth>, max_response_bytes: u64) -> Self
 ```
 
 Opens the transport over `endpoint` with no TLS at all - a `plaintext` channel, or the
 fixture tier's loopback path.
 
+`max_response_bytes` is the most this transport reads off the wire for one response body;
+the composition root derives it from the same working-set ceiling that sizes the decode
+budget, so the wire read and the in-memory decode are one bound.
+
 ```rust
-pub fn connect_secured(endpoint: Endpoint, auth: Option<BasicAuth>, tls: ureq::tls::TlsConfig) -> Self
+pub fn connect_secured(endpoint: Endpoint, auth: Option<BasicAuth>, tls: ureq::tls::TlsConfig, max_response_bytes: u64) -> Self
 ```
 
 Opens the transport secured as the caller resolved: `tls` is the `ureq::tls::TlsConfig`
 `crate::tls::config` built from the declared channel. Both this and `Self::connect` are
 produced by the composition root, which is the only place that can see the declared
 `sutura_config::sources::transport::SourceTransport` - the same boundary
-`PostgresWarehouse::connect_secured`'s own signature draws.
+`PostgresWarehouse::connect_secured`'s own signature draws. `max_response_bytes` is
+`Self::connect`'s.
 
 #### Implements
 

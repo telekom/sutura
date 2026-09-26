@@ -9550,6 +9550,13 @@ pub fn result_labels(self) -> Vec<String>
 The labels the result will carry, in the order it projects them.
 
 ```rust
+pub fn row_limit(self) -> Option<usize>
+```
+
+Rows to read before the caller can prove a whole query exceeded its answer ceiling.
+A federation leg has no answer-row ceiling; its adapter's byte budget still applies.
+
+```rust
 pub const fn source(self) -> &'plan SourceName
 ```
 
@@ -9878,6 +9885,7 @@ somebody else's input.
 - `DimensionValueNotAllowed` - The dimension is filterable and the value is not one the bundle declares.
 - `DuplicateDimension` - The same dimension appears twice in one question. Refused rather than deduplicated: a caller who sent it twice believes something we do not.
 - `TooManyDimensions` - More group-by keys than `MAX_DIMENSIONS`.
+- `TooManyFilters` - More filters than `MAX_FILTERS`, refused before any filter is parsed.
 - `ResultTooLarge` - The result was too much data to certify, and `ResultBound` says which bound said so.
 
   **The refusal that replaced a silent truncation, and it was a wrong-number bug.** The cap
@@ -10358,6 +10366,10 @@ questions a person asks - a handful of KPIs over the same break-down - and refus
 that enumerates a catalog. A set larger than this is the same refusal a caller narrows by
 asking about fewer metrics.
 
+### `constant MAX_FILTERS`
+
+The most filters one question may ask the catalog to resolve.
+
 ### `constant MAX_RANGE_DAYS`
 
 The longest span of history one question may ask about, in days.
@@ -10776,6 +10788,23 @@ stack and which therefore has no analogue here. `parse_query` takes the six fiel
 extracted, as borrowed strings and one optional `RawTop`, so it carries no serde of its own
 and no framework.
 
+### `enum QuestionInputError`
+
+```rust
+pub enum QuestionInputError
+```
+
+A raw question failed to parse, or exceeded a governance count before parsing.
+
+#### Variants
+
+- `Malformed`
+- `Refused`
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
 ### `enum RawFilter`
 
 ```rust
@@ -10907,16 +10936,15 @@ parser never carried.
 ### `fn parse_query`
 
 ```rust
-pub fn parse_query(metrics: &[String], grain: &str, range_start: &str, range_end: &str, dimensions: &[String], filters: &[RawFilter<'_>], top: Option<RawTop<'_>>) -> Result<crate::query::Query, MalformedQuestion>
+pub fn parse_query(metrics: &[String], grain: &str, range_start: &str, range_end: &str, dimensions: &[String], filters: &[RawFilter<'_>], top: Option<RawTop<'_>>) -> Result<crate::query::Query, QuestionInputError>
 ```
 
 Parses a caller's raw question fields into a `Query`.
 
 **This is the whole translation a transport is allowed to do**: extract each field from its own
-wire shape as a plain string, hand them here, get back a certified `Query` or a
-`MalformedQuestion` naming the field. Nothing here decides what may be asked - that is
-`sutura_app::compile`'s job, against the pinned catalog this function never sees and cannot
-widen.
+wire shape as a plain string, hand them here, get back a certified `Query`, a malformed
+input error, or an early count refusal. Catalog-dependent decisions stay in
+`sutura_app::compile`, against the pinned catalog this function never sees.
 
 ## Module `raw`
 
@@ -12083,9 +12111,22 @@ no caller. Two types rather than one so the separation is visible at a call site
 comment, and `Self::verified_at_boot` is named to be conspicuous in review and in a grep, the
 way `crate::identity::Secret::expose_secret` is.
 
+### `use Budgeted`
+
+One result stream collected against a byte budget, so a result that will not fit is refused at
+the row that crosses the line rather than after every row has been collected.
+
+An adapter decodes its driver's rows into the domain `Value`s fitting this collector's
+`Self::push`, and refuses when the budget would be crossed - before the `RowSet` the whole
+result would be held as exists.
+
 ### `use MalformedRowSet`
 
 Why a result set could not be built.
+
+### `use RowBudgetExceeded`
+
+Why a row-collecting stream was refused under a byte budget.
 
 ### `use RowSet`
 
@@ -13584,6 +13625,93 @@ Why a result set could not be built.
 
 `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+#### `enum RowBudgetExceeded`
+
+```rust
+pub enum RowBudgetExceeded
+```
+
+Why a row-collecting stream was refused under a byte budget.
+
+##### Variants
+
+- `OverBudget` - The rows collected so far, plus this one, would cost more to hold than the caller's budget allows.
+
+  Carries the BUDGET and never the demand, for the same reason
+  `UnannouncedBatch::OverBudget` does: the budget
+  is the number an operator configured and can act on.
+
+##### Methods
+
+```rust
+pub const fn most_bytes(&self) -> usize
+```
+
+The ceiling that was crossed, for an adapter's own error variant to carry to the caller.
+
+##### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `struct Budgeted`
+
+```rust
+pub struct Budgeted
+```
+
+One result stream collected against a byte budget, so a result that will not fit is refused at
+the row that crosses the line rather than after every row has been collected.
+
+An adapter decodes its driver's rows into the domain `Value`s fitting this collector's
+`Self::push`, and refuses when the budget would be crossed - before the `RowSet` the whole
+result would be held as exists.
+
+##### Methods
+
+```rust
+pub const fn collecting(budget: super::arrow::ResultBudget) -> Self
+```
+
+Starts reading a row stream, refusing past `budget` bytes of materialisation.
+
+```rust
+pub const fn delivered(&self) -> usize
+```
+
+How many rows have been accepted so far, which a completeness check compares against.
+
+```rust
+pub fn finish(self, columns: Vec<String>) -> Result<RowSet, MalformedRowSet>
+```
+
+The checked result, under `columns`.
+
+# Errors
+
+`MalformedRowSet::RowWidth` for a ragged result, propagated from
+`RowSet::new`.
+
+```rust
+pub fn push(&mut self, cells: Vec<Value>) -> Result<(), RowBudgetExceeded>
+```
+
+Keeps one row, refusing where it would take the stream past the budget.
+
+# Errors
+
+`RowBudgetExceeded::OverBudget` where this row would take the collected result over the
+ceiling.
+
+```rust
+pub const fn spent_bytes(&self) -> usize
+```
+
+What the accepted rows have already spent of the budget.
+
+##### Implements
+
+`Debug`
+
 #### `struct AnchorRows`
 
 ```rust
@@ -13966,11 +14094,9 @@ invariant makes the ragged case unreachable.
 `RecordBatch::try_new` would answer a different error for the same defect, and one of the two
 would be the one nobody had read.
 **It charges nothing against a `ResultBudget`, and that is a limit rather than an oversight.**
-Its input is rows the caller already holds, so every byte this bound would refuse has been
-allocated before the call - a budget here would be a check after the spend, which is the exact
-shape `Accumulating::push` exists to avoid. The three adapters that reach here decode their own
-driver's vocabulary into a `RowSet` first and are therefore **outside the byte budget entirely**;
-bounding them means bounding their own decode loops, which is a change to each of them.
+Its input is rows the caller already holds, so a budget here would check after the spend.
+The row-speaking adapters charge their decode loops before calling this conversion; fakes
+that hand this function rows directly do not gain a byte bound from it.
 
 ### Module `raw`
 

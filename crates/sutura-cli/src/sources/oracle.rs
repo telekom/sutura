@@ -22,8 +22,9 @@ pub(super) fn open(
     source: &SourceName,
     configured: &sutura_config::ConfiguredSource,
     registry: &sutura_config::SourceRegistry,
+    working_set: sutura_exec_datafusion::WorkingSet,
 ) -> Result<Opened, String> {
-    let engine = crate::oracle::build(source, configured)?;
+    let engine = crate::oracle::build(source, configured, working_set)?;
     Ok(Opened::Oracle(OpenedWith {
         engines: sutura_app::Warehouses::of(engine),
         attached: None,
@@ -37,6 +38,7 @@ pub(super) fn open(
     source: &SourceName,
     _configured: &sutura_config::ConfiguredSource,
     _registry: &sutura_config::SourceRegistry,
+    _working_set: sutura_exec_datafusion::WorkingSet,
 ) -> Result<Opened, String> {
     Err(format!(
         "`sources.{source}` is `kind: oracle`, and this binary was built without the `oracle` \
