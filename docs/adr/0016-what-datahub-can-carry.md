@@ -1056,3 +1056,24 @@ two entry points of one binary rather than between two binaries.
   by the same fold this amendment names above; `cargo tree -p sutura-cli --no-default-features -e
   normal` and `find crates/sutura-cli/src -iname '*serve*'` show no `sutura-serve` crate left to be
   the subject of that sentence.
+
+## Third amendment, 2026-09-26: the cardinality precondition is checked against the data where an adapter counts
+
+*The four sticking points* said *"catalog cardinality is a trusted precondition: nothing checks the
+declaration against the data"*. That was true when written and is not now, and it is left as written
+and corrected here rather than edited in place, following this record's convention that the base text
+stands and its corrections arrive as amendments. A declared `many_to_one` is now checked against the
+data at boot: `declared_keys::hold` (`crates/sutura-app/src/declared_keys.rs:140`), called from
+`verify_and_validate` at `crates/sutura-app/src/proof.rs:156`, asks `Warehouse::declared_key`
+(`crates/sutura-domain/src/warehouse.rs:811`) for a `COUNT DISTINCT` over the referenced column and
+refuses the bundle as `NotValidated::DeclaredKeyNotUnique`
+(`crates/sutura-domain/src/pinned.rs:753`) when the count contradicts the declaration. Tested at
+`a_declared_key_the_data_contradicts_is_not_a_validated_bundle`
+(`crates/sutura-app/src/declared_keys/tests.rs:118`). **The limit: the check is only as wide as the
+adapters that count.** `Warehouse::declared_key` defaults to `KeyUniqueness::NotAsked`, so an adapter
+that does not implement it is not asked and its bundle is not refused on the default - the declaration
+is checked against the data where an adapter counts, and trusted where it does not. Reading the
+cardinality from DataHub does not change this, and the base record's point stands: DataHub validates
+nothing about the rows, and moving the person who is trusted is not a check. What moved is that a
+deployment's own boot path now checks the declaration against the data the deployment's adapter can
+reach, where that adapter counts.

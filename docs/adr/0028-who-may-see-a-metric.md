@@ -175,3 +175,19 @@ allows the digest carried by an answer to describe definitions other than those 
   leg of impersonation ran.
 - No visibility declaration, caller-filtered type, refusal-path change or transport integration is
   implemented by this record.
+
+## Amendment, 2026-09-26: the declaration, the view and the filter are built, and one door is open
+
+The status line says "nothing is built" and that no visibility declaration, caller-filtered view or
+request-time filter is in the tree; *Consequences and limits* repeats it. All three exist now: a metric
+carries an `Audience` (`crates/sutura-domain/src/catalog/audience.rs`), `ScopedView` is the
+caller-filtered type with no public constructor but `everything` and `granted_by`, and
+`sutura_app::scoped_for` builds one per request for the HTTP catalog route, every question's compile
+and the streamable-HTTP MCP transport's `describe_catalog`. The stdio MCP row still holds: it
+establishes no caller and keeps the whole bundle.
+
+**The door this does not close.** The table's "the prompt renderer has no served endpoint today" is
+false: the served agent surface renders `initialize.instructions` once over the WHOLE bundle, so an
+audience-restricted metric's name and its knowledge reach every verified caller there.
+`sutura_mcp::server`'s own documentation names this as the follow-up, and the "no renderer that can
+bypass the filtered input" boundary this record asks for does not hold of that renderer yet.

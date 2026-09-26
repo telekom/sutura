@@ -150,6 +150,14 @@ where
         #[source]
         cause: MalformedRowSet,
     },
+    /// The collected result would cost more than this adapter's materialisation budget to hold.
+    ///
+    /// The sibling of [`Self::Shape`] for the byte budget the port's
+    /// [`result_did_not_fit`](sutura_domain::warehouse::Warehouse::result_did_not_fit) reads: a
+    /// result refused for crossing it is *the result did not fit*, never a transport failure, so a
+    /// caller is refused rather than told to retry.
+    #[error("a result would cost more than the {most_bytes}-byte materialisation budget to hold")]
+    OverBudget { most_bytes: usize },
     /// A key probe's result was not the pair of counts its statement projects.
     #[error("the key probe did not come back as two counts")]
     KeyCounts {
@@ -169,6 +177,9 @@ type ChResult<T, E> = core::result::Result<T, ClickHouseError<E>>;
 pub struct ClickHouseWarehouse<T> {
     source: SourceName,
     posture: SourcePosture,
+    /// The materialisation budget this adapter bounds every collected result with, derived by the
+    /// composition root from the same working-set ceiling that sizes the in-process engine.
+    result_budget: sutura_domain::warehouse::ResultBudget,
     transport: T,
 }
 
@@ -187,10 +198,16 @@ where
     /// Opens an adapter over an already-constructed transport - `T = transport::Http` for a real
     /// connection, and a fake for the conformance pack.
     #[must_use]
-    pub const fn of(source: SourceName, posture: SourcePosture, transport: T) -> Self {
+    pub const fn of(
+        source: SourceName,
+        posture: SourcePosture,
+        transport: T,
+        result_budget: sutura_domain::warehouse::ResultBudget,
+    ) -> Self {
         Self {
             source,
             posture,
+            result_budget,
             transport,
         }
     }
@@ -223,11 +240,15 @@ where
     }
 
     fn run(&self, query: &GeneratedQuery, deadline: Deadline) -> ChResult<RowSet, T::Error> {
+        self.run_with_limit(query, deadline, None)
+    }
+
+    fn run_with_limit(&self, query: &GeneratedQuery, deadline: Deadline, most_rows: Option<usize>) -> ChResult<RowSet, T::Error> {
         let body = self
             .transport
             .run(query.sql(), query.params(), deadline)
             .map_err(|cause| ClickHouseError::Endpoint { cause })?;
-        rows_from_json(&body)
+        rows_from_json_with_limit(&body, self.result_budget, most_rows)
     }
 }
 
@@ -258,7 +279,7 @@ where
     ) -> Result<ResultBatches, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
-        let rows = self.run(&query, deadline)?;
+        let rows = self.run_with_limit(&query, deadline, executable.row_limit())?;
         // The Arrow port's conversion, in the adapter that owns the row-speaking driver - see
         // `sutura_domain::warehouse::arrow`.
         of_row_set(&rows).map_err(|cause| ClickHouseError::Shape { cause })
@@ -289,6 +310,21 @@ where
     fn deadline_exceeded(&self, error: &Self::Error) -> bool {
         matches!(*error, ClickHouseError::Endpoint { ref cause } if self.transport.deadline_exceeded(cause))
     }
+
+    /// Answers for the MATERIALISATION BUDGET alone: `rows_from_json` collects against this
+    /// adapter's own budget, so a result refused for crossing it is exactly *the result did not
+    /// fit* - a governance outcome the caller cannot retry past, reached as a refusal rather than
+    /// the `503` a transport failure would mean. The transport's own wire-read cap is classified
+    /// the same way, through the transport's own [`result_too_large`](ClickHouseTransport::result_too_large)
+    /// predicate - so a response too large to read off the wire is also a result that did not fit.
+    /// Every other failure shape stays `false`.
+    fn result_did_not_fit(&self, error: &Self::Error) -> bool {
+        match *error {
+            ClickHouseError::OverBudget { .. } => true,
+            ClickHouseError::Endpoint { ref cause } => self.transport.result_too_large(cause),
+            _ => false,
+        }
+    }
 }
 
 /// A wide placeholder budget for the two boot-only port methods, which have no caller-facing
@@ -308,7 +344,24 @@ fn boot_deadline() -> Deadline {
 
 /// Decodes a `JSONCompactEachRowWithNamesAndTypes` response body into a [`RowSet`]: a names row, a
 /// types row, then one row per result row - each a JSON array on its own line.
-fn rows_from_json<E>(body: &[u8]) -> ChResult<RowSet, E>
+///
+/// Collected against `budget`, so a result that will not fit is refused at the row that crosses
+/// the line rather than after every row has been decoded into memory - the `ClickHouse` half of the
+/// byte budget the other row-speaking adapters share through
+/// [`sutura_domain::warehouse::Budgeted`].
+#[cfg(test)]
+fn rows_from_json<E>(body: &[u8], budget: sutura_domain::warehouse::ResultBudget) -> ChResult<RowSet, E>
+where
+    E: core::error::Error + 'static,
+{
+    rows_from_json_with_limit(body, budget, None)
+}
+
+fn rows_from_json_with_limit<E>(
+    body: &[u8],
+    budget: sutura_domain::warehouse::ResultBudget,
+    most_rows: Option<usize>,
+) -> ChResult<RowSet, E>
 where
     E: core::error::Error + 'static,
 {
@@ -320,7 +373,7 @@ where
             expected: "a names row and a types row of equal width",
         });
     }
-    let mut out: Vec<Vec<Value>> = Vec::new();
+    let mut collected = sutura_domain::warehouse::Budgeted::collecting(budget);
     for row in values {
         let row = row.map_err(|_cause| ClickHouseError::MalformedResponse {
             expected: "one JSON array per row",
@@ -339,9 +392,14 @@ where
         for (label, (kind, cell)) in names.iter().zip(types.iter().zip(cells)) {
             mapped.push(cell_of(label, kind, cell)?);
         }
-        out.push(mapped);
+        collected.push(mapped).map_err(|cause| ClickHouseError::OverBudget {
+            most_bytes: cause.most_bytes(),
+        })?;
+        if most_rows.is_some_and(|most| collected.delivered() >= most) {
+            break;
+        }
     }
-    RowSet::new(names, out).map_err(|cause| ClickHouseError::Shape { cause })
+    collected.finish(names).map_err(|cause| ClickHouseError::Shape { cause })
 }
 
 fn read_string_array<E>(item: Option<serde_json::Result<serde_json::Value>>) -> ChResult<Vec<String>, E>

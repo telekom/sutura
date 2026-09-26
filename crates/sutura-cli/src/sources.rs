@@ -443,7 +443,7 @@ fn from_the_registry(
                     given.display()
                 ));
             }
-            clickhouse::open(source, configured, registry)
+            clickhouse::open(source, configured, registry, working_set(runtime))
         }
         sutura_config::SourceKind::Oracle => {
             if let Some(given) = data {
@@ -454,7 +454,7 @@ fn from_the_registry(
                     given.display()
                 ));
             }
-            oracle::open(source, configured, registry)
+            oracle::open(source, configured, registry, working_set(runtime))
         }
     }
 }

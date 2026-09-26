@@ -3,11 +3,12 @@
 //! `tests/fixtures/wren-import`: a golden snapshot of every generated document plus the refusal
 //! report, and a proof that the converted catalog loads and answers one question.
 //!
-//! **Spawns the compiled binary, and that departs from `tests/example.rs`'s own rule.** That
-//! file's header explains why it drives libraries instead: `sutura-cli` has no lib target, so
-//! `crate::import` is invisible from an integration test - there is no library call to make. What
-//! spawning buys back is real: this is the only place the actual argv, exit code and stdout the
-//! command prints are exercised at all. The load-and-answer half below spawns nothing; it drives
+//! **Spawns the compiled binary, and that departs from `tests/example.rs`'s own rule** of driving
+//! libraries. The conversion itself is a library call now (`sutura_catalog_wren::import`, whose own
+//! unit cells cover the recognisers and the refusal kinds), but `sutura-cli` has no lib target, so
+//! the command's argument parsing and the two lines it prints are reachable only through the
+//! binary. This is the only place the actual argv, exit code and stdout the command prints are
+//! exercised at all. The load-and-answer half below spawns nothing; it drives
 //! `sutura_catalog_local` and `sutura_app` directly, exactly as `tests/example.rs` does, over the
 //! directory the binary just wrote.
 

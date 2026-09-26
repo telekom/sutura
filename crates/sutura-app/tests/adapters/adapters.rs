@@ -119,6 +119,16 @@ pub(crate) fn posture() -> sutura_domain::source::SourcePosture {
     }
 }
 
+/// The materialisation budget every row-speaking data system in this matrix is opened with - a
+/// gibibyte, like the engine's own ceiling, for the reason that datafusion impl gives. The corpus
+/// is a few hundred rows, so no question comes near the bound; the bound's own assertions live in
+/// each adapter's own suite.
+pub(crate) fn result_budget() -> sutura_domain::warehouse::ResultBudget {
+    sutura_domain::warehouse::ResultBudget::of_bytes(
+        core::num::NonZeroUsize::new(1024 * 1024 * 1024).expect("a gibibyte is positive"),
+    )
+}
+
 /// What one leg of an answer in this matrix executes as.
 ///
 /// Read off [`posture`] rather than written again, so the credential a leg presents and the posture
@@ -396,7 +406,7 @@ impl DataSystemUnderTest for sutura_exec_duckdb::DuckDbWarehouse {
     const NAME: &'static str = "duckdb";
 
     fn open(pinned: &PinnedDefinitions) -> Self {
-        let warehouse = Self::in_memory(source(), posture()).expect("an in-memory database opens");
+        let warehouse = Self::in_memory(source(), posture(), result_budget()).expect("an in-memory database opens");
         for (table, csv) in fixture_tables(pinned) {
             warehouse
                 .attach_csv(&table, &csv)
@@ -459,6 +469,7 @@ impl DataSystemUnderTest for sutura_exec_clickhouse::ClickHouseWarehouse<sutura_
             sutura_exec_clickhouse::transport::Endpoint::plaintext(endpoint.host(), endpoint.port()),
             auth,
             &database,
+            result_budget(),
         )
         .unwrap_or_else(|e| panic!("clickhouse did not open at {endpoint}: {e}"));
         for (table, csv) in fixture_tables(pinned) {

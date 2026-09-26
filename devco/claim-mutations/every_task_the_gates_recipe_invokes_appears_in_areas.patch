@@ -1,0 +1,13 @@
+diff --git a/xtask/src/task_table/deps.rs b/xtask/src/task_table/deps.rs
+index 97e9e4a2..44d32c2f 100644
+--- a/xtask/src/task_table/deps.rs
++++ b/xtask/src/task_table/deps.rs
+@@ -124,7 +124,7 @@ pub(crate) const TASKS: &[Task] = &[
+         // the same reason, and it reads the same declaration. What it closes is a whole category
+         // of test that was compiled by that gate and executed by no venue at all - the module's
+         // header carries the count and the measurement.
+-        name: "check-default-feature-tests",
++        name: "check-default-features-tests",
+         description: "every shipped package runs its tests at cargo's default features",
+         kind: Kind::Standalone,
+         falsifier: Falsifier::declared_in_programme(),

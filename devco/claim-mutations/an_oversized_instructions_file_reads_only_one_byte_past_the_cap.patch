@@ -1,0 +1,11 @@
+diff --git a/crates/sutura-cli/src/commands.rs b/crates/sutura-cli/src/commands.rs
+--- a/crates/sutura-cli/src/commands.rs
++++ b/crates/sutura-cli/src/commands.rs
+@@ -353,6 +353,6 @@ fn prompt_inputs(settings: &sutura_config::PromptSettings) -> Result<ResolvedPromptText, String> {
+                 .map_err(|cause| format!("prompt.instructions_max_bytes exceeds the supported size: {cause}"))?;
+             let mut bytes = Vec::new();
+-            file.take(bound + 1)
++            file.take(bound + 65)
+                 .read_to_end(&mut bytes)
+                 .map_err(|e| format!("prompt.instructions_file is {} and it could not be read: {e}", path.display()))?;
+             if bytes.len() > cap {

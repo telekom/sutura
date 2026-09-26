@@ -1,0 +1,14 @@
+--- a/crates/sutura-catalog-wren/src/lib.rs
++++ b/crates/sutura-catalog-wren/src/lib.rs
+@@ -77,10 +77,7 @@
+         path: manifest_path.clone(),
+         source,
+     })?;
+-    let manifest: wire::Manifest = serde_json::from_str(&text).map_err(|source| ImportError::NotAManifest {
+-        path: manifest_path.clone(),
+-        source,
+-    })?;
++    let manifest: wire::Manifest = serde_json::from_str(&text).map_err(|_source| ImportError::DestinationNotEmpty(manifest_path.clone()))?;
+     match fs::read_dir(destination) {
+         Ok(mut entries) => {
+             if entries.next().is_some() {

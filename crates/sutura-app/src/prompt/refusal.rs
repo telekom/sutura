@@ -109,6 +109,12 @@ const TOO_MANY_DIMENSIONS: Guide = Guide {
     remedy: "Ask a narrower question, or ask two questions.",
 };
 
+const TOO_MANY_FILTERS: Guide = Guide {
+    reason: "too_many_filters",
+    meaning: "more filters than one question may carry",
+    remedy: "Ask a narrower question, or ask two questions.",
+};
+
 // ONE guide for three bounds, and the prose says all three rather than the row cap alone. The
 // refusal carries a `ResultBound` naming which one fired, and a caller reads that in the sentence
 // the transport rendered; what the prompt lists is what a refusal MEANS and what to do about it,
@@ -298,6 +304,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     &DIMENSION_VALUE_NOT_ALLOWED,
     &DUPLICATE_DIMENSION,
     &TOO_MANY_DIMENSIONS,
+    &TOO_MANY_FILTERS,
     &RESULT_TOO_LARGE,
     &TIME_RANGE_TOO_LONG,
     // Actionable, and last of the actionable ones: the remedy is the same narrowing
@@ -361,6 +368,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::DimensionValueNotAllowed { .. } => &DIMENSION_VALUE_NOT_ALLOWED,
         RefusalReason::DuplicateDimension { .. } => &DUPLICATE_DIMENSION,
         RefusalReason::TooManyDimensions { .. } => &TOO_MANY_DIMENSIONS,
+        RefusalReason::TooManyFilters { .. } => &TOO_MANY_FILTERS,
         RefusalReason::ResultTooLarge { .. } => &RESULT_TOO_LARGE,
         RefusalReason::TimeRangeTooLong { .. } => &TIME_RANGE_TOO_LONG,
         RefusalReason::ResourcesExhausted { .. } => &RESOURCES_EXHAUSTED,
@@ -415,14 +423,11 @@ pub(super) fn refusals() -> String {
 }
 
 const REFUSAL_INTRO: &str = "\
-A declined question was ANSWERED, not dropped: the service read it, applied the definitions, and the
-answer is no. The outcome is `refusal`, carrying a typed reason and one sentence saying what to
-change. It is not a timeout, not an outage, and not a malformed request.
+A declined question was answered with a `refusal`: a typed reason and one sentence saying what to
+change. It is not a timeout, outage, or malformed request.
 
-**Over HTTP a refusal arrives with an error status rather than a success one**, which is not a
-transport problem and not a reason to try again. The reason is what to act on: the body repeats it
-as a machine-readable `code`, and the name below is that same `code` - lower case, with
-underscores. The status only says which class of no it is.
+**Over HTTP a refusal arrives with an error status**, but it is still a governed answer. Act on the
+body's machine-readable `code`, listed below in lower case with underscores.
 
 **Do not retry a refused question unchanged.** Repeating the same question will not change the
 answer, and a loop that keeps asking is a loop that consumes the deployment's budget to learn

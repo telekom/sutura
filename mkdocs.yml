@@ -237,6 +237,7 @@ nav:
       - The local chat demo: demo.md
       - Integrations: integrations.md
       - Where each identity claim is proven: where-identity-is-proven.md
+      - How a federated join key is compared: how-a-join-key-is-compared.md
       - An RDBMS dictionary as a metadata source: rdbms-catalog-guidance.md
       - What an agent identity can carry: what-agent-identity-can-carry.md
       - What an OKF-style catalog can carry: what-okf-can-carry.md
@@ -257,6 +258,7 @@ nav:
           - sutura-catalog-datacontract: api/sutura-catalog-datacontract.md
           - sutura-catalog-openmetadata: api/sutura-catalog-openmetadata.md
           - sutura-catalog-rdbms: api/sutura-catalog-rdbms.md
+          - sutura-catalog-wren: api/sutura-catalog-wren.md
           - sutura-semantic: api/sutura-semantic.md
           - sutura-sql: api/sutura-sql.md
           - sutura-exec-datafusion: api/sutura-exec-datafusion.md

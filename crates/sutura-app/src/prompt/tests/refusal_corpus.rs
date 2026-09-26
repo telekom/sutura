@@ -12,7 +12,7 @@
 //! documents.
 
 use sutura_domain::model::{Aggregate, Grain, ModelName, SourceName, TableName};
-use sutura_domain::query::{MAX_DIMENSIONS, MAX_METRICS, MAX_RANGE_DAYS, RefusalReason, ResultBound};
+use sutura_domain::query::{MAX_DIMENSIONS, MAX_FILTERS, MAX_METRICS, MAX_RANGE_DAYS, RefusalReason, ResultBound};
 
 use super::{dimension_name, metric_name};
 
@@ -65,6 +65,10 @@ pub(super) fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::TooManyDimensions {
             requested: 9,
             limit: MAX_DIMENSIONS,
+        },
+        RefusalReason::TooManyFilters {
+            requested: MAX_FILTERS + 1,
+            limit: MAX_FILTERS,
         },
         RefusalReason::ResultTooLarge {
             bound: ResultBound::Rows { limit: 10_000 },
@@ -157,6 +161,7 @@ fn guide_key_carries_every_variant() {
             | RefusalReason::DimensionValueNotAllowed { .. }
             | RefusalReason::DuplicateDimension { .. }
             | RefusalReason::TooManyDimensions { .. }
+            | RefusalReason::TooManyFilters { .. }
             | RefusalReason::ResultTooLarge { .. }
             | RefusalReason::TimeRangeTooLong { .. }
             | RefusalReason::PlanSpansTooManySources { .. }

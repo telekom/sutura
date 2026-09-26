@@ -47,8 +47,7 @@ fn a_ratio_measure_splits_on_the_top_level_slash_only() {
         }
         other => panic!("expected a ratio, got {}", other.is_some()),
     }
-    // A slash inside a nested call must not split the measure - there is none in this vocabulary,
-    // but the scan must still see it as depth rather than as the top-level separator.
+    // A slash inside a call is no ratio: the split leaves `SUM(a ` and ` b)`, and neither is a term.
     assert!(measure("SUM(a / b)").is_none());
 }
 

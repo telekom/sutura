@@ -121,7 +121,20 @@ pub enum OracleError {
         #[source]
         cause: MalformedRowSet,
     },
+    /// The collected result would cost more than this adapter's materialisation budget to hold.
+    ///
+    /// The sibling of [`Self::Shape`] for the byte budget the port's
+    /// [`result_did_not_fit`](sutura_domain::warehouse::Warehouse::result_did_not_fit) reads: a
+    /// result refused for crossing it is *the result did not fit*, never a data-system failure, so
+    /// a caller is refused rather than told to retry.
+    #[error("a result would cost more than the {most_bytes}-byte materialisation budget to hold")]
+    OverBudget { most_bytes: usize },
     /// A key probe's result was not the pair of counts its statement projects.
+    ///
+    /// A defect in the rendering or in this adapter's value mapping, never anything about the data:
+    /// the probe projects two aggregates over no group, so one row of two integers is the only
+    /// shape it can have. It travels as an `Err` from the port, which the boot path reads as *this
+    /// declaration went unchecked* rather than as a violated one.
     #[error("the key probe did not come back as two counts")]
     KeyCounts {
         #[source]
@@ -160,6 +173,11 @@ pub enum OracleError {
 pub struct OracleWarehouse {
     source: sutura_domain::model::SourceName,
     posture: sutura_domain::source::SourcePosture,
+    /// The materialisation budget this adapter bounds every collected result with, derived by the
+    /// composition root from the same working-set ceiling that sizes the in-process engine. There
+    /// is no unset state: every constructor requires one, so a call site with no budget does not
+    /// compile.
+    result_budget: sutura_domain::warehouse::ResultBudget,
     connection: oracledb::Connection,
     /// Serializes every call - see the module header for why.
     execution_lock: Mutex<()>,
@@ -184,8 +202,16 @@ impl OracleWarehouse {
         service_name: &str,
         user: &str,
         password: &str,
+        result_budget: sutura_domain::warehouse::ResultBudget,
     ) -> Result<Self, OracleError> {
-        Self::connect_string(source, posture, &ezconnect(host, port, service_name), user, password)
+        Self::connect_string(
+            source,
+            posture,
+            &ezconnect(host, port, service_name),
+            user,
+            password,
+            result_budget,
+        )
     }
 
     /// Opens one connection over `tcps://host:port/service_name`, with the driver's own wallet-based
@@ -200,6 +226,7 @@ impl OracleWarehouse {
         service_name: &str,
         user: &str,
         password: &str,
+        result_budget: sutura_domain::warehouse::ResultBudget,
         wallet: Option<&OracleWallet>,
     ) -> Result<Self, OracleError> {
         let connect_string = format!("tcps://{}", ezconnect(host, port, service_name));
@@ -218,7 +245,7 @@ impl OracleWarehouse {
                 .set_wallet_location(wallet.location.clone())
                 .set_wallet_password(password);
         }
-        Self::open(source, posture, config)
+        Self::open(source, posture, config, result_budget)
     }
 
     /// The shared entry point both constructors above reduce to.
@@ -228,23 +255,26 @@ impl OracleWarehouse {
         connect_string: &str,
         user: &str,
         password: &str,
+        result_budget: sutura_domain::warehouse::ResultBudget,
     ) -> Result<Self, OracleError> {
         let config = oracledb::Config::default()
             .set_connect_string(connect_string)
             .map_err(|cause| OracleError::Connect { cause: cause.into() })?
             .set_credentials(user, password);
-        Self::open(source, posture, config)
+        Self::open(source, posture, config, result_budget)
     }
 
     fn open(
         source: sutura_domain::model::SourceName,
         posture: sutura_domain::source::SourcePosture,
         config: oracledb::Config,
+        result_budget: sutura_domain::warehouse::ResultBudget,
     ) -> Result<Self, OracleError> {
         let connection = oracledb::connect(config).map_err(|cause| OracleError::Connect { cause: cause.into() })?;
         Ok(Self {
             source,
             posture,
+            result_budget,
             connection,
             execution_lock: Mutex::new(()),
         })
@@ -266,6 +296,7 @@ impl OracleWarehouse {
         host: &str,
         port: u16,
         credential: &fixture::FixtureCredential,
+        result_budget: sutura_domain::warehouse::ResultBudget,
     ) -> Result<Self, OracleError> {
         Self::connect(
             source,
@@ -275,6 +306,7 @@ impl OracleWarehouse {
             "FREEPDB1",
             credential.user(),
             credential.password().expose_secret(),
+            result_budget,
         )
     }
 
@@ -317,7 +349,12 @@ impl OracleWarehouse {
     /// One round trip: set the connection's call timeout to what `deadline` has left (never
     /// forwarding an expired one - see [`refuse_if_spent`]), run the statement, and read every row
     /// through [`Self::cell`].
-    fn run_with_deadline(&self, query: &GeneratedQuery, deadline: Deadline) -> Result<RowSet, OracleError> {
+    fn run_with_deadline(
+        &self,
+        query: &GeneratedQuery,
+        deadline: Deadline,
+        most_rows: Option<usize>,
+    ) -> Result<RowSet, OracleError> {
         let _guard = self.execution_lock.lock();
         let remaining = refuse_if_spent(deadline)?;
         self.connection
@@ -326,7 +363,7 @@ impl OracleWarehouse {
         let bound = Self::bind(query.params());
         let refs: Vec<&dyn oracledb::ToDbValue> = bound.iter().map(OracleParam::as_dyn).collect();
         let cursor = self.connection.query(query.sql(), &refs).map_err(execute_err_mapped)?;
-        rows_from_cursor(cursor)
+        rows_from_cursor(cursor, self.result_budget, most_rows)
     }
 
     /// The boot path's own runner - no deadline, called only from [`Warehouse::verify_anchor`] and
@@ -339,7 +376,7 @@ impl OracleWarehouse {
         let bound = Self::bind(query.params());
         let refs: Vec<&dyn oracledb::ToDbValue> = bound.iter().map(OracleParam::as_dyn).collect();
         let cursor = self.connection.query(query.sql(), &refs).map_err(execute_err_mapped)?;
-        rows_from_cursor(cursor)
+        rows_from_cursor(cursor, self.result_budget, None)
     }
 
     /// One cell, as a domain value, dispatched on the column's declared type.
@@ -522,19 +559,41 @@ fn numeric_cell(value: &oracledb::OracleNumber) -> Value {
     text.parse::<i64>().map_or_else(|_| Value::Text(text), Value::Integer)
 }
 
-fn rows_from_cursor(cursor: oracledb::Cursor) -> Result<RowSet, OracleError> {
+fn rows_from_cursor(
+    cursor: oracledb::Cursor,
+    budget: sutura_domain::warehouse::ResultBudget,
+    most_rows: Option<usize>,
+) -> Result<RowSet, OracleError> {
     let columns: Vec<oracledb::Metadata> = cursor.columns().clone();
     let labels: Vec<String> = columns.iter().map(|c| c.name().to_owned()).collect();
-    let mut out: Vec<Vec<Value>> = Vec::new();
-    for row in cursor {
+    let values = cursor.map(|row| {
         let row = row.map_err(execute_err_mapped)?;
-        let mut cells = Vec::with_capacity(columns.len());
-        for (index, (label, column)) in labels.iter().zip(columns.iter()).enumerate() {
-            cells.push(OracleWarehouse::cell(label, column, &row, index)?);
+        columns
+            .iter()
+            .enumerate()
+            .map(|(index, column)| OracleWarehouse::cell(column.name(), column, &row, index))
+            .collect::<Result<Vec<_>, _>>()
+    });
+    collect_rows(labels, values, budget, most_rows)
+}
+
+fn collect_rows(
+    labels: Vec<String>,
+    rows: impl Iterator<Item = Result<Vec<Value>, OracleError>>,
+    budget: sutura_domain::warehouse::ResultBudget,
+    most_rows: Option<usize>,
+) -> Result<RowSet, OracleError> {
+    let mut collected = sutura_domain::warehouse::Budgeted::collecting(budget);
+    for cells in rows {
+        let cells = cells?;
+        collected.push(cells).map_err(|cause| OracleError::OverBudget {
+            most_bytes: cause.most_bytes(),
+        })?;
+        if most_rows.is_some_and(|most| collected.delivered() >= most) {
+            break;
         }
-        out.push(cells);
     }
-    RowSet::new(labels, out).map_err(|cause| OracleError::Shape { cause })
+    collected.finish(labels).map_err(|cause| OracleError::Shape { cause })
 }
 
 /// The error from the RUN of a statement, with the one server refusal this adapter refuses to
@@ -623,7 +682,7 @@ impl Warehouse for OracleWarehouse {
     ) -> Result<ResultBatches, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
-        let rows = self.run_with_deadline(&query, deadline)?;
+        let rows = self.run_with_deadline(&query, deadline, executable.row_limit())?;
         // The Arrow port's conversion, in the adapter that owns the row-speaking driver - see
         // `sutura_exec_postgres`'s own `execute` and `sutura_domain::warehouse::arrow`.
         of_row_set(&rows).map_err(|cause| OracleError::Shape { cause })
@@ -652,16 +711,56 @@ impl Warehouse for OracleWarehouse {
     fn source_refused(&self, error: &Self::Error) -> bool {
         matches!(*error, OracleError::Execute { ref cause } if cause.names_ora_code("ORA-01031"))
     }
+
+    /// Answers for the MATERIALISATION BUDGET alone: `rows_from_cursor` collects against this
+    /// adapter's own budget, so a result refused for crossing it is exactly *the result did not
+    /// fit* - a governance outcome the caller cannot retry past, reached as a refusal rather than
+    /// the `503` a data-system failure would mean. Every other failure shape stays `false`.
+    fn result_did_not_fit(&self, error: &Self::Error) -> bool {
+        matches!(*error, OracleError::OverBudget { .. })
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::time::{Duration, Instant};
 
     use sutura_domain::plan::Executable;
     use sutura_domain::warehouse::deadline::{Budget, Deadline};
+    use sutura_domain::warehouse::{ResultBudget, Value};
 
-    use super::{OracleWarehouse, ezconnect, refuse_if_spent};
+    use super::{OracleError, OracleWarehouse, collect_rows, ezconnect, refuse_if_spent};
+
+    fn result_budget(bytes: usize) -> ResultBudget {
+        ResultBudget::of_bytes(core::num::NonZeroUsize::new(bytes).expect("a test budget is positive"))
+    }
+
+    #[test]
+    fn an_oracle_row_stream_stops_at_the_answer_witness() {
+        let read = Cell::new(0_usize);
+        let rows = std::iter::from_fn(|| {
+            read.set(read.get().saturating_add(1));
+            Some(Ok(vec![Value::Integer(1)]))
+        });
+        let result =
+            collect_rows(vec![String::from("value")], rows, result_budget(1024), Some(2)).expect("two rows fit the byte budget");
+        assert_eq!(result.rows().len(), 2);
+        assert_eq!(read.get(), 2, "the third row was never decoded");
+    }
+
+    #[test]
+    fn an_oracle_row_stream_refuses_when_the_second_row_crosses_the_byte_budget() {
+        let read = Cell::new(0_usize);
+        let rows = std::iter::from_fn(|| {
+            read.set(read.get().saturating_add(1));
+            Some(Ok(vec![Value::Text("x".repeat(200))]))
+        });
+        let error = collect_rows(vec![String::from("value")], rows, result_budget(1000), None)
+            .expect_err("the second row exceeds the conversion budget");
+        assert!(matches!(error, OracleError::OverBudget { most_bytes: 1000 }), "{error:?}");
+        assert_eq!(read.get(), 2, "the third row was never decoded");
+    }
 
     /// **An IPv6 loopback literal is dialled, not looked up.** `sutura-config` accepts `::1` as a
     /// loopback host; unbracketed, the driver reads the whole string as a `tnsnames.ora` alias and

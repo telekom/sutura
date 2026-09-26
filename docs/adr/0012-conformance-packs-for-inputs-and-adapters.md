@@ -13,26 +13,28 @@ below is what is built and what holds it; the paragraph after that is the limit,
 read before citing this record.
 
 **Corrected: most of it is built now.** `crates/sutura-conformance` exists as the dev-only packs
-crate this record specifies; `execute_packs!` binds it to three data systems
-(`sutura-exec-duckdb`, `sutura-exec-postgres`, `sutura-exec-datafusion` - the engine); compile packs
-run behind the harness crate's default-off `compile` feature; and `cargo xtask
-check-conformance-bindings` (`xtask/src/conformance.rs`) is the gate the *Consequences* section
-below asks for, holding the registry and the macro invocation in step. What is still unbuilt,
-named individually rather than counted because an earlier version of this sentence undercounted
-it: a per-pack timing aggregate and `cargo-insta`'s unreferenced-snapshot check, both decided as a
-plan further down rather than built; the three named corpus cases (a filter on a remote dimension
-with an orphan key, a zero-denominator ratio, a `CountDistinct` spanning two join keys) on any
-adapter but one - they are `.case` files now, but only two in-process `sutura-exec-datafusion`
-engines bind the two-warehouse arm that runs them; and a fourth data adapter, `sutura-exec-bigquery`, which IS built and is
-not yet bound to the packs. The corpus is files, not code - *The corpus is files, not code* below
-is how that is built.
+crate this record specifies; `execute_packs!` binds it to five data systems
+(`sutura-exec-datafusion` - the engine, `sutura-exec-duckdb`, `sutura-exec-postgres`,
+`sutura-exec-clickhouse`, and `sutura-exec-bigquery`); compile packs run behind the harness
+crate's default-off `compile` feature; and `cargo xtask check-conformance-bindings`
+(`xtask/src/conformance.rs`) is the gate the *Consequences* section below asks for, holding the
+registry and the macro invocation in step. What is still unbuilt, named individually rather than
+counted because an earlier version of this sentence undercounted it: a per-pack timing aggregate
+and `cargo-insta`'s unreferenced-snapshot check, both decided as a plan further down rather than
+built; and the three named corpus cases (a filter on a remote dimension with an orphan key, a
+zero-denominator ratio, a `CountDistinct` spanning two join keys) on any adapter but one - they
+are `.case` files now, but only two in-process `sutura-exec-datafusion` engines bind the
+two-warehouse arm that runs them. The corpus is files, not code - *The corpus is files, not code*
+below is how that is built.
 
 **The limit, next to the claim, because the shape is further along than the coverage.** A case is a
 tracked data file under `crates/sutura-conformance/corpus/cases/` parsed by a typed loader, so
-adding one is a data edit. **None of the three
-cases under *Cases the corpus must contain by name* is written**, and that module's own header says
-so. The packs call `execute` and `dry_run` and no other `Warehouse` method, so *held to the same test
-bodies* is a statement about two methods. And **no pack exercises impersonation in any form** -
+adding one is a data edit. The three named cases under *Cases the corpus must contain by name* ARE
+written now, but only `tests/federated_bound.rs` binds the two-warehouse arm, over two in-process
+`DataFusion` engines of ONE kind, so these rows say nothing yet about any other adapter - no
+`DuckDB`, `Postgres`, `ClickHouse` or `BigQuery` leg runs the federated cases. The packs call
+`execute` and `dry_run` and no other `Warehouse` method, so *held to the same test bodies* is a
+statement about two methods. And **no pack exercises impersonation in any form** -
 `corpus::posture()` returns `SourcePosture::SharedServiceUser` - which is the one to read before
 citing this record as evidence that a source executed as the asking subject. It is not. What a green
 conformance run does NOT establish is enumerated in that crate's own module header; this paragraph is
@@ -521,3 +523,20 @@ pack body.
   gate holds the shape: the default-feature walk keeps the closure to the interior, a `compile_feature`
   check refuses `default = ["compile"]`, and the `--all-features` lanes of `just test`/`just lint`
   build and run the compile cells, so neither direction is a switch nobody flips.
+
+## Amendment, 2026-09-26: `BigQuery` is bound to the packs, over a canned transport
+
+*What that case detects is NOT our statement of the placement* says `BigQuery` has no
+`execute_packs!` binding, so no corpus cell executes it, and *Two things the case does buy* counts
+three bound engines. Both are stale: five data systems bind the packs now (*Corrected* at the top of
+this record names them), and `BigQuery` is one of them (`telekom/sutura#710`). The conclusion of the
+first paragraph survives the correction, for a reason the old sentence did not give: `BigQuery`'s
+binding answers every case from the corpus's own `Case::expected` rows over a CANNED transport
+(`crates/sutura-exec-bigquery/tests/conformance.rs`), not a live `GoogleSQL` endpoint, so a corpus
+cell executes the canned answer and proves nothing about a real engine's own null ordering. Our
+statement of the placement is still held by `every_order_by_states_nulls_last`, over the AST.
+
+What `Behaviour::Order` over a null key pins is the default null ordering of the LIVE bound engines -
+`DuckDB`, Postgres, `ClickHouse` and the `datafusion` engine - which a version bump could change with
+no diff of ours. It is still a dependency regression detector, over four engines rather than three,
+and it says nothing about `BigQuery`.

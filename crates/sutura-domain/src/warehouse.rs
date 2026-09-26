@@ -97,7 +97,7 @@ pub mod arrow;
 
 pub use arrow::{Accumulating, ResultBatches, ResultBudget, UnannouncedBatch, UnreadableCell};
 pub use cell::{NotFinite, Real, Value};
-pub use rows::{AnchorRows, MalformedRowSet, RowSet};
+pub use rows::{AnchorRows, Budgeted, MalformedRowSet, RowBudgetExceeded, RowSet};
 
 use crate::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
 use crate::warehouse::deadline::Deadline;

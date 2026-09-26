@@ -22,7 +22,9 @@ use sutura_domain::model::{DimensionName, Grain, MetricName, ModelName};
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::RowCeiling;
-use sutura_domain::query::{Filter, MAX_DIMENSIONS, MAX_METRICS, MAX_RANGE_DAYS, Query, RefusalReason, ResultBound, Top};
+use sutura_domain::query::{
+    Filter, MAX_DIMENSIONS, MAX_FILTERS, MAX_METRICS, MAX_RANGE_DAYS, Query, RefusalReason, ResultBound, Top,
+};
 
 /// A dimension, and the chain of joins needed to reach it.
 pub(crate) struct ResolvedDimension<'a> {
@@ -272,6 +274,13 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
     // A separate `seen` set from the group-by keys: filtering on a dimension that is also grouped by
     // is a perfectly ordinary question ("revenue by region, in the north"), while filtering on the
     // same dimension twice is a contradiction.
+    if query.filters().len() > MAX_FILTERS {
+        return Err(RefusalReason::TooManyFilters {
+            requested: query.filters().len(),
+            limit: MAX_FILTERS,
+        }
+        .into());
+    }
     let mut filtered: BTreeSet<&DimensionName> = BTreeSet::new();
     let mut filters = Vec::with_capacity(query.filters().len());
     for filter in query.filters() {

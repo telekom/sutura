@@ -26,7 +26,7 @@ gh-pages/
   latest/         alias, moved onto each release - HTML redirects, one per page
   0.2.0/
   0.1.0/
-  main/           the development docs, overwritten on every push to main
+  main/           the development docs, overwritten by a push to main that touches them
 ```
 
 | Event                           | Deploys                        | Alias                                                                   |
@@ -91,7 +91,8 @@ light mode.
 
 ## Brand assets
 
-`docs/css/telekom.css` makes Telekom magenta (`#E20074`) the Material `custom` primary and accent.
+`docs/css/telekom.css` makes Telekom magenta (`#E20074`) the Material `custom` primary, with a
+darker or lifted shade of it as the accent.
 The header, links and hover states come from four variables. The two colour schemes differ only
 because `#E20074` clears WCAG AA on Material's light background and not on its dark one; the
 measured ratios sit next to each value.
@@ -104,7 +105,7 @@ Both image slots are filled by an original mark rather than by any Telekom trade
 | Favicon     | `docs/assets/favicon.svg`, plus `favicon.png` | `favicon: assets/favicon.svg` |
 
 The mark is a hexagon cut into two congruent halves whose seam never closes: a seam is what
-*sutura* means, the hexagon is the ports-and-adapters shape, and the seam channel reads as an S.
+*sutura* means, the hexagon is the ports-and-adapters shape, and the seam is one straight, full-bleed channel.
 Each half is the other rotated 180 degrees about the centre, so the optical weight is equal by
 construction. The favicon is drawn separately rather than scaled, because the primary mark turns to
 mud at 16px.

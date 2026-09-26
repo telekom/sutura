@@ -356,6 +356,7 @@ fn gated_declarations(path: &str, text: &str) -> Vec<Gated> {
             let (at, item) = item_below(&lines, index + 1)?;
             let one = ChangedFile {
                 path: String::from(path),
+                before: String::from(path),
                 added: vec![AddedLine::new(at + 1, item)],
                 // A SYNTHETIC file, not a diff: this stands the declaration up so
                 // `super::place` can read it. Nothing was removed because nothing was diffed.

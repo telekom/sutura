@@ -297,3 +297,21 @@ Held by fake-statement cells in `adbc/tests.rs`. **The limit:** `jobTimeoutMs` i
 best-effort stop, this process cancels nothing itself (the driver's `Statement::cancel` is not
 wired), a job stopped that way reads as a job failure rather than `deadline_exceeded`, and none of it
 has been run against the service yet.
+
+## Third amendment, 2026-09-26: the adapter cancels the job, and the MCP server reads a peer's cancellation
+
+The paragraph opened **Third amendment** above sits inside the second amendment's section, so this
+is the third `##` amendment. It corrects two sentences:
+
+1. That paragraph's limit says "this process cancels nothing itself (the driver's
+   `Statement::cancel` is not wired)". `adbc::run_to_deadline` now races the call against the
+   port's deadline; when the deadline fires it answers `AdbcError::DeadlineElapsed`, which
+   `deadline_exceeded` reads, and asks a clone of the statement to `Statement::cancel` on its own
+   thread. That cancel queues behind the driver's statement lock rather than pre-empting a blocking
+   call, and `run_to_deadline`'s own doc states the limit. A job the service stops at
+   `jobTimeoutMs` still reads as a job failure, as that paragraph says.
+2. *Not taken: a cancellation token* says the agent surface delivers `notifications/cancelled` "and
+   nothing reads" it. `sutura_mcp`'s `ask_metric` and `run_sql` arms select on the request's
+   cancellation token and stop waiting when a peer cancels. Stopping the wait cancels no port call.
+
+None of this has been run against the BigQuery service.

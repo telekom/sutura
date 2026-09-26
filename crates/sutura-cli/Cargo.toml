@@ -136,11 +136,9 @@ agent = ["sutura-mcp/http", "sutura-http/agent"]
 [dependencies]
 sutura-app = { workspace = true }
 sutura-catalog-local = { workspace = true }
-# `import wren`'s own wire types - a foreign project's `manifest.json`, never a domain type.
-serde = { workspace = true }
-# `import wren`'s manifest parse. Already in the resolved graph through every crate below that
-# depends on it; this is the first thing in `sutura-cli` itself that names it directly.
-serde_json = { workspace = true }
+# The wren MDL converter, moved out of this binary into its own crate so the
+# composition root carries no business logic (telekom/sutura#1029).
+sutura-catalog-wren = { workspace = true }
 # The settings tree, for `sutura prompt` alone. It is here so the prompt an operator pipes into an
 # agent's configuration is rendered from the SAME layered configuration the service would read -
 # `prompt.instructions_file` and `prompt.catalog_prose`, defaults then files then one variable per
@@ -247,6 +245,11 @@ tracing = { workspace = true }
 mimalloc = { workspace = true }
 
 [dev-dependencies]
+# `#[cfg(test)]` modules in `src/` and the integration tests under `tests/` parse JSON
+# records (audit, MCP, served). Already in the resolved graph through the normal dependencies;
+# this names it for the test code that uses it directly. `import wren`'s parse moved with the
+# converter to `sutura-catalog-wren`, so nothing in the shipped binary's own code names it.
+serde_json = { workspace = true }
 # The hosted served acceptance loads its own BigQuery tables through the adapter's fixture-only
 # importer. This feature is absent from the shipped binary.
 sutura-exec-bigquery = { workspace = true, features = ["fixtures"] }

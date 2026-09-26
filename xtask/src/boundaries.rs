@@ -1,4 +1,4 @@
-//! The architecture-boundary gate. ELEVEN halves - four about which way dependencies point, two
+//! The architecture-boundary gate. TWELVE halves - four about which way dependencies point, two
 //! about one named crate against a class (the application, and the shared HTTP client), two about
 //! the driving port, two about what the crossing looks like, and one about a SECOND graph the
 //! other ten never resolve:
@@ -39,6 +39,8 @@
 //!   OWN `cargo metadata` ([`second_workspace`], `xtask/src/boundaries/second_workspace.rs`), and
 //!   an undeclared one refuses outright - `telekom/sutura#863`: `fuzz/`'s own `[workspace]` table
 //!   makes it a graph none of the halves above ever resolves, allowlist and denylist included
+//! * the composition root defines only its declared adapter-error wrapper (`composition_root`);
+//!   this is a structural signal, not a scan of business logic
 //!
 //! One gate rather than three, because they all answer "is the boundary real?", and because a
 //! rule in its own task has to be transcribed into the justfile, twice into devenv.nix, into
@@ -66,6 +68,7 @@ mod adapters;
 mod answer_path;
 mod api_shape;
 mod application;
+mod composition_root;
 mod edges;
 mod harness;
 mod ports;
@@ -91,6 +94,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let surface = typed_surface();
     let mounts = ungoverned::check();
     let satellites = second_workspaces();
+    let composition = composition_root::check();
     let halves = [
         direction,
         edges,
@@ -103,6 +107,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         surface,
         mounts,
         satellites,
+        composition,
     ];
     if halves.iter().all(|half| *half == Verdict::Pass) {
         Verdict::Pass

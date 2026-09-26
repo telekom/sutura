@@ -354,11 +354,14 @@ pub(crate) fn open_mixed(
         trust_into(&mut attached, pinned, &grouped.postgres);
     }
     if !grouped.clickhouse.is_empty() {
-        engines = Some(accumulate(engines, clickhouse_group(&grouped.clickhouse, registry)?)?);
+        engines = Some(accumulate(
+            engines,
+            clickhouse_group(&grouped.clickhouse, registry, runtime)?,
+        )?);
         trust_into(&mut attached, pinned, &grouped.clickhouse);
     }
     if !grouped.oracle.is_empty() {
-        engines = Some(accumulate(engines, oracle_group(&grouped.oracle, registry)?)?);
+        engines = Some(accumulate(engines, oracle_group(&grouped.oracle, registry, runtime)?)?);
         trust_into(&mut attached, pinned, &grouped.oracle);
     }
 
@@ -489,8 +492,9 @@ fn postgres_group(
 fn clickhouse_group(
     sources: &[&SourceName],
     registry: &sutura_config::SourceRegistry,
+    runtime: sutura_config::RuntimeSettings,
 ) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    let super::OpenedSources::ClickHouse(engines) = super::clickhouse::open_clickhouse(sources, registry)? else {
+    let super::OpenedSources::ClickHouse(engines) = super::clickhouse::open_clickhouse(sources, registry, runtime)? else {
         return Err(String::from(
             "`open_clickhouse` returned an arm this dispatcher does not expect",
         ));
@@ -503,8 +507,9 @@ fn clickhouse_group(
 fn clickhouse_group(
     sources: &[&SourceName],
     registry: &sutura_config::SourceRegistry,
+    runtime: sutura_config::RuntimeSettings,
 ) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    super::clickhouse::open_clickhouse(sources, registry)?;
+    super::clickhouse::open_clickhouse(sources, registry, runtime)?;
     // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
     Err(String::from(
         "`open_clickhouse` returned an open registry on a build with no ClickHouse adapter linked",
@@ -516,8 +521,9 @@ fn clickhouse_group(
 fn oracle_group(
     sources: &[&SourceName],
     registry: &sutura_config::SourceRegistry,
+    runtime: sutura_config::RuntimeSettings,
 ) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    let super::OpenedSources::Oracle(engines) = super::oracle::open_oracle(sources, registry)? else {
+    let super::OpenedSources::Oracle(engines) = super::oracle::open_oracle(sources, registry, runtime)? else {
         return Err(String::from("`open_oracle` returned an arm this dispatcher does not expect"));
     };
     Ok(engines.into_mapped(|engine| AnyWarehouse::Oracle(Box::new(engine))))
@@ -528,8 +534,9 @@ fn oracle_group(
 fn oracle_group(
     sources: &[&SourceName],
     registry: &sutura_config::SourceRegistry,
+    runtime: sutura_config::RuntimeSettings,
 ) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    super::oracle::open_oracle(sources, registry)?;
+    super::oracle::open_oracle(sources, registry, runtime)?;
     // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
     Err(String::from(
         "`open_oracle` returned an open registry on a build with no Oracle adapter linked",

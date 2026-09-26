@@ -133,7 +133,7 @@ use coverage::{Coverage, Scope};
 use diff::changed_with_additions;
 use features::{Activation, BaseText, Trees};
 use place::AddedTest;
-use plan::{Plan, Separable, plan_with_base};
+use plan::{Plan, Separable, partition, plan_with_base};
 use provenance::{Commit, Moved, Reach};
 use refusals::{
     report_deleted_tests, report_enabled_tests, report_head_failure, report_unclaimed_additions, report_unnamed_tests,
@@ -360,6 +360,18 @@ fn reconstruct_and_run(
             scope.moved,
             scope.reverted.attempt(true),
         );
+    }
+
+    // The caller ran declared claim cells first; only unclaimed tests reach this proof.
+    if matches!(outcome, BaseOutcome::DidNotCompile) && held.is_empty() {
+        eprintln!("xtask test-causality: FAILED - the base does not compile with nothing held back");
+        eprintln!("{}", tail(&base_out, 8));
+        for test in scoped.tests() {
+            eprintln!("  unmeasured: {} in {}", test.name(), test.file());
+        }
+        eprintln!("Declare each as a `Claim-Cell:` with a killing mutation, then rerun.");
+        eprintln!("A transient build failure has the same shape; rerun before declaring a claim.");
+        return Verdict::Fail;
     }
 
     report_base(
@@ -615,18 +627,30 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         Relocation::Refused(broken) => return relocation::report_refused(&broken),
     }
 
-    match plan_with_base(&files, &working_tree, &base_tree) {
-        Plan::NotRequired => {
-            println!("xtask test-causality: no changed tests - nothing to prove");
-            Verdict::Pass
-        }
+    // `github.com/telekom/sutura#1068`: a waiver excuses the deletion it names, not the range. A
+    // fully waived set therefore falls through to the plan the deletion check preempted, so a test
+    // the same range adds is still proven.
+    let plan = match plan_with_base(&files, &working_tree, &base_tree) {
         Plan::DeletedTests(deleted) => {
             // A COMMIT MAY WAIVE A NAMED DELETION, and the trailer is a CLAIM this CHECKS against
             // `removed_in`'s own answer - `super::weakens`'s own header carries why it mirrors
             // `Claim-Cell:` rather than a blanket override.
             let waived = weakens::Waived::of(&worktree::messages(&root, &at));
-            report_deleted_tests(&deleted, &waived)
+            match report_deleted_tests(&deleted, &waived) {
+                Verdict::Pass => partition(&files, &working_tree),
+                refused => return refused,
+            }
         }
+        plan => plan,
+    };
+    match plan {
+        Plan::NotRequired => {
+            println!("xtask test-causality: no changed tests - nothing to prove");
+            Verdict::Pass
+        }
+        // `partition` runs no deletion check, so nothing reaches this arm; `clippy::unreachable`
+        // refuses the macro, so it is the refusal with no waiver applied - fail-closed.
+        Plan::DeletedTests(deleted) => report_deleted_tests(&deleted, &weakens::Waived::default()),
         Plan::BaseUnreadable(files) => report_unreadable(&files),
         Plan::NotSeparable {
             files: inseparable,
@@ -754,6 +778,9 @@ pub(crate) fn run(args: &[String]) -> Verdict {
 
 #[cfg(test)]
 mod gas_tests;
+
+#[cfg(test)]
+mod moved_tests;
 
 #[cfg(test)]
 mod tests {

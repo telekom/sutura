@@ -40,10 +40,6 @@
 //! architecture decision rather than a convenience. The derive goes on the wire type, which is
 //! where a wire format belongs anyway.
 //!
-//! A wire type is also allowed to be *worse* than a domain type, and should be. Every field of
-//! [`AskArgs`] is a plain string, because that is what arrives; each one is then parsed into the
-//! newtype that establishes its invariant, and a failure names the field.
-//!
 //! # `deny_unknown_fields`, and what it is for here
 //!
 //! The governance boundary, across a JSON parser. Without it an arguments object carrying `sql:` or
@@ -217,6 +213,8 @@ pub enum MalformedQuestion {
     /// would otherwise carry its own copy of this whole vocabulary.
     #[error(transparent)]
     Question(#[from] sutura_domain::question::MalformedQuestion),
+    #[error("the question exceeds a count limit")]
+    Refused(sutura_domain::query::RefusalReason),
     /// A relative `range` needs a failure mode the domain does not have and must not gain - see
     /// `sutura_runtime::relative_range`, the resolver `sutura-http` shares this variant's whole
     /// purpose with.
@@ -265,7 +263,11 @@ fn query_of(args: AskArgs, clock: &impl sutura_runtime::relative_range::WallCloc
         .top
         .as_ref()
         .map(|top| sutura_domain::question::RawTop::new(top.n, &top.by, &top.direction));
-    let query = sutura_domain::question::parse_query(&args.metrics, &args.grain, &start, &end, &args.dimensions, &filters, top)?;
+    let query = sutura_domain::question::parse_query(&args.metrics, &args.grain, &start, &end, &args.dimensions, &filters, top)
+        .map_err(|cause| match cause {
+        sutura_domain::question::QuestionInputError::Malformed(cause) => MalformedQuestion::Question(cause),
+        sutura_domain::question::QuestionInputError::Refused(reason) => MalformedQuestion::Refused(reason),
+    })?;
     Ok(query)
 }
 

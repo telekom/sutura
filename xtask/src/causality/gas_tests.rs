@@ -23,6 +23,66 @@ use crate::Verdict;
 /// One unique temp directory per real-git test, so paths never collide under nextest.
 static SEQ: AtomicUsize = AtomicUsize::new(0);
 
+#[test]
+fn an_unbuildable_base_with_nothing_held_refuses_an_unclaimed_test() {
+    const CHILD: &str = "SUTURA_CAUSALITY_UNBUILDABLE_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = Command::new(std::env::current_exe().expect("the test executable has a path"))
+            .args([
+                "--exact",
+                "causality::gas_tests::an_unbuildable_base_with_nothing_held_refuses_an_unclaimed_test",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .expect("the test executable runs");
+        assert!(output.status.success(), "the unclaimed test must be refused");
+        return;
+    }
+    assert!(std::env::var_os("NEXTEST").is_some(), "run through `just test`");
+    let dir = std::env::temp_dir().join(format!(
+        "sutura-causality-unbuildable-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _swept = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    git(&dir, &["init", "-q", "-b", "main"]);
+    git(&dir, &["config", "user.email", "test@example.com"]);
+    git(&dir, &["config", "user.name", "test"]);
+
+    let head = "pub fn f(a: u8, b: u8) -> u8 { a + b }\n";
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[profile.ci]\ninherits = \"dev\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("src/lib.rs"), "pub fn f(a: u8) -> u8 { a }\n").unwrap();
+    std::fs::write(dir.join("flake.nix"), "{ }\n").unwrap();
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "init"]);
+    let base = String::from_utf8(git_output(&dir, &["rev-parse", "HEAD"]).stdout)
+        .expect("utf8")
+        .trim()
+        .to_owned();
+
+    std::fs::write(dir.join("src/lib.rs"), head).unwrap();
+    std::fs::create_dir_all(dir.join("tests")).unwrap();
+    std::fs::write(
+        dir.join("tests/claim.rs"),
+        "use wired::f;\n#[test]\nfn the_claim() { assert_eq!(f(1, 2), 3); }\n",
+    )
+    .unwrap();
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "feat: change f's signature"]);
+
+    let original = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&dir).unwrap();
+    let verdict = super::run(&[String::from("--since"), base]);
+    std::env::set_current_dir(original).unwrap();
+    drop(std::fs::remove_dir_all(dir));
+    assert_eq!(verdict, Verdict::Fail);
+}
+
 fn git(dir: &std::path::Path, args: &[&str]) {
     let out = git_output(dir, args);
     assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
@@ -626,6 +686,17 @@ fn a_tests_only_diff_declaring_one_of_two_additions_refuses_the_undeclared_one()
 /// Run the public causality entry point over one changed test file in a real Git repository.
 /// Both shapes below use only APIs present on base, so their cells can fail by verdict there.
 fn changed_test_shape(base_content: &str, head_content: &str) -> Verdict {
+    changed_tree(&[("src/lib.rs", base_content)], &[("src/lib.rs", head_content)])
+}
+
+/// [`changed_test_shape`] over any set of files: every base file is removed before the head set
+/// is written, so a path in `base` and not in `head` is a rename or a deletion to git.
+fn changed_tree(base_files: &[(&str, &str)], head_files: &[(&str, &str)]) -> Verdict {
+    committed_tree("test: change an existing test", base_files, head_files)
+}
+
+/// [`changed_tree`] with the head commit's `message`, so a cell can carry a trailer.
+fn committed_tree(message: &str, base_files: &[(&str, &str)], head_files: &[(&str, &str)]) -> Verdict {
     assert!(
         std::env::var_os("NEXTEST").is_some(),
         "this fixture changes the process directory; run it under `just test`"
@@ -642,20 +713,28 @@ fn changed_test_shape(base_content: &str, head_content: &str) -> Verdict {
     git(&dir, &["config", "user.name", "test"]);
     std::fs::write(
         dir.join("Cargo.toml"),
-        "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[profile.ci]\ninherits = \"dev\"\n",
     )
     .unwrap();
     std::fs::write(dir.join("flake.nix"), "{ }\n").unwrap();
-    std::fs::write(dir.join("src/lib.rs"), base_content).unwrap();
+    for (path, content) in base_files {
+        std::fs::write(dir.join(path), content).unwrap();
+    }
     git(&dir, &["add", "-A"]);
     git(&dir, &["commit", "-q", "-m", "init"]);
     let base = String::from_utf8(git_output(&dir, &["rev-parse", "HEAD"]).stdout)
         .expect("utf8")
         .trim()
         .to_owned();
-    std::fs::write(dir.join("src/lib.rs"), head_content).unwrap();
+    for (path, _) in base_files {
+        std::fs::remove_file(dir.join(path)).unwrap();
+    }
+    for (path, content) in head_files {
+        std::fs::create_dir_all(dir.join(path).parent().expect("a file path")).unwrap();
+        std::fs::write(dir.join(path), content).unwrap();
+    }
     git(&dir, &["add", "-A"]);
-    git(&dir, &["commit", "-q", "-m", "test: change an existing test"]);
+    git(&dir, &["commit", "-q", "-m", message]);
 
     let original = std::env::current_dir().expect("current directory");
     std::env::set_current_dir(&dir).expect("fixture directory");
@@ -684,4 +763,105 @@ fn deleting_a_called_test_helpers_assertion_is_refused() {
     let base = "#[cfg(test)]\nmod tests {\n    fn helper() {\n        assert_eq!(2 + 2, 4);\n    }\n    #[test]\n    fn existing() {\n        helper();\n    }\n}\n";
     let head = base.replace("        assert_eq!(2 + 2, 4);\n", "");
     assert_eq!(changed_test_shape(base, &head), Verdict::Fail);
+}
+
+/// A MOVED file is read at base under the path it had there. `git diff` reports a moved-and-edited
+/// file as a rename, and reading its pre-image at the new path found nothing, so every such file
+/// with a removed line was refused as unreadable - a crate split could not pass at all.
+#[test]
+fn a_moved_file_is_read_at_base_under_its_old_path() {
+    let body = "pub fn f() -> u8 {\n    // one\n    1\n}\n\npub fn g() -> u8 {\n    2\n}\n";
+    let base = [("src/lib.rs", "mod a;\n"), ("src/a.rs", body)];
+    let head = [("src/lib.rs", "mod b;\n"), ("src/b.rs", &*body.replace("    // one\n", ""))];
+    assert_eq!(changed_tree(&base, &head), Verdict::Pass);
+}
+
+/// `github.com/telekom/sutura#1068`: a waiver excuses the deletion it names, not the range. The
+/// head deletes `existing`'s assertion under a `Weakens-Test:` trailer and adds `added`, which is
+/// green on base because nothing it reads changed - so the range must still fail. Before the fix
+/// the fully waived deletion answered `Pass` and `added` was never measured.
+#[test]
+fn a_waived_deletion_still_proves_the_test_added_beside_it() {
+    let base = "pub fn f() -> u8 { 1 }\n#[cfg(test)]\nmod tests {\n    use super::f;\n    #[test]\n    fn existing() {\n        assert_eq!(f(), 1);\n    }\n}\n";
+    let head = [
+        ("src/lib.rs", &*base.replace("        assert_eq!(f(), 1);\n", "")),
+        ("tests/it.rs", "#[test]\nfn added() {\n    assert_eq!(wired::f(), 1);\n}\n"),
+    ];
+    let message = "test: move the pin of f\n\nWeakens-Test: existing - tests/it.rs pins f instead";
+    assert_eq!(committed_tree(message, &[("src/lib.rs", base)], &head), Verdict::Fail);
+}
+
+#[test]
+fn a_mixed_claim_cell_is_killed_when_the_range_scope_excludes_it() {
+    mixed_claim_cell_is_killed(false);
+}
+
+#[test]
+fn a_claim_cell_in_a_mixed_file_beside_a_pure_test_is_found() {
+    mixed_claim_cell_is_killed(true);
+}
+
+fn mixed_claim_cell_is_killed(pure_in_same_commit: bool) {
+    let dir = std::env::temp_dir().join(format!(
+        "sutura-mixed-claim-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _swept = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    git(&dir, &["init", "-q", "-b", "main"]);
+    git(&dir, &["config", "user.email", "test@example.com"]);
+    git(&dir, &["config", "user.name", "test"]);
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[profile.ci]\ninherits = \"dev\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("flake.nix"), "{ }\n").unwrap();
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "fixture root"]);
+    let base = String::from_utf8(git_output(&dir, &["rev-parse", "HEAD"]).stdout).unwrap();
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::create_dir_all(dir.join("devco/claim-mutations")).unwrap();
+    std::fs::write(
+        dir.join("src/lib.rs"),
+        "pub fn answer() -> u8 { 1 }\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn mixed_cell() { assert_eq!(super::answer(), 1); }\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("devco/claim-mutations/mixed_cell.patch"),
+        "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,4 +1,4 @@\n-pub fn answer() -> u8 { 1 }\n+pub fn answer() -> u8 { 2 }\n #[cfg(test)]\n mod tests {\n     #[test]\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("tests")).unwrap();
+    std::fs::write(dir.join("tests/pure.rs"), "#[test]\nfn pure_cell() {}\n").unwrap();
+    if pure_in_same_commit {
+        git(&dir, &["add", "-A"]);
+    } else {
+        git(&dir, &["add", "src/lib.rs", "devco/claim-mutations/mixed_cell.patch"]);
+    }
+    git(&dir, &["commit", "-q", "-m", "test: mixed claim\n\nClaim-Cell: mixed_cell"]);
+    if !pure_in_same_commit {
+        git(&dir, &["add", "-A"]);
+        git(&dir, &["commit", "-q", "-m", "test: pure sibling"]);
+    }
+    let head = String::from_utf8(git_output(&dir, &["rev-parse", "HEAD"]).stdout).unwrap();
+    let files = super::diff::commit_additions(&dir, head.trim()).unwrap();
+    let read = |path: &str| std::fs::read_to_string(dir.join(path)).ok();
+    let scope = match super::scoped::Scan::of(&files, &[String::from("tests/pure.rs")], &read) {
+        super::scoped::Scan::Runnable(scoped) => scoped,
+        other => panic!("expected a pure test scope, got {other:?}"),
+    };
+    assert_eq!(scope.tests()[0].name(), "pure_cell");
+    let at = super::provenance::Commit::parse(base.trim()).unwrap();
+    let claim = super::claim::Claim::of(&super::worktree::messages(&dir, &at)).unwrap();
+    let verdict = super::claim::run(
+        &dir,
+        &scope,
+        &[String::from("tests/pure.rs")],
+        &claim,
+        super::claim::Caller::TEST_CAUSALITY,
+    );
+    drop(std::fs::remove_dir_all(&dir));
+    assert_eq!(verdict, Verdict::Pass);
 }

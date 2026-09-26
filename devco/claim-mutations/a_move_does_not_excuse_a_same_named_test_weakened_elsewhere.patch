@@ -1,0 +1,18 @@
+--- a/xtask/src/causality/edited/moved.rs
++++ b/xtask/src/causality/edited/moved.rs
+@@ -105,14 +105,12 @@ pub(crate) fn unmoved(files: &[ChangedFile], base: &PostImage<'_>, read: &PostIm
+                 None => lost.push(item),
+             }
+         }
+-        lost.retain(|item| !after.iter().any(|one| one.name == item.name));
+         deleted.extend(lost.into_iter().map(|item| (at, item)));
+         added.append(&mut after);
+     }
+     let mut moved: Vec<(usize, Item)> = Vec::new();
+     for (at, item) in deleted {
+-        if let Some(copy) = added.iter().position(|one| one.is(&item)) {
+-            added.swap_remove(copy);
++        if added.iter().any(|one| one.is(&item)) {
+             moved.push((at, item));
+         }
+     }
