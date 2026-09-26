@@ -349,7 +349,9 @@ is one of two closed shapes over a `Term` of two terms - a term is one aggregate
 or a conditional count, and a measure is either a single term or a ratio of two of them, which is what
 lets a conditional count be half of a ratio rather than only a whole measure
 (`docs/adr/0002-a-closed-vocabulary-for-measures.md` records why that was factored one level
-lower than it first was); a relationship is a pair of columns and a join type; a
+lower than it first was); a relationship is a join type and either one column pair or an ordered
+list of join keys - the single pair stays the shape every existing document writes, and a compound
+join declares a `keys:` list instead, one column pair never both; a
 dimension is a column, optionally one declared relationship away. A metric may also carry required
 filters, predicates from a closed set of four operators that are **part of what the metric means
 rather than something a caller asks for**: they are applied to every question about it, and a caller

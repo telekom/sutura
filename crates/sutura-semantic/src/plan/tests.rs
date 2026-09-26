@@ -226,7 +226,7 @@ fn a_later_hop_joins_from_the_previous_hops_table() {
         .joins()
         .iter()
         .map(|join| {
-            let first = join.keys().first().expect("a hop declares at least one key");
+            let first = join.keys().first();
             (first.origin().table().to_string(), first.target().table().to_string())
         })
         .collect();

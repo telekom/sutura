@@ -12,9 +12,10 @@
 //! gone, because `Settings::load` always yields a declared markdown catalog from `defaults.yaml`,
 //! so there is no settings-less invocation left for them to name - a parallel argument to the
 //! declared catalog is the legacy shim #970 removes, not a path that survives. `catalog.kind: okf`
-//! is an unconditional dependency of this build, so it always opens; `openmetadata` and `rdbms` are
-//! refused by name with the same message `sutura serve` gives, because both roots dispatch the
-//! same `crate::catalog::open_catalog`.
+//! is an unconditional dependency of this build, so it always opens; `openmetadata` opens behind
+//! this binary's `openmetadata` feature and `rdbms` has no reader on any build - both are refused
+//! by name with the same message `sutura serve` gives, because both roots dispatch the same
+//! `crate::catalog::open_catalog`.
 //!
 //! Kept in its own module rather than inlined into `commands.rs` because it is a composition of its
 //! own - the driving port over a pipe, with an async runtime the other commands do not want - and
@@ -66,11 +67,12 @@ pub(crate) fn mcp() -> ExitCode {
     report((|| {
         let settings = configured()?;
         // Read ONCE - `security.outbound`, `github.com/telekom/sutura#125` - and shared with every
-        // `WireAgent` this surface's `bigquery` arm builds.
-        let outbound = crate::sources::resolve_outbound_anchors(&settings)?;
+        // `WireAgent` this surface's `bigquery` arm builds, and with the catalog opener below.
+        let outbound = crate::serve::outbound::resolve(&settings)?;
         // **The declared catalog, through the ONE opener `sutura serve` uses.** A deployment that
-        // names `catalog.kind: openmetadata` or `rdbms` - the two kinds no reader opens yet - is
-        // refused here with the same operator-facing message `serve` gives - both roots call
+        // names `catalog.kind: openmetadata` or `rdbms` without this binary linking the reader
+        // (`openmetadata` is behind the `openmetadata` feature; `rdbms` has no reader on any build)
+        // is refused here with the same operator-facing message `serve` gives - both roots call
         // `crate::catalog::open_catalog`, so the refusal cannot drift.
         let catalogs = crate::catalog::open_catalog(settings.catalogs(), outbound.as_ref())?;
         // The bundle the engine must attach for. `crate::catalog::load` composes the opened

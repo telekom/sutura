@@ -38,10 +38,11 @@ fn join_to(relationship: &str, joined: QualifiedTable) -> PlanJoin {
         RelationshipName::parse(relationship).expect("a test relationship is one"),
         joined,
         JoinType::ManyToOne,
-        vec![PlanJoinKey::Equal {
+        crate::nonempty::NonEmpty::parse(vec![PlanJoinKey::Equal {
             origin: column("orders", "customer_id"),
             target: column("customers", "id"),
-        }],
+        }])
+        .expect("a test join declares one key"),
     )
 }
 

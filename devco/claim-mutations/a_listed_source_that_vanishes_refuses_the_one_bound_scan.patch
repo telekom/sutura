@@ -1,0 +1,12 @@
+diff --git a/xtask/src/one_bound.rs b/xtask/src/one_bound.rs
+--- a/xtask/src/one_bound.rs
++++ b/xtask/src/one_bound.rs
+@@ -216,7 +216,7 @@
+             texts.insert(String::from(rel), String::from_utf8_lossy(bytes).into_owned());
+         })
+         .map_err(|why| why.describe())?;
+-    if inspected.absent() != 0 {
++    if inspected.absent() > 1 {
+         return Err(format!(
+             "{} in-scope file(s) vanished after discovery, so the count is incomplete",
+             inspected.absent()

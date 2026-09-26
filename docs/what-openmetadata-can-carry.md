@@ -51,13 +51,19 @@ limit rather than as an error in the record. Two entity kinds carry the whole an
 ## What the model actually carries, field by field
 
 **`Table`** (`entity/data/table.json`): `name` / `fullyQualifiedName` (the model name and service path),
-`columns: [Column]`, `tableConstraints: [TableConstraint]`, `foreignKeys`, `description`, `owners`,
-`tags`. Each `Column` carries `name`, a `description`, a `constraint` (`NULL`, `NOT_NULL`, `UNIQUE`,
-`PRIMARY_KEY`) and - the notable part - a `dataType` whose enum is a **column type system that already
-contains the semantic kinds**: `NUMBER`, `STRING`, …, but also `MEASURE`, `MEASURE VISIBLE`,
-`MEASURE HIDDEN` and `KPI`. A `TableConstraint` carries `constraintType` (`UNIQUE`, `PRIMARY_KEY`,
-`FOREIGN_KEY`, …) and a `relationshipType` that **enumerates cardinality**: `ONE_TO_ONE`, `ONE_TO_MANY`,
-`MANY_TO_ONE`, `MANY_TO_MANY`.
+`columns: [Column]`, `tableConstraints: [TableConstraint]`, `description`, `owners`, `tags`. There is
+no `foreignKeys` field - an earlier revision of this finding invented one, and the schema (read
+again against `open-metadata/OpenMetadata@main`) has no such array on `Table`; `TableConstraint` is
+the only carrier of a foreign key. Each `Column` carries `name`, a `description`, a `constraint`
+(`NULL`, `NOT_NULL`, `UNIQUE`, `PRIMARY_KEY`) and - the notable part - a `dataType` whose enum is a
+**column type system that already contains the semantic kinds**: `NUMBER`, `STRING`, …, but also
+`MEASURE`, `MEASURE VISIBLE`, `MEASURE HIDDEN` and `KPI`. A `TableConstraint` carries exactly
+`constraintType` (`UNIQUE`, `PRIMARY_KEY`, `FOREIGN_KEY`, …), `columns`, `referredColumns` (the
+target's fully qualified column names - `additionalProperties: false`, so there is no `name` and no
+nested `referencedTable`) and a `relationshipType` that **enumerates cardinality**: `ONE_TO_ONE`,
+`ONE_TO_MANY`, `MANY_TO_ONE`, `MANY_TO_MANY`. The `TableResource`'s own `FIELDS` list (Java source)
+shows `columns` and `tableConstraints` are populated only when a caller's list request names them
+with `?fields=` - **the adapter has to ask**, or a real list answers without either.
 
 **`Metric`** (`entity/data/metric.json`): `name`, `description` (markdown), `metricType`
 (`COUNT`, `SUM`, `AVERAGE`, `RATIO`, `PERCENTAGE`, `MIN`, `MAX`, `MEDIAN`, `MODE`,
@@ -104,7 +110,7 @@ deployment leaves a relationship unconstrained licenses no dimension, exactly as
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Model` (table + columns)          | `Table` + `columns[]` (`name`, `dataType`, `description`)                                             | **provides**                                                                                                                                      |
 | `Description`                      | `description` markdown on Table, Column, Metric                                                       | **provides**                                                                                                                                      |
-| `Relationship` (join)              | `tableConstraints` / `foreignKeys` with a `relationshipType`                                          | **provides** where cardinality is declared `ONE_TO_ONE`/`MANY_TO_ONE`/`ONE_TO_MANY`; declares-and-does-not-license where absent or `MANY_TO_MANY` |
+| `Relationship` (join)              | `tableConstraints[constraintType=FOREIGN_KEY]` with a `relationshipType`                              | **provides** where cardinality is declared `ONE_TO_ONE`/`MANY_TO_ONE`/`ONE_TO_MANY`; declares-and-does-not-license where absent or `MANY_TO_MANY` |
 | `Measure`                          | `Metric.metricType` (decidable) + `granularity`, with a loose `expression`/`aggregation` string layer | **provides from the typed enum; reports-not-defines the expression strings**                                                                      |
 | `RequiredFilter`                   | `metricFilter.where`: raw SQL                                                                         | **declared, not provided**                                                                                                                        |
 | `Grain` + time                     | `Metric.granularity` enum (`SECOND`..`YEAR`)                                                          | **provides**                                                                                                                                      |

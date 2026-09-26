@@ -612,38 +612,59 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
     crate::catalog::open_catalog(&catalogs, None).expect("markdown is the kind every build links");
 }
 
-/// Every kind `sutura serve` refuses on EVERY build: `openmetadata`/`rdbms` (no reader over a
-/// real deployment yet - the follow-up each refusal names). `okf` and `datahub` are NOT here: the
-/// former is now an unconditional dependency of this binary (see `crates/sutura-cli/Cargo.toml`),
-/// so its arm is always linked and never refused, and the latter's not-linked refusal is the
-/// `cfg(not(feature = "datahub"))` half of `a_declared_catalog_kind_this_build_cannot_open_is_a_
-/// boot_refusal_naming_it` above.
+/// Every kind `sutura serve` refuses on EVERY build: `rdbms` (no reader over a real dictionary yet -
+/// the follow-up its refusal names). `okf` and `datahub` are NOT here: the former is now an
+/// unconditional dependency of this binary (see `crates/sutura-cli/Cargo.toml`), so its arm is always
+/// linked and never refused, and the latter's, and the `openmetadata` one's, not-linked refusals are
+/// the `cfg(not(feature = "..."))` halves of `a_declared_catalog_kind_this_build_cannot_open_is_a_
+/// boot_refusal_naming_it` above (datahub) and `a_declared_openmetadata_catalog_build_without_the_
+/// feature_is_refused_naming_it` below (openmetadata).
 #[test]
 fn a_declared_catalog_kind_without_a_reader_is_refused_naming_the_follow_up() {
     use sutura_config::{CatalogKind, CatalogSettings, Catalogs};
     use sutura_domain::model::SourceName;
     use sutura_domain::pinned::DefinitionVersion;
     let version = DefinitionVersion::parse("test-1").expect("a test version is a version");
-    // `(kind, word, follow_up)` - the message names the follow-up issue so an operator knows the
-    // kind is declarable and tracked, not a typo. Pinned so a message that dropped the follow-up
-    // text still fails this cell.
-    for (kind, word, follow_up) in [
-        (CatalogKind::Openmetadata, "openmetadata", "#152"),
-        (CatalogKind::Rdbms, "rdbms", "#972"),
-    ] {
-        let catalog = CatalogSettings::parse(
-            SourceName::parse(word).expect("a test name is a name"),
-            kind,
-            PathBuf::from("/nowhere/catalog"),
-            PathBuf::from("/nowhere/data"),
-            version.clone(),
-        )
-        .expect("a directory and a version are a settings");
-        let catalogs = Catalogs::parse(vec![catalog]).expect("one declared catalog is a registry");
-        let err = crate::catalog::open_catalog(&catalogs, None).expect_err("a kind with no reader is refused by name");
-        assert!(err.contains(&format!("catalog.kind: {word}")), "{err}");
-        assert!(err.contains(follow_up), "a kind with no reader names its follow-up: {err}");
-    }
+    let catalog = CatalogSettings::parse(
+        SourceName::parse("rdbms").expect("a test name is a name"),
+        CatalogKind::Rdbms,
+        PathBuf::from("/nowhere/catalog"),
+        PathBuf::from("/nowhere/data"),
+        version,
+    )
+    .expect("a directory and a version are a settings");
+    let catalogs = Catalogs::parse(vec![catalog]).expect("one declared catalog is a registry");
+    let err = crate::catalog::open_catalog(&catalogs, None).expect_err("a kind with no reader is refused by name");
+    assert!(err.contains("catalog.kind: rdbms"), "{err}");
+    assert!(err.contains("#972"), "a kind with no reader names its follow-up: {err}");
+}
+
+/// The `openmetadata`-kind not-linked refusal, held as its own cell: a default build (without the
+/// feature) refuses `catalog.kind: openmetadata` by name, naming the feature an operator would
+/// build with - the same stand `datahub`'s own not-linked refusal makes in
+/// `a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it` above.
+#[test]
+#[cfg(not(feature = "openmetadata"))]
+fn a_declared_openmetadata_catalog_build_without_the_feature_is_refused_naming_it() {
+    use sutura_config::{CatalogKind, CatalogSettings, Catalogs};
+    use sutura_domain::model::SourceName;
+    use sutura_domain::pinned::DefinitionVersion;
+    let version = DefinitionVersion::parse("test-1").expect("a test version is a version");
+    let catalog = CatalogSettings::parse(
+        SourceName::parse("model").expect("a test name is a name"),
+        CatalogKind::Openmetadata,
+        PathBuf::from("/nowhere/catalog"),
+        PathBuf::from("/nowhere/data"),
+        version,
+    )
+    .expect("a directory and a version are a settings");
+    let catalogs = Catalogs::parse(vec![catalog]).expect("one declared catalog is a registry");
+    let err = crate::catalog::open_catalog(&catalogs, None).expect_err("this build does not link the openmetadata feature");
+    assert!(err.contains("catalog.kind: openmetadata"), "{err}");
+    assert!(
+        err.contains("--features openmetadata"),
+        "a build without the feature names the feature to build with: {err}"
+    );
 }
 
 // `the_datahub_refusal_offers_no_rebuild_this_binary_has_no_feature_for`

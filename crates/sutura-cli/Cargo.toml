@@ -104,6 +104,20 @@ oracle = ["dep:sutura-exec-oracle"]
 # feature is what an operator building `sutura` types.
 datahub = ["dep:sutura-catalog-datahub", "sutura-catalog-datahub/http"]
 
+# The OpenMetadata metadata adapter's HTTP reader (issue #152), for `sutura serve`'s
+# `catalog.kind: openmetadata`, and with it the outbound HTTP stack that reader needs.
+#
+# **Default-off for the same ARTEFACT reason `bigquery` above is.** Unlike `sutura-catalog-datahub`,
+# `sutura-catalog-openmetadata` carries no non-optional `ureq` dev-dependency of its own - its
+# outbound TLS closure arrives transitively through `sutura-http-client`, an optional dependency
+# behind this crate's own `http` feature, so it is genuinely absent (not merely unused) from a
+# build that asks for neither `datahub` nor `openmetadata`.
+#
+# `sutura-catalog-openmetadata/http` rather than a bare feature name on the dependency alone,
+# mirroring `datahub` above: the adapter crate's own feature gates its reader module, and this
+# crate's feature is what an operator building `sutura` types.
+openmetadata = ["dep:sutura-catalog-openmetadata", "sutura-catalog-openmetadata/http"]
+
 # The agent surface: `sutura-mcp`'s streamable-HTTP transport, mounted by the composition root at
 # `sutura serve`'s `/mcp`.
 #
@@ -177,6 +191,10 @@ sutura-exec-oracle = { workspace = true, optional = true }
 # The DataHub metadata adapter, behind the `datahub` feature above. Optional for the same reason
 # `sutura-exec-bigquery` is: absent, not merely unused, from a build that did not ask for it.
 sutura-catalog-datahub = { workspace = true, optional = true }
+# The OpenMetadata metadata adapter, behind the `openmetadata` feature above. Optional for the same
+# reason `sutura-catalog-datahub` is: absent, not merely unused, from a build that did not ask for
+# it - the outbound HTTP stack that comes with it stays out of the default build.
+sutura-catalog-openmetadata = { workspace = true, optional = true }
 # The OKF metadata adapter. **A normal dependency, not an optional one**, for the same reason
 # `sutura-catalog-local` is: it is a pure directory read with no native or outbound-TLS
 # dependency, so it cross-compiles to musl and there is no artefact reason to hold it out of the
@@ -279,6 +297,15 @@ sutura-dev = { workspace = true, features = ["mock-issuer"] }
 # `sutura-serve`'s manifest by `github.com/telekom/sutura#685` step 2 at #768's merge.
 rcgen = { workspace = true }
 rustls = { workspace = true }
+# The loopback fake (`test_support::FakeServer`) `tests/served/datahub.rs` and
+# `tests/served/openmetadata.rs` boot a composed deployment against - `sutura-catalog-datahub`'s
+# and `sutura-catalog-openmetadata`'s own `fake` feature (issue #970's review), declared
+# again HERE rather than folded into either crate's `http` feature above: dev-dependencies are not
+# in the graph a plain `cargo build` resolves, the same arrangement `sutura-runtime`'s
+# `test-capture` above uses, so the fake never reaches either shipped `--features datahub`/
+# `--features openmetadata` binary.
+sutura-catalog-datahub = { workspace = true, features = ["fake"] }
+sutura-catalog-openmetadata = { workspace = true, features = ["fake"] }
 
 [lints]
 workspace = true

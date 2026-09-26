@@ -206,7 +206,8 @@ fn a_conditional_count_descends_and_is_summed_above() {
     assert_eq!(
         above,
         Above::Total(Carried::CountIf {
-            column: column("churned")
+            column: column("churned"),
+            model: None,
         })
     );
     match above {

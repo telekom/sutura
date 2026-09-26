@@ -18,8 +18,6 @@
 //! walk of the tree is that **both sides are read** - the count is derived from the tree, and at
 //! least one page has to state it, because a number nobody writes down is compared to nothing.
 
-use std::path::Path;
-
 use super::flatten;
 use crate::repo::matches_any;
 
@@ -265,16 +263,17 @@ pub(super) fn stated_numbers(text: &str, marker: &str) -> Vec<(usize, u64)> {
 
 /// What the tree holds, at the granularity this entry declares.
 ///
-/// `unreadable` for the reason this whole check exists one level down: a file this cannot open
-/// lowers the tally, and a lowered tally is compared against the prose as if it were the tree. The
-/// zero floor in [`count_mismatches`] catches losing EVERY file and nothing catches losing one.
-pub(super) fn tally(root: &Path, all: &[String], counted: &Counted, unreadable: &mut Vec<String>) -> u64 {
+/// `read` is the census's own bytes, for the reason this whole check exists one level down: a file
+/// this could not open would lower the tally, and a lowered tally is compared against the prose as
+/// if it were the tree. `guidance::inspect_listing` refuses that file before this runs, and the
+/// zero floor in [`count_mismatches`] still catches losing EVERY file.
+pub(super) fn tally(read: &crate::causality::regions::PostImage<'_>, all: &[String], counted: &Counted) -> u64 {
     let mut total = 0_u64;
     for rel in all {
         if !matches_any(counted.over, rel) {
             continue;
         }
-        let Some(text) = crate::repo::read_subject(root, rel, unreadable) else {
+        let Some(text) = read(rel) else {
             continue;
         };
         // Everything at or after `stop_before` is a test fixture repeating the same literal on
@@ -309,18 +308,17 @@ pub(super) struct Stated {
 /// the doc/config scope and once over [`Counted::also_stated_in`]'s named Rust files - and the two
 /// scopes are different lists filtered from different starting sets.
 pub(super) fn statements(
-    root: &Path,
+    read: &crate::causality::regions::PostImage<'_>,
     files: &[String],
     patterns: &[&'static str],
     counted: &Counted,
-    unreadable: &mut Vec<String>,
 ) -> Vec<Stated> {
     let mut found = Vec::new();
     for rel in files {
         if !matches_any(patterns, rel) {
             continue;
         }
-        let Some(text) = crate::repo::read_subject(root, rel, unreadable) else {
+        let Some(text) = read(rel) else {
             continue;
         };
         for (line, number) in stated_numbers(&text, counted.marker) {
@@ -340,8 +338,14 @@ pub(super) fn statements(
 /// Split out of [`count_mismatches`] so a test can exercise one entry against a fixture tree
 /// without depending on [`COUNTS`] or the real repo - the shape `an_unreadable_subject_in_scope…`
 /// already uses for the checks beside this one.
-pub(super) fn mismatches_for(root: &Path, all: &[String], files: &[String], counted: &Counted, problems: &mut Vec<String>) {
-    let actual = tally(root, all, counted, problems);
+pub(super) fn mismatches_for(
+    read: &crate::causality::regions::PostImage<'_>,
+    all: &[String],
+    files: &[String],
+    counted: &Counted,
+    problems: &mut Vec<String>,
+) {
+    let actual = tally(read, all, counted);
     if actual == 0 {
         // Zero means the thing counted moved, not that the prose is right. A count check that
         // silently agreed with nothing would pass vacuously, which is worse than failing.
@@ -352,9 +356,9 @@ pub(super) fn mismatches_for(root: &Path, all: &[String], files: &[String], coun
         ));
         return;
     }
-    let mut stated = statements(root, files, counted.mentioned_in, counted, problems);
+    let mut stated = statements(read, files, counted.mentioned_in, counted);
     if !counted.also_stated_in.is_empty() {
-        stated.extend(statements(root, all, counted.also_stated_in, counted, problems));
+        stated.extend(statements(read, all, counted.also_stated_in, counted));
     }
     for page in &stated {
         if page.number != actual {
@@ -380,10 +384,14 @@ pub(super) fn mismatches_for(root: &Path, all: &[String], files: &[String], coun
     }
 }
 
-pub(in crate::guidance) fn count_mismatches(root: &Path, all: &[String], files: &[String]) -> Vec<String> {
+pub(in crate::guidance) fn count_mismatches(
+    read: &crate::causality::regions::PostImage<'_>,
+    all: &[String],
+    files: &[String],
+) -> Vec<String> {
     let mut problems = Vec::new();
     for counted in COUNTS {
-        mismatches_for(root, all, files, counted, &mut problems);
+        mismatches_for(read, all, files, counted, &mut problems);
     }
     problems
 }

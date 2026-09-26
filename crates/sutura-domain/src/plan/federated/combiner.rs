@@ -75,12 +75,18 @@ impl LegResult {
 
 /// Both legs' results, which cannot hold two of one side and cannot be built with them swapped.
 ///
+/// A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a third result
+/// from a second fact model, joined above on the link and the time bucket. The combiner reads it
+/// through [`Self::second_fact`] and routes each `Carried` leaf to the fact leg its model names. No
+/// question produces a second fact yet: `plan()` refuses a cross-model ratio before dispatching.
+///
 /// Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 /// for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
 /// so an owned pair would say *moved* about something that is shared either way.
 #[derive(Debug, Clone, Copy)]
 pub struct Legs<'a> {
     fact: &'a ResultBatches,
+    second_fact: Option<&'a ResultBatches>,
     lookup: &'a ResultBatches,
 }
 
@@ -94,13 +100,35 @@ impl<'a> Legs<'a> {
         match (one.side(), other.side()) {
             (LegSide::Fact, LegSide::Lookup) => Ok(Self {
                 fact: one.batches(),
+                second_fact: None,
                 lookup: other.batches(),
             }),
             (LegSide::Lookup, LegSide::Fact) => Ok(Self {
                 fact: other.batches(),
+                second_fact: None,
                 lookup: one.batches(),
             }),
             (side, _) => Err(LegsAreNotOneOfEach { both: side }),
+        }
+    }
+
+    /// The third leg: the second fact's batches, when the plan carries two fact models.
+    ///
+    /// # Errors
+    ///
+    /// [`LegsAreNotOneOfEach`] naming [`LegSide::Lookup`] when `second` is a lookup's result, so a
+    /// second lookup cannot be combined as if it were a fact.
+    #[inline]
+    pub const fn with_second_fact(self, second: Option<&'a LegResult>) -> Result<Self, LegsAreNotOneOfEach> {
+        match second {
+            None => Ok(self),
+            Some(second) => match second.side() {
+                LegSide::Fact => Ok(Self {
+                    second_fact: Some(second.batches()),
+                    ..self
+                }),
+                LegSide::Lookup => Err(LegsAreNotOneOfEach { both: LegSide::Lookup }),
+            },
         }
     }
 
@@ -109,6 +137,13 @@ impl<'a> Legs<'a> {
     #[must_use]
     pub const fn fact(self) -> &'a ResultBatches {
         self.fact
+    }
+
+    /// The second fact leg, when the plan carries two fact models.
+    #[inline]
+    #[must_use]
+    pub const fn second_fact(self) -> Option<&'a ResultBatches> {
+        self.second_fact
     }
 
     /// The second data system's leg: the remote keys the answer groups by.
@@ -122,9 +157,8 @@ impl<'a> Legs<'a> {
 /// Two leg results that name the same side, so there is no pair to combine.
 ///
 /// Unreachable through `sutura_app`'s federated path, which builds one [`LegResult`] per
-/// [`FederatedPlan::legs`] entry and that method returns the two variants by construction. Typed
-/// anyway rather than assumed away: it is the one thing [`Legs::of`] cannot answer, and a silent
-/// choice between two facts would combine a leg with itself.
+/// [`FederatedPlan::legs`] entry. Typed anyway rather than assumed away: it is the one thing
+/// [`Legs::of`] cannot answer, and a silent choice between two facts would combine a leg with itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("both leg results name the {both:?} leg, so there is no pair to combine")]
 pub struct LegsAreNotOneOfEach {

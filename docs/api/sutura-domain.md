@@ -1259,18 +1259,46 @@ pub struct JoinKeys
 
 The ordered, non-empty set of `JoinKey`s one relationship joins on.
 
-**Non-empty by construction and ordered by construction.** `JoinKeys::of` refuses an empty
-list, and the private `Vec` keeps the order it was handed - the order the planner renders the
-`ON` terms in. No `Deref` or `Borrow`; `as_slice` is the only way to lend
-the keys, which also keeps this crate's no-indexing rule honest.
+**Non-empty by construction, held by the type rather than by a checked constructor alone.**
+`crate::nonempty::NonEmpty` makes the empty case unrepresentable, so `JoinKeys::of` refuses
+an empty list once, at the one door, rather than every reader re-checking a `Vec` that happens
+to always hold something. The order it was handed is kept - the order the planner renders the
+`ON` terms in. No `Deref` or `Borrow`; `iter` is the only way to lend the
+keys, which also keeps this crate's no-indexing rule honest.
 
 #### Methods
 
 ```rust
-pub fn as_slice(&self) -> &[JoinKey]
+pub const fn first(&self) -> &JoinKey
+```
+
+The first key - the one every non-empty set is guaranteed to have.
+
+```rust
+pub const fn is_empty(&self) -> bool
+```
+
+Never true - a method anyway, because clippy's `len_without_is_empty` lint does not know
+this type's whole point is that the answer is always the same.
+
+```rust
+pub fn iter(&self) -> impl Iterator<Item>
 ```
 
 The keys, in declared order. The whole set - not any one of them - promises the target unique.
+
+```rust
+pub const fn len(&self) -> usize
+```
+
+How many keys this set holds. Never zero.
+
+```rust
+pub fn map<U>(&self, f: impl FnMut(&JoinKey) -> U) -> crate::nonempty::NonEmpty<U>
+```
+
+Every key transformed, in order, infallibly - a non-empty set mapped one-to-one is still
+non-empty.
 
 ```rust
 pub fn of(keys: Vec<JoinKey>) -> Result<Self, InvalidJoinKeys>
@@ -1282,7 +1310,7 @@ One constructor rather than a constructor plus an `is_valid`: an empty key set c
 minted, so no downstream code re-checks it and no relationship can hold a join of nothing.
 
 ```rust
-pub fn single(key: JoinKey) -> Self
+pub const fn single(key: JoinKey) -> Self
 ```
 
 A one-key set, which is never empty and so needs no refusal.
@@ -2745,6 +2773,18 @@ Does this leg carry rows at the fact grain rather than one row per group?
 
 The price of the pull-up, and the quantity worth logging: it is the difference between a leg
 returning one row per group and one row per distinct key.
+
+```rust
+pub const fn model(&self) -> Option<&ModelName>
+```
+
+The model this leaf reads, copied from the term by `descend`.
+
+`None` for every term written before `telekom/sutura#780`'s vocabulary (`AggregatedColumn::new`
+sets no model). A term that names a model explicitly - including the metric's own - carries
+`Some`, because `descend` has no metric to compare against and copies the field. The combiner
+reads a `Some` leaf off the second fact leg only when the plan carries one; a splitter that
+builds a second fact leg must first erase the metric's own model to `None`, and none does yet.
 
 #### Implements
 
@@ -5105,10 +5145,12 @@ A list that cannot be empty, because the constructor that would produce one does
 **Unrepresentable over checked**, the same argument `secure-by-design` makes for the rest of this
 crate's newtypes: a `Vec` that a caller happens to always check for emptiness is a rule enforced
 by discipline at every read site, and a set with no elements is a valid `Vec` that means nothing
-for a caller who asked for one or more metrics, or one or more values to filter on. `NonEmpty`
-makes the empty case not exist rather than exist and be refused - there is no `Default`, no
-`new()`, and `NonEmpty::parse` is the only fallible entry point, returning `EmptySet` for the
-one thing that can go wrong.
+for a caller who asked for one or more of something. `NonEmpty` makes the empty case not exist
+rather than exist and be refused - there is no `Default`, no `new()`, and `NonEmpty::parse` is
+the only fallible entry point, returning `EmptySet` for the one thing that can go wrong.
+
+A relationship's ordered set of join keys is non-empty by construction this way, mirroring the
+catalog's `JoinKeys`; so is the plan's `PlanJoinKey` list it becomes.
 
 ### `struct NonEmpty`
 
@@ -5151,8 +5193,7 @@ pub fn map<U>(&self, f: impl FnMut(&T) -> U) -> NonEmpty<U>
 
 Every element transformed, infallibly: a `NonEmpty` mapped one-to-one is still a
 `NonEmpty`, with no `EmptySet` to check and no `expect`/`unwrap` for a caller who has
-one of these and needs another shape of it - `crate::plan`'s bind-order indices, built
-from a resolved filter's `NonEmpty` of values, is why this exists.
+one of these and needs another shape of it.
 
 ```rust
 pub const fn of(head: T, tail: Vec<T>) -> Self
@@ -6327,13 +6368,13 @@ pub const fn join_type(&self) -> JoinType
 ```
 
 ```rust
-pub fn keys(&self) -> &[PlanJoinKey]
+pub const fn keys(&self) -> &crate::nonempty::NonEmpty<PlanJoinKey>
 ```
 
-The keys this join links on, each qualified by the tables it reads.
+The keys this join links on, each qualified by the tables it reads. Never empty.
 
 ```rust
-pub fn new(relationship: RelationshipName, table: impl Into<QualifiedTable>, join_type: JoinType, keys: Vec<PlanJoinKey>) -> Self
+pub fn new(relationship: RelationshipName, table: impl Into<QualifiedTable>, join_type: JoinType, keys: crate::nonempty::NonEmpty<PlanJoinKey>) -> Self
 ```
 
 One join to a table, wherever that table lives.
@@ -6344,6 +6385,12 @@ what a multi-project estate looks like, and it is one statement, one job and one
 a native join the data system pushes down, not a second source. `sutura_semantic::plan` says
 so where a source count decides between one statement, a split and
 `PlanSpansTooManySources`.
+
+**A join with no keys cannot be built**, and that is what makes `keys` a `NonEmpty` rather
+than a `Vec` the renderers have to fail closed on: every key contributes one `=` term, so an
+empty list would be a `JOIN ... ON` with no predicate - a shape that cannot be minted here.
+The catalog's `JoinKeys` is non-empty by the same construction, so the plan's list, derived
+from it, can never be empty either.
 
 `impl Into<QualifiedTable>` for the reason `Model::new` gives.
 
@@ -7221,6 +7268,11 @@ Which leg's result an answer key is read from.
 
 Both legs' results, which cannot hold two of one side and cannot be built with them swapped.
 
+A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a third result
+from a second fact model, joined above on the link and the time bucket. The combiner reads it
+through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names. No
+question produces a second fact yet: `plan()` refuses a cross-model ratio before dispatching.
+
 Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
 so an owned pair would say *moved* about something that is shared either way.
@@ -7230,9 +7282,8 @@ so an owned pair would say *moved* about something that is shared either way.
 Two leg results that name the same side, so there is no pair to combine.
 
 Unreachable through `sutura_app`'s federated path, which builds one `LegResult` per
-`FederatedPlan::legs` entry and that method returns the two variants by construction. Typed
-anyway rather than assumed away: it is the one thing `Legs::of` cannot answer, and a silent
-choice between two facts would combine a leg with itself.
+`FederatedPlan::legs` entry. Typed anyway rather than assumed away: it is the one thing
+`Legs::of` cannot answer, and a silent choice between two facts would combine a leg with itself.
 
 ### `use labels`
 
@@ -7969,10 +8020,15 @@ pub fn keys(&self) -> &[AnswerKey]
 The answer's group-by keys, in question order.
 
 ```rust
-pub const fn legs(&self) -> [&LegPlan; 2]
+pub fn legs(&self) -> Vec<&LegPlan>
 ```
 
-Every leg, in execution order: the fact leg, then the lookup leg.
+Every leg, in execution order: the fact leg, the second fact leg if present, then the
+lookup leg.
+
+A two-fact plan (`telekom/sutura#780`) carries a third leg; the combiner joins it on the
+link and the time bucket above the port. No question produces one yet: `plan()` refuses a
+cross-model ratio before dispatching, so only a hand-built plan reaches this.
 
 ```rust
 pub const fn lookup(&self) -> &LegPlan
@@ -7993,7 +8049,7 @@ pub const fn metric(&self) -> &MetricName
 The metric this answer is measured in.
 
 ```rust
-pub fn new(metric: MetricName, measure_label: ResultLabel, bucket: PlanBucket, fact: LegPlan, lookup: LegPlan, include_unmatched: bool, federation: Federation, keys: Vec<AnswerKey>) -> Result<Self, FederatedPlanError>
+pub fn new(metric: MetricName, measure_label: ResultLabel, bucket: PlanBucket, fact: LegPlan, second_fact: Option<LegPlan>, lookup: LegPlan, include_unmatched: bool, federation: Federation, keys: Vec<AnswerKey>) -> Result<Self, FederatedPlanError>
 ```
 
 Constructs a federated plan from its two legs and the answer's key order.
@@ -8028,6 +8084,14 @@ whose contract it reads, not with a value of it.
 **Nulls sort last regardless of `TopDirection`**, the same contract
 `sutura_sql::generate`'s own `ordered_nulls_last` states for the rendered path: a null means
 there was nothing to rank, and that sorts after every value either way.
+
+```rust
+pub const fn second_fact(&self) -> Option<&LegPlan>
+```
+
+The second fact leg, when the measure's ratio terms name two fact models.
+
+`None` for every plan a question produces today - see `FederatedPlanError::FactsShareNoKey`.
 
 ```rust
 pub fn sources(&self) -> impl Iterator<Item> + '_
@@ -8140,6 +8204,21 @@ Why a federated plan could not be built.
 
   Same reason as `BucketMismatch`: the one production splitter derives
   both from `labels(&federation)` in one pass.
+- `FactsOnSameSource` - The second fact leg names the same data system as the first, so it is a no-op second leg rather than a second fact over a different model.
+
+  `telekom/sutura#780`: a cross-model ratio's two facts must read two sources, because each
+  source is a separate identity to satisfy and the chasm trap is impossible only when the two
+  facts never share a `FROM`. Same reachability limit as
+  `FactsShareNoKey`: no question reaches this guard yet.
+- `FactsShareNoKey` - Two fact legs share no key label, so the join above them is impossible.
+
+  The chasm-trap guard as a type refusal: without a shared dimension key to join on, a
+  combined answer is not a certified number but two unrelated row sets, so the plan does not
+  exist rather than producing one. **Reachability limit, stated next to the claim:** no
+  question reaches this guard yet. `plan()` refuses a cross-model ratio before dispatching to
+  `federated_plan`, and `federated_plan` passes `None` for `second_fact`; the guard is
+  exercised only by direct construction. A splitter that builds a second fact leg is what
+  makes it reachable from a question.
 
 ##### Implements
 
@@ -8197,6 +8276,11 @@ variant, so a caller cannot label a lookup leg's rows as the fact leg's - which 
 
 Both legs' results, which cannot hold two of one side and cannot be built with them swapped.
 
+A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a third result
+from a second fact model, joined above on the link and the time bucket. The combiner reads it
+through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names. No
+question produces a second fact yet: `plan()` refuses a cross-model ratio before dispatching.
+
 Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
 so an owned pair would say *moved* about something that is shared either way.
@@ -8206,9 +8290,8 @@ so an owned pair would say *moved* about something that is shared either way.
 Two leg results that name the same side, so there is no pair to combine.
 
 Unreachable through `sutura_app`'s federated path, which builds one `LegResult` per
-`FederatedPlan::legs` entry and that method returns the two variants by construction. Typed
-anyway rather than assumed away: it is the one thing `Legs::of` cannot answer, and a silent
-choice between two facts would combine a leg with itself.
+`FederatedPlan::legs` entry. Typed anyway rather than assumed away: it is the one thing
+`Legs::of` cannot answer, and a silent choice between two facts would combine a leg with itself.
 
 #### `use NothingCombined`
 
@@ -8463,6 +8546,11 @@ pub struct Legs<'a>
 
 Both legs' results, which cannot hold two of one side and cannot be built with them swapped.
 
+A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a third result
+from a second fact model, joined above on the link and the time bucket. The combiner reads it
+through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names. No
+question produces a second fact yet: `plan()` refuses a cross-model ratio before dispatching.
+
 Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
 so an owned pair would say *moved* about something that is shared either way.
@@ -8491,6 +8579,23 @@ The pair, assigned by each result's own tag rather than by the order they arrive
 
 `LegsAreNotOneOfEach` when both results name the same side.
 
+```rust
+pub const fn second_fact(self) -> Option<&'a ResultBatches>
+```
+
+The second fact leg, when the plan carries two fact models.
+
+```rust
+pub const fn with_second_fact(self, second: Option<&'a LegResult>) -> Result<Self, LegsAreNotOneOfEach>
+```
+
+The third leg: the second fact's batches, when the plan carries two fact models.
+
+# Errors
+
+`LegsAreNotOneOfEach` naming `LegSide::Lookup` when `second` is a lookup's result, so a
+second lookup cannot be combined as if it were a fact.
+
 ###### Implements
 
 `Clone`, `Copy`, `Debug`
@@ -8504,9 +8609,8 @@ pub struct LegsAreNotOneOfEach
 Two leg results that name the same side, so there is no pair to combine.
 
 Unreachable through `sutura_app`'s federated path, which builds one `LegResult` per
-`FederatedPlan::legs` entry and that method returns the two variants by construction. Typed
-anyway rather than assumed away: it is the one thing `Legs::of` cannot answer, and a silent
-choice between two facts would combine a leg with itself.
+`FederatedPlan::legs` entry. Typed anyway rather than assumed away: it is the one thing
+`Legs::of` cannot answer, and a silent choice between two facts would combine a leg with itself.
 
 ###### Methods
 
@@ -12652,7 +12756,7 @@ holding, and a probe outlives nothing.
 ##### Methods
 
 ```rust
-pub const fn keys(&self) -> &'a [JoinKey]
+pub const fn keys(&self) -> &'a JoinKeys
 ```
 
 The whole key set whose target side is meant to be distinct.

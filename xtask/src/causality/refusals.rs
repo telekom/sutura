@@ -197,12 +197,17 @@ pub(super) fn report_head_failure(output: &str, only: &str) -> Verdict {
 /// NAMES EACH UNDECLARED ADDITION, never the whole diff's tests: a diff may declare some of its
 /// added tests and not others, and only the undeclared ones are unproven.
 ///
-/// **THE LIMIT, next to the claim it corrects.** This reads only ADDED tests -
-/// [`AddedTest`]/`Scan::of`'s own scope, an added `#[test]` attribute or test-module declaration.
-/// An assertion edited inside an EXISTING test, in a file whose production code did not change, is
-/// a different shape this gate still answers *no changed tests - nothing to prove* over
-/// (`Plan::NotRequired`, deliberately unclaimed by this fix - `github.com/telekom/sutura#1016`'s
-/// own second finding, tracked as its own follow-up rather than folded in here).
+/// **THE LIMIT, next to the claim it corrects.** `Scan::of` used to read only ADDED tests -
+/// an added `#[test]` attribute or test-module declaration - so an assertion edited inside an
+/// EXISTING test, in a file whose production code did not change, reached `Plan::NotRequired`
+/// and never reached this arm (`github.com/telekom/sutura#1016`'s own second finding).
+/// `super::edited` now names that test too, from the PRE-existing attribute down to the item an
+/// added line lands inside, so the edited-assertion shape reaches this same arm and is refused
+/// the same way an undeclared addition is. Two shapes still name nothing and still reach
+/// `Plan::NotRequired`: a pure DELETION of an assertion, which adds no line either extractor can
+/// find; and an edit inside a `#[cfg(test)]` helper fn that a `#[test]` calls but whose own
+/// attributed item is not the test's - `touched_in` walks only the `#[test]`-declaring item's own
+/// brace span, never a sibling item a test calls. `super::edited`'s own header states both.
 pub(super) fn report_unclaimed_additions(tests: &[AddedTest]) -> Verdict {
     eprintln!("xtask test-causality: FAILED - a tests-only diff added a test with no `Claim-Cell:` declaration");
     for test in tests {

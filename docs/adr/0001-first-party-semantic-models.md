@@ -53,6 +53,14 @@ column, not the string `sum(amount)`. A relationship is a pair of columns and a 
 string `orders.customer_id = customers.id`. A dimension is a column, optionally reached through one
 declared relationship.
 
+**Amended, `telekom/sutura#967`.** A relationship is now a join type and either one column pair or
+an ordered list of typed join keys, never the pair alone: a day joined to a monthly snapshot needs
+two keys (`key = key AND month_of(day) = month`), and both are typed terms, the same escape hatch
+closed for the multi-key case rather than a new one opened. The two forms are mutually exclusive -
+a document writing both or neither is refused by name, and the argument above about a condition
+STRING is unchanged, because a compound key is still no closer to `orders.customer_id =
+customers.id OR 1 = 1` than a single pair was.
+
 This is the load-bearing half of the decision, and it is where this design departs from the
 modelling languages it otherwise resembles. Those carry SQL fragments as strings and parse them
 downstream. A string field is an escape hatch, and an escape hatch on the query path is the thing

@@ -266,6 +266,7 @@ nav:
           - sutura-exec-clickhouse: api/sutura-exec-clickhouse.md
           - sutura-exec-oracle: api/sutura-exec-oracle.md
           - sutura-tls: api/sutura-tls.md
+          - sutura-http-client: api/sutura-http-client.md
           - sutura-app: api/sutura-app.md
           - sutura-config: api/sutura-config.md
           - sutura-runtime: api/sutura-runtime.md

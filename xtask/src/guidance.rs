@@ -47,8 +47,17 @@
 //! **What these two cannot do, stated before a reader trusts them.** They match a literal, so a
 //! paraphrase escapes - the same limit `AGENTS.md` records for the leak guard. They are a ratchet
 //! on a sentence somebody has already written once, not a reader.
+//!
+//! **Every listed file is read once, by [`inspect_listing`]**, and every check handed its `read`
+//! judges those bytes, so a listed file that vanished or cannot be opened refuses the gate rather
+//! than dropping out of the scan while the verdict still counts it. What that does NOT cover, next
+//! to the claim: three checks - `absence_problems`, `host_mismatches` and `page_problems` - still
+//! open listed files themselves, strictly as UTF-8, and push a finding for each one they cannot
+//! read, so they fail closed outside the census rather than through it. A file the listing never
+//! offered - `remedy_problems`' evidence, `recipe_names`' justfile, `leg_two_citable`'s claims
+//! matrix - is read from disk and is not held at all.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::Verdict;
@@ -318,14 +327,14 @@ pub(in crate::guidance) fn spans(text: &str) -> Vec<&str> {
 }
 
 /// `cargo xtask <name>` mentioned anywhere must be a task that exists.
-fn bad_task_references(root: &Path, files: &[String]) -> Vec<String> {
+fn bad_task_references(read: &crate::causality::regions::PostImage<'_>, files: &[String]) -> Vec<String> {
     let known = known_tasks();
     let mut problems = Vec::new();
     for rel in files {
         if !has_ext(rel, &["md", "nix", "yaml", "yml"]) {
             continue;
         }
-        let Some(text) = repo::read_subject(root, rel, &mut problems) else {
+        let Some(text) = read(rel) else {
             continue;
         };
         for (i, line) in text.lines().enumerate() {
@@ -349,10 +358,10 @@ fn bad_task_references(root: &Path, files: &[String]) -> Vec<String> {
     problems
 }
 
-fn stale_phrases(root: &Path, files: &[String]) -> Vec<String> {
+fn stale_phrases(read: &crate::causality::regions::PostImage<'_>, files: &[String]) -> Vec<String> {
     let mut problems = Vec::new();
     for rel in files {
-        let Some(text) = repo::read_subject(root, rel, &mut problems) else {
+        let Some(text) = read(rel) else {
             continue;
         };
         for rule in FORBIDDEN {
@@ -412,26 +421,31 @@ fn in_scope(files: &[String]) -> Vec<String> {
 /// A named type because the tuple grew past what clippy will read as one.
 type TreeVerdict = (Vec<String>, PageCounts, Reading, Scan);
 
-fn tree_problems(root: &Path, files: &[String], text_files: &[String]) -> TreeVerdict {
-    let mut problems = stale_phrases(root, text_files);
-    problems.extend(contradicted_claims(root, text_files));
+fn tree_problems(
+    root: &Path,
+    read: &crate::causality::regions::PostImage<'_>,
+    files: &[String],
+    text_files: &[String],
+) -> TreeVerdict {
+    let mut problems = stale_phrases(read, text_files);
+    problems.extend(contradicted_claims(root, read, text_files));
     // `text_files`, and the CONDITION comes from another gate's parser rather than from a needle in
     // a page: `crate::venues::leg_two_citable` reads the claims matrix. Its own module header
     // carries why this is not a `CONTRADICTED` row and what the pair does not reach.
-    problems.extend(leg_two::problems(root, text_files));
-    problems.extend(count_mismatches(root, files, text_files));
-    problems.extend(bad_task_references(root, text_files));
+    problems.extend(leg_two::problems(root, read, text_files));
+    problems.extend(count_mismatches(read, files, text_files));
+    problems.extend(bad_task_references(read, text_files));
     // `files` and `text_files`, like `count_mismatches`: the mechanism is derived from ANY file, and
     // the scope limit is about where a claim may be made rather than about what may be read.
     problems.extend(host_mismatches(root, files, text_files));
-    problems.extend(dead_paths(root, text_files));
+    problems.extend(dead_paths(root, read, text_files));
     // `files`, and INSIDE this function rather than beside its caller in `run`. It reads a doc
     // comment as PROSE and the code that would refute it, so neither list is `text_files` - but the
     // reason it is here is the one this function exists for: measured in review, replacing
     // `problems.extend(refuted)` in `run` with a discard left 1023 tests green and printed a verdict
     // byte-identical to a clean run over a planted refutation. The CALL was covered by nothing,
     // exactly as `page_problems`' was.
-    let (refuted, read) = absence_problems(root, files);
+    let (refuted, absence_read) = absence_problems(root, files);
     problems.extend(refuted);
     // The Markdown half, and the only check here that judges a page's SHAPE rather than a sentence
     // in it: `text_files` again, because a page is where an ordinal and a table are written.
@@ -440,38 +454,77 @@ fn tree_problems(root: &Path, files: &[String], text_files: &[String]) -> TreeVe
     // `files`, and here rather than beside its caller for the reason above: a version in a `//`
     // comment is the instance this check was widened for, so `text_files` would have put it on
     // the pages and left the source it is copied from alone.
-    let (copies, scan) = comment_versions(root, files);
+    let (copies, scan) = comment_versions(read, files);
     problems.extend(copies);
-    (problems, pages, read, scan)
+    (problems, pages, absence_read, scan)
+}
+
+/// The listed paths, their text, and the census's verdict line.
+type Listed = Result<(Vec<String>, BTreeMap<String, String>, String), String>;
+
+/// Every listed file, read once through [`repo::Census::inspect`]: the paths, their text, and the
+/// census's verdict line.
+///
+/// A listed file that vanished after discovery is refused here. `inspect` counts it as absent
+/// rather than unreachable, because `git ls-files` reads the index and a tracked file deleted with
+/// the deletion unstaged is offered and not on disk; this gate refuses it anyway, since the
+/// transitional door it replaces let every check skip that file while the verdict still counted it.
+/// Lossy, like the per-check read it replaces, so a byte that is not UTF-8 never makes a file
+/// unread - `#412`'s trap.
+pub(in crate::guidance) fn inspect_listing(found: Result<repo::Census, repo::Refusal>) -> Listed {
+    let mut texts: BTreeMap<String, String> = BTreeMap::new();
+    let inspected = found
+        .map_err(|why| why.describe())?
+        .inspect(
+            &[],
+            |_| true,
+            |rel, bytes| {
+                texts.insert(String::from(rel), String::from_utf8_lossy(bytes).into_owned());
+            },
+        )
+        .map_err(|why| why.describe())?;
+    if inspected.absent() != 0 {
+        return Err(format!(
+            "{} listed file(s) vanished after discovery, so the scan is incomplete",
+            inspected.absent()
+        ));
+    }
+    let files: Vec<String> = texts.keys().cloned().collect();
+    Ok((files, texts, inspected.verdict()))
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::Guidance)) {
-        Ok(listing) => listing,
+    let Some(root) = repo::root() else {
+        eprintln!("xtask check-guidance: FAILED - could not determine the repo root");
+        return Verdict::Fail;
+    };
+    let (files, texts, witness) = match inspect_listing(repo::all_files()) {
+        Ok(triple) => triple,
         Err(why) => {
-            eprintln!("xtask check-guidance: FAILED - {}", why.describe());
+            eprintln!("xtask check-guidance: FAILED - {why}");
             return Verdict::Fail;
         }
     };
+    let text_of = |rel: &str| texts.get(rel).cloned();
 
     // Only text we might make a claim in. `files` is kept whole for `count_mismatches`, which
     // counts things in Rust, in snapshots and in anything else the claim is about - the scope
     // limit below is about where a CLAIM may be made, not about what may be counted.
     let text_files = in_scope(&files);
 
-    let (mut problems, pages, read, scan) = tree_problems(&root, &files, &text_files);
+    let (mut problems, pages, read, scan) = tree_problems(&root, &text_of, &files, &text_files);
     // Not over `text_files`: the remedies are in this binary, which the scope above excludes for
     // the reason it states. They are judged against the tree rather than scanned in it.
     let (remedied, live_remedies) = remedy_problems(&root);
     problems.extend(remedied);
     // Also not over `text_files`, and for the same reason one layer out: what a program PRINTS is
     // in `.rs`. `files` and not `text_files` is the whole point of `github.com/telekom/sutura#243`.
-    let (advice, cited) = advice::advice_problems(&root, &files);
+    let (advice, cited) = advice::advice_problems(&root, &text_of, &files);
     problems.extend(advice);
     // Also `.rs`, and the same reason a third time: what a page PUBLISHES about a constant is a
     // doc comment, and `docs/api/**` is regenerated from it - so the scope limit above would put
     // this check on the derived copy rather than on the source of the claim.
-    let (contradicted_constants, confirmed) = constant_problems(&root, &files);
+    let (contradicted_constants, confirmed) = constant_problems(&text_of, &files);
     problems.extend(contradicted_constants);
     // FAIL CLOSED. A citation walk that reads nothing passes everything, which is the failure mode
     // `check-scope` and the remedy scan each guard separately. This tree prints dozens, so zero
@@ -484,10 +537,10 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     }
 
     // Byte-identical problems are ONE finding several checks reached, not several findings: every
-    // check that walks the tree calls `repo::read_subject`, so one sealed page printed the same
-    // `cannot be read` line twenty-five times - measured on `docs/architecture.md` at mode 000.
-    // Order-preserving, so the grouping a reader already gets is unchanged, and exact-match only:
-    // two checks reporting different things about one file are still two lines.
+    // check that walks the tree reads through the census's own held bytes, so one sealed page
+    // printed the same `cannot be read` line twenty-five times - measured on `docs/architecture.md`
+    // at mode 000. Order-preserving, so the grouping a reader already gets is unchanged, and
+    // exact-match only: two checks reporting different things about one file are still two lines.
     let mut seen = BTreeSet::new();
     problems.retain(|problem| seen.insert(problem.clone()));
 
@@ -496,7 +549,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // nobody checks, and `{read} of {offered}` is what makes a narrowed walk visible in a
         // green run rather than only in a red one.
         println!(
-            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pinned name(s) over {} comment line(s), {live_remedies} of {} claim(s), {} count(s), {} derived host(s), {cited} printed citation(s), {confirmed} constant value(s) confirmed, {} absence statement(s) over {} file(s) and {} production line(s), {} of {} page(s) lexed, {} amendment heading(s)",
+            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pinned name(s) over {} comment line(s), {live_remedies} of {} claim(s), {} count(s), {} derived host(s), {cited} printed citation(s), {confirmed} constant value(s) confirmed, {} absence statement(s) over {} file(s) and {} production line(s), {} of {} page(s) lexed, {} amendment heading(s); {witness}",
             text_files.len(),
             FORBIDDEN.len(),
             scan.names,
@@ -585,7 +638,12 @@ mod tests {
         .expect("fixture claimant");
 
         let subjects = vec![String::from("AGENTS.md")];
-        let (problems, ..) = super::tree_problems(&root, &subjects, &subjects);
+        let (problems, ..) = super::tree_problems(
+            &root,
+            &|rel: &str| std::fs::read_to_string(root.join(rel)).ok(),
+            &subjects,
+            &subjects,
+        );
         drop(std::fs::remove_dir_all(&root));
 
         assert!(
@@ -729,9 +787,8 @@ mod tests {
         // The tree-wide half, and why the rules above are not a ratchet on nothing: this was RED
         // when it landed, on the record 288 names and on two others that never numbered a second
         // amendment at all.
-        let (root, files) = crate::repo::all_files()
-            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
-            .expect("could not determine the repo root");
+        let (files, _texts, _witness) = super::inspect_listing(crate::repo::all_files()).expect("the file census");
+        let root = crate::repo::root().expect("the repo root");
         let (problems, counts) = super::pages::page_problems(&root, &super::in_scope(&files));
         assert!(problems.is_empty(), "{problems:#?}");
         // The floors, asserted rather than only printed: a sweep that read nothing satisfies an
@@ -770,7 +827,8 @@ mod tests {
         std::fs::create_dir_all(dir.join("docs/adr")).expect("the fixture's docs/adr");
         std::fs::write(dir.join(&record), "").expect("the fixture record");
         let files = vec![rel, record];
-        let (problems, counts, read, scan) = super::tree_problems(&dir, &files, &files);
+        let (problems, counts, read, scan) =
+            super::tree_problems(&dir, &|rel: &str| std::fs::read_to_string(dir.join(rel)).ok(), &files, &files);
         std::fs::remove_dir_all(&dir).unwrap_or_default();
         assert_eq!(counts.read, 2, "the fixture page and record were lexed");
         assert!(
@@ -812,7 +870,7 @@ mod tests {
     ///
     /// **The refusal, not the predicate.** `github.com/telekom/sutura#619` measured three gates
     /// dropping an unreadable in-scope file; this gate then had the same drop in some of its own
-    /// checks and not others, because each check decided again. `repo::read_subject` is what they
+    /// checks and not others, because each check decided again. The census's own read is what they
     /// share now, and the drop it replaced was invisible in a green run for the reason the census
     /// module states: the number this gate prints comes off the LISTING, so a dropped read leaves
     /// the verdict announcing files it never opened rather than moving a denominator.
@@ -836,16 +894,18 @@ mod tests {
             .map(|rel| String::from(*rel))
             .chain(std::iter::once(String::from("docs/deleted-but-listed.md")))
             .collect();
+        let root = tree.root().to_path_buf();
+        let read = |rel: &str| std::fs::read_to_string(root.join(rel)).ok();
 
         // CONTROL: readable in scope, empty, unterminated, and a path the listing offers that is
         // not on disk - `git ls-files` reads the index, so that last one is the shape refusing
         // `NotFound` would turn red for anyone mid-edit.
         assert!(
-            super::stale_phrases(tree.root(), &pages).is_empty(),
+            super::stale_phrases(&read, &pages).is_empty(),
             "a readable page, an empty one, an unterminated one and an absent one are not findings"
         );
         assert!(
-            super::dead_paths(tree.root(), &pages).is_empty(),
+            super::dead_paths(&root, &read, &pages).is_empty(),
             "no page cites a dead route"
         );
 
@@ -855,24 +915,36 @@ mod tests {
             return;
         }
         assert!(
-            super::dead_paths(tree.root(), &pages).is_empty(),
+            super::dead_paths(&root, &read, &pages).is_empty(),
             "a sealed file this check filters out by path is out of scope, not unreadable - #412"
         );
 
         if !tree.seal("docs/page.md") {
             return;
         }
-        for problems in [
-            super::stale_phrases(tree.root(), &pages),
-            super::dead_paths(tree.root(), &pages),
-            super::bad_task_references(tree.root(), &pages),
-        ] {
-            assert!(
-                problems
-                    .iter()
-                    .any(|p| p.contains("docs/page.md") && p.contains("cannot be read")),
-                "an unreadable page in scope must be named: {problems:?}"
-            );
-        }
+        // The checks read the census's bytes now, so the refusal is the census's: a sealed page
+        // never reaches them as a skipped `None`, because the read that would hand it over refuses.
+        let refused = super::inspect_listing(Ok(crate::repo::collect_files(&root, &root.join("docs"), &["md", "png"])));
+        assert!(
+            refused.is_err_and(|problem| problem.contains("docs/page.md")),
+            "an unreadable page in scope must be named"
+        );
+    }
+
+    #[test] // A listed file that disappears must invalidate the verdict, not drop out of every check.
+    fn a_listed_guidance_file_that_vanishes_refuses_the_scan() {
+        let tree = crate::scratch_tree::Tree::of(
+            "guidance-vanished",
+            &[
+                ("docs/kept.md", b"a page that stays\n"),
+                ("docs/gone.md", b"a page that is deleted after the listing\n"),
+            ],
+        );
+        let census = crate::repo::collect_files(tree.root(), &tree.root().join("docs"), &["md"]);
+        std::fs::remove_file(tree.root().join("docs/gone.md")).expect("a vanished page");
+        assert!(
+            super::inspect_listing(Ok(census)).is_err_and(|problem| problem.contains("1 listed file(s) vanished")),
+            "a listed file that vanished must refuse the scan"
+        );
     }
 }

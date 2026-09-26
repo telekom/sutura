@@ -100,27 +100,23 @@ pub(super) fn chain_joins(resolution: &Resolution<'_>, own_table: &TableName, ow
             // One join term per declared key, in the key's order. `origin` is where this hop's
             // statement starts - the metric's table for hop 1, each previous hop's target after -
             // so every key's origin column is qualified by it and its target by the joined table.
-            let keys = hop
-                .relationship
-                .keys()
-                .as_slice()
-                .iter()
-                .map(|key| match key {
-                    sutura_domain::catalog::JoinKey::Equal { origin: o, target: t } => PlanJoinKey::Equal {
-                        origin: PlanColumn::new(origin.clone(), o.clone()),
-                        target: PlanColumn::new(target.clone(), t.clone()),
-                    },
-                    sutura_domain::catalog::JoinKey::TruncatedEqual {
-                        origin: o,
-                        grain,
-                        target: t,
-                    } => PlanJoinKey::TruncatedEqual {
-                        origin: PlanColumn::new(origin.clone(), o.clone()),
-                        grain: *grain,
-                        target: PlanColumn::new(target.clone(), t.clone()),
-                    },
-                })
-                .collect();
+            // `JoinKeys::map` holds the relationship's own non-emptiness in its return type, so the
+            // plan's key list is `NonEmpty` by construction too - no `expect` needed to say so.
+            let keys = hop.relationship.keys().map(|key| match key {
+                sutura_domain::catalog::JoinKey::Equal { origin: o, target: t } => PlanJoinKey::Equal {
+                    origin: PlanColumn::new(origin.clone(), o.clone()),
+                    target: PlanColumn::new(target.clone(), t.clone()),
+                },
+                sutura_domain::catalog::JoinKey::TruncatedEqual {
+                    origin: o,
+                    grain,
+                    target: t,
+                } => PlanJoinKey::TruncatedEqual {
+                    origin: PlanColumn::new(origin.clone(), o.clone()),
+                    grain: *grain,
+                    target: PlanColumn::new(target.clone(), t.clone()),
+                },
+            });
             chain.push(PlanJoin::new(
                 hop.relationship.name().clone(),
                 // The joined model's own path: a dimension table in another dataset is still one
