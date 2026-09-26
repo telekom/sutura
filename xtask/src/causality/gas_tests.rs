@@ -531,7 +531,11 @@ fn scan_of_runnable_names(base: &str) -> Option<Vec<String>> {
     let commit = super::provenance::Commit::parse(base)?;
     let files = super::changed_with_additions(&commit)?;
     let read = |path: &str| std::fs::read_to_string(path).ok();
-    let plan = super::plan::plan(&files, &read);
+    // The BASE image is the commit `--since` names, never HEAD: passing `read` for both would
+    // resolve Shape A's removed-line numbers against the wrong file whenever base and HEAD
+    // disagree on it, the same misalignment `commit_added_names` closed in `claim.rs`.
+    let base_read = |path: &str| super::worktree::at_base(std::path::Path::new("."), &commit, path);
+    let plan = super::plan::plan(&files, &read, &base_read);
     let test_files = match plan {
         super::plan::Plan::Separable(sep) => sep.test_files,
         _ => return None,

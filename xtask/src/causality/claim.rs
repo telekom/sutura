@@ -567,14 +567,42 @@ fn commit_added_names(wt: &Path, commit: &str, read: &crate::causality::regions:
     use crate::causality::plan::Plan;
     use crate::causality::scoped::Scan;
     let files: Vec<ChangedFile> = diff::commit_additions(wt, commit)?;
-    let (test_files, scannable) = match crate::causality::plan::plan(&files, read) {
+    let base = commit_parent_reader(wt, commit);
+    let (test_files, scannable) = match crate::causality::plan::plan(&files, read, &base) {
         Plan::Separable(separable) => (separable.test_files, files),
         Plan::NotSeparable { files: inseparable, .. } => (inseparable, files),
-        Plan::NotRequired => return Some(Vec::new()),
+        Plan::NotRequired | Plan::DeletedTests(_) => return Some(Vec::new()),
     };
     match Scan::of(&scannable, &test_files, read) {
         Scan::Runnable(scoped) => Some(scoped.tests().iter().map(AddedTest::name).map(String::from).collect()),
         _ => Some(Vec::new()),
+    }
+}
+
+/// A pre-image reader over `<commit>^`, in `wt`.
+///
+/// SHAPE A's base image (`super::plan`'s third argument) must be the DECLARING COMMIT's own
+/// parent, never HEAD: `diff::commit_additions` numbers a `RemovedLine.before` against
+/// `<commit>^`'s own image, and HEAD can differ from that image by every commit after `commit` in
+/// the range - reading HEAD as the base would resolve those line numbers against the wrong file
+/// and either miss a real deletion or match one that is not there, silently. `commit_added_names`
+/// only asks this for ONE decision - does the declaring commit's own diff answer
+/// `Plan::DeletedTests` - so a wrong image would misclassify a shape that adds nothing either way,
+/// not the names this function returns for an added test.
+fn commit_parent_reader<'a>(wt: &'a Path, commit: &str) -> impl Fn(&str) -> Option<String> + 'a {
+    let commit = commit.to_owned();
+    move |path| {
+        let mut command = Command::new("git");
+        crate::repo::strip_git_env(&mut command);
+        let out = command
+            .args(["-C", wt.to_str()?])
+            .args(["show", &format!("{commit}^:{path}")])
+            .stderr(std::process::Stdio::null())
+            .output()
+            .ok()?;
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
     }
 }
 

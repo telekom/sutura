@@ -55,6 +55,30 @@ pub(super) fn report_unnamed_tests(test_files: &[String]) -> Verdict {
     Verdict::Fail
 }
 
+/// A REMOVED line sat inside a pre-existing `#[test]` - a deleted assertion, with nothing added
+/// in its place.
+///
+/// FAILS, and it is the second half of `github.com/telekom/sutura#1031` (the first is a helper
+/// edit, which routes into proof). Neither run measures a deletion: base and head are both green
+/// because the assertion is GONE from both, and there is nothing a mutation can redden - the
+/// deleted evidence does not exist to be weakened. So the honest answer is a named refusal that
+/// tells the author WHICH test lost evidence and that the gate cannot verify it: state the
+/// evidence in the handoff. This is distinct from `Plan::NotRequired`, which would have read *no
+/// changed tests* over a diff that deleted one.
+pub(super) fn report_deleted_tests(files: &[String]) -> Verdict {
+    eprintln!("xtask test-causality: FAILED - a diff deleted an assertion that was the whole point of a test");
+    for f in files {
+        eprintln!("  {f}: a removed line sat inside a pre-existing #[test]");
+    }
+    eprintln!();
+    eprintln!("Removing an assertion with nothing added in its place weakens a test, and this gate");
+    eprintln!("has no way to measure it: the removed line exists in neither tree, so neither run can");
+    eprintln!("redden against it and no mutation can re-create what is gone. State the evidence in");
+    eprintln!("the handoff - what the test checked, and why deleting it is safe. A deletion of a");
+    eprintln!("comment, a blank line or an attribute is NOT this shape, and stays a pass.");
+    Verdict::Fail
+}
+
 /// A provable file added a test ATTRIBUTE and the scan could not read a name from it.
 ///
 /// FAILS, and it fails even when other files in the diff named tests fine - which is the whole
@@ -197,17 +221,17 @@ pub(super) fn report_head_failure(output: &str, only: &str) -> Verdict {
 /// NAMES EACH UNDECLARED ADDITION, never the whole diff's tests: a diff may declare some of its
 /// added tests and not others, and only the undeclared ones are unproven.
 ///
-/// **THE LIMIT, next to the claim it corrects.** `Scan::of` used to read only ADDED tests -
-/// an added `#[test]` attribute or test-module declaration - so an assertion edited inside an
-/// EXISTING test, in a file whose production code did not change, reached `Plan::NotRequired`
-/// and never reached this arm (`github.com/telekom/sutura#1016`'s own second finding).
-/// `super::edited` now names that test too, from the PRE-existing attribute down to the item an
-/// added line lands inside, so the edited-assertion shape reaches this same arm and is refused
-/// the same way an undeclared addition is. Two shapes still name nothing and still reach
-/// `Plan::NotRequired`: a pure DELETION of an assertion, which adds no line either extractor can
-/// find; and an edit inside a `#[cfg(test)]` helper fn that a `#[test]` calls but whose own
-/// attributed item is not the test's - `touched_in` walks only the `#[test]`-declaring item's own
-/// brace span, never a sibling item a test calls. `super::edited`'s own header states both.
+/// **THE LIMIT, NARROWED TWICE.** `Scan::of` used to read only ADDED tests - an added `#[test]`
+/// attribute or test-module declaration - so an assertion edited inside an EXISTING test, in a
+/// file whose production code did not change, reached `Plan::NotRequired` and never reached this
+/// arm (`github.com/telekom/sutura#1016`'s own second finding). `super::edited` now names that
+/// test too, from the PRE-existing attribute down to the item an added line lands inside, so the
+/// edited-assertion shape reaches this same arm and is refused the same way an undeclared
+/// addition is. `github.com/telekom/sutura#1031` closed the sibling shapes: an added line inside
+/// a `#[cfg(test)]` helper fn a test calls is routed into proof by `edited::edited_helper_caller`,
+/// and a pure DELETION of an assertion is now a named `report_deleted_tests` refusal rather than
+/// a pass. What still slips through is a helper a test calls from a DIFFERENT file - a module-path
+/// reach this brace walk does not follow (`super::edited`'s own header states it).
 pub(super) fn report_unclaimed_additions(tests: &[AddedTest]) -> Verdict {
     eprintln!("xtask test-causality: FAILED - a tests-only diff added a test with no `Claim-Cell:` declaration");
     for test in tests {
@@ -228,8 +252,8 @@ pub(super) fn report_unclaimed_additions(tests: &[AddedTest]) -> Verdict {
 #[cfg(test)]
 mod tests {
     use super::{
-        Because, Enabled, Unread, Verdict, report_enabled_tests, report_head_failure, report_unclaimed_additions,
-        report_unnamed_tests, report_unread_manifests, report_unreadable,
+        Because, Enabled, Unread, Verdict, report_deleted_tests, report_enabled_tests, report_head_failure,
+        report_unclaimed_additions, report_unnamed_tests, report_unread_manifests, report_unreadable,
     };
     use crate::causality::fixtures::scoped;
 
@@ -246,6 +270,7 @@ mod tests {
         // at all.
         let inseparable = vec![String::from("crates/x/src/a.rs")];
         assert_eq!(report_unnamed_tests(&inseparable), Verdict::Fail);
+        assert_eq!(report_deleted_tests(&inseparable), Verdict::Fail);
         assert_eq!(report_unreadable(&inseparable), Verdict::Fail);
         // BOTH CAUSES, because they are one verdict and a cause with no printed sentence of its
         // own would inherit the other one's. The exhaustive match in `report_enabled_tests` is

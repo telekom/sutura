@@ -1156,14 +1156,17 @@ a file whose production code did not change, reached `no changed tests - nothing
 untouched. `causality::edited` now names that test too - from the PRE-existing `#[test]` down to
 the item an added line lands inside, the same brace-balancing walk `regions::cfg_test_regions`
 already does for a `#[cfg(test)]` marker - so it reaches this same tests-only arm (or the
-`Plan::NotSeparable` claim arm, if the same file also carries an implementation change). **What is
-still not reached:** a pure DELETION of an assertion, with no line added in its place, names
-nothing either way - `causality::edited`'s own header states why that is not casually fixed
-(reading the PRE-image correctly needs it threaded into `causality::plan`, which does not have it).
-A second shape also still reaches `Plan::NotRequired`: an edit inside a `#[cfg(test)]` helper fn
-that a `#[test]` calls but whose own attributed item is not the test's - `touched_in` walks only
-the `#[test]`-declaring item's own brace span, never a sibling item a test calls. `causality::edited`'s
-own header states both gaps.
+`Plan::NotSeparable` claim arm, if the same file also carries an implementation change). **What was
+still not reached was narrowed by `github.com/telekom/sutura#1031`:** a pure DELETION
+of an assertion, with no line added in its place, is now `Plan::DeletedTests` - a named refusal
+(`report_deleted_tests`, `Verdict::Fail`) telling the author which test lost evidence, because
+neither run can measure a line this diff took out. It reads the PRE-image, threaded into
+`causality::plan` as a third argument (`edited::removed_in`), exactly what the earlier "not
+casually fixed" note said it would need. An edit inside a `#[cfg(test)]` helper fn that a `#[test]`
+calls is now routed into proof too (`edited::edited_helper_caller` names the caller, so the file
+reaches the tests-only/claim arms). **What still slips through is a helper a test calls from a
+DIFFERENT file** - a module-path reach this brace walk does not follow (`causality::edited`'s own
+header states it).
 
 **AND READ THE COUNT WITH THE VERDICT, never on its own.** `N of N added tests measured` beside an
 INCONCLUSIVE line means the filterset NAMED N tests, not that any of them ran against base. #307

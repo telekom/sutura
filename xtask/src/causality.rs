@@ -135,8 +135,8 @@ use place::AddedTest;
 use plan::{Plan, Separable, plan};
 use provenance::{Commit, Moved, Reach};
 use refusals::{
-    report_enabled_tests, report_head_failure, report_unclaimed_additions, report_unnamed_tests, report_unread_manifests,
-    report_unreadable,
+    report_deleted_tests, report_enabled_tests, report_head_failure, report_unclaimed_additions, report_unnamed_tests,
+    report_unread_manifests, report_unreadable,
 };
 use relocation::{Claim, Images, Relocation};
 use remedies::{
@@ -467,13 +467,15 @@ fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], rea
 /// covers everything - there is no ordinary proof to compose it with here, because nothing was
 /// reverted for one to run against.
 ///
-/// **THE LIMIT, NARROWED BY `github.com/telekom/sutura#1025`.** `Scan::of` used to read only
-/// ADDED tests - an added `#[test]` attribute or test-module declaration - so an assertion edited
-/// inside an EXISTING test, in a file whose production code did not change, reached
-/// `Plan::NotRequired` untouched. `super::edited` now names that test too, from the PRE-existing
-/// attribute rather than an added one, so it reaches this same arm. What is still not reached: a
-/// pure DELETION of an assertion, which adds no line either extractor can find, and an edit inside
-/// a `#[cfg(test)]` helper a test calls - `super::edited`'s own header states both.
+/// **THE LIMIT, NARROWED BY `github.com/telekom/sutura#1025` then `github.com/telekom/sutura#1031`.**
+/// `Scan::of` used to read only ADDED tests - an added `#[test]` attribute or test-module
+/// declaration - so an assertion edited inside an EXISTING test, in a file whose production code
+/// did not change, reached `Plan::NotRequired` untouched. `super::edited` now names that test too,
+/// from the PRE-existing attribute rather than an added one, so it reaches this same arm; an edit
+/// inside a `#[cfg(test)]` HELPER a test calls is named the same way
+/// (`edited::edited_helper_caller`), and a pure DELETION of an assertion is a named
+/// `Plan::DeletedTests` refusal before `tests_only` is ever reached. The remaining gap - a helper
+/// a test calls from a DIFFERENT file - is `super::edited`'s own stated limit.
 fn tests_only(
     root: &Path,
     at: &Commit,
@@ -612,11 +614,12 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         Relocation::Refused(broken) => return relocation::report_refused(&broken),
     }
 
-    match plan(&files, &working_tree) {
+    match plan(&files, &working_tree, &base_tree) {
         Plan::NotRequired => {
             println!("xtask test-causality: no changed tests - nothing to prove");
             Verdict::Pass
         }
+        Plan::DeletedTests(files) => report_deleted_tests(&files),
         Plan::NotSeparable {
             files: inseparable,
             build_inputs,
