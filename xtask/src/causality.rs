@@ -638,7 +638,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         }
         // `partition` runs no deletion check, so nothing reaches this arm; `clippy::unreachable`
         // refuses the macro, so it is the refusal with no waiver applied - fail-closed.
-        Plan::DeletedTests(deleted) => report_deleted_tests(&deleted, &weakens::Waived::of("")),
+        Plan::DeletedTests(deleted) => report_deleted_tests(&deleted, &weakens::Waived::default()),
         Plan::BaseUnreadable(files) => report_unreadable(&files),
         Plan::NotSeparable {
             files: inseparable,

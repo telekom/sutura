@@ -1163,7 +1163,9 @@ refuses each weakened test unless a commit carries `Weakens-Test: <test-fn-name>
 The gate echoes that reason but cannot verify its safety; neither run can measure a line the diff
 took out. A waiver excuses only that deletion: a fully waived set falls through to the ordinary
 plan, so a test the same range adds is still proven (`github.com/telekom/sutura#1068` - it used to
-pass the range unmeasured). It reads the PRE-image, threaded into `causality::plan` as a third argument
+pass the range unmeasured). The same fall-through means a waived deletion beside an inseparable file
+now reaches `Plan::NotSeparable` and refuses where it used to pass; only a `Claim-Cell:` clears it
+there. It reads the PRE-image, threaded into `causality::plan` as a third argument
 (`edited::deletion_in`). An edit inside a `#[cfg(test)]` helper fn that a `#[test]`
 calls is routed into proof when it adds a line (`edited::edited_helper_caller` names the caller);
 a pure behavioural deletion in that helper names the caller for the `Weakens-Test:` refusal.
