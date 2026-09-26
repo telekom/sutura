@@ -81,3 +81,36 @@ const AREAS: &[&[Task]] = &[
 pub(crate) fn tasks() -> impl Iterator<Item = &'static Task> {
     AREAS.iter().copied().flatten()
 }
+
+#[cfg(test)]
+mod tests {
+    /// Every xtask task the `gates` and `hygiene` recipes invoke is one [`tasks`] carries. A
+    /// dropped area is the compiler's (`AREAS`' own doc); a task RENAMED in its area while the
+    /// justfile keeps the old name compiles, passes every gate that reads the table, and fails
+    /// only when a developer runs `just gates`. A `#` line is skipped first, because a
+    /// commented-out invocation runs nothing.
+    #[test]
+    fn every_task_the_gates_recipe_invokes_appears_in_areas() {
+        let root = crate::repo::root().expect("the repo root");
+        let names: std::collections::HashSet<&str> = crate::tasks().map(|task| task.name).collect();
+        let mut invoked: Vec<String> = Vec::new();
+        for recipe in ["gates", "hygiene"] {
+            let body = crate::tasks::recipe_body(&root, recipe).unwrap_or_else(|| panic!("a `{recipe}` recipe in the justfile"));
+            for line in body.iter().filter(|line| !line.trim_start().starts_with('#')) {
+                // `xtask -- `, not `-- `: `cargo clippy -- -D warnings` names no task.
+                if let Some((_, after)) = line.split_once("xtask -- ")
+                    && let Some(name) = after.split_whitespace().next()
+                {
+                    invoked.push(String::from(name));
+                }
+            }
+        }
+        assert!(invoked.len() >= 4, "the recipe reader found {invoked:?} - it is broken");
+        for name in &invoked {
+            assert!(
+                names.contains(name.as_str()),
+                "`just gates` invokes `{name}`, which no area in AREAS carries"
+            );
+        }
+    }
+}

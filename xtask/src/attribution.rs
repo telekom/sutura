@@ -51,7 +51,8 @@
 //!   resolution. A generator that dropped rows, or a keying bug that matched no metadata entry, is
 //!   caught by the disagreement between the two. `Kind::Standalone`, because `cargo metadata` needs
 //!   a resolvable registry the nix sandbox has not got - `check-api-docs` is the same shape for the
-//!   same kind of reason.
+//!   same kind of reason. **So `just validate` and `just ci` do not run it**: their nix checks have
+//!   no registry. `just gates` and CI's `The attribution document generates completely` step do.
 //! * `cargo xtask check-attribution-owner` FORBIDS A SECOND OWNER, offline, in the hygiene sweep.
 //!   Absence is the whole point of the change above, and **an absence that nothing witnesses
 //!   silently returns**: a committed `ATTRIBUTION.md` could be re-added in any commit, would begin
@@ -418,6 +419,12 @@ fn generate(root: &Path) -> Option<Generated> {
         let declared = if licence.is_empty() { "NOT DECLARED" } else { licence };
         lines.push(format!("| `{}` | `{}` | {declared} |", package.name, package.version));
     }
+    // A MEMBER that declares no licence is refused the same way: `third_party` keeps members out of
+    // the document, so the loop above never reaches them.
+    let unlicensed_members = licences
+        .iter()
+        .filter(|(package, licence)| licence.is_empty() && members.contains(&package.name));
+    undeclared.extend(unlicensed_members.map(|(package, _)| package.clone()));
 
     let count = lines.len();
     let table = lines.join("\n");
@@ -441,7 +448,8 @@ fn generate(root: &Path) -> Option<Generated> {
 /// 3. **A package that declares no licence** - previously printed to stderr and written into the
 ///    document as `NOT DECLARED`, with a passing exit. It is a refusal now, and that is the
 ///    deliberate compensation for the review-time visibility a committed file used to give: the
-///    obligation lost a reviewer and gained a gate.
+///    obligation lost a reviewer and gained a gate. A workspace member with no licence is in the
+///    same set, though the document never lists one.
 fn refuse(generated: &Generated) -> Result<usize, String> {
     let mut failures: Vec<String> = Vec::new();
 

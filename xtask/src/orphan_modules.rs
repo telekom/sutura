@@ -15,7 +15,8 @@
 //! * For every first-party crate, read its `pub mod <name>` declarations.
 //! * Scan **every** first-party crate's `.rs` files (the whole workspace, so a consumer in another
 //!   crate is seen, and intra-crate `crate::…` references count too) for each module name **used as
-//!   a path segment**.
+//!   a path segment**. Comments and multi-line string interiors are blanked first, so a path named
+//!   in a doc comment is a claim, not a reference.
 //!
 //! A module name used as a path segment appears in one of the shapes a real reference takes: `m::`
 //! (the module as a path prefix, as in `banner::print`, `crate::inbound::caller::VerifiedCaller` or
@@ -46,6 +47,7 @@
 
 use crate::Verdict;
 use crate::repo;
+use crate::serde_parse::scan::code_lines;
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -212,6 +214,15 @@ struct CratePass {
 /// the read once now; a `pub mod x;` or inline `pub mod x { ... }` declares a public module,
 /// `pub(crate) mod` excluded because after the first `pub ` the next non-space token is `(`, not
 /// `mod`. Textual, with `unused_deps`'s trade: no compiler needed.
+///
+/// Both halves read [`code_lines`]' image, the lexer `boot_order` uses, so a commented-out
+/// `pub mod` declares nothing and a path in a comment reaches nothing. A single-line string keeps
+/// its interior (`code_lines`' own limit), which over-reports a reference - the safe direction here.
+///
+/// **`tests/` and `benches/` still count as consumers**, and that is a limit rather than a choice
+/// nobody made: the workspace's test-support modules (`sutura-http-client::tls_test_support`,
+/// `sutura-dev::bench_venue`) are reached from nowhere else, so a `src/`-only corpus refuses both.
+/// A dead module kept alive only by its own test therefore reads as reached.
 fn crate_pass(root: &Path, crate_dir: &Path) -> Result<Option<CratePass>, String> {
     let mut text = String::new();
     let mut declared = BTreeSet::new();
@@ -225,8 +236,12 @@ fn crate_pass(root: &Path, crate_dir: &Path) -> Result<Option<CratePass>, String
             error = Some(format!("{rel} is not valid UTF-8"));
             return;
         };
-        text.push_str(file_text);
-        for line in file_text.lines() {
+        let code = code_lines(file_text);
+        for line in &code {
+            text.push_str(line);
+            text.push('\n');
+        }
+        for line in &code {
             let trimmed = line.trim_start();
             let Some(rest) = trimmed.strip_prefix("pub ") else { continue };
             let Some(body) = rest.strip_prefix("mod ") else { continue };
@@ -319,5 +334,27 @@ mod tests {
     fn end_of_input_counts() {
         assert!(reached_as_segment("a::b", "b"));
         assert!(reached_as_segment("trailing::ident", "ident"));
+    }
+
+    #[test]
+    fn a_comment_mentioning_a_module_does_not_satisfy_reachability() {
+        let tree = crate::scratch_tree::Tree::of(
+            "orphan-comment",
+            &[(
+                "crates/thing/src/lib.rs",
+                b"// see phantom::X\n/* and phantom::Y */\npub mod real;\nuse real::Something;\n",
+            )],
+        );
+        let pass = crate_pass(tree.root(), &tree.root().join("crates/thing"))
+            .expect("a readable crate")
+            .expect("a crate with .rs");
+        assert!(
+            !reached_as_segment(&pass.text, "phantom"),
+            "a module named only in a comment read as reached"
+        );
+        assert!(
+            reached_as_segment(&pass.text, "real"),
+            "the control: a path in code reads as reached"
+        );
     }
 }

@@ -45,7 +45,20 @@ pub(crate) const TASKS: &[Task] = &[
         name: "unused-deps",
         description: "every declared dependency is actually used",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // A one-member workspace whose crate declares a dependency no source names, so the
+            // scan judges one declaration and refuses on the unused-dependency rule rather than on
+            // the empty-scan floor the sweep's own `Cargo.toml` (`members = []`) would reach.
+            seeds: &[
+                ("Cargo.toml", "[workspace]\nresolver = \"3\"\nmembers = [\"bogus\"]\n"),
+                (
+                    "bogus/Cargo.toml",
+                    "[package]\nname = \"bogus\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\nunused_crate = \"1.0\"\n",
+                ),
+                ("bogus/src/lib.rs", "pub fn nothing() {}\n"),
+            ],
+            in_scope: Some("bogus/src/lib.rs"),
+        },
         run: unused_deps::run,
     },
     Task {

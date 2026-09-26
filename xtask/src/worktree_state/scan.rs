@@ -238,7 +238,9 @@ fn shell_roots() -> Vec<String> {
 ///
 /// Receivers are not resolvable from a line - `sutura/gates` records that for
 /// `check-bounded-wait`'s `.status()` - so this list is deliberately the SPELLINGS that name a
-/// filesystem operation and nothing that could plausibly be something else.
+/// filesystem operation and nothing that could plausibly be something else. A writer whose spelling
+/// is not here reads as [`Keyed::Unwritten`] - the fail-open direction, so a `std` writer missing
+/// from the list is a defect of this list, not a limit of the gate.
 const MUTATIONS: &[&str] = &[
     "create_dir",
     "create_new",
@@ -252,6 +254,12 @@ const MUTATIONS: &[&str] = &[
     "OpenOptions",
     "write_all",
     "symlink",
+    "soft_link",
+    "hard_link",
+    "set_permissions",
+    "chown",
+    "DirBuilder",
+    "File::options",
 ];
 
 /// How many times a shared root is taken in `text`, counted by a predicate the loop does not use.
@@ -545,6 +553,23 @@ fn materialise() -> PathBuf {
 }
 "#;
         assert_eq!(only(Language::Rust, text), Keyed::Shared);
+    }
+
+    #[test]
+    fn every_std_writer_spelling_onto_a_shared_path_is_shared() {
+        // The spellings `MUTATIONS` did not carry: each writes the path a rooted literal names, so
+        // each was read as `Unwritten` - the wrong direction for this gate.
+        for call in [
+            r#"std::fs::hard_link(target, "/tmp/sutura-shared/link")"#,
+            r#"std::fs::soft_link(target, "/tmp/sutura-shared/link")"#,
+            r#"std::fs::set_permissions("/tmp/sutura-shared/file", mode)"#,
+            r#"std::os::unix::fs::chown("/tmp/sutura-shared/file", None, None)"#,
+            r#"std::fs::DirBuilder::new().create("/tmp/sutura-shared/sub")"#,
+            r#"std::fs::File::options().write(true).open("/tmp/sutura-shared/file")"#,
+        ] {
+            let text = format!("\nfn touch(target: &Path) {{\n    {call}.unwrap();\n}}\n");
+            assert_eq!(only(Language::Rust, &text), Keyed::Shared, "{call}");
+        }
     }
 
     #[test]

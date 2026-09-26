@@ -774,13 +774,17 @@ mod tests {
             // new service and not added here is the drift this cannot see, which is why the list is
             // grown by the change that adds the service - the `MYSQL_*` and `EBEAN_*` keys arrived
             // with `DataHub`, whose GMS reaches the same database the store declares, so a literal
-            // in either place is two definitions of one password.
+            // in either place is two definitions of one password; the `ORACLE_*`/`APP_USER*` keys
+            // arrived with the Oracle service.
             let is_credential = line.starts_with("POSTGRES_PASSWORD:")
                 || line.starts_with("CLICKHOUSE_PASSWORD:")
                 || line.starts_with("KC_BOOTSTRAP_ADMIN_PASSWORD:")
                 || line.starts_with("MYSQL_PASSWORD:")
                 || line.starts_with("MYSQL_ROOT_PASSWORD:")
                 || line.starts_with("EBEAN_DATASOURCE_PASSWORD:")
+                || line.starts_with("ORACLE_PASSWORD:")
+                || line.starts_with("APP_USER_PASSWORD:")
+                || line.starts_with("APP_USER:")
                 || line.starts_with("POSTGRES_USER:")
                 || line.starts_with("CLICKHOUSE_USER:")
                 || line.starts_with("MYSQL_USER:")

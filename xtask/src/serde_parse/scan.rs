@@ -115,7 +115,7 @@ fn identifier_at(text: &str) -> &str {
 }
 
 /// `text` with a leading `pub`, `pub(crate)`, `pub(super)` or `pub(in ..)` removed.
-pub(super) fn without_visibility(text: &str) -> &str {
+pub(crate) fn without_visibility(text: &str) -> &str {
     let Some(rest) = text.strip_prefix("pub") else {
         return text;
     };

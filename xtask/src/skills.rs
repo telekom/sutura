@@ -15,6 +15,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::Verdict;
+use crate::markdown;
 use crate::repo;
 
 const SKILLS_DIR: &str = ".agents/skills";
@@ -404,6 +405,16 @@ mod link_tests {
     }
 }
 
+/// Whether `body` carries a `## Provenance` heading in its prose.
+///
+/// [`markdown::prose`] blanks fenced blocks, HTML comments and inline code spans, so the heading
+/// text quoted inside a code fence - which a substring match accepted - is not a section. An
+/// unlexable body (an unclosed fence or comment) is a refusal, never a pass.
+fn provenance_heading(body: &str) -> Result<bool, markdown::Unlexable> {
+    let lines = markdown::prose(body)?;
+    Ok(lines.iter().any(|line| line.trim() == "## Provenance"))
+}
+
 /// Library skills are exempt from routing but not from provenance. An imported skill with no
 /// upstream recorded cannot be updated, audited for licence, or compared against upstream
 /// later - which is how a mirror silently becomes a fork nobody can reconcile.
@@ -434,10 +445,16 @@ fn library_problems(root: &Path) -> Vec<String> {
                 problems.push(format!("could not read `{LIBRARY_DIR}/{rel}/SKILL.md`"));
                 continue;
             };
-            if !body.contains("## Provenance") {
-                problems.push(format!(
-                    "`{LIBRARY_DIR}/{rel}/SKILL.md` has no `## Provenance` section - record the upstream, licence and local status"
-                ));
+            match provenance_heading(&body) {
+                Ok(true) => {}
+                Ok(false) => {
+                    problems.push(format!(
+                        "`{LIBRARY_DIR}/{rel}/SKILL.md` has no `## Provenance` section - record the upstream, licence and local status"
+                    ));
+                }
+                Err(why) => {
+                    problems.push(format!("`{LIBRARY_DIR}/{rel}/SKILL.md`: {why}"));
+                }
             }
             if !frontmatter(&body).contains_key("name") {
                 problems.push(format!("`{LIBRARY_DIR}/{rel}/SKILL.md` has no `name` in its frontmatter"));
@@ -552,7 +569,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
 #[cfg(test)]
 mod tests {
-    use super::{frontmatter, intent_targets, routed};
+    use super::{frontmatter, intent_targets, library_problems, routed};
 
     #[test]
     fn reads_frontmatter() {
@@ -592,6 +609,22 @@ mod tests {
         let json = r#"{"intents":[{"intent":"x","group":"engineering","skill":"rust"}]}"#;
         assert_eq!(intent_targets(json), vec![String::from("engineering/rust")]);
         assert!(intent_targets("{}").is_empty(), "an intentless payload yields no targets");
+    }
+
+    #[test]
+    fn a_provenance_heading_inside_a_fenced_code_block_does_not_satisfy_the_check() {
+        let tree = crate::scratch_tree::Tree::of(
+            "skills-provenance",
+            &[(
+                ".agents/skill-library/group/skill/SKILL.md",
+                b"---\nname: skill\ndescription: y\n---\n\n```markdown\n## Provenance\n```\n",
+            )],
+        );
+        let problems = library_problems(tree.root());
+        assert!(
+            problems.iter().any(|p| p.contains("no `## Provenance`")),
+            "a `## Provenance` inside a fenced code block satisfied the check: {problems:?}"
+        );
     }
 
     // NOTE: there is deliberately no test here that reads the real router and the real
