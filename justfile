@@ -800,9 +800,9 @@ datahub-acceptance:
     echo "datahub-acceptance: scope sutura-catalog-datahub - one target, two live cells plus an"
     echo "datahub-acceptance: enforcement cell: the instance is reachable, a document written under a"
     echo "datahub-acceptance: property THE DEPLOYMENT names comes back and decodes into a certified"
-    echo "datahub-acceptance: metric, and a bearer-LESS read is refused (auth is ON). There is no HTTP"
-    echo "datahub-acceptance: AspectReader, so this is NOT a read path - the requests and the mapping"
-    echo "datahub-acceptance: onto the adapter's shape are in the test, not in src/."
+    echo "datahub-acceptance: metric, and a bearer-LESS read is refused (auth is ON). These cells do"
+    echo "datahub-acceptance: not drive src/http.rs's HttpAspectReader, so this is NOT its read path -"
+    echo "datahub-acceptance: the requests and the mapping onto the adapter's shape are in the test."
     echo "datahub-acceptance: run \`just test\` for the whole workspace's suite; this target is NOT part of it."
     cargo run -q -p xtask -- dev-up --with datahub
     # The tier self-mints its own PAT (headless GMS exposes no /auth/* surface) and the cells present

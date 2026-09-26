@@ -29,7 +29,7 @@
       "repo": "https://github.com/DietrichGebert/ponytail",
       "ref": "2ed6c52c9d7e5e56942508591085fd45dea277d3",
       "upstream_path": ".openclaw/skills/ponytail",
-      "sha256": "63088bc29794aaef1275c7ee757bf224a7c0b07eebc8884ddaa3a07374b3ab35"
+      "sha256": "f23a8ccbab0820d4a7b44b8e274b4fbdaea032242818cb491b1d5762f850ffd2"
     },
     {
       "name": "api-and-interface-design",

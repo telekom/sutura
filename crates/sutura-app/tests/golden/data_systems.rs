@@ -379,9 +379,9 @@ where
 /// resolved the wrong table, or one over a table nobody loaded, answers `0` over `0` - which *is*
 /// unique, vacuously, and would read as a clean check forever.
 ///
-/// **What this axis does not reach is `BigQuery`**, which is not in this registry at all - no
-/// published artifact links the crate, and that registry's rule is that a cell which cannot execute
-/// reads as coverage. So a dimension model on a dataset is unchecked, stated in
+/// **What this axis does not reach is `BigQuery`**: it is registered, but its `available()` answers
+/// `false` unconditionally because no gate reaches a dataset, so its cell skips. So a dimension
+/// model on a dataset is unchecked, stated in
 /// `.agents/skills/sutura/invariants` and in `SECURITY.md` rather than implied by a green run here.
 fn counts_every_declared_join_key<W>()
 where
