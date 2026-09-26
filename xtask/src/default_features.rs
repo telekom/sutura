@@ -1,13 +1,17 @@
-//! Every package that SHIPS compiles and lints at the feature set it ships with.
+//! Every package that SHIPS compiles and lints at cargo's DEFAULT feature set - no `--features`.
+//! That is not the set a release publishes: the published binary carries the optional features
+//! `nix/shipped.nix`'s `features` list names, and `checks.shipped-features` (`just shipped`) is the
+//! gate that asserts that set, read out of the built artefact. The default set is what
+//! `nix/shipped.nix`'s `-ci` link-check variants build.
 //!
 //! **The lane no other gate can see, and it was found by shipping a red branch through it.** Every
 //! compiling gate in this repository passes `--all-features`: `just lint`, `just test`,
-//! `just check-changed` and the `clippy` and `nextest` nix checks alike. `nix/shipped.nix`, though,
-//! builds each published binary with cargo's DEFAULT features - `--package` and `--target`, no
-//! `--features` - because a non-optional networked adapter would cross-compile `ureq`, rustls and
-//! `ring` for two musl triples for a binary that links none of them. So a `#[cfg(feature = "...")]`
-//! that a developer only ever compiled with the feature ON can be a hard error in the exact
-//! configuration a release publishes, and every gate a developer runs before pushing is green.
+//! `just check-changed` and the `clippy` and `nextest` nix checks alike. So a `#[cfg(feature = "...")]`
+//! that a developer only ever compiled with the feature ON can be a hard error with every optional
+//! feature off, and every gate a developer runs before pushing is green. The lane dates from when
+//! the published binary itself used the default set, so as not to cross-compile `ureq`, rustls and
+//! `ring` for two musl triples; `#685` step 5 moved it to the optional features, and the `-ci`
+//! variants kept the default set.
 //!
 //! That happened: `sutura-serve`'s boot pre-flight landed with three items reachable only from a
 //! `bigquery` arm, `dead_code = "deny"` made all three errors with the feature off, and it reached
@@ -162,7 +166,7 @@ struct Pass {
 
 /// The two passes, and they are two because they see different code.
 ///
-/// `check` answers *does the shipped configuration compile*; clippy answers *is it clean under this
+/// `check` answers *does the default-feature configuration compile*; clippy answers *is it clean under this
 /// workspace's lint set*, which includes the whole `restriction` category and `-D warnings`. A
 /// `doc_markdown` on a `#[cfg(not(feature = ...))]` item is invisible to the first and to every
 /// `--all-features` run, which is the measured case that put both here.
@@ -504,7 +508,7 @@ fn feature_preflight(root: &Path, packages: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// `cargo xtask check-default-features` - the shipped feature set compiles and lints.
+/// `cargo xtask check-default-features` - the shipped packages compile and lint at cargo's default features.
 pub(crate) fn run(args: &[String]) -> Verdict {
     if !args.is_empty() {
         eprintln!("usage: check-default-features - it takes no arguments");
@@ -546,7 +550,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         packages.len(),
         packages.join(", ")
     );
-    println!("  cargo's DEFAULT feature set - the one `nix/shipped.nix` publishes and no other gate compiles.");
+    println!("  cargo's DEFAULT feature set - the shipped set is `checks.shipped-features` in `nix/shipped.nix`.");
     if let Some(name) = profile {
         println!(
             "  profile `{name}` - the warmed artifacts' own, so the units that match this narrow feature set are reused. Not most of them: this module's header has the measurement."

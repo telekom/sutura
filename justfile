@@ -286,7 +286,7 @@ gates: hygiene
     # nothing to byte-compare; `check-attribution-owner` holds the ABSENCE of a committed copy.
     cargo run -q -p xtask -- check-attribution
     # The DEFAULT-feature lane, here for the line above's reason. Every other compiling gate passes
-    # `--all-features` while `nix/shipped.nix` publishes cargo's default set. That shipped once.
+    # `--all-features` while `nix/shipped.nix`'s `-ci` link-check variant builds cargo's default set.
     cargo run -q -p xtask -- check-default-features
     # And the lane's TESTS, which the line above only compiles: every `#[cfg(not(feature))]` test was
     # compiled here and executed by nothing. Two were in that state when this landed.

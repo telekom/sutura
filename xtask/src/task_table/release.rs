@@ -40,7 +40,7 @@ pub(crate) const TASKS: &[Task] = &[
         // package set and `cargo metadata` supplies the licences. It refuses a crate that declares
         // no licence, which the generator used to print and pass.
         name: "check-attribution",
-        description: "a generation names every third-party crate in Cargo.lock with a declared licence (needs a resolvable registry)",
+        description: "a generation names every third-party crate in Cargo.lock with a declared licence, and no workspace member lacks one (needs a resolvable registry)",
         kind: Kind::Standalone,
         falsifier: Falsifier::declared_in_programme(),
         run: attribution::run_check,
