@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-rdbms/src/lib.rs b/crates/sutura-catalog-rdbms/src/lib.rs
+index 55207aca1..0208fd0ad 100644
+--- a/crates/sutura-catalog-rdbms/src/lib.rs
++++ b/crates/sutura-catalog-rdbms/src/lib.rs
+@@ -293,7 +293,7 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
+         }
+         if let Some(bounds) = self.bounds {
+             let rows = dictionary.tables.len() as u64 + dictionary.relationships.len() as u64;
+-            if rows > bounds.max_rows().get() {
++            if rows >= bounds.max_rows().get() {
+                 return Err(RdbmsError::ExceedsBounds {
+                     rows,
+                     limit: bounds.max_rows(),
