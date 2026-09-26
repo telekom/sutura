@@ -97,6 +97,14 @@ mod okf;
 #[cfg(feature = "openmetadata")]
 #[path = "served/openmetadata.rs"]
 mod openmetadata;
+
+// `catalog.kind: datacontract`, served: the same "boots and lists" acceptance okf's own cell
+// above carries, for the third on-disk vocabulary - see `served/datacontract.rs`'s module header.
+#[cfg(unix)]
+#[cfg(test)]
+#[path = "served/datacontract.rs"]
+mod datacontract;
+
 // The agent-surface cells (`/mcp` hidden behind leg 1, the boot refusal, two callers), split into
 // their own file for the same `max-lines` reason; `#[path]` keeps them next to the harness they
 // share. `cfg(feature = "agent")` as its own attribute so the default build has no `/mcp` at all,

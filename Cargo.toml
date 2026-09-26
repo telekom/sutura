@@ -31,6 +31,13 @@ members = [
   # no allowlist and no anchor - `docs/what-okf-can-carry.md` is the finding, `#153` the issue. A
   # DECLARING source, measured against its own declaration rather than the golden oracle.
   "crates/sutura-catalog-okf",
+  # THE ON-DISK VOCABULARY for interface catalogues exported as data-contract YAML: a catalog over a
+  # directory of Open Data Contract Standard v3 contract documents. It provides Structure and may-
+  # provide Descriptions, ColumnTypes, ColumnDescriptions and (v3.1+) Relationships under the rdbms
+  # target-uniqueness rule, and declares the join-less metric/grain/filter/allowlist/anchor out -
+  # `docs/what-a-data-contract-can-carry.md` is the finding, `#973` the issue. A DECLARING source,
+  # measured against its own declaration rather than the golden oracle.
+  "crates/sutura-catalog-datacontract",
   # THE RICHEST of the three measured metadata sources (DataHub / Table Schema / OpenMetadata), and
   # still a DECLARING connector: it needs a service, and it keeps two half-a-definition slots.
   # Declared, not defaulted; measured against its own declaration rather than the golden oracle -
@@ -131,6 +138,7 @@ sutura-catalog-local = { path = "crates/sutura-catalog-local" }
 sutura-catalog-datahub = { path = "crates/sutura-catalog-datahub" }
 sutura-catalog-rdbms = { path = "crates/sutura-catalog-rdbms" }
 sutura-catalog-okf = { path = "crates/sutura-catalog-okf" }
+sutura-catalog-datacontract = { path = "crates/sutura-catalog-datacontract" }
 sutura-catalog-openmetadata = { path = "crates/sutura-catalog-openmetadata" }
 sutura-semantic = { path = "crates/sutura-semantic" }
 sutura-sql = { path = "crates/sutura-sql" }

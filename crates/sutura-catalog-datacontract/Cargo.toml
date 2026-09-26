@@ -1,0 +1,19 @@
+[package]
+name = "sutura-catalog-datacontract"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "A SemanticCatalog adapter over a directory of Open Data Contract Standard v3 contracts - the on-disk vocabulary used when interface catalogues are exported as data-contract YAML."
+
+[dependencies]
+sutura-domain = { workspace = true }
+serde = { workspace = true }
+serde_norway = { workspace = true }
+thiserror = { workspace = true }
+rustix = { workspace = true }
+
+[lints]
+workspace = true

@@ -52,7 +52,7 @@ pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Res
             refuse_rdbms_keys(&settings, raw_catalog)?;
         }
         let settings = match kind {
-            CatalogKind::Markdown | CatalogKind::Okf => settings,
+            CatalogKind::Markdown | CatalogKind::Okf | CatalogKind::DataContract => settings,
             CatalogKind::Rdbms => {
                 let rdbms =
                     RdbmsSettings::parse(settings.name(), raw_catalog, sources).map_err(|cause| SettingsError::Catalog {
