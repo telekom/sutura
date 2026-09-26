@@ -42,6 +42,10 @@ pub const fn refusals(&self) -> usize
 pub const fn relationships(&self) -> usize
 ```
 
+### Implements
+
+`Debug`
+
 ## `enum ImportError`
 
 ```rust
