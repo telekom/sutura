@@ -41,9 +41,8 @@
 //! was reflowed to keep the two on one line for exactly that reason, and the mutation naming the
 //! wrong file was re-run afterwards to prove the site is still read.
 
-use std::path::Path;
-
 use super::claims::flatten;
+use crate::causality::regions::PostImage;
 use crate::repo::matches_any;
 
 /// A mechanism whose HOME is derived, and the prose that attributes it.
@@ -142,22 +141,22 @@ fn trailing_span(head: &str) -> Option<&str> {
 /// holding one mechanism are two copies to keep in step, and a sentence that hands a reader a list
 /// orients nobody. `None` is a FAILED verdict at the call site either way - the two cases are told
 /// apart there, because *it moved* and *there are two of them* want different corrections.
-fn hosting(root: &Path, files: &[String], hosted: &Hosted) -> Scanned<String> {
+fn hosting(read: &PostImage<'_>, files: &[String], hosted: &Hosted) -> Scanned<String> {
     let mut found = Vec::new();
     let mut unreadable = Vec::new();
     for rel in files {
         if !matches_any(hosted.over, rel) {
             continue;
         }
-        match std::fs::read_to_string(root.join(rel)) {
-            Ok(text) if hosted.holds.iter().all(|needle| text.contains(needle)) => found.push(rel.clone()),
-            Ok(_) => {}
+        match read(rel) {
+            Some(text) if hosted.holds.iter().all(|needle| text.contains(needle)) => found.push(rel.clone()),
+            Some(_) => {}
             // FAIL CLOSED ON A READ, not only on a parse. The file this cannot look at may be the
             // one holding the mechanism, and dropping it turns *nobody holds this* into an answer.
             // Measured one gate over during review of `github.com/telekom/sutura#301`: a non-UTF-8
             // page left `check-shipped-binaries` at `ok` and exit 0 because its reader said
             // `continue`.
-            Err(why) => unreadable.push(format!("{rel}: cannot be read as UTF-8 text - {why}")),
+            None => unreadable.push(format!("{rel}: cannot be read as UTF-8 text")),
         }
     }
     Scanned { found, unreadable }
@@ -178,7 +177,7 @@ struct Attributed {
 /// Read from the FLATTENED view for `Counted`'s reason, which was a defect there before it was a
 /// rule: prose wraps, so an attribution whose file span ends one line above its marker is invisible
 /// to a per-line search, and every occurrence is read rather than the first on a line.
-fn attributions(root: &Path, files: &[String], hosted: &Hosted) -> Scanned<Attributed> {
+fn attributions(read: &PostImage<'_>, files: &[String], hosted: &Hosted) -> Scanned<Attributed> {
     let mut found = Vec::new();
     let mut unreadable = Vec::new();
     for rel in files {
@@ -188,12 +187,9 @@ fn attributions(root: &Path, files: &[String], hosted: &Hosted) -> Scanned<Attri
         // Same rule on this side, and the loss is the mirror image: an unread page may be the one
         // making the false attribution, and another page stating it correctly keeps the entry
         // non-empty - so the miss is silent in exactly the way this whole module exists to stop.
-        let text = match std::fs::read_to_string(root.join(rel)) {
-            Ok(text) => text,
-            Err(why) => {
-                unreadable.push(format!("{rel}: cannot be read as UTF-8 text - {why}"));
-                continue;
-            }
+        let Some(text) = read(rel) else {
+            unreadable.push(format!("{rel}: cannot be read as UTF-8 text"));
+            continue;
         };
         let (flat, lines) = flatten(&text);
         let mut from = 0_usize;
@@ -215,13 +211,13 @@ fn attributions(root: &Path, files: &[String], hosted: &Hosted) -> Scanned<Attri
 }
 
 /// A file named as holding a mechanism must be the file that holds it.
-pub(in crate::guidance) fn host_mismatches(root: &Path, all: &[String], files: &[String]) -> Vec<String> {
+pub(in crate::guidance) fn host_mismatches(read: &PostImage<'_>, all: &[String], files: &[String]) -> Vec<String> {
     let mut problems = Vec::new();
     for hosted in HOSTED {
         let Scanned {
             found: holders,
             unreadable,
-        } = hosting(root, all, hosted);
+        } = hosting(read, all, hosted);
         problems.extend(unreadable);
         let derived = match holders.split_first() {
             // The thing attributed is gone. Not the prose being right - a rename, a deletion or a
@@ -253,7 +249,7 @@ pub(in crate::guidance) fn host_mismatches(root: &Path, all: &[String], files: &
         let Scanned {
             found: stated,
             unreadable,
-        } = attributions(root, files, hosted);
+        } = attributions(read, files, hosted);
         problems.extend(unreadable);
         for claim in &stated {
             if claim.named != derived {
@@ -305,6 +301,23 @@ mod tests {
         assert_eq!(super::trailing_span("`nix/lint-workflows.sh "), None);
     }
 
+    #[test]
+    fn host_checks_use_the_supplied_text_even_when_no_path_exists() {
+        let files = [String::from("nix/lint-workflows.sh"), String::from("docs/page.md")];
+        let text_of = |rel: &str| match rel {
+            "nix/lint-workflows.sh" => Some(String::from("git ls-files '*.sh'\n")),
+            "docs/page.md" => Some(String::from("The list `nix/lint-workflows.sh` builds from tracked files.\n")),
+            _ => None,
+        };
+        let holders = super::hosting(&text_of, &files, &ENTRY);
+        assert_eq!(holders.found, vec![String::from("nix/lint-workflows.sh")]);
+        assert!(holders.unreadable.is_empty(), "{:?}", holders.unreadable);
+        let stated = super::attributions(&text_of, &files, &ENTRY);
+        assert_eq!(stated.found.len(), 1);
+        assert_eq!(stated.found[0].named, "nix/lint-workflows.sh");
+        assert!(stated.unreadable.is_empty(), "{:?}", stated.unreadable);
+    }
+
     /// A WRAPPED attribution is found, which is what the flattened view buys.
     ///
     /// `claims/counts.rs` records this as a defect its per-line predecessor had: prose wraps, and a
@@ -335,27 +348,28 @@ mod tests {
             String::from("docs/page.md"),
             String::from("docs/not-text.md"),
         ];
-        let read = super::attributions(&dir, &all, &ENTRY);
+        let text_of = |rel: &str| std::fs::read_to_string(dir.join(rel)).ok();
+        let read = super::attributions(&text_of, &all, &ENTRY);
         assert!(read.unreadable.is_empty(), "{:?}", read.unreadable);
         assert_eq!(read.found.len(), 1, "the wrapped attribution was not read");
         assert_eq!(
             read.found.first().map(|one| one.named.as_str()),
             Some("nix/lint-workflows.sh")
         );
-        let holders = super::hosting(&dir, &all, &ENTRY);
+        let holders = super::hosting(&text_of, &all, &ENTRY);
         assert_eq!(holders.found, vec![String::from("nix/lint-workflows.sh")]);
         assert!(holders.unreadable.is_empty(), "{:?}", holders.unreadable);
 
         // And the direction the whole entry exists for: a sentence naming the wrong file.
         write(&docs, "page.md", "The list is what `ci.yml` builds from tracked files.\n");
-        let wrong = super::attributions(&dir, &all, &ENTRY);
+        let wrong = super::attributions(&text_of, &all, &ENTRY);
         assert_eq!(wrong.found.first().map(|one| one.named.as_str()), Some("ci.yml"));
 
         // FAIL CLOSED ON A READ, both sides. A page nobody can read may be the one making the
         // false attribution, and a file nobody can read may be the one holding the mechanism -
         // and another correct page keeps the entry non-empty, so the loss is silent.
         std::fs::write(docs.join("not-text.md"), [0xff_u8, 0xfe, 0x00]).unwrap_or_else(|e| panic!("{e}"));
-        let now = super::attributions(&dir, &all, &ENTRY).unreadable;
+        let now = super::attributions(&text_of, &all, &ENTRY).unreadable;
         assert_eq!(now.len(), 1, "an unreadable page was dropped in silence: {now:?}");
         assert!(now.iter().any(|p| p.contains("docs/not-text.md")), "{now:?}");
         std::fs::remove_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
@@ -376,19 +390,19 @@ mod tests {
     /// to read and cannot, never on a file it was never going to read.
     #[test]
     fn every_entry_resolves_to_one_file_and_some_page_names_it() {
-        let (files, _texts, _witness) =
+        let (files, texts, _witness) =
             super::super::inspect_listing(crate::repo::all_files()).expect("could not locate the repo");
-        let root = crate::repo::root().expect("the repo root");
+        let text_of = |rel: &str| texts.strict(rel);
         let text: Vec<String> = files
             .iter()
             .filter(|f| super::super::has_ext(f, &["md", "nix", "yml", "yaml", "toml", "sh"]))
             .cloned()
             .collect();
         for hosted in super::HOSTED {
-            let holders = super::hosting(&root, &files, hosted);
+            let holders = super::hosting(&text_of, &files, hosted);
             assert!(holders.unreadable.is_empty(), "{:?}", holders.unreadable);
             assert_eq!(holders.found.len(), 1, "{}: {:?}", hosted.name, holders.found);
-            let stated = super::attributions(&root, &text, hosted);
+            let stated = super::attributions(&text_of, &text, hosted);
             assert!(stated.unreadable.is_empty(), "{:?}", stated.unreadable);
             assert!(!stated.found.is_empty(), "{}: nothing attributes it", hosted.name);
             for claim in &stated.found {
@@ -404,7 +418,7 @@ mod tests {
         // And the whole check over the real tree, through the entry point the gate calls, so a
         // problem produced by any of the four arms fails this too.
         assert!(
-            super::host_mismatches(&root, &files, &text).is_empty(),
+            super::host_mismatches(&text_of, &files, &text).is_empty(),
             "no host mismatch is reported by any arm"
         );
     }
