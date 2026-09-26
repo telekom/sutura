@@ -45,7 +45,7 @@ pub enum WalkError {
         #[source]
         cause: std::io::Error,
     },
-    /// The walk found more documents than [`MAX_CATALOG_DOCUMENTS`] permits.
+    /// The walk found more documents than [`walk`]'s `max_documents` parameter permits.
     ///
     /// `path` is the catalog root, `found` is how many document-shaped entries the walk had counted
     /// when it stopped - which may be less than the directory's true total, because the walk refuses
@@ -71,7 +71,7 @@ pub enum WalkError {
 ///
 /// [`WalkError::NotADirectory`] when `root` is not a directory; [`WalkError::Io`] for a failure to
 /// read `root` or a directory within it; [`WalkError::TooManyDocuments`] once a directory crosses
-/// [`MAX_CATALOG_DOCUMENTS`]; [`WalkError::Empty`] when `root` holds no documents.
+/// `max_documents`; [`WalkError::Empty`] when `root` holds no documents.
 pub fn walk(root: &Path, extensions: &[&str], max_documents: usize) -> Result<Vec<PathBuf>, WalkError> {
     if !root.is_dir() {
         return Err(WalkError::NotADirectory {

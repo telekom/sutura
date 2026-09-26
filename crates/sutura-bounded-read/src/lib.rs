@@ -17,14 +17,9 @@
 //! [`ReadError`] / [`WalkError`] into its own error enum, keeping its own variants and rendered
 //! messages unchanged, and keeps whatever it does with the text after the read (parse the document,
 //! split its frontmatter, dispatch on its kind). The two sharp bounds a catalog clamps each document
-//! to - the document-count cap on the walk and the aggregate-byte cap on the read - are both declared
-//! here and supplied by the caller, so the bound lives beside the mechanism rather than one crate
-//! from it.
-//!
-//! **This is a pure refactor: no behavioural change.** The three catalogs' existing integration
-//! bounds tests (`tests/bounds.rs` in each) assert on rendered refusal messages through their own
-//! `load()` driving port, and they pass unchanged. A finisher proves it by running those three suite
-//! files against the refactor and against base.
+//! to are asymmetric: the document-count cap on the walk ([`MAX_CATALOG_DOCUMENTS`]) is a default a
+//! caller may override through [`walk`]'s `max_documents` parameter, while the aggregate-byte cap on
+//! the read ([`MAX_CATALOG_BYTES`]) is hard-coded inside [`read_document`] and not a parameter at all.
 
 mod read;
 mod walk;

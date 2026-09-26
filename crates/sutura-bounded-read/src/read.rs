@@ -11,6 +11,18 @@
 //! that lies about its size, or grows while it is being read, is refused rather than allocated.
 //! There is no `unsafe`: the descriptor is borrowed for the read and closed by rustix's ownership.
 //!
+//! **What the open does NOT refuse: a document swapped for a different regular file at the same
+//! path.** The walk named a path, and the handle [`read_document`] opens is of whatever that path
+//! names now - a regular file swapped in after the walk is read and bounded, not refused; only a
+//! symlink or a FIFO swapped in is caught, by `O_NOFOLLOW`/`O_NONBLOCK` at the open itself.
+//!
+//! **"Opened exactly once per document" is held by review, not by a test.** This function's own
+//! single `rustix::fs::open` call is the whole of that guarantee; a caller that added a second,
+//! unguarded read of the same path after calling this function would not be caught by any swap-timing
+//! test here - the window between two back-to-back opens is sub-microsecond, well under what even a
+//! multi-millisecond swap test can land reliably (measured across 3 separate `just test` runs against
+//! that mutation, before this crate existed).
+//!
 //! The refusal paths and their exact reach are [`read_document`]'s contract; a caller maps its
 //! [`ReadError`] into its own error enum, keeping its variants and rendered messages.
 

@@ -147,9 +147,9 @@ impl DataContractCatalog {
     /// at the same path between the walk and the open is read as whatever that path names now,
     /// bounded, not refused - the walk named a path, and the handle opened is of whatever that path
     /// currently is. "Opened once" is held by review, not by a test, for the reason
-    /// `sutura-catalog-okf::read_all`'s own doc states: the window between two back-to-back opens
-    /// is sub-microsecond, under what a swap-timing test can land reliably. The refusal paths and
-    /// their exact reach are [`sutura_bounded_read::read_document`]'s contract.
+    /// [`sutura_bounded_read::read_document`]'s own module doc now states: the window between two
+    /// back-to-back opens is sub-microsecond, under what a swap-timing test can land reliably. The
+    /// refusal paths and their exact reach are [`sutura_bounded_read::read_document`]'s contract.
     fn read_all(&self) -> Result<Content, DataContractError> {
         let mut models = Vec::new();
         let mut relationships = Vec::new();

@@ -22,6 +22,14 @@ use super::{Edges, transitive_names};
 /// The crate this rule watches.
 pub(crate) const SHARED_CLIENT: &str = "sutura-http-client";
 
+/// `sutura-bounded-read` gets the identical row for the identical reason - `#1045`'s review
+/// (round 2) found the same gap `#970`'s review found for `SHARED_CLIENT`: an unprefixed,
+/// `sutura-tls`-shaped crate joins none of `adapters::CLASSES`, so nothing but a row naming it
+/// directly catches a normal edge back into an adapter, a composition root, a settings crate or a
+/// transport. Checked with the exact same [`FORBIDDEN_PREFIXES`]/[`FORBIDDEN_NAMES`] set, because
+/// the class a small shared read must not reach back into does not depend on which read it is.
+pub(crate) const BOUNDED_READ: &str = "sutura-bounded-read";
+
 /// Prefixes that join the forbidden class - the same two `super::adapters::CLASSES` names as
 /// "data systems" and "metadata providers". Kept as its own copy for the reason
 /// `application::ADAPTER_PREFIX` is: two rules asking different questions each keep the
@@ -37,32 +45,43 @@ const FORBIDDEN_NAMES: &[&str] = &["sutura-app", "sutura-config", "sutura-http",
 
 /// What the check found.
 pub(crate) struct Report {
-    /// How many crates were in `sutura-http-client`'s normal tree - printed on success, the same
+    /// How many crates were in the watched crate's normal tree - printed on success, the same
     /// reason [`super::application::Report::tree_size`] is.
     pub(crate) tree_size: usize,
     /// One line per forbidden crate reached, already formatted for stderr.
     pub(crate) problems: Vec<String>,
 }
 
-/// Walks `sutura-http-client`'s normal-dependency tree and refuses any adapter-class prefix or
-/// named crate in it.
-pub(crate) fn check(meta: &serde_json::Value) -> Result<Report, String> {
-    let tree = transitive_names(meta, SHARED_CLIENT, Edges::Normal)?;
+/// Walks `watched`'s normal-dependency tree and refuses any adapter-class prefix or named crate in
+/// it. Shared by [`SHARED_CLIENT`] and [`BOUNDED_READ`] - the same forbidden set, because the
+/// question ("does this small shared read reach back into an adapter, a composition root, a
+/// settings crate or a transport?") does not change with which read it is.
+fn check_named(meta: &serde_json::Value, watched: &str) -> Result<Report, String> {
+    let tree = transitive_names(meta, watched, Edges::Normal)?;
     let problems = tree
         .iter()
         .filter(|name| {
             FORBIDDEN_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) || FORBIDDEN_NAMES.contains(&name.as_str())
         })
         .map(|name| {
-            format!(
-                "{SHARED_CLIENT} -> {name}: a normal dependency from the shared HTTP client onto an adapter or a composition root"
-            )
+            format!("{watched} -> {name}: a normal dependency from a small shared read onto an adapter or a composition root")
         })
         .collect();
     Ok(Report {
         tree_size: tree.len(),
         problems,
     })
+}
+
+/// Walks [`SHARED_CLIENT`]'s normal-dependency tree and refuses any adapter-class prefix or
+/// named crate in it.
+pub(crate) fn check(meta: &serde_json::Value) -> Result<Report, String> {
+    check_named(meta, SHARED_CLIENT)
+}
+
+/// The same check as [`check`], over [`BOUNDED_READ`]'s normal-dependency tree instead.
+pub(crate) fn check_bounded_read(meta: &serde_json::Value) -> Result<Report, String> {
+    check_named(meta, BOUNDED_READ)
 }
 
 /// The argument, printed once, the same shape every sibling half in this gate prints.
@@ -75,9 +94,19 @@ pub(crate) fn explain() {
     eprintln!("  the same answer `sutura-tls`'s own header gives.");
 }
 
+/// The same argument as [`explain`], for [`BOUNDED_READ`]'s own reason to exist.
+pub(crate) fn explain_bounded_read() {
+    eprintln!("  Why: this crate exists so three on-disk catalog adapters of the SAME class share one");
+    eprintln!("  bounded document read without becoming each other's library - the class rule");
+    eprintln!("  `adapter_classes` already holds moves one layer out if this crate could reach back");
+    eprintln!("  into an adapter, a composition root, or the settings crate that describes one.");
+    eprintln!("  Do:  a type both a catalog and this crate genuinely need belongs in `sutura-domain`,");
+    eprintln!("  the same answer `sutura-tls`'s own header gives.");
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{check, explain};
+    use super::{check, check_bounded_read, explain, explain_bounded_read};
 
     fn meta(edges: &str) -> serde_json::Value {
         serde_json::from_str(&format!(
@@ -105,6 +134,72 @@ mod tests {
             }}"#
         ))
         .expect("fixture parses")
+    }
+
+    fn bounded_read_meta(edges: &str) -> serde_json::Value {
+        serde_json::from_str(&format!(
+            r#"{{
+                "packages": [
+                    {{"id": "br", "name": "sutura-bounded-read"}},
+                    {{"id": "exec", "name": "sutura-exec-datafusion"}},
+                    {{"id": "catalog", "name": "sutura-catalog-local"}},
+                    {{"id": "app", "name": "sutura-app"}},
+                    {{"id": "config", "name": "sutura-config"}},
+                    {{"id": "http", "name": "sutura-http"}},
+                    {{"id": "mcp", "name": "sutura-mcp"}},
+                    {{"id": "rustix", "name": "rustix"}}
+                ],
+                "resolve": {{"nodes": [
+                    {{"id": "br", "deps": [{{"pkg": "rustix"}}{edges}]}},
+                    {{"id": "exec", "deps": []}},
+                    {{"id": "catalog", "deps": []}},
+                    {{"id": "app", "deps": []}},
+                    {{"id": "config", "deps": []}},
+                    {{"id": "http", "deps": []}},
+                    {{"id": "mcp", "deps": []}},
+                    {{"id": "rustix", "deps": []}}
+                ]}}
+            }}"#
+        ))
+        .expect("fixture parses")
+    }
+
+    #[test]
+    fn a_bounded_read_tree_reaching_only_rustix_passes() {
+        let report = check_bounded_read(&bounded_read_meta("")).expect("walk succeeds");
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
+        assert_eq!(report.tree_size, 1, "rustix alone");
+    }
+
+    #[test]
+    fn a_bounded_read_normal_edge_onto_a_metadata_provider_is_a_violation() {
+        let report = check_bounded_read(&bounded_read_meta(r#", {"pkg": "catalog"}"#)).expect("walk succeeds");
+        assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+        assert!(report.problems[0].contains("sutura-catalog-local"), "{:?}", report.problems);
+    }
+
+    #[test]
+    fn a_bounded_read_normal_edge_onto_the_application_settings_or_a_transport_is_a_violation() {
+        let report = check_bounded_read(&bounded_read_meta(
+            r#", {"pkg": "app"}, {"pkg": "config"}, {"pkg": "http"}, {"pkg": "mcp"}, {"pkg": "exec"}"#,
+        ))
+        .expect("walk succeeds");
+        assert_eq!(report.problems.len(), 5, "{:?}", report.problems);
+    }
+
+    #[test]
+    fn the_real_bounded_read_tree_has_no_such_edge() {
+        let Ok(meta) = crate::cargo_metadata(&["--all-features"]) else {
+            return;
+        };
+        let report = check_bounded_read(&meta).expect("the real tree resolves");
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
+        assert!(report.tree_size > 0, "sutura-bounded-read's own tree is not empty");
+    }
+
+    #[test]
+    fn explain_bounded_read_does_not_panic() {
+        explain_bounded_read();
     }
 
     #[test]

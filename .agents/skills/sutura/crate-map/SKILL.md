@@ -55,7 +55,12 @@ a settings crate parses a declaration and never reads bytes, so a settings edge 
 is exactly the file I/O a settings crate must not do. That is held by a `FORBIDDEN_EDGES` row
 (`sutura-bounded-read -> sutura-config`, `Edges::Normal`) rather than by the sentence, and the
 three catalog adapters map its closed [`ReadError`]/[`WalkError`] enums into their own, keeping
-their variants and rendered messages unchanged.
+their variants and rendered messages unchanged. **Joining no `adapters::CLASSES` entry also means
+[`adapter_classes`] cannot see a normal edge FROM this crate either** - the identical gap
+`xtask/src/boundaries/shared_client.rs` closes for `sutura-http-client` - so `check-boundaries`
+runs `shared_client`'s own forbidden set (`sutura-exec-*`, `sutura-catalog-*`, `sutura-app`,
+`sutura-config`, `sutura-http`, `sutura-mcp`) against `sutura-bounded-read` too, widening the
+single `-> sutura-config` row above to the whole class.
 
 Rules that are not visible from a manifest:
 
