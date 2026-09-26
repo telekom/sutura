@@ -48,7 +48,7 @@ pub(crate) struct ChangedFile {
 /// The old-side numbers are in the hunk header the parser already reads, so the exact question -
 /// *was this line inside a test region of the tree it was deleted from* - is answerable and
 /// nothing has to be approximated. `super::reverted` reads the BASE image to ask it.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct RemovedLine {
     /// The 1-based line this text occupied in the PRE-image - the tree the revert restores.
     pub(crate) before: usize,

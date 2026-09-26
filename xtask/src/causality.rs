@@ -756,6 +756,9 @@ pub(crate) fn run(args: &[String]) -> Verdict {
 mod gas_tests;
 
 #[cfg(test)]
+mod moved_tests;
+
+#[cfg(test)]
 mod tests {
     use std::process::Command;
     use std::sync::atomic::{AtomicUsize, Ordering};

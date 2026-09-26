@@ -141,12 +141,13 @@ pub(crate) fn plan_with_base(files: &[ChangedFile], read: &PostImage<'_>, base: 
     let mut deleted_tests: Vec<DeletedFrom> = Vec::new();
     let mut unreadable_base: Vec<String> = Vec::new();
 
-    // Check deletion in every compiled file, including one that also adds or edits tests.
-    for file in files {
+    // Check deletion in every compiled file, including one that also adds or edits tests, less
+    // what a PURE MOVE re-added unchanged elsewhere (`edited::moved`).
+    for (file, removed) in files.iter().zip(edited::moved::unmoved(files, base, read)) {
         if !matches!(Reach::of(&file.path), Reach::Compiled) {
             continue;
         }
-        match edited::deletion_in(&file.added, &file.removed, (&file.before, &file.path), base, read) {
+        match edited::deletion_in(&file.added, &removed, (&file.before, &file.path), base, read) {
             Deletion::None => {}
             Deletion::BaseUnreadable => unreadable_base.push(file.path.clone()),
             Deletion::Named(names) => deleted_tests.push(DeletedFrom {
