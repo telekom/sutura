@@ -21,8 +21,6 @@ use crate::causality::fixtures::{changed, manifest, tree};
 use crate::causality::scoped::Scan;
 use crate::causality::scoped::Scoped;
 
-mod mixed;
-
 /// One unique temp directory per real-git test, so the paths never collide under nextest.
 static SEQ: AtomicUsize = AtomicUsize::new(0);
 
