@@ -60,7 +60,10 @@ const NEAR_CAP_REPORTED: usize = 5;
 
 /// Hand-written source. An ignore pattern pointing here is rejected outright and the gate
 /// fails: the fix for a 1200-line module is to split it, and an exemption list that can
-/// swallow first-party code is a gate that quietly stops gating.
+/// swallow first-party code is a gate that quietly stops gating. [`measure`] also never lets an
+/// ignore pattern exempt a path under these, because the pattern-text check cannot see every
+/// spelling that reaches one: `repo::matches` reads a pattern with no `/` as a bare file name at
+/// any depth, so `lib.rs` matches every `crates/*/src/lib.rs`.
 const UNEXEMPTABLE_PREFIXES: &[&str] = &["crates/", "xtask/"];
 
 /// Patterns from the ignore file, split by what they promise.
@@ -232,7 +235,9 @@ fn measure(census: repo::Census, must_judge: &[&str], max: usize, ignores: &Igno
             return;
         }
         measured.over_cap.push(String::from(rel));
-        if ignores.warn.iter().any(|p| repo::matches(p, rel)) {
+        if UNEXEMPTABLE_PREFIXES.iter().any(|prefix| rel.starts_with(prefix)) {
+            measured.violations.push((String::from(rel), lines));
+        } else if ignores.warn.iter().any(|p| repo::matches(p, rel)) {
             measured.warnings.push((String::from(rel), lines));
         } else if !ignores.silent.iter().any(|p| repo::matches(p, rel)) {
             measured.violations.push((String::from(rel), lines));
@@ -521,6 +526,33 @@ mod tests {
             why.describe().contains("crates/thing/src/lib.rs"),
             "the refusal has to name the file it could not read: {}",
             why.describe()
+        );
+    }
+
+    /// A slash-less ignore pattern is a bare file name at any depth, so `lib.rs` reaches every
+    /// `crates/*/src/lib.rs` while its TEXT names no first-party prefix - the spelling
+    /// `is_unexemptable` cannot see. The exemption site refuses it instead.
+    #[test]
+    fn a_slash_less_pattern_cannot_exempt_first_party_source() {
+        let ignores = Ignores::parse("lib.rs\n[warn]\nmain.rs\n");
+        let over = lines(1200);
+        let tree = crate::scratch_tree::Tree::of(
+            "max-lines-slash-less",
+            &[
+                ("flake.nix", b"{ }\n"),
+                ("crates/thing/src/lib.rs", over.as_slice()),
+                ("xtask/src/main.rs", over.as_slice()),
+                ("docs/lib.rs", over.as_slice()),
+            ],
+        );
+        let measured = measure_over(&tree, &[super::ANCHOR], &ignores).expect("a readable tree measures");
+        let mut violations: Vec<&str> = measured.violations.iter().map(|(rel, _)| rel.as_str()).collect();
+        violations.sort_unstable();
+        assert_eq!(
+            violations,
+            ["crates/thing/src/lib.rs", "xtask/src/main.rs"],
+            "{}",
+            measured.witness
         );
     }
 
