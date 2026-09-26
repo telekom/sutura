@@ -18,7 +18,7 @@
 //! messages unchanged, and keeps whatever it does with the text after the read (parse the document,
 //! split its frontmatter, dispatch on its kind). The two sharp bounds a catalog clamps each document
 //! to are asymmetric: the document-count cap on the walk ([`MAX_CATALOG_DOCUMENTS`]) is a default a
-//! caller may override through [`walk`]'s `max_documents` parameter, while the aggregate-byte cap on
+//! caller may override through [`walk()`]'s `max_documents` parameter, while the aggregate-byte cap on
 //! the read ([`MAX_CATALOG_BYTES`]) is hard-coded inside [`read_document`] and not a parameter at all.
 
 mod read;

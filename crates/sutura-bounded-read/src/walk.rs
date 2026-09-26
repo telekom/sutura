@@ -45,7 +45,7 @@ pub enum WalkError {
         #[source]
         cause: std::io::Error,
     },
-    /// The walk found more documents than [`walk`]'s `max_documents` parameter permits.
+    /// The walk found more documents than [`walk()`]'s `max_documents` parameter permits.
     ///
     /// `path` is the catalog root, `found` is how many document-shaped entries the walk had counted
     /// when it stopped - which may be less than the directory's true total, because the walk refuses
