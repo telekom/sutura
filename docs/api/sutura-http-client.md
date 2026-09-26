@@ -208,6 +208,44 @@ fake (`crate::tls_test_support`) can serve the SAME answers this server does, in
 second worth of page-building. Named `status_code` rather than `status` because
 `Self::status` is already the constructor's name.
 
+### `struct CapturedRequest`
+
+```rust
+pub struct CapturedRequest
+```
+
+One request this fake server answered: its request line, and its `authorization` header.
+
+The request LINE (`METHOD /path?query HTTP/1.1`) is the one thing that proves what a reader
+actually dialled - `?fields=`, `?limit=`, the exact path - and not only that it dialled
+SOMETHING.
+
+**Why the request line and not only the header.** Issue #970's round-2 review measured that a
+suite asserting on `authorization` alone cannot see a query-parameter regression: deleting
+`http.rs`'s own `fields_param` construction left every existing test green, because none of
+them read the URL a request carried. This type is the fix - a test that wants to prove a query
+parameter reached the wire reads `Self::request_line`, not a bearer header that says nothing
+about it.
+
+#### Methods
+
+```rust
+pub fn authorization(&self) -> Option<&str>
+```
+
+The `authorization` header's value, if the request carried one.
+
+```rust
+pub fn request_line(&self) -> &str
+```
+
+The request line, verbatim off the wire (`GET /api/v1/tables?limit=1000 HTTP/1.1`) - no
+trailing `\r\n`.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
 ### `struct FakeServer`
 
 ```rust
@@ -215,7 +253,10 @@ pub struct FakeServer
 ```
 
 A real local HTTP/1.1 server answering one `Scripted` response per connection, in order, then
-closing. Captures each request's `authorization` header so a test can assert the bearer was sent.
+closing.
+
+Captures each request's line and `authorization` header so a test can assert both the exact
+URL dialled and that the bearer was sent.
 
 #### Methods
 
@@ -234,7 +275,7 @@ pub fn endpoint(&self) -> String
 pub fn finish(self) -> CapturedAuthorizations
 ```
 
-Joins the server thread and returns every request's `authorization` header, in order.
+Joins the server thread and returns every request it answered, in order.
 
 Only called by a test that knows exactly how many connections it will make - a test that
 deliberately stops short drops the server instead, and the abandoned thread exits with the
@@ -246,7 +287,7 @@ pub fn start(answers: Vec<Scripted>) -> Self
 
 ### `type_alias CapturedAuthorizations`
 
-Every request this fake server has answered, in order: `authorization` header or `None`.
+Every request this fake server has answered, in order.
 
 ## Module `tls_test_support`
 
