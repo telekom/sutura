@@ -1118,7 +1118,7 @@ the view, never this type's.
 ##### Methods
 
 ```rust
-pub fn of(view: &ScopedView<'_>, prose: CatalogProse, instructions: Option<&str>, list_physical_schema: bool) -> Self
+pub fn of(view: &ScopedView<'_>, prose: CatalogProse, instructions: Option<&str>) -> Self
 ```
 
 The reader's view of one pinned bundle, under the prose setting this deployment was started
@@ -1135,6 +1135,12 @@ from a bare `&PinnedDefinitions` would hand every caller the whole bundle again,
 the defect this surface shipped until it took the view. `ScopedView` borrows the bundle, so
 this builder cannot reach `SemanticCatalog::load` - the knowledge sections and the metrics
 are filtered by the caller's own grant, never by a call the renderer omits.
+
+```rust
+pub fn of_with_physical_schema(view: &ScopedView<'_>, prose: CatalogProse, instructions: Option<&str>, list_physical_schema: bool) -> Self
+```
+
+Include physical models only when the operator enabled them for this caller view.
 
 ##### Implements
 
