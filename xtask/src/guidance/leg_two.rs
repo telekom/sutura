@@ -40,8 +40,8 @@
 //! # The scope, which is the limit that matters most here
 //!
 //! `guidance::tree_problems` passes `text_files` plus every `.rs` file, so this rule reads `md`,
-//! `nix`, `yml`, `yaml`, `toml` and `sh` as written, and `.rs` through [`absences::prose`], which
-//! keeps `///` and `//!` doc comments only. A rule table written in Rust holds the very phrases it
+//! `nix`, `yml`, `yaml`, `toml` and `sh` as written, and `.rs` through
+//! [`absences::prose`](super::absences::prose), which keeps `///` and `//!` doc comments only. A rule table written in Rust holds the very phrases it
 //! forbids, which is why `guidance::in_scope` excludes `.rs` for everything else that judges a
 //! sentence; here the WORDINGS are string literals, not doc comments, so the rule does not report
 //! itself. A `//` line comment, a `/* */` block comment and a string literal in `.rs` are not read,
