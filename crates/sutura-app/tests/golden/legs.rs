@@ -207,10 +207,11 @@ fn fact_sum_over_a_local_join() -> LegPlan {
                 RelationshipName::parse("subscription_product").expect("a fixture relationship is a relationship"),
                 table(LOCAL_DIMENSION_TABLE),
                 JoinType::ManyToOne,
-                vec![PlanJoinKey::Equal {
+                sutura_domain::nonempty::NonEmpty::parse(vec![PlanJoinKey::Equal {
                     origin: column(FACT_TABLE, "product_key"),
                     target: column(LOCAL_DIMENSION_TABLE, "product_key"),
-                }],
+                }])
+                .expect("a fixture join declares one key"),
             )],
         )
         .expect("two differently named fixture tables are distinguishable"),
@@ -243,7 +244,7 @@ fn fact_compound_join() -> LegPlan {
                 RelationshipName::parse("usage_subscription").expect("a fixture relationship is a relationship"),
                 table(MONTHLY_TABLE),
                 JoinType::ManyToOne,
-                vec![
+                sutura_domain::nonempty::NonEmpty::parse(vec![
                     PlanJoinKey::Equal {
                         origin: column(FACT_TABLE, "subscription_key"),
                         target: column(MONTHLY_TABLE, "subscription_key"),
@@ -253,7 +254,8 @@ fn fact_compound_join() -> LegPlan {
                         grain: Grain::Month,
                         target: column(MONTHLY_TABLE, "month"),
                     },
-                ],
+                ])
+                .expect("a compound fixture join declares two keys"),
             )],
         )
         .expect("two differently named fixture tables are distinguishable"),

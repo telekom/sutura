@@ -3,10 +3,12 @@
 //! **Unrepresentable over checked**, the same argument `secure-by-design` makes for the rest of this
 //! crate's newtypes: a `Vec` that a caller happens to always check for emptiness is a rule enforced
 //! by discipline at every read site, and a set with no elements is a valid `Vec` that means nothing
-//! for a caller who asked for one or more metrics, or one or more values to filter on. `NonEmpty`
-//! makes the empty case not exist rather than exist and be refused - there is no `Default`, no
-//! `new()`, and [`NonEmpty::parse`] is the only fallible entry point, returning [`EmptySet`] for the
-//! one thing that can go wrong.
+//! for a caller who asked for one or more of something. `NonEmpty` makes the empty case not exist
+//! rather than exist and be refused - there is no `Default`, no `new()`, and [`NonEmpty::parse`] is
+//! the only fallible entry point, returning [`EmptySet`] for the one thing that can go wrong.
+//!
+//! A relationship's ordered set of join keys is non-empty by construction this way, mirroring the
+//! catalog's `JoinKeys`; so is the plan's `PlanJoinKey` list it becomes.
 
 use serde::de::Error as _;
 
@@ -84,8 +86,7 @@ impl<T> NonEmpty<T> {
 
     /// Every element transformed, infallibly: a `NonEmpty` mapped one-to-one is still a
     /// `NonEmpty`, with no [`EmptySet`] to check and no `expect`/`unwrap` for a caller who has
-    /// one of these and needs another shape of it - `crate::plan`'s bind-order indices, built
-    /// from a resolved filter's `NonEmpty` of values, is why this exists.
+    /// one of these and needs another shape of it.
     pub fn map<U>(&self, mut f: impl FnMut(&T) -> U) -> NonEmpty<U> {
         NonEmpty {
             head: f(&self.head),

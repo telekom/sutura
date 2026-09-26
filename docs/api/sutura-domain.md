@@ -1259,18 +1259,46 @@ pub struct JoinKeys
 
 The ordered, non-empty set of `JoinKey`s one relationship joins on.
 
-**Non-empty by construction and ordered by construction.** `JoinKeys::of` refuses an empty
-list, and the private `Vec` keeps the order it was handed - the order the planner renders the
-`ON` terms in. No `Deref` or `Borrow`; `as_slice` is the only way to lend
-the keys, which also keeps this crate's no-indexing rule honest.
+**Non-empty by construction, held by the type rather than by a checked constructor alone.**
+`crate::nonempty::NonEmpty` makes the empty case unrepresentable, so `JoinKeys::of` refuses
+an empty list once, at the one door, rather than every reader re-checking a `Vec` that happens
+to always hold something. The order it was handed is kept - the order the planner renders the
+`ON` terms in. No `Deref` or `Borrow`; `iter` is the only way to lend the
+keys, which also keeps this crate's no-indexing rule honest.
 
 #### Methods
 
 ```rust
-pub fn as_slice(&self) -> &[JoinKey]
+pub const fn first(&self) -> &JoinKey
+```
+
+The first key - the one every non-empty set is guaranteed to have.
+
+```rust
+pub const fn is_empty(&self) -> bool
+```
+
+Never true - a method anyway, because clippy's `len_without_is_empty` lint does not know
+this type's whole point is that the answer is always the same.
+
+```rust
+pub fn iter(&self) -> impl Iterator<Item>
 ```
 
 The keys, in declared order. The whole set - not any one of them - promises the target unique.
+
+```rust
+pub const fn len(&self) -> usize
+```
+
+How many keys this set holds. Never zero.
+
+```rust
+pub fn map<U>(&self, f: impl FnMut(&JoinKey) -> U) -> crate::nonempty::NonEmpty<U>
+```
+
+Every key transformed, in order, infallibly - a non-empty set mapped one-to-one is still
+non-empty.
 
 ```rust
 pub fn of(keys: Vec<JoinKey>) -> Result<Self, InvalidJoinKeys>
@@ -1282,7 +1310,7 @@ One constructor rather than a constructor plus an `is_valid`: an empty key set c
 minted, so no downstream code re-checks it and no relationship can hold a join of nothing.
 
 ```rust
-pub fn single(key: JoinKey) -> Self
+pub const fn single(key: JoinKey) -> Self
 ```
 
 A one-key set, which is never empty and so needs no refusal.
@@ -5105,10 +5133,12 @@ A list that cannot be empty, because the constructor that would produce one does
 **Unrepresentable over checked**, the same argument `secure-by-design` makes for the rest of this
 crate's newtypes: a `Vec` that a caller happens to always check for emptiness is a rule enforced
 by discipline at every read site, and a set with no elements is a valid `Vec` that means nothing
-for a caller who asked for one or more metrics, or one or more values to filter on. `NonEmpty`
-makes the empty case not exist rather than exist and be refused - there is no `Default`, no
-`new()`, and `NonEmpty::parse` is the only fallible entry point, returning `EmptySet` for the
-one thing that can go wrong.
+for a caller who asked for one or more of something. `NonEmpty` makes the empty case not exist
+rather than exist and be refused - there is no `Default`, no `new()`, and `NonEmpty::parse` is
+the only fallible entry point, returning `EmptySet` for the one thing that can go wrong.
+
+A relationship's ordered set of join keys is non-empty by construction this way, mirroring the
+catalog's `JoinKeys`; so is the plan's `PlanJoinKey` list it becomes.
 
 ### `struct NonEmpty`
 
@@ -5151,8 +5181,7 @@ pub fn map<U>(&self, f: impl FnMut(&T) -> U) -> NonEmpty<U>
 
 Every element transformed, infallibly: a `NonEmpty` mapped one-to-one is still a
 `NonEmpty`, with no `EmptySet` to check and no `expect`/`unwrap` for a caller who has
-one of these and needs another shape of it - `crate::plan`'s bind-order indices, built
-from a resolved filter's `NonEmpty` of values, is why this exists.
+one of these and needs another shape of it.
 
 ```rust
 pub const fn of(head: T, tail: Vec<T>) -> Self
@@ -6327,13 +6356,13 @@ pub const fn join_type(&self) -> JoinType
 ```
 
 ```rust
-pub fn keys(&self) -> &[PlanJoinKey]
+pub const fn keys(&self) -> &crate::nonempty::NonEmpty<PlanJoinKey>
 ```
 
-The keys this join links on, each qualified by the tables it reads.
+The keys this join links on, each qualified by the tables it reads. Never empty.
 
 ```rust
-pub fn new(relationship: RelationshipName, table: impl Into<QualifiedTable>, join_type: JoinType, keys: Vec<PlanJoinKey>) -> Self
+pub fn new(relationship: RelationshipName, table: impl Into<QualifiedTable>, join_type: JoinType, keys: crate::nonempty::NonEmpty<PlanJoinKey>) -> Self
 ```
 
 One join to a table, wherever that table lives.
@@ -6344,6 +6373,12 @@ what a multi-project estate looks like, and it is one statement, one job and one
 a native join the data system pushes down, not a second source. `sutura_semantic::plan` says
 so where a source count decides between one statement, a split and
 `PlanSpansTooManySources`.
+
+**A join with no keys cannot be built**, and that is what makes `keys` a `NonEmpty` rather
+than a `Vec` the renderers have to fail closed on: every key contributes one `=` term, so an
+empty list would be a `JOIN ... ON` with no predicate - a shape that cannot be minted here.
+The catalog's `JoinKeys` is non-empty by the same construction, so the plan's list, derived
+from it, can never be empty either.
 
 `impl Into<QualifiedTable>` for the reason `Model::new` gives.
 
@@ -12652,7 +12687,7 @@ holding, and a probe outlives nothing.
 ##### Methods
 
 ```rust
-pub const fn keys(&self) -> &'a [JoinKey]
+pub const fn keys(&self) -> &'a JoinKeys
 ```
 
 The whole key set whose target side is meant to be distinct.

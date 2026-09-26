@@ -44,7 +44,7 @@
 //! **The links here are `crate::`-prefixed** for the reason [`preflight`](crate::warehouse::preflight)'s header
 //! gives: the API reference pages are generated from these comments verbatim.
 
-use crate::catalog::{Definitions, JoinKey, Relationship};
+use crate::catalog::{Definitions, JoinKey, JoinKeys, Relationship};
 use crate::model::{ColumnName, JoinType, ModelName, QualifiedTable, RelationshipName, SourceName};
 use crate::warehouse::{RowSet, Value};
 
@@ -77,7 +77,7 @@ pub struct DeclaredKey<'a> {
     model: &'a ModelName,
     source: &'a SourceName,
     table: &'a QualifiedTable,
-    keys: &'a [JoinKey],
+    keys: &'a JoinKeys,
 }
 
 /// Why a declared relationship yields no key to probe.
@@ -126,8 +126,8 @@ impl<'a> DeclaredKey<'a> {
         let target = definitions
             .model(model)
             .ok_or_else(|| NoDeclaredKey::ModelUndefined { model: model.clone() })?;
-        let keys = relationship.keys().as_slice();
-        for key in keys {
+        let keys = relationship.keys();
+        for key in keys.iter() {
             let column = key.target();
             if !target.has_column(column) {
                 return Err(NoDeclaredKey::ColumnNotOnModel {
@@ -179,7 +179,7 @@ impl<'a> DeclaredKey<'a> {
     /// them alone - because a compound key determines a row only as a whole.
     #[inline]
     #[must_use]
-    pub const fn keys(&self) -> &'a [JoinKey] {
+    pub const fn keys(&self) -> &'a JoinKeys {
         self.keys
     }
 

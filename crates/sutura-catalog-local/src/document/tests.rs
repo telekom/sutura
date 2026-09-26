@@ -4,10 +4,11 @@
 use std::collections::BTreeSet;
 
 use super::{
-    Description, DocumentKind, InvalidMetricDocument, InvalidModelDocument, KindProbe, MetricDoc, ModelDoc, RelationshipDoc,
+    Description, DocumentKind, InvalidMetricDocument, InvalidModelDocument, InvalidRelationshipDocument, KindProbe, MetricDoc,
+    ModelDoc, RelationshipDoc,
 };
 use sutura_domain::catalog::{
-    Audience, AudienceGrant, DimensionValue, InconsistentDefinitions, InvalidDimensionValue, InvalidViaChain,
+    Audience, AudienceGrant, DimensionValue, InconsistentDefinitions, InvalidDimensionValue, InvalidJoinKeys, InvalidViaChain,
 };
 use sutura_domain::expression::InvalidComputation;
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
@@ -680,15 +681,73 @@ fn relationship_doc(yaml: &str) -> Result<RelationshipDoc, serde_norway::Error> 
     serde_norway::from_str(yaml)
 }
 
+// A compound relationship: a `keys:` list and no `column` on either endpoint. The single-pair
+// form keeps `origin: { model, column }` / `target: { model, column }` and no `keys:` - the two
+// are mutually exclusive, which `RELATIONSHIP_BOTH` and `RELATIONSHIP_NEITHER` below test.
 const COMPOUND_RELATIONSHIP: &str = "
 kind: relationship
 name: usage_subscription
+origin: { model: daily_usage }
+target: { model: subscriptions }
+join_type: many_to_one
+keys:
+  - { origin: subscription_key, target: subscription_key }
+  - { origin: usage_date, grain: month, target: month }
+";
+
+// The single-pair form: one `origin.column = target.column` and no `keys:`.
+const SINGLE_PAIR_RELATIONSHIP: &str = "
+kind: relationship
+name: orders_customer
+origin: { model: orders, column: customer_id }
+target: { model: customers, column: customer_id }
+join_type: many_to_one
+";
+
+// A document that declares `keys:` AND a `column` on the ORIGIN endpoint - the conflict shape.
+const RELATIONSHIP_BOTH: &str = "
+kind: relationship
+name: usage_subscription
 origin: { model: daily_usage, column: subscription_key }
+target: { model: subscriptions }
+join_type: many_to_one
+keys:
+  - { origin: subscription_key, target: subscription_key }
+  - { origin: usage_date, grain: month, target: month }
+";
+
+// The other half of the conflict shape: `keys:` AND a `column` on the TARGET endpoint instead -
+// `RelationshipDoc::into_domain`'s match has a separate alternative for this
+// (`(Some(_), _, Some(_))`), which `RELATIONSHIP_BOTH` above never exercises because its target
+// carries no column.
+const RELATIONSHIP_BOTH_TARGET_COLUMN: &str = "
+kind: relationship
+name: usage_subscription
+origin: { model: daily_usage }
 target: { model: subscriptions, column: subscription_key }
 join_type: many_to_one
 keys:
   - { origin: subscription_key, target: subscription_key }
   - { origin: usage_date, grain: month, target: month }
+";
+
+// A document that declares neither a column pair nor `keys:`.
+const RELATIONSHIP_NEITHER: &str = "
+kind: relationship
+name: usage_subscription
+origin: { model: daily_usage }
+target: { model: subscriptions }
+join_type: many_to_one
+";
+
+// A document with an empty `keys:` list, which cannot name a join that links anything.
+const RELATIONSHIP_EMPTY_KEYS: &str = "
+kind: relationship
+name: usage_subscription
+origin: { model: daily_usage }
+target: { model: subscriptions }
+join_type: many_to_one
+keys: []
 ";
 
 /// A compound join's keys parse into the typed `TruncatedEqual`/`Equal` pair, not the legacy
@@ -697,7 +756,68 @@ keys:
 fn a_compound_relationships_keys_parse() {
     let doc = relationship_doc(COMPOUND_RELATIONSHIP).expect("two well-formed keys are well-formed");
     let relationship = doc.into_domain().expect("two keys is a non-empty set");
-    assert_eq!(relationship.keys().as_slice().len(), 2);
+    assert_eq!(relationship.keys().len(), 2);
+    assert_eq!(
+        relationship.origin_model().as_str(),
+        "daily_usage",
+        "the origin MODEL still lands on the relationship when the columns live in `keys:`"
+    );
+}
+
+/// The single-pair form - `origin.column = target.column` and no `keys:` - still loads.
+#[test]
+fn a_single_pair_relationship_still_parses_to_one_equality() {
+    let doc = relationship_doc(SINGLE_PAIR_RELATIONSHIP).expect("a column pair is well-formed");
+    let relationship = doc.into_domain().expect("one column pair is a non-empty set");
+    assert_eq!(relationship.keys().len(), 1);
+}
+
+/// A document that declares both a column pair and a `keys:` list is refused, naming the conflict.
+#[test]
+fn a_relationship_declaring_both_columns_and_keys_is_refused() {
+    let doc = relationship_doc(RELATIONSHIP_BOTH).expect("the shape parses; the refusal is `into_domain`'s");
+    assert_eq!(
+        doc.into_domain().unwrap_err(),
+        InvalidRelationshipDocument::Both,
+        "a document choosing both join forms must refuse rather than silently prefer one"
+    );
+}
+
+/// The `Both` refusal's other alternative: `keys:` plus a column on the TARGET endpoint, with the
+/// origin endpoint bare. `RELATIONSHIP_BOTH` above only ever puts the column on origin, so this is
+/// the twin that exercises `(Some(_), _, Some(_))` rather than `(Some(_), Some(_), _)`.
+#[test]
+fn a_relationship_declaring_keys_and_a_target_column_is_also_refused() {
+    let doc = relationship_doc(RELATIONSHIP_BOTH_TARGET_COLUMN).expect("the shape parses; the refusal is `into_domain`'s");
+    assert_eq!(
+        doc.into_domain().unwrap_err(),
+        InvalidRelationshipDocument::Both,
+        "a `keys:` list plus a column on either endpoint alone is still the same conflict"
+    );
+}
+
+/// A relationship with neither a column pair nor a `keys:` list joins nothing and is refused.
+#[test]
+fn a_relationship_declaring_neither_form_is_refused() {
+    let doc = relationship_doc(RELATIONSHIP_NEITHER).expect("the shape parses; the refusal is `into_domain`'s");
+    assert_eq!(
+        doc.into_domain().unwrap_err(),
+        InvalidRelationshipDocument::Neither,
+        "a relationship must name at least the single pair or `keys:`, never neither"
+    );
+}
+
+/// An empty `keys:` list is refused at `into_domain`, surfacing the domain's empty-set refusal.
+#[test]
+fn an_empty_keys_list_is_refused() {
+    let doc = relationship_doc(RELATIONSHIP_EMPTY_KEYS).expect("`keys: []` is well-formed YAML");
+    assert!(
+        matches!(
+            doc.into_domain().unwrap_err(),
+            InvalidRelationshipDocument::EmptyKeys(InvalidJoinKeys::Empty)
+        ),
+        "an empty keys list must reach the domain's own empty-set refusal"
+    );
 }
 
 /// **The measurement `#[serde(deny_unknown_fields)]` on `JoinKeyDoc` exists for.** Before it, a
