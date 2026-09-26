@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/api/sutura-exec-oracle/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/api/sutura-http-client/">
       
       
-        <link rel="prev" href="../sutura-exec-clickhouse/">
+        <link rel="prev" href="../sutura-tls/">
       
       
-        <link rel="next" href="../sutura-tls/">
+        <link rel="next" href="../sutura-app/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>sutura-exec-oracle - sutura</title>
+        <title>sutura-http-client - sutura</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#sutura-exec-oracle" class="md-skip">
+        <a href="#sutura-http-client" class="md-skip">
           Skip to content
         </a>
       
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              sutura-exec-oracle
+              sutura-http-client
             
           </span>
         </div>
@@ -1506,37 +1506,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    sutura-exec-oracle
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../sutura-exec-oracle/" class="md-nav__link">
         
   
   
@@ -1552,277 +1525,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#the-one-caveat-this-crate-exists-to-hold-per-the-spike-behind-127" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The one caveat this crate exists to hold, per the spike behind #127
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#limits" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Limits
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#enum-oracleerror" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        enum OracleError
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="enum OracleError">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#variants" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Variants
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#struct-oraclewarehouse" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        struct OracleWarehouse
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="struct OracleWarehouse">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#methods" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#struct-drivererror" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        struct DriverError
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="struct DriverError">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#implements_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#struct-oraclewallet" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        struct OracleWallet
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="struct OracleWallet">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#methods_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#module-fixture" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Module fixture
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Module fixture">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#enum-unconfiguredfixture" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        enum UnconfiguredFixture
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="enum UnconfiguredFixture">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#variants_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Variants
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#struct-fixturecredential" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        struct FixtureCredential
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="struct FixtureCredential">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#methods_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements_4" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1860,10 +1562,19 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../sutura-http-client/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1879,6 +1590,7 @@
   
 
       </a>
+      
     </li>
   
 
@@ -2115,265 +1827,6 @@
     
   
   
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#the-one-caveat-this-crate-exists-to-hold-per-the-spike-behind-127" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The one caveat this crate exists to hold, per the spike behind #127
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#limits" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Limits
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#enum-oracleerror" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        enum OracleError
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="enum OracleError">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#variants" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Variants
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#struct-oraclewarehouse" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        struct OracleWarehouse
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="struct OracleWarehouse">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#methods" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#struct-drivererror" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        struct DriverError
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="struct DriverError">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#implements_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#struct-oraclewallet" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        struct OracleWallet
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="struct OracleWallet">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#methods_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#module-fixture" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Module fixture
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Module fixture">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#enum-unconfiguredfixture" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        enum UnconfiguredFixture
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="enum UnconfiguredFixture">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#variants_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Variants
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#struct-fixturecredential" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        struct FixtureCredential
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="struct FixtureCredential">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#methods_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements_4" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
 </nav>
                   </div>
                 </div>
@@ -2397,172 +1850,254 @@
      Edit the doc comments in the crate source instead, then regenerate.
      The commands are on the API reference landing page. -->
 
-<h1 id="sutura-exec-oracle">sutura-exec-oracle<a class="headerlink" href="#sutura-exec-oracle" title="Permanent link">&para;</a></h1>
-<p>The public API of <code>sutura-exec-oracle</code>, rendered from rustdoc JSON.</p>
-<p>A <code>Warehouse</code> adapter over Oracle Database - one connection under the deployment's declared
-identity (<code>SharedServiceUser</code>). <code>github.com/telekom/sutura#127</code> PR 2, over PR 1's
-<code>Dialect::Oracle</code> rendering.</p>
-<p><strong>Synchronous, unlike <code>sutura_exec_postgres::PostgresWarehouse</code>.</strong> <code>oracledb::Connection</code>'s own
-methods (<code>execute</code>, <code>query</code>, <code>set_call_timeout</code>) are plain blocking <code>fn</code>s over a
-<code>std::net::TcpStream</code> - measured by reading <code>oracle/rust-oracledb</code>'s own source, not assumed -
-so this adapter owns no <code>tokio</code> runtime and calls the driver directly. <code>oracledb</code> is
-<code>#![forbid(unsafe_code)]</code> with no <code>build.rs</code> and no <code>links</code> key: nothing here can <code>dlopen</code> an
-Instant Client the way an ODPI-C wrapper would, which was <code>#127</code>'s original blocker.</p>
-<p>SQL renders through <code>sutura-sql</code> (<code>Dialect::Oracle</code>); nothing here is compiled or translated.</p>
-<h2 id="the-one-caveat-this-crate-exists-to-hold-per-the-spike-behind-127">The one caveat this crate exists to hold, per the spike behind <code>#127</code><a class="headerlink" href="#the-one-caveat-this-crate-exists-to-hold-per-the-spike-behind-127" title="Permanent link">&para;</a></h2>
-<p><code>Connection::set_call_timeout</code> is a PER-READ idle timeout (<code>TcpStream::set_read_timeout</code>), not a
-total-call budget, and there is no cancellation API - a slow statement that keeps the socket
-busy is not stopped by it. Worse, <code>sutura_domain::warehouse::deadline::Deadline::remaining_at</code>
-returns <code>None</code> when the deadline is EXPIRED, and <code>set_call_timeout(None)</code> means <em>wait forever</em> -
-so naively forwarding <code>deadline.remaining_at(now)</code> into <code>set_call_timeout</code> turns an expired
-deadline into an unbounded wait, the opposite of a refusal. <code>refuse_if_spent</code> is the guard:
-every call site asks it FIRST and never calls the driver, let alone <code>set_call_timeout</code>, once it
-answers <code>None</code>. This module's own <code>#[cfg(test)]</code> cell,
-<code>an_expired_deadline_refuses_before_reaching_the_connection</code>, is the refusal;
-<code>a_live_deadline_answers_the_remaining_duration</code> is its predicate half.</p>
-<h2 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h2>
-<ul>
-<li><strong>No transport of its own, and less than <code>sutura_exec_postgres</code> carries.</strong> ADR 0010's
-  declared-trust-store rule (a bundle path, or the host store, resolved once by a composition
-  root and handed to the adapter as a <code>rustls::ClientConfig</code>) has NOWHERE to attach here:
-  <code>oracledb::Connection</code> builds its OWN <code>rustls::ClientConfig</code> internally, from a wallet
-  directory's <code>ewallet.pem</code> when one is configured and from the bundled <code>webpki-roots</code> set when
-  one is not (measured by reading <code>oracle/rust-oracledb/src/transport.rs</code>) - there is no
-  constructor that takes an external root store or a caller-built <code>ClientConfig</code> at all. So
-  <code>OracleWarehouse::connect_secured</code> takes a wallet directory rather than the
-  <code>sutura_tls::Rotating&lt;rustls::ClientConfig&gt;</code> handle Postgres's own <code>connect_secured</code> takes, and
-  a <code>transport_anchors: system</code> declaration has nothing on this adapter to reach: there is no
-  "read the host trust store" option in the driver at all. This is a real fork in ADR 0010, not
-  an oversight - and it is why <code>sutura-config</code> refuses any <code>transport_mode</code> but <code>plaintext</code> on
-  a <code>kind: oracle</code> source, and its shared rule confines a <code>plaintext</code> DECLARED host to loopback.
-  The connection is not confined: <code>oracledb::connect</code> follows a listener's TNS REDIRECT to any
-  address it names, in plaintext, with no option to refuse.
-  <code>OracleWarehouse::connect_secured</code> therefore has no composition-root caller.</li>
-<li><strong>Wired behind a default-off feature, and in no release.</strong> <code>sutura-cli</code>'s <code>oracle</code> feature
-  links this crate into both composition roots through <code>OracleWarehouse::connect</code>;
-  <code>nix/shipped.nix</code> does not carry that feature - see its entry in <code>sutura-cli</code>'s manifest.</li>
-<li><strong>Every mapping below is reasoned from the driver's documented wire types, not measured
-  against a live Oracle</strong> - no docker socket was available while this adapter was written. The
-  golden matrix's <code>oracle</code> cells (<code>crates/sutura-app/tests/adapters/adapters.rs</code>) skip rather
-  than run wherever that is still true - that file's own <code>DataSystemUnderTest::available</code>
-  decides which venues those are.</li>
-<li><strong>No venue that runs <code>just validate</code> can reach a live Oracle.</strong> <code>compose.services.yaml</code>'s
-  <code>oracle</code> service is a docker-compose tier brought up by hand (<code>just dev-up-oracle</code>); the nix
-  sandbox has no docker socket and no <code>oracle-tier.nix</code> exists, so a gate leg cannot
-  provision one - and Oracle Database is proprietary, so no nix-native tier could take
-  <code>nix/postgres-tier.nix</code>'s shape even in principle. The render goldens this suite pins for
-  Oracle therefore assert what <code>sutura-sql</code> emitted and nothing a data system said back; that
-  is what <code>crates/sutura-app/tests/golden/dialects.rs</code>'s <code>Venue::ByHandOnly</code> arm declares. The
-  check there holds this path, never this prose - a header that stops arguing this stays green.</li>
-<li><strong>One <code>parking_lot::Mutex</code> serializes every call</strong>, the same shape
-  <code>PostgresWarehouse::execution_lock</code> holds and for a matching reason: <code>Connection</code>'s own methods
-  take <code>&amp;self</code>, so the port's shared reference alone does not prove the driver tolerates two
-  overlapping calls - and nothing here measured that it does.</li>
-</ul>
-<h2 id="enum-oracleerror"><code>enum OracleError</code><a class="headerlink" href="#enum-oracleerror" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">OracleError</span>
+<h1 id="sutura-http-client">sutura-http-client<a class="headerlink" href="#sutura-http-client" title="Permanent link">&para;</a></h1>
+<p>The public API of <code>sutura-http-client</code>, rendered from rustdoc JSON.</p>
+<p>The bounded, TLS-rotating <code>ureq</code> client <code>sutura-catalog-datahub</code>'s and
+<code>sutura-catalog-openmetadata</code>'s real HTTP readers both build on.</p>
+<p><strong>Extracted, not designed up front</strong> - <code>github.com/telekom/sutura#970</code>'s review found
+<code>sutura-catalog-openmetadata/src/http.rs</code> and <code>sutura-catalog-datahub/src/http.rs</code> sharing an
+<code>Endpoint</code> parser, a <code>ReadBounds</code>/<code>Budget</code> pair and a <code>rotating_agent</code> constructor byte-for-byte,
+and the same shape again in each crate's own <code>tls_roots.rs</code> and <code>test_support.rs</code>.
+<code>cargo xtask check-jscpd</code>'s allowlist (<code>devco/dup-ignore</code>) explicitly refuses an exemption for
+anything under <code>crates/</code>, so the fix has to be structural: this crate is what
+<code>.agents/skills/sutura/crate-map/SKILL.md</code> already argues <code>sutura-tls</code> is one layer down for - "a
+small read or computation two same-class adapters both need... joins no existing prefix's rules
+and starts in no forbidden class by construction". <code>sutura-catalog-*</code> (the "metadata providers"
+class <code>xtask/src/boundaries/adapters.rs</code> names) may not reach another member of its own class,
+but nothing forbids two of them reaching a THIRD, unprefixed crate - the same argument that
+already lets both depend on <code>sutura-tls</code>.</p>
+<h1 id="what-is-generic-and-what-stays-in-each-reader">What is generic, and what stays in each reader<a class="headerlink" href="#what-is-generic-and-what-stays-in-each-reader" title="Permanent link">&para;</a></h1>
+<p>Everything here is protocol-agnostic ureq/TLS plumbing: it never names an entity kind, a wire
+field, or a mapping. <code>Endpoint::parse</code>'s grammar, <code>ReadBounds</code>'s two settings, the shared
+<code>Budget</code> a reader's own <code>read()</code> opens once, <code>rotating_agent</code>/<code>fixed</code>'s TLS wiring and the
+anchor fold in <code>tls</code> are the same read for <code>DataHub</code>'s <code>OpenAPI</code> v3 surface and <code>OpenMetadata</code>'s
+REST API alike. What stays in each reader crate: the entity-shaped <code>HttpReaderError</code> variants
+(their <code>Display</code> text names the platform), the paged <code>fetch</code>/<code>entities</code> helpers built over
+<code>Budget</code>, and every <code>harvest_*</code> mapping function - <code>docs/what-openmetadata-can-carry.md</code> and
+<code>sutura-catalog-datahub</code>'s own module header are explicit that those mappings are a first-party
+claim about each platform's wire shape, which this crate must never blur by generalizing over.</p>
+<h1 id="tls">TLS<a class="headerlink" href="#tls" title="Permanent link">&para;</a></h1>
+<p><code>fixed</code> and <code>rotating_agent</code> are the two ways a reader gets an outbound <code>ureq::Agent</code>: fixed
+at construction over an already-loaded anchor bundle, or rebuilt on every
+<code>sutura_tls::POLL_INTERVAL</code> poll from a <code>security.outbound</code> declaration
+(<code>github.com/telekom/sutura#125</code>). Both fold through <code>tls::config</code>, the one place a loaded
+<code>sutura_tls::LoadedAnchors</code>/<code>sutura_tls::LoadedIdentity</code> becomes <code>ureq::tls::TlsConfig</code> -
+<code>sutura-tls</code> itself may never depend on <code>ureq</code> (<code>xtask/src/boundaries/edges.rs</code>'s
+<code>sutura-tls -&gt; ring</code> forbidden edge is what that would reintroduce), so the fold lives here
+instead, the same reasoning <code>sutura-catalog-datahub</code>'s own <code>tls_roots.rs</code> module header gave
+before this crate existed.</p>
+<h2 id="use-outboundagent"><code>use OutboundAgent</code><a class="headerlink" href="#use-outboundagent" title="Permanent link">&para;</a></h2>
+<p>A reader's rotating agent handle and (when a declaration exists) the poll handle that keeps it
+current - named because the spelled-out pair is over this workspace's <code>type_complexity</code>
+threshold.</p>
+<h2 id="use-fixed"><code>use fixed</code><a class="headerlink" href="#use-fixed" title="Permanent link">&para;</a></h2>
+<p>A fixed agent over an already-loaded anchor bundle, presenting no client identity.</p>
+<p><code>anchors</code> is <code>None</code> for <code>ureq</code>'s compiled-in roots - the constructor-time half of a reader's TLS
+posture; <code>rotating_agent</code> is the one that also presents an identity, over a
+<code>security.outbound</code> declaration a composition root polls.</p>
+<h2 id="use-rotating_agent"><code>use rotating_agent</code><a class="headerlink" href="#use-rotating_agent" title="Permanent link">&para;</a></h2>
+<p>Builds a reader's rotating agent handle for a declared <code>security.outbound</code> set.</p>
+<p>Also returns, when one is declared, the <code>sutura_tls::Rotator</code> the composition root drives on
+<code>sutura_tls::POLL_INTERVAL</code>. <code>None</code> (no declaration) returns a fixed handle over <code>ureq</code>'s
+compiled-in roots, presenting no identity, and no poll handle. Rebuilt over
+<code>RootCerts::Specific</code> from each freshly loaded bundle and, when
+<code>sutura_tls::Declared::identity</code> is declared, the freshly loaded identity too - never a union,
+never a second external read.</p>
+<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<p>The declared bundle or client identity cannot be loaded at boot.</p>
+<h2 id="use-default_max_response_bytes"><code>use DEFAULT_MAX_RESPONSE_BYTES</code><a class="headerlink" href="#use-default_max_response_bytes" title="Permanent link">&para;</a></h2>
+<p>The recommended default response-size cap, in bytes, for a composition root's settings default.</p>
+<p>A metadata page is descriptions, column names and a handful of documents, not query rows, so
+what this defends against is something that is not the endpoint answering at all - a redirect
+loop, a proxy gone wrong - rather than a realistic upper bound on a legitimate page.</p>
+<h2 id="use-default_timeout_seconds"><code>use DEFAULT_TIMEOUT_SECONDS</code><a class="headerlink" href="#use-default_timeout_seconds" title="Permanent link">&para;</a></h2>
+<p>The recommended default request timeout, in seconds, for a composition root's settings default.</p>
+<p>Matches <code>server.request_timeout_seconds</code>'s own shipped default: a metadata read that outlives
+the request timeout in front of it cannot answer inside the budget the caller was promised
+anyway. <strong>Not read by anything in this crate</strong> - a caller passes the number it resolved, through
+<code>ReadBounds::parse</code>, the same single-owner shape <code>BytesBilledCeiling::parse</code> holds for
+<code>BigQuery</code>'s ceiling: this crate owns the range, a settings tree owns that the key was written.</p>
+<h2 id="use-invalidreadbounds"><code>use InvalidReadBounds</code><a class="headerlink" href="#use-invalidreadbounds" title="Permanent link">&para;</a></h2>
+<p>Why a declared bound is not usable.</p>
+<h2 id="use-readbounds"><code>use ReadBounds</code><a class="headerlink" href="#use-readbounds" title="Permanent link">&para;</a></h2>
+<p>What one reader's <code>read()</code> call may spend: a request timeout and a response-size cap.</p>
+<p>A newtype rather than two loose arguments, so a reader cannot be built with an unchecked pair -
+a request timeout paired with a response-size cap, and no money bound: a metadata read is not
+billed.</p>
+<h2 id="use-budget"><code>use Budget</code><a class="headerlink" href="#use-budget" title="Permanent link">&para;</a></h2>
+<p>One shared budget across a reader's <code>read()</code> call and its several requests.</p>
+<p>The same shape <code>sutura_domain::warehouse::deadline::Deadline</code> holds for a job's execution, and
+for the same reason: a budget opened per request lets independent timeouts sum to more than a
+deployment declared - an instant opened once, read as what is left rather than re-derived.</p>
+<h2 id="use-endpoint"><code>use Endpoint</code><a class="headerlink" href="#use-endpoint" title="Permanent link">&para;</a></h2>
+<p>A validated catalog HTTP endpoint, obtainable only through <code>Self::parse</code>.</p>
+<p>What it accepts, exactly: <code>scheme://host[:port]</code>, scheme <code>http</code> or <code>https</code> (case-folded), on a
+<code>Uri</code> (<code>ureq</code>'s own re-export of the <code>http</code> crate's parser, the SAME type <code>ureq</code> itself parses
+a request URL into before dialling), an OPTIONAL nonzero valid <code>:port</code>, an OPTIONAL trailing
+<code>/</code>, and NOTHING else. <code>https://</code> is accepted for any host; <code>http://</code> only for an IP loopback
+LITERAL - a hostname is not an address, so <code>localhost</code> does not count either, and only something
+that parses as <code>IpAddr</code> and answers <code>is_loopback()</code> does.</p>
+<h2 id="use-invalidendpoint"><code>use InvalidEndpoint</code><a class="headerlink" href="#use-invalidendpoint" title="Permanent link">&para;</a></h2>
+<p>Why a declared endpoint is not usable.</p>
+<h2 id="use-endpointmessage"><code>use EndpointMessage</code><a class="headerlink" href="#use-endpointmessage" title="Permanent link">&para;</a></h2>
+<p>The endpoint's own message on a refusal.</p>
+<p>Bounded, filtered, and reachable only through <code>Self::as_str</code> - never through <code>Debug</code>, which
+is the rendering a cause-chain walk uses, so a <code>Display</code>-flattened error chain never carries
+endpoint-owned text.</p>
+<h2 id="module-test_support">Module <code>test_support</code><a class="headerlink" href="#module-test_support" title="Permanent link">&para;</a></h2>
+<p>A real local HTTP server - "ports get fakes, not mocked HTTP".</p>
+<p><code>pub</code> behind this crate's <code>test</code> feature so a reader's own tests AND a composition root's
+served-binary suite can build the same fake rather than each crate carrying a second copy.</p>
+<p><strong>Moved here (issue #970's review) from <code>sutura-catalog-datahub::test_support</code></strong>, which issue</p>
+<h1 id="202s-second-pr-had-already-made-pub-behind-that-crates-own-http-feature-for-the-identical">202's second PR had already made <code>pub</code> behind that crate's own <code>http</code> feature for the identical<a class="headerlink" href="#202s-second-pr-had-already-made-pub-behind-that-crates-own-http-feature-for-the-identical" title="Permanent link">&para;</a></h1>
+<p>reason: <code>sutura-cli</code>'s served suite needs a real loopback server to boot a composed deployment
+against, and an integration test binary cannot see another crate's <code>tests/</code> directory at all -
+Rust exposes no such thing, only the library does. Once <code>sutura-catalog-openmetadata</code> needed the
+SAME fake, the two copies were byte-for-byte identical wire plumbing (<code>cargo xtask check-jscpd</code>
+measured it), which is what moved it one crate further out rather than leaving a second copy.</p>
+<p><strong><code>#[cfg(feature = "test")]</code>, not <code>#[cfg(test)]</code>.</strong> A downstream crate's OWN test
+compilation is what needs to see this, and <code>#[cfg(test)]</code> on an item never crosses a dependency
+edge. A catalog crate folds <code>sutura-http-client/test</code> into its own <code>http</code> feature, so
+this module compiles into any NON-test <code>--features http</code> build too (<code>sutura-cli --features
+datahub</code>, in particular) - dead code there, never called by production composition, but real
+object code in a shipped binary. <strong>Stated rather than hidden</strong>, the same trade
+<code>.agents/skills/sutura/crate-map/SKILL.md</code>'s "why a networked adapter hides behind a default-off
+feature" already accepted for <code>sutura-catalog-datahub::test_support</code>: <code>std::net::TcpListener</code>
+adds no new DEPENDENCY edge to the four cross builds' <code>crane.buildDepsOnly</code> derivation, which is
+what that argument is about.</p>
+<h3 id="struct-scripted"><code>struct Scripted</code><a class="headerlink" href="#struct-scripted" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Scripted</span>
 </span></code></pre></div>
-<p>Why this data system could not answer.</p>
-<h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
-<ul>
-<li><code>Connect</code></li>
-<li><code>Execute</code></li>
-<li><code>DivisionByZero</code> - The server refused a statement as <code>ORA-01476: divisor is equal to zero</code>.</li>
-<li><code>UnsupportedType</code> - A column came back as a type this adapter does not map. An error, not a stringified value.</li>
-<li><code>ValueDecode</code> - A value this adapter asked the driver to decode did not decode.</li>
-<li><code>NotFinite</code> - A <code>BINARY_DOUBLE</code> column came back as a value that is not a number.</li>
-<li><code>Shape</code></li>
-<li><code>KeyCounts</code> - A key probe's result was not the pair of counts its statement projects.</li>
-<li><code>Render</code></li>
-<li><code>NoPlaceForASubject</code> - The credential broker handed this adapter subject material it has nowhere to put.</li>
-<li><code>PresentedDisagreesWithPosture</code></li>
-<li><code>DeadlineSpent</code> - The deadline was already spent before this call ever reached the driver - see <code>refuse_if_spent</code> for why this is checked rather than forwarded.</li>
-<li><code>CallTimeout</code> - <code>Connection::set_call_timeout</code> itself refused the value.</li>
-</ul>
-<h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
-<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
-<h2 id="struct-oraclewarehouse"><code>struct OracleWarehouse</code><a class="headerlink" href="#struct-oraclewarehouse" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">OracleWarehouse</span>
+<p>One scripted answer: a status, a body, and how long to wait before sending it.</p>
+<h4 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">body</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="kt">u8</span><span class="p">]</span>
 </span></code></pre></div>
-<p>An Oracle connection, behind the <code>Warehouse</code> port.</p>
-<h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">connect</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">source</span><span class="p">::</span><span class="n">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="n">service_name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">user</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">password</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">OracleError</span><span class="o">&gt;</span>
+<p>The body this scripted answer is served with - see <code>Self::status_code</code> for why it is public.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">delayed</span><span class="p">(</span><span class="n">body</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span><span class="p">,</span><span class="w"> </span><span class="n">delay</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
-<p>Opens one connection over a plain TCP EZCONNECT string (<code>host:port/service_name</code>), with no
-transport security at all.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">connect_fixture</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">source</span><span class="p">::</span><span class="n">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="n">credential</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">fixture</span><span class="p">::</span><span class="n">FixtureCredential</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">OracleError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">ok</span><span class="p">(</span><span class="n">body</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
-<p>A connection config's host/port/credential for the fixture tier - the counterpart of
-<code>sutura_exec_postgres::PostgresWarehouse::local_config</code>. <code>service_name</code> is fixed at
-<code>FREEPDB1</code>, the community image's own pluggable database, which is not a secret the tier
-publishes - it is the image's name for itself.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">connect_secured</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">source</span><span class="p">::</span><span class="n">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="n">service_name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">user</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">password</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">wallet</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">OracleWallet</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">OracleError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">raw</span><span class="p">(</span><span class="n">status</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="n">body</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="kt">u8</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
-<p>Opens one connection over <code>tcps://host:port/service_name</code>, with the driver's own wallet-based
-TLS - see the module header's limit on how far this reaches ADR 0010's declared-trust-store
-rule. <code>wallet</code> is a directory containing an <code>ewallet.pem</code>; <code>None</code> verifies against the
-driver's bundled <code>webpki-roots</code> set rather than against a declared anchor.</p>
-<h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
-<p><code>Debug</code>, <code>Warehouse</code></p>
-<h2 id="struct-drivererror"><code>struct DriverError</code><a class="headerlink" href="#struct-drivererror" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DriverError</span>
+<p>A response whose body is opaque bytes, as a size-cap test needs: a body that must be too big
+to be legal JSON (the length check runs before decode), so it is not served through the
+JSON-typed constructors above.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="n">status</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="n">body</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
-<p>Wraps <code>oracledb::Error</code> so it can be a <code>thiserror</code> <code>#[source]</code>.</p>
-<p><strong>Measured, not assumed:</strong> <code>oracledb::Error</code> implements <code>Debug</code> and <code>Display</code> but not
-<code>std::error::Error</code> - <code>oracledb::error::ErrorKind</code> and <code>DbError</code> are its own typed detail, and
-nothing upstream ties the type into <code>core::error::Error</code>'s chain. <code>#[source]</code> needs that trait,
-and there is no orphan-rule obstacle to implementing it for a LOCAL wrapper around a foreign
-type, so this is the newtype rather than a second, string-only error shape.</p>
-<h3 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h3>
-<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
-<h2 id="struct-oraclewallet"><code>struct OracleWallet</code><a class="headerlink" href="#struct-oraclewallet" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">OracleWallet</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">status_code</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
 </span></code></pre></div>
-<p>A wallet directory for <code>OracleWarehouse::connect_secured</code> - a path to a directory containing
-<code>ewallet.pem</code>, and the password protecting the private key inside it (if any).</p>
-<h3 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">at</span><span class="p">(</span><span class="n">location</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Into</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">password</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Into</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<p>The status this scripted answer is served with - public so a TLS loopback variant of the
+fake (<code>crate::tls_test_support</code>) can serve the SAME answers this server does, instead of a
+second worth of page-building. Named <code>status_code</code> rather than <code>status</code> because
+<code>Self::status</code> is already the constructor's name.</p>
+<h3 id="struct-capturedrequest"><code>struct CapturedRequest</code><a class="headerlink" href="#struct-capturedrequest" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CapturedRequest</span>
 </span></code></pre></div>
-<h2 id="module-fixture">Module <code>fixture</code><a class="headerlink" href="#module-fixture" title="Permanent link">&para;</a></h2>
-<p>The fixture tier's credential - a value that cannot exist unconfigured.</p>
-<p>Behind the default-off <code>fixtures</code> feature - see that module's own header for why.
-The fixture tier's credential: <strong>configured, or refused by name.</strong></p>
-<p>Behind the default-off <code>fixtures</code> feature - <code>sutura-exec-postgres::fixture</code>'s own reason, one
-size smaller: nothing a release publishes links this crate at all (see the workspace manifest's
-member-list entry), so the feature is about keeping a <code>pub fn</code> that reads <code>std::env::var</code> out of
-the default cargo feature set rather than about hiding a shipped artefact's credential.</p>
-<p><strong><code>SUTURA_DEV_USER</code>/<code>SUTURA_DEV_PASSWORD</code>, not a third-tier name.</strong> <code>compose.services.yaml</code>'s
-<code>oracle</code> service reuses the SAME <code>x-fixture-credentials</code> anchor every compose-only service in
-that file shares - <code>clickhouse</code> included - because this tier, unlike Postgres, is provisioned by
-that file rather than by a nix-native script. <code>sutura_exec_postgres::fixture</code> deliberately does
-NOT share that name, for the opposite reason: nothing in <code>compose.services.yaml</code> provisions a
-Postgres, so a shared name there would have implied a coupling that did not exist. Here the
-coupling is real - the compose block IS the definition - so sharing the name is the honest
-spelling rather than a third naming scheme nobody chose.</p>
-<h3 id="enum-unconfiguredfixture"><code>enum UnconfiguredFixture</code><a class="headerlink" href="#enum-unconfiguredfixture" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">UnconfiguredFixture</span>
+<p>One request this fake server answered: its request line, and its <code>authorization</code> header.</p>
+<p>The request LINE (<code>METHOD /path?query HTTP/1.1</code>) is the one thing that proves what a reader
+actually dialled - <code>?fields=</code>, <code>?limit=</code>, the exact path - and not only that it dialled
+SOMETHING.</p>
+<p><strong>Why the request line and not only the header.</strong> Issue #970's round-2 review measured that a
+suite asserting on <code>authorization</code> alone cannot see a query-parameter regression: deleting
+<code>http.rs</code>'s own <code>fields_param</code> construction left every existing test green, because none of
+them read the URL a request carried. This type is the fix - a test that wants to prove a query
+parameter reached the wire reads <code>Self::request_line</code>, not a bearer header that says nothing
+about it.</p>
+<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">authorization</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>Why there is no fixture credential to connect with.</p>
-<h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
-<ul>
-<li><code>Unset</code> - The variable is not in the environment at all.</li>
-<li><code>Blank</code> - The variable is set to nothing - a shell script exporting <code>""</code> is the ordinary way to reach this, and read as a credential it is a login attempt as the empty user.</li>
-</ul>
-<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
-<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
-<h3 id="struct-fixturecredential"><code>struct FixtureCredential</code><a class="headerlink" href="#struct-fixturecredential" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureCredential</span>
+<p>The <code>authorization</code> header's value, if the request carried one.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">request_line</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
-<p>The fixture tier's credential.</p>
-<p>No <code>Display</code>, no <code>PartialEq</code>, no public field: the password is a
-<code>sutura_domain::identity::Secret</code>, which has neither, and the two names leave this crate only
-as arguments to <code>crate::OracleWarehouse::local_config</code>.</p>
+<p>The request line, verbatim off the wire (<code>GET /api/v1/tables?limit=1000 HTTP/1.1</code>) - no
+trailing <code>\r\n</code>.</p>
+<h4 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-fakeserver"><code>struct FakeServer</code><a class="headerlink" href="#struct-fakeserver" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FakeServer</span>
+</span></code></pre></div>
+<p>A real local HTTP/1.1 server answering one <code>Scripted</code> response per connection, in order, then
+closing.</p>
+<p>Captures each request's line and <code>authorization</code> header so a test can assert both the exact
+URL dialled and that the bearer was sent.</p>
 <h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnconfiguredFixture</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">addr</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">SocketAddr</span>
 </span></code></pre></div>
-<p>This process's credential, as <code>compose.services.yaml</code>'s anchors export it.</p>
-<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
-<p><code>Debug</code></p>
+<p>The bound loopback address, for a case that builds its own (malformed) endpoint string
+around it rather than using <code>Self::endpoint</code> as-is.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">endpoint</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">finish</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">CapturedAuthorizations</span>
+</span></code></pre></div>
+<p>Joins the server thread and returns every request it answered, in order.</p>
+<p>Only called by a test that knows exactly how many connections it will make - a test that
+deliberately stops short drops the server instead, and the abandoned thread exits with the
+process.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">start</span><span class="p">(</span><span class="n">answers</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Scripted</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<h3 id="type_alias-capturedauthorizations"><code>type_alias CapturedAuthorizations</code><a class="headerlink" href="#type_alias-capturedauthorizations" title="Permanent link">&para;</a></h3>
+<p>Every request this fake server has answered, in order.</p>
+<h2 id="module-tls_test_support">Module <code>tls_test_support</code><a class="headerlink" href="#module-tls_test_support" title="Permanent link">&para;</a></h2>
+<p>A real loopback TLS server and an <code>rcgen</code>-issued self-signed leaf.</p>
+<p>The fixture shape every one of this workspace's outbound-TLS suites rests on, <code>pub</code> behind this
+crate's <code>tls-test</code> feature.</p>
+<p><strong>Moved here (issue #970's review) from <code>sutura-catalog-datahub</code>'s and
+<code>sutura-catalog-openmetadata</code>'s own <code>tests/http_reader.rs::tls_anchors</code> modules</strong>, which
+<code>cargo xtask check-jscpd</code> measured as byte-for-byte identical wire plumbing once the second
+reader carried its own copy.</p>
+<p><strong>A dev-dependency-only feature, unlike <code>crate::test_support</code>.</strong> Nothing outside a reader's
+OWN <code>tests/http_reader.rs</code> needs this - <code>sutura-cli</code>'s served suite only dials the plaintext
+fake behind <code>crate::test_support</code> - so a catalog crate takes <code>sutura-http-client</code> with this
+feature in <code>[dev-dependencies]</code> only, never folded into its own <code>http</code> feature: no <code>rcgen</code>/
+<code>rustls</code> object code reaches a <code>--features http</code> build that did not already carry <code>rustls</code>
+transitively through <code>ureq</code>.</p>
+<h3 id="struct-issued"><code>struct Issued</code><a class="headerlink" href="#struct-issued" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Issued</span>
+</span></code></pre></div>
+<p>A self-signed leaf whose SAN names the IP literal the reader dials (<code>127.0.0.1</code>).</p>
+<p>Freshly generated per call. <code>security.outbound</code> verification is by dial, so the SAN must match
+the dialed address - a DNS-name-only cert would not verify against <code>https://127.0.0.1:&lt;port&gt;</code>.</p>
+<h3 id="struct-scratch"><code>struct Scratch</code><a class="headerlink" href="#struct-scratch" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Scratch</span>
+</span></code></pre></div>
+<p>A scratch directory a test owns, removed when it ends.</p>
+<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bundle</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">certificate</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">rcgen</span><span class="p">::</span><span class="n">Certificate</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">PathBuf</span>
+</span></code></pre></div>
+<p>Writes a declared PEM bundle of exactly one certificate and returns its path - what a
+composition root would read via <code>sutura_tls::load_anchors(&amp;Anchors::Bundle(path))</code>.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<h4 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h4>
+<p><code>Drop</code></p>
+<h3 id="struct-tlsfakeserver"><code>struct TlsFakeServer</code><a class="headerlink" href="#struct-tlsfakeserver" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TlsFakeServer</span>
+</span></code></pre></div>
+<p>A loopback TLS server presenting one leaf and answering the scripted pages a <code>read()</code> makes.</p>
+<p>The SAME happy-path corpus <code>crate::test_support::FakeServer</code> serves, over TLS, so these cells
+prove the same read every other test certifies completes under a declared bundle.</p>
+<p>Bounded by the answer count AND a deadline: a refused-handshake cell (the client never sends a
+request and never reconnects after the refusal) must not hang the serve thread.</p>
+<h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">endpoint</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">start</span><span class="p">(</span><span class="n">issued</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Issued</span><span class="p">,</span><span class="w"> </span><span class="n">answers</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Scripted</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<p><code>Drop</code></p>
+<h3 id="fn-issue"><code>fn issue</code><a class="headerlink" href="#fn-issue" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">issue</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Issued</span>
+</span></code></pre></div>
+<h3 id="fn-server_config"><code>fn server_config</code><a class="headerlink" href="#fn-server_config" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">server_config</span><span class="p">(</span><span class="n">issued</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Issued</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">sync</span><span class="p">::</span><span class="n">Arc</span><span class="o">&lt;</span><span class="n">rustls</span><span class="p">::</span><span class="n">ServerConfig</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<h3 id="fn-declared_anchors"><code>fn declared_anchors</code><a class="headerlink" href="#fn-declared_anchors" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">declared_anchors</span><span class="p">(</span><span class="n">scratch</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Scratch</span><span class="p">,</span><span class="w"> </span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">issued</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Issued</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">sutura_tls</span><span class="p">::</span><span class="n">LoadedAnchors</span>
+</span></code></pre></div>
+<p>Loads a scratch-written bundle carrying <code>issued</code>'s own certificate, the way a composition root
+would from a declared <code>security.outbound.transport_anchors</code> bundle path.</p>
+<h1 id="panics">Panics<a class="headerlink" href="#panics" title="Permanent link">&para;</a></h1>
+<p>The freshly written bundle fails to load - a test invariant, never a production path.</p>
 
 
 

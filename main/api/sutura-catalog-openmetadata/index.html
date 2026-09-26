@@ -1085,6 +1085,8 @@
       
         
       
+        
+      
     
     
     
@@ -1573,6 +1575,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../sutura-http-client/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http-client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../sutura-app/" class="md-nav__link">
         
   
@@ -1951,21 +1981,29 @@ extract, and a snapshot carrying a fourth is a reader this adapter has not been 
 <p>The metrics this snapshot carries.</p>
 <p>Read so the reported-not-defined cell can prove a metric a snapshot carries never becomes a
 domain <code>Metric</code>.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationship_count</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">tables</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Table</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">relationships</span><span class="p">:</span><span class="w"> </span><span class="nc">BTreeMap</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">StructuralRelationship</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">metrics</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Metric</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Builds a snapshot from decoded entity groups - the constructor a real
+<code>super::SnapshotReader</code> uses to hand the conversion a <code>Snapshot</code> it decoded off the wire.
+The recorded fixtures and the converter's own tests prefer <code>Deserialize</code> (a real reader
+reaches for the reader-visible shape), but an HTTP reader assembling a <code>Snapshot</code> from
+harvested entities needs a constructor the way <code>sutura-catalog-datahub</code>'s <code>Snapshot::new</code>
+provides one.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationship_count</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
 <p>How many declared relationships the snapshot carries.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationships</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationships</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The declared relationships, by name.</p>
 <p>Iterated rather than indexed, so a caller cannot name a relationship the snapshot does not
 carry: the pair comes from one place.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tables</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">Table</span><span class="p">]</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tables</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">Table</span><span class="p">]</span>
 </span></code></pre></div>
 <p>The tables this snapshot carries.</p>
 <h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-columnmetadata"><code>struct ColumnMetadata</code><a class="headerlink" href="#struct-columnmetadata" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ColumnMetadata</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ColumnMetadata</span>
 </span></code></pre></div>
 <p>What <code>OpenMetadata</code>'s <code>Column</code> schema COULD supply a reader beyond a column's name.</p>
 <p>Its <code>dataType</code>, its own <code>description</code>, and (via <code>Table::primary_key</code>) whether its
@@ -1977,16 +2015,16 @@ and what is NOT".</p>
 kept separate for the reason the latter's own doc gives: each is one adapter's reading of a
 wire shape none of the others should depend on.</p>
 <h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">data_type</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">data_type</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">description</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">description</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">data_type</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">description</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">data_type</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">description</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Default</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-table"><code>struct Table</code><a class="headerlink" href="#struct-table" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Table</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Table</span>
 </span></code></pre></div>
 <p>What a <code>Table</code> entity supplies a model: a table, its columns, the service it lives on, and a
 description.</p>
@@ -1995,28 +2033,28 @@ predates either still deserializes - the same reason every field here has no <co
 a document arrives only through <code>Deserialize</code>, and a struct literal would let a caller build a
 <code>Table</code> the load path never checked.</p>
 <h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">column_metadata</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">column</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">ColumnMetadata</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">column_metadata</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">column</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">ColumnMetadata</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>One column's <code>dataType</code>/<code>description</code> evidence, by name.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">columns</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">]</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">columns</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">]</span>
 </span></code></pre></div>
 <p>The physical column set.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">description</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">description</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Free-text prose about the table, if any.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The table (and model) name.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">primary_key</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">]</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">primary_key</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">]</span>
 </span></code></pre></div>
 <p>Which columns carry a <code>PRIMARY_KEY</code> constraint.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">service</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">service</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The service this table lives on.</p>
 <h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-relationshiptype"><code>enum RelationshipType</code><a class="headerlink" href="#enum-relationshiptype" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RelationshipType</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RelationshipType</span>
 </span></code></pre></div>
 <p><code>OpenMetadata</code>'s relationship cardinality, as a closed set.</p>
 <p>Named when present and silent when not; <code>ManyToMany</code> is refused by the conversion because
@@ -2031,29 +2069,29 @@ a document arrives only through <code>Deserialize</code>, and a struct literal w
 <h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-structuralrelationship"><code>struct StructuralRelationship</code><a class="headerlink" href="#struct-structuralrelationship" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">StructuralRelationship</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">StructuralRelationship</span>
 </span></code></pre></div>
 <p>One declared relationship's structural endpoints and its cardinality.</p>
 <h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">origin_column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">origin_column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The column of the origin model the join is on.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">origin_model</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">origin_model</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The model the join starts from.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationship_type</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">RelationshipType</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationship_type</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">RelationshipType</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The cardinality, named when <code>OpenMetadata</code> declares it and silent when it does not.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">target_column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">target_column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The column of the target model the join is on.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">target_model</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">target_model</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The model the join reaches.</p>
 <h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-metric"><code>struct Metric</code><a class="headerlink" href="#struct-metric" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Metric</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Metric</span>
 </span></code></pre></div>
 <p>What a <code>Metric</code> entity supplies.</p>
 <p><strong>Deliberately minimal and deliberately un-analysed at conversion.</strong> <code>metricType</code> is decidable
@@ -2062,16 +2100,16 @@ text in a foreign dialect - and a measure carried as such is reported and not de
 is decoded (so the reported-not-defined cell can prove it is carried and ignored) and never
 minted into a domain <code>Metric</code>.</p>
 <h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">aggregation</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">aggregation</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The decidable aggregation-kind word, e.g. <code>SUM</code>.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">expression</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">expression</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The raw expression text a deployment wrote to bind the measure to a column.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">granularity</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">granularity</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The declared granularity, e.g. <code>DAY</code>, if any.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The metric's name.</p>
 <h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
@@ -2089,18 +2127,183 @@ the wire shapes holds over these recorded documents. <code>over_fixture_source</
 registry calls to register the adapter; it is <code>pub</code> because an integration suite is a separate
 crate and cannot reach a <code>#[cfg(test)]</code> item.</p>
 <h3 id="struct-fixturereader"><code>struct FixtureReader</code><a class="headerlink" href="#struct-fixturereader" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureReader</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureReader</span>
 </span></code></pre></div>
 <p>The fake <code>SnapshotReader</code> that serves the recorded corpus.</p>
 <h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>SnapshotReader</code></p>
 <h3 id="fn-over_fixture_source"><code>fn over_fixture_source</code><a class="headerlink" href="#fn-over_fixture_source" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">over_fixture_source</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">DefinitionVersion</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">OpenMetadataCatalog</span><span class="o">&lt;</span><span class="n">FixtureReader</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">over_fixture_source</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">DefinitionVersion</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">OpenMetadataCatalog</span><span class="o">&lt;</span><span class="n">FixtureReader</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>An <code>OpenMetadataCatalog</code> over the recorded corpus.</p>
 <p>The source mapping answers the one service the corpus names - <code>warehouse</code> - with the deployment's
 declared source, which is what lets a model on that platform be opened. This is the constructor
 the conformance registry uses to register the adapter.</p>
+<h2 id="module-http">Module <code>http</code><a class="headerlink" href="#module-http" title="Permanent link">&para;</a></h2>
+<p>The real <code>crate::SnapshotReader</code>: two paged reads over <code>OpenMetadata</code>'s <code>REST</code> API, assembled
+into one <code>crate::document::Snapshot</code>.</p>
+<p>Behind the crate's default-off <code>http</code> feature - see <code>Cargo.toml</code>'s own comment on why - so a
+build that does not ask for this reader links no outbound TLS stack.</p>
+<h1 id="what-is-measured-and-what-is-not">What is measured, and what is NOT<a class="headerlink" href="#what-is-measured-and-what-is-not" title="Permanent link">&para;</a></h1>
+<p><strong>The <code>Table</code> and <code>Metric</code> wire shapes are read against the published JSON Schema</strong>
+(<code>open-metadata/OpenMetadata</code>'s <code>openmetadata-spec</code>, <code>table.json</code>/<code>metric.json</code> on <code>main</code>) and
+the <code>TableResource</code>/<code>MetricResource</code> Java sources for which fields the list endpoint returns
+unconditionally versus only behind <code>?fields=</code> - not against a provisioned instance (the nix
+sandbox has no network; this is a schema read, not a live one). <code>docs/what-openmetadata-can-carry.md</code>
+was corrected against the same schema read (its <code>foreignKeys</code>/<code>referencedTable</code> shape was a
+first-draft invention no real deployment serves; <code>harvest_relationship</code> below reads
+<code>tableConstraints</code> instead). So the mapping functions here are a <strong>first claim</strong> this crate has
+made about <code>OpenMetadata</code>'s served envelope, the same way <code>sutura-catalog-datahub</code>'s <code>dataset</code>
+mapping was before its provisioned tier measured it. Each mapping refuses an unexpected shape as
+a typed <code>HttpReaderError::UnexpectedShape</code> naming the entity and the field, rather than
+reading past a missing or mistyped key with a default - a guess that happened to be wrong would
+otherwise certify a bundle silently missing a model, a join or a metric. <strong>Do not cite this
+reader as proof the <code>OpenMetadata</code> half works against a real instance until an acceptance leg
+measures it - the schema read is not that leg.</strong></p>
+<h1 id="what-every-read-is-bounded-by">What every read is bounded by<a class="headerlink" href="#what-every-read-is-bounded-by" title="Permanent link">&para;</a></h1>
+<p><code>ReadBounds</code> carries a request timeout and a response-size cap, both <strong>settings with defaults,
+not constants</strong> - <code>DEFAULT_TIMEOUT_SECONDS</code> and <code>DEFAULT_MAX_RESPONSE_BYTES</code> are the values a
+composition root's settings default to, following <code>sutura-config</code>'s own convention of a default
+function per optional key, not a value baked into this type. <code>read</code>
+makes up to two requests (tables, then metrics) and shares ONE deadline across them - opened
+once, and what is left after the first is what the second gets - the same shape
+<code>sutura_domain::warehouse::deadline::Deadline</code> and <code>sutura-catalog-datahub</code>'s own reader hold.
+<strong>The aggregate byte cost of one <code>read()</code> is bounded by construction, not by a third check</strong>:
+two requests at <code>cap</code> each is at most <code>2×cap</code> read into memory before either response is
+checked, and <code>fetch</code>'s own <code>ureq</code> backstop (<code>limit(2×cap)</code> per request, ahead of the precise
+<code>len &gt; cap</code> refusal) makes the true per-request ceiling <code>2×cap</code> rather than <code>cap</code> - so a single
+<code>read()</code> never holds more than <code>4×cap</code> at once across both in-flight bodies. Stated here rather
+than measured, because nothing enforces a THIRD, aggregate ceiling; a future third request would
+raise this number and this sentence would have to move with it.</p>
+<h1 id="auth">Auth<a class="headerlink" href="#auth" title="Permanent link">&para;</a></h1>
+<p>A bearer token as a <code>Secret</code>, sent as <code>Authorization: Bearer &lt;token&gt;</code> on every request. The
+token is a constructor argument here; a composition root reads it from a settings-declared file
+at boot (<code>token_file</code>), never inline in a settings document.</p>
+<h1 id="paging">Paging<a class="headerlink" href="#paging" title="Permanent link">&para;</a></h1>
+<p>One page per entity kind, at a generous count. A page that SIGNALS more results exist - an
+<code>after</code> cursor, or a returned count below a reported <code>paging.total</code> - is refused
+(<code>HttpReaderError::MorePages</code>) rather than silently read as complete: the same "one page or a
+refusal" shape <code>sutura-catalog-datahub</code>'s reader and <code>sutura-exec-bigquery</code>'s wire hold for
+<code>jobs.query</code>, because a caller must not certify a bundle built from a <code>Snapshot</code> that silently
+dropped a model or a metric.</p>
+<h1 id="tls-and-the-endpoint">TLS and the endpoint<a class="headerlink" href="#tls-and-the-endpoint" title="Permanent link">&para;</a></h1>
+<p><code>Endpoint</code> and its <code>Endpoint::parse</code> now live in <code>sutura-http-client</code>, shared with
+<code>sutura-catalog-datahub</code>'s identical reader since issue #970's review found the two
+byte-for-byte the same (<code>cargo xtask check-jscpd</code>). <code>HttpSnapshotReader::new</code> takes one
+rather than a <code>String</code> - a caller cannot dial an endpoint this module has not validated. The
+grammar and each refusal: <code>scheme://host[:port]</code>, scheme <code>http</code> or <code>https</code> (case-folded) on a
+<code>ureq::http::Uri</code>, an optional nonzero valid <code>:port</code>, an optional trailing <code>/</code>, and nothing
+else; <code>https://</code> for any host, <code>http://</code> only for an IP loopback literal
+(<code>sutura_domain::source::host_is_loopback</code>). This mirrors <code>DataHub</code> exactly because the two
+readers share the same security posture: a bearer prepared for a plaintext host that is not
+loopback is a token handed to whoever answers that name.</p>
+<p><code>ureq</code>'s compiled-in default root set (for an <code>https://</code> endpoint), <code>max_redirects(0)</code> and the
+proxy left on are the other pins; a deployment MAY replace the compiled-in roots with its own
+CA via <code>security.outbound.transport_anchors</code> (<code>#125</code>), folded in <code>sutura_http_client::tls</code> -
+anchors only, no client identity.</p>
+<h3 id="enum-httpreadererror"><code>enum HttpReaderError</code><a class="headerlink" href="#enum-httpreadererror" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">HttpReaderError</span>
+</span></code></pre></div>
+<p>Why one of the two entity reads did not produce the entities it names.</p>
+<p>Reaches <code>crate::OpenMetadataCatalog</code> boxed inside <code>OpenMetadataError::Read</code> - the port's own
+coarse variant - so this stays inspectable by a caller that knows to downcast, the <code>ErasedCause</code>
+shape <code>.agents/skills/sutura/secure-by-design/SKILL.md</code> argues for at a boundary.</p>
+<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>DeadlineSpent</code> - The shared budget was gone before this entity's page could be requested.</li>
+<li><code>Unreachable</code> - The entity's page was not reached.</li>
+<li><code>Unreadable</code> - The entity's page was reached and its answer could not be read.</li>
+<li><code>Refused</code> - <code>OpenMetadata</code> refused the request. <code>Display</code> renders the status and never <code>detail</code>, because a cause-chain walk that flattens every link with <code>Display</code> must not carry endpoint-owned text.</li>
+<li><code>TooLarge</code> - The page was larger than the cap this reader will read.</li>
+<li><code>NotADocument</code> - The page was not a JSON document.</li>
+<li><code>UnexpectedShape</code> - One entity did not carry a field this reader expects, or carried it in a shape it does not recognise.</li>
+</ul>
+<p><strong>Refused rather than guessed</strong> - see the module header on what is measured and what is not.
+  <code>field</code> is a dotted path (e.g. <code>"columns[].name"</code>) so a refusal names exactly where the
+  document stopped matching this reader's expectation.
+- <code>NotTheCanonicalShape</code> - The page's own field mapped into this crate's canonical aspect shape and that decode failed - a defect in this reader's mapping rather than in the page, since every field reaching <code>serde_json::from_value</code> here was already read out of the page by name above.
+- <code>MorePages</code> - The page stated or implied more results exist than the one page this reader will read.</p>
+<h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="struct-httpsnapshotreader"><code>struct HttpSnapshotReader</code><a class="headerlink" href="#struct-httpsnapshotreader" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">HttpSnapshotReader</span>
+</span></code></pre></div>
+<p>An <code>OpenMetadata</code> deployment, reached over HTTP.</p>
+<p>Not generic over its credential the way <code>sutura-exec-bigquery</code>'s transport is: there is exactly
+one credential shape here, a bearer token, so a type parameter would buy nothing a second
+constructor would not.</p>
+<h4 id="methods_6">Methods<a class="headerlink" href="#methods_6" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">endpoint</span><span class="p">:</span><span class="w"> </span><span class="nc">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="nc">Secret</span><span class="p">,</span><span class="w"> </span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">ReadBounds</span><span class="p">,</span><span class="w"> </span><span class="n">anchors</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">LoadedAnchors</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Opens a reader. <code>endpoint</code> (only <code>Endpoint::parse</code>), <code>token</code> (read from a settings-
+declared file at boot) and <code>bounds</code> (only <code>ReadBounds::parse</code>) are all checked first.</p>
+<p><strong><code>anchors</code> is <code>security.outbound.transport_anchors</code> (<code>#125</code>), resolved once at boot</strong>: <code>None</code>
+leaves <code>ureq</code>'s compiled-in <code>RootCerts::WebPki</code>, <code>Some</code> replaces it with
+<code>RootCerts::Specific</code> from exactly the declared certificates - never a union of the two (see
+<code>sutura_http_client::tls</code>). This constructor never presents a client identity -
+<code>Self::rotating_agent</code> is the one that does.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rotating</span><span class="p">(</span><span class="n">endpoint</span><span class="p">:</span><span class="w"> </span><span class="nc">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="nc">Secret</span><span class="p">,</span><span class="w"> </span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">ReadBounds</span><span class="p">,</span><span class="w"> </span><span class="n">agent</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_tls</span><span class="p">::</span><span class="n">Rotating</span><span class="o">&lt;</span><span class="n">ureq</span><span class="p">::</span><span class="n">Agent</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The rotation-lane constructor: holds the rotating agent handle a composition root built (via
+<code>Self::rotating_agent</code>) and drove to re-read on <code>sutura_tls::POLL_INTERVAL</code>. The reader is
+per-request, so the agent <code>current()</code> resolves to on the next <code>read</code> is the latest that loaded.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rotating_agent</span><span class="p">(</span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">ReadBounds</span><span class="p">,</span><span class="w"> </span><span class="n">declared</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Declared</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">OutboundAgent</span><span class="p">,</span><span class="w"> </span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">LoadError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Builds the reader's rotating agent handle for a declared <code>security.outbound</code> set, and (when
+one is declared) the <code>sutura_tls::Rotator</code> the composition root drives on
+<code>sutura_tls::POLL_INTERVAL</code>. <code>None</code> (no declaration) returns a fixed handle over <code>ureq</code>'s
+compiled-in roots, presenting no identity, and no poll handle.</p>
+<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<p>The declared bundle or client identity cannot be loaded at boot.</p>
+<h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>SnapshotReader</code></p>
+<h3 id="use-budget"><code>use Budget</code><a class="headerlink" href="#use-budget" title="Permanent link">&para;</a></h3>
+<h3 id="use-default_max_response_bytes"><code>use DEFAULT_MAX_RESPONSE_BYTES</code><a class="headerlink" href="#use-default_max_response_bytes" title="Permanent link">&para;</a></h3>
+<h3 id="use-default_timeout_seconds"><code>use DEFAULT_TIMEOUT_SECONDS</code><a class="headerlink" href="#use-default_timeout_seconds" title="Permanent link">&para;</a></h3>
+<h3 id="use-endpoint"><code>use Endpoint</code><a class="headerlink" href="#use-endpoint" title="Permanent link">&para;</a></h3>
+<h3 id="use-endpointmessage"><code>use EndpointMessage</code><a class="headerlink" href="#use-endpointmessage" title="Permanent link">&para;</a></h3>
+<h3 id="use-invalidendpoint"><code>use InvalidEndpoint</code><a class="headerlink" href="#use-invalidendpoint" title="Permanent link">&para;</a></h3>
+<h3 id="use-invalidreadbounds"><code>use InvalidReadBounds</code><a class="headerlink" href="#use-invalidreadbounds" title="Permanent link">&para;</a></h3>
+<h3 id="use-outboundagent"><code>use OutboundAgent</code><a class="headerlink" href="#use-outboundagent" title="Permanent link">&para;</a></h3>
+<h3 id="use-readbounds"><code>use ReadBounds</code><a class="headerlink" href="#use-readbounds" title="Permanent link">&para;</a></h3>
+<h2 id="module-test_support">Module <code>test_support</code><a class="headerlink" href="#module-test_support" title="Permanent link">&para;</a></h2>
+<p>The happy-path <code>OpenMetadata</code> wire pages this crate's own tests need.</p>
+<p>Over the loopback fake <code>sutura-http-client::test_support</code> now hosts (issue #970's review: this
+file's own <code>FakeServer</code>/<code>Scripted</code>/plumbing was byte-for-byte identical to
+<code>sutura-catalog-datahub</code>'s copy, <code>cargo xtask check-jscpd</code> measured). Re-exported here so
+<code>sutura-cli</code>'s served-binary suite (<code>crates/sutura-cli/tests/served/openmetadata.rs</code>) keeps
+building <code>test_support::FakeServer</code> off THIS crate's public API - it takes
+<code>sutura-catalog-openmetadata</code> as a dependency, not <code>sutura-http-client</code> directly.</p>
+<p><code>#[cfg(feature = "fake")]</code>, not <code>#[cfg(test)]</code>, for the reason <code>sutura_http_client::test_support</code>'s
+own header gives: an integration test binary cannot see another crate's <code>tests/</code> directory, so
+the only way to share a fake across crates is through a library, <code>pub</code>, reachable at compile
+time from whichever feature both a reader and its composition root's tests turn on.</p>
+<h3 id="fn-tables_page"><code>fn tables_page</code><a class="headerlink" href="#fn-tables_page" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tables_page</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span>
+</span></code></pre></div>
+<p>One <code>tables</code> page, over the two models the crate's recorded fixture carries (<code>orders</code> and
+<code>customers</code>), each with its columns, data types, and descriptions. Served in the shape a REAL
+<code>OpenMetadata</code> list endpoint answers: a <code>data</code> array with a <code>paging</code> block whose <code>total</code> matches
+what was returned (so the reader does not refuse it as truncated).</p>
+<h3 id="fn-metrics_page"><code>fn metrics_page</code><a class="headerlink" href="#fn-metrics_page" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">metrics_page</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span>
+</span></code></pre></div>
+<p>One <code>metrics</code> page carrying the recorded fixture's OWN reported-not-defined metric, so the two
+transports cannot drift - it is read through the crate's public fixture rather than restated.</p>
+<h3 id="fn-happy_path_answers"><code>fn happy_path_answers</code><a class="headerlink" href="#fn-happy_path_answers" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">happy_path_answers</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Scripted</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The two pages a <code>read()</code> call makes, in order, all answering <code>200</code> - what a real <code>OpenMetadata</code>
+carrying exactly the recorded fixture's content would serve.</p>
+<h3 id="use-capturedauthorizations"><code>use CapturedAuthorizations</code><a class="headerlink" href="#use-capturedauthorizations" title="Permanent link">&para;</a></h3>
+<h3 id="use-fakeserver"><code>use FakeServer</code><a class="headerlink" href="#use-fakeserver" title="Permanent link">&para;</a></h3>
+<h3 id="use-scripted"><code>use Scripted</code><a class="headerlink" href="#use-scripted" title="Permanent link">&para;</a></h3>
+<h3 id="constant-service"><code>constant SERVICE</code><a class="headerlink" href="#constant-service" title="Permanent link">&para;</a></h3>
+<p>The <code>sources.&lt;alias&gt;</code> the happy-path tables sit on, matching the recorded fixture corpus's own
+ <code>service: "warehouse"</code> so the two transports serve one content.</p>
+<p>A fixed test constant, independent of a deployment's own choice, the way <code>sutura-catalog-datahub</code>
+'s <code>DEPLOYMENT_PROPERTY</code> is: a fake carrying the adapter's own constant would pass whether the
+ service were the deployment's choice or a value this crate required.</p>
 
 
 
