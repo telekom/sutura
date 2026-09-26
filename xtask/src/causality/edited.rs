@@ -177,7 +177,8 @@ pub(super) fn deletion_in(
         .map(|line| AddedLine::new(line.before, &line.text))
         .collect();
     let base_scope = crate::causality::regions::scope(path, base);
-    for name in edited_helper_caller(&base_lines, &removed_behaviour, &base_scope) {
+    for caller in edited_helper_caller(&base_lines, &removed_behaviour, &base_scope) {
+        let name = caller.name().clone();
         if !deleted.contains(&name) {
             deleted.push(name);
         }
@@ -192,7 +193,7 @@ pub(super) fn deletion_in(
     let edited_helpers = edited_helper_caller(&post_lines, file_added, &post_scope);
     let names: Vec<Ident> = deleted
         .into_iter()
-        .filter(|name| !touched.iter().any(|one| one.name() == name) && !edited_helpers.contains(name))
+        .filter(|name| !touched.iter().any(|one| one.name() == name) && !edited_helpers.iter().any(|one| one.name() == name))
         .collect();
     if names.is_empty() {
         Deletion::None
@@ -293,7 +294,7 @@ pub(super) fn removed_in(base_lines: &[&str], removed: &[RemovedLine]) -> Vec<De
 ///
 /// POST-IMAGE ONLY, unlike [`removed_in`]: a helper edit ADDS a line, and the added number names
 /// itself - no pre-image is threaded in for this shape.
-pub(super) fn edited_helper_caller(lines: &[&str], added: &[AddedLine], scope: &TestScope) -> Vec<Ident> {
+pub(super) fn edited_helper_caller(lines: &[&str], added: &[AddedLine], scope: &TestScope) -> Vec<Touched> {
     let mut out = Vec::new();
     let mut index = 0_usize;
     while index < lines.len() {
@@ -334,7 +335,7 @@ pub(super) fn edited_helper_caller(lines: &[&str], added: &[AddedLine], scope: &
 /// same kept-at-HEAD tree the test runs in, and a bare call names the reach that matters. Returns
 /// EVERY caller rather than the first - `github.com/telekom/sutura#1031`'s own review found the
 /// first-match version silently dropped a real caller behind an earlier, spurious one.
-fn calling_tests(lines: &[&str], helper: &str) -> Vec<Ident> {
+fn calling_tests(lines: &[&str], helper: &str) -> Vec<Touched> {
     let Some(name) = function_name(helper) else {
         return Vec::new();
     };
@@ -359,8 +360,15 @@ fn calling_tests(lines: &[&str], helper: &str) -> Vec<Ident> {
             continue;
         };
         let body: String = span.join("\n");
-        if references(&body, name) && !out.contains(&test_name) {
-            out.push(test_name);
+        if references(&body, name) {
+            let caller = if is_ignored(lines, fn_index) {
+                Touched::Ignored(test_name)
+            } else {
+                Touched::Runs(test_name)
+            };
+            if !out.contains(&caller) {
+                out.push(caller);
+            }
         }
     }
     out
@@ -619,7 +627,10 @@ mod tests {
         // alone names nothing and `edited_helper_caller` is what does.
         let added = added_from(3, &["    fn helper() -> u8 { 2 }"]);
         let scope = region(1..8);
-        assert_eq!(edited_helper_caller(&lines, &added, &scope), vec![Ident::parse("t").unwrap()]);
+        assert_eq!(
+            edited_helper_caller(&lines, &added, &scope),
+            vec![Touched::Runs(Ident::parse("t").unwrap())]
+        );
     }
 
     #[test]
@@ -666,7 +677,10 @@ mod tests {
         let scope = region(1..12);
         assert_eq!(
             edited_helper_caller(&lines, &added, &scope),
-            vec![Ident::parse("first").unwrap(), Ident::parse("second").unwrap()]
+            vec![
+                Touched::Runs(Ident::parse("first").unwrap()),
+                Touched::Runs(Ident::parse("second").unwrap())
+            ]
         );
     }
 
@@ -730,7 +744,7 @@ mod tests {
         let added = added_from(1, &["fn helper() -> u8 { 2 }"]);
         assert_eq!(
             edited_helper_caller(&lines, &added, &TestScope::WholeFile),
-            vec![Ident::parse("t").unwrap()]
+            vec![Touched::Runs(Ident::parse("t").unwrap())]
         );
     }
 
@@ -753,7 +767,10 @@ mod tests {
         let lines = existing_test(file);
         let added = added_from(3, &["    pub(super) async fn helper() -> u8 { 2 }"]);
         let scope = region(1..8);
-        assert_eq!(edited_helper_caller(&lines, &added, &scope), vec![Ident::parse("t").unwrap()]);
+        assert_eq!(
+            edited_helper_caller(&lines, &added, &scope),
+            vec![Touched::Runs(Ident::parse("t").unwrap())]
+        );
     }
 
     #[test]

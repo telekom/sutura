@@ -253,23 +253,15 @@ impl Scan {
                     }
                 }
             }
-            // `github.com/telekom/sutura#1025`: a test this diff did not ADD but whose item an
-            // added line lands inside - an edited assertion, most often. `github.com/telekom/sutura#1031`
-            // closes the sibling shape - an added line inside a `#[cfg(test)]` helper fn a test
-            // calls, reached by name here. Both are "a test this diff changed without adding it",
-            // so both name the test the same way; each is independent of `named`/`declared`
-            // above, which count only ADDED attribute lines - a body-only edit adds no attribute
-            // at all.
+            // Body edits in an existing test or a helper it calls name that test without
+            // changing the added-attribute count.
             let scope = crate::causality::regions::scope(&file.path, read);
-            for name in edited::edited_helper_caller(&lines, &file.added, &scope) {
-                let one = AddedTest::at(&file.path, &at, name);
-                if !runnable.contains(&one) {
-                    runnable.push(one);
-                }
-            }
             let touched = edited::touched_in(&lines, &file.added);
             let touched_any = !touched.is_empty();
-            for one in touched {
+            for one in edited::edited_helper_caller(&lines, &file.added, &scope)
+                .into_iter()
+                .chain(touched)
+            {
                 match one {
                     edited::Touched::Ignored(name) => {
                         if !ignored.contains(&name) {
@@ -917,6 +909,17 @@ mod tests {
             }
             other => panic!("an ignored test is named, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn an_ignored_test_calling_an_added_helper_does_not_become_runnable() {
+        let file = "fn helper() {}\n#[test]\n#[ignore]\nfn acceptance() { helper(); }\n";
+        let files = vec![changed("crates/x/tests/t.rs", 1, &file.lines().collect::<Vec<_>>())];
+        let read = tree(&[("crates/x/tests/t.rs", file), ("crates/x/Cargo.toml", &manifest("x"))]);
+        assert!(matches!(
+            Scan::of(&files, &[String::from("crates/x/tests/t.rs")], &read),
+            Scan::OnlyIgnored(_)
+        ));
     }
 
     #[test]

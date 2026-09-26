@@ -1,0 +1,15 @@
+diff --git a/xtask/src/causality/edited.rs b/xtask/src/causality/edited.rs
+--- a/xtask/src/causality/edited.rs
++++ b/xtask/src/causality/edited.rs
+@@ -362,10 +362,6 @@ fn calling_tests(lines: &[&str], helper: &str) -> Vec<Touched> {
+         let body: String = span.join("\n");
+         if references(&body, name) {
+-            let caller = if is_ignored(lines, fn_index) {
+-                Touched::Ignored(test_name)
+-            } else {
+-                Touched::Runs(test_name)
+-            };
++            let caller = Touched::Runs(test_name);
+             if !out.contains(&caller) {
+                 out.push(caller);
+             }
