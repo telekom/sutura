@@ -311,7 +311,7 @@ pub(crate) fn bundle_with_restricted_metric_and_glossary() -> PinnedDefinitions 
             vec![Example::new(
                 NoteName::parse("finance_only_example").expect("a test note name is a name"),
                 vec![Phrase::parse("finance example").expect("a test phrase is a phrase")],
-                Query::new(
+                Query::single(
                     finance_only_name,
                     Grain::Month,
                     crate::testing::june(),

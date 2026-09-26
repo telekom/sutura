@@ -202,7 +202,7 @@ fn a_question_is_answered_through_a_declared_source_under_the_witness_that_entry
     let validated = sutura_app::verify_and_validate(pinned, &opened.engines).expect("every anchor reproduces");
     // The example's own certified window, which is the range `examples/single-player` documents
     // and the one its anchor covers.
-    let question = sutura_domain::query::Query::new(
+    let question = sutura_domain::query::Query::single(
         MetricName::parse("recurring_revenue").expect("a test metric is a metric"),
         sutura_domain::model::Grain::Month,
         sutura_domain::calendar::TimeRange::new(

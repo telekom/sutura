@@ -22,7 +22,7 @@ fn a_question_that_would_reach_a_second_data_system_is_split_into_two_legs() {
     let split = crate::support::two_source_catalog()
         .load()
         .expect("a two-source catalog can be built");
-    let asked = Query::new(
+    let asked = Query::single(
         sutura_domain::model::MetricName::parse("recurring_revenue").expect("a name"),
         sutura_domain::model::Grain::Month,
         crate::support::june_range(),
@@ -61,7 +61,7 @@ fn a_question_whose_join_would_read_two_tables_of_one_name_is_refused() {
         .expect("a catalog whose two tables share a name still LOADS - the question is what is refused");
 
     // The dimension that needs the colliding join.
-    let through_the_join = Query::new(
+    let through_the_join = Query::single(
         sutura_domain::model::MetricName::parse("revenue").expect("a name"),
         sutura_domain::model::Grain::Month,
         crate::support::june_range(),
@@ -88,7 +88,7 @@ fn a_question_whose_join_would_read_two_tables_of_one_name_is_refused() {
     // the fact table's own model needs no join, so the same metric over the same catalog still plans.
     // Without this the assertion above would pass on a check that refused the metric outright, which
     // is the load-time refusal this deliberately is not.
-    let no_join = Query::new(
+    let no_join = Query::single(
         sutura_domain::model::MetricName::parse("revenue").expect("a name"),
         sutura_domain::model::Grain::Month,
         crate::support::june_range(),
@@ -507,7 +507,7 @@ fn the_longest_permitted_range_is_answered_and_one_day_more_is_refused() {
     let pinned = crate::adapters::load::<crate::adapters::ReferenceCatalog>();
     let ask = |start: &str, end: &str| {
         let day = |raw: &str| sutura_domain::calendar::Date::parse(raw).expect("a test date is a date");
-        Query::new(
+        Query::single(
             sutura_domain::model::MetricName::parse("recurring_revenue").expect("a name"),
             sutura_domain::model::Grain::Month,
             sutura_domain::calendar::TimeRange::new(day(start), day(end)).expect("a test range is a range"),
@@ -555,7 +555,7 @@ fn a_question_carrying_sql_is_an_error_and_not_a_dropped_field() {
     //
     // Without `deny_unknown_fields`, `sql:` deserializes cleanly and is discarded, so a caller who
     // believes they sent SQL gets a confident answer to a different question.
-    let with_sql = "metric: recurring_revenue\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\nsql: SELECT 1\n";
+    let with_sql = "metrics: [recurring_revenue]\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\nsql: SELECT 1\n";
     let err = serde_norway::from_str::<Query>(with_sql).expect_err("sql is not a field of a question");
     assert!(err.to_string().contains("sql"), "{err}");
 }
@@ -571,7 +571,7 @@ fn a_key_inside_a_range_is_an_error_and_not_a_dropped_field() {
     // Asserted over YAML as well as over the DataHub crate's JSON because they are different
     // deserializers: `deny_unknown_fields` is honoured by the Deserializer, so serde_norway's
     // behaviour is not implied by serde_json's. Not a second statement of one fact.
-    let typo = "metric: recurring_revenue\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\n  ends: 2026-08-01\n";
+    let typo = "metrics: [recurring_revenue]\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\n  ends: 2026-08-01\n";
     let err = serde_norway::from_str::<Query>(typo).expect_err("a key inside a range is not a field of a range");
     assert!(err.to_string().contains("ends"), "{err}");
 }
@@ -586,7 +586,7 @@ fn a_range_with_no_end_is_not_a_range() {
     // ABSENT bound. A range with both bounds present and ten thousand years between them
     // deserializes cleanly, and what refuses that is `TimeRangeTooLong` - a refusal, not a parse
     // error, provoked by `refused-range-too-long.yaml` and pinned to the day above.
-    let unbounded = "metric: recurring_revenue\ngrain: month\nrange:\n  start: 2026-06-01\n";
+    let unbounded = "metrics: [recurring_revenue]\ngrain: month\nrange:\n  start: 2026-06-01\n";
     drop(serde_norway::from_str::<Query>(unbounded).expect_err("a range without an end is not a range"));
 }
 
@@ -618,7 +618,7 @@ fn a_dimension_named_like_the_remote_join_column_still_answers() {
     let split = crate::support::two_source_catalog()
         .load()
         .expect("a two-source catalog can be built");
-    let asked = Query::new(
+    let asked = Query::single(
         sutura_domain::model::MetricName::parse("recurring_revenue").expect("a name"),
         sutura_domain::model::Grain::Month,
         crate::support::june_range(),
@@ -736,7 +736,7 @@ fn a_federated_question_whose_fact_leg_would_read_two_tables_of_one_name_is_refu
 
     // `segment` reaches the colliding same-source table, `region` reaches the second data system -
     // so this question both federates AND puts two `orders` in the fact leg.
-    let both = Query::new(
+    let both = Query::single(
         sutura_domain::model::MetricName::parse("revenue").expect("a name"),
         sutura_domain::model::Grain::Month,
         crate::support::june_range(),
@@ -766,7 +766,7 @@ fn a_federated_question_whose_fact_leg_would_read_two_tables_of_one_name_is_refu
     // second data system, and a local dimension that needs no colliding join: still split into two
     // legs. Without this the assertion above would pass on a splitter that refused every federated
     // question over this catalog, which is not the guard being claimed.
-    let without_the_collision = Query::new(
+    let without_the_collision = Query::single(
         sutura_domain::model::MetricName::parse("revenue").expect("a name"),
         sutura_domain::model::Grain::Month,
         crate::support::june_range(),

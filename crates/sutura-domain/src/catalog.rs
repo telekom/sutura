@@ -461,12 +461,14 @@ impl JoinKey {
 
 /// The ordered, non-empty set of [`JoinKey`]s one relationship joins on.
 ///
-/// **Non-empty by construction and ordered by construction.** [`JoinKeys::of`] refuses an empty
-/// list, and the private `Vec` keeps the order it was handed - the order the planner renders the
-/// `ON` terms in. No `Deref` or `Borrow`; [`as_slice`](JoinKeys::as_slice) is the only way to lend
-/// the keys, which also keeps this crate's no-indexing rule honest.
+/// **Non-empty by construction, held by the type rather than by a checked constructor alone.**
+/// [`crate::nonempty::NonEmpty`] makes the empty case unrepresentable, so [`JoinKeys::of`] refuses
+/// an empty list once, at the one door, rather than every reader re-checking a `Vec` that happens
+/// to always hold something. The order it was handed is kept - the order the planner renders the
+/// `ON` terms in. No `Deref` or `Borrow`; [`iter`](JoinKeys::iter) is the only way to lend the
+/// keys, which also keeps this crate's no-indexing rule honest.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct JoinKeys(Vec<JoinKey>);
+pub struct JoinKeys(crate::nonempty::NonEmpty<JoinKey>);
 
 /// Why a set of join keys cannot be a relationship's keys.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -481,10 +483,9 @@ impl JoinKeys {
     /// One constructor rather than a constructor plus an `is_valid`: an empty key set cannot be
     /// minted, so no downstream code re-checks it and no relationship can hold a join of nothing.
     pub fn of(keys: Vec<JoinKey>) -> Result<Self, InvalidJoinKeys> {
-        if keys.is_empty() {
-            return Err(InvalidJoinKeys::Empty);
-        }
-        Ok(Self(keys))
+        crate::nonempty::NonEmpty::parse(keys)
+            .map(Self)
+            .map_err(|crate::nonempty::EmptySet {}| InvalidJoinKeys::Empty)
     }
 
     /// A one-key set, which is never empty and so needs no refusal.
@@ -492,13 +493,40 @@ impl JoinKeys {
     /// The shape every adapter that reads a single-column source produces; a single key is always a
     /// valid non-empty set, so this constructor is infallible where [`Self::of`] has to be a
     /// `Result`.
-    pub fn single(key: JoinKey) -> Self {
-        Self(vec![key])
+    pub const fn single(key: JoinKey) -> Self {
+        Self(crate::nonempty::NonEmpty::one(key))
     }
 
     /// The keys, in declared order. The whole set - not any one of them - promises the target unique.
-    pub fn as_slice(&self) -> &[JoinKey] {
-        &self.0
+    pub fn iter(&self) -> impl Iterator<Item = &JoinKey> {
+        self.0.iter()
+    }
+
+    /// How many keys this set holds. Never zero.
+    #[inline]
+    pub const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Never true - a method anyway, because clippy's `len_without_is_empty` lint does not know
+    /// this type's whole point is that the answer is always the same.
+    #[inline]
+    #[must_use]
+    #[expect(clippy::unused_self, reason = "pairs with len() as a method - see the doc comment above")]
+    pub const fn is_empty(&self) -> bool {
+        false
+    }
+
+    /// The first key - the one every non-empty set is guaranteed to have.
+    #[inline]
+    pub const fn first(&self) -> &JoinKey {
+        self.0.first()
+    }
+
+    /// Every key transformed, in order, infallibly - a non-empty set mapped one-to-one is still
+    /// non-empty.
+    pub fn map<U>(&self, f: impl FnMut(&JoinKey) -> U) -> crate::nonempty::NonEmpty<U> {
+        self.0.map(f)
     }
 }
 

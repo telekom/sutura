@@ -61,22 +61,22 @@ mod tests {
 
     fn http_body(question: &RawQuestion<'_>) -> sutura_http::wire::QuestionBody {
         serde_json::from_value(serde_json::json!({
-            "metric": question.metric,
+            "metrics": [question.metric],
             "grain": question.grain,
             "range": {"start": question.start, "end": question.end},
             "dimensions": [question.dimension],
-            "filters": [{"dimension": question.filter_dimension, "value": question.filter_value}],
+            "filters": [{"op": "eq", "dimension": question.filter_dimension, "value": question.filter_value}],
         }))
         .expect("a well-formed HTTP question body deserializes")
     }
 
     fn mcp_args(question: &RawQuestion<'_>) -> sutura_mcp::wire::AskArgs {
         serde_json::from_value(serde_json::json!({
-            "metric": question.metric,
+            "metrics": [question.metric],
             "grain": question.grain,
             "range": {"start": question.start, "end": question.end},
             "dimensions": [question.dimension],
-            "filters": [{"dimension": question.filter_dimension, "value": question.filter_value}],
+            "filters": [{"op": "eq", "dimension": question.filter_dimension, "value": question.filter_value}],
         }))
         .expect("a well-formed MCP arguments object deserializes")
     }
@@ -87,12 +87,14 @@ mod tests {
     fn shared_tag(error: &SharedMalformedQuestion) -> &'static str {
         match *error {
             SharedMalformedQuestion::Metric { .. } => "metric",
+            SharedMalformedQuestion::Metrics => "metrics",
             SharedMalformedQuestion::Grain => "grain",
             SharedMalformedQuestion::Date { .. } => "date",
             SharedMalformedQuestion::Range { .. } => "range",
             SharedMalformedQuestion::Dimension { .. } => "dimension",
             SharedMalformedQuestion::FilterDimension { .. } => "filter_dimension",
             SharedMalformedQuestion::FilterValue { .. } => "filter_value",
+            SharedMalformedQuestion::FilterValues { .. } => "filter_values",
             SharedMalformedQuestion::TopN { .. } => "top_n",
             SharedMalformedQuestion::TopBy => "top_by",
             SharedMalformedQuestion::TopDirection => "top_direction",

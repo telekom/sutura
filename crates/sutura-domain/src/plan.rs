@@ -161,7 +161,7 @@ pub struct PlanJoin {
     relationship: RelationshipName,
     table: QualifiedTable,
     join_type: JoinType,
-    keys: Vec<PlanJoinKey>,
+    keys: crate::nonempty::NonEmpty<PlanJoinKey>,
 }
 
 impl PlanJoin {
@@ -174,13 +174,19 @@ impl PlanJoin {
     /// so where a source count decides between one statement, a split and
     /// `PlanSpansTooManySources`.
     ///
+    /// **A join with no keys cannot be built**, and that is what makes `keys` a `NonEmpty` rather
+    /// than a `Vec` the renderers have to fail closed on: every key contributes one `=` term, so an
+    /// empty list would be a `JOIN ... ON` with no predicate - a shape that cannot be minted here.
+    /// The catalog's `JoinKeys` is non-empty by the same construction, so the plan's list, derived
+    /// from it, can never be empty either.
+    ///
     /// `impl Into<QualifiedTable>` for the reason `Model::new` gives.
     #[inline]
     pub fn new(
         relationship: RelationshipName,
         table: impl Into<QualifiedTable>,
         join_type: JoinType,
-        keys: Vec<PlanJoinKey>,
+        keys: crate::nonempty::NonEmpty<PlanJoinKey>,
     ) -> Self {
         Self {
             relationship,
@@ -212,10 +218,10 @@ impl PlanJoin {
         self.join_type
     }
 
-    /// The keys this join links on, each qualified by the tables it reads.
+    /// The keys this join links on, each qualified by the tables it reads. Never empty.
     #[inline]
     #[must_use]
-    pub fn keys(&self) -> &[PlanJoinKey] {
+    pub const fn keys(&self) -> &crate::nonempty::NonEmpty<PlanJoinKey> {
         &self.keys
     }
 }
@@ -432,6 +438,19 @@ pub enum PlanPredicate {
         column: PlanColumn,
         param: usize,
     },
+    /// `column IN (param, param, ..)` - one or more values, `github.com/telekom/sutura#968`.
+    /// [`crate::nonempty::NonEmpty`] rather than a plain `Vec`: an empty `IN ()` is either a
+    /// syntax error or, rendered as `NOT IN ()`, a silently vanished filter (fail-open), and a
+    /// producer cannot reach this variant with zero placeholders to fill.
+    In {
+        column: PlanColumn,
+        params: crate::nonempty::NonEmpty<usize>,
+    },
+    /// `column NOT IN (param, param, ..)` - [`Self::In`]'s negation, same reason for `NonEmpty`.
+    NotIn {
+        column: PlanColumn,
+        params: crate::nonempty::NonEmpty<usize>,
+    },
     IsTrue {
         column: PlanColumn,
     },
@@ -448,11 +467,15 @@ impl PlanPredicate {
             | Self::Before { ref column, .. }
             | Self::Equals { ref column, .. }
             | Self::NotEquals { ref column, .. }
+            | Self::In { ref column, .. }
+            | Self::NotIn { ref column, .. }
             | Self::IsTrue { ref column }
             | Self::IsNotNull { ref column } => column,
         }
     }
 
+    /// The one parameter a single-valued predicate binds. `None` for `In`/`NotIn` too - see
+    /// [`Self::bound_params`] for the shape that covers every variant.
     #[inline]
     pub const fn param(&self) -> Option<usize> {
         match *self {
@@ -460,10 +483,28 @@ impl PlanPredicate {
             | Self::Before { param, .. }
             | Self::Equals { param, .. }
             | Self::NotEquals { param, .. } => Some(param),
-            Self::IsTrue { .. } | Self::IsNotNull { .. } => None,
+            Self::In { .. } | Self::NotIn { .. } | Self::IsTrue { .. } | Self::IsNotNull { .. } => None,
+        }
+    }
+
+    /// Every parameter index this predicate binds, in placeholder order - zero for `IsTrue`/
+    /// `IsNotNull`, one for a comparing predicate, one per value for `In`/`NotIn`. The one place
+    /// [`bindings::PlanBindings::parse`] walks all eight variants without matching on which one.
+    #[inline]
+    pub(crate) fn bound_params(&self) -> BoundParams<'_> {
+        match *self {
+            Self::AtOrAfter { param, .. }
+            | Self::Before { param, .. }
+            | Self::Equals { param, .. }
+            | Self::NotEquals { param, .. } => BoundParams::One(Some(param)),
+            Self::In { ref params, .. } | Self::NotIn { ref params, .. } => BoundParams::Many(params.into_iter()),
+            Self::IsTrue { .. } | Self::IsNotNull { .. } => BoundParams::None,
         }
     }
 }
+
+mod bound_params;
+pub(crate) use bound_params::BoundParams;
 
 /// Where a predicate came from.
 ///

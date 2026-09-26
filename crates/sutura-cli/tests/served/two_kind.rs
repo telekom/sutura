@@ -61,7 +61,7 @@ mod tests {
                 path.display()
             );
         }
-        String::from(r#"{"metric":"voice_minutes","grain":"day","range":{"start":"2026-06-01","end":"2026-06-05"}}"#)
+        String::from(r#"{"metrics":["voice_minutes"],"grain":"day","range":{"start":"2026-06-01","end":"2026-06-05"}}"#)
     }
 
     /// **The cell.** One deployment, two kinds, each kind's own question answered correctly - the

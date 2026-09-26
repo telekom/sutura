@@ -413,7 +413,7 @@ async fn a_refusal_and_a_fault_are_different_series() {
             "/v1/query",
             Some(super::TOKEN),
             Body::from(
-                r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["channel"]}"#,
+                r#"{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["channel"]}"#,
             ),
         ),
     )
@@ -452,7 +452,7 @@ async fn no_series_names_a_source_or_a_question() {
     // no credential. The question carries a sentinel no series could contain.
     let app = app(metrics_settings(Environment::Development));
     let sentinel = "sentinel_q7x9";
-    let asked = format!(r#"{{"metric":"{sentinel}","grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}}}}"#);
+    let asked = format!(r#"{{"metrics":["{sentinel}"],"grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}}}}"#);
     let (status, _) = call(&app, request("POST", "/v1/query", Some(super::TOKEN), Body::from(asked))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 

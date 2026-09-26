@@ -51,10 +51,11 @@ fn plan_with_join(fact: QualifiedTable, joined: QualifiedTable) -> QueryPlan {
         RelationshipName::parse("dim").expect("a test relationship is one"),
         joined,
         JoinType::ManyToOne,
-        vec![PlanJoinKey::Equal {
+        crate::nonempty::NonEmpty::parse(vec![PlanJoinKey::Equal {
             origin: column("fct", "dim_id"),
             target: column("dim", "id"),
-        }],
+        }])
+        .expect("a test join declares one key"),
     );
     QueryPlan::new(
         SourceName::parse("warehouse").expect("a test source is a source"),

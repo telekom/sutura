@@ -306,7 +306,7 @@ pub(crate) fn recurring_revenue_by_region() -> String {
         );
     }
     String::from(
-        r#"{"metric":"recurring_revenue","grain":"month",
+        r#"{"metrics":["recurring_revenue"],"grain":"month",
         "range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["region"]}"#,
     )
 }
@@ -897,7 +897,7 @@ pub(crate) fn question(stem: &str, metric: &str, start: &str, end: &str) -> Stri
             path.display()
         );
     }
-    format!(r#"{{"metric":"{metric}","grain":"{GRAIN}","range":{{"start":"{start}","end":"{end}"}}}}"#)
+    format!(r#"{{"metrics":["{metric}"],"grain":"{GRAIN}","range":{{"start":"{start}","end":"{end}"}}}}"#)
 }
 
 /// The one question this file asserts numbers for.

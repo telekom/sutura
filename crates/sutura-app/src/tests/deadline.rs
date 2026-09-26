@@ -21,7 +21,7 @@ fn running_out_of_time_is_a_refusal_and_not_a_503() {
     let working = Warehouses::of(FixedWarehouse::answering(source(), shared(), certified()));
     let validated = verify_and_validate(bundle(), &working).expect("the anchor reproduces its number");
     let timed_out = Warehouses::of(MonoDeadlineExceededWarehouse::new(source(), shared()));
-    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
     let outcome = answer(
         &validated,
         &question,
@@ -51,7 +51,7 @@ fn a_budget_spent_before_the_leg_starts_is_refused_and_the_data_system_is_never_
     let working = Warehouses::of(FixedWarehouse::answering(source(), shared(), certified()));
     let validated = verify_and_validate(bundle(), &working).expect("the anchor reproduces its number");
     let warehouses = Warehouses::of(NeverAskedWarehouse::new(source(), shared()));
-    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
     // Opened ten seconds in the past with a one-second budget: spent long before this call.
     let spent = Deadline::opened_at(
         std::time::Instant::now()
@@ -102,7 +102,7 @@ fn a_slow_pre_flight_that_spends_the_budget_is_refused_before_execute_is_ever_as
     let slow = FixedWarehouse::answering_after(source(), shared(), certified(), std::time::Duration::from_secs(1));
     let warehouses = Warehouses::of(slow);
     let validated = verify_and_validate(bundle(), &warehouses).expect("the anchor reproduces its number");
-    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
     let small = Deadline::opened_at(
         std::time::Instant::now(),
         Budget::parse(std::time::Duration::from_millis(250)).expect("250ms is a budget"),
@@ -150,7 +150,7 @@ fn a_dry_run_that_times_out_is_also_a_refusal_and_not_a_503() {
         certified(),
         DryRunOutcome::TimedOut,
     ));
-    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
     let outcome = answer(
         &validated,
         &question,

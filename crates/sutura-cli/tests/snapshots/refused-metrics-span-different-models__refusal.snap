@@ -1,0 +1,7 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: reason
+---
+MetricsSpanDifferentModels:
+  first: recurring_revenue
+  other: voice_minutes

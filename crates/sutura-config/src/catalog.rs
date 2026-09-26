@@ -11,6 +11,12 @@ use std::path::{Path, PathBuf};
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::DefinitionVersion;
 
+pub mod rdbms;
+pub use crate::catalog::rdbms::{
+    CatalogConnection, CatalogEnvironment, InvalidConnection, InvalidRdbmsCatalog, LiveRowPredicate, PredicateOperator,
+    RdbmsSettings,
+};
+
 /// Which adapter the catalog configuration names, and therefore which one opens it.
 ///
 /// **A closed set of typed declarations, [`crate::sources::SourceKind`]'s shape on the metadata
@@ -130,10 +136,12 @@ pub struct CatalogSettings {
     /// root that DRIVES a refresh re-reads this catalog and re-pins it. `None` means never - the
     /// state every catalog declared before this key existed is already in.
     refresh_seconds: Option<u64>,
+    /// `catalog.kind: rdbms` only, all or nothing. `None` for every other kind.
+    rdbms: Option<RdbmsSettings>,
 }
 
 /// Why a catalog configuration is not usable.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidCatalogSettings {
     /// A path was empty, which resolves to the process working directory - a different directory
     /// on every host, and never the one the operator meant.
@@ -153,6 +161,17 @@ pub enum InvalidCatalogSettings {
     /// is written.
     #[error("catalogs.{name}.refresh_seconds is 0 - remove the key for never, or write a positive interval")]
     ZeroRefresh { name: SourceName },
+    /// A `catalog.kind: rdbms` entry's own keys are not usable.
+    #[error("`catalogs.{name}` is `kind: rdbms` and is not usable")]
+    Rdbms {
+        name: SourceName,
+        #[source]
+        cause: InvalidRdbmsCatalog,
+    },
+    /// A catalog of another kind wrote an rdbms-only key - a key nothing would read, which is a
+    /// configuration nobody can see, so it is refused the way `deny_unknown_fields` refuses one.
+    #[error("`catalogs.{name}.{key}` is read only when `kind` is `rdbms` - remove it, or write `kind: rdbms`")]
+    RdbmsKeyOnOtherKind { name: SourceName, key: &'static str },
 }
 
 impl CatalogSettings {
@@ -190,6 +209,7 @@ impl CatalogSettings {
             deadline_seconds: None,
             max_response_bytes: None,
             refresh_seconds: None,
+            rdbms: None,
         })
     }
 
@@ -209,6 +229,20 @@ impl CatalogSettings {
     #[inline]
     pub const fn refresh_seconds(&self) -> Option<u64> {
         self.refresh_seconds
+    }
+
+    /// Adds the `catalog.kind: rdbms`-only settings. `parse_catalogs` calls this only when `kind`
+    /// parsed as [`CatalogKind::Rdbms`].
+    #[must_use]
+    pub fn with_rdbms(mut self, rdbms: RdbmsSettings) -> Self {
+        self.rdbms = Some(rdbms);
+        self
+    }
+
+    /// The rdbms-only settings, `Some` exactly for a `kind: rdbms` entry read from settings.
+    #[inline]
+    pub const fn rdbms(&self) -> Option<&RdbmsSettings> {
+        self.rdbms.as_ref()
     }
 
     /// Adds the three `catalog.kind: datahub`-only fields to an already-parsed entry.

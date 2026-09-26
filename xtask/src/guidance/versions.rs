@@ -58,7 +58,6 @@
 //! can do, and the gate is a ratchet rather than a proof that no copy is left.
 
 use std::collections::BTreeSet;
-use std::path::Path;
 
 use crate::guidance::has_ext;
 use crate::repo;
@@ -221,7 +220,7 @@ fn tokens(line: &str) -> Vec<(usize, &str)> {
 /// VALUE legitimately - that value is the pin - so only the comment is read, which is what makes
 /// `Cargo.toml`, `rust-toolchain.toml` and a pinned `uses:` need no exemption.
 ///
-/// **`Dockerfile` has no extension to key on**, which used to mean [`Path::extension`] returned
+/// **`Dockerfile` has no extension to key on**, which used to mean [`std::path::Path::extension`] returned
 /// `None` and this whole function did too - `demo/Dockerfile` and the root `Dockerfile` were never
 /// scanned at all, comments included. Keyed on the basename instead, for that one name; a
 /// `Dockerfile` comment is `#`, same marker as the shell/YAML/nix group below.
@@ -270,34 +269,36 @@ fn comment_start(rel: &str, line: &str) -> Option<usize> {
 /// second copy this whole module is about. `rust`, `rustc` and `cargo` are named because the
 /// toolchain's pin file holds a channel rather than a tool name.
 ///
-/// **`unreadable` rather than `unwrap_or_default`**, which is `max_lines::count_lines`' shape from
-/// `github.com/telekom/sutura#619` on a different subject: a pin file this cannot open contributes
-/// no names, every version written beside one of those names stops being a version this check
-/// knows about, and the gate reports the comment scan it did as if the name set were the tree's.
-fn pinned_names(root: &Path, files: &[String], unreadable: &mut Vec<String>) -> BTreeSet<String> {
+/// **The census's bytes rather than a second read**, for `github.com/telekom/sutura#619`'s reason
+/// on a different subject: a pin file this cannot open contributes no names, every version written
+/// beside one of those names stops being a version this check knows about, and the gate reports
+/// the comment scan it did as if the name set were the tree's. A listed pin file that cannot be
+/// read is refused by `guidance::inspect_listing` first; an UNLISTED one (no `flake.nix` or
+/// `pixi.toml` at all) still contributes nothing, which is what an absent pin file means.
+fn pinned_names(read: &crate::causality::regions::PostImage<'_>, files: &[String]) -> BTreeSet<String> {
     let mut names: BTreeSet<String> = ["rust", "rustc", "cargo"].iter().map(|n| String::from(*n)).collect();
-    let mut read = |rel: &str| crate::repo::read_subject(root, rel, unreadable).unwrap_or_default();
+    let text_of = |rel: &str| read(rel).unwrap_or_default();
     for rel in files {
         let base = rel.rsplit('/').next().unwrap_or(rel);
         if base == "Cargo.toml" {
-            names.extend(manifest_dependencies(&read(rel)));
+            names.extend(manifest_dependencies(&text_of(rel)));
         }
         // A service is pinned by its image tag, so the image name is the thing that has a home.
         if has_ext(base, &["yml", "yaml"]) {
-            names.extend(image_names(&read(rel)));
+            names.extend(image_names(&text_of(rel)));
         }
         // Each nix module is named after the tool it pins.
         if let Some(tool) = rel.strip_prefix("nix/").and_then(|n| n.strip_suffix(".nix")) {
             names.insert(tool.to_ascii_lowercase());
         }
     }
-    let flake = read("flake.nix");
+    let flake = text_of("flake.nix");
     names.extend(crate::pins::flake_apps(&flake).iter().map(|n| n.to_ascii_lowercase()));
     names.extend(flake_inputs(&flake));
     // Every dependency TABLE, where `check-pins` reads exactly `[dependencies]`: that gate is
     // about the nix/pixi overlap, and this one is about anything with an authoritative home, so
     // the docs toolchain under `[feature.docs.dependencies]` counts here and not there.
-    names.extend(pixi_dependencies(&read("pixi.toml")));
+    names.extend(pixi_dependencies(&text_of("pixi.toml")));
     names
 }
 
@@ -448,15 +449,18 @@ fn refused<'line>(line: &'line str, start: usize, names: &BTreeSet<String>) -> V
 }
 
 /// Every comment and prose line in the tree that writes a version nothing compares.
-pub(in crate::guidance) fn comment_versions(root: &Path, files: &[String]) -> (Vec<String>, Scan) {
+pub(in crate::guidance) fn comment_versions(
+    read: &crate::causality::regions::PostImage<'_>,
+    files: &[String],
+) -> (Vec<String>, Scan) {
     let mut problems = Vec::new();
-    let names = pinned_names(root, files, &mut problems);
+    let names = pinned_names(read, files);
     let mut comments = 0_usize;
     for rel in files {
         if repo::matches_any(EXEMPT, rel) {
             continue;
         }
-        let Some(text) = crate::repo::read_subject(root, rel, &mut problems) else {
+        let Some(text) = read(rel) else {
             continue;
         };
         let markdown = has_ext(rel, &["md"]);
@@ -735,7 +739,7 @@ mod tests {
             ],
         );
         let files = vec![String::from("Cargo.toml"), String::from("Dockerfile")];
-        let (problems, _scan) = super::comment_versions(tree.root(), &files);
+        let (problems, _scan) = super::comment_versions(&|rel: &str| std::fs::read_to_string(tree.root().join(rel)).ok(), &files);
         assert!(
             problems
                 .iter()
@@ -749,11 +753,7 @@ mod tests {
         // THE FLOOR'S REFUSAL, not just its predicate. Over a directory with no manifest in it
         // the harvest finds nothing to key on, so every real instance would pass - which is the
         // failure mode `check-pins` records for a text scan and the one a green run hides.
-        let dir = std::env::temp_dir().join(format!("sutura-versions-{}", std::process::id()));
-        std::fs::remove_dir_all(&dir).unwrap_or_default();
-        std::fs::create_dir_all(&dir).expect("a fixture directory");
-        let (problems, scan) = super::comment_versions(&dir, &[]);
-        std::fs::remove_dir_all(&dir).unwrap_or_default();
+        let (problems, scan) = super::comment_versions(&|_: &str| None, &[]);
         assert_eq!(scan.comments, 0, "no file was offered, so no comment was read");
         assert!(
             problems.iter().any(|p| p.contains("the harvest is broken, not the tree")),
@@ -770,10 +770,8 @@ mod tests {
         // The assertion the sweep earns, and the one that is RED against a tree that still
         // carries the copies. Over the real repo, for the reason the pin check's own tree-wide
         // test existed: a rule nobody runs over the tree is a rule about a fixture.
-        let (root, files) = crate::repo::all_files()
-            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
-            .expect("could not list the repo");
-        let (problems, scan) = super::comment_versions(&root, &files);
+        let (files, texts, _witness) = super::super::inspect_listing(crate::repo::all_files()).expect("could not list the repo");
+        let (problems, scan) = super::comment_versions(&|rel: &str| texts.get(rel).cloned(), &files);
         assert!(
             problems.is_empty(),
             "{} version(s) written where nothing compares them:\n{}",

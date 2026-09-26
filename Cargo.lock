@@ -4295,6 +4295,7 @@ dependencies = [
 name = "sutura-catalog-local"
 version = "0.5.1"
 dependencies = [
+ "rustix 0.38.44",
  "serde",
  "serde_norway",
  "sutura-domain",
@@ -4305,6 +4306,7 @@ dependencies = [
 name = "sutura-catalog-okf"
 version = "0.5.1"
 dependencies = [
+ "rustix 0.38.44",
  "serde",
  "serde_norway",
  "sutura-domain",
@@ -4392,6 +4394,7 @@ dependencies = [
  "serde_json",
  "sutura-dev",
  "sutura-domain",
+ "sutura-exec-datafusion",
  "sutura-semantic",
  "sutura-sql",
  "thiserror 2.0.20",

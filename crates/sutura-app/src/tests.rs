@@ -254,7 +254,7 @@ fn a_posture_is_recorded_in_provenance_per_leg() {
     // So what is left here is the honest claim: the posture that CAN execute on this build is
     // recorded. The other one is untestable rather than untested - no adapter in this workspace can
     // carry a per-subject credential, so an `impersonation-at-source` leg cannot execute here at all.
-    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
     let registry = Warehouses::of(FixedWarehouse::answering(source(), shared(), certified()));
     let validated = verify_and_validate(bundle(), &registry).expect("the anchor reproduces its number");
     let outcome = answer(
@@ -291,7 +291,7 @@ fn a_leg_that_disagrees_with_the_adapters_posture_never_executes() {
     // answered as the process, recorded as the asker.
     //
     // Made in `answer`, the rule reaches every adapter this registry can hold, including the next one.
-    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
     let impersonating = Warehouses::of(FixedWarehouse::answering(
         source(),
         SourcePosture::ImpersonationAtSource,
@@ -381,7 +381,7 @@ fn a_question_for_a_source_nobody_configured_is_refused_rather_than_run_elsewher
         shared(),
         certified(),
     ));
-    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
     let outcome = answer(
         &validated,
         &question,
@@ -415,7 +415,7 @@ fn ready() -> Ready {
     (
         validated,
         registry,
-        Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new()),
+        Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new()),
     )
 }
 
@@ -484,7 +484,7 @@ fn a_refused_question_never_reaches_the_broker() {
     let (validated, registry, question) = ready();
     let broker = CountingBroker::default();
 
-    let unknown = Query::new(
+    let unknown = Query::single(
         MetricName::parse("no_such_metric").expect("a test metric name is a name"),
         Grain::Month,
         june(),

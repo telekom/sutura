@@ -201,7 +201,7 @@ fn describe() -> CallToolRequestParams {
 
 fn a_certified_question() -> serde_json::Value {
     serde_json::json!({
-        "metric": "revenue",
+        "metrics": ["revenue"],
         "grain": "month",
         "range": { "start": "2026-06-01", "end": "2026-07-01" },
     })
@@ -536,7 +536,7 @@ async fn every_answered_call_over_this_transport_writes_one_record() {
     drop(
         client
             .call_tool(ask(&serde_json::json!({
-                "metric": "headcount",
+                "metrics": ["headcount"],
                 "grain": "month",
                 "range": { "start": "2026-06-01", "end": "2026-07-01" },
             })))
@@ -599,7 +599,7 @@ async fn an_uncertified_question_is_refused_as_a_RESULT_rather_than_an_error() {
     let client = connected(certified_service()).await;
     let result = client
         .call_tool(ask(&serde_json::json!({
-            "metric": "headcount",
+            "metrics": ["headcount"],
             "grain": "month",
             "range": { "start": "2026-06-01", "end": "2026-07-01" },
         })))
@@ -639,7 +639,7 @@ async fn a_question_outside_the_metrics_grains_is_also_a_RESULT() {
     let client = connected(certified_service()).await;
     let result = client
         .call_tool(ask(&serde_json::json!({
-            "metric": "revenue",
+            "metrics": ["revenue"],
             "grain": "week",
             "range": { "start": "2026-06-01", "end": "2026-07-01" },
         })))
@@ -669,7 +669,7 @@ async fn a_query_field_the_domain_does_not_declare_is_a_named_parse_error() {
     let client = connected(certified_service()).await;
     let error = client
         .call_tool(ask(&serde_json::json!({
-            "metric": "revenue",
+            "metrics": ["revenue"],
             "grain": "month",
             "range": { "start": "2026-06-01", "end": "2026-07-01" },
             "sql": "select * from orders",

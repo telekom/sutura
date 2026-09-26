@@ -1,4 +1,4 @@
-metric: active_subscriptions
+metrics: [active_subscriptions]
 grain: month
 range:
   start: 2026-01-01
