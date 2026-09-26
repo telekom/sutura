@@ -2106,7 +2106,7 @@ shipped binary yet.</p>
 <p>The crate implements the conversion half of issue #151 and
 <code>docs/adr/0011-pluggable-by-declaration.md</code>'s RDBMS row. It is intended for a metadata source that
 reads a database's own dictionary - <code>information_schema</code> plus whatever table comments a human
-wrote - and declares <strong>structure and prose</strong> and nothing else. It is the narrowest declaration this
+wrote - and declares <strong>structure, prose, foreign-key joins and column types</strong> and nothing else. It is the narrowest declaration this
 repository makes, and it exists because a database with DDL and comments and no semantic layer is
 where every adoption starts. <code>docs/adr/0013-a-raw-sql-tool-off-by-default.md</code> is the ramp
 that deployment's story continues; this page is the catalog half of it.</p>
@@ -2126,6 +2126,8 @@ explicitly:</p>
   evidence it found; the converter checks only that evidence is present and does not re-derive it
   from the constraint. A composite (multi-column) foreign key cannot be represented at all, so a
   reader must refuse or omit it before the converter ever sees it.</li>
+<li><strong>Column types</strong> - a column's declared type, where the dictionary records one.</li>
+<li><strong>Column descriptions</strong> - column comments.</li>
 </ul>
 <p>And nothing else. There is <strong>no measure, no grain, no definitional filter, no value allowlist, no
 anchor and no cardinality</strong> - a human declares those in a semantic layer. A bundle from this source

@@ -2241,7 +2241,7 @@ fill these fields and survive these checks</em>:</p>
 </tr>
 <tr>
 <td>what a reader has to know</td>
-<td><code>Knowledge</code> - phrases, caveats, reviewed absences and worked examples, each with a <code>Referent</code></td>
+<td><code>Knowledge</code> - phrases, caveats, reviewed absences and worked examples, the phrases and caveats carrying a <code>Referent</code></td>
 </tr>
 </tbody>
 </table>
@@ -2301,8 +2301,9 @@ predicate fragment in a dialect this repository does not parse. <strong>Declared
 ignored, but never minted into a <code>RequiredFilter</code> without executing it.</p>
 <p>And cardinality, the third thing ADR 0016 taught us to check, is the pleasant surprise: it is <strong>declared
 when present, never defaulted</strong>. <code>TableConstraint.relationshipType</code> explicitly distinguishes
-<code>ONE_TO_ONE</code> / <code>MANY_TO_ONE</code> / <code>ONE_TO_MANY</code> (non-duplicating, license a <code>JoinType</code>) from
-<code>MANY_TO_MANY</code> (row-duplicating, refused by <code>JoinWouldDuplicateRows</code>). DataHub defaulted a cardinality
+<code>ONE_TO_ONE</code> / <code>MANY_TO_ONE</code> / <code>ONE_TO_MANY</code> (each licenses a <code>JoinType</code>, and a dimension reached
+through <code>ONE_TO_MANY</code> is refused by <code>JoinWouldDuplicateRows</code>) from <code>MANY_TO_MANY</code>, which has no
+<code>JoinType</code> to map onto and is refused. DataHub defaulted a cardinality
 (<code>N_N</code>) that the assembler had to refuse; Frictionless Table Schema omitted the property entirely
 (licenses nothing); OpenMetadata names it when it is there and stays silent when it is not - the case a
 deployment leaves a relationship unconstrained licenses no dimension, exactly as the assembler demands.</p>

@@ -2135,7 +2135,7 @@ does and there is no pip and no npm in the path.</p>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>  latest/         alias, moved onto each release - HTML redirects, one per page
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>  0.2.0/
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>  0.1.0/
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>  main/           the development docs, overwritten on every push to main
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>  main/           the development docs, overwritten by a push to main that touches them
 </span></code></pre></div>
 <table>
 <thead>
@@ -2211,7 +2211,8 @@ render for a reader with no direct egress and the fence degrades to a code block
 depend on a diagram to be understood until mermaid is vendored under <code>docs/assets</code>.</p>
 </div>
 <h2 id="brand-assets">Brand assets<a class="headerlink" href="#brand-assets" title="Permanent link">&para;</a></h2>
-<p><code>docs/css/telekom.css</code> makes Telekom magenta (<code>#E20074</code>) the Material <code>custom</code> primary and accent.
+<p><code>docs/css/telekom.css</code> makes Telekom magenta (<code>#E20074</code>) the Material <code>custom</code> primary, with a
+darker or lifted shade of it as the accent.
 The header, links and hover states come from four variables. The two colour schemes differ only
 because <code>#E20074</code> clears WCAG AA on Material's light background and not on its dark one; the
 measured ratios sit next to each value.</p>
@@ -2238,7 +2239,7 @@ measured ratios sit next to each value.</p>
 </tbody>
 </table>
 <p>The mark is a hexagon cut into two congruent halves whose seam never closes: a seam is what
-<em>sutura</em> means, the hexagon is the ports-and-adapters shape, and the seam channel reads as an S.
+<em>sutura</em> means, the hexagon is the ports-and-adapters shape, and the seam is one straight, full-bleed channel.
 Each half is the other rotated 180 degrees about the centre, so the optical weight is equal by
 construction. The favicon is drawn separately rather than scaled, because the primary mark turns to
 mud at 16px.</p>
