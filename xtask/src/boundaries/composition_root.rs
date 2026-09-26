@@ -15,7 +15,7 @@ use std::path::Path;
 use crate::Verdict;
 use crate::causality::regions;
 use crate::repo;
-use crate::serde_parse::scan::code_lines;
+use crate::serde_parse::scan::{code_lines, matching_angle};
 
 const MANIFEST: &str = "crates/sutura-cli/Cargo.toml";
 const SOURCE: &str = "crates/sutura-cli/src";
@@ -133,19 +133,32 @@ fn error_definitions(code: &[String], tests: &regions::TestScope) -> Vec<(usize,
                 waiting_for_item = false;
             }
         }
-        for prefix in ["core::error::Error for ", "std::error::Error for ", "impl Error for "] {
-            if let Some((_, name)) = trimmed.split_once(prefix) {
-                let name = name
-                    .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
-                    .next()
-                    .unwrap_or_default();
-                if !name.is_empty() {
-                    found.push((number, String::from(name)));
-                }
-            }
+        if let Some(name) = error_impl_name(trimmed) {
+            found.push((number, String::from(name)));
         }
     }
     found
+}
+
+fn error_impl_name(line: &str) -> Option<&str> {
+    let body = line
+        .strip_prefix("impl")
+        .or_else(|| line.split_once(" impl").map(|(_, body)| body))?
+        .trim_start();
+    let body = if body.starts_with('<') {
+        body.get(matching_angle(body)?.saturating_add(1)..)?.trim_start()
+    } else {
+        body
+    };
+    for name in ["core::error::Error", "std::error::Error", "Error"] {
+        if let Some(rest) = body.strip_prefix(name).and_then(|rest| rest.strip_prefix(" for ")) {
+            return rest
+                .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+                .next()
+                .filter(|name| !name.is_empty());
+        }
+    }
+    None
 }
 
 fn derives_error(attribute: &str) -> bool {
