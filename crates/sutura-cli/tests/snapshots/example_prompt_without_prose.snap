@@ -39,14 +39,11 @@ the question and not a fault to work around.
 
 ## A refusal is an answer, not an error
 
-A declined question was ANSWERED, not dropped: the service read it, applied the definitions, and the
-answer is no. The outcome is `refusal`, carrying a typed reason and one sentence saying what to
-change. It is not a timeout, not an outage, and not a malformed request.
+A declined question was answered with a `refusal`: a typed reason and one sentence saying what to
+change. It is not a timeout, outage, or malformed request.
 
-**Over HTTP a refusal arrives with an error status rather than a success one**, which is not a
-transport problem and not a reason to try again. The reason is what to act on: the body repeats it
-as a machine-readable `code`, and the name below is that same `code` - lower case, with
-underscores. The status only says which class of no it is.
+**Over HTTP a refusal arrives with an error status**, but it is still a governed answer. Act on the
+body's machine-readable `code`, listed below in lower case with underscores.
 
 **Do not retry a refused question unchanged.** Repeating the same question will not change the
 answer, and a loop that keeps asking is a loop that consumes the deployment's budget to learn
@@ -86,6 +83,8 @@ Every reason you can be given, and what to do about each:
 - **duplicate_dimension** - the same dimension was sent twice in one question.
   Send it once - refused rather than de-duplicated.
 - **too_many_dimensions** - more group-by keys than one question may carry.
+  Ask a narrower question, or ask two questions.
+- **too_many_filters** - more filters than one question may carry.
   Ask a narrower question, or ask two questions.
 - **result_too_large** - the answer was too much data to certify - more rows than the cap, more than
   the data system would return at once, or more bytes than this deployment will encode into a
@@ -190,6 +189,7 @@ already covers.
 These are not soft limits and there is no way to raise one from the caller's side.
 
 - - **At most 4 dimensions** in one question.
+- - **At most 16 filters** in one question.
 - - **A period of at most 3653 days**, which is 10 years at its longest. Both ends are required. A
   longer span is refused rather than trimmed to fit, because an answer about a different period than
   the one asked about is a wrong number nothing downstream can detect.

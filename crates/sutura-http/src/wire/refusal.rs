@@ -30,7 +30,7 @@
 //!   DELETE)."
 //!
 //! Go's `net/http` reference documents no status-driven retry anywhere in `Client`, `Transport` or
-//! `RoundTripper`. 10 refusal reasons land on `422` below, documented the other way round from the
+//! `RoundTripper`. 11 refusal reasons land on `422` below, documented the other way round from the
 //! premise: "Clients that receive a `422` response should expect that repeating the request
 //! without modification will fail with the same error."
 //!
@@ -158,6 +158,10 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         RefusalReason::TooManyDimensions { requested, limit } => (
             StatusCode::UNPROCESSABLE_ENTITY,
             format!("{requested} group-by keys were asked for and the maximum is {limit}"),
+        ),
+        RefusalReason::TooManyFilters { requested, limit } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!("{requested} filters were asked for and the maximum is {limit}"),
         ),
         // 422. The range parsed and both endpoints are real dates, so this is not a `400`; it is the
         // availability boundary, and the answer to a well formed question is no.
@@ -488,6 +492,7 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::DimensionValueNotAllowed { .. }
         | RefusalReason::DuplicateDimension { .. }
         | RefusalReason::TooManyDimensions { .. }
+        | RefusalReason::TooManyFilters { .. }
         | RefusalReason::ResultTooLarge { .. }
         | RefusalReason::TimeRangeTooLong { .. }
         | RefusalReason::PlanSpansTooManySources { .. }
@@ -721,7 +726,7 @@ mod tests {
 
     #[test]
     fn every_refusal_has_a_distinct_code() {
-        // The status is shared on purpose - 10 refusal reasons land on `422` - so the code is what
+        // The status is shared on purpose - 11 refusal reasons land on `422` - so the code is what
         // a client has to be able to branch on, and two variants sharing one would make that
         // impossible. THE NUMBER HERE IS PROSE: it said four while `docs/serving.md` mapped five,
         // then five while this file gained a sixth arm, and every OTHER gate stayed green both

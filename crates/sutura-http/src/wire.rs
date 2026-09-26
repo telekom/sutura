@@ -39,6 +39,8 @@ use sutura_domain::warehouse::RowSet;
 pub enum MalformedQuestion {
     #[error(transparent)]
     Question(#[from] sutura_domain::question::MalformedQuestion),
+    #[error("the question exceeds a count limit")]
+    Refused(sutura_domain::query::RefusalReason),
     #[error(transparent)]
     Range(#[from] sutura_runtime::relative_range::RangeResolutionError),
 }
@@ -221,15 +223,12 @@ fn query_of(body: QuestionBody, clock: &impl sutura_runtime::relative_range::Wal
         .top
         .as_ref()
         .map(|top| sutura_domain::question::RawTop::new(top.n, &top.by, &top.direction));
-    Ok(sutura_domain::question::parse_query(
-        &body.metrics,
-        &body.grain,
-        &start,
-        &end,
-        &body.dimensions,
-        &filters,
-        top,
-    )?)
+    sutura_domain::question::parse_query(&body.metrics, &body.grain, &start, &end, &body.dimensions, &filters, top).map_err(
+        |cause| match cause {
+            sutura_domain::question::QuestionInputError::Malformed(cause) => MalformedQuestion::Question(cause),
+            sutura_domain::question::QuestionInputError::Refused(reason) => MalformedQuestion::Refused(reason),
+        },
+    )
 }
 
 // ---------------------------------------------------------------- responses ----

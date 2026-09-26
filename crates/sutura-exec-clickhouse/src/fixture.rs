@@ -140,20 +140,26 @@ impl ClickHouseWarehouse<Http> {
         endpoint: Endpoint,
         auth: BasicAuth,
         database: &str,
+        result_budget: sutura_domain::warehouse::ResultBudget,
     ) -> Result<Self, FixtureError> {
         if database.is_empty() || !database.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
             return Err(FixtureError::InvalidDatabaseName {
                 database: String::from(database),
             });
         }
-        let transport = Http::connect(endpoint, Some(auth));
+        let transport = Http::connect(endpoint, Some(auth), result_budget.bytes() as u64);
         transport
             .command(&format!("CREATE DATABASE IF NOT EXISTS \"{database}\""), &[])
             .map_err(|cause| FixtureError::Server {
                 subject: format!("database {database}"),
                 cause,
             })?;
-        Ok(Self::of(source, posture, transport.in_database(String::from(database))))
+        Ok(Self::of(
+            source,
+            posture,
+            transport.in_database(String::from(database)),
+            result_budget,
+        ))
     }
 
     /// Exposes a fixture CSV as a table.
