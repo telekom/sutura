@@ -4,15 +4,15 @@
 //! "opened once" was held by review alone, because a swap-timing test cannot land in the
 //! sub-microsecond window between two back-to-back opens.
 //!
-//! This is a STATIC mechanism: a text scan over the two catalog crates' non-test source that
+//! This is a STATIC mechanism: a text scan over the three file catalogs' non-test source that
 //! refuses any path-based read outside a committed list of registered call sites. It is the same
 //! shape as `check-answer-path-caches` and `check-bounded-wait`: a rule the code cannot state about
 //! itself, read as text, starting from a tree that already obeys it.
 //!
 //! # The rule
 //!
-//! Over the non-test `.rs` files of `sutura-catalog-local` and `sutura-catalog-okf`, every occurrence
-//! of one of [`NEEDLES`] must match a [`Registered`] entry - a file and a needle - or it is a
+//! Over the non-test `.rs` files of `sutura-catalog-local`, `sutura-catalog-okf` and
+//! `sutura-catalog-datacontract`, every occurrence of one of [`NEEDLES`] must match a [`Registered`] entry - a file and a needle - or it is a
 //! violation naming the file and line. [`REGISTERED`] is the committed list, and adding or removing
 //! an entry is an architecture decision, exactly as the tables in `check-newtype-leaks` and
 //! `check-answer-path-caches` are.
@@ -20,7 +20,7 @@
 //! # What it deliberately does NOT cover
 //!
 //! **A read through an alias or a helper in another crate escapes.** The scan reads text in these
-//! two crates; `use std::fs as disk;` followed by `disk::read_to_string` is not found, and neither
+//! crates; `use std::fs as disk;` followed by `disk::read_to_string` is not found, and neither
 //! is a function in a third crate that reads a path, called from here. `use std::fs;` followed by
 //! `fs::read_to_string` is also not found - the bare `fs::` spelling was removed to avoid
 //! double-matching with the `std::fs::` prefixed needles (the former is a substring of the latter),
@@ -80,7 +80,7 @@ struct Registered {
 
 /// The committed list of call sites where a path-based read is the registered one.
 ///
-/// Two entries today, one per catalog crate: the `std::fs::read_dir` that walks the catalog root in
+/// One entry per file catalog: the `std::fs::read_dir` that walks the catalog root in
 /// each adapter's `documents()` function. The `rustix::fs::open` that follows the walk is the safe
 /// open this gate exists to protect, and it is not a `std::fs` call - so no other needle is
 /// registered, and any `std::fs::read_to_string`, `File::open` or `OpenOptions` in either crate's
@@ -94,11 +94,20 @@ const REGISTERED: &[Registered] = &[
         file: "crates/sutura-catalog-okf/src/lib.rs",
         needle: "std::fs::read_dir(",
     },
+    Registered {
+        file: "crates/sutura-catalog-datacontract/src/lib.rs",
+        needle: "std::fs::read_dir(",
+    },
 ];
 
-/// The two catalog crates this gate walks. Trailing `/` so a sibling whose name merely starts with
-/// the same prefix cannot match.
-const SCOPE: &[&str] = &["crates/sutura-catalog-local/src/", "crates/sutura-catalog-okf/src/"];
+/// The file catalogs this gate walks. Trailing `/` so a sibling whose name merely starts with the
+/// same prefix cannot match. A LIST, not a prefix rule: a new catalog that opens files is outside
+/// this gate until it is added here.
+const SCOPE: &[&str] = &[
+    "crates/sutura-catalog-local/src/",
+    "crates/sutura-catalog-okf/src/",
+    "crates/sutura-catalog-datacontract/src/",
+];
 
 /// The files [`REGISTERED`] names - this gate cannot have a verdict without reading each of them,
 /// so an entry whose file moved refuses here rather than silently declaring nothing.
@@ -362,7 +371,7 @@ mod tests {
         assert!(found.violations.is_empty(), "{:?}", found.violations);
     }
 
-    /// A path-based read outside the two catalog crates is not in scope.
+    /// A path-based read outside the catalog crates is not in scope.
     #[test]
     fn a_read_outside_the_catalog_crates_is_not_scanned() {
         let tree = crate::scratch_tree::Tree::of(
@@ -379,7 +388,7 @@ mod tests {
     }
 
     /// **Measured before it was written: today's real tree carries no unregistered path-based read
-    /// in the two catalog crates.** This is the "starts green" half, run as a test so a regression
+    /// in the catalog crates.** This is the "starts green" half, run as a test so a regression
     /// here fails the suite and not only a manual read.
     #[test]
     fn the_real_tree_has_no_unregistered_path_based_read() {

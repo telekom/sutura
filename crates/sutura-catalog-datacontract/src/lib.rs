@@ -203,9 +203,10 @@ impl DataContractCatalog {
     /// `#1022`. **The limit stated there still holds here:** a document swapped for a REGULAR file
     /// at the same path between the walk and the open is read as whatever that path names now,
     /// bounded, not refused - the walk named a path, and the handle opened is of whatever that path
-    /// currently is. "Opened once" is held by review, not by a test, for the reason
-    /// `sutura-catalog-okf::read_all`'s own doc states: the window between two back-to-back opens
-    /// is sub-microsecond, under what a swap-timing test can land reliably. The refusal paths and
+    /// currently is. "Opened once" is held by `cargo xtask check-catalog-opened-once` rather than
+    /// by a swap-timing test, which cannot land in the sub-microsecond window between two
+    /// back-to-back opens: it refuses any path-based `std::fs` read here outside the registered
+    /// `read_dir` walk. A second `rustix::fs::open` or an aliased read escapes that text scan. The refusal paths and
     /// their exact reach are [`read_document`]'s contract.
     fn read_all(&self) -> Result<Content, DataContractError> {
         let mut models = Vec::new();

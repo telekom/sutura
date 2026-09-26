@@ -207,7 +207,7 @@ pub(crate) const TASKS: &[Task] = &[
     Task {
         // Beside `check-answer-path-caches` because it is the same shape: a rule the code cannot
         // state about itself, read as text, starting from a tree that already obeys it. What it
-        // holds is "each catalog document is opened once" - the property the two catalog crates'
+        // holds is "each catalog document is opened once" - the property the file catalogs'
         // own comments said was held by review, because a swap-timing test cannot land in the
         // sub-microsecond window between two back-to-back opens. This gate is the static half:
         // no path-based `std::fs` read outside the registered `read_dir` walk.
