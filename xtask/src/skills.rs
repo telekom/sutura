@@ -408,11 +408,15 @@ mod link_tests {
 /// Whether `body` carries a `## Provenance` heading in its prose.
 ///
 /// [`markdown::prose`] blanks fenced blocks, HTML comments and inline code spans, so the heading
-/// text quoted inside a code fence - which a substring match accepted - is not a section. An
-/// unlexable body (an unclosed fence or comment) is a refusal, never a pass.
+/// text quoted inside a code fence - which a substring match accepted - is not a section, and
+/// neither is one indented into a code block (a tab, or four spaces). An unlexable body (an
+/// unclosed fence or comment) is a refusal, never a pass.
 fn provenance_heading(body: &str) -> Result<bool, markdown::Unlexable> {
     let lines = markdown::prose(body)?;
-    Ok(lines.iter().any(|line| line.trim() == "## Provenance"))
+    Ok(lines.iter().any(|line| {
+        let heading = line.trim_start_matches(' ');
+        line.len().saturating_sub(heading.len()) <= 3 && heading.trim_end() == "## Provenance"
+    }))
 }
 
 /// Library skills are exempt from routing but not from provenance. An imported skill with no

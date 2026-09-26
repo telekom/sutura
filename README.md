@@ -37,6 +37,8 @@ sutura is designed around 2 flavours:
   unproven; see [where identity is proven](docs/where-identity-is-proven.md)
 
 Each source declares its own identity posture; a federated answer names the posture of every leg.
+[How a federated join key is compared](docs/how-a-join-key-is-compared.md) records what the combiner
+refuses and what it does not cover.
 
 ## Vision
 

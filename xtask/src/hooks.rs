@@ -216,7 +216,7 @@ fn decide_install_types(text: &str) -> Verdict {
         .lines()
         .map(str::trim_start)
         .find_map(|line| line.strip_prefix(INSTALL_TYPES_KEY))
-        .map(stages)
+        .map(flow_stages)
     else {
         eprintln!("xtask check-hook-tiers: read no `{INSTALL_TYPES_KEY}` out of {CONFIG}\n");
         eprintln!("A reader that stopped matching this key cannot tell an unchanged file from one");
@@ -330,8 +330,8 @@ pub(crate) fn hooks(text: &str) -> Vec<Hook> {
         if trimmed.starts_with('#') {
             continue;
         }
-        if let Some(list) = trimmed.strip_prefix("default_stages:") {
-            defaults = stages(list);
+        if trimmed.starts_with("default_stages:") {
+            defaults = stages(&lines, index);
             continue;
         }
         if let Some(id) = trimmed.strip_prefix("- id:") {
@@ -350,8 +350,8 @@ pub(crate) fn hooks(text: &str) -> Vec<Hook> {
         let Some(hook) = out.last_mut() else {
             continue;
         };
-        if let Some(list) = trimmed.strip_prefix("stages:") {
-            hook.stages = stages(list);
+        if trimmed.starts_with("stages:") {
+            hook.stages = stages(&lines, index);
             continue;
         }
         if let Some(value) = trimmed.strip_prefix("always_run:") {
@@ -422,15 +422,53 @@ fn anchor(value: &str) -> Option<(String, String)> {
     Some((String::from(name), String::from(anchored.trim())))
 }
 
-/// The stage names in a `[a, b]` flow sequence.
-fn stages(list: &str) -> Vec<String> {
-    list.trim()
+/// The stage names in a flow or block sequence.
+fn stages(lines: &[&str], at: usize) -> Vec<String> {
+    let Some(raw) = lines.get(at) else {
+        return Vec::new();
+    };
+    let Some((_, list)) = raw.split_once(':') else {
+        return Vec::new();
+    };
+    let list = list.split_once(" #").map_or(list, |(value, _)| value).trim();
+    if list.is_empty() {
+        let indent = raw.len().saturating_sub(raw.trim_start().len());
+        let mut found = Vec::new();
+        for line in lines.iter().skip(at.saturating_add(1)) {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            if line.len().saturating_sub(line.trim_start().len()) <= indent {
+                break;
+            }
+            if let Some(stage) = trimmed.strip_prefix("- ") {
+                found.push(stage_name(stage));
+            }
+        }
+        return found;
+    }
+    flow_stages(list)
+}
+
+fn flow_stages(list: &str) -> Vec<String> {
+    list.split_once(" #")
+        .map_or(list, |(value, _)| value)
+        .trim()
         .trim_start_matches('[')
         .trim_end_matches(']')
         .split(',')
-        .map(|name| String::from(name.trim()))
+        .map(stage_name)
         .filter(|name| !name.is_empty())
         .collect()
+}
+
+fn stage_name(raw: &str) -> String {
+    let name = raw.split_once(" #").map_or(raw, |(value, _)| value).trim();
+    let single = name.strip_prefix('\'').and_then(|value| value.strip_suffix('\''));
+    let double = name.strip_prefix('"').and_then(|value| value.strip_suffix('"'));
+    let unquoted = single.or(double).unwrap_or(name);
+    String::from(unquoted)
 }
 
 /// Stays inline rather than moving to `hooks/tests.rs`, deliberately: relocating an EXISTING test

@@ -208,8 +208,7 @@ project becomes something else.
 
 The model, the element set and the compile are here. What is NOT here is wren's fan-out arithmetic: a
 dimension reached through a relationship whose declared cardinality may duplicate rows is **refused**
-rather than computed safely. That is deliberate - a refusal beats a wrong number, and the cardinality
-declaration is a trusted precondition nothing checks against the data. The consequence, plainly:
+rather than computed safely. That is deliberate - a refusal beats a wrong number. **Corrected:** the cardinality declaration is a precondition checked against the data at boot where an adapter counts (`declared_keys::hold` at `crates/sutura-app/src/declared_keys.rs:140`, refusing `NotValidated::DeclaredKeyNotUnique` when `Warehouse::declared_key` contradicts a `many_to_one`), and trusted where it does not (the port defaults to `KeyUniqueness::NotAsked`, so an adapter that cannot count is not asked). The consequence, plainly:
 **a question wren would answer, sutura declines.** Do not later file that as a bug. The closed measure
 vocabulary is narrower than wren's calculated fields for the same reason, and the authored-SQL hatch is
 the escape valve that loads and is refused at boot - nothing published compiles or executes it.

@@ -549,7 +549,7 @@ fn validate(wt: &Path, claim: &Claim, test_files: &[String]) -> Vec<Cause> {
     causes
 }
 
-/// The tests ONE commit's own diff added, by name.
+/// The tests ONE commit's own diff added, including their executable locations.
 ///
 /// The single-commit diff numbers its `AddedLine`s in THAT commit's post-image, so they resolve
 /// against the commit's own tree, never HEAD's: a later commit in the range that shifts or deletes
@@ -578,7 +578,7 @@ fn validate(wt: &Path, claim: &Claim, test_files: &[String]) -> Vec<Cause> {
 /// dropped a declaring commit's ADDED names whenever that same commit's diff ALSO deleted an
 /// assertion somewhere else - `partition` cannot answer `DeletedTests` at all, so there is no
 /// longer a case to drop names in.
-fn commit_added_names(wt: &Path, commit: &str) -> Option<Vec<String>> {
+fn commit_added_tests(wt: &Path, commit: &str) -> Option<Vec<AddedTest>> {
     use crate::causality::plan::Plan;
     use crate::causality::scoped::Scan;
     let at = crate::causality::provenance::Commit::parse(commit)?;
@@ -593,9 +593,13 @@ fn commit_added_names(wt: &Path, commit: &str) -> Option<Vec<String>> {
         Plan::NotRequired | Plan::DeletedTests(_) | Plan::BaseUnreadable(_) => return Some(Vec::new()),
     };
     match Scan::of(&scannable, &test_files, &read) {
-        Scan::Runnable(scoped) => Some(scoped.tests().iter().map(AddedTest::name).map(String::from).collect()),
+        Scan::Runnable(scoped) => Some(scoped.tests().to_vec()),
         _ => Some(Vec::new()),
     }
+}
+
+fn commit_added_names(wt: &Path, commit: &str) -> Option<Vec<String>> {
+    commit_added_tests(wt, commit).map(|tests| tests.iter().map(AddedTest::name).map(String::from).collect())
 }
 
 /// Apply one cell's mutation in the isolated target, run the cell, restore, and require it dead.
@@ -719,10 +723,27 @@ pub(super) fn run(root: &Path, scoped: &Scoped, test_files: &[String], claim: &C
         return report_refused(&causes, caller);
     }
 
+    // The range scope excludes tests sharing a file with implementation. A declared cell still
+    // belongs to its own commit's added set, which `validate` checked above. The synthetic
+    // re-proof has no declaring commit and keeps its caller-provided scope.
+    let commit_scope = (!claim.by_commit().is_empty()).then(|| {
+        let tests = claim
+            .by_commit()
+            .iter()
+            .flat_map(|(commit, declared)| {
+                commit_added_tests(&wt, commit)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|test| declared.iter().any(|cell| cell == test.name()))
+            })
+            .collect();
+        Scoped::of_named(tests)
+    });
+    let kill_scope = commit_scope.as_ref().unwrap_or(scoped);
     let declared = claim.cells().len();
     let mut killed = 0_usize;
     for cell in claim.cells() {
-        match kill_cell(&wt, &target, scoped, cell) {
+        match kill_cell(&wt, &target, kill_scope, cell) {
             Ok(()) => killed += 1,
             Err(cause) => {
                 worktree::remove_worktree(root, &wt);

@@ -184,3 +184,38 @@ WHOLE `PrincipalChain` and never a bare `Subject`, because `sutura-http`'s inbou
 acting chain from an `act` claim - is the part worth reading if a second exchanging broker is ever
 built. It was measured at review cost, not derived, and a new cache that keys on a subject alone
 would serve a delegated caller the direct caller's credential.
+
+## Third amendment, 2026-09-26: bound 2 is enforced - the caller's own assertion expiry is folded
+
+Bound 2 above ("the caller's own assertion expiry. **Not enforced.**") and the
+matching *leaves for later* bullet ("the caller-assertion-expiry bound, once
+something in this crate has reason to parse a bearer assertion's own claims")
+described the since-deleted exchanging broker. The second amendment recorded the
+broker's deletion; this one records that the bound it said was absent is now held.
+
+**What changed.** `RequestContext::with_assertion`
+(`crates/sutura-domain/src/identity/principal.rs`) takes the caller's `exp` as a
+required `u64` and wraps it as `Expiry::At` - a caller cannot pass the
+`NothingExpires` variant, because `exp` is in the transport's own required
+claims. `DeclaredPrincipalBroker::mint`
+(`crates/sutura-exec-bigquery/src/principal.rs`) reads
+`context.assertion_expires()` and folds it into `Expiry::earliest` alongside the
+minted credential's own deadline, so an impersonating leg is bounded by the
+sooner of the two. `BoundToTheRequest::still_usable_at`
+(`crates/sutura-domain/src/identity/credential.rs`) refuses a lapsed assertion
+at every boundary - `agreeing_with`, and the two checks in `sutura-app`: before
+the pre-flight round trip (`src/lib.rs`) and before each leg's execution
+(`src/federated/leg.rs`).
+
+**Pinned.** `the_minted_expiry_is_the_asking_assertions_own`
+(`crates/sutura-exec-bigquery/src/principal/tests.rs`) mints with a caller
+expiring at a known instant and proves `agreeing_with` refuses one second after
+and grants one second before, with the refusal naming the assertion's own
+deadline.
+
+**The *leaves for later* bullet is retired.** The bound it named is built.
+
+**What this still does not see.** Clock skew beyond the configured leeway, and a
+token revoked before its `exp` - revocation is not observable from the assertion
+alone, and is bounded only by the token's own remaining life, as the record's
+*What this does NOT close* section already states.
