@@ -31,6 +31,8 @@
 //! split on when that file reached the unexemptable 1000-line cap, and it is a real one: nothing
 //! here asks whether a line is a test, and nothing in `scoped` derives a path.
 
+use std::collections::BTreeSet;
+
 use crate::causality::attributes::{attached, item_below};
 use crate::causality::diff::ChangedFile;
 use crate::causality::names::{CargoName, Ident};
@@ -242,10 +244,13 @@ impl Module {
         Self(String::from(segment.as_str()))
     }
 
-    /// `parent::child` - [`relocated_src`]'s answer when a file's real module is one level
-    /// deeper than its own path, because another file claimed it there with `#[path]`.
-    fn nested(parent: &Ident, child: &str) -> Self {
-        Self(format!("{}::{}", parent.as_str(), child))
+    /// Add a module declaration's name to the path reached so far.
+    fn nested(&self, child: &Ident) -> Self {
+        if self.0.is_empty() {
+            Self::named(child)
+        } else {
+            Self(format!("{}::{}", self.0, child.as_str()))
+        }
     }
 
     /// The prefix a test path under this module begins with: `model::qualified::`, or empty.
@@ -317,31 +322,46 @@ pub(super) fn place(path: &str, read: &PostImage<'_>) -> Option<Place> {
 /// A `src/` file's module path when some OTHER file in the same crate claims it with `#[path]`,
 /// the direction [`Module::of`] cannot see because it reads only this file's OWN location.
 ///
-/// `xtask/src/changes.rs` keeps `xtask/src/affected.rs` as its sibling rather than moving it
-/// under `changes/`, so the path-derived guess landed on `affected::` and a filter built from it
-/// matched nothing nextest ever compiled - the real path is `changes::affected::`. Checked against
-/// the crate root's DIRECT children only, one level, because that is the only shape this
-/// workspace uses; `declared_at` is the same textual match `tests/golden.rs`'s own relocation
-/// already relies on.
+/// `xtask/src/changes.rs` keeps `xtask/src/affected.rs` as its sibling, and that file declares
+/// `affected/lockfile.rs` through another `#[path]`. A path-derived key for the latter omits
+/// `changes::`. Walk each readable out-of-line declaration from the crate root, carrying its
+/// declared name, and return a key only if the route crossed a `#[path]` edge. Ordinary modules
+/// keep [`Module::of`]'s path-derived answer. Inline modules are outside this walk; a file included
+/// under multiple module names gets the first readable route, which cannot name both. This walk
+/// does not evaluate `cfg` or lex comments, so a route absent from the test binary can still yield
+/// a key; the causality runner reports a filter matching no test as INCONCLUSIVE.
 fn relocated_src(dir: &str, inner: &str, read: &PostImage<'_>) -> Option<Module> {
-    let stem = inner.strip_suffix(".rs").filter(|s| !s.contains('/'))?;
-    let root = read(&in_dir(dir, "src/main.rs")).or_else(|| read(&in_dir(dir, "src/lib.rs")))?;
-    for line in root.lines() {
-        let Some(rest) = line.trim().strip_prefix("mod ") else {
-            continue;
-        };
-        let Some(name) = rest.strip_suffix(';').and_then(|n| Ident::parse(n.trim())) else {
-            continue;
-        };
-        let claims = [
-            in_dir(dir, &format!("src/{}.rs", name.as_str())),
-            in_dir(dir, &format!("src/{}/mod.rs", name.as_str())),
-        ]
+    let target = in_dir(dir, &format!("src/{inner}"));
+    let root = ["src/main.rs", "src/lib.rs"]
         .into_iter()
-        .filter_map(|candidate| read(&candidate))
-        .any(|text| declared_at(&text, inner).is_some_and(|found| found.as_str() == stem));
-        if claims {
-            return Some(Module::nested(&name, stem));
+        .map(|path| in_dir(dir, path))
+        .find(|path| read(path).is_some())?;
+    let mut pending = vec![(root, Module::default(), false)];
+    let mut visited = BTreeSet::new();
+    while let Some((path, within, crossed_path)) = pending.pop() {
+        if !visited.insert(path.clone()) {
+            continue;
+        }
+        let Some(text) = read(&path) else {
+            continue;
+        };
+        let lines: Vec<&str> = text.lines().collect();
+        for (at, line) in lines.iter().enumerate() {
+            let Some(name) = module_name(line).and_then(Ident::parse) else {
+                continue;
+            };
+            let relocation = relocated(&lines, at);
+            let crossed_path = crossed_path || relocation.is_some();
+            for candidate in declared_module_files(&path, name.as_str(), relocation.as_deref()) {
+                if read(&candidate).is_none() {
+                    continue;
+                }
+                let module = within.nested(&name);
+                if candidate == target && crossed_path {
+                    return Some(module);
+                }
+                pending.push((candidate, module, crossed_path));
+            }
         }
     }
     None
@@ -654,6 +674,54 @@ mod tests {
         assert_eq!(
             filterset(&files, &["crates/x/src/affected.rs"], &read),
             "(package(=x) & test(/^changes::affected::(?:.*::)?sums(?:::|$)/))"
+        );
+    }
+
+    #[test]
+    fn a_src_file_relocated_through_two_path_declarations_keeps_both_module_names() {
+        let files = vec![changed("crates/x/src/affected/lockfile.rs", 1, &["#[test]", "fn sums() {}"])];
+        let read = tree(&[
+            ("crates/x/Cargo.toml", &manifest("x")),
+            ("crates/x/src/main.rs", "mod changes;\n"),
+            ("crates/x/src/changes.rs", "#[path = \"affected.rs\"]\nmod affected;\n"),
+            (
+                "crates/x/src/affected.rs",
+                "#[path = \"affected/lockfile.rs\"]\nmod lockfile;\n",
+            ),
+            ("crates/x/src/affected/lockfile.rs", "#[test]\nfn sums() {}\n"),
+        ]);
+        assert_eq!(
+            filterset(&files, &["crates/x/src/affected/lockfile.rs"], &read),
+            "(package(=x) & test(/^changes::affected::lockfile::(?:.*::)?sums(?:::|$)/))"
+        );
+    }
+
+    #[test]
+    fn a_path_declared_inside_mod_rs_resolves_from_that_files_directory() {
+        let files = vec![changed("crates/x/src/foo/inner/leaf.rs", 1, &["#[test]", "fn sums() {}"])];
+        let read = tree(&[
+            ("crates/x/Cargo.toml", &manifest("x")),
+            ("crates/x/src/main.rs", "mod foo;\n"),
+            ("crates/x/src/foo/mod.rs", "#[path = \"inner/leaf.rs\"]\nmod leaf;\n"),
+            ("crates/x/src/foo/inner/leaf.rs", "#[test]\nfn sums() {}\n"),
+        ]);
+        assert_eq!(
+            filterset(&files, &["crates/x/src/foo/inner/leaf.rs"], &read),
+            "(package(=x) & test(/^foo::leaf::(?:.*::)?sums(?:::|$)/))"
+        );
+    }
+
+    #[test]
+    fn a_root_path_declaration_uses_its_module_name_instead_of_its_directory() {
+        let files = vec![changed("crates/x/src/sub/foo.rs", 1, &["#[test]", "fn sums() {}"])];
+        let read = tree(&[
+            ("crates/x/Cargo.toml", &manifest("x")),
+            ("crates/x/src/main.rs", "#[path = \"sub/foo.rs\"]\nmod foo;\n"),
+            ("crates/x/src/sub/foo.rs", "#[test]\nfn sums() {}\n"),
+        ]);
+        assert_eq!(
+            filterset(&files, &["crates/x/src/sub/foo.rs"], &read),
+            "(package(=x) & test(/^foo::(?:.*::)?sums(?:::|$)/))"
         );
     }
 
