@@ -66,10 +66,7 @@ pub(crate) enum Plan {
     NotSeparable { files: Vec<String>, build_inputs: Vec<String> },
 }
 
-/// The four groups the reconstruction sorts a diff's Rust files into.
-///
-/// A struct rather than positional arguments, because two of the four are told apart only by the
-/// sentence printed beside them and a reader has to be able to see which is which.
+/// The groups the reconstruction sorts a diff's Rust files into.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Separable {
     /// Restored to base: nothing they added is test code, so together they ARE the old behaviour
@@ -77,6 +74,8 @@ pub(crate) struct Separable {
     pub(crate) revert: Vec<String>,
     /// Kept at HEAD and MEASURED: the tests these added are the proof.
     pub(crate) test_files: Vec<String>,
+    /// Mixed implementation and test files whose added tests can still declare claim cells.
+    pub(crate) inseparable: Vec<String>,
     /// Kept at HEAD with their own tests OUT of the proof: each adds an implementation change and
     /// a test in one file, so reverting it would remove the test along with the fix. Carried
     /// rather than dropped, because reverting the others while these stay at HEAD is what leaves
@@ -266,20 +265,21 @@ pub(super) fn partition(files: &[ChangedFile], read: &PostImage<'_>) -> Plan {
     let scoped_packages = provable_packages(&provable, read);
     let mut held_back = Vec::new();
     let mut revert = impl_only;
-    for path in inseparable {
+    for path in &inseparable {
         if scoped_packages
             .as_ref()
-            .is_some_and(|pkgs| place::package(&path, read).is_some_and(|p| pkgs.contains(p.as_str())))
+            .is_some_and(|pkgs| place::package(path, read).is_some_and(|p| pkgs.contains(p.as_str())))
         {
-            revert.push(path);
+            revert.push(path.clone());
         } else {
-            held_back.push(path);
+            held_back.push(path.clone());
         }
     }
 
     Plan::Separable(Separable {
         revert,
         test_files: provable,
+        inseparable,
         held_back,
         test_only,
         build_inputs,
@@ -312,6 +312,7 @@ mod tests {
         Separable {
             revert: vec![String::from("crates/x/src/a.rs")],
             test_files: vec![String::from("crates/new/tests/it.rs")],
+            inseparable: Vec::new(),
             held_back: vec![String::from("crates/x/src/b.rs")],
             test_only: vec![String::from("crates/x/src/helper.rs")],
             build_inputs: vec![String::from("Cargo.toml"), String::from("crates/new/Cargo.toml")],
