@@ -16,7 +16,7 @@
 //!   entry or an intra-class comparison, added at `telekom/sutura#112` because neither sibling
 //!   rule above could see this edge at all: `FORBIDDEN_EDGES` has no row naming `sutura-app`, and
 //!   `sutura-app` joins none of `adapters`'s classes
-//! * `sutura-http-client` reaches no adapter, composition root or settings crate over a normal
+//! * `sutura-http-client` reaches no adapter, composition root, settings crate or transport over a normal
 //!   edge ([`no_adapter_in_shared_client`], and `shared_client`) - the identical third shape, for
 //!   the identical reason: it joins none of `adapters`'s classes either, and #970's review found
 //!   the gap the same way #112 found the one above
@@ -165,7 +165,7 @@ fn no_adapter_in_shared_client() -> Verdict {
         }
         Ok(report) if report.problems.is_empty() => {
             println!(
-                "xtask check-boundaries: ok - {} reaches no adapter, composition root or settings crate over a \
+                "xtask check-boundaries: ok - {} reaches no adapter, composition root, settings crate or transport over a \
                  normal edge ({} crate(s) in its normal tree)",
                 shared_client::SHARED_CLIENT,
                 report.tree_size

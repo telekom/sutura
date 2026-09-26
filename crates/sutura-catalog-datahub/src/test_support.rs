@@ -8,7 +8,7 @@
 //! THIS crate's public API - it takes `sutura-catalog-datahub` as a dependency, not
 //! `sutura-http-client` directly.
 //!
-//! `#[cfg(feature = "http")]`, not `#[cfg(test)]`, for the reason `sutura_http_client::test_support`'s
+//! `#[cfg(feature = "fake")]`, not `#[cfg(test)]`, for the reason `sutura_http_client::test_support`'s
 //! own header gives: an integration test binary cannot see another crate's `tests/` directory, so
 //! the only way to share a fake across crates is through a library, `pub`, reachable at compile
 //! time from whichever feature both a reader and its composition root's tests turn on.

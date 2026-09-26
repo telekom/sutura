@@ -12,9 +12,10 @@ description = "The bounded, TLS-rotating ureq client sutura-catalog-datahub's an
 [features]
 # The loopback fake a reader's OWN tests need, `pub` so the readers do not each carry a byte-for-byte
 # copy - see `src/test_support.rs`'s own header for why this is a feature and not `#[cfg(test)]`.
-# Folded into each consumer's `http` feature, the same "dead code in a shipped --features http
-# binary, never called by production composition" trade `sutura-catalog-datahub::test_support`
-# already made before this crate existed.
+# NOT folded into either consumer's `http` feature (issue #970's round-1 review): each catalog
+# crate has its own `fake` feature that enables this one, turned on only by `sutura-cli`'s own
+# `[dev-dependencies]`, so the fake never reaches a shipped `--features datahub`/`--features
+# openmetadata` binary, not even as dead code.
 test = []
 # The TLS loopback harness (`rcgen`-issued leaf, a real `rustls::ServerConnection`) a reader's own
 # `tests/http_reader.rs::tls_anchors` cells need. Unlike `test` above, NOTHING outside a

@@ -36,7 +36,7 @@ for `sutura-app` and closed with a THIRD boundary shape (one named crate against
 `FORBIDDEN_EDGES` denylist row nor an intra-class comparison) - `xtask/src/boundaries/application.rs`.
 `xtask/src/boundaries/shared_client.rs` is the identical mechanism for this crate:
 `sutura-http-client`'s own normal tree may never reach `sutura-exec-*`, `sutura-catalog-*`,
-`sutura-app` or `sutura-config`, walked with `Edges::Normal` so a differential dev-dependency
+`sutura-app`, `sutura-config`, `sutura-http` or `sutura-mcp`, walked with `Edges::Normal` so a differential dev-dependency
 comparing this crate against a reader's own behaviour stays exempt, the same reasoning
 `application.rs`'s header gives. **The general rule this makes explicit:** an unprefixed crate
 avoids `check-boundaries` by construction only for the read `sutura-tls` performs; a network client

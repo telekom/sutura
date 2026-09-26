@@ -502,6 +502,17 @@ fn harvest_relationships(
 
 /// One constraint element into a `(name, StructuralRelationship)`, or `None` when it is not a
 /// foreign-key relationship a join can be built from.
+///
+/// **Stated limit: both endpoints are matched by BARE table name, not by fully qualified name.**
+/// `origin_model` is the enclosing entity's own `name`; `target_model` is `split_fqn_tail`'s fourth
+/// segment, also bare. Two tables of the same name under different services or schemas are
+/// therefore the same model to this crate, and the map `read()` collects relationships into keys
+/// by NAME, so a same-named constraint from a second such table overwrites rather than adds one -
+/// the same collision `docs/what-openmetadata-can-carry.md` should read this alongside. Matching
+/// by the qualifying prefix instead (`referredColumns`' first three segments against the origin's
+/// own) is possible but not done: `crate::document::Table`'s own model name is already the bare
+/// `name` this crate reads everywhere else, so a qualified join target would need a second identity
+/// this adapter does not otherwise carry.
 fn harvest_relationship(
     element: &Value,
     origin_model: &str,
@@ -641,6 +652,12 @@ fn split_fqn_tail(fqn: &str) -> Option<(String, String)> {
 }
 
 /// One `metric` entity into this crate's own [`crate::document::Metric`] shape.
+///
+/// **Stated limit:** `metric.json` requires only `id` and `name` - `metricType` is optional on the
+/// wire. This crate's own [`crate::document::Metric`] requires it (a reported-not-defined metric
+/// with no aggregation kind is not a shape any test here has needed), so an untyped metric refuses
+/// the WHOLE catalog read with [`HttpReaderError::UnexpectedShape`] rather than being skipped and
+/// silently dropped from the bundle - a deliberate refusal, not an oversight.
 fn harvest_metric(entity: &Value) -> Result<crate::document::Metric, HttpReaderError> {
     const ENTITY: &str = "metrics";
     let name = entity
