@@ -13,26 +13,28 @@ below is what is built and what holds it; the paragraph after that is the limit,
 read before citing this record.
 
 **Corrected: most of it is built now.** `crates/sutura-conformance` exists as the dev-only packs
-crate this record specifies; `execute_packs!` binds it to three data systems
-(`sutura-exec-duckdb`, `sutura-exec-postgres`, `sutura-exec-datafusion` - the engine); compile packs
-run behind the harness crate's default-off `compile` feature; and `cargo xtask
-check-conformance-bindings` (`xtask/src/conformance.rs`) is the gate the *Consequences* section
-below asks for, holding the registry and the macro invocation in step. What is still unbuilt,
-named individually rather than counted because an earlier version of this sentence undercounted
-it: a per-pack timing aggregate and `cargo-insta`'s unreferenced-snapshot check, both decided as a
-plan further down rather than built; the three named corpus cases (a filter on a remote dimension
-with an orphan key, a zero-denominator ratio, a `CountDistinct` spanning two join keys) on any
-adapter but one - they are `.case` files now, but only two in-process `sutura-exec-datafusion`
-engines bind the two-warehouse arm that runs them; and a fourth data adapter, `sutura-exec-bigquery`, which IS built and is
-not yet bound to the packs. The corpus is files, not code - *The corpus is files, not code* below
-is how that is built.
+crate this record specifies; `execute_packs!` binds it to five data systems
+(`sutura-exec-datafusion` - the engine, `sutura-exec-duckdb`, `sutura-exec-postgres`,
+`sutura-exec-clickhouse`, and `sutura-exec-bigquery`); compile packs run behind the harness
+crate's default-off `compile` feature; and `cargo xtask check-conformance-bindings`
+(`xtask/src/conformance.rs`) is the gate the *Consequences* section below asks for, holding the
+registry and the macro invocation in step. What is still unbuilt, named individually rather than
+counted because an earlier version of this sentence undercounted it: a per-pack timing aggregate
+and `cargo-insta`'s unreferenced-snapshot check, both decided as a plan further down rather than
+built; and the three named corpus cases (a filter on a remote dimension with an orphan key, a
+zero-denominator ratio, a `CountDistinct` spanning two join keys) on any adapter but one - they
+are `.case` files now, but only two in-process `sutura-exec-datafusion` engines bind the
+two-warehouse arm that runs them. The corpus is files, not code - *The corpus is files, not code*
+below is how that is built.
 
 **The limit, next to the claim, because the shape is further along than the coverage.** A case is a
 tracked data file under `crates/sutura-conformance/corpus/cases/` parsed by a typed loader, so
-adding one is a data edit. **None of the three
-cases under *Cases the corpus must contain by name* is written**, and that module's own header says
-so. The packs call `execute` and `dry_run` and no other `Warehouse` method, so *held to the same test
-bodies* is a statement about two methods. And **no pack exercises impersonation in any form** -
+adding one is a data edit. The three named cases under *Cases the corpus must contain by name* ARE
+written now, but only `tests/federated_bound.rs` binds the two-warehouse arm, over two in-process
+`DataFusion` engines of ONE kind, so these rows say nothing yet about any other adapter - no
+`DuckDB`, `Postgres`, `ClickHouse` or `BigQuery` leg runs the federated cases. The packs call
+`execute` and `dry_run` and no other `Warehouse` method, so *held to the same test bodies* is a
+statement about two methods. And **no pack exercises impersonation in any form** -
 `corpus::posture()` returns `SourcePosture::SharedServiceUser` - which is the one to read before
 citing this record as evidence that a source executed as the asking subject. It is not. What a green
 conformance run does NOT establish is enumerated in that crate's own module header; this paragraph is
@@ -261,16 +263,18 @@ its own with the null group expected LAST.
 **What that case detects is NOT our statement of the placement, and the record should not be read
 as claiming it is.** Measured: the layer collapses `NULLS LAST` away for every target whose default
 is already nulls-last, so deleting `nulls_first: Some(false)` leaves `DuckDB`'s and Postgres's
-rendered SQL **byte-identical** and changes only `BigQuery`'s text - and `BigQuery` has no
-`execute_packs!` binding, so no corpus cell executes it. Our statement of the placement is held by
-`every_order_by_states_nulls_last`, over the AST, which is the right venue for a rendering
-decision.
+rendered SQL **byte-identical** and changes only `BigQuery`'s text - `BigQuery` IS bound to the
+packs now (`telekom/sutura#710`), but over a CANNED transport that answers every case from the
+corpus's own `Case::expected` rows rather than a live `GoogleSQL` endpoint, so a corpus cell
+executes the canned answer and still proves nothing about a real engine's own ordering. Our
+statement of the placement is held by `every_order_by_states_nulls_last`, over the AST, which is
+the right venue for a rendering decision.
 
-**Two things the case does buy.** `Behaviour::Order` over a null key pins the three bound engines'
-own default null ordering - most usefully `datafusion`'s, which a version bump could change with no
-diff of ours, so this is a dependency regression detector rather than a check on first-party code.
-`Behaviour::Content` over the same row is first-party: a null key must be a GROUP and not a row a
-join or a filter dropped.
+**Two things the case does buy.** `Behaviour::Order` over a null key pins the live bound engines'
+own default null ordering - `DuckDB`, Postgres, `ClickHouse` and the `datafusion` engine, which a
+version bump could change with no diff of ours, so this is a dependency regression detector rather
+than a check on first-party code. `Behaviour::Content` over the same row is first-party: a null key
+must be a GROUP and not a row a join or a filter dropped.
 
 **COLLATION has the field now, and one case uses it.** Every other key in the corpus is still
 all-lowercase ASCII with distinct first letters, so no bound engine's own collation can disagree
@@ -305,8 +309,9 @@ under a partial implementation:
   all: two customer keys sharing a subscription makes two exact distinct counts over-count when summed.
   A fixture whose keys never overlap passes with the wrong implementation.
 
-Each is a directory like any other case. Naming them here is not a substitute for writing them - it is
-what stops the corpus from being complete-looking and blind in exactly the places the design is hard.
+Each is a directory like any other case. All three are written now - see *Corrected* above - and
+naming them here was what stopped the corpus from being complete-looking and blind in exactly the
+places the design is hard.
 
 ## The corpus is files, not code
 

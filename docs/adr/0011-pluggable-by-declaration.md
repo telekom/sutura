@@ -780,3 +780,33 @@ and are left as written. Two sentences above it do not:
 *Data: which mode a source is in, and which capability the adapter has* also said
 `sutura-exec-datafusion` "is the engine `sutura-cli` and `sutura-serve` both link" - same correction,
 same crate.
+
+## Fourth amendment, 2026-09-26: the cardinality precondition is checked against the data where an adapter counts
+
+Three sentences in the base record say a declared cardinality is a trusted precondition nothing checks
+against the data. That was true when written and is not now, and the three are left as written and
+corrected here rather than edited in place, because this record's own convention is that the base text
+stands and its corrections arrive as amendments.
+
+- *The DDL connector* section said *"catalog cardinality is a trusted precondition: nothing checks the
+  declaration against the data"*. A declared `many_to_one` is now checked against the data at boot:
+  `declared_keys::hold` (`crates/sutura-app/src/declared_keys.rs:140`), called from `verify_and_validate`
+  at `crates/sutura-app/src/proof.rs:156`, asks `Warehouse::declared_key`
+  (`crates/sutura-domain/src/warehouse.rs:811`) for a `COUNT DISTINCT` over the referenced column and
+  refuses the bundle as `NotValidated::DeclaredKeyNotUnique`
+  (`crates/sutura-domain/src/pinned.rs:753`) when the count contradicts the declaration. Tested at
+  `a_declared_key_the_data_contradicts_is_not_a_validated_bundle`
+  (`crates/sutura-app/src/declared_keys/tests.rs:118`). **The limit: the check is only as wide as the
+  adapters that count.** `Warehouse::declared_key` defaults to `KeyUniqueness::NotAsked`, so an adapter
+  that does not implement it is not asked and its bundle is not refused on the default - the declaration
+  is checked against the data where an adapter counts, and trusted where it does not.
+- The same section said *"nothing checks a declaration against the DATA, and after this connector
+  nothing still does"*. After this connector that is no longer so: the boot count named above checks
+  it, with the same adapter-counts limit. The DDL-evidence half this connector argued for and the
+  boot-count half are two different things, and both are stated rather than smoothed into "checked".
+- *Cardinality stops being purely trusted* said *"a declared cardinality is a trusted precondition
+  nothing checks against the data"*. Same correction, same mechanism, same limit: the boot count holds
+  it where an adapter counts, and the `NotAsked` default is where it does not. The one-direction
+  argument this section makes for metadata evidence is unaffected - a unique constraint proves the
+  referenced side is unique, its absence proves nothing - and it now sits beside a data check that
+  covers both directions, but only where the adapter can count.

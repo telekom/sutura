@@ -122,7 +122,7 @@ omitted.
 | the boot path calls the port with no identity | Still true in substance, and the quoted call form is stale: `execute` no longer takes `&plan`. `verify_and_validate` still runs during composition, so the boot path is still a caller of the execution port                                                                                                                                      |
 | one process, one connection                   | Still true of the DuckDB adapter, and no longer true of the deployment: `crates/sutura-cli/src/serve.rs` opens one BigQuery adapter per declared source under a declared credential                                                                                                                                                               |
 | a data system is not even configurable        | False, and the row's own claim header is the false half. `crates/sutura-config/src/sources.rs` holds a `SourceRegistry` and a `SourceKind`, and the composition root dispatches on the configured kind. `defaults.yaml` still ships no ACTIVE `sources:` key - deliberately, and it says so - which is the narrow sense in which the cell is true |
-| the domain reads no clock                     | True of `sutura-domain`. False of `sutura-app`, which calls `std::time::SystemTime::now()` on the record path - so the claim is about the interior alone, not about both crates                                                                                                                                                                   |
+| the domain reads no clock                     | True of the identity path in `sutura-domain`. False of `sutura-app`, which calls `std::time::SystemTime::now()` on the record path. `sutura-domain` itself now reads `std::time::Instant` in `Deadline` (`crates/sutura-domain/src/warehouse/deadline.rs`), so the claim is about identity expiry alone, not about the crate's interior           |
 | the refusal enum already says so              | Stale. Identity IS a control now, not only a design target: `SourcePosture::deliverable_by` refuses at boot and `RefusalReason::CredentialUnavailable` refuses a subject with no credential at the source it reads                                                                                                                                |
 
 **And the citation this section closes on is dead.** `AGENTS.md`'s opening line still reads *e2e
@@ -754,7 +754,7 @@ the subject may not execute, or prepare a statement against tables the subject c
 has to be asked as the same principal as the question, or it answers a different question.
 
 **Which is why `dry_run`'s return type changes with its parameter, and the default body stays.**
-Today's default is `Ok(())`, and today that is defensible: with nothing to be wrong about, "nothing
+The default **was** `Ok(())`, and at the time that was defensible: with nothing to be wrong about, "nothing
 went wrong" is honest. With a subject in the signature it stops being honest, because `Ok(())` from an
 adapter that did not look is indistinguishable from `Ok(())` from an adapter that asked the data system
 and was told yes - so a defaulted pre-flight would read as "this subject may run this plan" for every
@@ -784,7 +784,7 @@ so it is worth a round trip and is not an authorization decision. Nothing in the
 it as one, and there is no mechanism that would stop it - `answer` calling `dry_run` and skipping a
 check on the strength of `Accepted` is a review question.
 
-That is the whole mechanism for "no downgrade". Today's signature *is* the fallback: an adapter with
+That is the whole mechanism for "no downgrade". The signature **was** the fallback: an adapter with
 no credential parameter runs as whatever the process is, and nothing anywhere had to decide that.
 After the change there is no code path that executes without something a broker produced, so
 "downgrading to the service identity" is not a mistake anyone can make quietly - it is a signature
@@ -2176,3 +2176,77 @@ for what this query may take* refusal. What exists is the bound `still_usable_at
 checked once before anything reaches an adapter - so an assertion valid at the start of a long answer
 and expired at the end is refused by the data system, not here. `Presented` carries no validity at
 all, so an adapter cannot make the check either.
+
+## Third amendment, 2026-09-26: an adapter carries a per-subject credential, and the two-subject test is written
+
+Two present-tense statements this record made about the *absence* of a per-subject adapter are
+now false, and are left in place because the rest of this record is the argument that made them
+worth checking. This block corrects them; the lines above it are older than the code.
+
+**The opening paragraph** (lines 39-40) said *what is still absent is an adapter that can carry a
+per-subject credential - so this record's own two-subject test remains unwritable*. That is no
+longer true. `crates/sutura-exec-bigquery/src/lib.rs` declares
+`BigQueryWarehouse::IMPERSONATION = ImpersonationCapability::PerSubjectCredential`
+(`crates/sutura-exec-bigquery/src/lib.rs:665`), and the ADBC transport federates the caller's own
+verified assertion through the source's declared per-subject account map. So a published build
+links an adapter that carries one, and the record's own two-subject test is no longer unwritable:
+`crates/sutura-exec-bigquery/tests/declared_principal.rs` is it.
+
+**The "not built" list** (item 1, lines 2061-2064) said *any adapter that can carry a per-subject
+credential - both shipped ones declare `NoPlaceForASubject` ... the two-subject test at the foot of
+this record is still unwritable*. Both halves are spent. The BigQuery adapter no longer declares
+`NoPlaceForASubject`; it declares `PerSubjectCredential`, and `Presented::SubjectToken` is
+constructed by the broker that ships rather than only by tests. The two-subject cell exists -
+`each_subject_executes_as_its_own_principal_at_the_declared_pool` and its control
+`the_deployments_own_identity_is_neither_subjects_principal` - dispatched by
+`.github/workflows/bigquery-declared-principal.yml`.
+
+**What is still not proven, stated next to the correction.** Leg 2 - a source executing AS the
+caller - is built and unproven. The two-subject test's venue in
+`docs/where-identity-is-proven.md` is `wired`: a job reaches the cells and no run has been
+observed. The served binary half - a verified human caller's question really executing as that
+subject's own principal at the identity pool - is not yet reached, for the reason
+`declared_principal.rs`'s own header records: one credential would have to satisfy both this
+surface's capability gate and the identity pool's provider, and neither candidate reachable from
+here does. This amendment corrects the record's claim about what is built; it does not claim a
+run that has not been observed.
+
+## Fourth amendment, 2026-09-26: four present-tense sentences this record's body and amendment blocks made about the absence of adapters, credentials and clocks are now false
+
+Four statements this record made in present tense about what does not exist are now false, and are
+left in place because each is part of the argument that made checking it worthwhile. This block
+corrects them; the lines above it are older than the code.
+
+**Item 3's own amendment block** (line 2097) said *no shipped adapter yet has anywhere for a
+per-subject credential to arrive*. That stopped being true when the BigQuery adapter declared
+`ImpersonationCapability::PerSubjectCredential`
+(`crates/sutura-exec-bigquery/src/lib.rs:665`), and `Presented::SubjectToken` is constructed by the
+broker that ships rather than only by tests. The correction is to the amendment, not to the original
+item: the original said *nothing constructs a second leg*, which was true when written; the
+amendment corrected it to *no shipped adapter has a place for a per-subject credential*, and that
+correction is now itself the stale sentence. What remains true is leg 2: a source executing AS the
+caller is built and unproven, and the venue in `docs/where-identity-is-proven.md` is `wired` - a job
+reaches the two-subject test and no run has been observed.
+
+**Part 2's body prose** (line 925) said *Today `require_token` compares a presented bearer string
+against a configured one with `subtle`'s constant-time comparison and builds no principal, and
+verified against the manifests: no JOSE, JWT or JWKS crate appears in `Cargo.lock` at all,
+`sutura-http`'s manifest names no cryptographic dependency*. Both halves are spent. `jsonwebtoken`
+is a direct dependency of `sutura-http` (`crates/sutura-http/Cargo.toml:57`), used for JWT signature
+verification (`src/inbound/token.rs:57,384-385`) and JWKS (`src/inbound/keys.rs:119-120`). The
+correction table at line 119 already corrected the signature-crate row; this prose in the decision section
+repeated the original claims in present tense and is corrected here rather than rewritten.
+
+**Part 6's body prose** (line 1523) said *The domain reads no clock today, in either crate*.
+`sutura-domain` now reads `std::time::Instant`: `Deadline` holds one
+(`crates/sutura-domain/src/warehouse/deadline.rs:28`) and `Deadline::remaining_at` takes `Instant` as its argument. The correction table at line 125 has
+been narrowed from "True of `sutura-domain`" to "True of the identity path in `sutura-domain`",
+because the clock the domain now reads is the deadline's own, not an identity-expiry clock. The
+spirit of the original claim - no identity-expiry clock in the domain - holds; the letter does not.
+
+**Part 5b's body prose** (line 1294) said *The settings tree has no `sources:` section at all today,
+so this arrives with one*. `SourceRegistry` exists (`crates/sutura-config/src/sources.rs:497`),
+`Settings` holds `sources: SourceRegistry` (`settings.rs:390`), and `parse_sources` reads the tree
+(`parse.rs:100`). The correction table at line 124 already corrected the configurability row; this
+design-prose sentence is technically stale but future-tense ("so this arrives with one"), and is
+corrected here rather than rewritten.

@@ -547,9 +547,12 @@ federation lands. Provenance does not change either: the digest already covers e
 so a catalog that moved a model to a second system already produces a different digest.
 
 One limit, stated so nobody over-claims in the other direction: the mechanism that row cites - dumped
-tool schemas and a byte-compare - is not built. `schemars` is not a dependency, and AGENTS.md's own
-canonical-sources table marks it planned. What is built and does hold is `deny_unknown_fields` on both
-the domain query type and the wire body, with a test that provokes it.
+tool schemas and a byte-compare - **is built now**. `schemars` is a workspace dependency
+(`Cargo.toml:658`), used by `sutura-mcp` (`crates/sutura-mcp/Cargo.toml:77`,
+`src/tool.rs:107-109` - `schemars::schema_for!` over each capability's wire type). Every capability's
+generated schema is snapshotted with `cargo-insta`, so a new or widened field changes a snapshot and
+the test fails until somebody re-accepts it. What is also built and holds is `deny_unknown_fields` on
+both the domain query type and the wire body, with a test that provokes it.
 
 ## What does not change
 
@@ -719,3 +722,20 @@ with two code paths: `sutura`'s default command and the `sutura serve` subcomman
 `crates/sutura-cli`. The distinction the correction drew still holds - the plan-stage refusal is
 reachable through the listener and the paragraph above described only the other path - it is a
 subcommand split inside one crate rather than a split between two.
+
+## Second amendment, 2026-09-26: a published adapter carries a per-subject credential, so the stated reason the plan-stage identity check "cannot be written today" is false
+
+The paragraph at line 506 said *That check cannot be written today* and gave the reason: *no published
+adapter can carry a per-subject credential, so every leg presents the identity this deployment holds
+for that source*. The reason is now false. `BigQueryWarehouse` declares
+`ImpersonationCapability::PerSubjectCredential`
+(`crates/sutura-exec-bigquery/src/lib.rs:665`), and `Presented::SubjectToken` is constructed by the
+shipping broker (`crates/sutura-exec-bigquery/src/principal.rs`). So a published build links an
+adapter that carries a per-subject credential, and the stated justification for why the identity-keyed
+set would hold one element "for a reason that has nothing to do with the asker" no longer holds for
+BigQuery.
+
+**What this amendment does not claim.** Leg 2 - a source executing AS the caller - is built and
+unproven. The two-subject test's venue in `docs/where-identity-is-proven.md` is `wired`: a job
+reaches the cells and no run has been observed. The broader claim that the re-key has not landed may
+still hold; the justification given for it does not.
