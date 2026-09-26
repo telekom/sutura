@@ -56,7 +56,10 @@
 
 pub mod document;
 pub mod fixture;
-
+#[cfg(feature = "http")]
+pub mod http;
+#[cfg(feature = "fake")]
+pub mod test_support;
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
     Column, Definitions, Description, InconsistentDefinitions, InvalidDescription, JoinKey, JoinKeys, Model, Relationship,
@@ -79,7 +82,7 @@ type Content = (Definitions, Knowledge);
 /// source. A port rather than a method on the catalog, for the same reason the warehouse port exists:
 /// a catalog that could be swapped for a live source without the conversion changing is the point.
 pub trait SnapshotReader {
-    type Error: std::error::Error + 'static;
+    type Error: std::error::Error + Send + Sync + 'static;
 
     fn read(&self) -> Result<document::Snapshot, Self::Error>;
 }
@@ -92,7 +95,7 @@ pub trait SnapshotReader {
 #[derive(Debug, thiserror::Error)]
 pub enum OpenMetadataError {
     #[error("the reader could not produce a snapshot")]
-    Read(#[source] Box<dyn std::error::Error + 'static>),
+    Read(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
     #[error("the {kind} of {on} is not a name")]
     Identifier {
         kind: &'static str,

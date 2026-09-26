@@ -192,3 +192,26 @@ fn a_password_literal_on_a_source_is_refused_as_an_unknown_key() {
     let rendered = format!("{:?}", core::error::Error::source(&error));
     assert!(rendered.contains("password"), "the error should name the key: {rendered}");
 }
+
+/// A multi-user deployment whose SECOND shared source is unacknowledged does not start. No other
+/// cell here fails if the check stops after the first source it walks; a
+/// federated answer reads two or three sources (`telekom/sutura#780`), and the acknowledgement is
+/// what answers for each of them (`docs/adr/0040`).
+#[test]
+fn a_second_shared_source_without_an_acknowledgement_is_not_fit_to_serve_either() {
+    let sources = Sources::defaults(Environment::Development).with_overlay(
+        "security:\n  identity: \"multi-user\"\nsources:\n  local:\n    kind: \"files\"\n    data_dir: \"/srv/sutura/local\"\n    posture: \"shared-service-user\"\n    acknowledged_because: \"a directory of CSVs this deployment owns\"\n  orders:\n    kind: \"files\"\n    data_dir: \"/srv/sutura/orders\"\n    posture: \"shared-service-user\"\n",
+    );
+    let error = Settings::load(&sources).expect_err("a second unacknowledged shared source is not fit to serve");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a posture refusal, got {error:?}");
+    };
+    assert_eq!(
+        *refusals,
+        vec![NotFitToServe::SharedSourceNotAcknowledged {
+            alias: SourceName::parse("orders").expect("a legal identifier")
+        }]
+    );
+    let rendered = refusals.first().expect("one refusal").to_string();
+    assert!(rendered.contains("sources.orders.acknowledged_because"), "{rendered}");
+}

@@ -56,7 +56,8 @@ pub enum FederatedAnswerRefusal {
     /// A link column carries a floating-point type, which `docs/adr/0007`'s float-key rule forbids:
     /// formatting a float into an equality lets distinct values collide.
     FloatLinkKey,
-    /// A link value maps to more than one lookup row, which would double every measure under it.
+    /// A link value maps to more than one lookup row, or to more than one second-fact row in one
+    /// bucket, which would double every measure under it.
     AmbiguousLink,
     /// The two legs' link columns carry types that can never match, so every row on both legs
     /// misses by construction - `telekom/sutura#138`. Silently, before this refusal existed: an

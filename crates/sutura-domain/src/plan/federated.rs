@@ -118,6 +118,11 @@ pub struct FederatedPlan {
     bucket: PlanBucket,
     /// The metric's own share of the question: the same-source rows and leaves.
     fact: LegPlan,
+    /// A second fact leg over a different fact model, when the measure's ratio terms name two
+    /// models (`telekom/sutura#780`); `None` for every plan a question produces today. Two facts
+    /// never share a `FROM`: each is aggregated on its own and joined above on the link and the time
+    /// bucket, and [`FederatedPlan::new`] refuses a second fact that cannot be joined.
+    second_fact: Option<LegPlan>,
     /// The second data system's share: the remote dimensions the answer groups by.
     lookup: LegPlan,
     /// Whether an unmatched fact row survives with null remote keys.
@@ -210,6 +215,7 @@ impl FederatedPlan {
         measure_label: ResultLabel,
         bucket: PlanBucket,
         fact: LegPlan,
+        second_fact: Option<LegPlan>,
         lookup: LegPlan,
         include_unmatched: bool,
         federation: Federation,
@@ -232,6 +238,40 @@ impl FederatedPlan {
                 source_name: fact.source().clone(),
             });
         }
+        // A second fact leg arrives only for a cross-model ratio (`telekom/sutura#780`). No
+        // question reaches this branch yet: `plan()` refuses a cross-model ratio before
+        // dispatching to `federated_plan`, which passes `None`. The guards hold the type for
+        // `answer_federated` and the combiner, which consume a hand-built two-fact plan in tests.
+        // The second fact must be a `Fact` over a different source from the first, and the two
+        // must share a key label - the column they join on above. Without one the join is
+        // impossible, which is the chasm trap made a type refusal rather than a NULL-padded row.
+        let link = InternalLabel::Link.label();
+        if let Some(second) = &second_fact {
+            if !matches!(second, LegPlan::Fact { .. }) {
+                return Err(FederatedPlanError::NotFact {
+                    source_name: second.source().clone(),
+                });
+            }
+            if second.source() == fact.source() {
+                return Err(FederatedPlanError::FactsOnSameSource {
+                    source_name: fact.source().clone(),
+                });
+            }
+            let shared = fact
+                .keys()
+                .iter()
+                .filter(|k1| second.keys().iter().any(|k2| k1.label() == k2.label()))
+                .count();
+            if shared == 0 {
+                return Err(FederatedPlanError::FactsShareNoKey);
+            }
+            if !leg_has_key(second, &link) {
+                return Err(FederatedPlanError::KeyNotOnLeg {
+                    side: LegSide::Fact,
+                    label: link,
+                });
+            }
+        }
         for key in &keys {
             let (side, leg) = match key.side() {
                 LegSide::Fact => (LegSide::Fact, &fact),
@@ -244,10 +284,9 @@ impl FederatedPlan {
                 });
             }
         }
-        // The link column, which is not an answer key and used to be checked by nothing: the
-        // combiner looked it up in each leg's result and reported a missing column when a leg had
-        // not projected it. Asked here instead, so a plan that cannot be joined does not exist.
-        let link = InternalLabel::Link.label();
+        // The link column, which is not an answer key: the combiner looked it up in each leg's
+        // result and reported a missing column when a leg had not projected it. Asked here, so a
+        // plan that cannot be joined does not exist.
         if !leg_has_key(&fact, &link) {
             return Err(FederatedPlanError::KeyNotOnLeg {
                 side: LegSide::Fact,
@@ -276,32 +315,65 @@ impl FederatedPlan {
         // `is_fact` above already returned for this exact shape - a second `NotFact` rather than a
         // panic, for a branch the type still has to answer even though nothing can reach it.
         let LegPlan::Fact {
-            bucket: ref fact_bucket,
-            terms: ref fact_terms,
+            bucket: fact_bucket,
+            terms: fact_terms,
             ..
-        } = fact
+        } = &fact
         else {
             return Err(FederatedPlanError::NotFact {
                 source_name: fact.source().clone(),
             });
         };
-        if *fact_bucket != bucket {
+        if fact_bucket != &bucket {
             return Err(FederatedPlanError::BucketMismatch);
         }
-        let expected: Vec<String> = labels(&federation).into_iter().map(InternalLabel::label).collect();
-        let matches_expected = fact_terms.len() == expected.len()
+        let all_labels: Vec<InternalLabel> = labels(&federation);
+        // For a two-fact plan, the first fact leg carries only the leaves whose model is `None`
+        // (the metric's own), and the second fact leg carries the rest. The D9 check splits
+        // accordingly: the first fact's terms match the `None`-model labels, and if a second
+        // fact is present, its terms match the `Some`-model labels.
+        let (first_expected, second_expected) = if second_fact.is_none() {
+            (all_labels.iter().map(|l| l.label()).collect::<Vec<_>>(), Vec::new())
+        } else {
+            let carried = federation.carried();
+            let (first, second): (Vec<_>, Vec<_>) = carried
+                .iter()
+                .zip(all_labels.iter())
+                .partition(|(leaf, _)| leaf.model().is_none());
+            (
+                first.iter().map(|(_, l)| l.label()).collect(),
+                second.iter().map(|(_, l)| l.label()).collect(),
+            )
+        };
+        let first_matches = fact_terms.len() == first_expected.len()
             && fact_terms
                 .iter()
-                .zip(&expected)
+                .zip(&first_expected)
                 .all(|(term, expected_label)| term.label() == expected_label);
-        if !matches_expected {
+        if !first_matches {
             return Err(FederatedPlanError::TermsDoNotMatchFederation);
+        }
+        if let Some(second) = &second_fact {
+            let LegPlan::Fact { terms: second_terms, .. } = second else {
+                return Err(FederatedPlanError::NotFact {
+                    source_name: second.source().clone(),
+                });
+            };
+            let second_matches = second_terms.len() == second_expected.len()
+                && second_terms
+                    .iter()
+                    .zip(&second_expected)
+                    .all(|(term, expected_label)| term.label() == expected_label);
+            if !second_matches {
+                return Err(FederatedPlanError::TermsDoNotMatchFederation);
+            }
         }
         Ok(Self {
             metric,
             measure_label,
             bucket,
             fact,
+            second_fact,
             lookup,
             include_unmatched,
             federation,
@@ -331,14 +403,31 @@ impl FederatedPlan {
         self.top
     }
 
-    /// Every leg, in execution order: the fact leg, then the lookup leg.
-    pub const fn legs(&self) -> [&LegPlan; 2] {
-        [&self.fact, &self.lookup]
+    /// Every leg, in execution order: the fact leg, the second fact leg if present, then the
+    /// lookup leg.
+    ///
+    /// A two-fact plan (`telekom/sutura#780`) carries a third leg; the combiner joins it on the
+    /// link and the time bucket above the port. No question produces one yet: `plan()` refuses a
+    /// cross-model ratio before dispatching, so only a hand-built plan reaches this.
+    pub fn legs(&self) -> Vec<&LegPlan> {
+        let mut legs = vec![&self.fact];
+        if let Some(second) = &self.second_fact {
+            legs.push(second);
+        }
+        legs.push(&self.lookup);
+        legs
     }
 
     /// The fact leg.
     pub const fn fact(&self) -> &LegPlan {
         &self.fact
+    }
+
+    /// The second fact leg, when the measure's ratio terms name two fact models.
+    ///
+    /// `None` for every plan a question produces today - see [`FederatedPlanError::FactsShareNoKey`].
+    pub const fn second_fact(&self) -> Option<&LegPlan> {
+        self.second_fact.as_ref()
     }
 
     /// The lookup leg.
@@ -353,7 +442,7 @@ impl FederatedPlan {
 
     /// Every data system this plan reads from, in execution order.
     pub fn sources(&self) -> impl Iterator<Item = &crate::model::SourceName> + '_ {
-        [&self.fact, &self.lookup].into_iter().map(LegPlan::source)
+        self.legs().into_iter().map(LegPlan::source)
     }
 
     /// The answer's group-by keys, in question order.
@@ -433,6 +522,26 @@ pub enum FederatedPlanError {
     /// both from `labels(&federation)` in one pass.
     #[error("the fact leg's terms do not match the labels its federation expects")]
     TermsDoNotMatchFederation,
+    /// The second fact leg names the same data system as the first, so it is a no-op second leg
+    /// rather than a second fact over a different model.
+    ///
+    /// `telekom/sutura#780`: a cross-model ratio's two facts must read two sources, because each
+    /// source is a separate identity to satisfy and the chasm trap is impossible only when the two
+    /// facts never share a `FROM`. Same reachability limit as
+    /// [`FactsShareNoKey`](Self::FactsShareNoKey): no question reaches this guard yet.
+    #[error("the second fact leg reads `{source_name}`, the same source as the first")]
+    FactsOnSameSource { source_name: SourceName },
+    /// Two fact legs share no key label, so the join above them is impossible.
+    ///
+    /// The chasm-trap guard as a type refusal: without a shared dimension key to join on, a
+    /// combined answer is not a certified number but two unrelated row sets, so the plan does not
+    /// exist rather than producing one. **Reachability limit, stated next to the claim:** no
+    /// question reaches this guard yet. `plan()` refuses a cross-model ratio before dispatching to
+    /// `federated_plan`, and `federated_plan` passes `None` for `second_fact`; the guard is
+    /// exercised only by direct construction. A splitter that builds a second fact leg is what
+    /// makes it reachable from a question.
+    #[error("the two fact legs share no key, so no join is possible")]
+    FactsShareNoKey,
 }
 
 /// Whether a [`LegPlan`] projects a key under `label`.

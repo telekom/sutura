@@ -950,12 +950,12 @@ mod tests {
         );
     }
 
-    /// A declared catalog kind with no reader on ANY build (`rdbms`, `openmetadata`) refuses this
-    /// process the same way it refuses `sutura serve` - the operator-facing message issue #970
-    /// asks for, since both composition roots dispatch the SAME `crate::catalog::open_catalog`.
-    /// Before #970, this command ignored `catalogs:` entirely and opened only its directory
-    /// arguments, so a settings tree declaring `catalog.kind: rdbms` was never read at all - a
-    /// deployment like this one served the example catalog regardless of what `catalogs:` named.
+    /// A declared catalog kind with no reader on ANY build (`rdbms`) refuses this process the same
+    /// way it refuses `sutura serve` - the operator-facing message issue #970 asks for, since both
+    /// composition roots dispatch the SAME `crate::catalog::open_catalog`. (`openmetadata`, the
+    /// other kind a default build does not link, gets its own not-linked refusal cell beside
+    /// `datahub`'s.) Before #970, this command ignored `catalogs:` entirely and opened only its
+    /// directory arguments, so a settings tree declaring `catalog.kind: rdbms` was never read at all.
     #[test]
     fn a_declared_catalog_kind_without_a_reader_refuses_the_process_naming_the_same_follow_up_serve_gives() {
         let example = example_root();
