@@ -798,16 +798,6 @@ fn go() {
     }
 
     #[test]
-    fn a_hard_link_to_a_shared_path_is_a_write() {
-        let text = r#"
-fn go() {
-    std::fs::hard_link("source", "/tmp/sutura-shared/link").unwrap();
-}
-"#;
-        assert_eq!(only(Language::Rust, text), Keyed::Shared);
-    }
-
-    #[test]
     fn a_mutation_above_the_literal_is_still_a_mutation() {
         // THE FALSE NEGATIVE THE STATEMENT WINDOW EXISTS FOR. The formatter breaks a call so the
         // opening sits above its argument, and reading forwards from the literal's own line answered

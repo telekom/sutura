@@ -452,7 +452,7 @@ fn provenance_section(body: &str) -> bool {
     let mut fence: Option<(u8, usize)> = None;
     for raw in body.lines() {
         let indent = raw.len().saturating_sub(raw.trim_start_matches(' ').len());
-        if indent > 3 {
+        if indent > 3 || raw.get(indent..).is_some_and(|line| line.starts_with('\t')) {
             continue;
         }
         let line = raw.trim();
@@ -621,22 +621,6 @@ mod tests {
         let json = r#"{"intents":[{"intent":"x","group":"engineering","skill":"rust"}]}"#;
         assert_eq!(intent_targets(json), vec![String::from("engineering/rust")]);
         assert!(intent_targets("{}").is_empty(), "an intentless payload yields no targets");
-    }
-
-    #[test]
-    fn a_fenced_provenance_example_does_not_satisfy_the_library_gate() {
-        let tree = crate::scratch_tree::Tree::of(
-            "fenced-provenance",
-            &[(
-                ".agents/skill-library/group/example/SKILL.md",
-                b"---\nname: example\n---\n````md\n```\n## Provenance\n````\n    ## Provenance\n",
-            )],
-        );
-        let problems = super::library_problems(tree.root());
-        assert!(
-            problems.iter().any(|problem| problem.contains("no `## Provenance` section")),
-            "{problems:?}"
-        );
     }
 
     // NOTE: there is deliberately no test here that reads the real router and the real

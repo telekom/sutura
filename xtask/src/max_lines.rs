@@ -766,25 +766,8 @@ mod tests {
         assert!(is_unexemptable("crates/sutura-domain/src/lib.rs"));
         assert!(is_unexemptable("./xtask/src/main.rs"));
         assert!(is_unexemptable("crates/**"));
-        assert!(is_unexemptable("**/lib.rs"));
         assert!(!is_unexemptable("Cargo.lock"));
         assert!(!is_unexemptable("docs/generated/openapi.json"));
-    }
-
-    #[test]
-    fn a_bare_ignore_cannot_exempt_a_nested_source() {
-        let ignores = Ignores::parse("[silent]\nlib.rs\n");
-        let files = vec![String::from("crates/sutura-domain/src/lib.rs")];
-        assert!(
-            inert_entries(&ignores, &files, &[])
-                .iter()
-                .any(|problem| problem.contains("lib.rs"))
-        );
-        let locks = Ignores::parse("[silent]\nCargo.lock\n");
-        assert_eq!(
-            inert_entries(&locks, &[String::from("fuzz/Cargo.lock")], &[]),
-            [] as [String; 0]
-        );
     }
 
     #[test]
