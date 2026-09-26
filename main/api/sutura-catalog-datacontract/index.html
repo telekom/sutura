@@ -1089,6 +1089,8 @@
       
         
       
+        
+      
     
     
     
@@ -1787,6 +1789,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../sutura-bounded-read/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-bounded-read
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../sutura-app/" class="md-nav__link">
         
   
@@ -2185,12 +2215,10 @@ contract vouches for no metric fan-out, and there is no metric to own a dimensio
 and a digest that moves between two runs over unchanged files is a digest nobody can act on, so
 the walk collects into a <code>BTreeSet</code> and yields sorted. An empty or missing directory is an error
 (<code>DataContractError::Empty</code>, <code>DataContractError::NotADirectory</code>) rather than a silently-empty
-catalog, for the same reason the OKF and local catalogs refuse one. This walk and
-<code>read_document</code> are, deliberately, the identical shape <code>sutura-catalog-okf</code> carries after
-<code>#1022</code>'s hardening - a third copy of one bounded-read mechanism rather than a fourth
-divergent one. Extracting the shared shape into one crate is tracked as a follow-up
-(<code>github.com/telekom/sutura#1045</code>) rather than done in this PR, to keep this diff to the one
-adapter it adds.</p>
+catalog, for the same reason the OKF and local catalogs refuse one. This walk and the read are
+the bounded, single-open shape <code>sutura-catalog-okf</code> carries after <code>#1022</code>'s hardening - shared
+now through one crate, <code>sutura_bounded_read</code>, rather than a third copy of one mechanism
+(<code>github.com/telekom/sutura#1045</code>).</p>
 <p><strong>A contract without a self-report of its version is refused by name.</strong> <code>apiVersion</code> and <code>kind</code>
 are required by the standard and this adapter reads both: an unknown <code>apiVersion</code> (a <code>v2.x</code> or
 a typo'd <code>v3</code>) and an unknown <code>kind</code> are refused rather than guessed at, because which fields a

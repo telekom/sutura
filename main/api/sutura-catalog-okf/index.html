@@ -1089,6 +1089,8 @@
       
         
       
+        
+      
     
     
     
@@ -1787,6 +1789,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../sutura-bounded-read/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-bounded-read
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../sutura-app/" class="md-nav__link">
         
   
@@ -2246,7 +2276,7 @@ sends a reader to read all of them.</p>
   text names "the catalog", so the path in it has to be the catalog's, not one file's.
   <code>document</code> is the one whose bytes pushed the running total past <code>limit</code>. <code>found</code> is that
   running total. The bound is enforced on the read itself (<code>OkfCatalog::read_all</code> and
-  <code>read_document</code>): the refusing total comes from the handle's own <code>metadata()</code> before the
+  <code>sutura_bounded_read::read_document</code>): the refusing total comes from the handle's own <code>metadata()</code> before the
   read, or from what the capped read actually delivered if a file grew in between.
 - <code>NotARegularFile</code> - The document the walk named is not a regular file when it comes to be read.</p>
 <p>The walk skips links and non-files; this refuses a document that became a non-regular file

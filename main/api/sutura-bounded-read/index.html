@@ -6,35 +6,35 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Issue 760 evaluated whether the deployment-held machine-to-machine credential behind SharedServiceUser should become a Google agent identity. Read against Google's own pages, an agent identity's only documented consumer is Vertex AI Agent Engine, not the BigQuery data APIs; the identity-federation support matrix - the page that says which services accept federated identities - is silent on agent identities. So there is no documented basis to claim BigQuery accepts one, none on offer for an external runner, and the federated path stays.">
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/what-agent-identity-can-carry/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/api/sutura-bounded-read/">
       
       
-        <link rel="prev" href="../rdbms-catalog-guidance/">
+        <link rel="prev" href="../sutura-http-client/">
       
       
-        <link rel="next" href="../what-okf-can-carry/">
+        <link rel="next" href="../sutura-app/">
       
       
         
       
       
-      <link rel="icon" href="../assets/favicon.svg">
+      <link rel="icon" href="../../assets/favicon.svg">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>What an agent identity can carry for this deployment's BigQuery credential - and the decision that nothing changes - sutura</title>
+        <title>sutura-bounded-read - sutura</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -47,9 +47,9 @@
       
     
     
-      <link rel="stylesheet" href="../css/telekom.css">
+      <link rel="stylesheet" href="../../css/telekom.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#what-an-agent-identity-can-carry-for-this-deployments-bigquery-credential" class="md-skip">
+        <a href="#sutura-bounded-read" class="md-skip">
           Skip to content
         </a>
       
@@ -94,9 +94,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="../assets/sutura.svg" alt="logo">
+  <img src="../../assets/sutura.svg" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              What an agent identity can carry for this deployment's BigQuery credential - and the decision that nothing changes
+              sutura-bounded-read
             
           </span>
         </div>
@@ -241,9 +241,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="../assets/sutura.svg" alt="logo">
+  <img src="../../assets/sutura.svg" alt="logo">
 
     </a>
     sutura
@@ -301,7 +301,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href=".." class="md-nav__link ">
+            <a href="../.." class="md-nav__link ">
               
   
   
@@ -345,7 +345,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/" class="md-nav__link">
+      <a href="../../concepts/" class="md-nav__link">
         
   
   
@@ -373,7 +373,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/" class="md-nav__link">
+      <a href="../../getting-started/" class="md-nav__link">
         
   
   
@@ -401,7 +401,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../qa/" class="md-nav__link">
+      <a href="../../qa/" class="md-nav__link">
         
   
   
@@ -429,7 +429,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../agent-prompt/" class="md-nav__link">
+      <a href="../../agent-prompt/" class="md-nav__link">
         
   
   
@@ -461,10 +461,8 @@
       
   
   
-    
   
   
-  
     
     
       
@@ -499,11 +497,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
         
           
           <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
@@ -524,7 +522,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -542,7 +540,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../serving/" class="md-nav__link">
+      <a href="../../serving/" class="md-nav__link">
         
   
   
@@ -570,7 +568,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../verifying-a-release/" class="md-nav__link">
+      <a href="../../verifying-a-release/" class="md-nav__link">
         
   
   
@@ -598,7 +596,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../demo/" class="md-nav__link">
+      <a href="../../demo/" class="md-nav__link">
         
   
   
@@ -626,7 +624,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../integrations/" class="md-nav__link">
+      <a href="../../integrations/" class="md-nav__link">
         
   
   
@@ -654,7 +652,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../where-identity-is-proven/" class="md-nav__link">
+      <a href="../../where-identity-is-proven/" class="md-nav__link">
         
   
   
@@ -682,7 +680,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../rdbms-catalog-guidance/" class="md-nav__link">
+      <a href="../../rdbms-catalog-guidance/" class="md-nav__link">
         
   
   
@@ -707,37 +705,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    What an agent identity can carry
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../what-agent-identity-can-carry/" class="md-nav__link">
         
   
   
@@ -753,81 +724,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#what-this-is-not-restated" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What this is NOT, restated
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-was-read-and-what-each-source-actually-says" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What was read, and what each source actually says
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-two-answers" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The two answers
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-decision" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The decision
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#limits-stated" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Limits, stated
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -840,7 +736,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../what-okf-can-carry/" class="md-nav__link">
+      <a href="../../what-okf-can-carry/" class="md-nav__link">
         
   
   
@@ -868,7 +764,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../what-openmetadata-can-carry/" class="md-nav__link">
+      <a href="../../what-openmetadata-can-carry/" class="md-nav__link">
         
   
   
@@ -896,7 +792,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../what-a-data-contract-can-carry/" class="md-nav__link">
+      <a href="../../what-a-data-contract-can-carry/" class="md-nav__link">
         
   
   
@@ -924,7 +820,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../changelog/" class="md-nav__link">
+      <a href="../../changelog/" class="md-nav__link">
         
   
   
@@ -956,8 +852,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -980,11 +878,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
           <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
@@ -1005,7 +903,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1023,7 +921,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/" class="md-nav__link">
+      <a href="../../architecture/" class="md-nav__link">
         
   
   
@@ -1051,7 +949,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../contributing/" class="md-nav__link">
+      <a href="../../contributing/" class="md-nav__link">
         
   
   
@@ -1079,7 +977,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../enterprise-mirrors/" class="md-nav__link">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
         
   
   
@@ -1107,7 +1005,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../publishing/" class="md-nav__link">
+      <a href="../../publishing/" class="md-nav__link">
         
   
   
@@ -1132,6 +1030,8 @@
                 
   
   
+    
+  
   
   
     
@@ -1197,15 +1097,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -1229,7 +1129,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1249,7 +1149,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-domain/" class="md-nav__link">
+      <a href="../sutura-domain/" class="md-nav__link">
         
   
   
@@ -1277,7 +1177,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-catalog-local/" class="md-nav__link">
+      <a href="../sutura-catalog-local/" class="md-nav__link">
         
   
   
@@ -1305,7 +1205,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-catalog-datahub/" class="md-nav__link">
+      <a href="../sutura-catalog-datahub/" class="md-nav__link">
         
   
   
@@ -1333,7 +1233,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-catalog-okf/" class="md-nav__link">
+      <a href="../sutura-catalog-okf/" class="md-nav__link">
         
   
   
@@ -1361,7 +1261,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-catalog-datacontract/" class="md-nav__link">
+      <a href="../sutura-catalog-datacontract/" class="md-nav__link">
         
   
   
@@ -1389,7 +1289,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-catalog-openmetadata/" class="md-nav__link">
+      <a href="../sutura-catalog-openmetadata/" class="md-nav__link">
         
   
   
@@ -1417,7 +1317,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-catalog-rdbms/" class="md-nav__link">
+      <a href="../sutura-catalog-rdbms/" class="md-nav__link">
         
   
   
@@ -1445,7 +1345,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-semantic/" class="md-nav__link">
+      <a href="../sutura-semantic/" class="md-nav__link">
         
   
   
@@ -1473,7 +1373,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-sql/" class="md-nav__link">
+      <a href="../sutura-sql/" class="md-nav__link">
         
   
   
@@ -1501,7 +1401,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-exec-datafusion/" class="md-nav__link">
+      <a href="../sutura-exec-datafusion/" class="md-nav__link">
         
   
   
@@ -1529,7 +1429,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-exec-duckdb/" class="md-nav__link">
+      <a href="../sutura-exec-duckdb/" class="md-nav__link">
         
   
   
@@ -1557,7 +1457,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-exec-bigquery/" class="md-nav__link">
+      <a href="../sutura-exec-bigquery/" class="md-nav__link">
         
   
   
@@ -1585,7 +1485,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-exec-postgres/" class="md-nav__link">
+      <a href="../sutura-exec-postgres/" class="md-nav__link">
         
   
   
@@ -1613,7 +1513,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-exec-clickhouse/" class="md-nav__link">
+      <a href="../sutura-exec-clickhouse/" class="md-nav__link">
         
   
   
@@ -1641,7 +1541,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-exec-oracle/" class="md-nav__link">
+      <a href="../sutura-exec-oracle/" class="md-nav__link">
         
   
   
@@ -1669,7 +1569,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-tls/" class="md-nav__link">
+      <a href="../sutura-tls/" class="md-nav__link">
         
   
   
@@ -1697,7 +1597,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-http-client/" class="md-nav__link">
+      <a href="../sutura-http-client/" class="md-nav__link">
         
   
   
@@ -1722,10 +1622,19 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../api/sutura-bounded-read/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1741,6 +1650,7 @@
   
 
       </a>
+      
     </li>
   
 
@@ -1753,7 +1663,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-app/" class="md-nav__link">
+      <a href="../sutura-app/" class="md-nav__link">
         
   
   
@@ -1781,7 +1691,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-config/" class="md-nav__link">
+      <a href="../sutura-config/" class="md-nav__link">
         
   
   
@@ -1809,7 +1719,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-runtime/" class="md-nav__link">
+      <a href="../sutura-runtime/" class="md-nav__link">
         
   
   
@@ -1837,7 +1747,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-http/" class="md-nav__link">
+      <a href="../sutura-http/" class="md-nav__link">
         
   
   
@@ -1865,7 +1775,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-mcp/" class="md-nav__link">
+      <a href="../sutura-mcp/" class="md-nav__link">
         
   
   
@@ -1893,7 +1803,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-conformance/" class="md-nav__link">
+      <a href="../sutura-conformance/" class="md-nav__link">
         
   
   
@@ -1921,7 +1831,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-dev/" class="md-nav__link">
+      <a href="../sutura-dev/" class="md-nav__link">
         
   
   
@@ -1977,69 +1887,6 @@
     
   
   
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#what-this-is-not-restated" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What this is NOT, restated
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-was-read-and-what-each-source-actually-says" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What was read, and what each source actually says
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-two-answers" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The two answers
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-decision" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The decision
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#limits-stated" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Limits, stated
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
 </nav>
                   </div>
                 </div>
@@ -2058,85 +1905,76 @@
   
 
 
-<h1 id="what-an-agent-identity-can-carry-for-this-deployments-bigquery-credential">What an agent identity can carry for this deployment's BigQuery credential<a class="headerlink" href="#what-an-agent-identity-can-carry-for-this-deployments-bigquery-credential" title="Permanent link">&para;</a></h1>
-<p>Status: an <strong>evaluation</strong>, and the deliverable of issue #760. The question was whether the
-machine-to-machine credential this deployment holds for BigQuery - the one that sits behind
-<code>sutura_domain::identity::credential::Presented::SharedServiceUser</code>, <em>"the deployment's own identity
-for this source, which is not the asker's"</em> - should become a Google <strong>agent identity</strong> rather than a
-federated service account. This record is the answer, read off Google's own documentation rather than
-reasoned about, and the answer is <strong>no, on the documented surface it cannot, so the federated path
-stays.</strong></p>
-<h2 id="what-this-is-not-restated">What this is NOT, restated<a class="headerlink" href="#what-this-is-not-restated" title="Permanent link">&para;</a></h2>
-<p>An agent identity is a <strong>workload</strong> identity. It is tied to an <em>agent's</em> lifecycle and says which
-<strong>machine</strong> is asking; it does not represent, impersonate or carry a <strong>human</strong> end user. It therefore
-does not advance leg 2 - <em>a source executing as the asking subject</em> - at all. This evaluation is only
-about the deployment's own credential, and it is the same distinction the issue drew:
-<code>AGENTS.md</code>'s leg 2 belongs to #378 and #376, not to any change to <code>SharedServiceUser</code>.</p>
-<h2 id="what-was-read-and-what-each-source-actually-says">What was read, and what each source actually says<a class="headerlink" href="#what-was-read-and-what-each-source-actually-says" title="Permanent link">&para;</a></h2>
-<p>Two Google pages, both read on 2026-09-18 rather than quoted from memory.</p>
-<p><strong>1. Identify the primitive - <code>docs.cloud.google.com/iam/docs/workload-identities</code>, "Identities for
-workloads".</strong> Under the heading <em>Agent identities</em> it says, verbatim:</p>
-<blockquote>
-<p>"An agent identity is a Google-managed identity for agentic workloads. An agent identity is attested
-and tied to the lifecycle of the agent, which provides a more secure way to manage agent access to
-Google Cloud resources than using service accounts. Existing access management controls through IAM
-support agent identity to enable strong governance."</p>
-</blockquote>
-<p>And the page's only pointer for how to use one is:</p>
-<blockquote>
-<p>"To learn more about agent identities and how to use them, see [Use agent identity with <strong>Vertex AI Agent Engine</strong>]."</p>
-</blockquote>
-<p>That single pointer is the decisive fact: <strong>the only documented consumer of an agent identity is Vertex
-AI Agent Engine</strong> - a GCP-resident agent runtime. The page does not list BigQuery (or any data API) as
-a consumer, and gives no API surface for obtaining or presenting an agent identity to one.</p>
-<p><strong>2. Where services that accept federated identities are enumerated -
-<code>docs.cloud.google.com/iam/docs/federated-identity-supported-services</code>, "Identity federation: products
-and limitations".</strong> This is the page the issue named as the place to read whether BigQuery accepts a
-federated identity at all. Its <strong>BigQuery</strong> row records launch stage <strong>GA</strong> and, for the Google Cloud
-API column, <strong>"No known limitations"</strong> for <em>identity federation</em>. But the page is about <strong>Workforce
-and Workload Identity Federation</strong> - the federated-identity products - and it says nothing about
-<strong>agent identities</strong>, which are a distinct, newer primitive. The matrix is silent on them.</p>
-<h2 id="the-two-answers">The two answers<a class="headerlink" href="#the-two-answers" title="Permanent link">&para;</a></h2>
-<p><strong>1. Does BigQuery accept an agent identity?</strong> Not as documented. The read surface shows agent
-identities are tied to Vertex AI Agent Engine; neither the workload-identities page nor the federation
-support matrix states that BigQuery (or any data API this repository calls) can accept one as a
-principal. This is the issue's own early-termination condition, and it fires: on the documented
-surface there is no basis to claim BigQuery accepts an agent identity.</p>
-<p><strong>2. Is it obtainable in the venues this runs in?</strong> Independently of (1), an agent identity is
-"attested and tied to the lifecycle of the agent" - an agent that lives in a GCP agent runtime.
-This deployment's exchange path runs from a <strong>GitHub Actions OIDC token</strong> on an external runner
-(at the time, <code>sts.rs</code>'s one hop, <code>.exchange(workload.audience(), workload.scope(), assertion)</code>;
-that broker is deleted and the ADBC driver federates the assertion itself now - <code>docs/adr/0018</code>'s
-eighth amendment). Nothing in the read documentation describes issuing an agent identity
-to a runner outside Google's agent platform. Even if BigQuery accepted one, obtainability in CI is
-unestablished, and the CI answer is the one the leg-2 harness depends on.</p>
-<h2 id="the-decision">The decision<a class="headerlink" href="#the-decision" title="Permanent link">&para;</a></h2>
-<p><strong>The federated path stays, and the change this issue offered is declined.</strong> The deployment's
-BigQuery credential remains <code>SharedServiceUser</code> over Workload Identity Federation - already keyless,
-no service-account key file. The attestation-and-lifecycle improvement an agent identity would bring
-is not available to this venue on the documented surface, and there is no false claim in the tree to
-correct by shipping one. No code changes. <code>sts.rs</code> was untouched, as the issue required until step 1 was answered; it has
-since been deleted for an unrelated reason (<code>docs/adr/0018</code>'s eighth amendment), which changes
-nothing about this decision - the deployment's BigQuery credential is still <code>SharedServiceUser</code> over
-federation.</p>
-<p>This does not close the door if Google later documents a BigQuery (or general data-API) acceptance of
-agent identities: the gate is a documented consumer, and the moment one exists this evaluation is
-worth re-reading, with the same two unknowns asked again against that new surface.</p>
-<h2 id="limits-stated">Limits, stated<a class="headerlink" href="#limits-stated" title="Permanent link">&para;</a></h2>
-<p>Written against two publicly readable Google pages on 2026-09-18. It does not test anything against a
-live pool - it is the decision record the issue asked for, not a live verification. The claim "the
-only documented consumer is Vertex AI Agent Engine" is a claim about what the <strong>documented surface</strong>,
-as read on that date, ties agent identities to; a Google product change after that date is not covered
-by it.</p>
+<!-- GENERATED FILE - do not edit.
+     Written by docs/.tools/rustdoc_to_markdown.py from rustdoc JSON.
+     Edit the doc comments in the crate source instead, then regenerate.
+     The commands are on the API reference landing page. -->
+
+<h1 id="sutura-bounded-read">sutura-bounded-read<a class="headerlink" href="#sutura-bounded-read" title="Permanent link">&para;</a></h1>
+<p>The public API of <code>sutura-bounded-read</code>, rendered from rustdoc JSON.</p>
+<p>The bounded, single-open catalog document read and the sorted directory walk that three catalog
+adapters need.</p>
+<p><code>sutura-catalog-local</code>, <code>sutura-catalog-okf</code> (<code>github.com/telekom/sutura#1022</code> hardened it there)
+and <code>sutura-catalog-datacontract</code> (<code>#1043</code>) each carried a copy of the same read and walk: a
+<code>rustix</code> open with <code>O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC</code>, an <code>fstat</code> on that handle for being a
+regular file, a byte budget enforced on the read itself with a post-read length recheck, and a
+<code>BTreeSet</code>-sorted walk refused when empty. Only the error type name differed between the three;
+the <code>sutura/crate-map</code> skill's <code>sutura-tls</code> precedent is exactly this shape - a small read two or
+more same-class adapters both need, with no network client and no <code>sutura-config</code>, carrying no
+adapter prefix so it joins no forbidden class.</p>
+<h1 id="what-this-crate-owns-and-what-each-catalog-keeps">What this crate owns, and what each catalog keeps<a class="headerlink" href="#what-this-crate-owns-and-what-each-catalog-keeps" title="Permanent link">&para;</a></h1>
+<p>This crate reads bytes and returns them; it renders nothing to a caller. Each catalog maps
+<code>ReadError</code> / <code>WalkError</code> into its own error enum, keeping its own variants and rendered
+messages unchanged, and keeps whatever it does with the text after the read (parse the document,
+split its frontmatter, dispatch on its kind). The two sharp bounds a catalog clamps each document
+to are asymmetric: the document-count cap on the walk (<code>MAX_CATALOG_DOCUMENTS</code>) is a default a
+caller may override through <code>walk()</code>'s <code>max_documents</code> parameter, while the aggregate-byte cap on
+the read (<code>MAX_CATALOG_BYTES</code>) is hard-coded inside <code>read_document</code> and not a parameter at all.</p>
+<h2 id="use-max_catalog_bytes"><code>use MAX_CATALOG_BYTES</code><a class="headerlink" href="#use-max_catalog_bytes" title="Permanent link">&para;</a></h2>
+<h2 id="use-readerror"><code>use ReadError</code><a class="headerlink" href="#use-readerror" title="Permanent link">&para;</a></h2>
+<p>Why a bounded document read could not complete.</p>
+<p>Every variant carries the path (a catalog is many files, and a message that names no file sends
+a reader to read all of them), and, for <code>Self::TooLarge</code>, the whole of the refusal's context,
+so a caller can name the same things its own refusal did before this crate existed.</p>
+<h2 id="use-read_document"><code>use read_document</code><a class="headerlink" href="#use-read_document" title="Permanent link">&para;</a></h2>
+<p>Reads one catalog document whole and against the aggregate byte budget.</p>
+<p><code>root</code> is the catalog root (carried only so the <code>ReadError::TooLarge</code> text can name it the way
+each caller's own refusal does) and <code>total_bytes</code> is the running total of bytes already read, so
+the remaining budget is the cap minus it. Returns the document's text, which is what the caller
+parses next.</p>
+<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<p><code>ReadError::Open</code> for an open or <code>fstat</code> that the OS refused (a swapped symlink <code>ELOOP</code>, a
+swapped FIFO <code>ENXIO</code>); <code>ReadError::NotARegularFile</code> for a handle that is not a regular file;
+<code>ReadError::TooLarge</code> when the document is oversized against the aggregate budget, whether its
+declared size already is, it grew past it while being read, or the read delivered more than the
+budget left; <code>ReadError::Io</code> for the read itself or a failed UTF-8 conversion.</p>
+<h2 id="use-max_catalog_documents"><code>use MAX_CATALOG_DOCUMENTS</code><a class="headerlink" href="#use-max_catalog_documents" title="Permanent link">&para;</a></h2>
+<p>The most documents a catalog root may hold.</p>
+<p>A startup bound, checked on every <code>BTreeSet</code> insert - a directory built to be large is refused
+as soon as it is large enough, rather than walked to its end first. <strong>Documents, not entries</strong>:
+a directory holding this many document-shaped files plus an unbounded number of other entries
+(subdirectories, non-document files, a skipped symlink) is unaffected - this bounds what becomes
+a document, not the size of the tree it lives in.</p>
+<h2 id="use-walkerror"><code>use WalkError</code><a class="headerlink" href="#use-walkerror" title="Permanent link">&para;</a></h2>
+<p>Why the walk could not produce the sorted document list.</p>
+<h2 id="use-walk"><code>use walk</code><a class="headerlink" href="#use-walk" title="Permanent link">&para;</a></h2>
+<p>Every document under <code>root</code>, in sorted order, refused when empty or missing.</p>
+<p>Depth-first with the entries of each directory sorted, so the traversal is a function of the
+tree rather than of the filesystem. <code>extensions</code> is the set of file extensions treated as
+documents; anything else is skipped. A document with the right extension and the wrong content
+still fails loudly at deserialisation, which is the caller's job.</p>
+<p>The decision is made from the directory entry's own type rather than from the path, because
+<code>Path::is_dir</code> follows a link and answers about the target.</p>
+<h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
+<p><code>WalkError::NotADirectory</code> when <code>root</code> is not a directory; <code>WalkError::Io</code> for a failure to
+read <code>root</code> or a directory within it; <code>WalkError::TooManyDocuments</code> once a directory crosses
+<code>max_documents</code>; <code>WalkError::Empty</code> when <code>root</code> holds no documents.</p>
 
 
 
 
 
 
-
-  
-  
 
 
 
@@ -2202,10 +2040,10 @@ by it.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>
