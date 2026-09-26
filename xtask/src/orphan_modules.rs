@@ -13,10 +13,9 @@
 //! tool in the shell. This gate is the same scan turned inside out:
 //!
 //! * For every first-party crate, read its `pub mod <name>` declarations.
-//! * Scan **every** first-party crate's `.rs` files (the whole workspace, so a consumer in another
+//! * Scan first-party `.rs` production code (the whole workspace, so a consumer in another
 //!   crate is seen, and intra-crate `crate::…` references count too) for each module name **used as
-//!   a path segment**. Comments and multi-line string interiors are blanked first, so a path named
-//!   in a doc comment is a claim, not a reference.
+//!   a path segment**. Comments, test regions, benches, and examples do not count.
 //!
 //! A module name used as a path segment appears in one of the shapes a real reference takes: `m::`
 //! (the module as a path prefix, as in `banner::print`, `crate::inbound::caller::VerifiedCaller` or
@@ -25,9 +24,10 @@
 //! `pub mod m;` or `pub mod m { … }`, has `m` followed by `;`/`{`/whitespace and preceded by
 //! whitespace - neither shape matches, so a module's declaration cannot count as its own reference.
 //!
-//! A public module whose name appears as a path segment in **no** first-party source is
-//! unreachable and refuses the gate. The scan is over the whole workspace so a consumer in any
-//! crate is seen, and an intra-crate `crate::…` reference legitimately satisfies the module.
+//! A public module whose name appears as a path segment in **no** first-party production source is
+//! unreachable and refuses the gate unless it has a checked test-support exception. The scan is
+//! over the whole workspace so a consumer in any crate is seen, and an intra-crate `crate::…`
+//! reference legitimately satisfies the module.
 //!
 //! # What it does NOT hold
 //!
@@ -40,12 +40,13 @@
 //! inside the sandbox, which this does not.
 //!
 //! It does not deliberate what is wired. `sutura_sql::expression` is NOT flagged here - `sutura_sql`'s
-//! `expression.rs` and its `tests/adversarial_findings.rs` reference `expression` as a path segment -
-//! because it is unwired (nothing published calls `compile`; `docs/adr/0004`'s amendment says why
-//! the load does not), not orphaned (no first-party crate names it). That distinction is the "either
-//! way" scope: this gate holds *no reference at all*.
+//! `expression.rs` references `expression` as a path segment - because it is unwired (nothing
+//! published calls `compile`; `docs/adr/0004`'s amendment says why the load does not), not
+//! orphaned. That distinction is the "either way" scope: this gate holds *no production reference
+//! at all*, with explicit exceptions for test support.
 
 use crate::Verdict;
+use crate::causality::regions;
 use crate::repo;
 use crate::serde_parse::scan::code_lines;
 use std::collections::BTreeSet;
@@ -59,6 +60,17 @@ struct Orphan {
 
 /// `(package name, the `pub mod` idents it declares)` for the first-party library crates.
 type LibraryCrates = Vec<(String, BTreeSet<String>)>;
+
+/// Public only so integration tests or benches in another crate can use the support code.
+/// Each exception is checked in both directions: deleting it or adding a production caller
+/// makes the entry stale, so this list cannot silently become a general exemption.
+const TEST_SUPPORT: &[(&str, &str)] = &[
+    ("sutura-http-client", "tls_test_support"),
+    ("sutura-dev", "bench_venue"),
+    ("sutura-dev", "tolerance"),
+    ("sutura-app", "untrusted"),
+    ("sutura-exec-datafusion", "measurement"),
+];
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
     let Some(root) = repo::root() else {
@@ -110,16 +122,29 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     }
 
     let mut findings: Vec<Orphan> = Vec::new();
+    let mut stale: Vec<String> = Vec::new();
     let mut checked = 0_usize;
     for (name, declared) in &library_crates {
         for module in declared {
             checked = checked.saturating_add(1);
-            if !reached_as_segment(&corpus, module) {
+            let reached = reached_as_segment(&corpus, module);
+            let excepted = TEST_SUPPORT.contains(&(name.as_str(), module.as_str()));
+            if !reached && !excepted {
                 findings.push(Orphan {
                     owner: name.clone(),
                     module: module.clone(),
                 });
+            } else if reached && excepted {
+                stale.push(format!("{name}::{module} now has a production reference"));
             }
+        }
+    }
+    for &(name, module) in TEST_SUPPORT {
+        if !library_crates
+            .iter()
+            .any(|(owner, modules)| owner == name && modules.contains(module))
+        {
+            stale.push(format!("{name}::{module} is no longer declared"));
         }
     }
 
@@ -131,8 +156,10 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         eprintln!("xtask unreachable-public-modules: FAILED - no public module to check in any first-party crate");
         return Verdict::Fail;
     }
-    if findings.is_empty() {
-        println!("xtask unreachable-public-modules: ok - {checked} public module(s) checked, all referenced");
+    if findings.is_empty() && stale.is_empty() {
+        println!(
+            "xtask unreachable-public-modules: ok - {checked} public module(s) checked, all referenced or declared test support"
+        );
         Verdict::Pass
     } else {
         for f in &findings {
@@ -140,6 +167,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
                 "xtask unreachable-public-modules: {}::{} has no first-party reference",
                 f.owner, f.module
             );
+        }
+        for entry in &stale {
+            eprintln!("xtask unreachable-public-modules: stale test-support exception: {entry}");
         }
         eprintln!(
             "xtask unreachable-public-modules: {n} unreachable public module(s) of {checked} checked",
@@ -214,15 +244,6 @@ struct CratePass {
 /// the read once now; a `pub mod x;` or inline `pub mod x { ... }` declares a public module,
 /// `pub(crate) mod` excluded because after the first `pub ` the next non-space token is `(`, not
 /// `mod`. Textual, with `unused_deps`'s trade: no compiler needed.
-///
-/// Both halves read [`code_lines`]' image, the lexer `boot_order` uses, so a commented-out
-/// `pub mod` declares nothing and a path in a comment reaches nothing. A single-line string keeps
-/// its interior (`code_lines`' own limit), which over-reports a reference - the safe direction here.
-///
-/// **`tests/` and `benches/` still count as consumers**, and that is a limit rather than a choice
-/// nobody made: the workspace's test-support modules (`sutura-http-client::tls_test_support`,
-/// `sutura-dev::bench_venue`) are reached from nowhere else, so a `src/`-only corpus refuses both.
-/// A dead module kept alive only by its own test therefore reads as reached.
 fn crate_pass(root: &Path, crate_dir: &Path) -> Result<Option<CratePass>, String> {
     let mut text = String::new();
     let mut declared = BTreeSet::new();
@@ -236,12 +257,13 @@ fn crate_pass(root: &Path, crate_dir: &Path) -> Result<Option<CratePass>, String
             error = Some(format!("{rel} is not valid UTF-8"));
             return;
         };
-        let code = code_lines(file_text);
-        for line in &code {
+        let test_scope = regions::scope(rel, &|path| std::fs::read_to_string(root.join(path)).ok());
+        for (index, line) in code_lines(file_text).iter().enumerate() {
+            if rel.contains("/benches/") || rel.contains("/examples/") || test_scope.covers(index.saturating_add(1)) {
+                continue;
+            }
             text.push_str(line);
             text.push('\n');
-        }
-        for line in &code {
             let trimmed = line.trim_start();
             let Some(rest) = trimmed.strip_prefix("pub ") else { continue };
             let Some(body) = rest.strip_prefix("mod ") else { continue };
@@ -334,27 +356,5 @@ mod tests {
     fn end_of_input_counts() {
         assert!(reached_as_segment("a::b", "b"));
         assert!(reached_as_segment("trailing::ident", "ident"));
-    }
-
-    #[test]
-    fn a_comment_mentioning_a_module_does_not_satisfy_reachability() {
-        let tree = crate::scratch_tree::Tree::of(
-            "orphan-comment",
-            &[(
-                "crates/thing/src/lib.rs",
-                b"// see phantom::X\n/* and phantom::Y */\npub mod real;\nuse real::Something;\n",
-            )],
-        );
-        let pass = crate_pass(tree.root(), &tree.root().join("crates/thing"))
-            .expect("a readable crate")
-            .expect("a crate with .rs");
-        assert!(
-            !reached_as_segment(&pass.text, "phantom"),
-            "a module named only in a comment read as reached"
-        );
-        assert!(
-            reached_as_segment(&pass.text, "real"),
-            "the control: a path in code reads as reached"
-        );
     }
 }

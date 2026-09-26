@@ -585,7 +585,7 @@ fn commit_added_tests(wt: &Path, commit: &str) -> Option<Vec<AddedTest>> {
     let read = |path: &str| worktree::at_base(wt, &at, path);
     let files: Vec<ChangedFile> = diff::commit_additions(wt, commit)?;
     let (test_files, scannable) = match crate::causality::plan::partition(&files, &read) {
-        Plan::Separable(separable) => (separable.test_files, files),
+        Plan::Separable(separable) => (separable.test_files.into_iter().chain(separable.inseparable).collect(), files),
         Plan::NotSeparable { files: inseparable, .. } => (inseparable, files),
         // `partition` never answers either of these - there is no base reader for it to route a
         // deletion through - but the match stays exhaustive rather than assuming it: the honest

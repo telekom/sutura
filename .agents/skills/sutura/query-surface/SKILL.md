@@ -191,9 +191,10 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   `MetricAspect` into a certified `Metric`, with `SINGLE` cardinality, the declared value type and
   the scalar's ceiling all refused server-side - the ceiling named by the platform as its
   Elasticsearch `keywordMaxLength`, an index setting rather than a constant here - what was
-  measured is that the refusal NAMES it, not that raising it works. **Still absent:** any HTTP
-  `AspectReader`, so the requests and the response mapping live in the test rather than in `src/`,
-  and the structural half of that snapshot is still the recorded corpus; any frontend, so there is
+  measured is that the refusal NAMES it, not that raising it works. `HttpAspectReader` exists in
+  `src/http.rs`, but these cells do not drive it: they build their own `ureq` agent, so the requests
+  and the response mapping they exercise live in the test, and the structural half of that snapshot
+  is still the recorded corpus. **Still absent:** any frontend, so there is
   no UI; and any CI job, because the nix sandbox has no docker socket. Authentication is ON
   (`METADATA_SERVICE_AUTH_ENABLED: "true"`): the tier mints its own PAT offline, the acceptance run
   presents it as a bearer and asserts a bearer-less read is refused - a self-minted PAT, not a

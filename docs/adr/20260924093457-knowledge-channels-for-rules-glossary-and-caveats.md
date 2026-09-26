@@ -363,3 +363,15 @@ None. This record drafts options and recommendations; the owner decides. Each re
 marked above and is a recommendation, not a decision. The issue's acceptance criteria - a merged
 ADR, a knowledge golden for each decided kind, and a named refusal for each rejected kind - are
 met when the owner picks and the code lands.
+
+## Amendment, 2026-09-26: `CatalogProse` renders metric descriptions only
+
+Option A's security argument says a model's or a column's name "already reaches the context through
+the model's own description, which `CatalogProse::Quoted` renders today", and Option B routes a
+phrase through "the description channel, which `CatalogProse` governs". The prompt quotes a
+metric's description and no other: `sutura_app::prompt`'s header names no column, table, model or
+measure expression as a deliberate absence, and `sutura_domain::catalog::Column`'s doc says column
+prose is parsed and pinned and reaches no rendering surface. So under Option A a glossary referent
+is the first way a model or a column is named in the prompt, and Option B has to extend the
+description channel to models and columns before a phrase can travel through it. The options and
+recommendations above stand as drafted; this corrects the premise both security arguments share.
