@@ -146,7 +146,7 @@ pub(crate) fn plan_with_base(files: &[ChangedFile], read: &PostImage<'_>, base: 
         if !matches!(Reach::of(&file.path), Reach::Compiled) {
             continue;
         }
-        match edited::deletion_in(&file.added, &file.removed, &file.path, base, read) {
+        match edited::deletion_in(&file.added, &file.removed, (&file.before, &file.path), base, read) {
             Deletion::None => {}
             Deletion::BaseUnreadable => unreadable_base.push(file.path.clone()),
             Deletion::Named(names) => deleted_tests.push(DeletedFrom {
