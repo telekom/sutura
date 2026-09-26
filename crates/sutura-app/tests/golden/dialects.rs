@@ -82,10 +82,24 @@ fn binds_every_value_rather_than_writing_it(dialect: Dialect) {
         let query = sql_for(plan, dialect);
         let name = stem(&path);
 
-        // The positive half, first because it is the one that holds when a search cannot. Counted
-        // against the PLAN's parameters rather than the rendered query's, so a generator that
-        // inlined a value and dropped it from its own list is still one placeholder short.
-        assert_one_placeholder_per_parameter(&name, dialect, plan.params().len(), query.sql());
+        // The positive half, first because it is the one that holds when a search cannot.
+        // `Numbered` (Postgres's `$n`) binds by index, so it is counted against the PLAN's own
+        // parameters (a repeated placeholder there reuses one value rather than needing another) -
+        // a generator that inlined a value and dropped it from the plan's own list is still one
+        // placeholder short. `Question` and `Colon` both bind a plain statement by occurrence -
+        // Oracle's driver pushes one bind per occurrence for a plain, non-PL/SQL statement despite
+        // its named `:n` placeholders - so a guard embedded more than once needs its value bound
+        // again for both, counted against the RENDERED query's own parameters, which is what
+        // `sutura_sql::generate` builds for exactly that dialect family - see
+        // `assert_one_placeholder_per_parameter`'s own doc for why both are "how many physical
+        // placeholders this statement needs".
+        let expected_params = match dialect.placeholder_style() {
+            sutura_sql::dialect::PlaceholderStyle::Question | sutura_sql::dialect::PlaceholderStyle::Colon => {
+                query.params().len()
+            }
+            sutura_sql::dialect::PlaceholderStyle::Numbered => plan.params().len(),
+        };
+        assert_one_placeholder_per_parameter(&name, dialect, expected_params, query.sql());
 
         // What the CALLER sent. The classic injection: a filter value or a date written into
         // the statement instead of bound.
@@ -215,7 +229,7 @@ fn quotes_every_identifier(dialect: Dialect) {
         let mut quoted = vec![String::from(plan.table_name().as_str())];
         quoted.extend(plan.joins().iter().map(|join| String::from(join.table_name().as_str())));
         quoted.push(String::from(plan.bucket().label()));
-        quoted.push(String::from(plan.measure_label()));
+        quoted.extend(plan.measures().iter().map(|measure| String::from(measure.label())));
         quoted.extend(plan.keys().iter().map(|key| String::from(key.label())));
         // The quote character comes from the dialect, not from a literal `"`. A hard-coded double
         // quote made this half assert that a BigQuery statement carries `"orders"` - which it never

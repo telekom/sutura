@@ -22,7 +22,7 @@ use sutura_domain::model::{DimensionName, Grain, MetricName, ModelName};
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::RowCeiling;
-use sutura_domain::query::{Filter, MAX_DIMENSIONS, MAX_RANGE_DAYS, Query, RefusalReason, ResultBound, Top};
+use sutura_domain::query::{Filter, MAX_DIMENSIONS, MAX_METRICS, MAX_RANGE_DAYS, Query, RefusalReason, ResultBound, Top};
 
 /// A dimension, and the chain of joins needed to reach it.
 pub(crate) struct ResolvedDimension<'a> {
@@ -62,11 +62,12 @@ pub(crate) struct ResolvedFilter<'a> {
 
 /// A question whose every name resolved.
 ///
-/// **`metric` stays the first entry of `metrics`, and nothing else.** Every plan this crate builds
-/// today reads a single metric - `metrics` beyond index 0 exists so this function can validate a
-/// multi-metric question (every metric's grain, every requested dimension against every metric,
-/// every filter value against every metric's own allowlist) before the plan stage refuses to go
-/// further with [`RefusalReason::MultiMetricNotExecutable`].
+/// **`metric` stays the first entry of `metrics`, and nothing else solves.** A plan reads `metric`
+/// as the primary measure (the first label) and `metrics` as the whole set; every later entry
+/// exists so this function validates a multi-metric question exactly as it validates one - every
+/// metric's grain, every requested dimension against every metric, every filter value against
+/// every metric's own allowlist - and the plan stage then turns the whole set into one grouped
+/// statement with one certified column per metric.
 pub(crate) struct Resolution<'a> {
     pub(crate) metric: &'a Metric,
     pub(crate) metrics: Vec<&'a Metric>,
@@ -130,6 +131,29 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
             .metric(name)
             .ok_or_else(|| RefusalReason::MetricUnknown { metric: name.clone() })?;
         metrics.push(found);
+    }
+    // A bound on how many certified columns one answer computes, for the same reason the range and
+    // dimension counts are bounded: each metric is one more aggregate over every row the statement
+    // already reads, so the cost multiplies the groups rather than the scan. Checked right after
+    // every name resolves (so a caller who both misspelled a name and asked for too many hears
+    // about the misspelling, `MetricUnknown`'s own precedence) but before any PER-METRIC agreement
+    // check below - an over-long list is a refusal about cost that no narrower name fixes, the same
+    // order-of-checks argument [`MAX_RANGE_DAYS`]'s check makes.
+    if query.metrics().len() > MAX_METRICS {
+        return Err(RefusalReason::TooManyMetrics {
+            requested: query.metrics().len(),
+            limit: MAX_METRICS,
+        }
+        .into());
+    }
+    // The same metric twice in one question is refused rather than de-duplicated, matching the
+    // `DuplicateDimension` decision one decision above: a caller who sent it twice believes the
+    // result has two columns that would be the same column, which it does not.
+    let mut seen_metrics: BTreeSet<&MetricName> = BTreeSet::new();
+    for name in query.metrics() {
+        if !seen_metrics.insert(name) {
+            return Err(RefusalReason::DuplicateMetricName { metric: name.clone() }.into());
+        }
     }
     #[expect(
         clippy::indexing_slicing,
@@ -215,6 +239,15 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
         }
         .into());
     }
+    // `top` names no metric to rank by, and the two rendering paths (SQL, the in-process engine)
+    // disagree about which measure column it means once there is more than one - refused here
+    // rather than ranking by whichever measure an adapter happens to read.
+    if query.top().is_some() && query.metrics().len() > 1 {
+        return Err(RefusalReason::MultiMetricTopNotExecutable {
+            metrics: query.metrics().iter().cloned().collect(),
+        }
+        .into());
+    }
 
     let mut seen: BTreeSet<&DimensionName> = BTreeSet::new();
     let mut keys = Vec::with_capacity(query.dimensions().len());
@@ -290,9 +323,10 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
 
     // Every name, grain, dimension and filter value checked - `metric`'s own resolution above,
     // plus every later metric's model/time-column agreement and every metric's grain/dimension/
-    // filter-value checks in the loops above. The only thing left is whether this build can turn
-    // more than one into one statement, which is the plan stage's own question. See
-    // `RefusalReason::MultiMetricNotExecutable`.
+    // filter-value checks in the loops above. The plan stage then turns the whole set into one
+    // grouped statement with one certified column per metric (see
+    // [`crate::plan::mono_plan`], `guards_and_shared` for how each metric's own required
+    // filters become that metric's guard rather than a leaked `WHERE` term).
     Ok(Resolution {
         metric,
         metrics,

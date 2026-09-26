@@ -1,0 +1,91 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: plan
+---
+source: local
+measures:
+  - metric: recurring_revenue
+    label: recurring_revenue
+    measure:
+      simple:
+        term:
+          aggregate:
+            aggregate: sum
+            column:
+              table: fct_subscription_monthly
+              column: mrr_cents
+    guard:
+      - equals:
+          column:
+            table: fct_subscription_monthly
+            column: status
+          param: 0
+  - metric: active_subscriptions
+    label: active_subscriptions
+    measure:
+      simple:
+        term:
+          aggregate:
+            aggregate: count_distinct
+            column:
+              table: fct_subscription_monthly
+              column: subscription_key
+    guard:
+      - equals:
+          column:
+            table: fct_subscription_monthly
+            column: status
+          param: 1
+table: fct_subscription_monthly
+joins:
+  - relationship: subscription_customer
+    table: dim_customer
+    join_type: many_to_one
+    keys:
+      - Equal:
+          origin:
+            table: fct_subscription_monthly
+            column: customer_key
+          target:
+            table: dim_customer
+            column: customer_key
+bucket:
+  label: period
+  grain: month
+  column:
+    table: fct_subscription_monthly
+    column: month
+keys: []
+filters:
+  - origin: definition
+    predicate:
+      at_or_after:
+        column:
+          table: fct_subscription_monthly
+          column: month
+        param: 2
+  - origin: definition
+    predicate:
+      before:
+        column:
+          table: fct_subscription_monthly
+          column: month
+        param: 3
+  - origin: requested
+    predicate:
+      equals:
+        column:
+          table: dim_customer
+          column: segment
+        param: 4
+params:
+  - Text: active
+  - Text: active
+  - Date: 2026-06-01
+  - Date: 2026-07-01
+  - Text: business
+range:
+  start: 2026-06-01
+  end: 2026-07-01
+max_rows: 10000
+top: ~

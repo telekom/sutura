@@ -1,0 +1,15 @@
+metrics: [
+  active_subscriptions,
+  churn_rate,
+  mean_subscription_mrr,
+  recurring_revenue,
+  revenue_per_churned_subscription,
+  revenue_per_customer,
+  subscription_base,
+  subscription_months_billed,
+  subscriptions_churned,
+]
+grain: month
+range:
+  start: 2026-06-01
+  end: 2026-07-01

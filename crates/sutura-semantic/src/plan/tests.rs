@@ -8,8 +8,10 @@
 use std::collections::BTreeSet;
 
 use sutura_domain::calendar::{Date, TimeRange};
-use sutura_domain::catalog::{Audience, Description, Dimension, JoinKey, JoinKeys, Metric, Model, Relationship, ViaChain};
-use sutura_domain::measure::{AggregatedColumn, Measure, Term};
+use sutura_domain::catalog::{
+    Audience, Description, Dimension, DimensionValue, JoinKey, JoinKeys, Metric, Model, Relationship, ViaChain,
+};
+use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term};
 use sutura_domain::model::{
     Aggregate, ColumnName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
@@ -527,7 +529,197 @@ fn a_ratio_term_naming_the_metric_s_own_model_plans_like_one_naming_none() {
     };
     let planned = mono(&resolution);
     assert!(
-        matches!(planned.measure(), sutura_domain::plan::PlanMeasure::Ratio { .. }),
+        matches!(
+            planned.measures().first().measure(),
+            sutura_domain::plan::PlanMeasure::Ratio { .. }
+        ),
         "a same-model term must still plan the ratio"
+    );
+}
+
+/// A multi-metric question answers one grouped statement with one certified column per metric, and
+/// each metric's OWN required filter stays on that metric's column - it must not leak into another
+/// metric's guard, where it would prune a row the sibling metric has to count. This is the whole
+/// of the per-metric conditional aggregation: `revenue`'s `status = 'active'` must guard only the
+/// revenue column, and `subs`'s `status <> 'terminated'` only the subs column, not each other.
+#[test]
+fn a_multi_metric_plan_keeps_each_required_filter_on_its_own_measure() {
+    let facts = model("facts", "local", &["amount_cents", "status", "subscription_key", "day"]);
+
+    let revenue = Metric::new(
+        MetricName::parse("revenue").expect("a test metric is a metric"),
+        ModelName::parse("facts").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+        vec![RequiredFilter::Equals {
+            column: column("status"),
+            value: DimensionValue::parse("active").expect("a test value is a value"),
+        }],
+        column("day"),
+        BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        None,
+        Description::default(),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate");
+
+    let subs = Metric::new(
+        MetricName::parse("subs").expect("a test metric is a metric"),
+        ModelName::parse("facts").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+            Aggregate::CountDistinct,
+            column("subscription_key"),
+        ))),
+        vec![RequiredFilter::NotEquals {
+            column: column("status"),
+            value: DimensionValue::parse("terminated").expect("a test value is a value"),
+        }],
+        column("day"),
+        BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        None,
+        Description::default(),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate");
+
+    let resolution = Resolution {
+        metric: &revenue,
+        metrics: vec![&revenue, &subs],
+        model: &facts,
+        grain: Grain::Month,
+        range: TimeRange::new(
+            Date::parse("2026-06-01").expect("a test date is a date"),
+            Date::parse("2026-07-01").expect("a test date is a date"),
+        )
+        .expect("June is a range"),
+        keys: Vec::new(),
+        filters: Vec::new(),
+        top: None,
+    };
+
+    let planned = mono(&resolution);
+    let measures: Vec<_> = planned.measures().iter().collect();
+    assert_eq!(measures.len(), 2, "one measure per named metric");
+    assert_eq!(
+        measures[0].label(),
+        "revenue",
+        "the first named metric labels the primary measure"
+    );
+
+    // `revenue`'s guard is exactly its own `status = active`, and nothing else.
+    let revenue_guard: Vec<&PlanPredicate> = measures[0].guard().iter().collect();
+    assert_eq!(
+        revenue_guard.len(),
+        1,
+        "revenue guards by exactly its own one required filter"
+    );
+    assert!(
+        matches!(
+            revenue_guard[0],
+            PlanPredicate::Equals { column, .. } if column.column().as_str() == "status"
+        ),
+        "revenue's guard is its own Equals on status, got {revenue_guard:?}"
+    );
+
+    // `subs`'s guard is its own `status <> terminated`, and nothing else.
+    let subs_guard: Vec<&PlanPredicate> = measures[1].guard().iter().collect();
+    assert_eq!(subs_guard.len(), 1, "subs guards by exactly its own one required filter");
+    assert!(
+        matches!(
+            subs_guard[0],
+            PlanPredicate::NotEquals { column, .. } if column.column().as_str() == "status"
+        ),
+        "subs's guard is its own NotEquals on status, got {subs_guard:?}"
+    );
+
+    // Neither metric's filter appears in the shared WHERE: the plan carries only the two range
+    // bounds, so a golden cannot mistake a leaked filter for a WHERE clause.
+    let shared = planned.filters();
+    assert!(
+        !shared.iter().any(|f| f.predicate().column().column().as_str() == "status"),
+        "no metric's required filter reaches the shared WHERE"
+    );
+}
+
+/// A multi-metric question never federates - `mono_plan`'s own comment argues why the metrics
+/// sharing a model puts them on one data system, but `federated_plan` reads only the FIRST named
+/// metric, so a multi-metric question that also reaches a remote dimension must be refused before
+/// dispatch rather than silently planned as a federated answer over only that first metric.
+#[test]
+fn a_multi_metric_question_reaching_a_remote_dimension_is_refused_by_name() {
+    let facts = model("facts", "local", &["amount_cents", "subscription_key", "customer_key", "day"]);
+    let customers = model("customers", "remote", &["customer_key", "region_code"]);
+    let facts_customer = relationship("facts_customer", ("facts", "customer_key"), ("customers", "customer_key"));
+
+    let revenue = Metric::new(
+        MetricName::parse("revenue").expect("a test metric is a metric"),
+        ModelName::parse("facts").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+        Vec::new(),
+        column("day"),
+        BTreeSet::from([Grain::Month]),
+        vec![declared("region", "region_code", &["facts_customer"])],
+        None,
+        Description::default(),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate");
+
+    let subs = Metric::new(
+        MetricName::parse("subs").expect("a test metric is a metric"),
+        ModelName::parse("facts").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+            Aggregate::CountDistinct,
+            column("subscription_key"),
+        ))),
+        Vec::new(),
+        column("day"),
+        BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        None,
+        Description::default(),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate");
+
+    let region = revenue
+        .dimension(&dimension_name("region"))
+        .expect("the metric declares this dimension");
+
+    let resolution = Resolution {
+        metric: &revenue,
+        metrics: vec![&revenue, &subs],
+        model: &facts,
+        grain: Grain::Month,
+        range: TimeRange::new(
+            Date::parse("2026-06-01").expect("a test date is a date"),
+            Date::parse("2026-07-01").expect("a test date is a date"),
+        )
+        .expect("June is a range"),
+        keys: vec![ResolvedDimension {
+            dimension: region,
+            join: Some(vec![ResolvedJoin {
+                relationship: &facts_customer,
+                model: &customers,
+            }]),
+        }],
+        filters: Vec::new(),
+        top: None,
+    };
+
+    let Err(refused) = plan(&resolution) else {
+        panic!("a multi-metric question reaching a remote dimension must be refused, not federated");
+    };
+    assert!(
+        matches!(
+            refused,
+            PlanError::Refused(RefusalReason::MultiMetricFederationNotExecutable { ref metrics })
+                if *metrics == vec![
+                    MetricName::parse("revenue").expect("a test metric is a metric"),
+                    MetricName::parse("subs").expect("a test metric is a metric"),
+                ]
+        ),
+        "expected MultiMetricFederationNotExecutable naming both metrics, got {refused:?}"
     );
 }

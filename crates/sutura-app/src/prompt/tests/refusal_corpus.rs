@@ -12,7 +12,7 @@
 //! documents.
 
 use sutura_domain::model::{Aggregate, Grain, ModelName, SourceName, TableName};
-use sutura_domain::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS, RefusalReason, ResultBound};
+use sutura_domain::query::{MAX_DIMENSIONS, MAX_METRICS, MAX_RANGE_DAYS, RefusalReason, ResultBound};
 
 use super::{dimension_name, metric_name};
 
@@ -30,7 +30,19 @@ pub(super) fn every_refusal() -> Vec<RefusalReason> {
             first: metric_name("revenue"),
             other: metric_name("margin"),
         },
-        RefusalReason::MultiMetricNotExecutable { requested: 2 },
+        RefusalReason::TooManyMetrics {
+            requested: 9,
+            limit: MAX_METRICS,
+        },
+        RefusalReason::DuplicateMetricName {
+            metric: metric_name("revenue"),
+        },
+        RefusalReason::MultiMetricFederationNotExecutable {
+            metrics: vec![metric_name("revenue"), metric_name("margin")],
+        },
+        RefusalReason::MultiMetricTopNotExecutable {
+            metrics: vec![metric_name("revenue"), metric_name("margin")],
+        },
         RefusalReason::GrainNotSupported {
             metric: metric_name("revenue"),
             grain: Grain::Year,
@@ -135,7 +147,10 @@ fn guide_key_carries_every_variant() {
         match &reason {
             RefusalReason::MetricUnknown { .. }
             | RefusalReason::MetricsSpanDifferentModels { .. }
-            | RefusalReason::MultiMetricNotExecutable { .. }
+            | RefusalReason::TooManyMetrics { .. }
+            | RefusalReason::DuplicateMetricName { .. }
+            | RefusalReason::MultiMetricFederationNotExecutable { .. }
+            | RefusalReason::MultiMetricTopNotExecutable { .. }
             | RefusalReason::GrainNotSupported { .. }
             | RefusalReason::DimensionNotPermitted { .. }
             | RefusalReason::DimensionNotFilterable { .. }

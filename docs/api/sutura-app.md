@@ -130,6 +130,10 @@ boundary gate bans `anyhow` for, arrived at by a different route.
   of a type this workspace does not map, or a value no domain cell can hold - a non-finite
   double, a day number that is not a date. No caller caused it and narrowing the question does
   not avoid it, which is why it is not a refusal a caller is told to act on.
+- `AnswersDoNotCertify` - The bundle could not compute a per-metric digest for this answer.
+
+  Reachable only if a metric the compiled plan certifies is not in the bundle that compiled
+  it - a splitter or registry invariant that changed, not something a caller can provoke.
 
 ### Implements
 

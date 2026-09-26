@@ -141,6 +141,31 @@ impl core::fmt::Display for DefinitionVersion {
     }
 }
 
+/// One metric and the digest of that one metric's canonical form.
+///
+/// The element of [`Provenance::metric_digests`]: which metric an answer measured, and the digest
+/// certifying that metric's own canonical form. The metric name and its digest form one value so
+/// the pair cannot drift apart as it travels.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct MetricDigest {
+    metric: MetricName,
+    digest: DefinitionDigest,
+}
+
+impl MetricDigest {
+    /// The metric this entry certifies.
+    #[inline]
+    pub const fn metric(&self) -> &MetricName {
+        &self.metric
+    }
+
+    /// The digest of that metric's canonical form.
+    #[inline]
+    pub const fn digest(&self) -> &DefinitionDigest {
+        &self.digest
+    }
+}
+
 /// What defined an answer, and what each of its legs executed as - travelling with it.
 ///
 /// A result cannot be separated from what defined it, so this is a typed field a caller reads
@@ -154,7 +179,10 @@ impl core::fmt::Display for DefinitionVersion {
 /// impersonates and one that does not - so hashing it in would make one catalog produce two digests
 /// in two deployments. That is why [`crate::source::ExecutedAs`] is a field here and not an input to
 /// [`PinnedDefinitions::pin`], and it is the opposite of the knowledge declaration, which *is* under
-/// the digest because it is content a catalog author wrote.
+/// the digest because it is content a catalog author wrote. The per-metric digests in
+/// [`Provenance::metric_digests`] are content too, so they sit under the same "numbered certifies
+/// authored content" heading as the version and bundle digest rather than beside the execution
+/// record.
 ///
 /// **Recording is not a control.** Provenance is read by whoever holds the answer, after the rows
 /// were served, so it cannot prevent a disclosure and does not attempt to. It makes one attributable
@@ -165,6 +193,12 @@ pub struct Provenance {
     version: DefinitionVersion,
     digest: DefinitionDigest,
     executed_as: ExecutedAs,
+    /// One digest per metric this answer measured, in the order the question listed them.
+    ///
+    /// The bundle digest names the whole snapshot; each of these names the one metric whose
+    /// number sits in the corresponding column, so a reader can tell which metric an answer's
+    /// claim certifies without resolving the bundle against the candidate catalog.
+    metric_digests: Vec<MetricDigest>,
 }
 
 impl Provenance {
@@ -176,14 +210,19 @@ impl Provenance {
     /// carries a `Provenance` beside its rows, and an enum variant is always constructible by
     /// whoever can build its fields. Nothing outside this crate built one - checked before narrowing
     /// it - so this costs no caller.
-    const fn new(version: DefinitionVersion, digest: DefinitionDigest, executed_as: ExecutedAs) -> Self {
+    const fn new(
+        version: DefinitionVersion,
+        digest: DefinitionDigest,
+        executed_as: ExecutedAs,
+        metric_digests: Vec<MetricDigest>,
+    ) -> Self {
         Self {
             version,
             digest,
             executed_as,
+            metric_digests,
         }
     }
-
     #[inline]
     pub const fn version(&self) -> &DefinitionVersion {
         &self.version
@@ -192,6 +231,12 @@ impl Provenance {
     #[inline]
     pub const fn digest(&self) -> &DefinitionDigest {
         &self.digest
+    }
+
+    /// One digest per metric this answer measured, in query order.
+    #[inline]
+    pub fn metric_digests(&self) -> &[MetricDigest] {
+        &self.metric_digests
     }
 
     /// What each leg of this answer ran as.
@@ -406,7 +451,38 @@ impl PinnedDefinitions {
     /// }
     /// ```
     pub fn provenance(&self, executed_as: ExecutedAs) -> Provenance {
-        Provenance::new(self.version.clone(), self.digest.clone(), executed_as)
+        Provenance::new(self.version.clone(), self.digest.clone(), executed_as, Vec::new())
+    }
+
+    /// The provenance to attach to one answer formed over the named metrics: the bundle digest
+    /// plus one per-metric digest per name, in request order.
+    ///
+    /// The companion to [`Self::provenance`] for a set of several metrics. It also takes the
+    /// execution record, and on top of that the question's metric order; the per-metric digests
+    /// are computed here, from the definitions this bundle actually holds, so a caller can no more
+    /// choose its own per-metric digest than its own bundle digest.
+    ///
+    /// A metric the bundle does not define refuses, and cannot be hashed.
+    pub fn provenance_for<'a>(
+        &self,
+        executed_as: ExecutedAs,
+        metrics: impl IntoIterator<Item = &'a MetricName>,
+    ) -> Result<Provenance, NotDigestible> {
+        let metric_digests = metrics
+            .into_iter()
+            .map(|name| {
+                DefinitionDigest::of_metric(&self.definitions, name).map(|digest| MetricDigest {
+                    metric: name.clone(),
+                    digest,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Provenance::new(
+            self.version.clone(),
+            self.digest.clone(),
+            executed_as,
+            metric_digests,
+        ))
     }
 
     /// The metrics that declare an anchor, and therefore have to be checked before serving.

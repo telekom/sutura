@@ -49,8 +49,26 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         RefusalReason::MetricsSpanDifferentModels { ref first, ref other } => {
             format!("`{first}` and `{other}` do not share a model and a time column")
         }
-        RefusalReason::MultiMetricNotExecutable { requested } => {
-            format!("this deployment does not yet answer a question naming {requested} metrics together")
+        RefusalReason::TooManyMetrics { requested, limit } => {
+            format!("{requested} metrics were asked for; at most {limit} are allowed")
+        }
+        RefusalReason::DuplicateMetricName { ref metric } => {
+            format!("`{metric}` is listed more than once")
+        }
+        RefusalReason::MultiMetricFederationNotExecutable { ref metrics } => {
+            let names: Vec<&str> = metrics.iter().map(sutura_domain::model::MetricName::as_str).collect();
+            format!(
+                "{} were asked together, and the question also reaches a dimension on another data \
+                 system; this build does not federate several metrics",
+                names.join(", ")
+            )
+        }
+        RefusalReason::MultiMetricTopNotExecutable { ref metrics } => {
+            let names: Vec<&str> = metrics.iter().map(sutura_domain::model::MetricName::as_str).collect();
+            format!(
+                "{} were asked together with `top`, which names no metric to rank by",
+                names.join(", ")
+            )
         }
         RefusalReason::GrainNotSupported { ref metric, grain } => {
             format!("`{metric}` is not defined at `{grain}` grain")
@@ -253,7 +271,14 @@ mod tests {
                 first: metric(),
                 other: MetricName::parse("margin").expect("a test metric is a metric"),
             },
-            RefusalReason::MultiMetricNotExecutable { requested: 2 },
+            RefusalReason::TooManyMetrics { requested: 9, limit: 8 },
+            RefusalReason::DuplicateMetricName { metric: metric() },
+            RefusalReason::MultiMetricFederationNotExecutable {
+                metrics: vec![metric(), MetricName::parse("margin").expect("a test metric is a metric")],
+            },
+            RefusalReason::MultiMetricTopNotExecutable {
+                metrics: vec![metric(), MetricName::parse("margin").expect("a test metric is a metric")],
+            },
             RefusalReason::GrainNotSupported {
                 metric: metric(),
                 grain: Grain::Week,

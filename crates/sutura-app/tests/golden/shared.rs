@@ -120,9 +120,9 @@ pub(crate) const PROVOKED: &[(&str, &str)] = &[
     // `Eq` case above, reached once per value rather than once - see `sutura_semantic::resolve`.
     ("refused-value-not-allowed-in-set", "DimensionValueNotAllowed"),
     ("refused-metrics-span-different-models", "MetricsSpanDifferentModels"),
-    // Every constraint the multi-metric set can be checked for holds; this build does not yet
-    // decompose more than one metric into one statement - `github.com/telekom/sutura#968`.
-    ("refused-multi-metric-not-executable", "MultiMetricNotExecutable"),
+    // More metrics than `MAX_METRICS`, refused before any agreement check - `github.com/telekom/sutura#968`.
+    ("refused-too-many-metrics", "TooManyMetrics"),
+    ("refused-duplicate-metric-name", "DuplicateMetricName"),
     ("refused-duplicate-dimension", "DuplicateDimension"),
     ("refused-too-many-dimensions", "TooManyDimensions"),
     ("refused-range-too-long", "TimeRangeTooLong"),
@@ -130,6 +130,9 @@ pub(crate) const PROVOKED: &[(&str, &str)] = &[
     // unlike the OTHER `ResultTooLarge` cause (a data system's own reply, see this table's own
     // note above) nothing runs for this one either.
     ("refused-top-too-many-rows", "ResultTooLarge"),
+    // `top` names no metric to rank by, and this build's two rendering paths disagree about which
+    // measure it would mean once several are asked - `github.com/telekom/sutura#968`.
+    ("refused-multi-metric-top", "MultiMetricTopNotExecutable"),
 ];
 
 /// A parameter's value as text, for comparing against what a question or a leg carried.
@@ -403,14 +406,45 @@ pub(crate) fn assert_absent_as_text(fixture: &str, dialect: Dialect, origin: &st
 ///
 /// For a numbered dialect it checks the numbering too, which a count could not: a statement with
 /// `$1` repeated and `$2` absent binds the same value twice and is a different query.
+///
+/// **`params` means two different things depending on `dialect.placeholder_style()`, and only
+/// `Numbered` gets the DISTINCT-position check.** A guard can be embedded more than once (a ratio
+/// guards both terms; `ClickHouse`'s `SUM` widening embeds twice more). `Numbered` (Postgres's
+/// `$n`) binds by the index each placeholder names, so a repeat resolves to the right value with no
+/// extra one bound, and `params` is `plan.params().len()`, checked against the DISTINCT positions
+/// the statement names being exactly `1..=params` - sorted before deduping, since `Vec::dedup` only
+/// collapses CONSECUTIVE repeats and a guard's two predicates can render as `$1 $2 $1 $2`, which is
+/// a correct statement `dedup` alone would misread as wrong.
+///
+/// `Question` and `Colon` both bind a plain statement by OCCURRENCE, not by name - Oracle's driver
+/// pushes one `BindInfo` per occurrence for a plain, non-PL/SQL statement and binds a positional
+/// slice, exactly like a bare `?` dialect, so a repeated embedding renders the SAME name twice
+/// (`:1` `:1`) rather than a fresh one, and only the OCCURRENCE COUNT - not the set of names - has
+/// to equal `params`, which there is the rendered query's own `params().len()`.
 pub(crate) fn assert_one_placeholder_per_parameter(fixture: &str, dialect: Dialect, params: usize, sql: &str) {
-    let found = placeholders(sql, dialect);
-    let expected: Vec<usize> = (1..=params).collect();
-    assert_eq!(
-        found, expected,
-        "{fixture} for {dialect} does not name one bind parameter per value the plan carries; a \
-         value written into the statement leaves a placeholder missing whatever it spells:\n{sql}"
-    );
+    let mut found = placeholders(sql, dialect);
+    match dialect.placeholder_style() {
+        sutura_sql::dialect::PlaceholderStyle::Numbered => {
+            found.sort_unstable();
+            found.dedup();
+            let expected: Vec<usize> = (1..=params).collect();
+            assert_eq!(
+                found, expected,
+                "{fixture} for {dialect} does not name one bind parameter per value the plan \
+                 carries; a value written into the statement leaves a placeholder missing whatever \
+                 it spells:\n{sql}"
+            );
+        }
+        sutura_sql::dialect::PlaceholderStyle::Question | sutura_sql::dialect::PlaceholderStyle::Colon => {
+            assert_eq!(
+                found.len(),
+                params,
+                "{fixture} for {dialect} does not carry one physical placeholder per value the \
+                 rendered query binds; a value written into the statement leaves a placeholder \
+                 missing whatever it spells:\n{sql}"
+            );
+        }
+    }
 }
 
 /// The placeholder scan, over statements written by hand rather than generated.

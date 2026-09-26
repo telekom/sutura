@@ -274,7 +274,9 @@ pub mod pool;
 pub use crate::pool::WorkingSet;
 
 use crate::collect::outputs;
-use crate::translate::{bucket_expression, column, key_counts, measure_expression, predicate, table_reference};
+use crate::translate::{
+    bucket_expression, column, guard, guarded_measure_expression, key_counts, measure_expression, predicate, table_reference,
+};
 
 /// An in-process engine, behind the [`Warehouse`] port.
 pub struct DataFusionWarehouse {
@@ -488,10 +490,7 @@ impl DataFusionWarehouse {
         for join in plan.joins() {
             let right = self.scan(join.table()).await?;
             // The SHARED decision, in `leg::dimension_join`: a LEFT join, always, matching the SQL
-            // path. Both plan shapes call it, so the join kind cannot be one thing for a whole
-            // answer and another for one source's share of one - `a_dimension_join_does_not_change_the_measure`
-            // fails on an inner join and now fails for either. That module documents what was
-            // measured before the two were shared.
+            // path - both plan shapes call it, so the join kind cannot differ (`a_dimension_join_does_not_change_the_measure`).
             builder = leg::dimension_join(builder, right, join)?;
         }
 
@@ -515,8 +514,21 @@ impl DataFusionWarehouse {
         }
         grouping.push(bucket_expression(plan.bucket().grain(), plan.bucket().column()));
         let group_count = grouping.len();
+
+        // ONE aggregate per metric, in measure order. Single-metric: bare (byte-identical to the
+        // long-standing shape). Multi-metric: each measure's OWN guard folds into its column, so one
+        // metric's filters never constrain another's.
+        let mut aggregates = Vec::with_capacity(plan.measures().len());
+        for (index, planned) in plan.measures().iter().enumerate() {
+            let expr = if index == 0 && plan.measures().len() == 1 {
+                measure_expression(planned.measure())?
+            } else {
+                guarded_measure_expression(planned.measure(), guard(plan.params(), planned.guard())?)?
+            };
+            aggregates.push(expr);
+        }
         builder = builder
-            .aggregate(grouping, vec![measure_expression(plan.measure())?])
+            .aggregate(grouping, aggregates)
             .map_err(|cause| DataFusionError::Build { cause })?;
 
         let labels = plan.result_labels();

@@ -933,6 +933,18 @@ different bundle is visibly a different answer.
 
 `Debug`, `Serialize`
 
+### `struct MetricDigestContent`
+
+```rust
+pub struct MetricDigestContent
+```
+
+One metric and the digest of its canonical form.
+
+#### Implements
+
+`Debug`, `Serialize`
+
 ### `struct LegContent`
 
 ```rust

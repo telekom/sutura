@@ -220,10 +220,17 @@ where
     let mut seen = 0_usize;
     for path in questions() {
         let asked = read_question(&path);
-        let Some(metric) = pinned.definitions().metric(asked.metric()) else {
-            continue;
-        };
-        if metric.required_filters().is_empty() {
+        // Every metric the question named, not only the first: a multi-metric plan folds each
+        // metric's OWN required filters into that metric's guard rather than the shared `WHERE`
+        // (`sutura_domain::plan::PlannedMeasure`), so a required filter on the SECOND metric named
+        // would otherwise never be checked at all.
+        let named: Vec<_> = asked
+            .metrics()
+            .iter()
+            .filter_map(|name| pinned.definitions().metric(name).map(|metric| (name, metric)))
+            .filter(|(_, metric)| !metric.required_filters().is_empty())
+            .collect();
+        if named.is_empty() {
             continue;
         }
         let compiled = compile(
@@ -235,17 +242,27 @@ where
         let Compiled::Planned { ref plan } = compiled else {
             continue;
         };
-        for required in metric.required_filters() {
-            let present = plan.filters().iter().any(|f| {
-                matches!(f.origin(), PredicateOrigin::Definition) && f.predicate().column().column() == required.column()
-            });
-            assert!(
-                present,
-                "{}: the plan for {} dropped its required filter on {}",
-                stem(&path),
-                asked.metric(),
-                required.column()
-            );
+        for (name, metric) in named {
+            // Single-metric: the filter is in the shared `WHERE`. Multi-metric: it is folded into
+            // THAT metric's own guard - `PlannedMeasure::guard` - and never reaches `plan.filters()`.
+            let guard: Vec<&sutura_domain::plan::PlanPredicate> = plan
+                .measures()
+                .iter()
+                .find(|m| m.metric() == name)
+                .map(|m| m.guard().iter().collect())
+                .unwrap_or_default();
+            for required in metric.required_filters() {
+                let present = plan.filters().iter().any(|f| {
+                    matches!(f.origin(), PredicateOrigin::Definition) && f.predicate().column().column() == required.column()
+                }) || guard.iter().any(|p| p.column().column() == required.column());
+                assert!(
+                    present,
+                    "{}: the plan for {} dropped its required filter on {}",
+                    stem(&path),
+                    name,
+                    required.column()
+                );
+            }
         }
         seen = seen.saturating_add(1);
     }

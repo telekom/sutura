@@ -1,0 +1,9 @@
+metrics: [recurring_revenue, active_subscriptions]
+grain: month
+range:
+  start: 2026-06-01
+  end: 2026-07-01
+filters:
+  - op: eq
+    dimension: segment
+    value: business

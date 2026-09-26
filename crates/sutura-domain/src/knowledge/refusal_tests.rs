@@ -310,10 +310,11 @@ fn an_example_about_an_undefined_metric_does_not_load() {
 
 #[test]
 fn an_example_naming_more_than_one_metric_does_not_load() {
-    // `github.com/telekom/sutura#968` lets a question NAME a set of metrics, but every such
-    // question is refused at plan time (`RefusalReason::MultiMetricNotExecutable`) - so an example
-    // built from one would render under `EXAMPLES_INTRO`'s promise that a worked question is "one
-    // this deployment answers", which is false for it.
+    // `github.com/telekom/sutura#968` lets a question NAME a set of metrics, and a set whose
+    // members all agree now executes - but this module reads the compiler's own numbers rather
+    // than the compiler and has no second-metric check to run, so an example built from one would
+    // render under `EXAMPLES_INTRO`'s promise that a worked question is "one this deployment
+    // answers", which it cannot certify for it.
     let metrics = crate::query::MetricNames::parse(vec![metric_name("recurring_revenue"), metric_name("voice_minutes")])
         .expect("two metrics is not empty");
     let asking = Query::new(metrics, Grain::Month, june(), Vec::new(), Vec::new());
