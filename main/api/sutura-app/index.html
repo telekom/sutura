@@ -3034,11 +3034,13 @@ catalog reply (<code>sutura_mcp::wire::CatalogContent</code>) carries beside thi
 as unbounded.</p>
 <p><strong>Section order is <code>declaration</code>, <code>glossary</code>, <code>not_defined</code>, <code>caveats</code>, <code>examples</code> - fixed, and
 deliberately not the prompt's own order.</strong> The declaration's own sentences ("listed below", "at
-the end of this document") are true only of the document that renders them; <code>knowledge::Audience</code>
-carries which one this is, and the order here is what makes its <code>Tool</code> wording true. Reordering
-this list without updating <code>knowledge::claim</code>'s tool-branch text (or vice versa) is exactly the
-drift round 2 of #971's review found - <code>tests::the_tool_reply_orders_its_sections_as_claimed</code>
-holds the two together.</p>
+the end of this document" for the prompt, "at the end of these knowledge sections" for the tool)
+are true only of the document that renders them; <code>knowledge::Audience</code> carries which one this is,
+and the order here is what makes its <code>Tool</code> wording true. Reordering
+this list without updating <code>knowledge::claim</code>'s tool-branch text (or vice versa) makes the
+declaration point at a position the reply no longer puts the section in - a caller passing the
+wrong audience, or this list and <code>knowledge::claim</code> drifting apart, is caught by
+<code>tests::tool_audience::the_tool_reply_orders_its_sections_so_the_declarations_position_claims_hold</code>.</p>
 <h3 id="fn-tool_operator_instructions"><code>fn tool_operator_instructions</code><a class="headerlink" href="#fn-tool_operator_instructions" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tool_operator_instructions</span><span class="p">(</span><span class="n">text</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
 </span></code></pre></div>
