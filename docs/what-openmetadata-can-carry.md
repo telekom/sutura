@@ -31,7 +31,7 @@ fill these fields and survive these checks*:
 | when, and at what resolution                      | `ColumnName` plus a `BTreeSet<Grain>`                                                                                                                      |
 | what it may be broken down by                     | `Dimension` - a column, optionally `via` one relationship, optionally an allowlist of at most `MAX_VALUES_PER_DIMENSION` values                            |
 | the number it produced when it was certified      | `Option<Anchor>` - a `TimeRange` and a value as text                                                                                                       |
-| what a reader has to know                         | `Knowledge` - phrases, caveats, reviewed absences and worked examples, each with a `Referent`                                                              |
+| what a reader has to know                         | `Knowledge` - phrases, caveats, reviewed absences and worked examples, the phrases and caveats carrying a `Referent`                                       |
 
 `Definitions::assemble` refuses a dimension reached through a relationship whose declared cardinality
 may duplicate rows, as `JoinWouldDuplicateRows`; and `Measure` has no free-text SQL at any depth - its
@@ -98,8 +98,9 @@ ignored, but never minted into a `RequiredFilter` without executing it.
 
 And cardinality, the third thing ADR 0016 taught us to check, is the pleasant surprise: it is **declared
 when present, never defaulted**. `TableConstraint.relationshipType` explicitly distinguishes
-`ONE_TO_ONE` / `MANY_TO_ONE` / `ONE_TO_MANY` (non-duplicating, license a `JoinType`) from
-`MANY_TO_MANY` (row-duplicating, refused by `JoinWouldDuplicateRows`). DataHub defaulted a cardinality
+`ONE_TO_ONE` / `MANY_TO_ONE` / `ONE_TO_MANY` (each licenses a `JoinType`, and a dimension reached
+through `ONE_TO_MANY` is refused by `JoinWouldDuplicateRows`) from `MANY_TO_MANY`, which has no
+`JoinType` to map onto and is refused. DataHub defaulted a cardinality
 (`N_N`) that the assembler had to refuse; Frictionless Table Schema omitted the property entirely
 (licenses nothing); OpenMetadata names it when it is there and stays silent when it is not - the case a
 deployment leaves a relationship unconstrained licenses no dimension, exactly as the assembler demands.

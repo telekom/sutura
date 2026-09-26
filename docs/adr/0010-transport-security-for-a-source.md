@@ -394,3 +394,12 @@ handshake cells that watched a real agent adopt a replaced bundle lived in
 real handshake adopt a rotated bundle.** `.agents/skills/sutura/invariants` carries the same
 sentence beside the row, and this record is what that row cites; before this amendment the skill was
 honest and this page said the opposite.
+
+## Fifth amendment, 2026-09-26: `rustls-native-certs` is in the graph
+
+Rule 2 of *Mutual TLS to a source* says "`rustls-native-certs` is absent from the graph for exactly
+that reason". It is not absent: it is a workspace dependency, and `sutura-tls`,
+`sutura-exec-postgres` and `sutura-exec-clickhouse` depend on it so that `Anchors::System` can
+read the host's certificate store. The serving side still declares no client trust store; the
+reason the sentence gave is still true, and the absence it inferred from it is not. The correction
+under *Consequences* covers `rustls` and `webpki-roots` arriving through `ureq`, not this crate.

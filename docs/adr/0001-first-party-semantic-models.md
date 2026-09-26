@@ -132,3 +132,14 @@ guarantee for tidiness.
 and it moves a parser onto the query path, where a parse failure is a runtime refusal instead of a
 review comment. The closed set of aggregates covers the metrics a model can honestly describe, and
 the ones it cannot belong on the other path.
+
+## Amendment, 2026-09-26: two held-by cells undercount what holds
+
+1. The guarantees table says of `Validated<PinnedDefinitions>` that "the anchor check is its only
+   constructor". `sutura_app::proof::verify_and_validate` is still the only constructor, and it runs
+   three checks in order: the authored-SQL refusal (`W::EXECUTES_AUTHORED_SQL`),
+   `declared_keys::hold` for the declared cardinality, and only then `verify_anchors`.
+2. The transpile bullet says "the ban is a lint rather than a paragraph". There is no lint: the
+   root `Cargo.toml` leaves `transpile` out of `polyglot-sql`'s feature list, and its comment says
+   why a `disallowed-methods` entry would read as enforcement while doing nothing. The feature is
+   not compiled, so there is nothing for a lint to catch.

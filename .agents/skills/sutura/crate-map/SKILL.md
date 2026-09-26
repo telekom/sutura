@@ -138,8 +138,8 @@ closure is in all four `sutura-deps-<triple>` derivations at cargo's default set
 `cargo tree` on 2026-09-04 shows that dev-dependency as the only edge into `ureq` for a musl target.
 Making a networked adapter non-optional would add nothing there. **Since #202's HTTP reader,
 `sutura-catalog-datahub` also has a SECOND `ureq` entry**, behind its own default-off `http` feature -
-the real `AspectReader`'s. It is the `sutura-exec-bigquery`/`wire` shape exactly (optional,
-feature-gated, off at the default set), so it does not change this paragraph's conclusion: the
+the real `AspectReader`'s. It is optional, feature-gated and off at the default set, so it does not
+change this paragraph's conclusion: the
 dev-dependency was already pulling the same closure in unconditionally, and a feature nobody
 requested still adds nothing to the default `sutura-deps-<triple>` derivations.
 
@@ -202,7 +202,7 @@ number:** it prints a whole second crate derivation, 62-85s over three runs, and
 | --- | --- |
 | *The deps derivation already built `ring`, so the probe reuses it* | It does not. `buildDepsOnly` runs unscoped and the probe asks for one package, so the resolver gives a narrower feature set, a different `-C metadata` and a **recompile**. The probe's log says `sutura> Compiling ring`. |
 | *So the feature is nearly free* | It is nearly free **in this graph**, because those units finish inside the slack ahead of `datafusion` on the critical path. A shorter critical path would expose them as time. |
-| *The adapter is why the closure is in the deps derivation* | It is not - its `ureq` is `optional` behind `wire`. A **dev-dependency** of `sutura-catalog-datahub` is, and a build-dependency of `libduckdb-sys` puts a host-side copy there too. Drop that dev-dependency and the musl cost comes back. |
+| *The adapter is why the closure is in the deps derivation* | It is not - `sutura-exec-bigquery` carries no `ureq` since its `wire` transport was deleted. A **dev-dependency** of `sutura-catalog-datahub` is, and a build-dependency of `libduckdb-sys` puts a host-side copy there too. Drop that dev-dependency and the musl cost comes back. |
 | *The probe links what the tutorial tells a reader to build* | The same package and features, at the **`ci` profile**. The page says `--release`, whose thin LTO and `panic = "abort"` are a different link, and nothing measures that one. |
 
 Binary size remains unmeasured; no step prints it.
