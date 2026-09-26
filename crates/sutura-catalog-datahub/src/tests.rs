@@ -713,3 +713,44 @@ fn an_anchor_value_a_reader_could_not_read_is_refused() {
         "the character rule names itself through the property's decode: {cause}"
     );
 }
+
+/// A dimension whose `via` is an empty chain is refused, not crashed on.
+///
+/// `ViaDoc`'s untagged `Chain` arm accepts an empty sequence, which `ViaChain::try_from` refuses.
+/// The property is decoded from a `DataHub` string a deployment wrote, so this is external input
+/// reaching the conversion; the `expect` that used to sit on `into_domain` panicked the process on
+/// it. The refusal now arrives as [`DataHubError::EmptyViaChain`] naming the metric and, of its two
+/// dimensions, the one that carried the empty chain.
+#[test]
+fn a_dimension_with_an_empty_via_chain_is_refused_not_crashed() {
+    let content = concat!(
+        r#"{"model":"orders","measure":{"simple":{"aggregate":"sum","column":"amount_cents"}},"#,
+        r#""time_column":"order_date","grains":["month"],"#,
+        r#""dimensions":[{"name":"status","column":"status"},"#,
+        r#"{"name":"region","column":"region_code","via":[]}]}"#
+    );
+    let refused = over(corpus_carrying(content))
+        .load()
+        .expect_err("an empty via chain is not a chain");
+    let DataHubError::EmptyViaChain {
+        ref metric,
+        ref dimension,
+        ref cause,
+    } = refused
+    else {
+        panic!("an empty via chain is refused as its own error, not as {refused:?}");
+    };
+    assert_eq!(
+        metric, "revenue",
+        "the error names the metric whose dimension carried the empty chain"
+    );
+    assert_eq!(
+        dimension.as_str(),
+        "region",
+        "the error names the one dimension of two that carried the empty chain"
+    );
+    assert!(
+        cause.to_string().contains("at least one relationship"),
+        "the refusal names the constraint: {cause}"
+    );
+}
