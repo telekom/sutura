@@ -921,3 +921,42 @@ fn the_numstat_reader_names_what_git_would_rewrite() {
         vec![String::from("crates/x/src/lib.rs"), String::from("crates/x/tests/next.rs")]
     );
 }
+
+// RED for #1054: a declaring commit's added lines resolve against ITS tree, not HEAD's. Commit 2
+// adds and declares `the_shifted_one`; commit 3 inserts two items above it. Read against HEAD, the
+// added `#[test]` line number lands on `above_two` and the valid declaration refuses `NotAdded`.
+// Inserted COMMENTS would not show it: the item lookup skips them down to the same `fn`.
+#[test]
+fn a_later_commit_shifting_the_declared_test_is_not_refused() {
+    let repo = Repo::with(
+        "Cargo.toml",
+        "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("src/lib.rs", "pub fn f() -> u8 { 1 }\n");
+    repo.write("tests/t.rs", "#[test]\nfn the_shifted_one() {}\n");
+    repo.write(
+        "devco/claim-mutations/the_shifted_one.patch",
+        "diff --git a/src/lib.rs b/src/lib.rs\n\
+--- a/src/lib.rs\n\
++++ b/src/lib.rs\n\
+@@ -1 +1 @@\n\
+-pub fn f() -> u8 { 1 }\n\
++pub fn f() -> u8 { 2 }\n",
+    );
+    repo.commit("adds the_shifted_one and declares it");
+    let declaring = repo.commit_hash();
+    repo.write(
+        "tests/t.rs",
+        "fn above_one() {}\nfn above_two() {}\n#[test]\nfn the_shifted_one() {}\n",
+    );
+    repo.commit("inserts two items above the declared test");
+    let claim = Claim {
+        cells: vec![String::from("the_shifted_one")],
+        by_commit: vec![(declaring, vec![String::from("the_shifted_one")])],
+    };
+    let causes = super::validate(&repo.dir, &claim, &[]);
+    assert!(
+        causes.is_empty(),
+        "a shifted declared test is still the declaring commit's: {causes:?}"
+    );
+}
