@@ -527,6 +527,33 @@ mod tests {
     }
 
     #[test]
+    fn a_multi_line_route_inside_a_test_module_passes() {
+        // `#1037`: the twin of the cell above for a `.route(` whose first argument starts on the
+        // next line - the pending-argument arm judges the test-module exemption on its own.
+        let mut scan = MountSiteScan::new("crates/sutura-http/src/tls.rs");
+        let source = [
+            "#[cfg(test)]",
+            "mod tests {",
+            "    fn a_cell() {",
+            "        let app = axum::Router::new()",
+            "            .route(",
+            "                \"/x\",",
+            "                axum::routing::get(|| async { StatusCode::OK }),",
+            "            );",
+            "    }",
+            "}",
+        ];
+        let mut reasons = Vec::new();
+        for line in source {
+            reasons.push(scan.feed(line));
+        }
+        assert!(
+            reasons.iter().all(Option::is_none),
+            "a multi-line .route( inside a #[cfg(test)] mod tests block is test code: {reasons:?}"
+        );
+    }
+
+    #[test]
     fn a_named_route_in_a_tests_rs_file_passes() {
         // `#1037`: a `.route(` in a `tests.rs` file (an out-of-line test module declared by
         // `#[cfg(test)] mod tests;` in the parent) is test code, so it passes. This is the shape

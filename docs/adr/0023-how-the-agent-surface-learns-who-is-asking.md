@@ -546,11 +546,11 @@ crate and its version, and says the *What turning the feature on costs* paragrap
 be re-taken. The two `ureq` rules it already held are untouched.
 
 **The limit moves with the claim.** A lock-name scan cannot see a client under another name - a
-fork published under its own name, a crate that re-exports one, or a workspace manifest rename -
-because `Cargo.lock` records the name `cargo` resolved. The gate therefore holds the two names
-this record used and nothing wider; a client arriving under another name is the same second
-client [0018](0018-what-the-bigquery-wire-is-built-from.md)'s *Why `ureq` and not `reqwest`*
-exists to keep out, and that stays a decision with its own record rather than a lock-level rule.
+fork published under its own name, or a crate that re-exports one - because `Cargo.lock` records
+the name `cargo` resolved. The gate therefore holds the two names this record used and nothing
+wider; a client arriving under another name is the same second client
+[0018](0018-what-the-bigquery-wire-is-built-from.md)'s *Why `ureq` and not `reqwest`* exists to
+keep out, and that stays a decision with its own record rather than a lock-level rule.
 
 **What this does not change.** The measurement itself - the transport's feature closure read on
 2026-09-06, ten of eleven packages resolving and `sse-stream` not - is untouched, as is the

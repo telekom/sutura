@@ -43,10 +43,10 @@
 //!
 //! **A client under another name.** The lock records the name `cargo` RESOLVED, so the third rule
 //! holds the two names the ADR's measurement used and nothing wider: a fork of a forbidden client
-//! published under its own name, a crate that re-exports one, or a workspace manifest rename all
-//! resolve under a name this scan cannot see. A client arriving under another name is the same
-//! second client 0018's *Why `ureq` and not `reqwest`* exists to keep out - that one is a decision
-//! with its own record; this rule is its lock-level half.
+//! published under its own name, or a crate that re-exports one, resolves under a name this scan
+//! cannot see. A client arriving under another name is the same second client 0018's *Why `ureq`
+//! and not `reqwest`* exists to keep out - that one is a decision with its own record; this rule
+//! is its lock-level half.
 //!
 //! `deny.toml`'s `multiple-versions = "warn"` does not cover this: it warns, deliberately, because
 //! denying it needs a skip list of twenty-seven entries that rots on every update. This gate is the

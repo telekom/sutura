@@ -3,7 +3,7 @@
 //!
 //! An `#[ignore]` silences a test from the default suite, and a change that adds one to a live cell
 //! turned it off without anything saying so. This gate reads every first-party `.rs` file under
-//! `crates/` and `xtask/`, names each `#[ignore]`d test through the causality gate's own attribute
+//! `crates/`, `xtask/` and `dev/`, names each `#[ignore]`d test through the causality gate's own attribute
 //! vocabulary ([`attributes::cells`]), and compares the set against the committed baseline. It is a
 //! ratchet in both directions: an ignored test the baseline does not list is refused, and so is a
 //! baseline line naming a test that is no longer ignored - a stale line would let the same ignore
@@ -36,12 +36,12 @@ use crate::serde_parse::scan::code_lines;
 /// The committed baseline: one `<path>::<fn_name>` per ignored test, `#` comments allowed.
 const BASELINE_FILE: &str = "devco/ignored-tests";
 
-/// First-party Rust under `crates/` and `xtask/`.
+/// First-party Rust under `crates/`, `xtask/` and `dev/` - the paths the workspace members live at.
 fn in_scope(rel: &str) -> bool {
     let is_rs = std::path::Path::new(rel)
         .extension()
         .is_some_and(|ext| ext.eq_ignore_ascii_case("rs"));
-    is_rs && (rel.starts_with("crates/") || rel.starts_with("xtask/"))
+    is_rs && (rel.starts_with("crates/") || rel.starts_with("xtask/") || rel.starts_with("dev/"))
 }
 
 /// What one file says: its ignored tests as `<rel>::<fn_name>`, and every declaration the attribute
@@ -138,7 +138,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{ignored_in, new_ignores, parse_baseline};
+    use super::{ignored_in, in_scope, new_ignores, parse_baseline};
 
     const REL: &str = "crates/x/tests/t.rs";
 
@@ -187,5 +187,12 @@ mod tests {
             live,
             BTreeSet::from([String::from("crates/x/tests/t.rs::the_provisioned_surface")])
         );
+    }
+
+    #[test]
+    fn an_ignore_under_dev_is_in_scope() {
+        // `dev/` is the workspace member `sutura-dev`, run by `just test`; an `#[ignore]` there
+        // silences a cell as surely as one under `crates/`.
+        assert!(in_scope("dev/src/scope.rs"));
     }
 }

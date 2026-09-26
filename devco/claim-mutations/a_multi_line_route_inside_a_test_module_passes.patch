@@ -1,0 +1,12 @@
+diff --git a/xtask/src/boundaries/ungoverned.rs b/xtask/src/boundaries/ungoverned.rs
+--- a/xtask/src/boundaries/ungoverned.rs
++++ b/xtask/src/boundaries/ungoverned.rs
+@@ -258,7 +258,7 @@ impl MountSiteScan {
+                 arg.push_str(head);
+                 // Now the argument is complete. The route is allowed inside `Ungoverned::mount`,
+                 // inside a test module, in a `tests.rs` file, or at an allowlisted site.
+-                let allowed = self.in_mount() || self.in_test_mod() || self.is_tests_file || self.arg_is_allowed(&arg);
++                let allowed = self.in_mount() || self.is_tests_file || self.arg_is_allowed(&arg);
+                 if !allowed {
+                     self.update_state(line, code);
+                     return Some("mounted outside the governed subtree and outside `Ungoverned::mount`");
