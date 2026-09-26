@@ -616,18 +616,21 @@ mod tests {
     }
 
     #[test]
-    fn a_provenance_heading_inside_a_fenced_code_block_does_not_satisfy_the_check() {
+    fn an_unclosed_fence_is_refused_even_after_a_real_provenance_heading() {
+        // The heading is real, but a fence that never closes leaves the rest of the body unread,
+        // so whether it carries provenance is not something the gate can say: a refusal, not a
+        // pass.
         let tree = crate::scratch_tree::Tree::of(
-            "skills-provenance",
+            "skills-unclosed-fence",
             &[(
                 ".agents/skill-library/group/skill/SKILL.md",
-                b"---\nname: skill\ndescription: y\n---\n\n```markdown\n## Provenance\n```\n",
+                b"---\nname: skill\ndescription: y\n---\n\n## Provenance\n\n```markdown\nnever closed\n",
             )],
         );
         let problems = library_problems(tree.root());
         assert!(
-            problems.iter().any(|p| p.contains("no `## Provenance`")),
-            "a `## Provenance` inside a fenced code block satisfied the check: {problems:?}"
+            problems.iter().any(|p| p.contains("SKILL.md`: ")),
+            "an unlexable SKILL.md passed as carrying provenance: {problems:?}"
         );
     }
 
