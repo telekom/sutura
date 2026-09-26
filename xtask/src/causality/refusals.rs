@@ -19,6 +19,7 @@ use crate::Verdict;
 use crate::causality::base::{names_no_tests, tail};
 use crate::causality::features::{Because, Enabled, Unread};
 use crate::causality::place::AddedTest;
+use crate::causality::weakens::Waived;
 
 /// A plan whose every provable file declares a test module that named no test.
 ///
@@ -58,24 +59,54 @@ pub(super) fn report_unnamed_tests(test_files: &[String]) -> Verdict {
 /// A REMOVED line sat inside a pre-existing `#[test]` - a deleted assertion, with nothing added
 /// in its place.
 ///
-/// FAILS, and it is the second half of `github.com/telekom/sutura#1031` (the first is a helper
-/// edit, which routes into proof). Neither run measures a deletion: base and head are both green
-/// because the assertion is GONE from both, and there is nothing a mutation can redden - the
-/// deleted evidence does not exist to be weakened. So the honest answer is a named refusal that
-/// tells the author WHICH test lost evidence and that the gate cannot verify it: state the
-/// evidence in the handoff. This is distinct from `Plan::NotRequired`, which would have read *no
-/// changed tests* over a diff that deleted one.
-pub(super) fn report_deleted_tests(files: &[String]) -> Verdict {
+/// FAILS unless every named test is WAIVED, and it is the second half of
+/// `github.com/telekom/sutura#1031` (the first is a helper edit, which routes into proof). Neither
+/// run measures a deletion: base and head are both green because the assertion is GONE from both,
+/// and there is nothing a mutation can redden - the deleted evidence does not exist to be
+/// weakened. So the honest answer is a named refusal that tells the author WHICH test lost
+/// evidence, that the gate cannot verify it, and that a legitimate removal has an escape hatch -
+/// `super::weakens`'s `Weakens-Test: <name> - <reason>` trailer, checked against the SAME names
+/// this arm would otherwise refuse, never a blanket override. This is distinct from
+/// `Plan::NotRequired`, which would have read *no changed tests* over a diff that deleted one.
+/// One path/test-name/reason triple, for the WAIVED side of [`report_deleted_tests`]'s split.
+type WaivedLine<'a> = (&'a str, &'a str, &'a str);
+
+pub(super) fn report_deleted_tests(deleted: &[crate::causality::plan::DeletedFrom], waived: &Waived) -> Verdict {
+    let mut unwaived: Vec<(&str, &str)> = Vec::new();
+    let mut waived_lines: Vec<WaivedLine<'_>> = Vec::new();
+    for one in deleted {
+        for name in &one.tests {
+            match waived.reason(name) {
+                Some(reason) => waived_lines.push((one.path.as_str(), name.as_str(), reason)),
+                None => unwaived.push((one.path.as_str(), name.as_str())),
+            }
+        }
+    }
+    if unwaived.is_empty() {
+        println!("xtask test-causality: a diff deleted an assertion, and every deleted test is waived");
+        for (path, name, reason) in waived_lines {
+            println!("  {path}: {name} - Weakens-Test: {reason}");
+        }
+        return Verdict::Pass;
+    }
     eprintln!("xtask test-causality: FAILED - a diff deleted an assertion that was the whole point of a test");
-    for f in files {
-        eprintln!("  {f}: a removed line sat inside a pre-existing #[test]");
+    for (path, name) in &unwaived {
+        eprintln!("  {path}: a removed line sat inside the pre-existing #[test] `{name}`");
+    }
+    for (path, name, reason) in &waived_lines {
+        eprintln!("  {path}: {name} is waived - Weakens-Test: {reason}");
     }
     eprintln!();
     eprintln!("Removing an assertion with nothing added in its place weakens a test, and this gate");
     eprintln!("has no way to measure it: the removed line exists in neither tree, so neither run can");
     eprintln!("redden against it and no mutation can re-create what is gone. State the evidence in");
-    eprintln!("the handoff - what the test checked, and why deleting it is safe. A deletion of a");
-    eprintln!("comment, a blank line or an attribute is NOT this shape, and stays a pass.");
+    eprintln!("the handoff - what the test checked, and why deleting it is safe - or, when the");
+    eprintln!(
+        "removal is legitimate, add a commit trailer naming it: `Weakens-Test: {name} - <why>`",
+        name = unwaived.first().map_or("<test-fn-name>", |(_, name)| name)
+    );
+    eprintln!("A deletion of a comment, a blank line or an attribute is NOT this shape, and stays a");
+    eprintln!("pass.");
     Verdict::Fail
 }
 
@@ -256,6 +287,8 @@ mod tests {
         report_unclaimed_additions, report_unnamed_tests, report_unread_manifests, report_unreadable,
     };
     use crate::causality::fixtures::scoped;
+    use crate::causality::plan::DeletedFrom;
+    use crate::causality::weakens::Waived;
 
     #[test]
     fn each_refusal_keeps_the_direction_its_own_doc_argues_for() {
@@ -270,7 +303,21 @@ mod tests {
         // at all.
         let inseparable = vec![String::from("crates/x/src/a.rs")];
         assert_eq!(report_unnamed_tests(&inseparable), Verdict::Fail);
-        assert_eq!(report_deleted_tests(&inseparable), Verdict::Fail);
+        let deleted = vec![DeletedFrom {
+            path: String::from("crates/x/src/a.rs"),
+            tests: vec![String::from("t")],
+        }];
+        assert_eq!(report_deleted_tests(&deleted, &Waived::of("")), Verdict::Fail);
+        let waiver = format!(
+            "{hash}\u{0}{body}\u{0}",
+            hash = "abc123",
+            body = "Weakens-Test: t - safe removal"
+        );
+        assert_eq!(
+            report_deleted_tests(&deleted, &Waived::of(&waiver)),
+            Verdict::Pass,
+            "a waived name turns the refusal into a stated pass"
+        );
         assert_eq!(report_unreadable(&inseparable), Verdict::Fail);
         // BOTH CAUSES, because they are one verdict and a cause with no printed sentence of its
         // own would inherit the other one's. The exhaustive match in `report_enabled_tests` is

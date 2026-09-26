@@ -1158,11 +1158,11 @@ the item an added line lands inside, the same brace-balancing walk `regions::cfg
 already does for a `#[cfg(test)]` marker - so it reaches this same tests-only arm (or the
 `Plan::NotSeparable` claim arm, if the same file also carries an implementation change). **What was
 still not reached was narrowed by `github.com/telekom/sutura#1031`:** a pure DELETION
-of an assertion, with no line added in its place, is now `Plan::DeletedTests` - a named refusal
-(`report_deleted_tests`, `Verdict::Fail`) telling the author which test lost evidence, because
-neither run can measure a line this diff took out. It reads the PRE-image, threaded into
-`causality::plan` as a third argument (`edited::removed_in`), exactly what the earlier "not
-casually fixed" note said it would need. An edit inside a `#[cfg(test)]` helper fn that a `#[test]`
+of an assertion, with no line added in its place, is now `Plan::DeletedTests`: it names and
+refuses each weakened test unless a commit carries `Weakens-Test: <test-fn-name> - <reason>`.
+The gate echoes that reason but cannot verify its safety; neither run can measure a line the diff
+took out. It reads the PRE-image, threaded into `causality::plan` as a third argument
+(`edited::deletion_in`). An edit inside a `#[cfg(test)]` helper fn that a `#[test]`
 calls is now routed into proof too (`edited::edited_helper_caller` names the caller, so the file
 reaches the tests-only/claim arms). **What still slips through is a helper a test calls from a
 DIFFERENT file** - a module-path reach this brace walk does not follow (`causality::edited`'s own

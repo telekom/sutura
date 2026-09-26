@@ -563,46 +563,32 @@ fn validate(wt: &Path, claim: &Claim, test_files: &[String]) -> Vec<Cause> {
 /// builds the `Scoped` the claim arm runs from. Empty would falsely `NotAdded` every cell of an
 /// inseparable declaring commit, which is exactly the shape `f61bcf28` (and this gate's own
 /// inseparable fixture) declares in.
+///
+/// USES [`crate::causality::plan::partition`], NEVER the SHAPE A/`Plan::DeletedTests`-aware
+/// `plan::plan_with_base`: this only wants which files are test-worthy, and threading a base reader through
+/// here for a question it does not ask risked exactly the class of bug review found once already
+/// (a wrong image resolving Shape A's removed-line numbers against the wrong commit) - keeping
+/// deletion detection OUT of this path removes the risk rather than getting the reader right a
+/// second time. `github.com/telekom/sutura#1031`'s own review (N6): the earlier version routed
+/// through `plan::plan` and mapped `Plan::DeletedTests` to `Some(Vec::new())`, which silently
+/// dropped a declaring commit's ADDED names whenever that same commit's diff ALSO deleted an
+/// assertion somewhere else - `partition` cannot answer `DeletedTests` at all, so there is no
+/// longer a case to drop names in.
 fn commit_added_names(wt: &Path, commit: &str, read: &crate::causality::regions::PostImage<'_>) -> Option<Vec<String>> {
     use crate::causality::plan::Plan;
     use crate::causality::scoped::Scan;
     let files: Vec<ChangedFile> = diff::commit_additions(wt, commit)?;
-    let base = commit_parent_reader(wt, commit);
-    let (test_files, scannable) = match crate::causality::plan::plan(&files, read, &base) {
+    let (test_files, scannable) = match crate::causality::plan::partition(&files, read) {
         Plan::Separable(separable) => (separable.test_files, files),
         Plan::NotSeparable { files: inseparable, .. } => (inseparable, files),
-        Plan::NotRequired | Plan::DeletedTests(_) => return Some(Vec::new()),
+        // `partition` never answers either of these - there is no base reader for it to route a
+        // deletion through - but the match stays exhaustive rather than assuming it: the honest
+        // answer for a shape this function cannot even ask about is "no names", not a panic.
+        Plan::NotRequired | Plan::DeletedTests(_) | Plan::BaseUnreadable(_) => return Some(Vec::new()),
     };
     match Scan::of(&scannable, &test_files, read) {
         Scan::Runnable(scoped) => Some(scoped.tests().iter().map(AddedTest::name).map(String::from).collect()),
         _ => Some(Vec::new()),
-    }
-}
-
-/// A pre-image reader over `<commit>^`, in `wt`.
-///
-/// SHAPE A's base image (`super::plan`'s third argument) must be the DECLARING COMMIT's own
-/// parent, never HEAD: `diff::commit_additions` numbers a `RemovedLine.before` against
-/// `<commit>^`'s own image, and HEAD can differ from that image by every commit after `commit` in
-/// the range - reading HEAD as the base would resolve those line numbers against the wrong file
-/// and either miss a real deletion or match one that is not there, silently. `commit_added_names`
-/// only asks this for ONE decision - does the declaring commit's own diff answer
-/// `Plan::DeletedTests` - so a wrong image would misclassify a shape that adds nothing either way,
-/// not the names this function returns for an added test.
-fn commit_parent_reader<'a>(wt: &'a Path, commit: &str) -> impl Fn(&str) -> Option<String> + 'a {
-    let commit = commit.to_owned();
-    move |path| {
-        let mut command = Command::new("git");
-        crate::repo::strip_git_env(&mut command);
-        let out = command
-            .args(["-C", wt.to_str()?])
-            .args(["show", &format!("{commit}^:{path}")])
-            .stderr(std::process::Stdio::null())
-            .output()
-            .ok()?;
-        out.status
-            .success()
-            .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
     }
 }
 

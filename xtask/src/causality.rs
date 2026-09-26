@@ -125,6 +125,7 @@ pub(crate) mod rot;
 mod runner;
 mod scoped;
 mod stack;
+mod weakens;
 mod worktree;
 
 use base::{BaseOutcome, classify_base, report_base, tail};
@@ -132,7 +133,7 @@ use coverage::{Coverage, Scope};
 use diff::changed_with_additions;
 use features::{Activation, BaseText, Trees};
 use place::AddedTest;
-use plan::{Plan, Separable, plan};
+use plan::{Plan, Separable, plan_with_base};
 use provenance::{Commit, Moved, Reach};
 use refusals::{
     report_deleted_tests, report_enabled_tests, report_head_failure, report_unclaimed_additions, report_unnamed_tests,
@@ -614,12 +615,19 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         Relocation::Refused(broken) => return relocation::report_refused(&broken),
     }
 
-    match plan(&files, &working_tree, &base_tree) {
+    match plan_with_base(&files, &working_tree, &base_tree) {
         Plan::NotRequired => {
             println!("xtask test-causality: no changed tests - nothing to prove");
             Verdict::Pass
         }
-        Plan::DeletedTests(files) => report_deleted_tests(&files),
+        Plan::DeletedTests(deleted) => {
+            // A COMMIT MAY WAIVE A NAMED DELETION, and the trailer is a CLAIM this CHECKS against
+            // `removed_in`'s own answer - `super::weakens`'s own header carries why it mirrors
+            // `Claim-Cell:` rather than a blanket override.
+            let waived = weakens::Waived::of(&worktree::messages(&root, &at));
+            report_deleted_tests(&deleted, &waived)
+        }
+        Plan::BaseUnreadable(files) => report_unreadable(&files),
         Plan::NotSeparable {
             files: inseparable,
             build_inputs,

@@ -260,7 +260,8 @@ impl Scan {
             // so both name the test the same way; each is independent of `named`/`declared`
             // above, which count only ADDED attribute lines - a body-only edit adds no attribute
             // at all.
-            for name in edited::edited_helper_caller(&lines, &file.added) {
+            let scope = crate::causality::regions::scope(&file.path, read);
+            for name in edited::edited_helper_caller(&lines, &file.added, &scope) {
                 let one = AddedTest::at(&file.path, &at, name);
                 if !runnable.contains(&one) {
                     runnable.push(one);

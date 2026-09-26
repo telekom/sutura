@@ -19,18 +19,27 @@
 //! OTHER test file in the diff, `test_files` stayed empty and the whole diff answered
 //! `Plan::NotRequired` - *no changed tests* over a diff that changed one. A sixth,
 //! `github.com/telekom/sutura#1031`: a pure DELETION of an assertion adds nothing either extractor
-//! sees, so it also fell to `Plan::NotRequired`; [`edited::removed_in`] reads the BASE image -
-//! threaded in as `plan`'s third argument - and answers `Plan::DeletedTests` instead, because
-//! neither run can measure a line this diff took out.
+//! sees; [`edited::deletion_in`] reads the BASE image - threaded in as `plan`'s third argument -
+//! and answers `Plan::DeletedTests`, over EVERY compiled file rather than only one with no other
+//! test-side change (review found the first cut asked only inside the `Adds::Nothing` arm).
 
 use std::collections::BTreeSet;
 
 use super::attributes::{Adds, adds};
 use super::diff::ChangedFile;
-use super::edited;
+use super::edited::{self, Deletion};
 use super::place;
 use super::provenance::Reach;
 use super::regions::{PostImage, has_non_test_additions, scope};
+
+/// One file whose diff deleted the evidence a pre-existing test carried.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct DeletedFrom {
+    /// The file whose diff deleted it.
+    pub(crate) path: String,
+    /// The tests it deleted evidence from, by name.
+    pub(crate) tests: Vec<String>,
+}
 
 /// What the gate concluded, so the shape is testable without git or cargo.
 #[derive(Debug, PartialEq, Eq)]
@@ -40,8 +49,13 @@ pub(crate) enum Plan {
     /// A REMOVED line sat inside a pre-existing `#[test]` - a deleted assertion, with nothing
     /// added in its place. Neither run measures it (base and head are both green), so the route is
     /// a named refusal, not a proof: the shape names the deleted test and asks the author to state
-    /// the evidence. `Verdict::Fail` (`causality::report_deleted_tests`).
-    DeletedTests(Vec<String>),
+    /// the evidence, or waive it by name (`Weakens-Test:`, `super::weakens`).
+    /// `Verdict::Fail` (`causality::report_deleted_tests`).
+    DeletedTests(Vec<DeletedFrom>),
+    /// `removed` is non-empty for a compiled file and its BASE image could not be read at all -
+    /// fail closed rather than silently answering as if nothing had been deleted.
+    /// `Verdict::Fail` (`causality::refusals::report_unreadable`).
+    BaseUnreadable(Vec<String>),
     /// Baseline can be reconstructed by reverting [`Separable::revert`].
     Separable(Separable),
     /// Impl and tests share a file; a human must state the evidence.
@@ -117,21 +131,65 @@ impl Separable {
 
 /// Split the changed files into "added tests", "the old behaviour", and what may not be touched.
 ///
-/// `read` returns a file's POST-IMAGE by repo-relative path. `base` is the same question over the
-/// PRE-image, threaded in for SHAPE A - a REMOVED line exists only there, so only the base can say
-/// whether a line this diff deleted sat inside a `#[test]` (`edited::removed_in`).
+/// `read` returns a file's POST-IMAGE by repo-relative path. `base` is the same over the
+/// PRE-image, for SHAPE A - a REMOVED line exists only there (`edited::deletion_in`).
 ///
 /// **A FILE CARGO DOES NOT COMPILE IS STILL AN IMPLEMENTATION**: reading `.rs` only made a
 /// documentation-driven suite unprovable, a pass over a diff whose implementation was prose.
-/// [`Reach`] sorts a changed path into what the reconstruction may do with it, so a page, a recipe
-/// or a nix file is reverted like any other implementation and a build input is held back and
-/// NAMED.
-pub(crate) fn plan(files: &[ChangedFile], read: &PostImage<'_>, base: &PostImage<'_>) -> Plan {
+/// [`Reach`] sorts a changed path into what the reconstruction may do with it.
+pub(crate) fn plan_with_base(files: &[ChangedFile], read: &PostImage<'_>, base: &PostImage<'_>) -> Plan {
+    let mut deleted_tests: Vec<DeletedFrom> = Vec::new();
+    let mut unreadable_base: Vec<String> = Vec::new();
+
+    // Check deletion in every compiled file, including one that also adds or edits tests.
+    for file in files {
+        if !matches!(Reach::of(&file.path), Reach::Compiled) {
+            continue;
+        }
+        match edited::deletion_in(&file.added, &file.removed, &file.path, base, read) {
+            Deletion::None => {}
+            Deletion::BaseUnreadable => unreadable_base.push(file.path.clone()),
+            Deletion::Named(names) => deleted_tests.push(DeletedFrom {
+                path: file.path.clone(),
+                tests: names.iter().map(|name| String::from(name.as_str())).collect(),
+            }),
+        }
+    }
+
+    // A missing pre-image cannot establish that no test evidence was removed.
+    if !unreadable_base.is_empty() {
+        return Plan::BaseUnreadable(unreadable_base);
+    }
+
+    // SHAPE A refusal takes precedence over every other partition: a deleted assertion is
+    // evidence this gate removed from any measurable tree, and nothing another file's provable
+    // test can re-add proves what that line used to check. Fail-closed - naming the deleted
+    // test rather than guessing it away.
+    if !deleted_tests.is_empty() {
+        return Plan::DeletedTests(deleted_tests);
+    }
+
+    partition(files, read)
+}
+
+/// Keep the existing test harness callable against the pre-change planner.
+#[cfg(test)]
+pub(crate) fn plan(files: &[ChangedFile], read: &PostImage<'_>) -> Plan {
+    partition(files, read)
+}
+
+/// The test/impl/build-input partition alone, with NO Shape A deletion check.
+///
+/// `super::claim::commit_added_names` is the one other caller: it only wants which files are
+/// test-worthy, and a deletion answers nothing about that. Keeping deletion OUT of this path is
+/// review finding N6 on `github.com/telekom/sutura#1031`: routing `commit_added_names` through
+/// `plan` itself silently dropped a declaring commit's ADDED names whenever its diff ALSO deleted
+/// an assertion elsewhere.
+pub(super) fn partition(files: &[ChangedFile], read: &PostImage<'_>) -> Plan {
     let mut test_files = Vec::new();
     let mut test_only = Vec::new();
     let mut impl_only = Vec::new();
     let mut build_inputs = Vec::new();
-    let mut deleted_tests = Vec::new();
 
     for file in files {
         match Reach::of(&file.path) {
@@ -156,26 +214,12 @@ pub(crate) fn plan(files: &[ChangedFile], read: &PostImage<'_>, base: &PostImage
                 Adds::Nothing => {
                     if edited::touches(&file.added, &file.path, read) {
                         test_files.push(file.path.clone());
-                    } else if edited::deletes_from_test(&file.removed, &file.path, base) {
-                        // SHAPE A (`github.com/telekom/sutura#1031`): no added line at all, and a
-                        // REMOVED line sat inside a pre-existing `#[test]` - a pure deletion of an
-                        // assertion. Neither run measures it, so this is a named refusal, never a
-                        // proof: the author has to state the evidence a deletion took out.
-                        deleted_tests.push(file.path.clone());
                     } else {
                         impl_only.push(file.path.clone());
                     }
                 }
             },
         }
-    }
-
-    // SHAPE A refusal takes precedence over every other partition: a deleted assertion is
-    // evidence this gate removed from any measurable tree, and nothing another file's provable
-    // test can re-add proves what that line used to check. Fail-closed - naming the deleted
-    // test rather than guessing it away.
-    if !deleted_tests.is_empty() {
-        return Plan::DeletedTests(deleted_tests);
     }
 
     if test_files.is_empty() {
@@ -255,7 +299,7 @@ fn provable_packages(test_files: &[String], read: &PostImage<'_>) -> Option<BTre
 
 #[cfg(test)]
 mod tests {
-    use super::{Plan, Separable, plan};
+    use super::{DeletedFrom, Plan, Separable, partition, plan_with_base};
     use crate::causality::coverage::{Attributed, Coverage};
     use crate::causality::fixtures::{changed, changed_removing, manifest, tree};
     use crate::causality::scoped::Scan;
@@ -310,7 +354,7 @@ mod tests {
     #[test]
     fn no_changed_tests_means_nothing_to_prove() {
         let files = vec![changed("src/a.rs", 1, &["fn f() {}"])];
-        assert_eq!(plan(&files, &tree(&[]), &tree(&[])), Plan::NotRequired);
+        assert_eq!(plan_with_base(&files, &tree(&[]), &tree(&[])), Plan::NotRequired);
     }
 
     #[test]
@@ -331,9 +375,46 @@ mod tests {
         let read = tree(&[("crates/x/src/commands.rs", post_image)]);
         let base = tree(&[("crates/x/src/commands.rs", base_image)]);
         assert_eq!(
-            plan(&files, &read, &base),
-            Plan::DeletedTests(vec![String::from("crates/x/src/commands.rs")])
+            plan_with_base(&files, &read, &base),
+            Plan::DeletedTests(vec![DeletedFrom {
+                path: String::from("crates/x/src/commands.rs"),
+                tests: vec![String::from("existing")],
+            }])
         );
+    }
+
+    #[test]
+    fn a_file_that_adds_a_test_and_deletes_an_assert_elsewhere_is_still_deleted_tests() {
+        // B1: a file that ALSO adds a genuinely new `#[test]` must still be asked about the
+        // OTHER, pre-existing test it silently weakened.
+        let base_image = "#[test]\nfn old() {\n    assert!(true);\n}\n";
+        let post_image = "#[test]\nfn old() {\n}\n#[test]\nfn new() {\n    assert!(true);\n}\n";
+        let files = vec![changed_removing(
+            "crates/x/src/a.rs",
+            4,
+            &["#[test]", "fn new() {", "    assert!(true);", "}"],
+            3,
+            &["    assert!(true);"],
+        )];
+        let read = tree(&[("crates/x/src/a.rs", post_image)]);
+        let base = tree(&[("crates/x/src/a.rs", base_image)]);
+        assert_eq!(
+            plan_with_base(&files, &read, &base),
+            Plan::DeletedTests(vec![DeletedFrom {
+                path: String::from("crates/x/src/a.rs"),
+                tests: vec![String::from("old")],
+            }]),
+            "the new test does not excuse the deletion `old` suffered"
+        );
+    }
+
+    #[test]
+    fn partition_alone_never_answers_deleted_tests_whatever_the_diff_removed() {
+        // N6: `partition` has no base reader at all, so a removed line cannot reach
+        // `Plan::DeletedTests` through it - the type itself is the proof.
+        let files = vec![changed_removing("crates/x/src/a.rs", 2, &[], 3, &["    assert!(true);"])];
+        let read = tree(&[("crates/x/src/a.rs", "#[test]\nfn t() {\n}\n")]);
+        assert_eq!(partition(&files, &read), Plan::NotRequired);
     }
 
     #[test]
@@ -345,7 +426,7 @@ mod tests {
         let files = vec![changed_removing("crates/x/src/a.rs", 4, &[], 3, &["    // a comment"])];
         let read = tree(&[("crates/x/src/a.rs", post_image)]);
         let base = tree(&[("crates/x/src/a.rs", base_image)]);
-        assert_eq!(plan(&files, &read, &base), Plan::NotRequired);
+        assert_eq!(plan_with_base(&files, &read, &base), Plan::NotRequired);
     }
 
     #[test]
@@ -359,7 +440,7 @@ mod tests {
             ("crates/x/src/commands.rs", post_image),
             ("crates/x/Cargo.toml", &manifest("x")),
         ]);
-        match &plan(&files, &read, &read) {
+        match &plan_with_base(&files, &read, &read) {
             Plan::Separable(one) => {
                 assert!(one.revert.is_empty(), "nothing else changed: {:?}", one.revert);
                 assert_eq!(one.test_files, vec![String::from("crates/x/src/commands.rs")]);
@@ -379,7 +460,7 @@ mod tests {
             &["    fn unused_helper() -> u8 { 2 }"],
         )];
         let read = tree(&[("crates/x/src/commands.rs", post_image)]);
-        assert_eq!(plan(&files, &read, &read), Plan::NotRequired);
+        assert_eq!(plan_with_base(&files, &read, &read), Plan::NotRequired);
     }
 
     #[test]
@@ -390,19 +471,7 @@ mod tests {
         // before this decision that put the file straight into `impl_only`, and with no other test
         // file in the diff the whole answer was `Plan::NotRequired` - *no changed tests* over a
         // diff whose only change was to one.
-        let post_image = concat!(
-            "pub fn open_engine() -> u8 {\n",          // 1
-            "    2\n",                                 // 2
-            "}\n",                                     // 3
-            "#[cfg(test)]\n",                          // 4
-            "mod tests {\n",                           // 5
-            "    use super::open_engine;\n",           // 6
-            "    #[test]\n",                           // 7
-            "    fn existing() {\n",                   // 8
-            "        assert_eq!(open_engine(), 2);\n", // 9
-            "    }\n",                                 // 10
-            "}\n",                                     // 11
-        );
+        let post_image = "pub fn open_engine() -> u8 {\n    2\n}\n#[cfg(test)]\nmod tests {\n    use super::open_engine;\n    #[test]\n    fn existing() {\n        assert_eq!(open_engine(), 2);\n    }\n}\n";
         let files = vec![changed(
             "crates/x/src/commands.rs",
             9,
@@ -412,7 +481,7 @@ mod tests {
             ("crates/x/src/commands.rs", post_image),
             ("crates/x/Cargo.toml", &manifest("x")),
         ]);
-        match plan(&files, &read, &read) {
+        match plan_with_base(&files, &read, &read) {
             Plan::Separable(ref one) => {
                 assert!(one.revert.is_empty(), "nothing else changed: {:?}", one.revert);
                 assert_eq!(one.test_files, vec![String::from("crates/x/src/commands.rs")]);
@@ -431,7 +500,7 @@ mod tests {
             ("crates/x/src/a.rs", "// header\nfn fixed() -> u8 { 2 }\n"),
             ("crates/x/tests/t.rs", "#[test]\nfn t() {}\n"),
         ]);
-        match plan(&files, &read, &read) {
+        match plan_with_base(&files, &read, &read) {
             Plan::Separable(ref one) => {
                 assert_eq!(one.revert, vec![String::from("crates/x/src/a.rs")]);
                 assert_eq!(one.test_files, vec![String::from("crates/x/tests/t.rs")]);
@@ -451,7 +520,7 @@ mod tests {
             "crates/x/src/a.rs",
             "fn fixed() -> u8 { 2 }\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n",
         )]);
-        match plan(&files, &read, &read) {
+        match plan_with_base(&files, &read, &read) {
             Plan::NotSeparable { files, .. } => {
                 assert_eq!(files, vec![String::from("crates/x/src/a.rs")]);
             }
@@ -476,7 +545,7 @@ mod tests {
             ),
             ("xtask/src/main.rs", "mod workflows;\n"),
         ]);
-        match plan(&files, &read, &read) {
+        match plan_with_base(&files, &read, &read) {
             Plan::NotSeparable { files, .. } => {
                 assert_eq!(files, vec![String::from("xtask/src/workflows.rs")]);
             }
@@ -502,7 +571,7 @@ mod tests {
             ),
             ("crates/x/src/b.rs", "fn fixed() {}\n"),
         ]);
-        match plan(&files, &read, &read) {
+        match plan_with_base(&files, &read, &read) {
             Plan::Separable(ref one) => {
                 assert_eq!(one.revert, vec![String::from("crates/x/src/b.rs")]);
             }
@@ -512,32 +581,9 @@ mod tests {
 
     #[test]
     fn tests_appended_to_existing_test_modules_are_not_an_implementation_change() {
-        let commands = concat!(
-            "pub fn open_engine() -> u8 {\n",             // 1
-            "    1\n",                                    // 2
-            "}\n",                                        // 3
-            "#[cfg(test)]\n",                             // 4
-            "mod tests {\n",                              // 5
-            "    use super::open_engine;\n",              // 6
-            "    #[test]\n",                              // 7
-            "    fn existing() {}\n",                     // 8
-            "    use sutura_domain::model::TableName;\n", // 9
-            "    #[test]\n",                              // 10
-            "    fn added() {\n",                         // 11
-            "        let _ = TableName::parse(\"t\");\n", // 12
-            "    }\n",                                    // 13
-            "}\n",                                        // 14
-        );
-        let serve = concat!(
-            "fn main() {}\n",         // 1
-            "#[cfg(test)]\n",         // 2
-            "mod tests {\n",          // 3
-            "    #[test]\n",          // 4
-            "    fn existing() {}\n", // 5
-            "    #[test]\n",          // 6
-            "    fn added() {}\n",    // 7
-            "}\n",                    // 8
-        );
+        let commands = "pub fn open_engine() -> u8 {\n    1\n}\n#[cfg(test)]\nmod tests {\n    use super::open_engine;\n    #[test]\n    fn existing() {}\n    use sutura_domain::model::TableName;\n    #[test]\n    fn added() {\n        let _ = TableName::parse(\"t\");\n    }\n}\n";
+        let serve =
+            "fn main() {}\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn existing() {}\n    #[test]\n    fn added() {}\n}\n";
         let files = vec![
             changed(
                 "crates/sutura-cli/src/commands.rs",
@@ -556,7 +602,7 @@ mod tests {
             ("crates/sutura-cli/src/commands.rs", commands),
             ("crates/sutura-serve/src/main.rs", serve),
         ]);
-        match plan(&files, &read, &read) {
+        match plan_with_base(&files, &read, &read) {
             Plan::Separable(ref one) => {
                 assert!(one.revert.is_empty(), "no implementation changed: {:?}", one.revert);
                 assert!(
@@ -578,7 +624,7 @@ mod tests {
     #[test]
     fn a_non_rust_file_declares_no_test_whatever_it_contains() {
         let files = vec![changed("README.md", 1, &["#[test]"])];
-        assert_eq!(plan(&files, &tree(&[]), &tree(&[])), Plan::NotRequired);
+        assert_eq!(plan_with_base(&files, &tree(&[]), &tree(&[])), Plan::NotRequired);
     }
 
     #[test]
@@ -592,7 +638,7 @@ mod tests {
             ("crates/x/tests/documented.rs", "#[test]\nfn the_page_runs() {}\n"),
             ("crates/x/Cargo.toml", &manifest("x")),
         ]);
-        match plan(&files, &read, &read) {
+        match plan_with_base(&files, &read, &read) {
             Plan::Separable(ref one) => {
                 assert_eq!(
                     one.revert,
@@ -615,7 +661,7 @@ mod tests {
             ("crates/x/tests/t.rs", "#[test]\nfn uses_the_new_dependency() {}\n"),
             ("crates/x/Cargo.toml", &manifest("x")),
         ]);
-        match plan(&files, &read, &read) {
+        match plan_with_base(&files, &read, &read) {
             Plan::Separable(ref one) => {
                 assert!(one.revert.is_empty(), "a manifest is not revertible: {:?}", one.revert);
                 assert_eq!(one.build_inputs, vec![String::from("crates/x/Cargo.toml")]);
@@ -639,7 +685,7 @@ mod tests {
             "fn fixed() -> u8 { 2 }\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n",
         )]);
         assert_eq!(
-            plan(&files, &read, &read),
+            plan_with_base(&files, &read, &read),
             Plan::NotSeparable {
                 files: vec![String::from("crates/x/src/a.rs")],
                 build_inputs: vec![String::from("Cargo.lock")],
@@ -660,7 +706,7 @@ mod tests {
             ("crates/x/src/a.rs", "fn fixed() {}\n"),
             ("crates/x/Cargo.toml", &manifest("x")),
         ]);
-        match plan(&files, &read, &read) {
+        match plan_with_base(&files, &read, &read) {
             Plan::Separable(ref one) => {
                 assert_eq!(one.revert, vec![String::from("crates/x/src/a.rs")], "no manifest in here");
                 assert_eq!(
@@ -684,7 +730,7 @@ mod tests {
             1,
             &["    #[test]", "    fn allocates() {}"],
         )];
-        assert_eq!(plan(&files, &tree(&[]), &tree(&[])), Plan::NotRequired);
+        assert_eq!(plan_with_base(&files, &tree(&[]), &tree(&[])), Plan::NotRequired);
     }
 
     #[test]
@@ -711,7 +757,7 @@ mod tests {
             ("crates/x/src/definitions.rs", "fn changed() {}\n"),
             ("crates/x/tests/t.rs", "#[test]\nfn t() {}\n"),
         ]);
-        match plan(&files, &read, &read) {
+        match plan_with_base(&files, &read, &read) {
             Plan::Separable(ref one) => {
                 assert_eq!(one.revert, vec![String::from("crates/x/src/definitions.rs")]);
                 assert_eq!(one.test_files, vec![String::from("crates/x/tests/t.rs")]);
@@ -724,15 +770,7 @@ mod tests {
 
     #[test]
     fn a_cfg_test_helper_with_no_test_beside_it_adds_no_test() {
-        let tasks = concat!(
-            "pub(crate) fn recipe_names() -> u8 {\n",             // 1
-            "    1\n",                                            // 2
-            "}\n",                                                // 3
-            "#[cfg(test)]\n",                                     // 4
-            "pub(crate) fn recipe_body(name: &str) -> usize {\n", // 5
-            "    name.len()\n",                                   // 6
-            "}\n",                                                // 7
-        );
+        let tasks = "pub(crate) fn recipe_names() -> u8 {\n    1\n}\n#[cfg(test)]\npub(crate) fn recipe_body(name: &str) -> usize {\n    name.len()\n}\n";
         let files = vec![
             changed(
                 "xtask/src/tasks.rs",
@@ -751,7 +789,7 @@ mod tests {
             ("xtask/src/other.rs", "fn changed() {}\n"),
             ("xtask/Cargo.toml", &manifest("xtask")),
         ]);
-        assert_eq!(plan(&files, &read, &read), Plan::NotRequired);
+        assert_eq!(plan_with_base(&files, &read, &read), Plan::NotRequired);
     }
 
     #[test]
@@ -768,7 +806,7 @@ mod tests {
             ("xtask/Cargo.toml", &manifest("xtask")),
         ]);
         let helper = String::from("xtask/src/tasks.rs");
-        match plan(&files, &read, &read) {
+        match plan_with_base(&files, &read, &read) {
             Plan::Separable(ref one) => {
                 assert_eq!(one.test_only, vec![helper.clone()]);
                 assert_eq!(one.revert, vec![String::from("xtask/src/other.rs")]);
@@ -781,14 +819,7 @@ mod tests {
 
     #[test]
     fn a_cfg_test_helper_no_longer_decides_between_a_refusal_and_a_silent_pass() {
-        let inseparable_file = concat!(
-            "fn fixed() -> u8 { 2 }\n", // 1
-            "#[cfg(test)]\n",           // 2
-            "mod tests {\n",            // 3
-            "    #[test]\n",            // 4
-            "    fn t() {}\n",          // 5
-            "}\n",                      // 6
-        );
+        let inseparable_file = "fn fixed() -> u8 { 2 }\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n";
         let added = |texts: &[&str]| changed("crates/x/src/a.rs", 1, texts);
         let hunk = [
             "fn fixed() -> u8 { 2 }",
@@ -813,7 +844,7 @@ mod tests {
             changed("crates/x/src/helper.rs", 2, &["#[cfg(test)]", "fn helper() -> u8 { 1 }"]),
         ];
         assert_eq!(
-            plan(&with_helper, &read, &read),
+            plan_with_base(&with_helper, &read, &read),
             Plan::NotSeparable {
                 files: inseparable.clone(),
                 build_inputs: Vec::new(),
@@ -827,7 +858,7 @@ mod tests {
         // And the answer does not depend on the helper being there, which is the property that
         // was missing: the same diff without it plans identically.
         assert_eq!(
-            plan(&[added(&hunk)], &read, &read),
+            plan_with_base(&[added(&hunk)], &read, &read),
             Plan::NotSeparable {
                 files: inseparable,
                 build_inputs: Vec::new(),
@@ -846,7 +877,7 @@ mod tests {
             ("crates/x/src/other.rs", "fn changed() {}\n"),
             ("crates/x/Cargo.toml", &manifest("x")),
         ]);
-        let planned = plan(&files, &read, &read);
+        let planned = plan_with_base(&files, &read, &read);
         let Plan::Separable(ref one) = planned else {
             panic!("a test module declaration is a test file, got {planned:?}");
         };
@@ -906,7 +937,7 @@ mod tests {
             ),
             ("xtask/Cargo.toml", &manifest("xtask")),
         ]);
-        match plan(&files, &read, &read) {
+        match plan_with_base(&files, &read, &read) {
             Plan::Separable(ref one) => {
                 assert!(
                     one.revert.iter().any(|f| f == "xtask/src/default_features.rs"),
@@ -950,7 +981,7 @@ mod tests {
             ("crates/x/tests/t.rs", "#[test]\nfn t() {}\n"),
             ("crates/x/Cargo.toml", &manifest("x")),
         ]);
-        match plan(&files, &read, &read) {
+        match plan_with_base(&files, &read, &read) {
             Plan::Separable(ref one) => {
                 let pinned = String::from("crates/y/src/pinned.rs");
                 assert_eq!(one.held_back, vec![pinned.clone()], "unrelated held file stays held");
