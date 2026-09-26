@@ -52,6 +52,13 @@ pub enum CatalogKind {
     /// `sutura-catalog-okf` is an unconditional dependency of `sutura serve`, so this kind is
     /// openable by every build of this binary.
     Okf,
+    /// A directory of Open Data Contract Standard v3 contract documents, read by
+    /// `sutura-catalog-datacontract`.
+    ///
+    /// The on-disk vocabulary used when interface catalogues are exported as data-contract YAML.
+    /// `sutura-catalog-datacontract` is an unconditional dependency of `sutura serve`, so this kind
+    /// is openable by every build of this binary.
+    DataContract,
     /// An `OpenMetadata` deployment, decided by `sutura-catalog-openmetadata` over its own
     /// `SnapshotReader` port.
     ///
@@ -77,7 +84,7 @@ pub struct UnknownCatalogKind {
 
 impl CatalogKind {
     /// Every accepted spelling, so a message and the parser cannot disagree.
-    pub const NAMES: &'static [&'static str] = &["markdown", "datahub", "okf", "openmetadata", "rdbms"];
+    pub const NAMES: &'static [&'static str] = &["markdown", "datahub", "okf", "datacontract", "openmetadata", "rdbms"];
 
     /// Reads the configured word.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownCatalogKind> {
@@ -85,6 +92,7 @@ impl CatalogKind {
             "markdown" => Ok(Self::Markdown),
             "datahub" => Ok(Self::Datahub),
             "okf" => Ok(Self::Okf),
+            "datacontract" => Ok(Self::DataContract),
             "openmetadata" => Ok(Self::Openmetadata),
             "rdbms" => Ok(Self::Rdbms),
             other => Err(UnknownCatalogKind {
@@ -101,6 +109,7 @@ impl CatalogKind {
             Self::Markdown => "markdown",
             Self::Datahub => "datahub",
             Self::Okf => "okf",
+            Self::DataContract => "datacontract",
             Self::Openmetadata => "openmetadata",
             Self::Rdbms => "rdbms",
         }
@@ -484,7 +493,7 @@ mod tests {
     fn the_three_declaring_kinds_added_by_issue_970_parse_and_spell() {
         // `#970` added `okf`/`openmetadata`/`rdbms` to the closed vocabulary: adapters with a
         // crate and a recorded fixture and, at first, no composition root. Each parses and spells
-        // back its own word, and all five appear in `NAMES` so a refusal lists the whole set.
+        // back its own word, and all appear in `NAMES` so a refusal lists the whole set.
         for (kind, word) in [
             (CatalogKind::Okf, "okf"),
             (CatalogKind::Openmetadata, "openmetadata"),
@@ -494,6 +503,19 @@ mod tests {
             assert_eq!(kind.as_str(), word);
             assert!(CatalogKind::NAMES.contains(&word), "{word} is not in NAMES");
         }
+    }
+
+    #[test]
+    fn the_datacontract_kind_parses_and_spells() {
+        // `#973` added `datacontract` to the closed vocabulary, the same shape `#970`'s three
+        // kinds took above - kept as its own cell rather than folded into that one, so a future
+        // diff to either proves only what it touched.
+        assert_eq!(
+            CatalogKind::parse("datacontract").expect("datacontract is a kind"),
+            CatalogKind::DataContract
+        );
+        assert_eq!(CatalogKind::DataContract.as_str(), "datacontract");
+        assert!(CatalogKind::NAMES.contains(&"datacontract"));
     }
 
     #[test]

@@ -1452,6 +1452,11 @@ that exists in a record rather than in a linked crate is still a word an operato
   needs no service: one YAML document per table, on disk, like `Self::Markdown`.
   `sutura-catalog-okf` is an unconditional dependency of `sutura serve`, so this kind is
   openable by every build of this binary.
+- `DataContract` - A directory of Open Data Contract Standard v3 contract documents, read by `sutura-catalog-datacontract`.
+
+  The on-disk vocabulary used when interface catalogues are exported as data-contract YAML.
+  `sutura-catalog-datacontract` is an unconditional dependency of `sutura serve`, so this kind
+  is openable by every build of this binary.
 - `Openmetadata` - An `OpenMetadata` deployment, decided by `sutura-catalog-openmetadata` over its own `SnapshotReader` port.
 
   **Openable behind `sutura-cli`'s default-off `openmetadata` feature; a build without it

@@ -290,6 +290,7 @@ jobs:
       catalog_local: ${{ steps.classify.outputs.catalog_local }}
       catalog_datahub: ${{ steps.classify.outputs.catalog_datahub }}
       catalog_okf: ${{ steps.classify.outputs.catalog_okf }}
+      catalog_datacontract: ${{ steps.classify.outputs.catalog_datacontract }}
       catalog_openmetadata: ${{ steps.classify.outputs.catalog_openmetadata }}
       catalog_rdbms: ${{ steps.classify.outputs.catalog_rdbms }}
       catalog_wren: ${{ steps.classify.outputs.catalog_wren }}

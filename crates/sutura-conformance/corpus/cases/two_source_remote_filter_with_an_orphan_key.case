@@ -1,0 +1,12 @@
+# A filter in the lookup leg over a fact table holding an orphan (the null region). A left join
+# would add a null row the filter never asked for; only `Eastern` survives.
+name: two-source-remote-filter-with-an-orphan-key
+metric: amount_total
+aggregate: sum
+column: amount_cents
+keys: region_name
+lookup: conformance_regions
+lookup_filter: region_name = Eastern
+rows:
+text:Eastern	text:2026-01-01	int:350
+text:Eastern	text:2026-01-02	int:150

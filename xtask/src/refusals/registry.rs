@@ -33,8 +33,17 @@ const QUERY: Subject = Subject {
     // under `FederationLinkAmbiguous`, which means two RELATIONSHIPS crossing at once and would
     // tell a caller something untrue about one correctly declared compound key. 26:
     // `github.com/telekom/sutura#968` added `MetricsSpanDifferentModels` and
-    // `MultiMetricNotExecutable` for a question naming more than one metric.
-    variants: variants(26),
+    // `MultiMetricNotExecutable` for a question naming more than one metric. 27: this diff
+    // removed `MultiMetricNotExecutable` (every multi-metric question that shares model, time,
+    // grain and dimensions now executes as one grouped statement) and added `TooManyMetrics` (the
+    // count over `MAX_METRICS`, checked before any agreement) and `DuplicateMetricName` (a metric
+    // named twice, refused rather than de-duplicated) - a net of +1 over the 26 above. 28: this
+    // diff also added `MultiMetricFederationNotExecutable` - a multi-metric question that also
+    // reaches a remote dimension is refused by name rather than silently planned as a federated
+    // answer over only the first metric named. 29: this diff also added
+    // `MultiMetricTopNotExecutable` - `top` names no metric to rank by, and this build's two
+    // rendering paths disagreed about which measure it meant once there was more than one.
+    variants: variants(29),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

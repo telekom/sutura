@@ -217,7 +217,7 @@ impl Warehouse for RecordingWarehouse {
         self.seen
             .lock()
             .expect("a deadlocked or poisoned test recorder is a failure")
-            .push(String::from(plan.metric().as_str()));
+            .push(String::from(plan.measures().first().metric().as_str()));
         // One row of nothing, shaped so `RowSet::new` accepts it. A fake that returned plausible
         // numbers would invite a test to assert on them, and those numbers would be this file's
         // opinion rather than a data system's.
@@ -312,7 +312,7 @@ impl Warehouse for CertifiedNumbers {
         // Labelled after the plan's metric, because that is the column an anchor check looks for. A
         // metric this fake holds no number for answers nothing, which reads as a mismatch rather
         // than as a pass.
-        let label = String::from(plan.metric().as_str());
+        let label = String::from(plan.measures().first().metric().as_str());
         let value = self.numbers.get(&label).cloned().unwrap_or_default();
         Ok(canned(
             &RowSet::new(vec![label], vec![vec![Value::Text(value)]]).expect("one column and one cell is rectangular"),
@@ -413,7 +413,8 @@ impl Warehouse for WideResult {
         // plausible numbers would invite an assertion about them.
         let rows = vec![vec![Value::Integer(1)]; self.rows];
         Ok(canned(
-            &RowSet::new(vec![String::from(plan.metric().as_str())], rows).expect("one column and one cell per row"),
+            &RowSet::new(vec![String::from(plan.measures().first().metric().as_str())], rows)
+                .expect("one column and one cell per row"),
         ))
     }
 
@@ -474,7 +475,11 @@ impl Warehouse for HeavyResult {
         let plan = whole_plan(executable);
         let cell = Value::Text("x".repeat(self.bytes));
         Ok(canned(
-            &RowSet::new(vec![String::from(plan.metric().as_str())], vec![vec![cell]]).expect("one column and one row"),
+            &RowSet::new(
+                vec![String::from(plan.measures().first().metric().as_str())],
+                vec![vec![cell]],
+            )
+            .expect("one column and one row"),
         ))
     }
 

@@ -1,0 +1,9 @@
+metrics: [mean_subscription_mrr, subscription_base]
+grain: month
+range:
+  start: 2026-06-01
+  end: 2026-07-01
+top:
+  n: 3
+  by: metric
+  direction: desc

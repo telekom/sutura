@@ -1,4 +1,4 @@
-metrics: [recurring_revenue, mean_subscription_mrr]
+metrics: [recurring_revenue, recurring_revenue]
 grain: month
 range:
   start: 2026-06-01

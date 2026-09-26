@@ -355,6 +355,100 @@ fn a_provenance_carries_a_mixed_execution_record_and_names_which_leg_ran_as_what
     );
 }
 
+/// `provenance_for` names each metric's own digest, in the order the caller listed them - not the
+/// bundle's own digest repeated, and not the metrics' own alphabetical or declared order.
+#[test]
+fn provenance_for_carries_one_digest_per_metric_in_request_order() {
+    let column = |raw: &str| ColumnName::parse(raw).expect("a test column is a column");
+    let model = Model::new(
+        ModelName::parse("orders").expect("a test model is a model"),
+        SourceName::parse("local").expect("a test source is a source"),
+        TableName::parse("orders").expect("a test table is a table"),
+        BTreeSet::from([column("amount_cents"), column("customer_key"), column("order_date")]),
+        Description::default(),
+    );
+    let revenue = Metric::new(
+        metric_name("revenue"),
+        ModelName::parse("orders").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        None,
+        Description::default(),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate");
+    let customers = Metric::new(
+        metric_name("customers"),
+        ModelName::parse("orders").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+            Aggregate::CountDistinct,
+            column("customer_key"),
+        ))),
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        None,
+        Description::default(),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate");
+    let pinned =
+        pin(Definitions::assemble(vec![model], vec![], vec![revenue, customers]).expect("the test bundle is consistent"));
+
+    let executed_as = |source: &str| {
+        ExecutedAs::of(
+            SourceName::parse(source).expect("a test source is a source"),
+            SourcePosture::SharedServiceUser {
+                declared: crate::source::SharedIdentityDeclared::of(
+                    crate::source::AcknowledgementReason::parse("a test source read in this process")
+                        .expect("a test reason is a reason"),
+                ),
+            },
+        )
+    };
+
+    let asked = [metric_name("customers"), metric_name("revenue")];
+    let provenance = pinned
+        .provenance_for(executed_as("local"), asked.iter())
+        .expect("both metrics are defined");
+
+    let names: Vec<&str> = provenance
+        .metric_digests()
+        .iter()
+        .map(|entry| entry.metric().as_str())
+        .collect();
+    assert_eq!(
+        names,
+        vec!["customers", "revenue"],
+        "request order, not declared or alphabetical order"
+    );
+
+    let digests: Vec<&DefinitionDigest> = provenance.metric_digests().iter().map(super::MetricDigest::digest).collect();
+    assert_ne!(
+        digests[0], digests[1],
+        "two different metrics' own canonical forms must not hash the same"
+    );
+    assert_ne!(
+        digests[0],
+        provenance.digest(),
+        "a metric's own digest is not the whole bundle's digest repeated"
+    );
+
+    // The same metric, asked again in the request, gets the same digest back - not a fresh hash
+    // that happens to agree, the SAME computation over the SAME canonical form.
+    let again = pinned
+        .provenance_for(executed_as("local"), core::iter::once(&metric_name("revenue")))
+        .expect("revenue is defined");
+    assert_eq!(
+        again.metric_digests().first().map(super::MetricDigest::digest),
+        Some(digests[1])
+    );
+}
+
 #[test]
 fn the_digest_a_bundle_carries_is_computed_from_the_definitions_it_holds() {
     // The bug this closes, in two steps, because the first fix did not close it.

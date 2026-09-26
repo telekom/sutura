@@ -670,7 +670,7 @@ mod corpus_shape {
     fn a_sum_in_the_corpus_answers_a_real_number() {
         let found = corpus::cases().iter().any(|case| {
             let sums = matches!(
-                *case.plan().measure(),
+                *case.plan().measures().first().measure(),
                 PlanMeasure::Simple {
                     term: PlanTerm::Aggregate {
                         aggregate: Aggregate::Sum,

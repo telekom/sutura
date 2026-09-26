@@ -21,13 +21,13 @@
 //! exhaustive.
 
 use crate::calendar::TimeRange;
-use crate::catalog::Anchor;
 use crate::measure::{Measure, RequiredFilter, Term, ZeroDenominator};
 use crate::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, QualifiedTable, RelationshipName, SourceName, TableName};
-use crate::pinned::PinnedDefinitions;
 use crate::query::Top;
 use crate::warehouse::ParamValue;
 
+use crate::nonempty::NonEmpty;
+mod anchor;
 pub mod bindings;
 pub mod federated;
 pub mod label;
@@ -37,6 +37,7 @@ pub mod tables;
 #[cfg(test)]
 mod anchor_tests;
 
+pub use crate::plan::anchor::{AnchorPlan, NotAnAnchorsPlan};
 pub use crate::plan::bindings::{IncoherentBindings, PlanBindings};
 pub use crate::plan::federated::{
     AnswerKey, FederatedAnswerRefusal, FederatedPlan, FederatedPlanError, FederationCombiner, InternalLabel, LegResult, LegSide,
@@ -407,6 +408,64 @@ pub enum PlanMeasure {
     },
 }
 
+/// One metric's share of a query's select list, and its own definitional guard.
+///
+/// A multi-metric question answers one grouped statement with one certified column per metric.
+/// Each column is that metric's measure, computed only over the rows its OWN required filters
+/// admit - and that restriction is folded into the measure's conditional aggregation rather than
+/// into the shared `WHERE`, because a `WHERE` applies to every column at once and would let one
+/// [`PlanPredicate`]s - its own required filters - that renderers fold into the aggregate, so
+/// none of them leaks into another metric's column. [`QueryPlan::measures`] holds one of these
+/// per named metric, in the order the question gave them.
+///
+/// The label is a [`ResultLabel`], so a metric name cannot arrive here as text - the same carrier
+/// argument `telekom/sutura#337` makes for a dimension key.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct PlannedMeasure {
+    metric: MetricName,
+    label: ResultLabel,
+    measure: PlanMeasure,
+    guard: Vec<PlanPredicate>,
+}
+
+impl PlannedMeasure {
+    /// One metric's measure, labelled and bound by its own definitional guard.
+    ///
+    /// `guard` holds this metric's own REQUIRED filters - the predicates that say what this metric
+    /// counts. The shared time range, being the same for every metric, stays in the plan's shared
+    /// `WHERE`; only the per-metric required filters are folded into the conditional aggregate, so
+    /// one metric's filter cannot constrain another's column. A metric with no required filters
+    /// carries an empty guard and computes over every row in range.
+    #[must_use]
+    pub const fn new(metric: MetricName, label: ResultLabel, measure: PlanMeasure, guard: Vec<PlanPredicate>) -> Self {
+        Self {
+            metric,
+            label,
+            measure,
+            guard,
+        }
+    }
+    #[inline]
+    pub const fn metric(&self) -> &MetricName {
+        &self.metric
+    }
+
+    #[inline]
+    pub fn label(&self) -> &str {
+        self.label.as_str()
+    }
+
+    #[inline]
+    pub const fn measure(&self) -> &PlanMeasure {
+        &self.measure
+    }
+
+    /// This metric's own definitional guard predicates, in render order.
+    #[inline]
+    pub fn guard(&self) -> &[PlanPredicate] {
+        &self.guard
+    }
+}
 /// One predicate in the plan's filter, and which parameter carries its value.
 ///
 /// The parameter index is recorded rather than implied by position, so a reader of a plan can see
@@ -550,13 +609,11 @@ impl PlanFilter {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct QueryPlan {
     source: SourceName,
-    metric: MetricName,
+    measures: NonEmpty<PlannedMeasure>,
     table: QualifiedTable,
     joins: Vec<PlanJoin>,
     bucket: PlanBucket,
     keys: Vec<PlanKey>,
-    measure: PlanMeasure,
-    measure_label: ResultLabel,
     filters: Vec<PlanFilter>,
     params: Vec<ParamValue>,
     range: TimeRange,
@@ -579,6 +636,11 @@ impl QueryPlan {
     ///   plan holds a predicate that binds a parameter it does not carry, or binds one out of the
     ///   order a positional placeholder gives it. [`crate::plan::bindings`] argues what each adapter
     ///   does with the incoherent pair, and why the check cannot live on the index.
+    ///
+    /// A single-metric convenience over [`Self::with_measures`], so every existing caller (and the
+    /// serialized form of the overwhelmingly common one metric) keeps its shape. The wrapped
+    /// [`PlannedMeasure`] carries an empty guard - this metric's required filters stay in the shared
+    /// `WHERE`, which is correct when there is exactly one column for them to constrain.
     pub fn new(
         source: SourceName,
         metric: MetricName,
@@ -590,21 +652,70 @@ impl QueryPlan {
         bindings: PlanBindings,
         range: TimeRange,
     ) -> Self {
+        let primary = PlannedMeasure::new(metric, measure_label, measure, Vec::new());
+        Self::with_measures(source, NonEmpty::one(primary), tables, bucket, keys, bindings, range)
+    }
+
+    /// One statement's worth of decisions over several metrics.
+    ///
+    /// [`Self::new`]'s general form: `measures` holds one [`PlannedMeasure`] per named metric, in
+    /// the order the question gave them. Each metric's own required filters live in that measure's
+    /// guard (folded into its conditional aggregate), so none of them constrains a column that is
+    /// not its own.
+    ///
+    /// **`bindings` carries the whole statement's parameters, guards first.** A metric's guard
+    /// predicates render inside its measure column - which appears in the `SELECT` before the
+    /// `WHERE` - so on a positional dialect their placeholders come before the range and requested
+    /// ones. The caller therefore hands this constructor `PlanBindings` whose filter list is the
+    /// union `[every metric's guards][range, requested]` and whose parameter list matches; this
+    /// constructor validates the union through [`PlanBindings::parse`] machinery the caller already
+    /// ran, then stores only the shared tail as the plan's `filters` (what a `WHERE` emits) while
+    /// keeping the full `params`. The guard predicates themselves stay on their [`PlannedMeasure`]s,
+    /// which is where a renderer reads them for the `SELECT`.
+    pub fn with_measures(
+        source: SourceName,
+        measures: NonEmpty<PlannedMeasure>,
+        tables: StatementTables,
+        bucket: PlanBucket,
+        keys: Vec<PlanKey>,
+        bindings: PlanBindings,
+        range: TimeRange,
+    ) -> Self {
         // Both sets are taken apart rather than stored whole, so the serialized form a golden pins is
         // unchanged by either guard existing. What the arguments buy is that there is no way in here
         // for a set either one refuses.
-        let (table, joins) = tables.into_parts();
-        let (filters, params) = bindings.into_parts();
+        let (guard_count, table, joins) = {
+            let (table, joins) = tables.into_parts();
+            let guard_count: usize = measures.iter().map(|m| m.guard().len()).sum();
+            (guard_count, table, joins)
+        };
+        let (mut filters, params) = bindings.into_parts();
+        // The shared tail is everything after every guard. The union's contiguity is what
+        // `PlanBindings::parse` held when the caller built it, so splitting by the guard count and
+        // no more is the same split the renderers' placeholder order assumes.
+        //
+        // **Held by this assertion, not by recall alone.** A caller that miscounted (or misordered)
+        // the guards-first union would otherwise either panic here (`split_off` past the end) or,
+        // worse, silently misplace a required filter into the shared tail - exactly the leak this
+        // whole type exists to prevent. `debug_assert!` rather than a `Result`: the two producers of
+        // this union are both in this workspace (`sutura_semantic::plan::guards_and_shared` is the
+        // only one today), so a violation is a defect in OUR OWN code, not a caller's, and a
+        // panicking constructor for that class is this crate's own established shape (`QueryPlan::new`
+        // stays infallible over caller-facing input; this is a debug-only self-check on top of it).
+        debug_assert!(
+            guard_count <= filters.len(),
+            "with_measures: the union carries {} filter(s), fewer than the {guard_count} the measures' own guards need",
+            filters.len()
+        );
+        let shared = filters.split_off(guard_count.min(filters.len()));
         Self {
             source,
-            metric,
+            measures,
             table,
             joins,
             bucket,
             keys,
-            measure,
-            measure_label,
-            filters,
+            filters: shared,
             params,
             range,
             max_rows: MAX_ROWS,
@@ -635,9 +746,8 @@ impl QueryPlan {
         &self.source
     }
 
-    #[inline]
-    pub const fn metric(&self) -> &MetricName {
-        &self.metric
+    pub const fn measures(&self) -> &NonEmpty<PlannedMeasure> {
+        &self.measures
     }
 
     /// Where the table lives: the whole path, which is what the `FROM` clause names.
@@ -668,17 +778,6 @@ impl QueryPlan {
     pub fn keys(&self) -> &[PlanKey] {
         &self.keys
     }
-
-    #[inline]
-    pub const fn measure(&self) -> &PlanMeasure {
-        &self.measure
-    }
-
-    #[inline]
-    pub fn measure_label(&self) -> &str {
-        self.measure_label.as_str()
-    }
-
     #[inline]
     pub fn filters(&self) -> &[PlanFilter] {
         &self.filters
@@ -727,7 +826,7 @@ impl QueryPlan {
     pub fn result_labels(&self) -> Vec<String> {
         let mut labels: Vec<String> = self.keys.iter().map(|k| String::from(k.label())).collect();
         labels.push(String::from(self.bucket.label()));
-        labels.push(String::from(self.measure_label.as_str()));
+        labels.extend(self.measures.iter().map(|m| String::from(m.label())));
         labels
     }
 
@@ -760,185 +859,33 @@ impl QueryPlan {
         Ok(self)
     }
 
-    /// Every parameter a definitional predicate binds.
+    /// Every parameter a definitional predicate binds - the shared `WHERE`'s AND, for a
+    /// multi-metric plan, every measure's own guard.
     ///
     /// Used by the golden that asserts a required filter is bound rather than written into the
-    /// statement.
+    /// statement. A single-metric plan's required filters are the shared `WHERE` half alone,
+    /// exactly as before this method's second half existed; a multi-metric plan's are folded into
+    /// each measure's guard instead (`PlannedMeasure::guard`) and would otherwise never be checked
+    /// - the same "a shorter list passes" gap this method's own history already records once.
     pub fn definitional_params(&self) -> Vec<&ParamValue> {
-        self.filters
+        let shared = self
+            .filters
             .iter()
             .filter(|f| matches!(f.origin(), PredicateOrigin::Definition))
-            .filter_map(|f| f.predicate().param())
+            .filter_map(|f| f.predicate().param());
+        let guards = self
+            .measures
+            .iter()
+            .flat_map(|m| m.guard().iter())
+            .filter_map(PlanPredicate::param);
+        shared
+            .chain(guards)
             // `get` rather than an index because `indexing_slicing` is denied, and it drops nothing:
             // every index a filter of this plan carries resolves, because the pair was parsed as
             // `PlanBindings` before the plan existed. It used to drop, and the golden that reads this
             // list passed on the shorter one - `crate::plan::bindings` is where that is argued.
             .filter_map(|index| self.params.get(index))
             .collect()
-    }
-}
-
-/// The one thing [`Warehouse::verify_anchor`](crate::warehouse::Warehouse::verify_anchor) accepts:
-/// a plan the pinned bundle itself agrees is one of its anchors' own.
-///
-/// # What this type is, and what it is not
-///
-/// **It is a self-check on the boot path, and it is NOT an authority.** That distinction is the whole
-/// of what a second review corrected, and getting it wrong once put a false sentence in ten places
-/// across seven files - `docs/adr/0008`'s second amendment to its correction 2 lists them. [`Warehouse::execute`](crate::warehouse::Warehouse::execute) cannot be called without a
-/// [`Presented`](crate::identity::Presented); `verify_anchor` deliberately takes no credential,
-/// because there is no caller at boot, and it therefore runs under whatever identity the deployment
-/// configured that adapter with. So the question is what bounds its INPUT.
-///
-/// [`Self::of`] answers "did the boot path compile the question it meant to" and nothing stronger.
-/// The plan has to compute a metric **this bundle** defines, that metric has to declare an anchor,
-/// and the plan has to be that anchor's own question: the metric's coarsest declared grain, exactly
-/// the range the anchor certifies, no group-by keys, and no predicate a question asked for. Every one
-/// of those facts is read off the [`PinnedDefinitions`] rather than accepted as an argument, which is
-/// what makes the check worth making - a caller no longer supplies the anchor it will be compared
-/// against.
-///
-/// **What it cannot do is stop code that wants to.** Every value it reads is publicly constructible -
-/// [`QueryPlan::new`], [`PinnedDefinitions::pin`], the metric and range types - and Rust has no
-/// cross-crate friend visibility, so a constructor `sutura-app` can call is a constructor anything in
-/// the workspace can call. A reviewer defeated the previous version of this type in one function by
-/// fabricating the tuple it took, and the fix for that class is not a fifth guard: a shape check over
-/// caller-constructible values can only ever be a shape check.
-///
-/// # So what makes the credential-free path boot-only
-///
-/// A lint, and it is named here rather than implied: `clippy.toml` bans
-/// `sutura_domain::warehouse::Warehouse::verify_anchor`, verified to resolve by writing the call and
-/// watching clippy reject it. `sutura_app::verify_anchors` holds the single `#[expect]`, so a second
-/// call site is an error under `-D warnings` until somebody writes a second expectation a reviewer
-/// sees in the diff. That is the same mechanism the ban on the panicking fragment API and the ban on a
-/// bare `spawn_blocking` already rest on. **Its limit is that a lint is not a type:** it reaches this
-/// workspace and not a crate outside it, and an `#[allow]` walks past it.
-///
-/// A genuinely closed constructor is not available. The domain cannot compile a plan - compilation is
-/// `sutura-semantic`'s and dependencies point inward - and a token only `sutura-app`'s private `proof`
-/// module could mint would have to be constructible from `sutura-domain`, which is the same public
-/// door one level down. `docs/adr/0008`'s own corrections are the precedent for saying this rather
-/// than implying more.
-#[derive(Debug)]
-pub struct AnchorPlan<'bundle> {
-    plan: &'bundle QueryPlan,
-}
-
-/// A plan that is not a declared anchor's own, so the boot path did not compile what it meant to.
-///
-/// **An error and not a refusal**: reaching it means the boot path compiled something other than the
-/// anchor's question, which is a defect here rather than anything about a caller.
-///
-/// `Serialize` for [`crate::pinned::NotExecutedReason::NotAnAnchor`]'s reason: a boot report
-/// serializes the whole reason tree, and D10 stopped that variant from flattening this into a
-/// string first.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, thiserror::Error)]
-pub enum NotAnAnchorsPlan {
-    /// The plan computes a different metric from the one whose anchor it would be checked against.
-    #[error("this plan computes `{plan}` and the anchor certifies `{anchor}`")]
-    NotThatMetric { plan: MetricName, anchor: MetricName },
-    /// The bundle this plan is checked against does not define the metric at all.
-    #[error("this bundle defines no metric `{metric}`, so it has no anchor to be the plan of")]
-    MetricNotDefined { metric: MetricName },
-    /// The metric is defined and declares no certified number, so there is no anchor to be a plan of.
-    #[error("`{metric}` declares no anchor, so no plan of it is an anchor's")]
-    DeclaresNoAnchor { metric: MetricName },
-    /// The plan groups by something. An anchor is a metric's own number, not a slice of it.
-    #[error("an anchor's plan groups by nothing, and this one groups by {keys}")]
-    Grouped { keys: usize },
-    /// The plan carries a predicate a question asked for, which an anchor's plan never does.
-    #[error("an anchor's plan carries only the metric's own predicates, and this one carries a requested one")]
-    Requested,
-    /// The plan buckets at a finer grain than the metric's coarsest, so it returns a series.
-    ///
-    /// **The gap a second review found**, and the reason it is not cosmetic: an anchor certifies one
-    /// number, and a plan at `Day` grain over the anchor's range comes back as one row per day. The
-    /// comparison downstream insists on exactly one row, so this arrived as a mismatch that reads like
-    /// a broken definition - and a plan that returns a series is strictly more than the number the
-    /// bundle already publishes.
-    ///
-    /// `coarsest` is an [`Option`] because a set can be empty, and the empty case is folded in here
-    /// rather than given a variant of its own: [`Definitions::assemble`](crate::catalog::Definitions)
-    /// refuses a metric that declares no grain, so a separate variant would be one no test could
-    /// provoke - and this crate's rule is that an enum does not carry one of those.
-    #[error(
-        "an anchor of `{metric}` is asked at {} and this plan buckets at {plan}",
-        .coarsest.map_or("no grain it declares", Grain::as_str)
-    )]
-    NotTheCoarsestGrain {
-        metric: MetricName,
-        plan: Grain,
-        coarsest: Option<Grain>,
-    },
-    /// The plan's range is not the range the anchor's author certified.
-    #[error("the anchor certifies {anchor} and this plan covers {plan}")]
-    NotTheAnchorsRange { plan: TimeRange, anchor: TimeRange },
-}
-
-impl<'bundle> AnchorPlan<'bundle> {
-    /// Parses a plan as one of `pinned`'s own anchors', reading every fact it compares off the bundle.
-    ///
-    /// Takes the metric's name as well as the bundle, because the bundle holds many anchors and the
-    /// caller is asserting *which* one this plan is of - so the first check is that the plan agrees.
-    /// Everything after that is the bundle's own statement about that metric.
-    ///
-    /// **It does not take a `sutura_app::Validated` bundle, and it cannot:** validating a bundle is
-    /// what this call is part of, so the proof does not exist yet. That is one more reason the type is
-    /// a self-check rather than an authority.
-    ///
-    /// The order of the checks is chosen for the diagnostic rather than for cost - every input is
-    /// already bounded and in memory. Which metric, then what the bundle says about that metric, then
-    /// the two shapes only a question has, then the two values an anchor's own question pins.
-    pub fn of(plan: &'bundle QueryPlan, pinned: &PinnedDefinitions, metric: &MetricName) -> Result<Self, NotAnAnchorsPlan> {
-        if plan.metric() != metric {
-            return Err(NotAnAnchorsPlan::NotThatMetric {
-                plan: plan.metric().clone(),
-                anchor: metric.clone(),
-            });
-        }
-        let definition = pinned
-            .definitions()
-            .metric(metric)
-            .ok_or_else(|| NotAnAnchorsPlan::MetricNotDefined { metric: metric.clone() })?;
-        let anchor: &Anchor = definition
-            .anchor()
-            .ok_or_else(|| NotAnAnchorsPlan::DeclaresNoAnchor { metric: metric.clone() })?;
-        // The coarsest grain the metric declares, because that is the one grain at which the anchor's
-        // range yields a single number. Read here rather than passed in: a caller-supplied grain is a
-        // caller-supplied answer to the question this check is asking.
-        let coarsest = definition.grains().iter().copied().max();
-        if !plan.keys().is_empty() {
-            return Err(NotAnAnchorsPlan::Grouped { keys: plan.keys().len() });
-        }
-        if plan
-            .filters()
-            .iter()
-            .any(|filter| matches!(filter.origin(), PredicateOrigin::Requested))
-        {
-            return Err(NotAnAnchorsPlan::Requested);
-        }
-        if coarsest != Some(plan.bucket().grain()) {
-            return Err(NotAnAnchorsPlan::NotTheCoarsestGrain {
-                metric: metric.clone(),
-                plan: plan.bucket().grain(),
-                coarsest,
-            });
-        }
-        if plan.range() != anchor.range() {
-            return Err(NotAnAnchorsPlan::NotTheAnchorsRange {
-                plan: plan.range(),
-                anchor: anchor.range(),
-            });
-        }
-        Ok(Self { plan })
-    }
-
-    /// The plan, for the adapter that has to execute it.
-    #[inline]
-    #[must_use]
-    pub const fn plan(&self) -> &QueryPlan {
-        self.plan
     }
 }
 

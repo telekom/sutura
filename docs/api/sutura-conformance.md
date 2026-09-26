@@ -653,13 +653,14 @@ cases were values in this module. The fixture table (`corpus/conformance_events.
 precedent: a tracked data file read at compile time, served from the file rather than from a
 copied constant.
 
-# What this corpus does NOT contain, stated so nobody reads it as the whole suite
+# The federated cases, and the one adapter pair that runs them
 
-- **The three cases `docs/adr/0012` names** - a filter on a remote dimension over an orphan key,
-  a ratio whose denominator is zero for one subgroup, and a `CountDistinct` spanning two join
-  keys. `federated_cases` holds one federated plan, a plain sum over a second table, and none
-  of the three. It is a value in this module, not a file: the `.case` loader reads no federated
-  plan.
+The three cases `docs/adr/0012` names - a filter on a remote dimension over an orphan key, a
+ratio whose denominator is zero for one subgroup, and a `CountDistinct` spanning two join keys -
+are `.case` files too. `federated_cases` holds the two with an answer; the `CountDistinct` one
+is refused by `FederatedPlan::new` and asserted as that refusal, since there is no plan to
+execute. Only `tests/federated_bound.rs` binds the two-warehouse arm, over two in-process
+engines of ONE kind, so these rows say nothing yet about any other adapter.
 
 # Null placement in a group key: decided, and what the null row does and does NOT detect
 
@@ -979,11 +980,7 @@ The one leg in the corpus.
 pub fn federated_cases() -> Vec<FederatedCase>
 ```
 
-Every federated question in the corpus: one, hand-built.
-
-`total-by-region-and-day`'s sum, with the region's display name read off a lookup table on a
-second source. The null region has no lookup row and survives the join because the plan
-includes unmatched fact rows.
+Every federated question in the corpus with an answer, read from its `.case` file.
 
 ### `constant TABLE`
 

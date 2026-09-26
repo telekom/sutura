@@ -219,6 +219,78 @@ pub(crate) fn measure_expression(measure: &PlanMeasure) -> Result<Expr, DataFusi
     }
 }
 
+/// One guarded measure, as one expression.
+///
+/// The conditional-aggregation guard: a metric's own required filters must not
+/// constrain another metric's column, so rather than a shared `WHERE` the guard is
+/// folded into this measure's aggregate - every row outside the guard falls through
+/// to `NULL` (or `0`, for a [`PlanTerm::CountIf`]) and so counts against nothing.
+/// `gate` is [`guard`]'s output: `Some` only when the measure has one.
+pub(crate) fn guarded_measure_expression(measure: &PlanMeasure, gate: Option<Expr>) -> Result<Expr, DataFusionError> {
+    let Some(gate) = gate else {
+        return measure_expression(measure);
+    };
+    let gate = &gate;
+    match *measure {
+        PlanMeasure::Simple { ref term } => guarded_term_expression(term, gate),
+        PlanMeasure::Ratio {
+            ref numerator,
+            ref denominator,
+            zero_denominator,
+        } => {
+            let top = cast(guarded_term_expression(numerator, gate)?, DataType::Float64);
+            let bottom = guarded_term_expression(denominator, gate)?;
+            let bottom = match zero_denominator {
+                ZeroDenominator::Null => nullif(cast(bottom, DataType::Float64), lit(0.0_f64)),
+                ZeroDenominator::Fail => bottom,
+            };
+            Ok(top / bottom)
+        }
+    }
+}
+
+/// One guarded term, as one expression: the term's own aggregate over only the rows
+/// the gate admits.
+fn guarded_term_expression(term: &PlanTerm, gate: &Expr) -> Result<Expr, DataFusionError> {
+    match *term {
+        PlanTerm::Aggregate {
+            aggregate: kind,
+            column: ref plan_column,
+        } => {
+            let gated = when(gate.clone(), column(plan_column))
+                .otherwise(lit(ScalarValue::Null))
+                .map_err(|cause| DataFusionError::Build { cause })?;
+            Ok(aggregate_expr(kind, gated))
+        }
+        PlanTerm::CountIf { column: ref plan_column } => {
+            // `COUNT` so a guarded `SUM(CASE WHEN col THEN 1 ELSE 0 END)` stays a count
+            // of the rows both the gate AND the column admit - identical shape to the
+            // unguarded [`term_expression`]'s branch, now under the guard too.
+            let branch = when(gate.clone().and(column(plan_column).is_true()), lit(1_i64))
+                .otherwise(lit(0_i64))
+                .map_err(|cause| DataFusionError::Build { cause })?;
+            Ok(sum(branch))
+        }
+    }
+}
+
+/// A measure's own definitional guard, `ANDed` into one boolean expression.
+///
+/// `None` when the measure has no guard. A single-metric plan's one measure always
+/// carries an empty guard (its required filters live in the shared `WHERE`), so a
+/// renderer that can see several measures asks for the guard rather than assuming
+/// one. Each predicate binds its value through the same index-resolution the plain
+/// [`predicate`] uses, which is why this takes the parameter list too.
+pub(crate) fn guard(params: &[ParamValue], plan_predicates: &[PlanPredicate]) -> Result<Option<Expr>, DataFusionError> {
+    let mut iter = plan_predicates.iter();
+    let Some(first) = iter.next() else { return Ok(None) };
+    let mut expr = predicate(params, first)?;
+    for next in iter {
+        expr = expr.and(predicate(params, next)?);
+    }
+    Ok(Some(expr))
+}
+
 /// One predicate, with its value resolved by the index the plan recorded.
 ///
 /// By index and not by position in the filter list, because that is what the plan records and what

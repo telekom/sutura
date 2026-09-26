@@ -1,0 +1,37 @@
+version: 1.0.0
+kind: DataContract
+id: 11111111-aaaa-4b2a-a65f-111111111111
+status: active
+name: orders
+apiVersion: v3.1.0
+description:
+  usage: Orders placed by customers, one row per order.
+schema:
+  - name: orders
+    physicalName: fct_order
+    description: Orders, one row per placed order.
+    properties:
+      - name: id
+        physicalType: bigint
+        logicalType: integer
+        description: The order's unique identifier.
+        primaryKey: true
+        primaryKeyPosition: 1
+        required: true
+      - name: customer_id
+        physicalType: bigint
+        logicalType: integer
+        description: The customer who placed the order.
+        required: true
+      - name: total
+        physicalType: double
+        logicalType: number
+        description: The order's total value.
+      - name: region
+        physicalType: varchar(2)
+        logicalType: string
+        description: The region the order was placed in.
+    relationships:
+      - type: foreignKey
+        from: orders.customer_id
+        to: customers.id

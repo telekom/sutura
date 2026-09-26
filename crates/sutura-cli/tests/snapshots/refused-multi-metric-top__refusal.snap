@@ -1,0 +1,8 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: reason
+---
+MultiMetricTopNotExecutable:
+  metrics:
+    - mean_subscription_mrr
+    - subscription_base

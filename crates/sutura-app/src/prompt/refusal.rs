@@ -49,53 +49,64 @@ const METRICS_SPAN_DIFFERENT_MODELS: Guide = Guide {
     remedy: "Ask about each metric separately - one at a time executes.",
 };
 
-const MULTI_METRIC_NOT_EXECUTABLE: Guide = Guide {
-    reason: "multi_metric_not_executable",
-    meaning: "every metric agreed, but this build runs only one",
-    remedy: "Ask about each metric separately - a capability gap, not the question.",
+const TOO_MANY_METRICS: Guide = Guide {
+    reason: "too_many_metrics",
+    meaning: "more metrics than one question may carry",
+    remedy: "Ask two narrower questions instead.",
+};
+
+const DUPLICATE_METRIC_NAME: Guide = Guide {
+    reason: "duplicate_metric_name",
+    meaning: "the same metric was sent twice in one question",
+    remedy: "Send it once - refused rather than de-duplicated.",
+};
+
+const MULTI_METRIC_FEDERATION_NOT_EXECUTABLE: Guide = Guide {
+    reason: "multi_metric_federation_not_executable",
+    meaning: "this build does not federate several metrics, and the question reached a remote dimension",
+    remedy: "Ask about each metric separately.",
+};
+
+const MULTI_METRIC_TOP_NOT_EXECUTABLE: Guide = Guide {
+    reason: "multi_metric_top_not_executable",
+    meaning: "`top` names no metric to rank by, and more than one was asked",
+    remedy: "Ask about one metric with `top`, or ask about several with no `top`.",
 };
 
 const GRAIN_NOT_SUPPORTED: Guide = Guide {
     reason: "grain_not_supported",
     meaning: "the metric exists and does not declare that time resolution",
-    remedy: "Ask at a grain the metric lists. A finer grain is not a narrower version of the same \
-             question - it is a number nobody certified, so it is refused rather than approximated.",
+    remedy: "Ask at a grain the metric lists - a finer grain is a number nobody certified.",
 };
 
 const DIMENSION_NOT_PERMITTED: Guide = Guide {
     reason: "dimension_not_permitted",
     meaning: "the metric does not declare that dimension",
-    remedy: "Use one of the dimensions listed under that metric - do not substitute a \
-             similar-sounding name for one it did not declare.",
+    remedy: "Use one of the dimensions listed under that metric.",
 };
 
 const DIMENSION_NOT_FILTERABLE: Guide = Guide {
     reason: "dimension_not_filterable",
-    meaning: "the dimension can be grouped by and not filtered, because the definitions declare no \
-              set of values for it",
-    remedy: "Drop the filter, group by the dimension instead, and read the row you wanted out of \
-             the result.",
+    meaning: "the dimension can be grouped by and not filtered - it declares no value list",
+    remedy: "Drop the filter and group by the dimension instead.",
 };
 
 const DIMENSION_VALUE_NOT_ALLOWED: Guide = Guide {
     reason: "dimension_value_not_allowed",
     meaning: "the value is not one the definitions declare for that dimension",
-    remedy: "Use a value from that dimension's list below. The refusal does not repeat your value \
-             back to you, on purpose, so compare against the list rather than expecting a \
-             correction.",
+    remedy: "Use a value from that dimension's list below - the refusal will not repeat yours back.",
 };
 
 const DUPLICATE_DIMENSION: Guide = Guide {
     reason: "duplicate_dimension",
     meaning: "the same dimension was sent twice in one question",
-    remedy: "Send it once - refused rather than de-duplicated, since a caller sending it twice \
-             believed something about the result that is not true.",
+    remedy: "Send it once - refused rather than de-duplicated.",
 };
 
 const TOO_MANY_DIMENSIONS: Guide = Guide {
     reason: "too_many_dimensions",
     meaning: "more group-by keys than one question may carry",
-    remedy: "Ask a narrower question, or ask two questions. Do not resend the same list.",
+    remedy: "Ask a narrower question, or ask two questions.",
 };
 
 // ONE guide for three bounds, and the prose says all three rather than the row cap alone. The
@@ -125,26 +136,22 @@ const RESULT_TOO_LARGE: Guide = Guide {
 const TIME_RANGE_TOO_LONG: Guide = Guide {
     reason: "time_range_too_long",
     meaning: "the period asked about is longer than one question may span",
-    remedy: "Split it into consecutive shorter periods and ask about each. The refusal carries both \
-             day counts, so the split can be computed rather than guessed.",
+    remedy: "Split it into consecutive shorter periods and ask about each - the refusal carries both day counts.",
 };
 
 const RESOURCES_EXHAUSTED: Guide = Guide {
     reason: "resources_exhausted",
-    meaning: "answering would have needed more working memory than this deployment allows, so it was \
-              refused rather than allowed to exhaust the process",
-    remedy: "Narrow the period, drop a dimension, or add a filter, and ask again. Retrying the same \
-             question returns the same refusal: the ceiling is a configured number, not a passing \
-             condition, so this is not an outage to wait out.",
+    meaning: "answering would have needed more working memory than this deployment allows",
+    remedy: "Narrow the period, drop a dimension, or add a filter, and ask again. Retrying unchanged \
+             returns the same refusal - the ceiling is a configured number, not an outage.",
 };
 
 const PLAN_SPANS_TOO_MANY_SOURCES: Guide = Guide {
     reason: "plan_spans_too_many_sources",
     meaning: "answering would need to read from more data systems than this deployment serves (two at \
               most)",
-    remedy: "Nothing you can change. Report it to a person: it is a fact about how the metric is \
-             defined, not about how you asked. Do not retry and do not try a different dimension \
-             in the hope of avoiding it.",
+    remedy: "Nothing you can change. Report it to a person - it is a fact about how the metric is \
+             defined, and retrying or trying a different dimension will not avoid it.",
 };
 
 const FEDERATED_ANSWER_NOT_WELL_FORMED: Guide = Guide {
@@ -172,9 +179,8 @@ const FEDERATION_NOT_EXECUTABLE: Guide = Guide {
     reason: "federation_not_executable",
     meaning: "this deployment has no adapter that can execute one half of a question spanning two data \
               systems, so the question cannot be answered yet",
-    remedy: "Nothing you can change by re-asking, and do not retry it as if it were an outage: this is \
-             not a data system being down. Ask the same metric without the dimension on the second \
-             data system, or report it to a person.",
+    remedy: "Not a data system being down, so do not retry as if it were. Ask the same metric \
+             without the dimension on the second data system, or report it to a person.",
 };
 
 const FEDERATION_LINK_AMBIGUOUS: Guide = Guide {
@@ -191,10 +197,8 @@ const FEDERATION_LINK_COMPOUND: Guide = Guide {
 
 const MEASURE_DOES_NOT_FEDERATE: Guide = Guide {
     reason: "measure_does_not_federate",
-    meaning: "across two data systems this measure cannot be computed and recombined - its aggregate \
-              (a distinct count) is not additive the way a sum or an average is",
-    remedy: "Nothing you can change about the question. Ask the same metric without the dimension that \
-             sits on the second data system, or report it to a person.",
+    meaning: "this measure cannot be recombined across two data systems - its aggregate is not additive",
+    remedy: "Ask the same metric without the dimension on the second data system, or report it.",
 };
 
 const SOURCE_UNAVAILABLE: Guide = Guide {
@@ -229,9 +233,8 @@ const DEADLINE_EXCEEDED: Guide = Guide {
     reason: "deadline_exceeded",
     meaning: "this deployment stopped the question after its configured time budget, rather than \
               let it keep running",
-    remedy: "Narrow the period, drop a dimension, or add a filter, and ask again. Retrying the \
-             same question unchanged returns the same refusal: the budget is a configured number, \
-             not a passing condition, so this is not an outage to wait out.",
+    remedy: "Narrow the period, drop a dimension, or add a filter, and ask again. Retrying unchanged \
+             returns the same refusal - the budget is a configured number, not an outage.",
 };
 
 // Usually the one guide that says wait rather than narrow - every other entry either has a change
@@ -285,7 +288,10 @@ const CROSS_MODEL_RATIO_NOT_EXECUTABLE: Guide = Guide {
 pub(super) const GUIDES: &[&Guide] = &[
     &METRIC_UNKNOWN,
     &METRICS_SPAN_DIFFERENT_MODELS,
-    &MULTI_METRIC_NOT_EXECUTABLE,
+    &TOO_MANY_METRICS,
+    &DUPLICATE_METRIC_NAME,
+    &MULTI_METRIC_FEDERATION_NOT_EXECUTABLE,
+    &MULTI_METRIC_TOP_NOT_EXECUTABLE,
     &GRAIN_NOT_SUPPORTED,
     &DIMENSION_NOT_PERMITTED,
     &DIMENSION_NOT_FILTERABLE,
@@ -345,7 +351,10 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
     match *reason {
         RefusalReason::MetricUnknown { .. } => &METRIC_UNKNOWN,
         RefusalReason::MetricsSpanDifferentModels { .. } => &METRICS_SPAN_DIFFERENT_MODELS,
-        RefusalReason::MultiMetricNotExecutable { .. } => &MULTI_METRIC_NOT_EXECUTABLE,
+        RefusalReason::TooManyMetrics { .. } => &TOO_MANY_METRICS,
+        RefusalReason::DuplicateMetricName { .. } => &DUPLICATE_METRIC_NAME,
+        RefusalReason::MultiMetricFederationNotExecutable { .. } => &MULTI_METRIC_FEDERATION_NOT_EXECUTABLE,
+        RefusalReason::MultiMetricTopNotExecutable { .. } => &MULTI_METRIC_TOP_NOT_EXECUTABLE,
         RefusalReason::GrainNotSupported { .. } => &GRAIN_NOT_SUPPORTED,
         RefusalReason::DimensionNotPermitted { .. } => &DIMENSION_NOT_PERMITTED,
         RefusalReason::DimensionNotFilterable { .. } => &DIMENSION_NOT_FILTERABLE,

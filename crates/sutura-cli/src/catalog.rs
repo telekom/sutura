@@ -59,6 +59,11 @@ pub(crate) enum OpenedCatalogs {
     /// `Cargo.toml` for why it is default-off (artefact: it links an outbound TLS stack).
     #[cfg(feature = "openmetadata")]
     Openmetadata(Vec<sutura_catalog_openmetadata::OpenMetadataCatalog<sutura_catalog_openmetadata::http::HttpSnapshotReader>>),
+    /// A directory of ODCS v3 data-contract documents - `#973`. `sutura-catalog-datacontract` is an
+    /// unconditional dependency of this build (pure directory read, no TLS - the same shape
+    /// `sutura-catalog-okf` holds), so `catalog.kind: datacontract` is openable by every build of
+    /// this binary.
+    DataContract(Vec<sutura_catalog_datacontract::DataContractCatalog>),
 }
 
 /// Opens every catalog the settings declare.
@@ -94,9 +99,13 @@ pub(crate) fn open_catalog(
         sutura_config::CatalogKind::Markdown => Ok(OpenedCatalogs::Markdown(
             catalogs.each().map(open_one_markdown_catalog).collect(),
         )),
-        sutura_config::CatalogKind::Datahub => open_datahub_catalogs(catalogs, outbound),
-        // `Okf` is an unconditional dependency of this build, so its arm is always linked.
+        // `Okf` and `DataContract` are unconditional dependencies of this build, so their arms are
+        // always linked.
         sutura_config::CatalogKind::Okf => Ok(OpenedCatalogs::Okf(catalogs.each().map(open_one_okf_catalog).collect())),
+        sutura_config::CatalogKind::DataContract => Ok(OpenedCatalogs::DataContract(
+            catalogs.each().map(open_one_data_contract_catalog).collect(),
+        )),
+        sutura_config::CatalogKind::Datahub => open_datahub_catalogs(catalogs, outbound),
         // `Openmetadata` is openable behind the `openmetadata` feature; a build without it gets
         // the not-linked refusal `open_openmetadata_catalogs` returns.
         sutura_config::CatalogKind::Openmetadata => open_openmetadata_catalogs(catalogs, outbound),
@@ -122,6 +131,7 @@ pub(crate) fn load(catalogs: &OpenedCatalogs) -> Result<PinnedDefinitions, Strin
         OpenedCatalogs::Okf(catalogs) => load_each(catalogs),
         #[cfg(feature = "openmetadata")]
         OpenedCatalogs::Openmetadata(catalogs) => load_each(catalogs),
+        OpenedCatalogs::DataContract(catalogs) => load_each(catalogs),
     }
 }
 
@@ -206,6 +216,14 @@ where
         ),
         #[cfg(feature = "openmetadata")]
         OpenedCatalogs::Openmetadata(catalogs) => LocalService::start_composed(
+            catalogs,
+            engines,
+            sutura_runtime::TracingAuditSink::new(),
+            broker,
+            combiner,
+            working_set_bytes,
+        ),
+        OpenedCatalogs::DataContract(catalogs) => LocalService::start_composed(
             catalogs,
             engines,
             sutura_runtime::TracingAuditSink::new(),
@@ -344,6 +362,20 @@ fn open_one_openmetadata_catalog(
         sources,
         reader,
     ))
+}
+
+/// Opens one declared `datacontract` catalog: a directory of ODCS v3 contract documents, wrapped in
+/// `sutura_catalog_datacontract::DataContractCatalog`.
+///
+/// **Infallible - `DataContractCatalog::new` cannot fail** (the name and folder reads that can fail
+/// happen at `load`, not at open), so unlike its `datahub` sibling this takes no `Result`: the
+/// `DataContract` arm of `open_catalog` never refuses.
+fn open_one_data_contract_catalog(settings: &sutura_config::CatalogSettings) -> sutura_catalog_datacontract::DataContractCatalog {
+    sutura_catalog_datacontract::DataContractCatalog::new(
+        settings.name().clone(),
+        PathBuf::from(settings.dir()),
+        settings.version().clone(),
+    )
 }
 
 /// Opens every declared `datahub` catalog, behind this crate's `datahub` feature.

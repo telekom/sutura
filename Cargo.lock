@@ -4254,6 +4254,7 @@ dependencies = [
  "polyglot-sql",
  "serde_json",
  "serde_norway",
+ "sutura-catalog-datacontract",
  "sutura-catalog-datahub",
  "sutura-catalog-local",
  "sutura-catalog-okf",
@@ -4272,6 +4273,26 @@ dependencies = [
  "sutura-sql",
  "thiserror 2.0.20",
  "tracing",
+]
+
+[[package]]
+name = "sutura-bounded-read"
+version = "0.5.1"
+dependencies = [
+ "rustix 0.38.44",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "sutura-catalog-datacontract"
+version = "0.5.1"
+dependencies = [
+ "rustix 0.38.44",
+ "serde",
+ "serde_norway",
+ "sutura-bounded-read",
+ "sutura-domain",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -4296,6 +4317,7 @@ dependencies = [
  "rustix 0.38.44",
  "serde",
  "serde_norway",
+ "sutura-bounded-read",
  "sutura-domain",
  "thiserror 2.0.20",
 ]
@@ -4307,6 +4329,7 @@ dependencies = [
  "rustix 0.38.44",
  "serde",
  "serde_norway",
+ "sutura-bounded-read",
  "sutura-domain",
  "thiserror 2.0.20",
 ]
@@ -4357,6 +4380,7 @@ dependencies = [
  "serde_json",
  "serde_norway",
  "sutura-app",
+ "sutura-catalog-datacontract",
  "sutura-catalog-datahub",
  "sutura-catalog-local",
  "sutura-catalog-okf",

@@ -3,7 +3,25 @@ source: crates/sutura-app/tests/golden/catalogs.rs
 expression: plan
 ---
 source: local
-metric: revenue_per_customer
+measures:
+  - metric: revenue_per_customer
+    label: revenue_per_customer
+    measure:
+      ratio:
+        numerator:
+          aggregate:
+            aggregate: sum
+            column:
+              table: fct_subscription_monthly
+              column: mrr_cents
+        denominator:
+          aggregate:
+            aggregate: count_distinct
+            column:
+              table: fct_subscription_monthly
+              column: customer_key
+        zero_denominator: yields_null
+    guard: []
 table: fct_subscription_monthly
 joins:
   - relationship: subscription_customer
@@ -28,22 +46,6 @@ keys:
     column:
       table: dim_customer
       column: segment
-measure:
-  ratio:
-    numerator:
-      aggregate:
-        aggregate: sum
-        column:
-          table: fct_subscription_monthly
-          column: mrr_cents
-    denominator:
-      aggregate:
-        aggregate: count_distinct
-        column:
-          table: fct_subscription_monthly
-          column: customer_key
-    zero_denominator: yields_null
-measure_label: revenue_per_customer
 filters:
   - origin: definition
     predicate:

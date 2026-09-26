@@ -16,6 +16,8 @@ arrow points inward, at the domain.
   `serde` and `thiserror`, and a gate keeps it that way
 - [sutura-catalog-local](sutura-catalog-local.md) - a `SemanticCatalog` adapter over a directory of
   markdown documents with YAML frontmatter
+- [sutura-bounded-read](sutura-bounded-read.md) - the bounded single-open document read and sorted
+  directory walk the local, OKF and data-contract catalog adapters share
 - [sutura-semantic](sutura-semantic.md) - the compiler: resolve and plan. It renders nothing, and has
   no SQL generator in its dependency tree
 - [sutura-sql](sutura-sql.md) - rendering: a plan becomes one statement in one dialect. Depended on

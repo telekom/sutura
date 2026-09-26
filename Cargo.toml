@@ -31,14 +31,18 @@ members = [
   # no allowlist and no anchor - `docs/what-okf-can-carry.md` is the finding, `#153` the issue. A
   # DECLARING source, measured against its own declaration rather than the golden oracle.
   "crates/sutura-catalog-okf",
+  # THE ON-DISK VOCABULARY for interface catalogues exported as data-contract YAML: a catalog over a
+  # directory of Open Data Contract Standard v3 contract documents. It provides Structure and may-
+  # provide Descriptions, ColumnTypes, ColumnDescriptions and (v3.1+) Relationships under the rdbms
+  # target-uniqueness rule, and declares the join-less metric/grain/filter/allowlist/anchor out -
+  # `docs/what-a-data-contract-can-carry.md` is the finding, `#973` the issue. A DECLARING source,
+  # measured against its own declaration rather than the golden oracle.
+  "crates/sutura-catalog-datacontract",
   # THE RICHEST of the three measured metadata sources (DataHub / Table Schema / OpenMetadata), and
   # still a DECLARING connector: it needs a service, and it keeps two half-a-definition slots.
   # Declared, not defaulted; measured against its own declaration rather than the golden oracle -
   # `docs/what-openmetadata-can-carry.md` is the finding, `#152` the issue.
   "crates/sutura-catalog-openmetadata",
-  # The wren MDL converter: a foreign catalog project's `manifest.json` into sutura catalog
-  # documents, offline. No data system is opened and nothing is rendered (`sutura-sql`) or executed
-  # (`sutura-exec-*`), so it takes the `-catalog-` prefix. Only `sutura-cli` depends on it.
   "crates/sutura-catalog-wren",
   "crates/sutura-semantic",
   # Rendering, and a SEPARATE crate from the compiler on purpose. `sutura-semantic` stops at a
@@ -90,6 +94,13 @@ members = [
   # (`cargo xtask check-jscpd`); same shape as `sutura-tls` one layer up, and joins neither the "data
   # systems" nor the "metadata providers" class in `xtask/src/boundaries/adapters.rs`.
   "crates/sutura-http-client",
+  # The bounded single-open document read and sorted directory walk that `sutura-catalog-local`,
+  # `sutura-catalog-okf` (`#1022` hardened it there) and `sutura-catalog-datacontract` (`#1043`)
+  # share - extracted once a third copy of the identical mechanism made the duplication concrete
+  # (`github.com/telekom/sutura#1045`). Same shape as `sutura-tls`: a small read two or more
+  # same-class adapters both need, with no crypto provider, no network client and no `sutura-config`,
+  # carrying no adapter prefix so it joins no forbidden class in `xtask/src/boundaries/adapters.rs`.
+  "crates/sutura-bounded-read",
   "crates/sutura-cli",
   # The service runtime. Three crates rather than a fourth for the composition root:
   # `sutura-config` holds no framework at all, `sutura-runtime` owns the process-global concerns
@@ -135,6 +146,7 @@ sutura-catalog-local = { path = "crates/sutura-catalog-local" }
 sutura-catalog-datahub = { path = "crates/sutura-catalog-datahub" }
 sutura-catalog-rdbms = { path = "crates/sutura-catalog-rdbms" }
 sutura-catalog-okf = { path = "crates/sutura-catalog-okf" }
+sutura-catalog-datacontract = { path = "crates/sutura-catalog-datacontract" }
 sutura-catalog-openmetadata = { path = "crates/sutura-catalog-openmetadata" }
 sutura-catalog-wren = { path = "crates/sutura-catalog-wren" }
 sutura-semantic = { path = "crates/sutura-semantic" }
@@ -164,6 +176,7 @@ sutura-exec-oracle = { path = "crates/sutura-exec-oracle" }
 sutura-exec-clickhouse = { path = "crates/sutura-exec-clickhouse" }
 sutura-tls = { path = "crates/sutura-tls" }
 sutura-http-client = { path = "crates/sutura-http-client" }
+sutura-bounded-read = { path = "crates/sutura-bounded-read" }
 sutura-config = { path = "crates/sutura-config" }
 sutura-runtime = { path = "crates/sutura-runtime" }
 sutura-http = { path = "crates/sutura-http" }
@@ -948,9 +961,8 @@ overflow-checks = false
 # Pointless in a sandbox: each derivation starts with an empty target directory, so the
 # incremental artifacts are computed, written and then discarded with the sandbox.
 incremental = false
-# Matches the shipped profiles, and cheaper here: no landing pads and no unwind tables to
-# emit. A link check that linked a panic strategy we do not ship would be checking the
-# wrong binary.
+# Matches the shipped profiles, and cheaper here: no landing pads and no unwind tables to emit. A
+# link check that linked a panic strategy we do not ship would be checking the wrong binary.
 panic = "abort"
 
 # opt-level 0 for DEPENDENCIES and BUILD SCRIPTS, overriding what `dev` sets. This is where

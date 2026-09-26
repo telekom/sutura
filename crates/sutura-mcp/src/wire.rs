@@ -57,7 +57,7 @@
 //! disagree.
 
 use sutura_domain::pinned::{PinnedDefinitions, Provenance};
-use sutura_domain::query::{Query, ToolOutcome};
+use sutura_domain::query::{MAX_METRICS, Query, ToolOutcome};
 use sutura_domain::question::RawFilter;
 use sutura_domain::warehouse::RowSet;
 
@@ -92,11 +92,11 @@ pub use raw::{MalformedStatement, RawContent, RunSqlArgs};
 #[serde(deny_unknown_fields)]
 pub struct AskArgs {
     /// The metrics to ask about, by the names this catalog defines them under - for example
-    /// `["revenue"]`. Naming more than one is accepted only when every one shares a model, a time
-    /// column, a grain and every dimension listed below (`github.com/telekom/sutura#968`), and
-    /// even then this deployment executes just one metric at a time today, so a set of more than
-    /// one is always refused - ask about each metric separately.
-    #[schemars(length(min = 1))]
+    /// `["revenue"]`. A set of several is answered as one grouped statement with one column per
+    /// metric WHEN every one shares a model, a time column, a grain and every dimension listed
+    /// below (`github.com/telekom/sutura#968`); otherwise ask about each separately. More than
+    /// [`MAX_METRICS`], or the same name repeated, is refused.
+    #[schemars(length(min = 1, max = MAX_METRICS))]
     metrics: Vec<String>,
     /// The time resolution to aggregate to: one of `day`, `week`, `month`, `quarter` or `year`, and
     /// only those the metric declares.
@@ -314,6 +314,15 @@ pub enum OutcomeContent {
 pub struct ProvenanceContent {
     definition_version: String,
     definition_digest: String,
+    /// One per metric this answer measured, in query order.
+    metric_digests: Vec<MetricDigestContent>,
+}
+
+/// One metric and the digest of its canonical form.
+#[derive(Debug, serde::Serialize)]
+pub struct MetricDigestContent {
+    metric: String,
+    digest: String,
 }
 
 /// One leg of an answer: which source it ran on, and which identity it ran as.
@@ -419,6 +428,12 @@ impl OutcomeContent {
                 out.push_str(" (digest ");
                 out.push_str(&provenance.definition_digest);
                 out.push(')');
+                for entry in &provenance.metric_digests {
+                    out.push_str("\n  ");
+                    out.push_str(&entry.metric);
+                    out.push_str(": ");
+                    out.push_str(&entry.digest);
+                }
                 // The posture in the TEXT half as well as the structured one, because an agent that
                 // reads only the text is the case this half exists for - and "every caller sees these
                 // rows" is a fact about the answer rather than a detail of the transport.
@@ -451,6 +466,14 @@ fn provenance_content(provenance: &Provenance) -> ProvenanceContent {
     ProvenanceContent {
         definition_version: String::from(provenance.version().as_str()),
         definition_digest: String::from(provenance.digest().as_str()),
+        metric_digests: provenance
+            .metric_digests()
+            .iter()
+            .map(|entry| MetricDigestContent {
+                metric: String::from(entry.metric().as_str()),
+                digest: String::from(entry.digest().as_str()),
+            })
+            .collect(),
     }
 }
 
@@ -465,6 +488,8 @@ fn bundle_content(pinned: &PinnedDefinitions) -> ProvenanceContent {
     ProvenanceContent {
         definition_version: String::from(pinned.version().as_str()),
         definition_digest: String::from(pinned.digest().as_str()),
+        // Nothing executed against this bundle, so there are no metrics whose numbers to certify.
+        metric_digests: Vec::new(),
     }
 }
 
@@ -736,6 +761,7 @@ mod tests {
             provenance: ProvenanceContent {
                 definition_version: String::from("v1"),
                 definition_digest: String::from("deadbeef"),
+                metric_digests: Vec::new(),
             },
             executed_as: vec![LegContent {
                 source: String::from("local"),
@@ -967,3 +993,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod multi_metric_tests;

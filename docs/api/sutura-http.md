@@ -4221,6 +4221,18 @@ different bundle is visibly a different answer.
 
 `ComposeSchema`, `Debug`, `Serialize`, `ToSchema`
 
+### `struct MetricDigestBody`
+
+```rust
+pub struct MetricDigestBody
+```
+
+One metric and the digest of its canonical form.
+
+#### Implements
+
+`ComposeSchema`, `Debug`, `Serialize`, `ToSchema`
+
 ### `struct LegBody`
 
 ```rust
