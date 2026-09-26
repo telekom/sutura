@@ -37,7 +37,7 @@ is really *can it fill these fields and survive these checks*:
 | what it may be broken down by                     | `Dimension` - a column, optionally `via` one relationship, optionally an allowlist of at most `MAX_VALUES_PER_DIMENSION` values                                                                                                                       |
 | the number it produced when it was certified      | `Option<Anchor>` - a `TimeRange` and a value as text                                                                                                                                                                                                  |
 | who may see a metric                              | `Audience` - `Open`, or `Restricted(AudienceGrant)` of mapped identifiers, carried on `Metric` under `docs/adr/0028`                                                                                                                                  |
-| what a reader has to know                         | `Knowledge` - phrases, caveats, reviewed absences and worked examples, each carrying a `Referent`                                                                                                                                                     |
+| what a reader has to know                         | `Knowledge` - phrases, caveats, reviewed absences and worked examples, the phrases and caveats carrying a `Referent`                                                                                                                                  |
 
 Two of those are the checks rather than the fields. `Definitions::assemble` **refuses** a dimension
 reached through a relationship whose declared cardinality may duplicate rows, as

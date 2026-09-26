@@ -43,7 +43,7 @@ over-engineering and do not get skipped:
 
 | Not negotiable | Why it is not bloat |
 | --- | --- |
-| The typed refusal surface | `ToolOutcome::Refusal` is what makes an uncertified question unrepresentable. Collapsing it to an error is not simpler, it is a different guarantee |
+| The typed refusal surface | `Query` has no field an uncertified question could ride in on, so it is unrepresentable rather than refused, and `ToolOutcome::Refusal` keeps a refusal a result rather than an `Err`. Collapsing either is not simpler, it is a different guarantee |
 | Per-request identity | A service-account shortcut is fewer lines and a cross-user data leak |
 | A gate for a new rule | A rule in prose costs nothing and enforces nothing. Adding the check *is* the lazy option, because the alternative is enforcing it by memory forever |
 | Red-before-green for a test | A test that passes both ways is less than no test |

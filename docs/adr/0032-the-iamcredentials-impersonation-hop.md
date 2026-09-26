@@ -175,3 +175,15 @@ map decides only WHETHER this caller may be served here.
 **Does not move `docs/where-identity-is-proven.md`'s row, in either direction.** Deleting evidence
 that was only ever fake-port cells proves nothing new, and the venue that would answer leg 2 is still
 what that page says it is.
+
+## Third amendment, 2026-09-26: the declared account is carried again, so a second hop is back
+
+The second amendment's "there is no second hop" and "the declared map decides only WHETHER this
+caller may be served here" stopped being true a day later, at `docs/adr/0018`'s eleventh amendment.
+The account the source's per-source map declares for the asking subject now travels in
+`Presented::SubjectToken`'s `impersonate` field and becomes the credential document's
+`service_account_impersonation_url`, so the pool-resolved subject is impersonated into the declared
+account, and the map decides both whether a caller is served and as whom. The port, the
+`iamcredentials` call this record designed and the broker that made it stay deleted: the hop is the
+driver's, not this process's. This is **built and unproven**: `docs/where-identity-is-proven.md`
+records the venue that would show it as `wired`, with no observed run.
