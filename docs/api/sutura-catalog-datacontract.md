@@ -35,12 +35,10 @@ Three properties of the load worth stating, because each is a mechanism rather t
 and a digest that moves between two runs over unchanged files is a digest nobody can act on, so
 the walk collects into a `BTreeSet` and yields sorted. An empty or missing directory is an error
 (`DataContractError::Empty`, `DataContractError::NotADirectory`) rather than a silently-empty
-catalog, for the same reason the OKF and local catalogs refuse one. This walk and
-`read_document` are, deliberately, the identical shape `sutura-catalog-okf` carries after
-`#1022`'s hardening - a third copy of one bounded-read mechanism rather than a fourth
-divergent one. Extracting the shared shape into one crate is tracked as a follow-up
-(`github.com/telekom/sutura#1045`) rather than done in this PR, to keep this diff to the one
-adapter it adds.
+catalog, for the same reason the OKF and local catalogs refuse one. This walk and the read are
+the bounded, single-open shape `sutura-catalog-okf` carries after `#1022`'s hardening - shared
+now through one crate, `sutura_bounded_read`, rather than a third copy of one mechanism
+(`github.com/telekom/sutura#1045`).
 
 **A contract without a self-report of its version is refused by name.** `apiVersion` and `kind`
 are required by the standard and this adapter reads both: an unknown `apiVersion` (a `v2.x` or

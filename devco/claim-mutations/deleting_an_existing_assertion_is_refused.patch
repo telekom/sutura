@@ -1,0 +1,7 @@
+--- a/xtask/src/causality/plan.rs
++++ b/xtask/src/causality/plan.rs
+@@ -171,3 +171,3 @@
+     // test rather than guessing it away.
+-    if !deleted_tests.is_empty() {
++    if deleted_tests.len() > files.len() {
+         return Plan::DeletedTests(deleted_tests);

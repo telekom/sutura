@@ -264,6 +264,9 @@ runtime:
   shutdown_grace_seconds: 15
 
 prompt:
+  # Maximum bytes read from `instructions_file` at startup. An operator may lower or raise this
+  # within 1..=1048576; the finite ceiling keeps a mistyped large file from filling every prompt.
+  instructions_max_bytes: 32768
   # How a catalog author's own prose reaches an agent: `quoted` or `omitted`.
   #
   # `quoted` puts `> ` at the start of every line of it and names the trust boundary in the text

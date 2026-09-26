@@ -19,6 +19,7 @@ use crate::Verdict;
 use crate::causality::base::{names_no_tests, tail};
 use crate::causality::features::{Because, Enabled, Unread};
 use crate::causality::place::AddedTest;
+use crate::causality::weakens::Waived;
 
 /// A plan whose every provable file declares a test module that named no test.
 ///
@@ -52,6 +53,60 @@ pub(super) fn report_unnamed_tests(test_files: &[String]) -> Verdict {
     eprintln!("`#[cfg(test)]` item that is NOT a module never reaches here - it is test-only code");
     eprintln!("and is held - and both a name this could not read and a module this diff does not");
     eprintln!("contain are their own verdicts above.");
+    Verdict::Fail
+}
+
+/// A REMOVED line sat inside a pre-existing `#[test]` or its called helper, with nothing added
+/// in its place.
+///
+/// FAILS unless every named test is WAIVED, and it is the second half of
+/// `github.com/telekom/sutura#1031` (a helper edit with a replacement routes into proof). Neither
+/// run measures a deletion: base and head are both green because the assertion is GONE from both,
+/// and there is nothing a mutation can redden - the deleted evidence does not exist to be
+/// weakened. So the honest answer is a named refusal that tells the author WHICH test lost
+/// evidence, that the gate cannot verify it, and that a legitimate removal has an escape hatch -
+/// `super::weakens`'s `Weakens-Test: <name> - <reason>` trailer, checked against the SAME names
+/// this arm would otherwise refuse, never a blanket override. This is distinct from
+/// `Plan::NotRequired`, which would have read *no changed tests* over a diff that deleted one.
+/// One path/test-name/reason triple, for the WAIVED side of [`report_deleted_tests`]'s split.
+type WaivedLine<'a> = (&'a str, &'a str, &'a str);
+
+pub(super) fn report_deleted_tests(deleted: &[crate::causality::plan::DeletedFrom], waived: &Waived) -> Verdict {
+    let mut unwaived: Vec<(&str, &str)> = Vec::new();
+    let mut waived_lines: Vec<WaivedLine<'_>> = Vec::new();
+    for one in deleted {
+        for name in &one.tests {
+            match waived.reason(name) {
+                Some(reason) => waived_lines.push((one.path.as_str(), name.as_str(), reason)),
+                None => unwaived.push((one.path.as_str(), name.as_str())),
+            }
+        }
+    }
+    if unwaived.is_empty() {
+        println!("xtask test-causality: removed test evidence is waived for every affected test");
+        for (path, name, reason) in waived_lines {
+            println!("  {path}: {name} - Weakens-Test: {reason}");
+        }
+        return Verdict::Pass;
+    }
+    eprintln!("xtask test-causality: FAILED - a diff removed test evidence without a replacement");
+    for (path, name) in &unwaived {
+        eprintln!("  {path}: a removed line affected the pre-existing #[test] `{name}` or its called helper");
+    }
+    for (path, name, reason) in &waived_lines {
+        eprintln!("  {path}: {name} is waived - Weakens-Test: {reason}");
+    }
+    eprintln!();
+    eprintln!("Removing an assertion with nothing added in its place weakens a test, and this gate");
+    eprintln!("has no way to measure it: the removed line exists in neither tree, so neither run can");
+    eprintln!("redden against it and no mutation can re-create what is gone. State the evidence in");
+    eprintln!("the handoff - what the test checked, and why deleting it is safe - or, when the");
+    eprintln!(
+        "removal is legitimate, add a commit trailer naming it: `Weakens-Test: {name} - <why>`",
+        name = unwaived.first().map_or("<test-fn-name>", |(_, name)| name)
+    );
+    eprintln!("A deletion of a comment, a blank line or an attribute is NOT this shape, and stays a");
+    eprintln!("pass.");
     Verdict::Fail
 }
 
@@ -197,17 +252,17 @@ pub(super) fn report_head_failure(output: &str, only: &str) -> Verdict {
 /// NAMES EACH UNDECLARED ADDITION, never the whole diff's tests: a diff may declare some of its
 /// added tests and not others, and only the undeclared ones are unproven.
 ///
-/// **THE LIMIT, next to the claim it corrects.** `Scan::of` used to read only ADDED tests -
-/// an added `#[test]` attribute or test-module declaration - so an assertion edited inside an
-/// EXISTING test, in a file whose production code did not change, reached `Plan::NotRequired`
-/// and never reached this arm (`github.com/telekom/sutura#1016`'s own second finding).
-/// `super::edited` now names that test too, from the PRE-existing attribute down to the item an
-/// added line lands inside, so the edited-assertion shape reaches this same arm and is refused
-/// the same way an undeclared addition is. Two shapes still name nothing and still reach
-/// `Plan::NotRequired`: a pure DELETION of an assertion, which adds no line either extractor can
-/// find; and an edit inside a `#[cfg(test)]` helper fn that a `#[test]` calls but whose own
-/// attributed item is not the test's - `touched_in` walks only the `#[test]`-declaring item's own
-/// brace span, never a sibling item a test calls. `super::edited`'s own header states both.
+/// **THE LIMIT, NARROWED TWICE.** `Scan::of` used to read only ADDED tests - an added `#[test]`
+/// attribute or test-module declaration - so an assertion edited inside an EXISTING test, in a
+/// file whose production code did not change, reached `Plan::NotRequired` and never reached this
+/// arm (`github.com/telekom/sutura#1016`'s own second finding). `super::edited` now names that
+/// test too, from the PRE-existing attribute down to the item an added line lands inside, so the
+/// edited-assertion shape reaches this same arm and is refused the same way an undeclared
+/// addition is. `github.com/telekom/sutura#1031` closed the sibling shapes: an added line inside
+/// a `#[cfg(test)]` helper fn a test calls is routed into proof by `edited::edited_helper_caller`,
+/// and a pure DELETION of an assertion is now a named `report_deleted_tests` refusal rather than
+/// a pass. What still slips through is a helper a test calls from a DIFFERENT file - a module-path
+/// reach this brace walk does not follow (`super::edited`'s own header states it).
 pub(super) fn report_unclaimed_additions(tests: &[AddedTest]) -> Verdict {
     eprintln!("xtask test-causality: FAILED - a tests-only diff added a test with no `Claim-Cell:` declaration");
     for test in tests {
@@ -228,10 +283,12 @@ pub(super) fn report_unclaimed_additions(tests: &[AddedTest]) -> Verdict {
 #[cfg(test)]
 mod tests {
     use super::{
-        Because, Enabled, Unread, Verdict, report_enabled_tests, report_head_failure, report_unclaimed_additions,
-        report_unnamed_tests, report_unread_manifests, report_unreadable,
+        Because, Enabled, Unread, Verdict, report_deleted_tests, report_enabled_tests, report_head_failure,
+        report_unclaimed_additions, report_unnamed_tests, report_unread_manifests, report_unreadable,
     };
     use crate::causality::fixtures::scoped;
+    use crate::causality::plan::DeletedFrom;
+    use crate::causality::weakens::Waived;
 
     #[test]
     fn each_refusal_keeps_the_direction_its_own_doc_argues_for() {
@@ -246,6 +303,21 @@ mod tests {
         // at all.
         let inseparable = vec![String::from("crates/x/src/a.rs")];
         assert_eq!(report_unnamed_tests(&inseparable), Verdict::Fail);
+        let deleted = vec![DeletedFrom {
+            path: String::from("crates/x/src/a.rs"),
+            tests: vec![String::from("t")],
+        }];
+        assert_eq!(report_deleted_tests(&deleted, &Waived::of("")), Verdict::Fail);
+        let waiver = format!(
+            "{hash}\u{0}{body}\u{0}",
+            hash = "abc123",
+            body = "Weakens-Test: t - safe removal"
+        );
+        assert_eq!(
+            report_deleted_tests(&deleted, &Waived::of(&waiver)),
+            Verdict::Pass,
+            "a waived name turns the refusal into a stated pass"
+        );
         assert_eq!(report_unreadable(&inseparable), Verdict::Fail);
         // BOTH CAUSES, because they are one verdict and a cause with no printed sentence of its
         // own would inherit the other one's. The exhaustive match in `report_enabled_tests` is

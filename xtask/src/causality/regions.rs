@@ -158,7 +158,7 @@ pub(crate) fn has_non_test_additions(added: &[AddedLine], scope: &TestScope) -> 
 }
 
 /// Blank, a comment, or an attribute: nothing that changes what the code does.
-fn carries_no_behaviour(line: &str) -> bool {
+pub(super) fn carries_no_behaviour(line: &str) -> bool {
     let trimmed = line.trim();
     trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("#[") || trimmed.starts_with("#!")
 }

@@ -121,7 +121,7 @@ sends a reader to read all of them.
   text names "the catalog", so the path in it has to be the catalog's, not one file's.
   `document` is the one whose bytes pushed the running total past `limit`. `found` is that
   running total. The bound is enforced on the read itself (`OkfCatalog::read_all` and
-  `read_document`): the refusing total comes from the handle's own `metadata()` before the
+  `sutura_bounded_read::read_document`): the refusing total comes from the handle's own `metadata()` before the
   read, or from what the capped read actually delivered if a file grew in between.
 - `NotARegularFile` - The document the walk named is not a regular file when it comes to be read.
 
