@@ -108,7 +108,7 @@ pub(super) fn touches(added: &[AddedLine], path: &str, read: &PostImage<'_>) -> 
 
 /// Does `path`'s BASE image have a pre-existing test one of `removed` landed inside?
 ///
-/// The convenience [`super::plan`] needs for SHAPE A, in the same shape as [`touches`]: `plan`
+/// The convenience [`super::plan::plan`] needs for SHAPE A, in the same shape as [`touches`]: `plan`
 /// classifies a file from its path and the diff, and this asks the base-image span question a
 /// pure deletion answers - a removed assertion exists only in the pre-image, so the reader this
 /// takes is the BASE one, never the post-image.
