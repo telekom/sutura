@@ -195,17 +195,20 @@ disagree with the original, with no way to tell which one is right.
 Two ports, deliberately separate.
 
 A **catalogue** supplies definitions: metrics, dimensions, the glossary, lineage. A directory of
-documents in git and a metadata catalogue with an HTTP API are two adapters behind one trait. The
-first exists; the second is a design target.
+documents in git and a metadata catalogue with an HTTP API are two adapters behind one trait.
+Both exist, and more beside them: `sutura-catalog-local` reads a directory,
+`sutura-catalog-datahub` and `sutura-catalog-openmetadata` read a metadata catalogue over HTTP,
+and the other `sutura-catalog-*` crates read further declaration sources.
 
-A **data system** executes. ClickHouse and Postgres are the near-term targets. The port is named
-`Warehouse`, which says nothing about what sits behind it. Two adapters exist and they are different
-kinds of thing: `sutura-exec-datafusion` is **the engine** - it reads the CSV and Parquet files
-itself, executes the plan over Arrow and generates no SQL, and it is what the shipped binary links;
-`sutura-exec-duckdb` is a **data source** - it renders the plan into `DuckDB` SQL and pushes the
-statement down, and it is a development dependency, there to prove the rendered SQL runs somewhere.
-Postgres and ClickHouse are rendered for and parse-checked, and the golden suite also executes the
-example corpus against each - a server their nix tier starts beside the suite.
+A **data system** executes. The port is named `Warehouse`, which says nothing about what sits
+behind it. Its adapters are different kinds of thing: `sutura-exec-datafusion` is **the engine** -
+it reads CSV, Parquet and NDJSON files itself, executes the plan over Arrow and generates no SQL,
+and every build links it; `sutura-exec-duckdb` is a **data source** - it renders the plan into
+`DuckDB` SQL and pushes the statement down, and it is a development dependency, there to prove the
+rendered SQL runs somewhere. Postgres, ClickHouse, Oracle and BigQuery are data sources too, each
+behind a default-off feature, and the release binary enables BigQuery and Postgres. The golden
+suite executes the example corpus against Postgres and ClickHouse on a server their nix tier starts
+beside the suite; BigQuery and Oracle have no local tier, so their golden cells skip.
 
 A plan resolves to **one** data system per leg. Spanning two is not a bigger version of the same
 problem: it is a second identity to satisfy, and a plan whose legs cannot all run as one subject is

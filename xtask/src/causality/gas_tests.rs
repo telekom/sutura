@@ -23,6 +23,66 @@ use crate::Verdict;
 /// One unique temp directory per real-git test, so paths never collide under nextest.
 static SEQ: AtomicUsize = AtomicUsize::new(0);
 
+#[test]
+fn an_unbuildable_base_with_nothing_held_refuses_an_unclaimed_test() {
+    const CHILD: &str = "SUTURA_CAUSALITY_UNBUILDABLE_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = Command::new(std::env::current_exe().expect("the test executable has a path"))
+            .args([
+                "--exact",
+                "causality::gas_tests::an_unbuildable_base_with_nothing_held_refuses_an_unclaimed_test",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .expect("the test executable runs");
+        assert!(output.status.success(), "the unclaimed test must be refused");
+        return;
+    }
+    assert!(std::env::var_os("NEXTEST").is_some(), "run through `just test`");
+    let dir = std::env::temp_dir().join(format!(
+        "sutura-causality-unbuildable-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _swept = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    git(&dir, &["init", "-q", "-b", "main"]);
+    git(&dir, &["config", "user.email", "test@example.com"]);
+    git(&dir, &["config", "user.name", "test"]);
+
+    let head = "pub fn f(a: u8, b: u8) -> u8 { a + b }\n";
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[profile.ci]\ninherits = \"dev\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("src/lib.rs"), "pub fn f(a: u8) -> u8 { a }\n").unwrap();
+    std::fs::write(dir.join("flake.nix"), "{ }\n").unwrap();
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "init"]);
+    let base = String::from_utf8(git_output(&dir, &["rev-parse", "HEAD"]).stdout)
+        .expect("utf8")
+        .trim()
+        .to_owned();
+
+    std::fs::write(dir.join("src/lib.rs"), head).unwrap();
+    std::fs::create_dir_all(dir.join("tests")).unwrap();
+    std::fs::write(
+        dir.join("tests/claim.rs"),
+        "use wired::f;\n#[test]\nfn the_claim() { assert_eq!(f(1, 2), 3); }\n",
+    )
+    .unwrap();
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "feat: change f's signature"]);
+
+    let original = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&dir).unwrap();
+    let verdict = super::run(&[String::from("--since"), base]);
+    std::env::set_current_dir(original).unwrap();
+    drop(std::fs::remove_dir_all(dir));
+    assert_eq!(verdict, Verdict::Fail);
+}
+
 fn git(dir: &std::path::Path, args: &[&str]) {
     let out = git_output(dir, args);
     assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
@@ -729,4 +789,64 @@ fn a_waived_deletion_still_proves_the_test_added_beside_it() {
     ];
     let message = "test: move the pin of f\n\nWeakens-Test: existing - tests/it.rs pins f instead";
     assert_eq!(committed_tree(message, &[("src/lib.rs", base)], &head), Verdict::Fail);
+}
+
+#[test]
+fn a_mixed_claim_cell_is_killed_when_the_range_scope_excludes_it() {
+    let dir = std::env::temp_dir().join(format!(
+        "sutura-mixed-claim-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _swept = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    git(&dir, &["init", "-q", "-b", "main"]);
+    git(&dir, &["config", "user.email", "test@example.com"]);
+    git(&dir, &["config", "user.name", "test"]);
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[profile.ci]\ninherits = \"dev\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("flake.nix"), "{ }\n").unwrap();
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "fixture root"]);
+    let base = String::from_utf8(git_output(&dir, &["rev-parse", "HEAD"]).stdout).unwrap();
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::create_dir_all(dir.join("devco/claim-mutations")).unwrap();
+    std::fs::write(
+        dir.join("src/lib.rs"),
+        "pub fn answer() -> u8 { 1 }\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn mixed_cell() { assert_eq!(super::answer(), 1); }\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("devco/claim-mutations/mixed_cell.patch"),
+        "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,4 +1,4 @@\n-pub fn answer() -> u8 { 1 }\n+pub fn answer() -> u8 { 2 }\n #[cfg(test)]\n mod tests {\n     #[test]\n",
+    )
+    .unwrap();
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "test: mixed claim\n\nClaim-Cell: mixed_cell"]);
+    std::fs::create_dir_all(dir.join("tests")).unwrap();
+    std::fs::write(dir.join("tests/pure.rs"), "#[test]\nfn pure_cell() {}\n").unwrap();
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "test: pure sibling"]);
+    let head = String::from_utf8(git_output(&dir, &["rev-parse", "HEAD"]).stdout).unwrap();
+    let files = super::diff::commit_additions(&dir, head.trim()).unwrap();
+    let read = |path: &str| std::fs::read_to_string(dir.join(path)).ok();
+    let scope = match super::scoped::Scan::of(&files, &[String::from("tests/pure.rs")], &read) {
+        super::scoped::Scan::Runnable(scoped) => scoped,
+        other => panic!("expected a pure test scope, got {other:?}"),
+    };
+    assert_eq!(scope.tests()[0].name(), "pure_cell");
+    let at = super::provenance::Commit::parse(base.trim()).unwrap();
+    let claim = super::claim::Claim::of(&super::worktree::messages(&dir, &at)).unwrap();
+    let verdict = super::claim::run(
+        &dir,
+        &scope,
+        &[String::from("tests/pure.rs")],
+        &claim,
+        super::claim::Caller::TEST_CAUSALITY,
+    );
+    drop(std::fs::remove_dir_all(&dir));
+    assert_eq!(verdict, Verdict::Pass);
 }

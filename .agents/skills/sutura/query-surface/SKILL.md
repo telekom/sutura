@@ -59,10 +59,11 @@ orders them FIRST, and five of 31 corpus questions returned the same rows in a d
 at 61 rows, no number wrong. **No golden could see it.** What differed was the order of a certified
 answer the plan claims by emitting `ORDER BY`.
 
-The fix converges **behaviour, not text**: the keyword renders for the one dialect whose default is
-the other way and collapses for the three where it already is the default, and a test asserts its
-ABSENCE for those three - so "all four dialects spell it" would have been red the day it was
-written.
+The fix converges **behaviour, not text**: the keyword renders for BigQuery, whose default is the
+other way, and for DuckDB, whose null ordering the layer treats as configurable rather than fixed;
+it collapses for the three where it already is the fixed default (Postgres, ClickHouse, and Oracle
+for an ascending sort), and a test asserts its ABSENCE for those three - so "all five dialects
+spell it" would have been red the day it was written.
 
 Generalise it: a fifth dialect cannot compile without answering the exhaustive declarations for
 identifier case, path depth and bucket shape, and each of those exists because **a parse check was
@@ -192,9 +193,11 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   Elasticsearch `keywordMaxLength`, an index setting rather than a constant here - what was
   measured is that the refusal NAMES it, not that raising it works. **Still absent:** any HTTP
   `AspectReader`, so the requests and the response mapping live in the test rather than in `src/`,
-  and the structural half of that snapshot is still the recorded corpus; any authentication
-  (`METADATA_SERVICE_AUTH_ENABLED: "false"`, so the auth half is untested); any frontend, so there is
-  no UI; and any CI job, because the nix sandbox has no docker socket. **A platform that accepts the
+  and the structural half of that snapshot is still the recorded corpus; any frontend, so there is
+  no UI; and any CI job, because the nix sandbox has no docker socket. Authentication is ON
+  (`METADATA_SERVICE_AUTH_ENABLED: "true"`): the tier mints its own PAT offline, the acceptance run
+  presents it as a bearer and asserts a bearer-less read is refused - a self-minted PAT, not a
+  DB-backed token-service token. **A platform that accepts the
   document is not a read path**, and the acceptance cells are `#[ignore]`d, so they are evidence of
   whatever the last `just datahub-acceptance` run reported and of nothing in the default suite - run
   without `SUTURA_DEV_REQUIRE_TIER=1` they report `ok` having asserted nothing, which is why the task
@@ -226,11 +229,11 @@ they were **deleted rather than demoted**, which is the table's own rule applied
 - **The BigQuery adapter is a whole adapter in this state, and has been leaving a piece at a time.**
   Everything above the wire is decided and tested against a fake; the wire exists behind a
   default-off feature; a real dataset has accepted the whole corpus and reproduced its anchors, green
-  in CI; and a composition root opens the kind. **What has still never happened: no published
-  artifact links the crate**, and `checks.shipped-features` reads that absence off the artefact
-  rather than off a manifest. The `data_systems:` golden axis therefore gains no entry - that
-  registry's rule is that a cell which cannot execute reads as coverage. The DIALECT axis does have
-  one.
+  in CI; and a composition root opens the kind. **A published artifact links the crate now:** the
+  release binary's `features` in `nix/shipped.nix` carry `bigquery`. The `data_systems:` golden
+  axis registers it with `available()` answering `false` unconditionally - it is cloud-only, so
+  every cell on that axis skips it, and the entry exists so `execute_packs!`'s registry gate can
+  bind the adapter's own conformance packs (`#710`). The DIALECT axis has an entry of its own.
 - **The ClickHouse adapter executes the golden corpus and conformance packs, and no release links
   it.** The golden matrix registers it and runs the example corpus against the server
   `nix/clickhouse-tier.nix` starts - in
