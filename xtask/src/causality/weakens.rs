@@ -13,10 +13,7 @@
 //! trailer for `t`. A trailer naming a test this diff never deleted waives nothing (and is not an
 //! error either - the same asymmetry `Claim-Cell:`'s reverse direction already accepts).
 //!
-//! **Root's default, owner may veto.** This is the ESCAPE HATCH the review asked for; if the
-//! project owner decides a legitimate removal should go through some other route (a maintainer
-//! override, a separate revert-tracking issue), this mechanism is the one to remove or replace -
-//! it is additive and nothing else depends on it existing.
+//! The owner chose this named trailer as the escape hatch for legitimate removals.
 
 use std::collections::BTreeMap;
 

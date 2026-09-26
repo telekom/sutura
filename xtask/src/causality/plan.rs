@@ -46,7 +46,7 @@ pub(crate) struct DeletedFrom {
 pub(crate) enum Plan {
     /// No changed tests: nothing to prove.
     NotRequired,
-    /// A REMOVED line sat inside a pre-existing `#[test]` - a deleted assertion, with nothing
+    /// A REMOVED behavioural line sat inside a pre-existing `#[test]` or its called helper, with nothing
     /// added in its place. Neither run measures it (base and head are both green), so the route is
     /// a named refusal, not a proof: the shape names the deleted test and asks the author to state
     /// the evidence, or waive it by name (`Weakens-Test:`, `super::weakens`).

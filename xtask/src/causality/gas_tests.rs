@@ -678,3 +678,10 @@ fn editing_a_called_test_helper_is_refused_without_a_claim() {
     let head = base.replace("fn helper() -> u8 { 1 }", "fn helper() -> u8 { 2 }");
     assert_eq!(changed_test_shape(base, &head), Verdict::Fail);
 }
+
+#[test]
+fn deleting_a_called_test_helpers_assertion_is_refused() {
+    let base = "#[cfg(test)]\nmod tests {\n    fn helper() {\n        assert_eq!(2 + 2, 4);\n    }\n    #[test]\n    fn existing() {\n        helper();\n    }\n}\n";
+    let head = base.replace("        assert_eq!(2 + 2, 4);\n", "");
+    assert_eq!(changed_test_shape(base, &head), Verdict::Fail);
+}

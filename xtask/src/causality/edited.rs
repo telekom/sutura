@@ -29,7 +29,9 @@
 //! `#[test]` a REMOVED line landed inside - the pure DELETION of an assertion, with no line added
 //! in its place. A removal exists only in the PRE-image, so that shape reads it there
 //! (`super::diff::RemovedLine`'s own doc records why the post-image approximation was falsified);
-//! `super::plan` threads the base image in for exactly this, and [`deletion_in`] is the composed
+//! `super::plan` threads the base image in for exactly this. A helper edit that only removes a
+//! behavioural line is named from that image too; a replacement line routes its caller into
+//! proof. [`deletion_in`] is the composed
 //! answer it calls, over EVERY compiled file rather than only one with no other test-side change -
 //! `github.com/telekom/sutura#1031`'s own review found that the first cut of this only ran the
 //! check in the `Adds::Nothing` arm, so a file that ALSO added a test or edited a different one
@@ -134,13 +136,13 @@ pub(super) fn touches(added: &[AddedLine], path: &str, read: &PostImage<'_>) -> 
 /// One file's SHAPE A verdict.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Deletion {
-    /// No removed line carried behaviour inside a pre-existing test - or every one that did is
+    /// No removed line carried behaviour inside a pre-existing test or its called helper - or every one that did is
     /// also a test #1025's edited-assertion shape already routes to proof.
     None,
     /// `removed` is non-empty and the BASE image could not be read at all: fail closed rather than
     /// silently answering [`Self::None`] about a file this cannot actually read.
     BaseUnreadable,
-    /// These pre-existing tests lost evidence at the base commit.
+    /// These pre-existing tests or their called helpers lost evidence at the base commit.
     Named(Vec<Ident>),
 }
 
@@ -150,7 +152,7 @@ pub(super) enum Deletion {
 /// a new test, a helper, or edited a DIFFERENT existing test never asked the deletion question for
 /// the one it silently weakened.
 ///
-/// Reads the BASE image for [`removed_in`]'s question and the POST-image for [`touched_in`]'s, to
+/// Reads the BASE image for [`removed_in`] and removed lines in called helpers, and the POST-image for [`touched_in`], to
 /// subtract a name #1025 already claims - the same test edited (an added line in its span) AND
 /// evidenced by a removed line carrying behaviour in its base span is one EDIT, not a deletion
 /// with nothing added in its place, and stays routed to proof rather than being named twice.
@@ -168,17 +170,29 @@ pub(super) fn deletion_in(
         return Deletion::BaseUnreadable;
     };
     let base_lines: Vec<&str> = base_text.lines().collect();
-    let deleted = removed_in(&base_lines, file_removed);
+    let mut deleted: Vec<Ident> = removed_in(&base_lines, file_removed).iter().map(Deleted::name).collect();
+    let removed_behaviour: Vec<AddedLine> = file_removed
+        .iter()
+        .filter(|line| !carries_no_behaviour(&line.text))
+        .map(|line| AddedLine::new(line.before, &line.text))
+        .collect();
+    let base_scope = crate::causality::regions::scope(path, base);
+    for name in edited_helper_caller(&base_lines, &removed_behaviour, &base_scope) {
+        if !deleted.contains(&name) {
+            deleted.push(name);
+        }
+    }
     if deleted.is_empty() {
         return Deletion::None;
     }
     let post_text = read(path).unwrap_or_default();
     let post_lines: Vec<&str> = post_text.lines().collect();
+    let post_scope = crate::causality::regions::scope(path, read);
     let touched = touched_in(&post_lines, file_added);
+    let edited_helpers = edited_helper_caller(&post_lines, file_added, &post_scope);
     let names: Vec<Ident> = deleted
         .into_iter()
-        .map(|one| one.name())
-        .filter(|name| !touched.iter().any(|one| one.name() == name))
+        .filter(|name| !touched.iter().any(|one| one.name() == name) && !edited_helpers.contains(name))
         .collect();
     if names.is_empty() {
         Deletion::None

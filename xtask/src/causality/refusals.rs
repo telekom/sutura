@@ -56,11 +56,11 @@ pub(super) fn report_unnamed_tests(test_files: &[String]) -> Verdict {
     Verdict::Fail
 }
 
-/// A REMOVED line sat inside a pre-existing `#[test]` - a deleted assertion, with nothing added
+/// A REMOVED line sat inside a pre-existing `#[test]` or its called helper, with nothing added
 /// in its place.
 ///
 /// FAILS unless every named test is WAIVED, and it is the second half of
-/// `github.com/telekom/sutura#1031` (the first is a helper edit, which routes into proof). Neither
+/// `github.com/telekom/sutura#1031` (a helper edit with a replacement routes into proof). Neither
 /// run measures a deletion: base and head are both green because the assertion is GONE from both,
 /// and there is nothing a mutation can redden - the deleted evidence does not exist to be
 /// weakened. So the honest answer is a named refusal that tells the author WHICH test lost
@@ -83,15 +83,15 @@ pub(super) fn report_deleted_tests(deleted: &[crate::causality::plan::DeletedFro
         }
     }
     if unwaived.is_empty() {
-        println!("xtask test-causality: a diff deleted an assertion, and every deleted test is waived");
+        println!("xtask test-causality: removed test evidence is waived for every affected test");
         for (path, name, reason) in waived_lines {
             println!("  {path}: {name} - Weakens-Test: {reason}");
         }
         return Verdict::Pass;
     }
-    eprintln!("xtask test-causality: FAILED - a diff deleted an assertion that was the whole point of a test");
+    eprintln!("xtask test-causality: FAILED - a diff removed test evidence without a replacement");
     for (path, name) in &unwaived {
-        eprintln!("  {path}: a removed line sat inside the pre-existing #[test] `{name}`");
+        eprintln!("  {path}: a removed line affected the pre-existing #[test] `{name}` or its called helper");
     }
     for (path, name, reason) in &waived_lines {
         eprintln!("  {path}: {name} is waived - Weakens-Test: {reason}");
