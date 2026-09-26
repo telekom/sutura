@@ -65,6 +65,10 @@
 //! as *this root builds none* while building two. `check-boot-order` refuses the same shape for the
 //! same reason.
 //!
+//! **Every in-scope file is read once, by [`inspect_scan`]**, and every check reads those bytes, so a
+//! listed file that vanished is a refusal rather than a file the count lost. The census holds that a
+//! file was OPENED, not what the scan did with it; `inspect_scan`'s own count reconciles the two.
+//!
 //! **The refusal covers two spellings and it covered one**, which is worth stating precisely rather
 //! than as *an aliased import*: `use sutura_runtime::Admission as Bound;` and
 //! `type Bound = Admission;`. The second was open, was measured green over a tree that built three,
@@ -158,8 +162,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     println!(
         "xtask check-one-bound: ok - {} execution bound(s) built, one per serving composition root, \
          none in a transport, over {} Rust file(s) under crates/ and {} root file(s) (a crate's \
-         src/main.rs, or a file that composes a transport itself)",
-        counted.sites, counted.read, counted.roots
+         src/main.rs, or a file that composes a transport itself); {}",
+        counted.sites, counted.read, counted.roots, counted.witness
     );
     Verdict::Pass
 }
@@ -173,17 +177,16 @@ struct Counted {
     /// Composition-root files under `crates/` - a `src/main.rs`, or a file that itself composes a
     /// transport.
     roots: usize,
+    /// The census's own verdict line, so the file count is a witness rather than a declaration.
+    witness: String,
 }
 
 /// One `Result` rather than a print-and-return block per failure, so the task name and the
 /// paragraph under it are written once - `boot_order`'s shape, for the reason it gives.
 fn check() -> Result<Counted, String> {
-    let (root, files) = repo::all_files()
-        .and_then(|census| census.into_listing(repo::Unmigrated::OneBound))
-        .map_err(|why| why.describe())?;
-    let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
+    let (scanned, files, texts, witness) = inspect_scan(repo::all_files().map_err(|why| why.describe())?)?;
+    let read = |path: &str| texts.get(path).cloned();
     door_is_still_defined(&read)?;
-    let scanned = scan(&files, &read)?;
     no_bound_hides_behind_an_alias(&files, &read)?;
     let roots = roots(&files, &scanned);
     at_least_one_bound_is_built(&scanned)?;
@@ -195,7 +198,40 @@ fn check() -> Result<Counted, String> {
         sites: scanned.sites.values().map(Vec::len).sum(),
         read: scanned.read,
         roots: roots.len(),
+        witness,
     })
+}
+
+/// The scan, the in-scope paths, their text, and the census's verdict line.
+type Inspected = Result<(Scan, Vec<String>, BTreeMap<String, String>, String), String>;
+
+/// Every in-scope file read once, by [`repo::Census::inspect`], and [`scan`] run over those bytes.
+/// `inspect` counts a listed file that vanished as absent, not unreachable; a gate whose subject is
+/// a count refuses it, and refuses a `scan` that read fewer files than the census opened.
+fn inspect_scan(census: repo::Census) -> Inspected {
+    let mut texts = BTreeMap::new();
+    // Lossy, as `check-guidance` reads: a byte that is not UTF-8 never makes an opened file unread.
+    let inspected = census
+        .inspect(&[], in_scope, |rel, bytes| {
+            texts.insert(String::from(rel), String::from_utf8_lossy(bytes).into_owned());
+        })
+        .map_err(|why| why.describe())?;
+    if inspected.absent() != 0 {
+        return Err(format!(
+            "{} in-scope file(s) vanished after discovery, so the count is incomplete",
+            inspected.absent()
+        ));
+    }
+    let files: Vec<String> = texts.keys().cloned().collect();
+    let scanned = scan(&files, &|path| texts.get(path).cloned())?;
+    if scanned.read != inspected.judged() {
+        return Err(format!(
+            "scanned {} of {} in-scope file(s) - the walk stopped early",
+            scanned.read,
+            inspected.judged()
+        ));
+    }
+    Ok((scanned, files, texts, inspected.verdict()))
 }
 
 /// What the scan found.
@@ -607,72 +643,30 @@ fn every_serving_root_builds_one(found: &Scan, roots: &BTreeSet<String>) -> Resu
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::{BTreeMap, BTreeSet};
+mod fixtures;
 
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::fixtures::{GOOD_ROOT, Tree, named, scanned, tree};
     use super::{
         BOUND, DOOR, DOOR_DEFINED_IN, DOOR_SIGNATURE, Scan, TAKERS, at_least_one_bound_is_built, at_most_one_bound_per_crate,
         call_count, crate_of, door_is_still_defined, every_serving_root_builds_one, every_site_is_in_a_composition_root,
-        every_taker_is_still_called, is_bin, located, no_bound_hides_behind_an_alias, roots, scan,
+        every_taker_is_still_called, inspect_scan, is_bin, located, no_bound_hides_behind_an_alias, roots,
     };
-
-    /// A fixture tree: the paths the gate lists, and what each one holds.
-    ///
-    /// Named rather than a tuple, because `type_complexity` is tightened in this workspace.
-    struct Tree {
-        paths: Vec<String>,
-        contents: BTreeMap<String, String>,
-    }
-
-    /// A tree of paths to contents, read the way the gate reads the working tree.
-    fn tree(files: &[(&str, &str)]) -> Tree {
-        Tree {
-            paths: files.iter().map(|&(path, _)| String::from(path)).collect(),
-            contents: files
-                .iter()
-                .map(|&(path, text)| (String::from(path), String::from(text)))
-                .collect(),
-        }
-    }
-
-    /// The scan over such a tree.
-    fn scanned(files: &[(&str, &str)]) -> Scan {
-        let Tree { paths, contents } = tree(files);
-        scan(&paths, &|path| contents.get(path).cloned()).expect("a fixture tree is readable")
-    }
-
-    fn named(names: &[&str]) -> BTreeSet<String> {
-        names.iter().map(|&name| String::from(name)).collect()
-    }
-
-    /// A root that builds one bound and hands it to every taker this gate keys on.
-    ///
-    /// All three, which no real root does - `serve.rs` composes the HTTP state and `mcp.rs`
-    /// the agent surface. It has to be all three here so that renaming ONE of them below leaves the
-    /// other two matched, and the failure therefore names the needle under test rather than
-    /// whichever happens to sort first.
-    const GOOD_ROOT: &str = "\
-fn run() -> Result<(), String> {
-    let admission = Admission::from_settings(settings.runtime());
-    let state = ServiceState::new(service, Arc::new(settings), admission.clone());
-    let agent = AgentSurface::new(service, permitted, prose, admission.clone(), reply);
-    block_on(sutura_mcp::serve_stdio(service, permitted, prose, admission, reply))
-}
-";
 
     #[test]
     fn the_tree_itself_passes_and_the_scan_is_not_empty() {
         // Over the REAL files, for the reason `check-boot-order`'s own suite gives: a reader that
         // matches nothing makes its gate pass vacuously. Non-vacuous by construction - more files
         // read than sites found, and every rule asserted rather than the summary.
-        let Ok((root, files)) =
-            crate::repo::all_files().and_then(|census| census.into_listing(crate::repo::Unmigrated::OneBound))
-        else {
+        let Ok(census) = crate::repo::all_files() else {
             return;
         };
-        let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
+        let (found, files, texts, _) = inspect_scan(census).expect("every Rust file under crates/ is readable");
+        let read = |path: &str| texts.get(path).cloned();
         assert_eq!(door_is_still_defined(&read), Ok(()));
-        let found = scan(&files, &read).expect("every Rust file under crates/ is readable");
         let roots = roots(&files, &found);
         assert_eq!(at_least_one_bound_is_built(&found), Ok(()));
         assert_eq!(every_taker_is_still_called(&found), Ok(()));
@@ -984,5 +978,18 @@ fn run() -> Result<(), String> {
             ),
             2
         );
+    }
+
+    #[test] // A listed source that disappears must invalidate the verdict, not shrink the count.
+    fn a_listed_source_that_vanishes_refuses_the_one_bound_scan() {
+        let fixture: &[u8] = b"fn plain() {}\n";
+        let tree = crate::scratch_tree::Tree::of(
+            "one-bound-vanished",
+            &[("crates/a/src/lib.rs", fixture), ("crates/b/src/lib.rs", fixture)],
+        );
+        let census = crate::repo::collect_files(tree.root(), &tree.root().join("crates"), &["rs"]);
+        std::fs::remove_file(tree.root().join("crates/b/src/lib.rs")).expect("a vanished source");
+        let refused = inspect_scan(census).is_err_and(|problem| problem.contains("1 in-scope file(s) vanished"));
+        assert!(refused, "a listed file that vanished must refuse the scan");
     }
 }

@@ -199,7 +199,7 @@ impl Refusal {
 /// **What the enum does NOT bound, and the bound that replaces the claim.** This list used to
 /// claim that *"a new gate reaching for the plain `Vec` is a one-line diff in this file"*. It is
 /// not: any variant with a second call site is a usable key, so a new consumer declaring
-/// `Unmigrated::Guidance` - which has six - compiled with **no diff here at all**
+/// `Unmigrated::Guidance` - which then had six - compiled with **no diff here at all**
 /// (`cargo check -p xtask --all-features --all-targets`, exit 0, no diagnostics). The count in the
 /// other direction was held by nothing too: no test and no gate referenced this enum's size. What
 /// holds both now is `UNMIGRATED_DOORS`, an exact call-site count checked against the live tree,
@@ -218,8 +218,6 @@ impl Refusal {
 /// that stays: `check-warm-start` keeps its own witness deliberately (see this module's header).
 pub(crate) enum Unmigrated {
     Causality,
-    Guidance,
-    OneBound,
     WarmStart,
 }
 
@@ -246,7 +244,7 @@ pub(crate) enum Unmigrated {
 /// Measured on the first run of this test, which reported 45 against 44 real call sites; the extra
 /// was a `check-newtype-leaks` fixture, and it is built from parts now, the way that gate's own
 /// fixtures already avoid reporting their own source.
-pub(crate) const UNMIGRATED_DOORS: usize = 25;
+pub(crate) const UNMIGRATED_DOORS: usize = 11;
 
 impl Census {
     /// Mint one. `pub(super)`, so `crate::repo` is the only caller there can be.

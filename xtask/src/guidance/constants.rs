@@ -44,7 +44,6 @@
 //!   that shape and a false report would need a resolvable citation on the same line.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 
 use super::claims::flatten;
 use crate::markdown;
@@ -204,23 +203,26 @@ struct Sources {
 /// `let Ok(..) else { continue }` here would drop the file holding a declaration or the file
 /// making a false claim, and every other file would keep the verdict looking like an answer. One
 /// read for all three passes, so there is one place this can go wrong instead of three.
-fn readable(root: &Path, files: &[String]) -> Sources {
-    let mut read = Vec::new();
+fn readable(read: &crate::causality::regions::PostImage<'_>, files: &[String]) -> Sources {
+    let mut sources = Vec::new();
     let mut unreadable = Vec::new();
     for rel in files {
         if !matches_any(OVER, rel) {
             continue;
         }
-        match std::fs::read_to_string(root.join(rel)) {
-            Ok(text) => read.push(Source { rel: rel.clone(), text }),
-            Err(why) => unreadable.push(format!(
-                "{rel}: cannot be read as UTF-8 text - {why}. A file this check cannot look at may \
+        match read(rel) {
+            Some(text) => sources.push(Source { rel: rel.clone(), text }),
+            None => unreadable.push(format!(
+                "{rel}: cannot be read as UTF-8 text. A file this check cannot look at may \
                  be the one holding the declaration or the one making the claim, so the verdict is \
                  over the files it names or it is nothing"
             )),
         }
     }
-    Sources { read, unreadable }
+    Sources {
+        read: sources,
+        unreadable,
+    }
 }
 
 /// Every `const NAME: Enum = Enum::Variant;` in the library source, with the type it is declared on.
@@ -519,8 +521,11 @@ fn read_file(rel: &str, text: &str, held: &[Held], enums: &BTreeMap<String, BTre
 }
 
 /// A doc comment may not name a variant its own constant does not hold.
-pub(in crate::guidance) fn constant_problems(root: &Path, files: &[String]) -> (Vec<String>, usize) {
-    let sources = readable(root, files);
+pub(in crate::guidance) fn constant_problems(
+    read: &crate::causality::regions::PostImage<'_>,
+    files: &[String],
+) -> (Vec<String>, usize) {
+    let sources = readable(read, files);
     let held = declarations(&sources.read);
     let enums = variants(&sources.read);
     let mut reading = Reading {
@@ -723,10 +728,10 @@ mod tests {
     /// pairs, at least one agrees, and nothing disagrees.
     #[test]
     fn the_real_workspace_is_what_the_floor_is_about() {
-        let (root, files) = crate::repo::all_files()
-            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
-            .expect("could not locate the repo");
-        let sources = super::readable(&root, &files);
+        let (files, texts, _witness) =
+            super::super::inspect_listing(crate::repo::all_files()).expect("could not locate the repo");
+        let read = |rel: &str| texts.get(rel).cloned();
+        let sources = super::readable(&read, &files);
         assert!(sources.unreadable.is_empty(), "{:?}", sources.unreadable);
         let held = super::declarations(&sources.read);
         assert!(
@@ -734,7 +739,7 @@ mod tests {
                 .any(|one| one.name == "IMPERSONATION" && one.kind == "ImpersonationCapability"),
             "the declaration reader found no IMPERSONATION at all, so nothing below means anything"
         );
-        let (problems, confirmed) = super::constant_problems(&root, &files);
+        let (problems, confirmed) = super::constant_problems(&read, &files);
         assert!(problems.is_empty(), "{problems:?}");
         assert!(
             confirmed > 0,

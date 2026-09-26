@@ -140,24 +140,27 @@ fn printed_citations<'text>(rel: &str, text: &'text str, read: &regions::PostIma
 /// The count comes back rather than being logged here, because a scan that reads NOTHING passes
 /// everything: [`super::run`] turns zero into a failure the same way `check-scope` and the remedy
 /// scan do, and for the same reason.
-pub(super) fn advice_problems(root: &Path, files: &[String]) -> (Vec<String>, usize) {
+pub(super) fn advice_problems(
+    root: &Path,
+    read: &crate::causality::regions::PostImage<'_>,
+    files: &[String],
+) -> (Vec<String>, usize) {
     let gates = super::known_tasks();
     let recipes = crate::tasks::recipe_names(root);
-    let read = |rel: &str| std::fs::read_to_string(root.join(rel)).ok();
     let mut problems = Vec::new();
     let mut found = 0_usize;
 
     for rel in in_scope(files) {
-        // `read_subject` for the SUBJECT of the walk. `read` above stays because
-        // `printed_citations` hands it to `regions::scope`, which follows a `#[cfg(test)] mod x;`
-        // into the parent file - and that read is NOT closed here: a parent this cannot open makes
-        // a test region invisible, so a citation inside one is judged as production. That is a
-        // narrowing of one file's image rather than a dropped subject, and it lives in
-        // `causality::regions` for every caller of that image, not in this check.
-        let Some(text) = crate::repo::read_subject(root, rel, &mut problems) else {
+        // The subject of the walk, read through the text-backed `read` closure. `read` is also
+        // handed to `printed_citations`, which passes it to `regions::scope` - that read follows a
+        // `#[cfg(test)] mod x;` into the parent file, and a parent this cannot open makes a test
+        // region invisible, so a citation inside one is judged as production. That is a narrowing
+        // of one file's image rather than a dropped subject, and it lives in `causality::regions`
+        // for every caller of that image, not in this check.
+        let Some(text) = read(rel) else {
             continue;
         };
-        for (line, one) in printed_citations(rel, &text, &read) {
+        for (line, one) in printed_citations(rel, &text, read) {
             found = found.saturating_add(1);
             match one {
                 Cited::Recipe(name) => match &recipes {
@@ -265,10 +268,9 @@ mod tests {
         // recipe" said no. Two hand-parsers of one file had disagreed about that prefix, which is
         // the second-thing-to-keep-true this gate's own existence argues against.
         let root = crate::repo::root().expect("the repo root");
-        let (_root, files) = crate::repo::all_files()
-            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
-            .expect("could not list the repo");
-        let (problems, found) = advice_problems(&root, &files);
+        let (files, texts, _witness) = super::super::inspect_listing(crate::repo::all_files()).expect("could not list the repo");
+        let read = |rel: &str| texts.get(rel).cloned();
+        let (problems, found) = advice_problems(&root, &read, &files);
         assert!(
             found > 0,
             "read no citation out of any printed line - the scan is broken, not the tree"
@@ -281,9 +283,7 @@ mod tests {
         // Upstream source makes claims about ITS repo, the reason `run` already keeps
         // `.agents/skill-library/` out of the prose scan. Asserted against the tree rather than a
         // fixture, so vendoring a second crate does not quietly widen this.
-        let (_root, files) = crate::repo::all_files()
-            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
-            .expect("could not list the repo");
+        let (files, _texts, _witness) = super::super::inspect_listing(crate::repo::all_files()).expect("could not list the repo");
         let scope = in_scope(&files);
         assert!(
             scope.contains("dev/src/provisioned.rs"),

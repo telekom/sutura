@@ -90,9 +90,9 @@ const EXCEPT: &[&str] = &[
 /// Everything wrong with how this tree states leg 2's state.
 ///
 /// `files` is the prose scope `guidance::run` already computed, read through
-/// `repo::read_subject` exactly as [`super::claims::contradicted_claims`] reads it - so an
+/// a text-backed `read` closure exactly as [`super::claims::contradicted_claims`] reads it - so an
 /// unreadable page reports itself once, through the one reader every check here shares.
-pub(super) fn problems(root: &Path, files: &[String]) -> Vec<String> {
+pub(super) fn problems(root: &Path, read: &crate::causality::regions::PostImage<'_>, files: &[String]) -> Vec<String> {
     let Some(citable) = crate::venues::leg_two_citable(root) else {
         return vec![String::from(
             "the leg-2 rows of `docs/where-identity-is-proven.md`'s claims matrix could not be \
@@ -109,7 +109,7 @@ pub(super) fn problems(root: &Path, files: &[String]) -> Vec<String> {
         if crate::repo::matches_any(EXCEPT, path) {
             continue;
         }
-        let Some(text) = crate::repo::read_subject(root, path, &mut problems) else {
+        let Some(text) = read(path) else {
             continue;
         };
         problems.extend(stated_in(path, &text));

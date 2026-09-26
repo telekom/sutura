@@ -8,8 +8,6 @@
 
 use std::path::Path;
 
-use crate::repo;
-
 /// The directories a cited path may be checked against: this repository's own.
 ///
 /// A path in SOMEONE ELSE'S repository is indistinguishable from a stale one by any local check -
@@ -77,13 +75,17 @@ fn citations(text: &str) -> impl Iterator<Item = (usize, &str)> {
 ///
 /// Limit: the extraction is per LINE, so an inline-code span wrapped across two lines is missed.
 /// That under-reports; it cannot redden a correct tree.
-pub(in crate::guidance) fn dead_paths(root: &Path, files: &[String]) -> Vec<String> {
+pub(in crate::guidance) fn dead_paths(
+    root: &Path,
+    read: &crate::causality::regions::PostImage<'_>,
+    files: &[String],
+) -> Vec<String> {
     let mut problems = Vec::new();
     for rel in files {
         if !super::has_ext(rel, &["md"]) {
             continue;
         }
-        let Some(text) = repo::read_subject(root, rel, &mut problems) else {
+        let Some(text) = read(rel) else {
             continue;
         };
         for (line, path) in citations(&text) {
@@ -154,7 +156,7 @@ mod tests {
 
         // PLANTED: the shape this gate was written for - a page citing a file that moved.
         std::fs::write(dir.join(&rel), "The registry is `crates/sutura-app/tests/adapters/mod.rs`.\n").expect("the page");
-        let problems = dead_paths(&dir, &files);
+        let problems = dead_paths(&dir, &|rel: &str| std::fs::read_to_string(dir.join(rel)).ok(), &files);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].starts_with("record.md:1:"), "{problems:?}");
         assert!(
@@ -168,12 +170,18 @@ mod tests {
             "The registry is `crates/sutura-app/tests/adapters/adapters.rs`.\n",
         )
         .expect("the page");
-        assert!(dead_paths(&dir, &files).is_empty(), "a live citation must pass");
+        assert!(
+            dead_paths(&dir, &|rel: &str| std::fs::read_to_string(dir.join(rel)).ok(), &files).is_empty(),
+            "a live citation must pass"
+        );
 
         // And the escape hatch works: the bare filename is not a citation even though no such
         // file exists anywhere in the fixture.
         std::fs::write(dir.join(&rel), "An earlier draft cited `federation.rs`, which is not here.\n").expect("the page");
-        assert!(dead_paths(&dir, &files).is_empty(), "a bare filename must not be refused");
+        assert!(
+            dead_paths(&dir, &|rel: &str| std::fs::read_to_string(dir.join(rel)).ok(), &files).is_empty(),
+            "a bare filename must not be refused"
+        );
         std::fs::remove_dir_all(&dir).unwrap_or_default();
     }
 
@@ -185,9 +193,8 @@ mod tests {
     /// stopped reading half the tree would still satisfy it.
     #[test]
     fn the_citation_walk_reads_both_scopes_of_the_real_tree() {
-        let (root, all) = crate::repo::all_files()
-            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
-            .expect("the file census");
+        let (all, _texts, _witness) = super::super::inspect_listing(crate::repo::all_files()).expect("the file census");
+        let root = crate::repo::root().expect("the repo root");
         let (mut routes, mut files) = (0_usize, 0_usize);
         for rel in super::super::in_scope(&all) {
             if !super::super::has_ext(&rel, &["md"]) {
