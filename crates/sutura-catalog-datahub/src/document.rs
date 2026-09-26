@@ -691,22 +691,17 @@ impl SuturaDimension {
 
     /// Into the domain type `Definitions::assemble` holds.
     ///
-    /// The expect is on `ViaChain`'s own invariant, not on anything this adapter parsed: the
-    /// property carries only chains built through `ViaChain::of`, so a non-empty chain is what
-    /// arrives, and the domain type keeps its parse-only construction honest.
-    #[expect(
-        clippy::expect_used,
-        reason = "the property stores only chains built through ViaChain::of, so an empty chain \
-                  cannot reach this conversion; a panic would name a violated invariant rather \
-                  than silently mint one"
-    )]
-    pub fn into_domain(self) -> Dimension {
-        let via = self
-            .via
-            .map(ViaChain::try_from)
-            .transpose()
-            .expect("the property carried a non-empty chain");
-        Dimension::new(self.name, self.column, via, self.allowed_values, self.description)
+    /// `via` is decoded from the string `DataHub` returns, and an empty `ViaDoc::Chain` survives
+    /// that decode, so the refusal of `ViaChain::try_from` is returned rather than panicked on.
+    pub fn into_domain(self) -> Result<Dimension, InvalidViaChain> {
+        let via = self.via.map(ViaChain::try_from).transpose()?;
+        Ok(Dimension::new(
+            self.name,
+            self.column,
+            via,
+            self.allowed_values,
+            self.description,
+        ))
     }
 }
 

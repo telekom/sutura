@@ -182,6 +182,18 @@ pub enum DataHubError {
         #[source]
         cause: serde_json::Error,
     },
+    /// A dimension's `via` chain is empty, which `DataHub` can carry but no `ViaChain` can hold.
+    ///
+    /// `SuturaDimension` deserializes `via` as a `ViaDoc`, whose untagged `Chain` arm accepts an
+    /// empty sequence, so a property value such as `{"dimensions":[{"name":"x","column":"y","via":[]}]}`
+    /// reaches the conversion. `ViaChain::try_from` refuses it; this variant carries that refusal
+    /// out naming the metric, the same way [`DataHubError::Sutura`] carries a failed scalar decode.
+    #[error("a dimension of metric {metric} has an empty via chain")]
+    EmptyViaChain {
+        metric: String,
+        #[source]
+        cause: sutura_domain::catalog::InvalidViaChain,
+    },
     /// Prose on a snapshot is not a usable description.
     #[error("the description of {on} is not usable")]
     Description {
@@ -429,7 +441,11 @@ impl<R: AspectReader> DataHubCatalog<R> {
             .iter()
             .cloned()
             .map(document::SuturaDimension::into_domain)
-            .collect();
+            .collect::<Result<_, _>>()
+            .map_err(|cause| DataHubError::EmptyViaChain {
+                metric: metric.name().to_owned(),
+                cause,
+            })?;
         let anchor = content.anchor().cloned().map(SuturaAnchor::into_domain);
         let description = Description::parse(content.description()).map_err(|cause| DataHubError::Description {
             on: metric.name().to_owned(),
