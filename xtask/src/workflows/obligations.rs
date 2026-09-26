@@ -45,10 +45,17 @@
 //! **The limit, next to the claim.** This rule holds the condition on the steps named in
 //! [`REQUIRED`] and nothing wider. It does not require any OTHER step to stay reachable - adding
 //! one is an edit here. Nor does it verify that `always()` behaves as measured; that is GitHub's
-//! semantics, observed over the runs above and not reproduced by this repository. Nor does it see
-//! the `ci` job's own `if:`, which skips the whole job - `Secrets` included - on a
-//! `chore(release):` commit; that exemption is accepted deliberately at the job level and this
-//! rule has no view of it either way.
+//! semantics, observed over the runs above and not reproduced by this repository.
+//!
+//! **The release-skip clause - what [`RELEASE_SKIP`] does and does not pin.** The `ci` job's own
+//! `if:` skips the whole job - `Secrets` included - on a `chore(release):` commit, and
+//! `bigquery-driver-check` repeats that test as a conjunct in its own `if:`. [`RELEASE_SKIP`] holds
+//! that the clause APPEARS as a conjunct on each named job's `if:` - it does not pin the category
+//! clause that sits beside it (`needs.identity-classify.outputs.data_source_bigquery == 'true'`),
+//! because that axis is held by the category registry in `affected` and pinning it here would
+//! couple the rule to a job rename. The clause is matched as exact normalized text: a paraphrased
+//! clause FAILS CLOSED - it does not match and the refusal fires - rather than passing on a
+//! looser `contains`. See [`carries_release_skip`].
 //!
 //! # The second thing this holds: LATENCY, not just skippability (#512(b))
 //!
@@ -214,10 +221,123 @@ fn check(text: &str) -> Vec<String> {
     out.extend(order_problems(&steps));
     out
 }
+/// The release-commit skip clause that `ci` and `bigquery-driver-check` both carry, normalized the
+/// way `Step::gate` normalizes (`${{ }}` stripped, whitespace collapsed to single spaces).
+///
+/// Pinned as exact text, not matched loosely: a paraphrased clause fails closed (the conjunct check
+/// below does not match and the refusal fires) rather than passing on a `contains`. The category
+/// clause beside it on `bigquery-driver-check` is deliberately NOT pinned here - see the header.
+const RELEASE_SKIP_CLAUSE: &str = "!startsWith(github.event.head_commit.message || '', 'chore(release):')";
+
+/// Jobs whose own `if:` must carry the release-skip clause as a conjunct, so a release commit does
+/// not re-run the most expensive legs in the repository.
+///
+/// `ci` skips the whole job and everything under `needs: [ci]` skips with it. `bigquery-driver-check`
+/// no longer needs `ci` and repeats the test in its own `if:` - so the clause must be pinned on
+/// BOTH. `ci`'s `if:` is the clause alone (textually identical to [`RELEASE_SKIP_CLAUSE`]);
+/// `bigquery-driver-check`'s is the clause as a conjunct beside the category test.
+const RELEASE_SKIP: &[&str] = &["bigquery-driver-check", "ci"];
+
+/// How many release-skip rows this rule holds, for the success line.
+pub(super) const fn release_skip_held() -> usize {
+    RELEASE_SKIP.len()
+}
+
+/// Every release-skip obligation this rule finds broken, empty when all hold.
+///
+/// Fails CLOSED on an unreadable file and on a job with no `if:` - the same convention as
+/// [`problems`]: a reassuring pass over an absent clause is the failure mode this scan is most
+/// prone to, and a job that dropped its `if:` is indistinguishable from one that was renamed.
+pub(super) fn release_skip_problems(root: &Path) -> Vec<String> {
+    let path = root.join(".github/workflows/ci.yml");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return vec![format!(
+            "{} could not be read, so no release-skip obligation is held",
+            path.display()
+        )];
+    };
+    release_skip_check(&text)
+}
+
+/// The release-skip rule itself, over the text, so a test can put a tree in front of it.
+fn release_skip_check(text: &str) -> Vec<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = Vec::new();
+    for &job in RELEASE_SKIP {
+        let Some(gate) = job_if(&lines, job) else {
+            out.push(format!(
+                "ci.yml declares no `if:` on `{job}` - the release-skip clause `{RELEASE_SKIP_CLAUSE}` is gone, so a release commit re-runs the job. Either the job was renamed and the clause moved with it, or this rule has stopped matching"
+            ));
+            continue;
+        };
+        if !carries_release_skip(&gate) {
+            out.push(format!(
+                "ci.yml `{job}` is gated on `{gate}`, which does not carry the release-skip clause `{RELEASE_SKIP_CLAUSE}` as a conjunct - a release commit re-runs the job. See the header of xtask/src/workflows/obligations.rs for what this pins and what it does not"
+            ));
+        }
+    }
+    out
+}
+
+/// Does `gate` carry [`RELEASE_SKIP_CLAUSE`] as a conjunct?
+///
+/// `CLAUSE` alone, or `CLAUSE && …` where the remainder holds no `||` - the same shape
+/// `cache_scope::narrower_than_main_push` uses, because a `||` in the remainder can widen the
+/// expression past the clause. Anything else is refused, including an expression that merely
+/// CONTAINS the clause: `!(CLAUSE)` and `CLAUSE || true` both pass a `contains` and both fail here.
+fn carries_release_skip(gate: &str) -> bool {
+    let Some(rest) = gate.strip_prefix(RELEASE_SKIP_CLAUSE) else {
+        return false;
+    };
+    rest.strip_prefix(" && ")
+        .map_or(rest.is_empty(), |extra| !extra.is_empty() && !extra.contains("||"))
+}
+
+/// The value of a job's `if:` key, read at the job's own depth and normalized the way `Step::gate`
+/// normalizes (`${{ }}` stripped, whitespace collapsed). `None` when the job declares no `if:`.
+///
+/// Reads at job-key depth only - the same approach `contexts::job_property` uses, because a
+/// step-level `if:` sits two levels deeper and is not this rule's subject. A job key is two spaces
+/// under `jobs:`, and its direct children sit at four, which is the only depth an `if:` on the job
+/// itself can appear.
+fn job_if(lines: &[&str], id: &str) -> Option<String> {
+    let opener = format!("{id}:");
+    let mut inside = false;
+    for raw in lines {
+        let trimmed = raw.trim_start();
+        if trimmed.starts_with('#') || trimmed.is_empty() {
+            continue;
+        }
+        let indent = raw.len().saturating_sub(trimmed.len());
+        if !inside {
+            inside = indent == JOB_INDENT && trimmed == opener;
+            continue;
+        }
+        if indent <= JOB_INDENT {
+            return None;
+        }
+        if indent == JOB_INDENT.saturating_add(2)
+            && let Some(value) = trimmed.strip_prefix("if:")
+        {
+            let value = value.trim();
+            let inner = value
+                .strip_prefix("${{")
+                .and_then(|rest| rest.strip_suffix("}}"))
+                .unwrap_or(value);
+            return Some(inner.split_whitespace().collect::<Vec<_>>().join(" "));
+        }
+    }
+    None
+}
+
+/// A job key's column. Two spaces under `jobs:`, which is the only shape GitHub accepts.
+const JOB_INDENT: usize = 2;
 
 #[cfg(test)]
 mod tests {
-    use super::{REQUIRED, check};
+    use core::fmt::Write as _;
+
+    use super::{RELEASE_SKIP, RELEASE_SKIP_CLAUSE, REQUIRED, check, release_skip_check};
 
     /// A `ci.yml` shaped like the real one, with each named step given `gate` as its condition.
     ///
@@ -421,5 +541,122 @@ mod tests {
         let mut text = tree(&gates);
         text.push_str(&xtask_step("The attribution document generates completely", false));
         assert_eq!(check(&text), Vec::<String>::new());
+    }
+    // ---- release-skip (job-level `if:`) ----
+
+    /// A `ci.yml` with both release-skip jobs carrying their real `if:` shape.
+    fn release_skip_tree(bigquery_if: Option<&str>, ci_if: Option<&str>) -> String {
+        let mut text = String::from("jobs:\n");
+        text.push_str("  bigquery-driver-check:\n");
+        if let Some(gate) = bigquery_if {
+            writeln!(text, "    if: ${{{{ {gate} }}}}").expect("writing into a String cannot fail");
+        }
+        text.push_str("    runs-on: ubuntu-latest\n    steps:\n      - run: true\n");
+        text.push_str("  ci:\n");
+        if let Some(gate) = ci_if {
+            writeln!(text, "    if: ${{{{ {gate} }}}}").expect("writing into a String cannot fail");
+        }
+        text.push_str("    runs-on: ubuntu-latest\n    steps:\n      - run: true\n");
+        text
+    }
+
+    /// The real tree's shape: `bigquery-driver-check` carries the clause as a conjunct beside the
+    /// category test; `ci` carries it alone. Both pass.
+    #[test]
+    fn the_real_release_skip_shape_passes() {
+        let text = release_skip_tree(
+            Some(
+                "!startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.data_source_bigquery == 'true'",
+            ),
+            Some("!startsWith(github.event.head_commit.message || '', 'chore(release):')"),
+        );
+        assert_eq!(release_skip_check(&text), Vec::<String>::new());
+    }
+
+    /// Mutation (a): drop the release clause from `bigquery-driver-check`, leaving only the category
+    /// clause. Red against base (no refusal exists), green with the change - the rule names the line.
+    #[test]
+    fn dropping_the_release_clause_from_bigquery_driver_check_is_refused() {
+        let text = release_skip_tree(
+            Some("needs.identity-classify.outputs.data_source_bigquery == 'true'"),
+            Some("!startsWith(github.event.head_commit.message || '', 'chore(release):')"),
+        );
+        let found = release_skip_check(&text);
+        assert_eq!(found.len(), 1, "only bigquery-driver-check is broken: {found:?}");
+        assert!(
+            found[0].contains("bigquery-driver-check"),
+            "the refusal names the job: {found:?}"
+        );
+        assert!(
+            found[0].contains("does not carry the release-skip clause"),
+            "the refusal names the missing clause: {found:?}"
+        );
+    }
+
+    /// A job with no `if:` at all is refused - fail closed, same convention as the step half.
+    #[test]
+    fn a_job_with_no_if_is_refused() {
+        let text = release_skip_tree(None, None);
+        let found = release_skip_check(&text);
+        assert_eq!(found.len(), RELEASE_SKIP.len(), "every unconditioned job is named: {found:?}");
+        assert!(
+            found.iter().all(|p| p.contains("declares no `if:`")),
+            "each refusal names the missing `if:`: {found:?}"
+        );
+    }
+
+    /// A `||` in the remainder can widen past the clause, so it is refused - same shape as
+    /// `narrower_than_main_push`.
+    #[test]
+    fn a_disjunction_in_the_remainder_is_refused() {
+        let text = release_skip_tree(
+            Some("!startsWith(github.event.head_commit.message || '', 'chore(release):') || true"),
+            Some("!startsWith(github.event.head_commit.message || '', 'chore(release):')"),
+        );
+        let found = release_skip_check(&text);
+        assert_eq!(found.len(), 1, "only the disjunctive job is broken: {found:?}");
+        assert!(
+            found[0].contains("bigquery-driver-check"),
+            "the refusal names the job: {found:?}"
+        );
+    }
+
+    /// A clause that merely CONTAINS the pin - negated - must not pass. `!(CLAUSE)` contains the
+    /// text but inverts it; `contains` would pass it and this rule must not.
+    #[test]
+    fn a_negated_clause_does_not_pass() {
+        let text = release_skip_tree(
+            Some("!(!startsWith(github.event.head_commit.message || '', 'chore(release):'))"),
+            Some("!startsWith(github.event.head_commit.message || '', 'chore(release):')"),
+        );
+        let found = release_skip_check(&text);
+        assert_eq!(found.len(), 1, "the negated clause is refused: {found:?}");
+    }
+
+    /// A paraphrased clause fails closed: the exact text does not match, so the refusal fires.
+    #[test]
+    fn a_paraphrased_clause_fails_closed() {
+        // Same semantics, different text: `head_commit.message` without the `|| ''` default.
+        let text = release_skip_tree(
+            Some(
+                "!startsWith(github.event.head_commit.message, 'chore(release):') && needs.identity-classify.outputs.data_source_bigquery == 'true'",
+            ),
+            Some("!startsWith(github.event.head_commit.message || '', 'chore(release):')"),
+        );
+        let found = release_skip_check(&text);
+        assert_eq!(found.len(), 1, "the paraphrased clause is refused, not passed: {found:?}");
+    }
+
+    /// `ci`'s `if:` is the clause alone (textually identical to [`RELEASE_SKIP_CLAUSE`]), so it
+    /// passes as a trivial conjunct.
+    #[test]
+    fn ci_clause_alone_passes() {
+        let text = release_skip_tree(
+            Some(
+                "!startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.data_source_bigquery == 'true'",
+            ),
+            Some(RELEASE_SKIP_CLAUSE),
+        );
+        assert_eq!(release_skip_check(&text), Vec::<String>::new());
     }
 }
