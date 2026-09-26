@@ -16,10 +16,11 @@
 //!   entry or an intra-class comparison, added at `telekom/sutura#112` because neither sibling
 //!   rule above could see this edge at all: `FORBIDDEN_EDGES` has no row naming `sutura-app`, and
 //!   `sutura-app` joins none of `adapters`'s classes
-//! * `sutura-http-client` reaches no adapter, composition root, settings crate or transport over a normal
-//!   edge ([`no_adapter_in_shared_client`], and `shared_client`) - the identical third shape, for
-//!   the identical reason: it joins none of `adapters`'s classes either, and #970's review found
-//!   the gap the same way #112 found the one above
+//! * `sutura-http-client` AND `sutura-bounded-read` each reach no adapter, composition root,
+//!   settings crate or transport over a normal edge ([`no_adapter_in_shared_client`], and
+//!   `shared_client`) - the identical third shape, for the identical reason: neither joins
+//!   `adapters`'s classes either, and #970's review found the gap the same way #112 found the one
+//!   above; #1045's review (round 2) found it again for the second crate
 //! * a driving port is not declared by one of its callers ([`declared_ports`], and `ports`) - the
 //!   one half that reads which crate declares a TRAIT rather than which crate depends on which
 //! * a caller of that port reaches the answer path THROUGH it ([`answer_through_the_port`], and
@@ -158,7 +159,7 @@ fn no_adapter_in_shared_client() -> Verdict {
             return Verdict::Fail;
         }
     };
-    match shared_client::check(&meta) {
+    let client = match shared_client::check(&meta) {
         Err(message) => {
             eprintln!("xtask check-boundaries: {message}");
             Verdict::Fail
@@ -181,6 +182,38 @@ fn no_adapter_in_shared_client() -> Verdict {
             shared_client::explain();
             Verdict::Fail
         }
+    };
+    // `sutura-bounded-read` gets the identical row for the identical reason - `shared_client`'s
+    // own header on `BOUNDED_READ`. One half, not two, because both ask the same question of the
+    // same forbidden set; a reviewer touching either sees the row for the other right beside it.
+    let bounded_read = match shared_client::check_bounded_read(&meta) {
+        Err(message) => {
+            eprintln!("xtask check-boundaries: {message}");
+            Verdict::Fail
+        }
+        Ok(report) if report.problems.is_empty() => {
+            println!(
+                "xtask check-boundaries: ok - {} reaches no adapter, composition root, settings crate or transport over a \
+                 normal edge ({} crate(s) in its normal tree)",
+                shared_client::BOUNDED_READ,
+                report.tree_size
+            );
+            Verdict::Pass
+        }
+        Ok(report) => {
+            eprintln!("xtask check-boundaries: FAILED - the shared bounded-read crate reaches a forbidden crate:");
+            for problem in &report.problems {
+                eprintln!("  {problem}");
+            }
+            eprintln!();
+            shared_client::explain_bounded_read();
+            Verdict::Fail
+        }
+    };
+    if client == Verdict::Pass && bounded_read == Verdict::Pass {
+        Verdict::Pass
+    } else {
+        Verdict::Fail
     }
 }
 
