@@ -191,3 +191,13 @@ fn a_moved_test_whose_continued_string_was_reindented_is_not_a_deletion() {
         "a continuation is keyed by value, got {plan:?}"
     );
 }
+
+/// `#[doc(hidden)]` is an attribute, not a comment: a copy that gains it is not the same item.
+#[test]
+fn a_moved_test_that_gains_doc_hidden_is_refused_beside_a_reflowed_move() {
+    let plan = plan_of(&[
+        ["crates/x/tests/a.rs", &format!("{REFLOWED}{FOO}"), ""],
+        ["crates/x/tests/c.rs", "", &format!("{REJOINED}#[doc(hidden)]\n{FOO}")],
+    ]);
+    assert_eq!(plan, Plan::DeletedTests(vec![deleted("crates/x/tests/a.rs", &["foo"])]));
+}

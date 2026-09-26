@@ -165,9 +165,15 @@ fn continued(literal: &str) -> String {
     out
 }
 
+/// `[doc = ..]` only: `#[doc(hidden)]` and `#[doc(alias = ..)]` are attributes, not comments.
 fn is_doc(tree: &TokenTree) -> bool {
-    matches!(tree, TokenTree::Group(group) if group.delimiter() == Delimiter::Bracket
-        && matches!(group.stream().into_iter().next(), Some(TokenTree::Ident(doc)) if doc == "doc"))
+    let TokenTree::Group(group) = tree else {
+        return false;
+    };
+    let mut inner = group.stream().into_iter();
+    group.delimiter() == Delimiter::Bracket
+        && matches!(inner.next(), Some(TokenTree::Ident(doc)) if doc == "doc")
+        && matches!(inner.next(), Some(TokenTree::Punct(equals)) if equals.as_char() == '=')
 }
 
 /// Each file's removed lines, less those inside an item the range moved unchanged to another file.
