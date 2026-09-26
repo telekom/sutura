@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-exec-datafusion/src/attach.rs b/crates/sutura-exec-datafusion/src/attach.rs
+index 381790de0..237d7604c 100644
+--- a/crates/sutura-exec-datafusion/src/attach.rs
++++ b/crates/sutura-exec-datafusion/src/attach.rs
+@@ -185,10 +185,7 @@ impl DataFusionWarehouse {
+             Some(found) => match TEXT_FORMATS.iter().find(|&&(extension, _)| extension == found) {
+                 Some(&(_, TextFormat::Csv)) => self.attach_csv(table, path),
+                 Some(&(_, TextFormat::NdJson)) => self.attach_json(table, path),
+-                None => Err(DataFusionError::UnknownFormat {
+-                    path: path.display().to_string(),
+-                    extension: String::from(found),
+-                }),
++                None => Ok(()),
+             },
+             None => Err(DataFusionError::UnknownFormat {
+                 path: path.display().to_string(),

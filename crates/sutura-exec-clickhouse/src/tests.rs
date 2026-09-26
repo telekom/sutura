@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
-use sutura_domain::identity::{Presented, Secret};
+use sutura_domain::identity::{Presented, PrincipalName, Secret};
 use sutura_domain::plan::Executable;
 use sutura_domain::warehouse::ParamValue;
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
@@ -191,6 +191,29 @@ fn a_subject_credential_is_refused_as_no_place_to_arrive() {
         )
         .expect_err("a subject credential has nowhere to arrive on this adapter");
     assert!(matches!(error, ClickHouseError::NoPlaceForASubject { .. }), "{error}");
+}
+
+/// The other subject shape: a principal name has nowhere to arrive either, and the cell above
+/// presents only a token, so dropping this arm from the match left every cell green.
+#[test]
+fn a_subject_principal_is_refused_as_no_place_to_arrive() {
+    let case = sutura_conformance::corpus::cases()
+        .into_iter()
+        .next()
+        .expect("the corpus has a case");
+    let warehouse = warehouse(Scripted::answering("[]\n[]\n"));
+    let presented = Presented::SubjectPrincipal {
+        name: PrincipalName::parse("analyst_role").expect("a test name is a name"),
+    };
+    let outcome = warehouse.execute(
+        Executable::Query(case.plan()),
+        &presented,
+        sutura_conformance::corpus::deadline(),
+    );
+    assert!(
+        matches!(outcome, Err(ClickHouseError::NoPlaceForASubject { .. })),
+        "a subject principal has nowhere to arrive on this adapter: {outcome:?}"
+    );
 }
 
 /// `Warehouse::EXECUTES_LEGS` stays at its domain default, so a leg needs a combiner this adapter
