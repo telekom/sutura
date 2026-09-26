@@ -104,9 +104,11 @@ Rules that are not visible from a manifest:
 
 ## Why a driver is a dev-dependency
 
-`sutura-cli` links the engine only, and **that is what keeps the musl artifacts building** -
-nixpkgs has no musl `libduckdb`. `nix/duckdb.nix` is the single path from nixpkgs to that library,
-imported by `flake.nix` and `devenv.nix` alike so a pin cannot differ between the shell and CI.
+`sutura-cli` never links DuckDB - DataFusion is the one data-system adapter it links
+unconditionally, every other behind a default-off feature - and **that is what keeps the musl
+artifacts building**: nixpkgs has no musl `libduckdb`. `nix/duckdb.nix` is the single path from
+nixpkgs to that library, imported by `flake.nix` and `devenv.nix` alike so a pin cannot differ
+between the shell and CI.
 
 Postgres and DuckDB adapters are dev-dependencies for the same reason, and their cells are
 fail-closed: the Postgres tier is provisioned by `checks.nextest` **and** by `just test` from one
@@ -118,16 +120,13 @@ default-off `postgres` dependency of the composition root: the corpus path reach
 dev-dependency, and a deployment that writes `kind: postgres` pays the link only when it asks for
 the feature.
 
-**Nothing a release publishes links it, and `checks.shipped-features` holds that only by PROXY.**
-That gate's `forbidden` list is `ring` and `ureq`; it never names `sutura-exec-postgres`. What makes
-the ban reach this adapter is that `rustls` is a **non-optional** dependency of it and the workspace
-pins rustls to the `ring` provider - `sutura-exec-postgres` -> `rustls` -> `ring`, readable in
-`Cargo.lock` and in neither edge optional - so a published binary linking the adapter would carry
-`ring` in its `cargo auditable` section and the ban would fire. **The limit, and it is the whole
-reason to cite the mechanism rather than the sentence:** the day that rustls dependency goes behind
-a feature, or the provider pin moves off `ring`, the gate stays green over a published binary that
-links the adapter, and nothing says so. A direct assertion would have to name the adapter in that
-list.
+**A release DOES link it, since `#685` step 5.** The published binary's `features` in
+`nix/shipped.nix` carry `postgres`, and `checks.shipped-features` allows what it pulls through that
+binary's own `permit`: the gate's shared `forbidden` list is `ring` and `ureq`, and the `permit`
+names both. **The limit:** `forbidden` minus that `permit` is empty for the one published binary,
+so the gate bans no outbound TLS crate for it any more - a new adapter pulling `ring` or `ureq`
+into it passes. And a `permit` entry does not assert the crate is embedded; `nix/shipped.nix`
+records that as confirmed by hand.
 
 ## Why a networked adapter hides behind a default-off feature
 
@@ -144,9 +143,10 @@ feature-gated, off at the default set), so it does not change this paragraph's c
 dev-dependency was already pulling the same closure in unconditionally, and a feature nobody
 requested still adds nothing to the default `sutura-deps-<triple>` derivations.
 
-**The reason is the ARTEFACT.** No published binary links an outbound TLS stack, and
-`checks.shipped-features` asserts it out of each binary's own embedded dependency list rather than
-out of a manifest. Cite it that way.
+**The reason is the ARTEFACT.** No binary links an outbound TLS stack it did not ask for: the
+published one asks through its `features` in `nix/shipped.nix`, and `checks.shipped-features`
+reads what it linked out of its own embedded dependency list rather than out of a manifest. Cite
+it that way - with the `permit` limit above.
 
 **`sutura-mcp`'s `http` feature is the same shape but for the opposite reason.** Its
 `transport-streamable-http-server` closure pulls no HTTP client (`server-side-http` names neither
@@ -155,20 +155,18 @@ in-process server LISTENER is a bigger surface than a background TLS client: the
 resolves against the lock is `sse-stream`, and it is off so a plain `cargo build`/`just check` never
 resolves even that. The rule for the reader is the same - a default-off `http` feature on a transport
 crate is registered here, not just in the manifest - and `docs/adr/0023` and the `#378` decision carry
-the decision. It is not in `nix/shipped.nix`'s probes, because no published binary's feature list
-names it; the `--all-features` gates compile, lint and test it on every run.
-**A fake for a networked adapter's own tests lives in `src/`, `pub`, behind the SAME feature as the
-reader it fakes - not in `tests/`.** `sutura-catalog-datahub::test_support` (PR2 of #202) is the
-precedent: `sutura-serve`'s served-binary suite needed the identical loopback `DataHub` fake
-`tests/http_reader.rs` already built, and an integration test binary cannot see another crate's
-`tests/` directory at all - Rust does not expose one, only the library does. `#[cfg(feature =
-"http")]` rather than `#[cfg(test)]`, because a downstream crate's OWN test compilation is what has
-to see it, and `#[cfg(test)]` never crosses a dependency edge. **The cost is stated, not hidden:**
-this ships the fake's object code (never called) inside any NON-test `--features http` build too,
-including a shipped `sutura --features datahub` binary - `std::net::TcpListener` adds no new
-DEPENDENCY edge, so this does not reopen the paragraph above; it trades a few kilobytes of dead code
-against a second hand-maintained fake. A dedicated `test-support`-only feature is the follow-up if
-that trade stops being worth it.
+the decision. It is not in `nix/shipped.nix`'s `probeFeatures`; the published binary reaches it
+through the `agent` entry in its `features`, and the `--all-features` gates compile, lint and test
+it on every run.
+**A fake for a networked adapter's own tests lives in `src/`, `pub`, behind a `fake` feature of
+its own - not in `tests/`, and not in the reader's `http` feature.**
+`sutura-catalog-datahub::test_support` (PR2 of #202) is the precedent: `sutura-cli`'s served-binary
+suite needed the identical loopback `DataHub` fake `tests/http_reader.rs` already built, and an
+integration test binary cannot see another crate's `tests/` directory at all - Rust does not expose
+one, only the library does. `#[cfg(feature = "fake")]` rather than `#[cfg(test)]`, because a
+downstream crate's OWN test compilation is what has to see it, and `#[cfg(test)]` never crosses a
+dependency edge. Separate from `http` since issue #970's review, so a release asking for `--features
+datahub` never compiles the fake in; `sutura-cli` enables `fake` from its `[dev-dependencies]` only.
 
 **The general rule:** an adapter with a native or outbound-TLS dependency arrives behind a
 default-off feature on whichever composition root wants it, and the four `cross` CI jobs are the

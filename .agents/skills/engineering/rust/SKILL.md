@@ -144,7 +144,7 @@ failing one for both driven ports; `sutura-app/tests/support` holds the recordin
 
 ## 1. The whole `restriction` category is on
 
-`clippy.toml` and the workspace lint table enable `restriction` at `warn`, and CI runs
+The workspace lint table in `Cargo.toml` enables `restriction` at `warn`, and CI runs
 `-D warnings`. Consequences that bite in normal code:
 
 | You wrote | Use instead |
@@ -165,8 +165,10 @@ do not add a blanket allow.
 and exempt in tests (`allow-*-in-tests` in `clippy.toml`). Shipped profiles use
 `panic = "abort"`, so a panic is a process death, not an exception.
 
-Slices are walked with `split_first` rather than indexed. `unsafe_code` is `forbid` - not
-`deny` - so a crate cannot re-allow it locally.
+Slices are walked with `split_first` rather than indexed. `unsafe_code` is `deny` in the
+workspace table and `#![forbid(unsafe_code)]` at every crate root but one, so those crates cannot
+re-allow it locally. The exception is `sutura-exec-bigquery`'s ADBC entrypoint (`#929`), and
+`cargo xtask check-unsafe` holds both halves.
 
 ## 3. `--all-features` on every entry point - now load-bearing
 
@@ -225,9 +227,9 @@ Run `gates` before you claim done. Individually:
 | `cargo xtask text-hygiene` | conflict markers, trailing whitespace, missing final newline, files over 512 kB |
 | `cargo xtask check-boundaries` | a framework dependency reaching the domain crate; a normal dependency between two adapters of the same class; a `pub trait` in a crate that declares `sutura-app`; and, in any library crate, a `pub` field on a `pub struct`, a declared dynamic-error crate, or a `Result` whose error type is `String` |
 | `cargo xtask check-serde-parse` | a recognised struct or enum deriving `Deserialize` beside a fallible constructor without an allowed route; for structs only, a `try_from`/derived `Serialize` shape mismatch or a named input struct without `deny_unknown_fields` |
-| `cargo xtask check-refusal-coverage` | a variant of an enrolled refusal enum (`RefusalReason`, `NotFitToServe`, `NotValidated`) that no test names and no snapshot records, unless separately excused - a file naming EVERY variant of an enum is a census and counts for none of that enum. Also a walk that disagrees with the enrolled variant count, in either direction |
+| `cargo xtask check-refusal-coverage` | a variant of an enrolled refusal enum (`ENROLLED` in `xtask/src/refusals/registry.rs`) that no test names and no snapshot records, unless separately excused - a file naming EVERY variant of an enum is a census and counts for none of that enum. Also a walk that disagrees with the enrolled variant count, in either direction |
 | `cargo xtask check-newtype-leaks` | a first-party `impl Deref`, `DerefMut`, `Borrow` or `BorrowMut`. It started green and its job is to stay that way |
-| `just lint`'s `disallowed_methods` | a call to `Secret::expose_secret`, `Warehouse::verify_anchor`, `tokio::task::spawn_blocking` or the panicking fragment parser with no `#[expect]` naming why |
+| `just lint`'s `disallowed_methods` | a call to a method `clippy.toml` lists - among them `Secret::expose_secret`, the two credential-free `Warehouse` port methods (`verify_anchor`, `declared_key`), `tokio::task::spawn_blocking` and the panicking fragment parser - with no `#[expect]` naming why |
 | `cargo xtask check-hook-tiers` | a `pre-push` stage that compiles first-party code, or that runs anything outside the two security checks (`secret-sweep`, `cargo-deny`) |
 | `cargo xtask commit-msg` | a subject that is not a conventional commit, over 72 chars |
 
