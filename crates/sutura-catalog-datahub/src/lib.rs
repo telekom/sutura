@@ -103,7 +103,7 @@ use sutura_domain::catalog::{
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::KnowledgeCapabilities;
 use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeInput};
-use sutura_domain::model::{ColumnName, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName};
+use sutura_domain::model::{ColumnName, DimensionName, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName};
 use sutura_domain::pinned::{
     CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
 };
@@ -181,6 +181,20 @@ pub enum DataHubError {
         metric: String,
         #[source]
         cause: serde_json::Error,
+    },
+    /// A dimension's `via` chain is empty, which `DataHub` can carry but no `ViaChain` can hold.
+    ///
+    /// `SuturaDimension` deserializes `via` as a `ViaDoc`, whose untagged `Chain` arm accepts an
+    /// empty sequence, so a property value such as `{"dimensions":[{"name":"x","column":"y","via":[]}]}`
+    /// reaches the conversion. `ViaChain::try_from` refuses it; this variant carries that refusal
+    /// out naming the metric and the dimension, as [`DataHubError::ColumnDescription`] names both of
+    /// its coordinates.
+    #[error("dimension {dimension} of metric {metric} has an empty via chain")]
+    EmptyViaChain {
+        metric: String,
+        dimension: DimensionName,
+        #[source]
+        cause: sutura_domain::catalog::InvalidViaChain,
     },
     /// Prose on a snapshot is not a usable description.
     #[error("the description of {on} is not usable")]
@@ -427,9 +441,14 @@ impl<R: AspectReader> DataHubCatalog<R> {
         let dimensions: Vec<_> = content
             .dimensions()
             .iter()
-            .cloned()
-            .map(document::SuturaDimension::into_domain)
-            .collect();
+            .map(|dimension| {
+                dimension.clone().into_domain().map_err(|cause| DataHubError::EmptyViaChain {
+                    metric: metric.name().to_owned(),
+                    dimension: dimension.name().clone(),
+                    cause,
+                })
+            })
+            .collect::<Result<_, _>>()?;
         let anchor = content.anchor().cloned().map(SuturaAnchor::into_domain);
         let description = Description::parse(content.description()).map_err(|cause| DataHubError::Description {
             on: metric.name().to_owned(),
