@@ -86,7 +86,7 @@ let
   # `https://` URI (the same rule an audience-confusion attack would need broken to matter), so a
   # deployment declaring `account` as its resource never starts. `RFC 2606`'s reserved
   # `.example.com` for the same reason this repository's own fixtures already use it (see
-  # `crates/sutura-cli/tests/served/harness.rs`'s `RESOURCE`) - not a real host, and not a
+  # `crates/sutura-cli/tests/served/harness/served_impl.rs`'s `RESOURCE`) - not a real host, and not a
   # secret, so unlike the realm's passwords it is a plain literal rather than generated per start.
   resourceAudience = "https://sutura-dev-cli.example.com";
   # Every scope `sutura_app::Capability::scope` licenses (`crates/sutura-app/src/capability.rs`),

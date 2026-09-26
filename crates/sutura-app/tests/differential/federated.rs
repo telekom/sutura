@@ -32,16 +32,16 @@
 //! fail-fast comparator would have described one probe as one case's worth of coverage.
 //!
 //! Each answer's `Provenance` is read too, so *the answer records which identity each leg ran as*
-//! is measured here rather than stated - see [`recorded_identities`], which is also what makes the
-//! limit below a measurement.
+//! is measured here rather than stated - see [`recorded_identities`](harness::recorded_identities),
+//! which is also what makes the limit below a measurement.
 //!
 //! # Two two-source sides, and neither one is redundant
 //!
-//! [`a_two_source_answer_is_the_same_answer_as_one_source`] runs the legs on two `DuckDB`
-//! databases; [`two_engines_answer_what_one_engine_answers`] runs them on two instances of the
-//! ENGINE, which is the adapter a release links. Both compare against the same one-`DataFusion`
-//! side through [`differential`], so what differs between them is only which adapter holds the
-//! legs.
+//! [`a_two_source_answer_is_the_same_answer_as_one_source`](harness::a_two_source_answer_is_the_same_answer_as_one_source)
+//! runs the legs on two `DuckDB` databases; [`two_engines_answer_what_one_engine_answers`] runs
+//! them on two instances of the ENGINE, which is the adapter a release links. Both compare against
+//! the same one-`DataFusion` side through [`differential`](harness::differential), so what differs
+//! between them is only which adapter holds the legs.
 //!
 //! **Why the `DuckDB` side is kept, corrected.** The reason first written here was that with the
 //! engine on both sides a bug shared between the leg and whole-plan translations would CANCEL, so
@@ -63,8 +63,8 @@
 //! **Two sources are not two identities, and no side of this measures leg 2.** Every leg here runs
 //! under one operating-system identity: `DataFusionWarehouse::IMPERSONATION` is
 //! `NoPlaceForASubject`, both sources are opened `shared-service-user`, and
-//! [`recorded_identities`] reads that back off each answer rather than stating it. So this is
-//! single-player federation - nothing here says two subjects get different rows.
+//! [`recorded_identities`](harness::recorded_identities) reads that back off each answer rather
+//! than stating it. So this is single-player federation - nothing here says two subjects get different rows.
 //!
 //! **The `DuckDB` side still runs on a development dependency**, so that pass measures the
 //! implemented federation path rather than a deployment's answer. What changed is the engine side:
@@ -224,8 +224,8 @@ fn two_engines_answer_what_one_engine_answers() {
 }
 
 /// **The first side that mixes TWO KINDS of adapter (`telekom/sutura#112`)**, not two instances of
-/// one. Reaches [`differential`]'s whole `MUST_BE_REACHED` table exactly like the other two sides,
-/// so a defect in `Warehouse::executes_legs`'s per-leg reading reddens here too.
+/// one. Reaches [`differential`](harness::differential)'s whole `MUST_BE_REACHED` table exactly
+/// like the other two sides, so a defect in `Warehouse::executes_legs`'s per-leg reading reddens here too.
 #[test]
 fn two_sources_of_two_kinds_answer_the_same_rows_as_one_source_over_the_same_data() {
     let derived = derived();
