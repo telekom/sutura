@@ -557,9 +557,23 @@ fn request(question: &Query) -> String {
         parts.push(format!("grouped by {}", names.join(", ")));
     }
     for filter in question.filters() {
-        parts.push(format!("`{}` = `{}`", filter.dimension(), filter.value()));
+        parts.push(filter_phrase(filter));
     }
     parts.join(", ")
+}
+
+/// One filter as a phrase, in the shape [`Filter`](sutura_domain::query::Filter) carries it -
+/// `github.com/telekom/sutura#968`.
+fn filter_phrase(filter: &sutura_domain::query::Filter) -> String {
+    use sutura_domain::query::Filter;
+    let values = |values: &[&sutura_domain::catalog::DimensionValue]| -> String {
+        values.iter().map(|value| format!("`{value}`")).collect::<Vec<_>>().join(", ")
+    };
+    match *filter {
+        Filter::Eq { ref value, .. } => format!("`{}` = `{value}`", filter.dimension()),
+        Filter::In { .. } => format!("`{}` in ({})", filter.dimension(), values(&filter.values())),
+        Filter::NotIn { .. } => format!("`{}` not in ({})", filter.dimension(), values(&filter.values())),
+    }
 }
 
 /// A run of phrases, quoted and comma-separated.

@@ -542,6 +542,65 @@ pub(crate) struct RawCatalog {
     /// read as either "never" or "every tick".
     #[serde(default)]
     pub(crate) refresh_seconds: Option<u64>,
+    /// `catalog.kind: rdbms` only, and every rdbms key below it: `parse_catalogs` refuses each on
+    /// any other kind. The environment key that selects this deployment's rows in the dictionary.
+    #[serde(default)]
+    pub(crate) environment: Option<String>,
+    /// The closed-form predicate a dictionary row must satisfy to be live. Never raw SQL.
+    #[serde(default)]
+    pub(crate) live_row_predicate: Option<RawLiveRowPredicate>,
+    /// The declared `sources:` alias the dictionary's described objects are served from.
+    #[serde(default)]
+    pub(crate) source_alias: Option<String>,
+    /// The row cap on one dictionary read. Absent selects the reader's default.
+    #[serde(default)]
+    pub(crate) max_dictionary_rows: Option<u64>,
+    /// The byte cap on one dictionary read. Absent selects the reader's default.
+    #[serde(default)]
+    pub(crate) max_dictionary_bytes: Option<u64>,
+    /// The catalog's OWN read-only connection - never borrowed from a `sources:` entry, because a
+    /// catalog read has no caller to run as.
+    #[serde(default)]
+    pub(crate) connection: Option<RawCatalogConnection>,
+}
+
+/// An rdbms catalog's `connection:` block, as read: the keys `sources.<alias>` uses for
+/// `kind: postgres`, under their own names, so one mental model covers both.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawCatalogConnection {
+    #[serde(default)]
+    pub(crate) host: Option<String>,
+    #[serde(default)]
+    pub(crate) unix_socket: Option<String>,
+    #[serde(default)]
+    pub(crate) port: Option<u16>,
+    #[serde(default)]
+    pub(crate) database: Option<String>,
+    #[serde(default)]
+    pub(crate) user: Option<String>,
+    /// A path read at boot, never the password itself.
+    #[serde(default)]
+    pub(crate) password_file: Option<String>,
+    #[serde(default)]
+    pub(crate) transport_mode: Option<String>,
+    #[serde(default)]
+    pub(crate) transport_anchors: Option<String>,
+    #[serde(default)]
+    pub(crate) client_certificate: Option<String>,
+    #[serde(default)]
+    pub(crate) client_key: Option<String>,
+}
+
+/// An rdbms catalog's `live_row_predicate:`, as read: column, operator, optional value - there is
+/// no key a SQL fragment could be written under.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawLiveRowPredicate {
+    pub(crate) column: String,
+    pub(crate) operator: String,
+    #[serde(default)]
+    pub(crate) value: Option<String>,
 }
 
 /// The default spelling of [`crate::catalog::CatalogKind::Markdown`], for `#[serde(default)]`.

@@ -54,9 +54,11 @@ still in plaintext, and authenticates there - so a loopback port-forward to a li
 redirects (a SCAN listener or a connection manager) sends the password and every row across the
 network in the clear. A cell holds that the driver follows; nothing in sutura can refuse it.
 Asked by hand against `compose.services.yaml`'s real
-`oracle` image (2026-09-23), a whole-plan question fails at the server, because the renderer ends it
-in `LIMIT n` and Oracle refuses that (`ORA-03049`); no committed cell reproduces that yet, and until
-one does its committed goldens pin what this renderer emits and nothing a database agreed to. Its
+`oracle` image (2026-09-23), a whole-plan question failed at the server, because the renderer ended
+it in `LIMIT n` and Oracle refuses that (`ORA-03049`). The renderer now ends it in
+`FETCH FIRST n ROWS ONLY`, which the Oracle goldens pin; no committed cell executes a whole-plan
+question against an Oracle server, so those goldens pin what this renderer emits and nothing a
+database agreed to. Its
 identity column is `ClickHouse`'s: an `impersonation-at-source` declaration is refused at the
 composition root with the reason that no build delivers it.
 

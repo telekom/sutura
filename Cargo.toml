@@ -168,6 +168,11 @@ sutura-conformance = { path = "crates/sutura-conformance" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+# The two catalog adapters open each catalog document ONCE, through a descriptor that does
+# not follow a symlink (O_NOFOLLOW) and does not block on a FIFO (O_NONBLOCK) - a swap of a
+# listed document between the walk and the read is refused at the open, not followed or
+# waited on (`telekom/sutura#1008`).
+rustix = { version = "0.38", features = ["fs"] }
 # The exchanged-credential cache's own lock, `docs/adr/0031` - `clippy.toml` denies both
 # `std::sync::Mutex` and `std::sync::RwLock` outright (the async-executor deadlock the ban is for
 # does not apply to a synchronous broker's `mint`, called from inside one `block_on` and never held

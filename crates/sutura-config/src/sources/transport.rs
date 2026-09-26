@@ -49,6 +49,7 @@
 use std::path::PathBuf;
 
 use super::SourceName;
+use super::placement::{HostName, PostgresDial};
 
 /// The trust anchors a source chain may be verified against.
 ///
@@ -424,6 +425,43 @@ fn absolute(alias: &SourceName, key: &'static str, written: &str) -> Result<Path
 /// the serving bind read the other way round; that is the fail-closed direction issue 124 asks for
 /// on this side: an operator who means a loopback TCP dial writes `127.0.0.1` or `::1`.
 pub use sutura_domain::source::host_is_loopback;
+
+/// A channel refused whatever its keys say: issue 124's and 125's fail-closed rules.
+///
+/// Held here once so every declaration that dials a host - a `sources:` entry, an rdbms catalog's own
+/// `connection:` - is refused by the same function rather than by a copy that can be narrowed.
+/// Each caller maps it into its own refusal, which names its own key path.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum UnsafeChannel {
+    /// A host a network can reach, declared `plaintext`: a password and every row in clear text.
+    #[error("host `{host}` is not a loopback address and `transport_mode` is `plaintext`")]
+    RemotePlaintext { host: String },
+    /// `verified`/`mutual` over a unix socket, where there is no TLS handshake to perform.
+    #[error("`unix_socket` is set and `transport_mode` is `{mode}` - there is no TLS over a local socket")]
+    TlsOverUnixSocket { mode: &'static str },
+}
+
+/// Refuses `plaintext` to a host that is not a loopback LITERAL. `localhost` is not one - see
+/// [`host_is_loopback`] - which is the fail-closed direction on purpose.
+pub fn refuse_remote_plaintext(host: &HostName, transport: &SourceTransport) -> Result<(), UnsafeChannel> {
+    if transport.anchors().is_none() && !host_is_loopback(host.as_str()) {
+        return Err(UnsafeChannel::RemotePlaintext {
+            host: host.as_str().to_owned(),
+        });
+    }
+    Ok(())
+}
+
+/// Both rules for a Postgres dial: remote plaintext on TCP, TLS on a unix socket.
+pub fn refuse_unsafe_postgres_channel(dial: &PostgresDial, transport: &SourceTransport) -> Result<(), UnsafeChannel> {
+    match *dial {
+        PostgresDial::Tcp { ref host, .. } => refuse_remote_plaintext(host, transport),
+        PostgresDial::UnixSocket { .. } if transport.anchors().is_some() => Err(UnsafeChannel::TlsOverUnixSocket {
+            mode: transport.describe(),
+        }),
+        PostgresDial::UnixSocket { .. } => Ok(()),
+    }
+}
 
 #[cfg(test)]
 mod tests {

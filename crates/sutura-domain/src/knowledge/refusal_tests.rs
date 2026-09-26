@@ -298,12 +298,30 @@ fn a_phrase_that_merely_resembles_a_metric_name_still_loads() {
 
 #[test]
 fn an_example_about_an_undefined_metric_does_not_load() {
-    let asking = Query::new(metric_name("arpu"), Grain::Month, june(), Vec::new(), Vec::new());
+    let asking = Query::single(metric_name("arpu"), Grain::Month, june(), Vec::new(), Vec::new());
     assert_eq!(
         refuses(only_examples(vec![example("arpu_by_month", asking)])),
         InconsistentKnowledge::ExampleUnknownMetric {
             name: note_name("arpu_by_month"),
             metric: metric_name("arpu"),
+        }
+    );
+}
+
+#[test]
+fn an_example_naming_more_than_one_metric_does_not_load() {
+    // `github.com/telekom/sutura#968` lets a question NAME a set of metrics, but every such
+    // question is refused at plan time (`RefusalReason::MultiMetricNotExecutable`) - so an example
+    // built from one would render under `EXAMPLES_INTRO`'s promise that a worked question is "one
+    // this deployment answers", which is false for it.
+    let metrics = crate::query::MetricNames::parse(vec![metric_name("recurring_revenue"), metric_name("voice_minutes")])
+        .expect("two metrics is not empty");
+    let asking = Query::new(metrics, Grain::Month, june(), Vec::new(), Vec::new());
+    assert_eq!(
+        refuses(only_examples(vec![example("two_metrics", asking)])),
+        InconsistentKnowledge::ExampleNamesMultipleMetrics {
+            name: note_name("two_metrics"),
+            requested: 2,
         }
     );
 }
@@ -482,7 +500,7 @@ fn a_worked_example_asking_for_more_history_than_a_request_may_does_not_load() {
         Date::parse("2026-01-01").expect("a test date is a date"),
     )
     .expect("twenty-six years is a range");
-    let asking = Query::new(metric_name("recurring_revenue"), Grain::Month, span, Vec::new(), Vec::new());
+    let asking = Query::single(metric_name("recurring_revenue"), Grain::Month, span, Vec::new(), Vec::new());
     assert!(
         Knowledge::assemble(&definitions(), only_examples(vec![example("everything_ever", asking)])).is_err(),
         "an example over the {MAX_RANGE_DAYS}-day cap is a shape an agent is told to copy and the surface declines"
@@ -691,7 +709,7 @@ fn a_worked_example_is_held_to_the_two_bounds_a_request_is_held_to() {
     .expect("twenty-six years is a range");
     let days = span.days();
     assert!(days > MAX_RANGE_DAYS, "{days} has to exceed the cap for this to test it");
-    let asking = Query::new(metric_name("recurring_revenue"), Grain::Month, span, Vec::new(), Vec::new());
+    let asking = Query::single(metric_name("recurring_revenue"), Grain::Month, span, Vec::new(), Vec::new());
     assert_eq!(
         refuses(only_examples(vec![example("everything_ever", asking)])),
         InconsistentKnowledge::ExampleRangeTooLong {
@@ -726,7 +744,7 @@ fn a_worked_example_is_held_to_the_two_bounds_a_request_is_held_to() {
     )
     .expect("ten years is a range");
     assert_eq!(ten_years.days(), MAX_RANGE_DAYS);
-    let at_the_cap = Query::new(
+    let at_the_cap = Query::single(
         metric_name("recurring_revenue"),
         Grain::Month,
         ten_years,

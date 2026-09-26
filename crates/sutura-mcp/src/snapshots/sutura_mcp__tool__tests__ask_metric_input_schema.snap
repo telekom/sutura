@@ -5,23 +5,87 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
 {
   "$defs": {
     "FilterArgs": {
-      "additionalProperties": false,
-      "description": "One equality filter.",
-      "properties": {
-        "dimension": {
-          "description": "The dimension to filter on, by the name the metric declares it under.",
-          "type": "string"
+      "description": "One filter: a dimension, and what it must - or must not - equal.\n\nTagged by `op`, mirroring `sutura_domain::query::Filter` - `github.com/telekom/sutura#968`. Every\nvalue, in either shape, is still checked against the metric's own allowlist; `In`/`NotIn` widen\nthe predicate's shape and never the source of a value.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The dimension equals this one value.",
+          "properties": {
+            "dimension": {
+              "description": "The dimension to filter on, by the name the metric declares it under.",
+              "type": "string"
+            },
+            "op": {
+              "const": "eq",
+              "type": "string"
+            },
+            "value": {
+              "description": "The value it must equal. Where the catalog declares an allowlist, only a declared\nvalue is accepted.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "dimension",
+            "value"
+          ],
+          "type": "object"
         },
-        "value": {
-          "description": "The value it must equal. Where the catalog declares an allowlist, only a declared value is\naccepted.",
-          "type": "string"
+        {
+          "additionalProperties": false,
+          "description": "The dimension equals one of these values. At least one.",
+          "properties": {
+            "dimension": {
+              "description": "The dimension to filter on, by the name the metric declares it under.",
+              "type": "string"
+            },
+            "op": {
+              "const": "in",
+              "type": "string"
+            },
+            "values": {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "op",
+            "dimension",
+            "values"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The dimension equals none of these values. At least one. A row whose value for this\ndimension is unmatched/NULL (an unresolved join key) is excluded, not included.",
+          "properties": {
+            "dimension": {
+              "description": "The dimension to filter on, by the name the metric declares it under.",
+              "type": "string"
+            },
+            "op": {
+              "const": "not_in",
+              "type": "string"
+            },
+            "values": {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "op",
+            "dimension",
+            "values"
+          ],
+          "type": "object"
         }
-      },
-      "required": [
-        "dimension",
-        "value"
-      ],
-      "type": "object"
+      ]
     },
     "LastArgs": {
       "additionalProperties": false,
@@ -121,7 +185,7 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
       "type": "array"
     },
     "filters": {
-      "description": "Equality filters, each on a dimension the metric declares as filterable.",
+      "description": "Filters, each on a dimension the metric declares as filterable and each value one the\ncatalog allowlists - equality, or membership in an allowed set.",
       "items": {
         "$ref": "#/$defs/FilterArgs"
       },
@@ -131,9 +195,13 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
       "description": "The time resolution to aggregate to: one of `day`, `week`, `month`, `quarter` or `year`, and\nonly those the metric declares.",
       "type": "string"
     },
-    "metric": {
-      "description": "The metric to measure, by the name this catalog defines it under - for example `revenue`.",
-      "type": "string"
+    "metrics": {
+      "description": "The metrics to ask about, by the names this catalog defines them under - for example\n`[\"revenue\"]`. Naming more than one is accepted only when every one shares a model, a time\ncolumn, a grain and every dimension listed below (`github.com/telekom/sutura#968`), and\neven then this deployment executes just one metric at a time today, so a set of more than\none is always refused - ask about each metric separately.",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
     },
     "range": {
       "$ref": "#/$defs/RangeArgs",
@@ -152,7 +220,7 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
     }
   },
   "required": [
-    "metric",
+    "metrics",
     "grain",
     "range"
   ],

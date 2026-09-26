@@ -1,4 +1,4 @@
-metric: churn_rate
+metrics: [churn_rate]
 grain: month
 range:
   start: 2026-01-01

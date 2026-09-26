@@ -5,7 +5,6 @@
 //! writes real Table Schema descriptors to a per-process temp directory and loads through
 //! [`super::OkfCatalog::load`], so a cell asserts on what the adapter reads, not on source text.
 
-use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use sutura_domain::capabilities::MetadataCapabilities;
@@ -226,92 +225,4 @@ fn the_example_corpus_loads_and_digests_stably() {
     let second = catalog(root).load().expect("the example corpus loads twice");
     assert_eq!(first.digest(), second.digest(), "the same corpus pins to the same digest");
     assert!(!first.definitions().models().is_empty(), "the example corpus has models");
-}
-
-/// The `NotARegularFile` refusal is on the OPENED handle, not on a separately-stated path.
-///
-/// `/dev/null` is a character device: `File::open` succeeds on it, and the `fstat` on that handle
-/// shows a non-regular file, so [`super::read_document`] refuses it before reading a byte - the
-/// exact device half of the post-walk swap this refusal exists to close. Deleting the `is_file`
-/// check makes this cell red.
-#[test]
-fn a_non_regular_file_is_refused_on_the_opened_handle() {
-    let file = std::fs::File::open("/dev/null").expect("a character device is openable");
-    let metadata = file.metadata().expect("the opened handle has an fstat");
-    let root = PathBuf::from("/unreached"); // names the catalog only in TooLarge text; unreached here
-    let err = super::read_document(file, &metadata, Path::new("document.yaml"), &root, 0)
-        .expect_err("a device is refused as not a regular file");
-    assert!(
-        matches!(err, OkfCatalogError::NotARegularFile { .. }),
-        "the refusal is NotARegularFile, not {err:?}"
-    );
-}
-
-/// A reader that DELIVERS more than the remaining budget is refused by the post-read re-check,
-/// and the `take` cap is what keeps the read from pulling more than `remaining + 1` bytes.
-///
-/// The declared length is a real file well under the budget, so the fast path passes; the
-/// wrapper below yields more than `remaining`, which only the post-read re-check
-/// ([`super::read_document`]) refuses. The wrapper also counts how many bytes it was actually
-/// pulled for - the bound that matters for allocation. However many bytes the lying reader COULD
-/// yield, no more than `remaining + 1` are pulled (that is `Read::take`'s cap). Deleting the
-/// `take` makes the count assertion red; deleting the re-check makes this cell's refusal red.
-#[test]
-fn a_reader_that_delivers_more_than_the_remaining_budget_is_refused() {
-    let root = scratch("under-declared");
-    std::fs::write(root.join("document.yaml"), "description: t\nfields:\n  - name: id\n").expect("a descriptor is writable");
-    let file = std::fs::File::open(root.join("document.yaml")).expect("the descriptor is openable");
-    let metadata = file.metadata().expect("the opened handle has an fstat");
-    assert!(
-        metadata.len() < super::MAX_CATALOG_BYTES,
-        "the fixture is well under the aggregate budget"
-    );
-    let path = root.join("document.yaml");
-    // Declared at the small length above, but yields more than `remaining`: only the re-check
-    // (on top of the `take`) refuses it. The wrapper counts bytes pulled so the `take` cap is
-    // itself tested, not just assumed. Finite (MAX + 100 at most) so the `take`-deleted mutation
-    // fails the count red instead of reading forever; unbounded on its own, so what bounds the
-    // read is `read_document`'s own `take`.
-    let mut lying = CountingReader::bounded(super::MAX_CATALOG_BYTES + 100);
-    let err =
-        super::read_document(&mut lying, &metadata, &path, &root, 0).expect_err("yielding past the remaining budget is refused");
-    assert!(matches!(err, OkfCatalogError::TooLarge { .. }), "the refusal is TooLarge");
-    // The `take(remaining + 1)` cap: a reader that would happily yield MAX + 100 bytes must be
-    // asked for at most remaining + 1 of them. With `read_document`'s `take` deleted, this count
-    // is MAX + 2 and the assertion fails - the mutation this cell holds.
-    assert!(
-        lying.pulled() <= super::MAX_CATALOG_BYTES + 1,
-        "the take cap must bound the read, pulled {} bytes",
-        lying.pulled()
-    );
-    drop(std::fs::remove_dir_all(&root));
-}
-
-/// A [`std::io::Repeat`] that counts how many bytes were pulled, so a test can assert the read
-/// was bounded. `Read` is implemented for `&mut Self`, so the counter is readable after the read
-/// hands the borrow back.
-struct CountingReader {
-    inner: std::io::Take<std::io::Repeat>,
-    pulled: u64,
-}
-
-impl CountingReader {
-    fn bounded(bytes: u64) -> Self {
-        Self {
-            inner: std::io::repeat(b'a').take(bytes),
-            pulled: 0,
-        }
-    }
-
-    fn pulled(&self) -> u64 {
-        self.pulled
-    }
-}
-
-impl std::io::Read for &mut CountingReader {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let n = self.inner.read(buf)?;
-        self.pulled += n as u64;
-        Ok(n)
-    }
 }

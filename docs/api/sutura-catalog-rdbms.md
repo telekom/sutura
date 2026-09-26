@@ -460,6 +460,36 @@ The table the foreign key points to.
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
+## `struct DictionaryBounds`
+
+```rust
+pub struct DictionaryBounds
+```
+
+What one dictionary read may spend: a row cap and a byte cap.
+
+Each cap is non-zero BY TYPE - a zero cap would refuse every read rather than bound one - and
+`sutura-config` refuses a written zero at load with the same type, so a declared bound arrives
+here with nothing left to check. Which default an absent bound takes is the reader's to say.
+
+### Methods
+
+```rust
+pub const fn max_bytes(&self) -> NonZeroU64
+```
+
+```rust
+pub const fn max_rows(&self) -> NonZeroU64
+```
+
+```rust
+pub const fn new(max_rows: NonZeroU64, max_bytes: NonZeroU64) -> Self
+```
+
+### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
 ## Module `fixture`
 
 The recorded dictionary corpus and the fake reader that serves it.

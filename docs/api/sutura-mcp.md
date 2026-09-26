@@ -845,13 +845,23 @@ dates - `telekom/sutura#778`.
 
 `Debug`, `Deserialize<'de>`, `JsonSchema`
 
-### `struct FilterArgs`
+### `enum FilterArgs`
 
 ```rust
-pub struct FilterArgs
+pub enum FilterArgs
 ```
 
-One equality filter.
+One filter: a dimension, and what it must - or must not - equal.
+
+Tagged by `op`, mirroring `sutura_domain::query::Filter` - `github.com/telekom/sutura#968`. Every
+value, in either shape, is still checked against the metric's own allowlist; `In`/`NotIn` widen
+the predicate's shape and never the source of a value.
+
+#### Variants
+
+- `Eq` - The dimension equals this one value.
+- `In` - The dimension equals one of these values. At least one.
+- `NotIn` - The dimension equals none of these values. At least one. A row whose value for this dimension is unmatched/NULL (an unresolved join key) is excluded, not included.
 
 #### Implements
 

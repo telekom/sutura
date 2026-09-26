@@ -1,11 +1,13 @@
-metric: recurring_revenue
+metrics: [recurring_revenue]
 grain: month
 range:
   start: 2026-06-01
   end: 2026-07-01
 dimensions: [contract_term]
 filters:
-  - dimension: contract_term
+  - op: eq
+    dimension: contract_term
     value: annual
-  - dimension: region
+  - op: eq
+    dimension: region
     value: north

@@ -94,9 +94,10 @@
 pub mod fixture;
 
 use std::collections::BTreeMap;
+use std::num::NonZeroU64;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Column, Definitions, Description, Model, Relationship as DomainRelationship};
+use sutura_domain::catalog::{Column, Definitions, Description, JoinKey, JoinKeys, Model, Relationship as DomainRelationship};
 use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
 use sutura_domain::model::{
     ColumnName, DatasetName, InvalidIdentifier, JoinType, ModelName, ProjectName, QualifiedTable, RelationshipName, SourceName,
@@ -432,10 +433,12 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
         Ok(DomainRelationship::new(
             name,
             origin_model,
-            origin_column,
             target_model,
-            target_column,
             JoinType::ManyToOne,
+            JoinKeys::single(JoinKey::Equal {
+                origin: origin_column,
+                target: target_column,
+            }),
         ))
     }
 
@@ -835,6 +838,36 @@ impl Relationship {
     #[inline]
     pub fn target_column(&self) -> &str {
         &self.target_column
+    }
+}
+
+/// What one dictionary read may spend: a row cap and a byte cap.
+///
+/// Each cap is non-zero BY TYPE - a zero cap would refuse every read rather than bound one - and
+/// `sutura-config` refuses a written zero at load with the same type, so a declared bound arrives
+/// here with nothing left to check. Which default an absent bound takes is the reader's to say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DictionaryBounds {
+    max_rows: NonZeroU64,
+    max_bytes: NonZeroU64,
+}
+
+impl DictionaryBounds {
+    #[must_use]
+    pub const fn new(max_rows: NonZeroU64, max_bytes: NonZeroU64) -> Self {
+        Self { max_rows, max_bytes }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn max_rows(&self) -> NonZeroU64 {
+        self.max_rows
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn max_bytes(&self) -> NonZeroU64 {
+        self.max_bytes
     }
 }
 

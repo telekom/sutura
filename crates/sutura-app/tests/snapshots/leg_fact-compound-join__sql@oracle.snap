@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/legs.rs
+expression: query.sql()
+---
+SELECT "dim_monthly"."product_family" AS "product_family", CAST(TRUNC("fct_subscription_monthly"."month", 'MM') AS DATE) AS "period", SUM("fct_subscription_monthly"."voice_min") AS "0_leaf_0" FROM "fct_subscription_monthly" LEFT JOIN "dim_monthly" ON "fct_subscription_monthly"."subscription_key" = "dim_monthly"."subscription_key" AND CAST(TRUNC("fct_subscription_monthly"."usage_date", 'MM') AS DATE) = "dim_monthly"."month" WHERE "fct_subscription_monthly"."month" >= :1 AND "fct_subscription_monthly"."month" < :2 AND "fct_subscription_monthly"."status" = :3 GROUP BY "dim_monthly"."product_family", CAST(TRUNC("fct_subscription_monthly"."month", 'MM') AS DATE) ORDER BY "dim_monthly"."product_family", CAST(TRUNC("fct_subscription_monthly"."month", 'MM') AS DATE)

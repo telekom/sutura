@@ -11,8 +11,8 @@
 //!
 //! # What a refusal means, and what a change means
 //!
-//! `poll_once` re-runs the exact composition boot already used - `super::catalog::load_each`,
-//! generic in the same catalog type `super::catalog::OpenedCatalogs` monomorphises over - so a
+//! `poll_once` re-runs the exact composition boot already used - `crate::catalog::load_each`,
+//! generic in the same catalog type `crate::catalog::OpenedCatalogs` monomorphises over - so a
 //! re-read that fails (the remote endpoint is down, a document no longer validates) keeps the
 //! previously pinned bundle and logs loudly rather than tearing anything down: an answer keeps
 //! being computed from the last GOOD pin. A re-read that succeeds and produces the SAME digest is
@@ -44,7 +44,7 @@ use std::time::Duration;
 use sutura_domain::definitions::DefinitionDigest;
 use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
 
-use super::catalog::{OpenedCatalogs, load_each};
+use crate::catalog::{OpenedCatalogs, load_each};
 
 /// The read side a caller would hold: clones the current pinned bundle out, cheap and lock-free.
 ///

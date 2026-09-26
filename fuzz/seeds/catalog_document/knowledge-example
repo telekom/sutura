@@ -5,7 +5,7 @@ asked:
   - how many subscriptions were there in January
   - wie viele Abonnements gab es im Januar
 question:
-  metric: subscription_count
+  metrics: [subscription_count]
   grain: month
   range: { start: 2026-01-01, end: 2026-02-01 }
 ---

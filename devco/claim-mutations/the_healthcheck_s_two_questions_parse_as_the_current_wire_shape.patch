@@ -1,0 +1,19 @@
+diff --git a/demo/healthcheck.py b/demo/healthcheck.py
+index c7cb3a4c..09b602e2 100755
+--- a/demo/healthcheck.py
++++ b/demo/healthcheck.py
+@@ -39,12 +39,12 @@ OPERATIONS = (("/v1/catalog", "get"), ("/v1/query", "post"))
+ # neither question is invented for this file: an answer and a refusal the demo already claims to
+ # produce. Deterministic and local - no model, no network beyond the server this container runs.
+ _A_REAL_QUESTION = {
+-    "metrics": ["active_subscriptions"],
++    "metric": "active_subscriptions",
+     "grain": "month",
+     "range": {"start": "2026-01-01", "end": "2026-07-01"},
+ }
+ _AN_UNANSWERABLE_QUESTION = {
+-    "metrics": ["customer_lifetime_value"],
++    "metric": "customer_lifetime_value",
+     "grain": "month",
+     "range": {"start": "2026-06-01", "end": "2026-07-01"},
+ }

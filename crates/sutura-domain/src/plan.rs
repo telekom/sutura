@@ -161,8 +161,7 @@ pub struct PlanJoin {
     relationship: RelationshipName,
     table: QualifiedTable,
     join_type: JoinType,
-    origin: PlanColumn,
-    target: PlanColumn,
+    keys: Vec<PlanJoinKey>,
 }
 
 impl PlanJoin {
@@ -181,15 +180,13 @@ impl PlanJoin {
         relationship: RelationshipName,
         table: impl Into<QualifiedTable>,
         join_type: JoinType,
-        origin: PlanColumn,
-        target: PlanColumn,
+        keys: Vec<PlanJoinKey>,
     ) -> Self {
         Self {
             relationship,
             table: table.into(),
             join_type,
-            origin,
-            target,
+            keys,
         }
     }
 
@@ -215,14 +212,55 @@ impl PlanJoin {
         self.join_type
     }
 
+    /// The keys this join links on, each qualified by the tables it reads.
+    #[inline]
+    #[must_use]
+    pub fn keys(&self) -> &[PlanJoinKey] {
+        &self.keys
+    }
+}
+
+/// One term of a planned join, as the renderer will make it.
+///
+/// The same two shapes the catalog's [`crate::catalog::JoinKey`] declares, but with each column
+/// resolved to the table-qualified [`PlanColumn`] the statement will read - the origin from the
+/// table the join starts at, the target from the joined table.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub enum PlanJoinKey {
+    /// The origin column equals the target column.
+    Equal { origin: PlanColumn, target: PlanColumn },
+    /// The origin column, truncated to a grain, equals the target column.
+    TruncatedEqual {
+        origin: PlanColumn,
+        grain: Grain,
+        target: PlanColumn,
+    },
+}
+
+impl PlanJoinKey {
+    /// The origin column, truncated to its grain when this is [`PlanJoinKey::TruncatedEqual`].
     #[inline]
     pub const fn origin(&self) -> &PlanColumn {
-        &self.origin
+        match self {
+            Self::Equal { origin, .. } | Self::TruncatedEqual { origin, .. } => origin,
+        }
     }
 
+    /// The target column the origin (or its truncation) is compared against.
     #[inline]
     pub const fn target(&self) -> &PlanColumn {
-        &self.target
+        match self {
+            Self::Equal { target, .. } | Self::TruncatedEqual { target, .. } => target,
+        }
+    }
+
+    /// The grain a [`PlanJoinKey::TruncatedEqual`] truncates its origin to.
+    #[inline]
+    pub const fn grain(&self) -> Option<Grain> {
+        match self {
+            Self::Equal { .. } => None,
+            Self::TruncatedEqual { grain, .. } => Some(*grain),
+        }
     }
 }
 
@@ -394,6 +432,19 @@ pub enum PlanPredicate {
         column: PlanColumn,
         param: usize,
     },
+    /// `column IN (param, param, ..)` - one or more values, `github.com/telekom/sutura#968`.
+    /// [`crate::nonempty::NonEmpty`] rather than a plain `Vec`: an empty `IN ()` is either a
+    /// syntax error or, rendered as `NOT IN ()`, a silently vanished filter (fail-open), and a
+    /// producer cannot reach this variant with zero placeholders to fill.
+    In {
+        column: PlanColumn,
+        params: crate::nonempty::NonEmpty<usize>,
+    },
+    /// `column NOT IN (param, param, ..)` - [`Self::In`]'s negation, same reason for `NonEmpty`.
+    NotIn {
+        column: PlanColumn,
+        params: crate::nonempty::NonEmpty<usize>,
+    },
     IsTrue {
         column: PlanColumn,
     },
@@ -410,11 +461,15 @@ impl PlanPredicate {
             | Self::Before { ref column, .. }
             | Self::Equals { ref column, .. }
             | Self::NotEquals { ref column, .. }
+            | Self::In { ref column, .. }
+            | Self::NotIn { ref column, .. }
             | Self::IsTrue { ref column }
             | Self::IsNotNull { ref column } => column,
         }
     }
 
+    /// The one parameter a single-valued predicate binds. `None` for `In`/`NotIn` too - see
+    /// [`Self::bound_params`] for the shape that covers every variant.
     #[inline]
     pub const fn param(&self) -> Option<usize> {
         match *self {
@@ -422,10 +477,28 @@ impl PlanPredicate {
             | Self::Before { param, .. }
             | Self::Equals { param, .. }
             | Self::NotEquals { param, .. } => Some(param),
-            Self::IsTrue { .. } | Self::IsNotNull { .. } => None,
+            Self::In { .. } | Self::NotIn { .. } | Self::IsTrue { .. } | Self::IsNotNull { .. } => None,
+        }
+    }
+
+    /// Every parameter index this predicate binds, in placeholder order - zero for `IsTrue`/
+    /// `IsNotNull`, one for a comparing predicate, one per value for `In`/`NotIn`. The one place
+    /// [`bindings::PlanBindings::parse`] walks all eight variants without matching on which one.
+    #[inline]
+    pub(crate) fn bound_params(&self) -> BoundParams<'_> {
+        match *self {
+            Self::AtOrAfter { param, .. }
+            | Self::Before { param, .. }
+            | Self::Equals { param, .. }
+            | Self::NotEquals { param, .. } => BoundParams::One(Some(param)),
+            Self::In { ref params, .. } | Self::NotIn { ref params, .. } => BoundParams::Many(params.into_iter()),
+            Self::IsTrue { .. } | Self::IsNotNull { .. } => BoundParams::None,
         }
     }
 }
+
+mod bound_params;
+pub(crate) use bound_params::BoundParams;
 
 /// Where a predicate came from.
 ///

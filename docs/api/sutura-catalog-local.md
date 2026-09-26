@@ -62,12 +62,15 @@ finer split is a cheap change if a caller ever needs the branch.
 
 - `NotADirectory`
 - `Io`
+- `Open` - An open, stat or read of a document through its descriptor failed in a way the OS described but `Self::Io`'s wording does not: a swapped symlink refuses with `ELOOP` and a swapped FIFO with `ENXIO`, and neither is "could not read".
+- `NotARegularFile` - The document opened is not a regular file - a device node, for one, is refused by the regular-file check on the handle that was opened, not by the walk, which only saw the entry that was there before the swap.
 - `Malformed`
 - `Frontmatter`
 - `MalformedFrontmatter`
 - `IdentifyKind`
 - `Metric`
 - `Model` - A model's own column or its `primary_key:` is not usable.
+- `Relationship`
 - `Description` - The prose of a definition document is not a usable description.
 
   **The variant that did not exist, and its absence was the hole.** A model's and a metric's
@@ -104,9 +107,10 @@ finer split is a cheap change if a caller ever needs the branch.
 
   `path` is the catalog root, matching `TooManyDocuments` and `Empty` above - the rendered
   text names "the catalog", so the path in it has to be the catalog's, not one file's.
-  `document` is the one whose metadata pushed the running total over `limit` - checked from
-  its own size and INCLUDING it, before it is read into memory, not after. `found` is that
-  running total.
+  `document` is the one whose size pushed the running total over `limit` - checked on the
+  handle that is then read, and INCLUDING it, before it is read into memory, not after. A
+  document that outgrew that check while being read refuses here too. `found` is the
+  running total the refusal saw.
 - `Digest` - The domain could not hash the definitions.
 
   One variant rather than the two this used to have. Those two - the canonical form failing to
@@ -127,9 +131,10 @@ pub struct LocalCatalog
 A catalog read from a directory of documents.
 
 Carries a declared NAME, the way a `sources:` entry or a `catalogs:` entry carries an alias: it
-is the key the contribution manifest records this contributor under. `sutura serve` hands it the
-configured `catalogs:.<key>`; `sutura query`/`sutura mcp` name their single directory a
-constant. The adapter can no more guess it than a data adapter can guess its source alias.
+is the key the contribution manifest records this contributor under. `sutura serve` and, since
+issue #970, `sutura mcp` hand it the configured `catalogs:.<key>`; `sutura query` still names
+its single directory a constant. The adapter can no more guess it than a data adapter can guess
+its source alias.
 
 ### Methods
 
@@ -374,7 +379,25 @@ Why a model document could not become a domain `Model`.
 pub struct EndpointDoc
 ```
 
-One end of a relationship.
+One end of a relationship, and the grain an origin is truncated to when a join key's
+`grain` is present, making it a truncated equality rather than a plain one.
+
+#### Implements
+
+`Debug`, `Deserialize<'de>`
+
+### `struct JoinKeyDoc`
+
+```rust
+pub struct JoinKeyDoc
+```
+
+One term of a compound join, as the document spells it.
+
+A single column pair keeps the byte shape every existing relationship document has:
+`origin: { model, column }` / `target: { model, column }` outside a `keys:` list stays a plain
+equality. A compound join declares a `keys:` list, each entry `{ origin, target }` or
+`{ origin, grain, target }` - the origin column, truncated to `grain` for a truncated key.
 
 #### Implements
 
@@ -389,7 +412,7 @@ pub struct RelationshipDoc
 #### Methods
 
 ```rust
-pub fn into_domain(self) -> Relationship
+pub fn into_domain(self) -> Result<Relationship, InvalidJoinKeys>
 ```
 
 #### Implements

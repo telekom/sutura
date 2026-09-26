@@ -106,6 +106,7 @@ mod names;
 mod place;
 mod plan;
 mod provenance;
+mod refusals;
 // `pub(crate)` rather than private: `crate::refusals` reads the same test regions this gate does,
 // because "which lines of this file are test code" is one question and a second implementation of
 // it would be a second thing to keep in step. Nothing else about the module moved.
@@ -132,11 +133,14 @@ use features::{Activation, BaseText, Trees};
 use place::AddedTest;
 use plan::{Plan, Separable, plan};
 use provenance::{Commit, Moved, Reach};
+use refusals::{
+    report_enabled_tests, report_head_failure, report_unclaimed_additions, report_unnamed_tests, report_unread_manifests,
+    report_unreadable,
+};
 use relocation::{Claim, Images, Relocation};
 use remedies::{
-    report_enabled_tests, report_head_failure, report_moved, report_no_base_behaviour, report_not_separable,
-    report_nothing_to_revert, report_only_ignored, report_orphaned_modules, report_scope, report_silent, report_unnamed_tests,
-    report_unread_manifests, report_unreadable, report_unreverted,
+    report_moved, report_no_base_behaviour, report_not_separable, report_only_ignored, report_orphaned_modules, report_scope,
+    report_silent, report_unreverted,
 };
 use reverted::Attempts;
 use runner::{Tree, cargo_test};
@@ -445,6 +449,53 @@ fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], rea
     )
 }
 
+/// The tests-only shape of a separable plan: `separable.revert` is empty, so nothing here differs
+/// between the base and head trees at all.
+///
+/// `github.com/telekom/sutura#1016`: every test this shape can add PINS behaviour the base tree
+/// already has - there is no revert to run a base comparison against - so the only proof this gate
+/// may accept is a `Claim-Cell:` declaration plus its killing mutation, the same one
+/// `Plan::NotSeparable`'s own arm already consults. This arm used to pass unconditionally
+/// (`super::remedies::report_nothing_to_revert`, deleted here): measured on #1010, a two-test diff
+/// with neither test declared still measured `0 of 2` and exited 0.
+///
+/// NAMES ONLY THE UNDECLARED ADDITIONS: a diff may declare some of its added tests and not
+/// others, so `scoped.minus` is asked for the remainder rather than the refusal naming every test
+/// in scope. When nothing remains undeclared, the declared set is the whole answer and runs
+/// through `claim::run` exactly as `Plan::Separable`'s non-empty-revert arm does when a claim
+/// covers everything - there is no ordinary proof to compose it with here, because nothing was
+/// reverted for one to run against.
+///
+/// **THE LIMIT.** This reads only ADDED tests - `Scan::of`'s own scope, an added `#[test]`
+/// attribute or test-module declaration. An assertion edited inside an EXISTING test, in a file
+/// whose production code did not change, reaches `Plan::NotRequired` instead and is not this
+/// arm's to catch; `github.com/telekom/sutura#1016`'s own second finding tracks it as a follow-up.
+fn tests_only(
+    root: &Path,
+    at: &Commit,
+    files: &[diff::ChangedFile],
+    separable: &Separable,
+    read: &regions::PostImage<'_>,
+) -> Verdict {
+    report_unreverted(&separable.build_inputs);
+    match Scan::of(files, &separable.test_files, read) {
+        Scan::Runnable(scoped) => {
+            let Some(claim) = claim::Claim::of(&worktree::messages(root, at)) else {
+                return report_unclaimed_additions(scoped.tests());
+            };
+            let declared: BTreeSet<String> = claim.cells().iter().cloned().collect();
+            let Some(undeclared) = scoped.minus(&declared) else {
+                return claim::run(root, &scoped, &separable.test_files, &claim, claim::Caller::TEST_CAUSALITY);
+            };
+            report_unclaimed_additions(undeclared.tests())
+        }
+        Scan::Unreadable(unreadable) => report_unreadable(&unreadable),
+        Scan::Enabled(refused) => report_enabled_tests(&refused),
+        Scan::OnlyIgnored(names) => report_only_ignored(&names, &Coverage::of(&[], files, read)),
+        Scan::Unnamed => report_unnamed_tests(&separable.test_files),
+    }
+}
+
 /// `xtask test-causality --since <base>` - the ship-check and CI entry point.
 pub(crate) fn run(args: &[String]) -> Verdict {
     let Some(base) = base_ref(args) else {
@@ -593,13 +644,9 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             if separable.revert.is_empty() {
                 // Same string check as the arm above: an incomplete claim declaration (trailer
                 // committed, patch not) has an empty `revert` and lands here rather than at
-                // `Plan::NotSeparable`, so it needs the same unconsulted-declaration line.
-                let claim_declared = claim::Claim::of(&worktree::messages(&root, &at)).is_some();
-                return report_nothing_to_revert(
-                    &Coverage::of(&[], &files, &working_tree),
-                    &separable.build_inputs,
-                    claim_declared,
-                );
+                // `Plan::NotSeparable` too - `tests_only` reads the same declaration and now
+                // consults it, rather than only mentioning that one exists.
+                return tests_only(&root, &at, &files, &separable, &working_tree);
             }
             match Scan::of(&files, &separable.test_files, &working_tree) {
                 Scan::Runnable(scoped) => {

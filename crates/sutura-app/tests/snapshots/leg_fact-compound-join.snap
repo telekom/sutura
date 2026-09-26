@@ -1,0 +1,76 @@
+---
+source: crates/sutura-app/tests/golden/legs.rs
+expression: leg
+---
+fact:
+  source: local
+  metric: voice_minutes
+  table: fct_subscription_monthly
+  joins:
+    - relationship: usage_subscription
+      table: dim_monthly
+      join_type: many_to_one
+      keys:
+        - Equal:
+            origin:
+              table: fct_subscription_monthly
+              column: subscription_key
+            target:
+              table: dim_monthly
+              column: subscription_key
+        - TruncatedEqual:
+            origin:
+              table: fct_subscription_monthly
+              column: usage_date
+            grain: month
+            target:
+              table: dim_monthly
+              column: month
+  bucket:
+    label: period
+    grain: month
+    column:
+      table: fct_subscription_monthly
+      column: month
+  keys:
+    - label: product_family
+      column:
+        table: dim_monthly
+        column: product_family
+  terms:
+    - term:
+        aggregate:
+          aggregate: sum
+          column:
+            table: fct_subscription_monthly
+            column: voice_min
+      label: 0_leaf_0
+  filters:
+    - origin: definition
+      predicate:
+        at_or_after:
+          column:
+            table: fct_subscription_monthly
+            column: month
+          param: 0
+    - origin: definition
+      predicate:
+        before:
+          column:
+            table: fct_subscription_monthly
+            column: month
+          param: 1
+    - origin: definition
+      predicate:
+        equals:
+          column:
+            table: fct_subscription_monthly
+            column: status
+          param: 2
+  params:
+    - Date: 2026-06-01
+    - Date: 2026-07-01
+    - Text: active
+  range:
+    start: 2026-06-01
+    end: 2026-07-01

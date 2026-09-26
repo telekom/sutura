@@ -9,8 +9,8 @@ use std::collections::BTreeSet;
 
 use super::{
     Audience, Column, ColumnType, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidViaChain,
-    MAX_COLUMN_TYPE_CHARS, MAX_DEFINITIONS_BYTES, MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship,
-    TIME_BUCKET_LABEL, ViaChain,
+    JoinKey, JoinKeys, MAX_COLUMN_TYPE_CHARS, MAX_DEFINITIONS_BYTES, MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric,
+    Model, Relationship, TIME_BUCKET_LABEL, ViaChain,
 };
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{
@@ -85,10 +85,13 @@ fn two_models() -> ModelsAndJoins {
         vec![Relationship::new(
             relationship_name("orders_customer"),
             model_name("orders"),
-            column("customer_id"),
             model_name("customers"),
-            column("id"),
             JoinType::ManyToOne,
+            JoinKeys::of(vec![JoinKey::Equal {
+                origin: column("customer_id"),
+                target: column("id"),
+            }])
+            .expect("a test relationship declares one key"),
         )],
     )
 }
@@ -343,10 +346,13 @@ fn a_join_that_could_duplicate_rows_is_refused_rather_than_optimised() {
     let fanning = vec![Relationship::new(
         relationship_name("orders_customer"),
         model_name("orders"),
-        column("customer_id"),
         model_name("customers"),
-        column("id"),
         JoinType::OneToMany,
+        JoinKeys::of(vec![JoinKey::Equal {
+            origin: column("customer_id"),
+            target: column("id"),
+        }])
+        .expect("a test relationship declares one key"),
     )];
     let m = metric(
         "revenue",
@@ -371,10 +377,13 @@ fn a_dimension_reached_through_a_relationship_that_starts_elsewhere_is_refused()
     let backwards = vec![Relationship::new(
         relationship_name("customer_orders"),
         model_name("customers"),
-        column("id"),
         model_name("orders"),
-        column("customer_id"),
         JoinType::ManyToOne,
+        JoinKeys::of(vec![JoinKey::Equal {
+            origin: column("id"),
+            target: column("customer_id"),
+        }])
+        .expect("a test relationship declares one key"),
     )];
     let m = metric(
         "revenue",
@@ -563,10 +572,13 @@ fn a_label_may_not_be_spelled_the_same_as_a_table_the_statement_reads() {
             vec![Relationship::new(
                 relationship_name("orders_customer"),
                 model_name("orders"),
-                column("customer_id"),
                 model_name("customers"),
-                column("id"),
                 JoinType::ManyToOne,
+                JoinKeys::of(vec![JoinKey::Equal {
+                    origin: column("customer_id"),
+                    target: column("id"),
+                }])
+                .expect("a test relationship declares one key"),
             )],
             vec![metric(
                 "revenue",
@@ -755,10 +767,13 @@ fn a_relationship_naming_a_column_that_does_not_exist_is_refused() {
     let broken = vec![Relationship::new(
         relationship_name("orders_customer"),
         model_name("orders"),
-        column("nope"),
         model_name("customers"),
-        column("id"),
         JoinType::ManyToOne,
+        JoinKeys::of(vec![JoinKey::Equal {
+            origin: column("nope"),
+            target: column("id"),
+        }])
+        .expect("a test relationship declares one key"),
     )];
     assert_eq!(
         Definitions::assemble(models, broken, vec![]).unwrap_err(),

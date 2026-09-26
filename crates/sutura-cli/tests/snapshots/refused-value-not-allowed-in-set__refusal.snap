@@ -1,0 +1,7 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: reason
+---
+DimensionValueNotAllowed:
+  metric: recurring_revenue
+  dimension: region

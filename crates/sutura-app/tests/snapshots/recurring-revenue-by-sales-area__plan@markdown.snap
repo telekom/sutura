@@ -9,21 +9,25 @@ joins:
   - relationship: subscription_customer
     table: dim_customer
     join_type: many_to_one
-    origin:
-      table: fct_subscription_monthly
-      column: customer_key
-    target:
-      table: dim_customer
-      column: customer_key
+    keys:
+      - Equal:
+          origin:
+            table: fct_subscription_monthly
+            column: customer_key
+          target:
+            table: dim_customer
+            column: customer_key
   - relationship: customer_region
     table: dim_region
     join_type: many_to_one
-    origin:
-      table: dim_customer
-      column: region
-    target:
-      table: dim_region
-      column: region
+    keys:
+      - Equal:
+          origin:
+            table: dim_customer
+            column: region
+          target:
+            table: dim_region
+            column: region
 bucket:
   label: period
   grain: month

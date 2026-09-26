@@ -80,6 +80,8 @@ pub(crate) use two_kind::{PG_SOURCE, settings as two_kind_settings};
 // default-features build is what caught the re-export doing nothing there.
 #[cfg(feature = "postgres")]
 pub(crate) use two_source::derived_catalog;
+#[cfg(feature = "postgres")]
+pub(crate) use two_source::without_the_product_family_dimension;
 pub(crate) use two_source::{LOOKUP_SOURCE, settings_spanning_two_sources};
 
 use core::fmt::Write as _;
@@ -304,7 +306,7 @@ pub(crate) fn recurring_revenue_by_region() -> String {
         );
     }
     String::from(
-        r#"{"metric":"recurring_revenue","grain":"month",
+        r#"{"metrics":["recurring_revenue"],"grain":"month",
         "range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["region"]}"#,
     )
 }
@@ -895,7 +897,7 @@ pub(crate) fn question(stem: &str, metric: &str, start: &str, end: &str) -> Stri
             path.display()
         );
     }
-    format!(r#"{{"metric":"{metric}","grain":"{GRAIN}","range":{{"start":"{start}","end":"{end}"}}}}"#)
+    format!(r#"{{"metrics":["{metric}"],"grain":"{GRAIN}","range":{{"start":"{start}","end":"{end}"}}}}"#)
 }
 
 /// The one question this file asserts numbers for.

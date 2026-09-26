@@ -161,16 +161,19 @@ examples:
       - what are business customers in the north worth per month
       - Umsatz der Firmenkunden im Norden
     question:
-      metric: recurring_revenue
+      metrics:
+        - recurring_revenue
       grain: month
       range:
         start: 2026-06-01
         end: 2026-07-01
       dimensions: []
       filters:
-        - dimension: segment
+        - op: eq
+          dimension: segment
           value: business
-        - dimension: region
+        - op: eq
+          dimension: region
           value: north
       top: ~
     body: "Two filters and nothing to group by: this asks for one number rather than a breakdown.\n\nBoth values are spelled the way the definitions declare them - `business` rather than `B2B`,\n`north` rather than `North`. The glossary entries for those phrases exist for exactly this: a filter\nis compared against the declared list, and a near miss is declined without the value being repeated\nback for comparison.\n\nA filter does not have to appear in the group-by list. Filtering on `region` while grouping by\nnothing is a total for one region; filtering on it while grouping by `segment` would be a total per\nsegment inside that region."
@@ -180,7 +183,8 @@ examples:
       - how has the churn rate developed this year
       - wie hat sich die Abwanderungsrate entwickelt
     question:
-      metric: churn_rate
+      metrics:
+        - churn_rate
       grain: month
       range:
         start: 2026-01-01
@@ -195,7 +199,8 @@ examples:
       - how much recurring revenue did each segment bring in June
       - wie viel wiederkehrender Umsatz kam im Juni pro Segment
     question:
-      metric: recurring_revenue
+      metrics:
+        - recurring_revenue
       grain: month
       range:
         start: 2026-06-01

@@ -56,7 +56,7 @@ models:
         description: ""
         nullable: ~
     primary_key: []
-    description: "One row per subscription per day on which it used anything.\n\nIt carries `subscription_key` and no relationship reaches from here to the subscription\nsnapshot, which looks like an omission and is not. The snapshot has one row per\nsubscription per MONTH, so a join on `subscription_key` alone matches every month that\nsubscription existed and multiplies each day of usage by that count. The sum over those\nrows is a wrong number that raises no error anywhere.\n\nThe join that would be correct also constrains the snapshot month to the usage month,\nand a relationship here declares one column on each side. So the relationship is absent\nrather than declared wrongly, and every metric on this model groups by time and by\nnothing else. Usage per product family is a definition this catalog cannot yet express,\nand saying so is better than shipping a number that is quietly several times too large."
+    description: "One row per subscription per day on which it used anything.\n\nIt carries `subscription_key` and, since the compound join landed, a relationship\n`usage_subscription` reaches from here to the subscription snapshot. The snapshot has one\nrow per subscription per MONTH, so a join on `subscription_key` alone would match every\nmonth that subscription existed and multiply each day of usage by that count - a wrong\nnumber that raises no error anywhere.\n\n`usage_subscription` is the fix: it pairs `subscription_key` with a key that truncates\neach usage day to its month and compares it against the snapshot's `month`, so a day\njoins only the snapshot row of the month it falls in. A compound key is the shape that\nsays this - a relationship with one column on each side cannot, and this is the case\nthat gap-in-the-catalog documents once existed to describe. `voice_minutes` reaches the\nproduct family through it, and the golden suite pins that grouping does not multiply the\nmeasure."
   products:
     name: products
     source: local
@@ -149,24 +149,43 @@ relationships:
   customer_region:
     name: customer_region
     origin_model: customers
-    origin_column: region
     target_model: regions
-    target_column: region
     join_type: many_to_one
+    keys:
+      - Equal:
+          origin: region
+          target: region
   subscription_customer:
     name: subscription_customer
     origin_model: subscriptions
-    origin_column: customer_key
     target_model: customers
-    target_column: customer_key
     join_type: many_to_one
+    keys:
+      - Equal:
+          origin: customer_key
+          target: customer_key
   subscription_product:
     name: subscription_product
     origin_model: subscriptions
-    origin_column: product_key
     target_model: products
-    target_column: product_key
     join_type: many_to_one
+    keys:
+      - Equal:
+          origin: product_key
+          target: product_key
+  usage_subscription:
+    name: usage_subscription
+    origin_model: daily_usage
+    target_model: subscriptions
+    join_type: many_to_one
+    keys:
+      - Equal:
+          origin: subscription_key
+          target: subscription_key
+      - TruncatedEqual:
+          origin: usage_date
+          grain: month
+          target: month
 metrics:
   active_subscriptions:
     name: active_subscriptions
@@ -627,7 +646,19 @@ metrics:
     grains:
       - day
       - month
-    dimensions: {}
+    dimensions:
+      product_family:
+        name: product_family
+        column: product_family
+        via:
+          - usage_subscription
+          - subscription_product
+        allowed_values:
+          - convergent
+          - fixed_internet
+          - mobile
+          - tv
+        description: "The kind of product the subscription that used the minutes belongs to. Reached through `usage_subscription` - the compound join from a usage day to the monthly snapshot - and then on to the product. Grouping by it does not multiply the minutes, because the compound key stops every usage day from joining every month that subscription existed."
     anchor: ~
-    description: "Outgoing voice minutes.\n\nHere so the plainest shape in the vocabulary appears in the example unadorned: one\naggregate over one column, no definitional filter, no join, no ratio. Most certified\nmetrics look like this, and a catalog whose every entry needed a paragraph of\njustification would be a catalog nobody trusted.\n\nSame grains as `data_per_subscription`, and the same reason for carrying no anchor: a sum\nof decimals is a float, so an anchor written as text would pin a formatting decision\nrather than a number."
+    description: "Outgoing voice minutes.\n\nHere so the plainest shape in the vocabulary appears in the example unadorned: one\naggregate over one column, no definitional filter, no join, no ratio. Most certified\nmetrics look like this, and a catalog whose every entry needed a paragraph of\njustification would be a catalog nobody trusted.\n\nThe product family dimension is the one exception added when `usage_subscription`\nlanded: it is the dimensionless metric reaching a dimension through the compound join,\nwhich is the case `daily_usage`'s prose calls the gap a one-column relationship cannot\nclose. Grouping by it must not change the measure - that is what the compound key is\nfor, and the golden suite pins it.\n\nSame grains as `data_per_subscription`, and the same reason for carrying no anchor: a sum\nof decimals is a float, so an anchor written as text would pin a formatting decision\nrather than a number."
     audience: Open

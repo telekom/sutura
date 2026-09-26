@@ -250,7 +250,7 @@ mod tests {
         names.sort_unstable();
         assert_eq!(
             names,
-            ["dimensions", "filters", "grain", "metric", "range", "top"],
+            ["dimensions", "filters", "grain", "metrics", "range", "top"],
             "{names:?}"
         );
         // Named explicitly rather than left to the equality above, so the failure says what went wrong

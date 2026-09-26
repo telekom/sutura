@@ -206,7 +206,9 @@ mod tests {
         let tier = DatahubTier::required();
         tier.provision(&data.token_file(), &names);
         let endpoint = format!("http://{}", tier.endpoint);
-        let question = serde_json::json!({"metric": names.metric(), "grain": "month", "range": {"start": "2026-06-01", "end": "2026-07-01"}}).to_string();
+        let question =
+            serde_json::json!({"metrics": [names.metric()], "grain": "month", "range": {"start": "2026-06-01", "end": "2026-07-01"}})
+                .to_string();
         let served = start_configured_with_driver(
             CASE,
             &settings(&issuer, &endpoint, &data.token_file(), &bq, 1024 * 1024 * 1024),
@@ -238,7 +240,7 @@ mod tests {
         let refused = served.post(
             &v1(sutura_http::constants::base_paths::QUERY),
             Some(&issuer.subject_a_token),
-            r#"{"metric":"uncertified","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#,
+            r#"{"metrics":["uncertified"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#,
         );
         assert_eq!(refused.status, 404, "{}", refused.body);
         let refused_body = refused.json();
