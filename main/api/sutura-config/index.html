@@ -2291,9 +2291,10 @@ and the crate that acts on it owns the type that acts.</p>
 <p>A newtype rather than a <code>PathBuf</code> so the one thing that can be wrong about it is wrong in one
 place. The field is private and <code>Self::parse</code> is the only way in.</p>
 <h2 id="use-instructionsmaxbytes"><code>use InstructionsMaxBytes</code><a class="headerlink" href="#use-instructionsmaxbytes" title="Permanent link">&para;</a></h2>
-<p>Maximum bytes read from the operator's instructions file at startup.</p>
+<p>Maximum accepted bytes in the operator's instructions file at startup.</p>
 <p>The default matches the knowledge bundle's 32 KiB cap. The finite maximum keeps an
-operator-configurable limit from turning this into an unbounded read again.</p>
+operator-configurable limit from turning this into an unbounded read again. The reader probes
+one extra byte to detect an oversized file, so it reads at most this limit plus one byte.</p>
 <h2 id="use-invalidpromptsettings"><code>use InvalidPromptSettings</code><a class="headerlink" href="#use-invalidpromptsettings" title="Permanent link">&para;</a></h2>
 <p>Why the prompt configuration is not usable.</p>
 <h2 id="use-promptsettings"><code>use PromptSettings</code><a class="headerlink" href="#use-promptsettings" title="Permanent link">&para;</a></h2>
@@ -4110,9 +4111,10 @@ rather than omitting the section.</p>
 <h3 id="struct-instructionsmaxbytes"><code>struct InstructionsMaxBytes</code><a class="headerlink" href="#struct-instructionsmaxbytes" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-137-1"><a id="__codelineno-137-1" name="__codelineno-137-1" href="#__codelineno-137-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">InstructionsMaxBytes</span>
 </span></code></pre></div>
-<p>Maximum bytes read from the operator's instructions file at startup.</p>
+<p>Maximum accepted bytes in the operator's instructions file at startup.</p>
 <p>The default matches the knowledge bundle's 32 KiB cap. The finite maximum keeps an
-operator-configurable limit from turning this into an unbounded read again.</p>
+operator-configurable limit from turning this into an unbounded read again. The reader probes
+one extra byte to detect an oversized file, so it reads at most this limit plus one byte.</p>
 <h4 id="methods_24">Methods<a class="headerlink" href="#methods_24" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-138-1"><a id="__codelineno-138-1" name="__codelineno-138-1" href="#__codelineno-138-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
