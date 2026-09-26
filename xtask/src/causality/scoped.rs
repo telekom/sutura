@@ -261,14 +261,16 @@ impl Scan {
             // above, which count only ADDED attribute lines - a body-only edit adds no attribute
             // at all.
             let scope = crate::causality::regions::scope(&file.path, read);
-            for name in edited::edited_helper_caller(&lines, &file.added, &scope) {
+            let called = edited::edited_helper_caller(&lines, &file.added, &scope);
+            let touched_helper = !called.is_empty();
+            for name in called {
                 let one = AddedTest::at(&file.path, &at, name);
                 if !runnable.contains(&one) {
                     runnable.push(one);
                 }
             }
             let touched = edited::touched_in(&lines, &file.added);
-            let touched_any = !touched.is_empty();
+            let touched_any = touched_helper || !touched.is_empty();
             for one in touched {
                 match one {
                     edited::Touched::Ignored(name) => {
@@ -426,6 +428,8 @@ pub(super) fn function_name(line: &str) -> Option<Ident> {
     Ident::parse(declared.split(['(', '<', ':']).next()?)
 }
 
+#[cfg(test)]
+mod helper_tests;
 #[cfg(test)]
 mod tests {
     use super::{AddedTest, Scan, Silent};

@@ -64,11 +64,22 @@ impl ClickHouseTransport for Scripted {
 }
 
 fn warehouse(transport: Scripted) -> ClickHouseWarehouse<Scripted> {
+    warehouse_with(transport, budget())
+}
+
+fn warehouse_with(transport: Scripted, result_budget: sutura_domain::warehouse::ResultBudget) -> ClickHouseWarehouse<Scripted> {
     ClickHouseWarehouse::of(
         sutura_conformance::corpus::source(),
         sutura_conformance::corpus::posture(),
         transport,
+        result_budget,
     )
+}
+
+/// A materialisation budget roomy enough for any fixture this module's tests produce, sized away
+/// from the budget the budgeted-collection cells whip up so those cells own the bound.
+fn budget() -> sutura_domain::warehouse::ResultBudget {
+    sutura_domain::warehouse::ResultBudget::of_bytes(core::num::NonZeroUsize::new(1 << 20).expect("a test budget is positive"))
 }
 
 /// A deadline already spent before the call, for tests that need one refused.
@@ -124,6 +135,54 @@ fn a_spent_deadline_is_refused_before_any_round_trip() {
         warehouse.deadline_exceeded(&error),
         "the transport should classify a spent deadline"
     );
+}
+
+/// The clickhouse half of the byte budget the row-speaking adapters share. A result the budget
+/// cannot hold must be refused by the DECODE at the row that crosses it - via `rows_from_json`,
+/// not by the transport, so the refusal is a materialisation-budget shape the port's
+/// `result_did_not_fit` reads - and the same body must decode fully under a roomy budget, or the
+/// test would be passing against an adapter that refuses everything.
+#[test]
+fn a_result_that_would_not_fit_the_materialisation_budget_is_refused_at_the_row_that_crosses_it() {
+    let body = "[\"region\",\"total\"]\n[\"String\",\"Int64\"]\n[\"north\",7]\n[\"south\",9]\n";
+    let first_row_bytes = (core::mem::size_of::<Vec<Value>>() + 2 * core::mem::size_of::<Value>() + 6) * 3;
+    let roomy = warehouse(Scripted::answering(body));
+    let thin = warehouse_with(
+        Scripted::answering(&format!("{body}not-json\n")),
+        sutura_domain::warehouse::ResultBudget::of_bytes(
+            core::num::NonZeroUsize::new(first_row_bytes.saturating_add(1)).expect("a test budget is positive"),
+        ),
+    );
+    let case = sutura_conformance::corpus::cases()
+        .into_iter()
+        .next()
+        .expect("the corpus has a case");
+    let presented = sutura_conformance::corpus::presented();
+    let deadline = sutura_conformance::corpus::deadline();
+
+    roomy
+        .execute(Executable::Query(case.plan()), &presented, deadline)
+        .expect("a roomy budget decodes the whole body");
+
+    let error = thin
+        .execute(Executable::Query(case.plan()), &presented, deadline)
+        .expect_err("the second row crosses the budget before the malformed third row is decoded");
+    assert!(
+        matches!(error, ClickHouseError::OverBudget { .. }),
+        "a crossed budget is refused as the materialisation-budget shape, not as anything else: {error:?}"
+    );
+    assert!(
+        thin.result_did_not_fit(&error),
+        "a result refused for crossing the budget IS the result that did not fit"
+    );
+}
+
+#[test]
+fn a_query_decodes_only_the_rows_needed_to_witness_its_ceiling() {
+    let body = b"[\"region\"]\n[\"String\"]\n[\"north\"]\n[\"south\"]\nnot-json\n";
+    let rows = rows_from_json_with_limit::<ScriptedError>(body, budget(), Some(2))
+        .expect("the third row is not decoded once two rows prove the ceiling was crossed");
+    assert_eq!(rows.rows().len(), 2);
 }
 
 /// The rendered SQL is the `ClickHouse` spelling, not merely that the fake answered. `Scripted`
@@ -235,28 +294,28 @@ fn a_leg_is_refused_without_a_combiner() {
 #[test]
 fn a_nullable_column_reads_a_null_cell_as_value_null() {
     let body = "[\"maybe\"]\n[\"Nullable(String)\"]\n[null]\n";
-    let rows: RowSet = rows_from_json::<ScriptedError>(body.as_bytes()).expect("a null cell decodes");
+    let rows: RowSet = rows_from_json::<ScriptedError>(body.as_bytes(), budget()).expect("a null cell decodes");
     assert_eq!(rows.rows()[0][0], Value::Null);
 }
 
 #[test]
 fn a_uint64_rendered_as_a_json_string_still_decodes_as_an_integer() {
     let body = "[\"n\"]\n[\"UInt64\"]\n[\"9223372036854775807\"]\n";
-    let rows: RowSet = rows_from_json::<ScriptedError>(body.as_bytes()).expect("a quoted 64-bit integer decodes");
+    let rows: RowSet = rows_from_json::<ScriptedError>(body.as_bytes(), budget()).expect("a quoted 64-bit integer decodes");
     assert_eq!(rows.rows()[0][0], Value::Integer(i64::MAX));
 }
 
 #[test]
 fn a_uint64_past_i64_max_decodes_as_its_exact_digits() {
     let body = "[\"n\"]\n[\"UInt64\"]\n[\"10000000000000000006\"]\n";
-    let rows: RowSet = rows_from_json::<ScriptedError>(body.as_bytes()).expect("a wide unsigned integer decodes");
+    let rows: RowSet = rows_from_json::<ScriptedError>(body.as_bytes(), budget()).expect("a wide unsigned integer decodes");
     assert_eq!(rows.rows()[0][0], Value::Text(String::from("10000000000000000006")));
 }
 
 #[test]
 fn a_uint128_above_i128_max_decodes_as_its_exact_digits() {
     let body = "[\"n\"]\n[\"UInt128\"]\n[\"340282366920938463463374607431768211455\"]\n";
-    let rows: RowSet = rows_from_json::<ScriptedError>(body.as_bytes()).expect("a UInt128 decodes");
+    let rows: RowSet = rows_from_json::<ScriptedError>(body.as_bytes(), budget()).expect("a UInt128 decodes");
     assert_eq!(
         rows.rows()[0][0],
         Value::Text(String::from("340282366920938463463374607431768211455"))
@@ -266,7 +325,7 @@ fn a_uint128_above_i128_max_decodes_as_its_exact_digits() {
 #[test]
 fn a_clickhouse_sum_keeps_wide_integers_decimal_scale_and_float_type() {
     let body = "[\"total\"]\n[\"Tuple(String, Dynamic)\"]\n[[\"Int128\",\"9223372036854775808\"]]\n[[\"Int128\",\"18446744073709551616\"]]\n[[\"Decimal(38, 2)\",\"11.50\"]]\n[[\"Nullable(Decimal(38, 2))\",\"19.50\"]]\n[[\"Float64\",3]]\n[[\"Nullable(Float64)\",4]]\n";
-    let rows: RowSet = rows_from_json::<ScriptedError>(body.as_bytes()).expect("typed sums decode");
+    let rows: RowSet = rows_from_json::<ScriptedError>(body.as_bytes(), budget()).expect("typed sums decode");
     assert_eq!(rows.rows()[0][0], Value::Text(String::from("9223372036854775808")));
     assert_eq!(rows.rows()[1][0], Value::Text(String::from("18446744073709551616")));
     assert_eq!(rows.rows()[2][0], Value::Text(String::from("11.50")));
@@ -278,7 +337,7 @@ fn a_clickhouse_sum_keeps_wide_integers_decimal_scale_and_float_type() {
 #[test]
 fn a_float_column_that_is_not_finite_is_refused_rather_than_rendered() {
     let body = "[\"ratio\"]\n[\"Float64\"]\n[\"nan\"]\n";
-    let error = rows_from_json::<ScriptedError>(body.as_bytes()).expect_err("NaN is not a finite cell");
+    let error = rows_from_json::<ScriptedError>(body.as_bytes(), budget()).expect_err("NaN is not a finite cell");
     assert!(matches!(error, ClickHouseError::NotFinite { .. }), "{error}");
 }
 
@@ -299,6 +358,6 @@ fn a_fractional_decimal_keeps_its_exact_text() {
 #[test]
 fn an_unmapped_type_is_an_error_naming_it() {
     let body = "[\"weird\"]\n[\"Tuple(Int64, Int64)\"]\n[[1, 2]]\n";
-    let error = rows_from_json::<ScriptedError>(body.as_bytes()).expect_err("an unmapped type is refused");
+    let error = rows_from_json::<ScriptedError>(body.as_bytes(), budget()).expect_err("an unmapped type is refused");
     assert!(matches!(error, ClickHouseError::UnsupportedType { .. }), "{error}");
 }

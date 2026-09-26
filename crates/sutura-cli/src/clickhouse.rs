@@ -85,7 +85,11 @@ const IMPERSONATION_DEFERRED: &str = "this adapter presents one HTTP Basic crede
 /// A placement the dispatcher should have sent elsewhere; a source with no declared identity; the
 /// `impersonation-at-source` posture, which this adapter has nowhere to put; a password file that
 /// cannot be read or is empty; or declared TLS material that is not usable.
-pub(crate) fn build(source: &SourceName, configured: &sutura_config::ConfiguredSource) -> Result<ClickHouseSource, String> {
+pub(crate) fn build(
+    source: &SourceName,
+    configured: &sutura_config::ConfiguredSource,
+    working_set: sutura_exec_datafusion::WorkingSet,
+) -> Result<ClickHouseSource, String> {
     // Matched rather than read off accessors every kind would have to have, for the reason
     // `crate::serve::bigquery::build_bigquery` gives: the dispatcher has already decided this is the
     // ClickHouse arm, and a second openable kind should arrive as a compile error at this line too.
@@ -113,8 +117,13 @@ pub(crate) fn build(source: &SourceName, configured: &sutura_config::ConfiguredS
         .map_err(|cause| format!("{}\n{IMPERSONATION_DEFERRED}", render(&cause)))?;
     let password = crate::password_file::read(source, password_file)?;
     let auth = Some(BasicAuth::new(user.clone(), password));
-    let transport = open_transport(source, host, port, auth, transport)?;
-    Ok(ClickHouseWarehouse::of(source.clone(), identity.posture().clone(), transport))
+    let transport = open_transport(source, host, port, auth, transport, working_set.bytes() as u64)?;
+    Ok(ClickHouseWarehouse::of(
+        source.clone(),
+        identity.posture().clone(),
+        transport,
+        working_set.result_budget(),
+    ))
 }
 
 /// The transport for the channel this source declared: plaintext, or TLS over the declared store.
@@ -129,13 +138,18 @@ fn open_transport(
     port: u16,
     auth: Option<BasicAuth>,
     declared: &sutura_config::sources::transport::SourceTransport,
+    max_response_bytes: u64,
 ) -> Result<Http, String> {
     use sutura_config::sources::transport::{SourceTransport, TrustAnchors};
     use sutura_exec_clickhouse::tls::{TlsAnchors, TlsIdentity};
 
     let (anchors, client) = match *declared {
         SourceTransport::Plaintext => {
-            return Ok(Http::connect(Endpoint::plaintext(host.as_str(), port), auth));
+            return Ok(Http::connect(
+                Endpoint::plaintext(host.as_str(), port),
+                auth,
+                max_response_bytes,
+            ));
         }
         SourceTransport::Verified { ref anchors } => (anchors, None),
         SourceTransport::Mutual {
@@ -156,7 +170,12 @@ fn open_transport(
             render(&cause)
         )
     })?;
-    Ok(Http::connect_secured(Endpoint::tls(host.as_str(), port), auth, tls))
+    Ok(Http::connect_secured(
+        Endpoint::tls(host.as_str(), port),
+        auth,
+        tls,
+        max_response_bytes,
+    ))
 }
 
 #[cfg(test)]
@@ -182,8 +201,9 @@ mod tests {
         let verified = SourceTransport::Verified {
             anchors: TrustAnchors::File(bundle),
         };
-        let secured = super::open_transport(&source, &host, 8443, None, &verified).expect("the declared bundle is usable");
-        let plain = super::open_transport(&source, &host, 8123, None, &SourceTransport::Plaintext)
+        let secured =
+            super::open_transport(&source, &host, 8443, None, &verified, 1 << 20).expect("the declared bundle is usable");
+        let plain = super::open_transport(&source, &host, 8123, None, &SourceTransport::Plaintext, 1 << 20)
             .expect("a plaintext transport needs no material");
         let _ignored = std::fs::remove_dir_all(&directory);
 

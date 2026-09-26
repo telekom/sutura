@@ -4097,6 +4097,7 @@ the domain does not have and must not gain - `Self::Range` wraps
 #### Variants
 
 - `Question`
+- `Refused`
 - `Range`
 
 #### Implements

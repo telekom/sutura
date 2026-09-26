@@ -43,7 +43,7 @@ use sutura_domain::plan::RowCeiling;
 use sutura_domain::query::Query;
 use sutura_domain::warehouse::{Real, Value};
 
-use crate::adapters::{a_caller, deadline, shared_credential};
+use crate::adapters::{a_caller, deadline, result_budget, shared_credential};
 
 fn column(raw: &str) -> ColumnName {
     ColumnName::parse(raw).expect("a test column is a column")
@@ -184,7 +184,7 @@ fn compound_bundle() -> PinnedDefinitions {
 
 fn warehouse() -> sutura_exec_duckdb::DuckDbWarehouse {
     let dir = fixture_dir();
-    let warehouse = sutura_exec_duckdb::DuckDbWarehouse::in_memory(source(), crate::adapters::posture())
+    let warehouse = sutura_exec_duckdb::DuckDbWarehouse::in_memory(source(), crate::adapters::posture(), result_budget())
         .expect("an in-memory database opens");
     warehouse
         .attach_csv(

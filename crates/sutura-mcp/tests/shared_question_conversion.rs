@@ -107,6 +107,7 @@ mod tests {
     fn http_tag(error: &sutura_http::wire::MalformedQuestion) -> &'static str {
         match *error {
             sutura_http::wire::MalformedQuestion::Question(ref shared) => shared_tag(shared),
+            sutura_http::wire::MalformedQuestion::Refused(ref reason) => reason.code(),
             sutura_http::wire::MalformedQuestion::Range(_) => "range_shape",
         }
     }
@@ -115,6 +116,7 @@ mod tests {
         match *error {
             sutura_mcp::wire::MalformedQuestion::NotAnObject { .. } => "not_an_object",
             sutura_mcp::wire::MalformedQuestion::Question(ref shared) => shared_tag(shared),
+            sutura_mcp::wire::MalformedQuestion::Refused(ref reason) => reason.code(),
             sutura_mcp::wire::MalformedQuestion::Range(_) => "range_shape",
         }
     }

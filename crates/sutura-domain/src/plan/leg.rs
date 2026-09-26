@@ -465,6 +465,16 @@ pub enum Executable<'plan> {
 }
 
 impl<'plan> Executable<'plan> {
+    /// Rows to read before the caller can prove a whole query exceeded its answer ceiling.
+    /// A federation leg has no answer-row ceiling; its adapter's byte budget still applies.
+    #[inline]
+    pub fn row_limit(self) -> Option<usize> {
+        match self {
+            Self::Query(plan) => Some(usize::try_from(plan.row_limit()).unwrap_or(usize::MAX)),
+            Self::Leg(_) => None,
+        }
+    }
+
     /// The one data system this runs against, whichever shape it is.
     #[inline]
     pub const fn source(self) -> &'plan SourceName {

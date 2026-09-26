@@ -98,7 +98,7 @@ use sutura_domain::model::Grain;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::MAX_ROWS;
-use sutura_domain::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS};
+use sutura_domain::query::{MAX_DIMENSIONS, MAX_FILTERS, MAX_RANGE_DAYS};
 
 // The four sections derived from what a catalog says ABOUT what it defines. Their own module because
 // this file is at four fifths of the limit `cargo xtask max-lines` enforces and cannot be exempted,
@@ -553,6 +553,7 @@ fn bounds() -> String {
     let years = MAX_RANGE_DAYS.checked_div(365).unwrap_or(0);
     let bullets = [
         format!("- **At most {MAX_DIMENSIONS} dimensions** in one question."),
+        format!("- **At most {MAX_FILTERS} filters** in one question."),
         format!(
             "- **A period of at most {MAX_RANGE_DAYS} days**, which is {years} years at its \
              longest. Both ends are required. A longer span is refused rather than trimmed to fit, \
