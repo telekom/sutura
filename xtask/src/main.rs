@@ -42,6 +42,7 @@ mod gate_classification;
 mod guidance;
 mod hook_coverage;
 mod hooks;
+mod ignored_tests;
 mod inconclusive;
 mod jscpd;
 mod line_endings;
