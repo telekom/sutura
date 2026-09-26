@@ -260,7 +260,7 @@ fn parse_federated(file: &'static str, content: &str) -> Result<FederatedCase, C
         .into_iter()
         .zip(labels(&federation))
         .filter_map(|(leaf, label)| match *leaf {
-            Carried::Aggregated { pushed, ref column } => Some(LegTerm::new(
+            Carried::Aggregated { pushed, ref column, .. } => Some(LegTerm::new(
                 PlanTerm::Aggregate {
                     aggregate: pushed.push(),
                     column: PlanColumn::new(table(), column.clone()),
@@ -327,6 +327,7 @@ fn parse_federated(file: &'static str, content: &str) -> Result<FederatedCase, C
         measure_label,
         bucket(),
         fact,
+        None,
         lookup,
         include_unmatched,
         federation,
