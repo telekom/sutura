@@ -216,7 +216,7 @@ fn decide_install_types(text: &str) -> Verdict {
         .lines()
         .map(str::trim_start)
         .find_map(|line| line.strip_prefix(INSTALL_TYPES_KEY))
-        .map(stages)
+        .map(flow_stages)
     else {
         eprintln!("xtask check-hook-tiers: read no `{INSTALL_TYPES_KEY}` out of {CONFIG}\n");
         eprintln!("A reader that stopped matching this key cannot tell an unchanged file from one");
@@ -331,7 +331,7 @@ pub(crate) fn hooks(text: &str) -> Vec<Hook> {
             continue;
         }
         if let Some(list) = trimmed.strip_prefix("default_stages:") {
-            defaults = stages(list);
+            defaults = stages(&lines, index, list);
             continue;
         }
         if let Some(id) = trimmed.strip_prefix("- id:") {
@@ -351,7 +351,7 @@ pub(crate) fn hooks(text: &str) -> Vec<Hook> {
             continue;
         };
         if let Some(list) = trimmed.strip_prefix("stages:") {
-            hook.stages = stages(list);
+            hook.stages = stages(&lines, index, list);
             continue;
         }
         if let Some(value) = trimmed.strip_prefix("always_run:") {
@@ -422,8 +422,45 @@ fn anchor(value: &str) -> Option<(String, String)> {
     Some((String::from(name), String::from(anchored.trim())))
 }
 
-/// The stage names in a `[a, b]` flow sequence.
-fn stages(list: &str) -> Vec<String> {
+/// The stage names in a flow or block sequence.
+fn stages(lines: &[&str], at: usize, list: &str) -> Vec<String> {
+    if list.trim_start().starts_with('[') && !list.contains(']') {
+        let mut joined = String::from(list);
+        for raw in lines.iter().skip(at.saturating_add(1)) {
+            let trimmed = raw.trim();
+            if trimmed.starts_with('#') {
+                continue;
+            }
+            joined.push_str(trimmed);
+            if trimmed.contains(']') {
+                break;
+            }
+        }
+        return flow_stages(&joined);
+    }
+    if list.trim().is_empty() {
+        let indent = lines
+            .get(at)
+            .map_or(0, |line| line.len().saturating_sub(line.trim_start().len()));
+        let mut names = Vec::new();
+        for raw in lines.iter().skip(at.saturating_add(1)) {
+            let trimmed = raw.trim_start();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            if raw.len().saturating_sub(trimmed.len()) <= indent {
+                break;
+            }
+            if let Some(name) = trimmed.strip_prefix("- ") {
+                names.push(String::from(name.trim()));
+            }
+        }
+        return names;
+    }
+    flow_stages(list)
+}
+
+fn flow_stages(list: &str) -> Vec<String> {
     list.trim()
         .trim_start_matches('[')
         .trim_end_matches(']')
@@ -611,6 +648,16 @@ mod tests {
             "        stages: [pre-push]\n",
         );
         assert_eq!(super::decide(&super::hooks(FORMAT_ON_PUSH)), Verdict::Fail);
+    }
+
+    #[test]
+    fn a_block_sequence_cannot_hide_an_extra_push_hook() {
+        let config = format!(
+            "{SECURITY_ONLY}      - id: extra-push\n        entry: bash -c 'true'\n        stages:\n          - pre-push\n"
+        );
+        assert_eq!(super::decide(&super::hooks(&config)), Verdict::Fail);
+        let multiline_flow = config.replace("stages:\n          - pre-push", "stages: [\n          pre-push,\n        ]");
+        assert_eq!(super::decide(&super::hooks(&multiline_flow)), Verdict::Fail);
     }
 
     #[test]

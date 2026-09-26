@@ -1,0 +1,7 @@
+--- a/xtask/src/max_lines.rs
++++ b/xtask/src/max_lines.rs
+@@ -452,3 +452,3 @@
+             .iter()
+-            .any(|path| UNEXEMPTABLE_PREFIXES.iter().any(|prefix| path.starts_with(prefix)) && repo::matches(pattern, path))
++            .any(|path| UNEXEMPTABLE_PREFIXES.iter().any(|prefix| path.starts_with(prefix)) && !repo::matches(pattern, path))
+ }

@@ -124,15 +124,6 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         }
     };
 
-    let smuggled: Vec<&String> = ignores.all().filter(|p| is_unexemptable(p)).collect();
-    if !smuggled.is_empty() {
-        eprintln!("xtask max-lines: FAILED - first-party source cannot be exempted");
-        for pattern in smuggled {
-            eprintln!("  {IGNORE_FILE}: `{pattern}` targets hand-written source; split the file instead");
-        }
-        return Verdict::Fail;
-    }
-
     let census = match repo::all_files() {
         Ok(census) => census,
         Err(why) => {
@@ -147,6 +138,17 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             return Verdict::Fail;
         }
     };
+    let smuggled: Vec<&String> = ignores
+        .all()
+        .filter(|pattern| is_unexemptable(pattern, &measured.files))
+        .collect();
+    if !smuggled.is_empty() {
+        eprintln!("xtask max-lines: FAILED - first-party source cannot be exempted");
+        for pattern in smuggled {
+            eprintln!("  {IGNORE_FILE}: `{pattern}` targets hand-written source; split the file instead");
+        }
+        return Verdict::Fail;
+    }
     let inert = inert_entries(&ignores, &measured.files, &measured.over_cap);
     let under_cap: Vec<(&str, usize)> = measured.under_cap.iter().map(|(rel, lines)| (rel.as_str(), *lines)).collect();
     let near_cap = headroom(&under_cap, &ignores, max, NEAR_CAP_REPORTED);
@@ -442,11 +444,13 @@ fn parse_max_lines(args: &[String]) -> Result<usize, String> {
     }
 }
 
-/// A pattern is unexemptable if it reaches into first-party source. Checked on the raw
-/// pattern text, so a wildcard cannot sneak past by matching nothing today.
-fn is_unexemptable(pattern: &str) -> bool {
+/// A pattern cannot exempt first-party source, including through a bare file name.
+fn is_unexemptable(pattern: &str, files: &[String]) -> bool {
     let normalized = pattern.trim_start_matches("./");
     UNEXEMPTABLE_PREFIXES.iter().any(|prefix| normalized.starts_with(prefix))
+        || files
+            .iter()
+            .any(|path| UNEXEMPTABLE_PREFIXES.iter().any(|prefix| path.starts_with(prefix)) && repo::matches(pattern, path))
 }
 
 #[cfg(test)]
@@ -751,11 +755,21 @@ mod tests {
 
     #[test]
     fn first_party_source_cannot_be_exempted() {
-        assert!(is_unexemptable("crates/sutura-domain/src/lib.rs"));
-        assert!(is_unexemptable("./xtask/src/main.rs"));
-        assert!(is_unexemptable("crates/**"));
-        assert!(!is_unexemptable("Cargo.lock"));
-        assert!(!is_unexemptable("docs/generated/openapi.json"));
+        let files = vec![
+            String::from("crates/sutura-domain/src/lib.rs"),
+            String::from("xtask/src/main.rs"),
+        ];
+        assert!(is_unexemptable("crates/sutura-domain/src/lib.rs", &files));
+        assert!(is_unexemptable("./xtask/src/main.rs", &files));
+        assert!(is_unexemptable("crates/**", &files));
+        assert!(!is_unexemptable("Cargo.lock", &files));
+        assert!(!is_unexemptable("docs/generated/openapi.json", &files));
+    }
+
+    #[test]
+    fn a_bare_file_name_cannot_exempt_crate_source() {
+        let files = vec![String::from("crates/sutura-domain/src/lib.rs")];
+        assert!(is_unexemptable("lib.rs", &files));
     }
 
     #[test]

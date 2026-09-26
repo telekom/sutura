@@ -1,0 +1,7 @@
+--- a/xtask/src/hooks.rs
++++ b/xtask/src/hooks.rs
+@@ -439,3 +439,3 @@
+             }
+-            if let Some(name) = trimmed.strip_prefix("- ") {
++            if let Some(name) = trimmed.strip_prefix("+ ") {
+                 names.push(String::from(name.trim()));

@@ -1,0 +1,7 @@
+--- a/xtask/src/skills.rs
++++ b/xtask/src/skills.rs
+@@ -429,3 +429,3 @@
+         }
+-        if fence.is_none() && line.trim_end() == "## Provenance" {
++        if line.trim_end() == "## Provenance" {
+             return true;

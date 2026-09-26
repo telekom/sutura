@@ -404,6 +404,36 @@ mod link_tests {
     }
 }
 
+/// A provenance heading must be outside Markdown code fences.
+fn has_provenance_heading(body: &str) -> bool {
+    let mut fence: Option<(char, usize)> = None;
+    for raw in body.lines() {
+        let line = raw.trim_start_matches(' ');
+        if raw.len().saturating_sub(line.len()) > 3 {
+            continue;
+        }
+        if let Some(marker @ ('`' | '~')) = line.chars().next() {
+            let count = line.chars().take_while(|ch| *ch == marker).count();
+            if count >= 3 {
+                match fence {
+                    None => fence = Some((marker, count)),
+                    Some((opened, minimum))
+                        if marker == opened && count >= minimum && line.chars().skip(count).all(char::is_whitespace) =>
+                    {
+                        fence = None;
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+        }
+        if fence.is_none() && line.trim_end() == "## Provenance" {
+            return true;
+        }
+    }
+    false
+}
+
 /// Library skills are exempt from routing but not from provenance. An imported skill with no
 /// upstream recorded cannot be updated, audited for licence, or compared against upstream
 /// later - which is how a mirror silently becomes a fork nobody can reconcile.
@@ -434,7 +464,7 @@ fn library_problems(root: &Path) -> Vec<String> {
                 problems.push(format!("could not read `{LIBRARY_DIR}/{rel}/SKILL.md`"));
                 continue;
             };
-            if !body.contains("## Provenance") {
+            if !has_provenance_heading(&body) {
                 problems.push(format!(
                     "`{LIBRARY_DIR}/{rel}/SKILL.md` has no `## Provenance` section - record the upstream, licence and local status"
                 ));
@@ -552,7 +582,21 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
 #[cfg(test)]
 mod tests {
-    use super::{frontmatter, intent_targets, routed};
+    use super::{frontmatter, intent_targets, library_problems, routed};
+
+    #[test]
+    fn a_fenced_provenance_heading_does_not_satisfy_the_skill_requirement() {
+        let root = std::env::temp_dir().join(format!("sutura-skills-provenance-{}", std::process::id()));
+        let dir = root.join(super::LIBRARY_DIR).join("group/demo");
+        drop(std::fs::remove_dir_all(&root));
+        std::fs::create_dir_all(&dir).expect("fixture directory");
+        let manifest = dir.join("SKILL.md");
+        std::fs::write(&manifest, "---\nname: demo\n---\n```markdown\n## Provenance\n```\n").expect("fixture skill");
+        assert_eq!(library_problems(&root).len(), 1, "a fenced heading is not provenance");
+        std::fs::write(&manifest, "---\nname: demo\n---\n~~~\n## Provenance\n~~~\n## Provenance\n").expect("fixture skill");
+        assert!(library_problems(&root).is_empty(), "an actual heading satisfies provenance");
+        std::fs::remove_dir_all(root).expect("remove fixture");
+    }
 
     #[test]
     fn reads_frontmatter() {

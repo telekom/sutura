@@ -1,0 +1,6 @@
+--- a/xtask/src/worktree_state/scan.rs
++++ b/xtask/src/worktree_state/scan.rs
+@@ -248,3 +248,2 @@
+     "fs::copy",
+-    "hard_link",
+     "fs::remove",
