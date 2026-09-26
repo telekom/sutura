@@ -127,9 +127,12 @@ pub(crate) const TASKS: &[Task] = &[
         // written into a record, checked against the lock it was taken from. `docs/adr/0018` says the
         // BigQuery wire costs zero new packages because `libduckdb-sys` already resolves the same
         // `ureq`; that record's own last consequence noted nothing gated it, which AGENTS.md calls a
-        // wish rather than a rule.
+        // wish rather than a rule. `docs/adr/0023`'s no-client property was the same shape a step
+        // later: a measurement of one transport's feature closure held by review, with the record
+        // itself saying a `reqwest` arriving would not trip the gate. The third rule is that
+        // property, held against the lock now.
         name: "check-shared-client",
-        description: "one `ureq` in the lock, still shared with `libduckdb-sys` (docs/adr/0018)",
+        description: "one `ureq` in the lock, still shared with `libduckdb-sys` (docs/adr/0018), and neither client docs/adr/0023 forbids",
         kind: Kind::Hygiene(Reads::Code),
         falsifier: Falsifier::declared_in_programme(),
         run: shared_client::run,

@@ -542,10 +542,12 @@ remove the property the test would be checking around.
   dialect lives in a developer's terminal and nowhere else.
 - **A future `just update` that moves `ureq` past what `libduckdb-sys` resolves would turn the +0 into
   a real number, and that is now a gate rather than this sentence.** `cargo xtask
-  check-shared-client` reads `Cargo.lock` and fails on two things: more than one `ureq` version, and
+  check-shared-client` reads `Cargo.lock` and fails on three things: more than one `ureq` version,
   `libduckdb-sys` no longer depending on `ureq` - the second being the PREMISE of the measurement,
-  which can stop holding without anything else breaking. It runs in `just hygiene`, it has its own
-  unit tests, and both rules were proved red by breaking the lock deliberately before they were
+  which can stop holding without anything else breaking - and a client crate
+  [0023](0023-how-the-agent-surface-learns-who-is-asking.md) forbids resolving in the lock. It runs
+  in `just hygiene`, it has its own unit tests, and the first two rules were proved red by breaking
+  the lock deliberately before they were
   proved green. **What it deliberately does not check is the feature sets:** 0018's stronger claim -
   *same version, same features* - needs `cargo metadata`'s resolve graph rather than the lock, which
   is a process invocation and a JSON parser in a crate with one dependency. That absence is written

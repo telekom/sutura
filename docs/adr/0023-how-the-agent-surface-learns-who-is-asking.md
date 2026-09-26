@@ -13,7 +13,10 @@ is the expensive way to find out. **Read *Amendment, 2026-09-16* before citing t
 paragraph below** - the parameter it describes as discarded is now read, by code this record's
 evidence anticipated rather than by a change to this decision. **Read *Second amendment,
 2026-09-23* before citing either "it does not deliver leg 2 on any surface" or "it does not make
-anything published able to impersonate" below** - both are superseded.
+anything published able to impersonate" below** - both are superseded. **Read *Third amendment,
+2026-09-26* before citing "no gate holds that" or "held by review" in *What turning the feature on
+costs* below** - both are superseded: the no-client property is held by `cargo xtask
+check-shared-client` now.
 
 [0014](0014-how-a-caller-proves-who-it-is.md) built leg 1 on the HTTP surface: a deployment
 declaring `security.inbound` verifies a caller's own token from a signature.
@@ -523,3 +526,33 @@ executed a leg as the calling subject - the *venue* half of leg 2, which is dist
 on anything published*; it reads that leg 2 is proven for BigQuery through a declared per-source
 map, and that no served binary has executed as a caller yet. This amendment aligns this record with
 that line rather than restating the line it replaces.
+
+## Third amendment, 2026-09-26: the no-client property is held by a gate rather than by review
+
+**"No gate holds that" no longer holds, in the direction this record asked for.** *What turning
+the feature on costs* measured that the transport's feature closure names no HTTP client -
+`server-side-http` names neither `reqwest` nor `oauth2`, and neither resolves in `Cargo.lock` -
+and said the property was held by review because `cargo xtask check-shared-client` read only its
+two `ureq` facts, with a `reqwest` arriving without tripping it. `telekom/sutura#1037`'s sweep
+named that paragraph as one of the review-held claims a mechanism could hold, and this amendment
+is the mechanism.
+
+**What changed.** `cargo xtask check-shared-client` reads one more fact against the same lock:
+that neither of the two crates this record forbids resolves in `Cargo.lock`. The list is this
+record's own two names - the gate refuses exactly what the measurement measured, and no wider,
+because a gate that refused other crates would enforce a property no record measures. A lock that
+resolves one of the two is no longer the lock this record measured: the gate fails, names the
+crate and its version, and says the *What turning the feature on costs* paragraph is what has to
+be re-taken. The two `ureq` rules it already held are untouched.
+
+**The limit moves with the claim.** A lock-name scan cannot see a client under another name - a
+fork published under its own name, a crate that re-exports one, or a workspace manifest rename -
+because `Cargo.lock` records the name `cargo` resolved. The gate therefore holds the two names
+this record used and nothing wider; a client arriving under another name is the same second
+client [0018](0018-what-the-bigquery-wire-is-built-from.md)'s *Why `ureq` and not `reqwest`*
+exists to keep out, and that stays a decision with its own record rather than a lock-level rule.
+
+**What this does not change.** The measurement itself - the transport's feature closure read on
+2026-09-06, ten of eleven packages resolving and `sse-stream` not - is untouched, as is the
+open dependency question about adding it. What changes is only which venue holds the no-client
+property: a gate, rather than a reader of this paragraph.
