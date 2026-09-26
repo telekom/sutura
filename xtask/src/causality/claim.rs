@@ -477,7 +477,7 @@ fn validate(wt: &Path, claim: &Claim, test_files: &[String]) -> Vec<Cause> {
     // `super::rot`'s synthetic claim declares no commit, so this loop has nothing to check for it.
     let read = head_reader(wt);
     for (commit, declared) in claim.by_commit() {
-        let added: Vec<String> = commit_added_names(wt, commit, &read).unwrap_or_default();
+        let added: Vec<String> = commit_added_names(wt, commit).unwrap_or_default();
         let added_set: BTreeSet<&str> = added.iter().map(String::as_str).collect();
         for cell in declared {
             if !added_set.contains(cell.as_str()) {
@@ -551,8 +551,12 @@ fn validate(wt: &Path, claim: &Claim, test_files: &[String]) -> Vec<Cause> {
 
 /// The tests ONE commit's own diff added, by name.
 ///
-/// `read` is the HEAD post-image the single-commit diff's `AddedLine` numbers are resolved
-/// against - a changed file always exists at HEAD when the range reaches it. `OK(empty)` for a
+/// The single-commit diff numbers its `AddedLine`s in THAT commit's post-image, so they resolve
+/// against the commit's own tree, never HEAD's: a later commit in the range that shifts or deletes
+/// lines above the test would otherwise read it as absent, or name a test it did not add
+/// (`github.com/telekom/sutura#1054`). A path the commit does not carry answers `None`, never
+/// HEAD's copy. Every read is one `git show`, uncached; the kill step still reads HEAD, because
+/// the mutation runs there. `OK(empty)` for a
 /// commit whose diff added no named test, which a declaration over it must then answer as
 /// [`Cause::NotAdded`]; `None` when the commit's diff cannot be read at all (an unnameable hash),
 /// fail-closed in the direction that refuses.
@@ -574,11 +578,13 @@ fn validate(wt: &Path, claim: &Claim, test_files: &[String]) -> Vec<Cause> {
 /// dropped a declaring commit's ADDED names whenever that same commit's diff ALSO deleted an
 /// assertion somewhere else - `partition` cannot answer `DeletedTests` at all, so there is no
 /// longer a case to drop names in.
-fn commit_added_names(wt: &Path, commit: &str, read: &crate::causality::regions::PostImage<'_>) -> Option<Vec<String>> {
+fn commit_added_names(wt: &Path, commit: &str) -> Option<Vec<String>> {
     use crate::causality::plan::Plan;
     use crate::causality::scoped::Scan;
+    let at = crate::causality::provenance::Commit::parse(commit)?;
+    let read = |path: &str| worktree::at_base(wt, &at, path);
     let files: Vec<ChangedFile> = diff::commit_additions(wt, commit)?;
-    let (test_files, scannable) = match crate::causality::plan::partition(&files, read) {
+    let (test_files, scannable) = match crate::causality::plan::partition(&files, &read) {
         Plan::Separable(separable) => (separable.test_files, files),
         Plan::NotSeparable { files: inseparable, .. } => (inseparable, files),
         // `partition` never answers either of these - there is no base reader for it to route a
@@ -586,7 +592,7 @@ fn commit_added_names(wt: &Path, commit: &str, read: &crate::causality::regions:
         // answer for a shape this function cannot even ask about is "no names", not a panic.
         Plan::NotRequired | Plan::DeletedTests(_) | Plan::BaseUnreadable(_) => return Some(Vec::new()),
     };
-    match Scan::of(&scannable, &test_files, read) {
+    match Scan::of(&scannable, &test_files, &read) {
         Scan::Runnable(scoped) => Some(scoped.tests().iter().map(AddedTest::name).map(String::from).collect()),
         _ => Some(Vec::new()),
     }
