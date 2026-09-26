@@ -490,9 +490,10 @@ fn table_path(table: &QualifiedTable, dialect: Dialect) -> Result<String, Genera
 /// and the dialects disagree about it - the engine orders nulls last, `BigQuery` orders them
 /// first, and no golden caught that until two data systems actually EXECUTED the same bare
 /// `ORDER BY` and disagreed. Naming `NULLS LAST` makes every target converge on the engine's own
-/// order: the layer renders the keyword for the target whose default is the other way and omits it
-/// where it already is one (`DuckDB`, Postgres, `ClickHouse`, Oracle for an ascending sort - the
-/// layer's own default-elision table groups Oracle with Postgres) - behaviour, not text, converging.
+/// order: the layer renders the keyword for `BigQuery`, whose default is the other way, and for
+/// `DuckDB`, whose null ordering is a runtime setting, and omits it where it is the fixed default
+/// (Postgres, `ClickHouse`, Oracle for an ascending sort - the layer's own default-elision table
+/// groups Oracle with Postgres) - behaviour, not text, converging.
 /// Nulls last regardless of `desc`, because a null means there was nothing to rank and that sorts
 /// after every value either way. Rendered through the layer's own [`Ordered`] node, which
 /// `engine::ordered` unwraps rather than re-wrapping.
