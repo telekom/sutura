@@ -1,12 +1,12 @@
 diff --git a/crates/sutura-conformance/src/corpus/case_files.rs b/crates/sutura-conformance/src/corpus/case_files.rs
 --- a/crates/sutura-conformance/src/corpus/case_files.rs
 +++ b/crates/sutura-conformance/src/corpus/case_files.rs
-@@ -376,7 +376,7 @@
+@@ -375,7 +375,7 @@
+                     value: field.to_owned(),
                  });
              };
-             if fields.iter().any(|&(seen, _)| seen == field) {
--                return Err(CaseError::DuplicateField { file, field });
-+                return Err(CaseError::MissingField { file, field });
+-            if fields.iter().any(|&(seen, _)| seen == field) {
++            if false && fields.iter().any(|&(seen, _)| seen == field) {
+                 return Err(CaseError::DuplicateField { file, field });
              }
              fields.push((field, value));
-         }
