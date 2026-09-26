@@ -153,11 +153,11 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
     let mut terms: Vec<LegTerm> = Vec::with_capacity(leaf_labels.len());
     for (leaf, &label) in federation.carried().iter().zip(leaf_labels.iter()) {
         let plan_term = match **leaf {
-            Carried::Aggregated { pushed, ref column } => PlanTerm::Aggregate {
+            Carried::Aggregated { pushed, ref column, .. } => PlanTerm::Aggregate {
                 aggregate: pushed.push(),
                 column: PlanColumn::new(own_table.clone(), column.clone()),
             },
-            Carried::CountIf { ref column } => PlanTerm::CountIf {
+            Carried::CountIf { ref column, .. } => PlanTerm::CountIf {
                 column: PlanColumn::new(own_table.clone(), column.clone()),
             },
             // Unreachable: the refusal above returned for any Keys leaf.
@@ -237,6 +237,9 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
         ResultLabel::measure(metric.name()),
         bucket,
         fact,
+        // No second fact leg from a question: `plan` refuses a cross-model ratio before this
+        // splitter runs (`telekom/sutura#780`), because no shape of it renders a second leg yet.
+        None,
         lookup,
         include_unmatched,
         federation,

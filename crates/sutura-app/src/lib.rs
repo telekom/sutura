@@ -754,7 +754,7 @@ where
 
 /// The refusal for a deadline that ran out, naming the budget it was opened with.
 ///
-/// One function so `answer`, [`crate::federated::dry_run_leg`] and [`crate::federated::run_leg`]
+/// One function so `answer`, `dry_run_leg` and [`crate::federated::run_leg`]
 /// build the same reason the same way, whether the cause was a spent budget caught before a call
 /// or an adapter's own failure
 /// [`Warehouse::deadline_exceeded`](sutura_domain::warehouse::Warehouse::deadline_exceeded)

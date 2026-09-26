@@ -560,6 +560,7 @@ pub fn federated_cases() -> Vec<FederatedCase> {
         ResultLabel::measure(&metric("amount_total")),
         bucket(),
         fact,
+        None,
         lookup,
         true,
         Federation::of(&measure),
