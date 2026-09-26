@@ -722,7 +722,7 @@ fn an_anchor_value_a_reader_could_not_read_is_refused() {
 /// it. The refusal now arrives as [`DataHubError::EmptyViaChain`] naming the metric and, of its two
 /// dimensions, the one that carried the empty chain.
 #[test]
-fn a_dimension_with_an_empty_via_chain_is_refused_not_crashed() {
+fn an_empty_via_chain_is_refused_naming_its_dimension() {
     let content = concat!(
         r#"{"model":"orders","measure":{"simple":{"aggregate":"sum","column":"amount_cents"}},"#,
         r#""time_column":"order_date","grains":["month"],"#,
