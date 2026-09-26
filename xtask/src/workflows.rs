@@ -126,6 +126,10 @@ mod image_records;
 // step is the mechanism and a position is not - was asserted by a comment before anything checked
 // it. See its header for which form survives a red and which survives a cancellation.
 mod obligations;
+// WHICH JOB EACH `ci-aggregate` ENV INPUT READS, pinned against a committed table. Its own file
+// for `obligations`'s reason: a different block, a different question (source job, not
+// reachability), and the 1000-line cap this file already sits against.
+mod aggregate_inputs;
 
 // READING A NAMED BLOCK OUT OF `flake.nix`, in its own file because this one reached the
 // 1000-line cap the moment two changes registered a rule module in the same window. The seam is
@@ -256,9 +260,11 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // refusal that walked four files from one that walked one. So the walked set is printed
         // too, which is the property `the_committed_tree_reaches_past_ci_yml` asserts.
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no codegen-backend env variable set in CI, every reader of the image-record file anchored on its record kind, {} step obligation(s) held to the `if:` each needs rather than to a position, no release output in the {} file(s) ordinary CI runs: {}",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no codegen-backend env variable set in CI, every reader of the image-record file anchored on its record kind, {} step obligation(s) held to the `if:` each needs rather than to a position, {} release-skip obligation(s) held on the jobs that repeat the clause, {} ci-aggregate env input(s) held to their committed source job, no release output in the {} file(s) ordinary CI runs: {}",
             references.len(),
             obligations::held(),
+            obligations::release_skip_held(),
+            aggregate_inputs::held(),
             walked.len(),
             walked.join(", ")
         );
@@ -275,6 +281,20 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     eprintln!();
     eprintln!("A deleted output is a workflow that fails minutes into a run, after the push.");
     Verdict::Fail
+}
+
+/// Prints `problems` under `what` and `why`, and answers `Some(Fail)`, when there are any.
+fn refuse(problems: &[String], what: &str, why: &str) -> Option<Verdict> {
+    if problems.is_empty() {
+        return None;
+    }
+    eprintln!("xtask check-workflows: FAILED - {} {what}\n", problems.len());
+    for problem in problems {
+        eprintln!("  {problem}");
+    }
+    eprintln!();
+    eprintln!("{why}");
+    Some(Verdict::Fail)
 }
 
 /// Every rule that compares what a workflow is ALLOWED to do against what is declared to hold
@@ -324,6 +344,28 @@ fn check_gates(
         eprintln!("Which form survives a red and which survives a cancellation is measured in the");
         eprintln!("header of xtask/src/workflows/obligations.rs, beside the limit it does not reach.");
         return Some(Verdict::Fail);
+    }
+    // THE RELEASE-COMMIT SKIP on `bigquery-driver-check` and `ci`. The job repeats the release-skip
+    // test in its own `if:` (it no longer `needs: [ci]`), and nothing read that `if:` - so dropping
+    // the clause stayed green while a release push re-ran the 45-min leg. The committed table in
+    // `obligations` pins the clause as a conjunct on each named job's `if:`.
+    if let Some(failed) = refuse(
+        &obligations::release_skip_problems(root),
+        "release-skip obligation(s) broken",
+        "see RELEASE_SKIP in xtask/src/workflows/obligations.rs for what it pins and what it does not",
+    ) {
+        return Some(failed);
+    }
+    // WHICH JOB EACH `ci-aggregate` ENV INPUT READS. `ci-aggregate`'s `BQ_SELECTED` once read
+    // `needs.ci.outputs.data_source_bigquery` and nothing pinned the source job; `identity-classify`
+    // publishes the same output, so rewiring it there stayed green. A committed table names the
+    // required source job for each env var and refuses a mismatch.
+    if let Some(failed) = refuse(
+        &aggregate_inputs::problems(root),
+        "ci-aggregate env-input rule(s) broken",
+        "a rewired source job can publish the same output name; see xtask/src/workflows/aggregate_inputs.rs",
+    ) {
+        return Some(failed);
     }
 
     // WHAT A BADGE CLAIMS, AGAINST WHAT HOLDS IT. Beside the classification above because both

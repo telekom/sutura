@@ -31,8 +31,10 @@
 //! * an ungoverned route is mounted only inside `crate::router::Ungoverned::mount`
 //!   (`ungoverned`, `xtask/src/boundaries/ungoverned.rs`) - the structural backstop of the
 //!   ungoverned-route allowlist, holding that the one place `sutura-http`/`sutura-cli` may call
-//!   `.nest`/`.nest_service`/`.route_service` (outside the governed `.nest(API_V1_PREFIX, …)`) is
-//!   the single mount function
+//!   `.nest`/`.nest_service`/`.route_service`/`.fallback_service`, and any `.route(` (outside the
+//!   governed `.nest(API_V1_PREFIX, …)`), is the single mount function, a `#[cfg(test)] mod tests`
+//!   block, a file whose path ends in `tests.rs` (by naming convention - see `ungoverned`'s limit
+//!   note), or a site in `ungoverned::ALLOWED_ROUTES`
 //! * a DECLARED satellite cargo workspace reaches no framework and no forbidden target over ITS
 //!   OWN `cargo metadata` ([`second_workspace`], `xtask/src/boundaries/second_workspace.rs`), and
 //!   an undeclared one refuses outright - `telekom/sutura#863`: `fuzz/`'s own `[workspace]` table

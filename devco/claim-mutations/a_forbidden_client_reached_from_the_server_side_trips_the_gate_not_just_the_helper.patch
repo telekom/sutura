@@ -1,0 +1,7 @@
+diff --git a/xtask/src/shared_client.rs b/xtask/src/shared_client.rs
+--- a/xtask/src/shared_client.rs
++++ b/xtask/src/shared_client.rs
+@@ -183,2 +183,3 @@ fn check_lock(lock: &str) -> Verdict {
+         .iter()
++        .take(0)
+         .flat_map(|name| {

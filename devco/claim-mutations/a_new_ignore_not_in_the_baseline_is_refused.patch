@@ -1,0 +1,8 @@
+diff --git a/xtask/src/ignored_tests.rs b/xtask/src/ignored_tests.rs
+--- a/xtask/src/ignored_tests.rs
++++ b/xtask/src/ignored_tests.rs
+@@ -71,3 +71,3 @@ fn parse_baseline(text: &str) -> BTreeSet<String> {
+ fn new_ignores<'a>(live: &'a BTreeSet<String>, baselined: &'a BTreeSet<String>) -> Vec<&'a String> {
+-    live.difference(baselined).collect()
++    live.intersection(baselined).collect()
+ }

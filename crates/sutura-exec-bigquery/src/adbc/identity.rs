@@ -187,6 +187,39 @@ fn credential_options(source: &SubjectSource, pool: &WorkloadPool, target: &Prin
     ]
 }
 
+/// A compile-time guard that `JobAuthentication` does not implement `Debug`.
+///
+/// `JobAuthentication.options` is `DatabaseOptions` - `Vec<(OptionDatabase, OptionValue)>` from
+/// `adbc_core` - and `credential_options` is the one place the credential document is exposed as
+/// text, into an `OptionValue::String`. `adbc_core`'s `OptionValue` derives `Debug`, so a
+/// `#[derive(Debug)]` on `JobAuthentication` would print the whole document: the loopback nonce,
+/// the header secret and the account the subject's questions run as. That is the same leak
+/// [`super::subject`]'s `no_debug` guard exists for, one layer up - `SubjectSource` holds the bare
+/// values and this type carries them through the foreign `Debug`.
+///
+/// `JobAuthentication` is `pub(super)`, so like `SubjectSource` a `compile_fail` doctest cannot name
+/// it - this guard is the mechanism that replaces review for a type no external crate can reach. It
+/// uses the same negative-impl ambiguity trick: one blanket impl for all `T`, one for `T: Debug`,
+/// so adding any `Debug` impl makes `<JobAuthentication as AmbiguousIfImpl<_>>::some_item` ambiguous
+/// (E0283) and the crate does not build.
+///
+/// **Limit:** this forbids `Debug` and nothing else. The `options` field is a foreign `Vec` whose
+/// `Debug` already prints the document text; nothing here stops a `tracing`/`format!` call that
+/// reaches `options` directly, or a hand-written `Display` on `JobAuthentication`. Those are held by
+/// review, not by this guard.
+mod no_debug {
+    trait AmbiguousIfImpl<A> {
+        fn some_item() {}
+    }
+    impl<T: ?Sized> AmbiguousIfImpl<()> for T {}
+    impl<T: ?Sized + core::fmt::Debug> AmbiguousIfImpl<u8> for T {}
+
+    // Compiles only while JobAuthentication does NOT implement Debug.
+    const _: fn() = || {
+        let _ = <super::JobAuthentication as AmbiguousIfImpl<_>>::some_item;
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use sutura_domain::identity::Secret;

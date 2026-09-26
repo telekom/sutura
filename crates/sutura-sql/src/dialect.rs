@@ -37,19 +37,43 @@
 
 use sutura_domain::model::{IdentifierCase, Qualification};
 
-/// The data systems a statement can be rendered for.
-///
-/// A closed set rather than a passthrough of the dialect layer's thirty-three, because each entry
-/// here is a claim that we generate correct SQL for it and have a golden that says so. Adding one is
-/// a feature flag, a match arm and a snapshot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Dialect {
-    DuckDb,
-    Postgres,
-    ClickHouse,
-    BigQuery,
-    Oracle,
+/// Declares the enum it is handed and [`ALL`] from its ONE variant list, so a variant cannot exist
+/// without being listed.
+macro_rules! with_all {
+    ($(#[$meta:meta])* pub enum $name:ident { $($variant:ident),+ $(,)? }) => {
+        $(#[$meta])*
+        pub enum $name {
+            $($variant),+
+        }
+
+        /// Every dialect, in declaration order, for iterating a golden suite over all of them.
+        ///
+        /// **The enum and this list are one macro input, so the edge between them is held by
+        /// construction.** A variant added to the enum is in both; there is no second place to
+        /// forget it. A sixth variant still does not compile until seven production exhaustive
+        /// matches over `Dialect` answer for it: `as_str`, `placeholder_style`, `identifier_quote`,
+        /// `date_trunc_shape`, `qualification` and `identifier_case` in this file, and
+        /// `dialect_type` in [`mod@crate::generate`]. `github.com/telekom/sutura#410` measured the
+        /// hand-restated list this replaces.
+        pub const ALL: &[$name] = &[$($name::$variant),+];
+    };
+}
+
+with_all! {
+    /// The data systems a statement can be rendered for.
+    ///
+    /// A closed set rather than a passthrough of the dialect layer's thirty-three, because each entry
+    /// here is a claim that we generate correct SQL for it and have a golden that says so. Adding one
+    /// is a feature flag, a match arm and a snapshot.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Dialect {
+        DuckDb,
+        Postgres,
+        ClickHouse,
+        BigQuery,
+        Oracle,
+    }
 }
 
 /// How a bind parameter is written.
@@ -163,32 +187,6 @@ pub enum DateTruncShape {
     /// ask, and PR 2 is where one arrives.
     DateFirstAsQuotedFormat,
 }
-
-/// Every dialect, for iterating a golden suite over all of them.
-///
-/// A `const` rather than a derive, and **the compiler is what holds a new variant rather than the
-/// test below.** A sixth variant does not compile until seven production exhaustive matches over
-/// `Dialect` answer for it: `as_str`, `placeholder_style`, `identifier_quote`, `date_trunc_shape`,
-/// `qualification` and `identifier_case` in this file, and `dialect_type` in
-/// [`mod@crate::generate`]. So a data system cannot arrive without somebody deciding how it renders.
-///
-/// **What is held by review and by nothing else is the edge from the enum to this list**, and this
-/// paragraph used to promise the opposite. `every_dialect_is_in_all` restates the five names by
-/// hand, so a sixth variant added to the enum and OMITTED here leaves it green while the golden
-/// suite iterates five of six and reads as covered; a variant added to both turns it red on the
-/// length assertion until the literal is bumped. `crates/sutura-app/tests/golden/dialects.rs` does
-/// not close the edge either - it compares this list against that suite's own registry, never the
-/// enum against this list, and says so itself. Closing it needs a derivation whose exhaustive
-/// `match` over `Dialect` is what BUILDS the list to compare against; a restated array anywhere in
-/// that chain reintroduces the same hole one level down, which is why the obvious rewrite of the
-/// test body is not the fix. `github.com/telekom/sutura#410` carries the measurement.
-pub const ALL: &[Dialect] = &[
-    Dialect::DuckDb,
-    Dialect::Postgres,
-    Dialect::ClickHouse,
-    Dialect::BigQuery,
-    Dialect::Oracle,
-];
 
 /// Why a dialect name was not recognised.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -428,25 +426,6 @@ mod tests {
     fn folding_more_is_greater_because_the_comparison_is_what_decides_the_check() {
         assert!(IdentifierCase::Sensitive < IdentifierCase::InsensitiveAscii);
         assert_eq!(IdentifierCase::COARSEST, IdentifierCase::InsensitiveAscii);
-    }
-
-    #[test]
-    fn every_dialect_is_in_all() {
-        // The list is what the golden suite iterates. A variant missing from it is a data system
-        // with no snapshot, which reads as covered and is not - and this test does NOT catch that,
-        // because the loop restates the same five names. It holds the list against a hand-written
-        // set and its length; the enum-to-`ALL` edge is held by review, which `ALL`'s own doc
-        // comment states beside the claim.
-        for dialect in [
-            Dialect::DuckDb,
-            Dialect::Postgres,
-            Dialect::ClickHouse,
-            Dialect::BigQuery,
-            Dialect::Oracle,
-        ] {
-            assert!(ALL.contains(&dialect), "{dialect} is not in ALL");
-        }
-        assert_eq!(ALL.len(), 5);
     }
 
     #[test]

@@ -16,12 +16,14 @@
 //! names now - a regular file swapped in after the walk is read and bounded, not refused; only a
 //! symlink or a FIFO swapped in is caught, by `O_NOFOLLOW`/`O_NONBLOCK` at the open itself.
 //!
-//! **"Opened exactly once per document" is held by review, not by a test.** This function's own
-//! single `rustix::fs::open` call is the whole of that guarantee; a caller that added a second,
-//! unguarded read of the same path after calling this function would not be caught by any swap-timing
-//! test here - the window between two back-to-back opens is sub-microsecond, well under what even a
-//! multi-millisecond swap test can land reliably (measured across 3 separate `just test` runs against
-//! that mutation, before this crate existed).
+//! **"Opened exactly once per document" is held by `cargo xtask check-catalog-opened-once`, not by
+//! a test.** This function's own single `rustix::fs::open` call is the whole of that guarantee; a
+//! caller that added a second, unguarded read of the same path after calling this function would
+//! not be caught by any swap-timing test here - the window between two back-to-back opens is
+//! sub-microsecond, well under what even a multi-millisecond swap test can land reliably (measured
+//! across 3 separate `just test` runs against that mutation, before this crate existed). The gate
+//! refuses a path-based `std::fs` read in this crate and the three catalogs outside `walk`'s
+//! `read_dir`; a second `rustix::fs::open` or an aliased read escapes that text scan.
 //!
 //! The refusal paths and their exact reach are [`read_document`]'s contract; a caller maps its
 //! [`ReadError`] into its own error enum, keeping its variants and rendered messages.

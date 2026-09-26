@@ -8,7 +8,7 @@
 use std::path::PathBuf;
 
 use super::{TOKEN, production_overlay, variables};
-use crate::inbound::{InvalidInboundValue, ResourceIdentifier};
+use crate::inbound::{InvalidInboundValue, ProofLifetime, ResourceIdentifier};
 use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources, TokenRequiredBy};
 
 /// A complete `direct` declaration, indented to sit under a `security:` key.
@@ -279,4 +279,46 @@ fn an_inbound_key_can_be_set_by_a_variable_and_a_misspelled_one_is_an_error() {
         )]));
     let error = Settings::load(&sources).expect_err("a misspelled key is an error naming it");
     assert!(matches!(*error.reason(), SettingsError::Source { .. }), "{error:?}");
+}
+
+#[test]
+fn a_transit_lifetime_above_the_ceiling_does_not_start() {
+    // Through `Settings::load`, not `ProofLifetime::parse` directly: the primitive test would stay
+    // green if the boot path stopped calling `parse`, so the cell has to exercise the boot path.
+    let over = format!(
+        "security:\n{GATEWAY_INBOUND}    transit_max_lifetime_seconds: {}\n",
+        ProofLifetime::MAX_SECONDS + 1
+    );
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(over))
+        .expect_err("a lifetime above the ceiling is refused at boot");
+    let SettingsError::InboundValue { cause } = error.reason() else {
+        panic!("expected a typed inbound-value refusal, got {error:?}");
+    };
+    assert_eq!(
+        cause,
+        &InvalidInboundValue::LifetimeOutOfRange {
+            found: ProofLifetime::MAX_SECONDS + 1,
+            limit: ProofLifetime::MAX_SECONDS,
+        },
+        "{cause:?}"
+    );
+}
+
+#[test]
+fn a_transit_lifetime_at_the_ceiling_loads() {
+    let at = format!(
+        "security:\n{GATEWAY_INBOUND}    transit_max_lifetime_seconds: {}\n",
+        ProofLifetime::MAX_SECONDS
+    );
+    let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(at))
+        .expect("a lifetime at the ceiling is loadable");
+    let inbound = settings.security().inbound().expect("the declaration is there");
+    assert_eq!(
+        inbound
+            .requirement()
+            .max_lifetime()
+            .expect("the gateway mode carries a ceiling")
+            .seconds(),
+        ProofLifetime::MAX_SECONDS,
+    );
 }

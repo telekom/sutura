@@ -386,6 +386,37 @@ impl Drop for SubjectSource {
     }
 }
 
+/// A compile-time guard that `SubjectSource` does not implement `Debug`.
+///
+/// `SubjectSource` carries the loopback nonce, secret, and address - the two independent values a
+/// local process needs to fetch the caller's assertion from this process's own endpoint. A
+/// `#[derive(Debug)]` or `impl Debug` would print them, which is exactly the leak the module
+/// header's bound rests on ("the document never reaching disk or a log"). `Secret` already redacts
+/// under `Debug`, but `SubjectSource` is the layer above it: its fields are bare, and it is
+/// `pub(super)` so a `compile_fail` doctest cannot name it - this is the mechanism that replaces
+/// review for a type no external crate can reach.
+///
+/// The negative-impl ambiguity trick: one blanket impl for all `T`, one for `T: Debug`. With no
+/// `Debug` impl only the first matches, so the reference resolves and the crate compiles. Adding
+/// `#[derive(Debug)]` or any `impl Debug` makes both apply, so `<SubjectSource as
+/// AmbiguousIfImpl<_>>::some_item` is ambiguous (E0283) and the crate does not build.
+///
+/// **Limit:** this forbids `Debug` and nothing else. A hand-written `Display` on `SubjectSource`,
+/// or a field printed by name in a `tracing`/`format!` call elsewhere, still leaks - those are held
+/// by review, not by this guard.
+mod no_debug {
+    trait AmbiguousIfImpl<A> {
+        fn some_item() {}
+    }
+    impl<T: ?Sized> AmbiguousIfImpl<()> for T {}
+    impl<T: ?Sized + core::fmt::Debug> AmbiguousIfImpl<u8> for T {}
+
+    // Compiles only while SubjectSource does NOT implement Debug.
+    const _: fn() = || {
+        let _ = <super::SubjectSource as AmbiguousIfImpl<_>>::some_item;
+    };
+}
+
 /// Serves `body` to every caller presenting both `wanted` and `secret`, until told to stop.
 ///
 /// **Every other caller gets a refusal and a closed connection**, and the refusal says nothing

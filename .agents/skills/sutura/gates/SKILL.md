@@ -1626,7 +1626,7 @@ same-shape control one line away that is refused twice over:
 | The diff, trailer present | Why it slipped |
 | --- | --- |
 | `#[serde(deny_unknown_fields)]` DELETED from the tool surface's `Query` | an attribute "carries no behaviour" - and `sutura/invariants` names that exact line as a mechanism |
-| `#[ignore]` ADDED to a live test | likewise; and no gate in `cargo xtask --help` censuses ignored tests, so nothing else would have said so either |
+| `#[ignore]` ADDED to a live test | likewise; `check-ignored-tests` censuses every `#[ignore]` against a committed baseline (`devco/ignored-tests`), so a new one not in the baseline now fails the hygiene sweep |
 | **a doctest assertion ADDED in a production file** | a doc comment is a comment - so **an added test skipped red-before-green**, under a verdict printing *no assertion was added*, which is this gate's entire subject |
 | the `compile_fail` doctest pinning `Secret`'s missing `Display`, DELETED | same, in the deleting direction |
 | an attribute-only change in a SIBLING commit | the claim is range-wide, so it rode along |
