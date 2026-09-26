@@ -77,7 +77,8 @@ impl LegResult {
 ///
 /// A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a third result
 /// from a second fact model, joined above on the link and the time bucket. The combiner reads it
-/// through [`Self::second_fact`] and routes each `Carried` leaf to the fact leg its model names.
+/// through [`Self::second_fact`] and routes each `Carried` leaf to the fact leg its model names. No
+/// question produces a second fact yet: `plan()` refuses a cross-model ratio before dispatching.
 ///
 /// Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 /// for the refusal it may have to build - and because Arrow batches are reference-counted buffers,

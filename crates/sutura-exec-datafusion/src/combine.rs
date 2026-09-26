@@ -211,10 +211,11 @@ pub enum CombineError {
     /// The two legs' link columns carry kinds that can never match.
     #[error("the fact leg's link column is {fact} and the lookup leg's is {lookup}, so no row can match")]
     LinkTypeMismatch { fact: &'static str, lookup: &'static str },
-    /// A link value maps to more than one lookup row, which would double every measure under it.
+    /// A link value maps to more than one lookup row, or to more than one second-fact row in one
+    /// bucket, which would double every measure under it.
     ///
     /// Carries no key: a join key is exactly the caller data this workspace keeps out of a message.
-    #[error("a link value maps to more than one lookup row")]
+    #[error("a link value maps to more than one row of a leg joined on it")]
     AmbiguousLink,
     /// A carried leaf's column is not a type an exact total or comparison can be taken over.
     #[error("the carried leaf `{label}` came back as {arrow_type}, which no exact re-aggregation reads")]
@@ -378,7 +379,13 @@ impl DataFusionCombiner {
             register(&context, SECOND_FACT_TABLE, SECOND_FACT, batches)?;
         }
 
-        refuse_ambiguous_link(&context, &link, ceiling_bytes, working_set).await?;
+        refuse_ambiguous_link(&context, LOOKUP_TABLE, &[&link], ceiling_bytes, working_set).await?;
+        // The second fact is joined on the link AND the bucket, so a second row for one pair fans
+        // every first-fact row under it out exactly as a second lookup row would.
+        if second_fact.is_some() {
+            let on = [link.as_str(), plan.bucket_label()];
+            refuse_ambiguous_link(&context, SECOND_FACT_TABLE, &on, ceiling_bytes, working_set).await?;
+        }
 
         let second_table = second_fact.as_ref().map(|_| SECOND_FACT_TABLE);
         let logical = combine_plan(plan, &context, &link, &leaves, second_table).await?;
@@ -707,32 +714,36 @@ fn leaf_sum(column: Expr, kind: LeafKind) -> Expr {
     }
 }
 
-/// Refuses a lookup leg whose link column maps a value to more than one row.
+/// Refuses a joined leg (`table`) that maps one value of its join columns (`on`) to more than one row.
 ///
-/// **A `DataFusion` plan rather than a walk**, and it reads no cell: group the lookup leg by its
-/// link column, count each group, keep the groups past one, and stop at the first. What the combine
+/// **A `DataFusion` plan rather than a walk**, and it reads no cell: group the leg by its join
+/// columns, count each group, keep the groups past one, and stop at the first. What the combine
 /// learns is whether that result is EMPTY.
 ///
 /// More than one lookup row for one link value doubles every measure joined to it, so it is refused
-/// rather than certified. Null links are excluded first, because a null link never joins at all -
+/// rather than certified. Null join values are excluded first, because a null never joins at all -
 /// two null-linked lookup rows duplicate nothing.
 ///
-/// **The cost, stated where it is paid:** the lookup leg is scanned twice, once here and once in the
+/// **The cost, stated where it is paid:** each checked leg is scanned twice, once here and once in the
 /// join. The alternative is a pre-aggregation joined into the same plan, which would have to read
 /// the count back out of the answer to refuse - so this is the shape that keeps the refusal
 /// separable from the number.
 async fn refuse_ambiguous_link(
     context: &SessionContext,
-    link: &str,
+    table: &str,
+    on: &[&str],
     ceiling_bytes: u64,
     working_set: WorkingSet,
 ) -> Result<(), CombineError> {
     let probe = probe_label();
-    let scanned = scan(context, LOOKUP_TABLE).await?;
-    let column = qualified(LOOKUP_TABLE, link);
+    let scanned = scan(context, table).await?;
+    let columns: Vec<Expr> = on.iter().map(|label| qualified(table, label)).collect();
+    let joinable = columns
+        .iter()
+        .fold(lit(true), |all, column| all.and(column.clone().is_not_null()));
     let logical = LogicalPlanBuilder::from(scanned)
-        .filter(column.clone().is_not_null())
-        .and_then(|filtered| filtered.aggregate(vec![column], vec![count(lit(1_i64)).alias(probe.as_str())]))
+        .filter(joinable)
+        .and_then(|filtered| filtered.aggregate(columns, vec![count(lit(1_i64)).alias(probe.as_str())]))
         .and_then(|grouped| {
             let counted = Expr::Column(Column::new_unqualified(probe.as_str()));
             grouped.filter(counted.gt(lit(1_i64)))

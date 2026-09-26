@@ -423,10 +423,14 @@ fn a_two_fact_answer_records_all_three_sources_in_executed_as() {
         provenance
             .executed_as()
             .legs()
-            .map(|(source, _)| source.as_str())
-            .collect::<Vec<&str>>(),
-        vec!["facts", "geo", "orders"],
-        "provenance records ALL three sources a two-fact answer ran as, in source order"
+            .map(|(source, posture)| (source.as_str(), posture.as_str()))
+            .collect::<Vec<(&str, &str)>>(),
+        vec![
+            ("facts", "shared-service-user"),
+            ("geo", "shared-service-user"),
+            ("orders", "impersonation-at-source"),
+        ],
+        "provenance records ALL three sources a two-fact answer ran as, each under its OWN posture"
     );
 }
 
@@ -473,6 +477,122 @@ fn a_two_fact_answer_whose_second_source_lacks_a_warehouse_is_refused() {
                 if source.as_str() == "orders"
         ),
         "a second fact source with no warehouse is refused before minting, naming the source: {refused:?}"
+    );
+}
+
+#[test]
+fn a_second_fact_whose_credential_disagrees_with_its_adapters_posture_never_executes() {
+    // The federated path's own posture check, asked of the third leg: the broker grants the
+    // deployment's identity to every source, and the second fact's adapter declares
+    // `impersonation-at-source`. Answering would record the leg as the asker while it ran as the
+    // process, so the answer fails as a wiring error naming that leg.
+    let facts = SourceName::parse("facts").expect("a test source");
+    let orders = SourceName::parse("orders").expect("a test source");
+    let geo = SourceName::parse("geo").expect("a test source");
+    let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
+        facts,
+        shared(),
+        two_fact_rows(),
+    ))
+    .and(crate::tests_support::LegsWarehouse::answering(
+        orders.clone(),
+        sutura_domain::source::SourcePosture::ImpersonationAtSource,
+        second_fact_rows(),
+    ))
+    .expect("two sources so far")
+    .and(crate::tests_support::LegsWarehouse::answering(
+        geo,
+        shared(),
+        two_fact_lookup_rows(),
+    ))
+    .expect("three sources, one registry");
+
+    let failure = answer_federated(
+        &bundle(),
+        &two_fact_plan(),
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
+        FEDERATED_BUDGET,
+        test_deadline(),
+        &SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeiling::DEFAULT,
+    )
+    .expect_err("a leg that is not its posture's shape is a wiring failure, not an answer");
+    assert!(
+        matches!(
+            failure,
+            crate::ServiceError::Posture {
+                cause: sutura_domain::identity::PresentedDisagreesWithPosture::ShapeIsNotThePosture { ref at, .. },
+            } if *at == orders
+        ),
+        "the second fact's posture disagreement is refused, naming its source: {failure:?}"
+    );
+}
+
+#[test]
+fn a_second_fact_with_two_rows_for_one_link_and_period_is_refused() {
+    // The second fact is joined on the link and the bucket, so two of its rows for c1 in June
+    // would meet every first-fact c1 row twice and double the numerator under it. Refused as the
+    // lookup side's own duplicate is, rather than answered as a wrong number.
+    use sutura_domain::plan::InternalLabel;
+    let duplicated = RowSet::new(
+        vec![
+            InternalLabel::Link.label(),
+            String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
+            InternalLabel::Leaf(1).label(),
+        ],
+        vec![
+            vec![Value::Text("c1".into()), Value::Text("2026-06".into()), Value::Integer(1)],
+            vec![Value::Text("c1".into()), Value::Text("2026-06".into()), Value::Integer(1)],
+            vec![Value::Text("c2".into()), Value::Text("2026-06".into()), Value::Integer(1)],
+        ],
+    )
+    .expect("a well-formed second-fact result");
+    let shared = shared();
+    let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
+        SourceName::parse("facts").expect("a test source"),
+        shared.clone(),
+        two_fact_rows(),
+    ))
+    .and(crate::tests_support::LegsWarehouse::answering(
+        SourceName::parse("orders").expect("a test source"),
+        shared.clone(),
+        duplicated,
+    ))
+    .expect("two sources so far")
+    .and(crate::tests_support::LegsWarehouse::answering(
+        SourceName::parse("geo").expect("a test source"),
+        shared,
+        two_fact_lookup_rows(),
+    ))
+    .expect("three sources, one registry");
+
+    let outcome = answer_federated(
+        &bundle(),
+        &two_fact_plan(),
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
+        FEDERATED_BUDGET,
+        test_deadline(),
+        &SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeiling::DEFAULT,
+    )
+    .expect("a deterministic combine failure is a refusal, not a `ServiceError`")
+    .into_outcome();
+    assert!(
+        matches!(
+            outcome,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::FederatedAnswerNotWellFormed {
+                    federated: sutura_domain::plan::FederatedAnswerRefusal::AmbiguousLink
+                }
+            }
+        ),
+        "a duplicated second-fact row is refused, not answered: {outcome:?}"
     );
 }
 

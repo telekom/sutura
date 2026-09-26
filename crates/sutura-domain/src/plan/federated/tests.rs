@@ -306,8 +306,43 @@ fn two_facts_that_share_no_key_do_not_construct() {
     );
 }
 
+/// A second fact leg that shares a key with the first but projects no link cannot reach the lookup,
+/// so it is refused as `KeyNotOnLeg { side: Fact }` - the second fact's own arm of the link check.
+#[test]
+fn a_second_fact_that_does_not_project_the_link_does_not_construct() {
+    let federation = Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));
+    let unlinked = LegPlan::Fact {
+        source: source(SECOND_FACT_SOURCE),
+        metric: metric("revenue"),
+        tables: StatementTables::only(table("dim_orders")),
+        bucket: bucket(),
+        keys: vec![key("product_family", "dim_orders")],
+        terms: Vec::new(),
+        bindings: PlanBindings::none(),
+        range: range(),
+    };
+    let plan = FederatedPlan::new(
+        metric("revenue"),
+        ResultLabel::measure(&metric("revenue")),
+        bucket(),
+        fact_leg(terms_for(&federation)),
+        Some(unlinked),
+        lookup_leg(),
+        true,
+        federation,
+        Vec::new(),
+    );
+    match plan {
+        Err(FederatedPlanError::KeyNotOnLeg { side, ref label }) => {
+            assert!(matches!(side, crate::plan::LegSide::Fact));
+            assert_eq!(*label, InternalLabel::Link.label());
+        }
+        ref other => panic!("a second fact that projects no link is not a plan, got {other:?}"),
+    }
+}
+
 /// A second fact leg over a different source that shares a key with the first constructs - the
-/// positive control for the two guards above.
+/// positive control for the guards above.
 #[test]
 fn two_facts_sharing_a_key_with_a_lookup_construct() {
     let federation = Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));

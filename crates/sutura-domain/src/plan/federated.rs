@@ -407,7 +407,8 @@ impl FederatedPlan {
     /// lookup leg.
     ///
     /// A two-fact plan (`telekom/sutura#780`) carries a third leg; the combiner joins it on the
-    /// link and the time bucket above the port.
+    /// link and the time bucket above the port. No question produces one yet: `plan()` refuses a
+    /// cross-model ratio before dispatching, so only a hand-built plan reaches this.
     pub fn legs(&self) -> Vec<&LegPlan> {
         let mut legs = vec![&self.fact];
         if let Some(second) = &self.second_fact {
