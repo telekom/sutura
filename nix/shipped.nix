@@ -127,15 +127,17 @@ let
       # each pull `ureq`/`tokio-postgres-rustls` -> rustls -> `ring`, which compiles C and
       # assembly - the two musl triples are the answer worth having per feature.
       #
-      # `tls`, `datahub` and `agent` are not probed individually: none of the three ever had a
-      # documented single-feature source build to hold a `<bin>-<feature>-<triple>-ci` probe for.
-      # `allFeatures` below proves all five together, at fat LTO, which is also what `features`
-      # now ships.
+      # `tls`, `datahub`, `openmetadata` and `agent` are not probed individually: none of the four
+      # ever had a documented single-feature source build to hold a `<bin>-<feature>-<triple>-ci`
+      # probe for. `allFeatures` below proves all six together, at fat LTO, which is also what
+      # `features` now ships. `openmetadata` joined `datahub` here under `github.com/telekom/
+      # sutura#970`: the same networked-adapter shape (an outbound TLS reader behind a default-off
+      # feature), so the Fifteenth amendment's "every adapter compiled in" applies identically.
       probeFeatures = [ "bigquery" "postgres" ];
       # THE COMPLETE optional feature list, for `allFeaturesProbes` below - `github.com/telekom/
       # sutura#685` step 1's fat-LTO probe, one build with every feature on rather than one per
       # feature.
-      allFeatures = [ "bigquery" "postgres" "tls" "datahub" "agent" ];
+      allFeatures = [ "bigquery" "postgres" "tls" "datahub" "openmetadata" "agent" ];
       # WHAT THE SHIPPED BUILD ACTUALLY LINKS - `github.com/telekom/sutura#685` step 5,
       # `docs/adr/0017`'s Fifteenth amendment implemented. Read by `nativeFor`/`crossFor` below for
       # every release and release-performance build of this binary, native and cross; the `-ci`
@@ -148,7 +150,7 @@ let
       # binaries). The two lists are meant to agree; a future feature added to one and not the
       # other is a diff a reviewer sees here, not a silent gap - same shape `probeFeatures` and
       # `allFeatures` already accept for the same reason.
-      features = [ "bigquery" "postgres" "tls" "datahub" "agent" ];
+      features = [ "bigquery" "postgres" "tls" "datahub" "openmetadata" "agent" ];
       # This binary legitimately links `polyglot-sql`, for `compile` - `sutura-sql` is a normal
       # dependency of `sutura-cli` and the generator is what renders the statement that
       # subcommand prints. Nothing extra to forbid here beyond the shared list below.
@@ -160,8 +162,8 @@ let
       # link it.
       alsoForbidden = [ ];
       # PER-ARTEFACT ESCAPE from the shared `forbidden` list below - `github.com/telekom/
-      # sutura#685` step 4, used at step 5. `features` above now carries `bigquery`, `tls` and
-      # `datahub`, and each pulls `ring` and `ureq` - so this entry states BY NAME that
+      # sutura#685` step 4, used at step 5. `features` above now carries `bigquery`, `tls`,
+      # `datahub` and `openmetadata`, and each pulls `ring` and `ureq` - so this entry states BY NAME that
       # `checks.shipped-features` must stop banning both for it, rather than the alternative that
       # would make the check go quiet instead: editing the shared `forbidden` list itself, which
       # would silently permit both crates for every artefact, including a future default-off one

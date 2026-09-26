@@ -187,6 +187,8 @@ pub(crate) fn drive(catalogs: &OpenedCatalogs, pinned: &PinnedDefinitions, decla
         #[cfg(feature = "datahub")]
         OpenedCatalogs::Datahub(catalogs) => spawn(catalogs.clone(), pinned.clone(), interval),
         OpenedCatalogs::Okf(catalogs) => spawn(catalogs.clone(), pinned.clone(), interval),
+        #[cfg(feature = "openmetadata")]
+        OpenedCatalogs::Openmetadata(catalogs) => spawn(catalogs.clone(), pinned.clone(), interval),
     }
 }
 

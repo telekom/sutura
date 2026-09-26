@@ -64,9 +64,12 @@
 //!
 //! # TLS and the endpoint
 //!
-//! [`Endpoint::parse`] is the ONLY way to obtain an [`Endpoint`], and [`HttpAspectReader::new`] takes one rather than a
-//! `String` - a caller cannot dial an endpoint this module has not validated. What [`Endpoint::parse`] accepts, exactly:
-//! `scheme://host[:port]`, scheme `http` or `https` (case-folded), on a [`Uri`] (`ureq`'s own re-export of the `http` crate's
+//! [`Endpoint`] and its [`Endpoint::parse`] now live in `sutura-http-client`, shared with
+//! `sutura-catalog-openmetadata`'s identical reader since issue #970's review found the two
+//! byte-for-byte the same (`cargo xtask check-jscpd`). [`HttpAspectReader::new`] takes one rather
+//! than a `String` - a caller cannot dial an endpoint this module has not validated. What
+//! [`Endpoint::parse`] accepts, exactly:
+//! `scheme://host[:port]`, scheme `http` or `https` (case-folded), on a `ureq::http::Uri` (`ureq`'s own re-export of the `http` crate's
 //! parser, the SAME type `ureq` itself parses a request URL into before dialling), an OPTIONAL nonzero valid `:port`, an
 //! OPTIONAL trailing `/`, and NOTHING else: a path, query or fragment is [`InvalidEndpoint::PathBeyondRoot`] (fragment
 //! checked on the RAW text, because `http::Uri` silently discards a `#`), a bad port is [`InvalidEndpoint::NotAnHttpUrl`],
@@ -92,7 +95,7 @@
 //! LAST `:` in the authority - `::1` for the bracketed case - so the endpoint parsed as loopback
 //! while the REAL host, `localhost` (everything after the userinfo's `@`), is exactly the name
 //! [`Endpoint::parse`] is supposed to refuse in plaintext. A reader built from that string dialled
-//! `localhost` with the bearer prepared. Parsing with [`Uri`] - the SAME parser `ureq` itself uses -
+//! `localhost` with the bearer prepared. Parsing with `ureq::http::Uri` - the SAME parser `ureq` itself uses -
 //! closes this the way it should have been closed the first time: `Authority::host` already
 //! resolves past userinfo correctly, and `Endpoint::parse` additionally refuses any `user[:pass]@`
 //! prefix outright rather than trusting that resolution to stay correct.
@@ -100,179 +103,17 @@
 //! `ureq`'s compiled-in default root set (for an `https://` endpoint), `max_redirects(0)` and the
 //! proxy left on (`Proxy::try_from_env()`) are the other pins; a deployment MAY replace the
 //! compiled-in roots with its own CA via `security.outbound.transport_anchors` (`#125`), folded in
-//! [`super::tls_roots`] - anchors only, no client identity.
-
-use std::time::{Duration, Instant};
-use ureq::http::Uri;
+//! `sutura_http_client::tls` - anchors only, no client identity.
 
 use serde_json::Value;
 use sutura_domain::identity::Secret;
+pub use sutura_http_client::{
+    Budget, DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, EndpointMessage, InvalidEndpoint, InvalidReadBounds,
+    OutboundAgent, ReadBounds,
+};
 
 use crate::document::{DatasetAspect, MetricAspect, RelationshipAspect, Snapshot};
 use crate::{AspectReader, DataHubError};
-
-/// How long a socket may stay open past what is left of the shared deadline: connection setup and
-/// the last bytes of the answer. A deadline of zero would mean *no timeout* to the client
-/// underneath, and this margin is what keeps the socket's own bound from reading that way.
-const CONNECT_MARGIN: Duration = Duration::from_secs(5);
-
-/// A cap on response HEADERS, read before any body - a foreign endpoint's header block is
-/// untrusted input like anything else read off the wire, and has to be bounded before this reads
-/// any of it.
-const MAX_HEADER_BYTES: usize = 64 * 1024;
-
-/// Builds a fresh `ureq::Agent` with this reader's pins over the given TLS configuration - the one
-/// place the pins are written, so the fixed and rotating constructors use the same client. There
-/// is no `https_only(true)` here: this crate pursues a validated [`Endpoint`] (which already
-/// refuses a non-loopback plaintext host) rather than a compile-time `https://` constant, so the
-/// scheme pin lives in the parse, not in the agent.
-fn agent_from_tls(socket: Duration, tls: ureq::tls::TlsConfig) -> ureq::Agent {
-    ureq::Agent::new_with_config(
-        ureq::Agent::config_builder()
-            .http_status_as_error(false)
-            .max_redirects(0)
-            .timeout_global(Some(socket))
-            .max_response_header_size(MAX_HEADER_BYTES)
-            .proxy(ureq::Proxy::try_from_env())
-            .tls_config(tls)
-            .build(),
-    )
-}
-
-/// The recommended default request timeout, in seconds, for a composition root's settings default.
-///
-/// Matches `server.request_timeout_seconds`'s own shipped default: a metadata read that outlives the
-/// request timeout in front of it cannot answer inside the budget the caller was promised anyway.
-/// **Not read by anything in this module** - a caller passes the number it resolved, through
-/// [`ReadBounds::parse`], the same single-owner shape `BytesBilledCeiling::parse` holds for
-/// `BigQuery`'s ceiling: this crate owns the range, a settings tree owns that the key was written.
-pub const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
-
-/// The recommended default response-size cap, in bytes, for a composition root's settings default.
-///
-/// A metadata page is descriptions, column names and one metric document, not query rows, so what
-/// this defends against is something that is not the endpoint answering at all - a redirect loop,
-/// a proxy gone wrong - rather than a realistic upper bound on a legitimate page.
-pub const DEFAULT_MAX_RESPONSE_BYTES: u64 = 8 * 1024 * 1024;
-
-/// Why a declared bound is not usable.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum InvalidReadBounds {
-    /// Zero would refuse every read rather than bounding one.
-    #[error("a {what} of zero would refuse every read rather than bounding one")]
-    Zero { what: &'static str },
-}
-
-/// A reader's rotating agent handle and (when a declaration exists) the poll handle that keeps it
-/// current - named because the spelled-out pair is over this workspace's `type_complexity`
-/// threshold.
-type OutboundAgent = (sutura_tls::Rotating<ureq::Agent>, Option<sutura_tls::Rotator<ureq::Agent>>);
-
-/// What one [`HttpAspectReader::read`] call may spend: a request timeout and a response-size cap.
-///
-/// A newtype rather than two loose arguments, so a reader cannot be built with an unchecked pair -
-/// a request timeout paired with a response-size cap, and no money bound: a metadata read is not
-/// billed.
-#[derive(Debug, Clone, Copy)]
-pub struct ReadBounds {
-    timeout: Duration,
-    max_response_bytes: u64,
-}
-
-impl ReadBounds {
-    /// Parses a declared timeout and cap, refusing either at zero.
-    pub const fn parse(timeout_seconds: u64, max_response_bytes: u64) -> Result<Self, InvalidReadBounds> {
-        if timeout_seconds == 0 {
-            return Err(InvalidReadBounds::Zero { what: "request timeout" });
-        }
-        if max_response_bytes == 0 {
-            return Err(InvalidReadBounds::Zero {
-                what: "response size cap",
-            });
-        }
-        Ok(Self {
-            timeout: Duration::from_secs(timeout_seconds),
-            max_response_bytes,
-        })
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn timeout(&self) -> Duration {
-        self.timeout
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn max_response_bytes(&self) -> u64 {
-        self.max_response_bytes
-    }
-}
-
-/// One shared budget across a `read()` call's (up to) three requests.
-///
-/// The same shape `sutura_domain::warehouse::deadline::Deadline` holds - an instant opened once,
-/// read as what is left rather than re-derived - kept as its own type and held privately here
-/// because nothing outside this module needs to open or share one.
-#[derive(Debug, Clone, Copy)]
-struct Budget {
-    started: Instant,
-    total: Duration,
-}
-
-impl Budget {
-    fn opened(total: Duration) -> Self {
-        Self {
-            started: Instant::now(),
-            total,
-        }
-    }
-
-    /// What is left of the budget, or `None` when it is spent. `None` rather than a zero duration,
-    /// for the reason `Deadline::remaining_at` gives: a zero timeout means *no timeout* to the
-    /// client underneath.
-    fn remaining(self) -> Option<Duration> {
-        self.total.checked_sub(self.started.elapsed()).filter(|left| !left.is_zero())
-    }
-
-    const fn socket(left: Duration) -> Duration {
-        left.saturating_add(CONNECT_MARGIN)
-    }
-}
-
-/// `DataHub`'s own message on a refusal.
-///
-/// Redacted the way `sutura_exec_bigquery::wire::EndpointMessage` is: bounded, filtered, and
-/// reachable only through [`Self::as_str`] - never through `Debug`, which is the rendering a
-/// cause-chain walk uses.
-#[derive(Clone, PartialEq, Eq)]
-pub struct EndpointMessage(String);
-
-impl EndpointMessage {
-    fn bounded(raw: &str) -> Self {
-        /// Long enough for the endpoint's own sentences, short enough that a log line stays a line.
-        const MAX_DETAIL_CHARS: usize = 400;
-        Self(
-            raw.chars()
-                .filter(|c| c.is_ascii_graphic() || *c == ' ')
-                .take(MAX_DETAIL_CHARS)
-                .collect(),
-        )
-    }
-
-    /// The message itself, for a caller that has decided it may render it.
-    #[inline]
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl core::fmt::Debug for EndpointMessage {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "<DataHub's own message, {} char(s), redacted>", self.0.len())
-    }
-}
 
 /// Why one of the three entity reads did not produce the aspects it names.
 ///
@@ -338,100 +179,6 @@ pub enum HttpReaderError {
     MorePages { entity: &'static str },
 }
 
-/// Why a declared endpoint is not usable.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum InvalidEndpoint {
-    /// Not a parseable URL, or a parseable URL naming neither `http` nor `https`, or one naming no
-    /// authority at all.
-    #[error("{given} is not an http:// or https:// URL")]
-    NotAnHttpUrl { given: String },
-    /// The authority carries `user[:pass]@` - refused outright. **This is not merely defence in
-    /// depth against a spoofed host**: the round-2 review measured a reader built from
-    /// `http://[::1]:1@localhost:<port>` dialling `localhost` in clear text with the bearer
-    /// prepared, because a hand-rolled host extraction split on the wrong delimiter. Parsing with
-    /// [`Uri`] closes that specific bypass on its own - `Authority::host` resolves to the text
-    /// AFTER the last `@`, which is `localhost` here, so the loopback check below already sees the
-    /// real target - but a declared endpoint has no legitimate use for embedded credentials, so
-    /// this refuses the shape by name rather than relying on that resolution being correct forever.
-    #[error("{given} carries credentials in the URL (a user[:pass]@ prefix), which is refused")]
-    CredentialsInUrl { given: String },
-    /// A path, a query or a fragment beyond the bare root - a reverse-proxy path prefix is a real
-    /// shape, not yet supported, a stated limit. The fragment is checked on RAW text in
-    /// [`Endpoint::parse`]: `http::Uri` silently discards a `#`.
-    #[error("{given} carries a path, query or fragment beyond the root, which this reader does not support")]
-    PathBeyondRoot { given: String },
-    /// `http://` to a host that is not an IP loopback literal - see
-    /// [`sutura_domain::source::host_is_loopback`].
-    #[error(
-        "http:// is refused for {host} - only an IP loopback literal (127.0.0.1, ::1) may carry a \
-         bearer in clear text; write https:// or a loopback address"
-    )]
-    PlaintextBeyondLoopback { host: String },
-}
-
-/// A validated `DataHub` endpoint, obtainable only through [`Self::parse`] - see the module
-/// header's "TLS and the endpoint" section for the accepted grammar and each refusal.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Endpoint(String);
-
-impl Endpoint {
-    /// Parses and validates against [`Uri`] - the SAME parser `ureq` itself dials with, rather
-    /// than a hand-rolled split, which is what let the round-2 review's userinfo form
-    /// (`http://[::1]:1@localhost`) reach `host_is_loopback` with the wrong string. The stored
-    /// form is rebuilt from the parsed `scheme`/`authority`, so any root spelling normalises alike.
-    pub fn parse(raw: &str) -> Result<Self, InvalidEndpoint> {
-        let not_an_http_url = || InvalidEndpoint::NotAnHttpUrl { given: raw.to_owned() };
-        // `http::Uri` silently discards a fragment at parse, so a `#` is refused HERE, on the raw text.
-        if raw.contains('#') {
-            return Err(InvalidEndpoint::PathBeyondRoot { given: raw.to_owned() });
-        }
-        let uri: Uri = raw
-            .trim()
-            .parse()
-            .map_err(|_cause: ureq::http::uri::InvalidUri| not_an_http_url())?;
-        let scheme = uri.scheme_str().unwrap_or_default();
-        if scheme != "http" && scheme != "https" {
-            return Err(not_an_http_url());
-        }
-        let authority = uri.authority().ok_or_else(not_an_http_url)?;
-        if authority.as_str().contains('@') {
-            return Err(InvalidEndpoint::CredentialsInUrl { given: raw.to_owned() });
-        }
-        // A declared port must be a valid nonzero `u16`; bytes (not `&str`) so a bracketed IPv6
-        // host's own colons are never mistaken for the port's.
-        let after_host = authority
-            .as_str()
-            .as_bytes()
-            .get(authority.host().len()..)
-            .unwrap_or_default();
-        if after_host.starts_with(b":") && !matches!(authority.port_u16(), Some(port) if port > 0) {
-            return Err(not_an_http_url());
-        }
-        let root_only = uri
-            .path_and_query()
-            .is_none_or(|path_and_query| matches!(path_and_query.as_str(), "" | "/"));
-        if !root_only {
-            return Err(InvalidEndpoint::PathBeyondRoot { given: raw.to_owned() });
-        }
-        if scheme == "http" {
-            // `Authority::host` already resolves past any userinfo (to the text after the LAST
-            // `@`), and keeps IPv6 brackets - stripped here because `host_is_loopback` parses an
-            // `IpAddr`, which does not accept them.
-            let host = authority.host().trim_start_matches('[').trim_end_matches(']');
-            if !sutura_domain::source::host_is_loopback(host) {
-                return Err(InvalidEndpoint::PlaintextBeyondLoopback { host: host.to_owned() });
-            }
-        }
-        Ok(Self(format!("{scheme}://{}", authority.as_str())))
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
 /// A `DataHub` GMS, reached over HTTP.
 ///
 /// Not generic over its credential the way `sutura-exec-bigquery`'s transport is: there is exactly
@@ -457,7 +204,7 @@ impl HttpAspectReader {
     /// **`anchors` is `security.outbound.transport_anchors` (`#125`), resolved once at boot**: `None`
     /// leaves `ureq`'s compiled-in `RootCerts::WebPki` (every deployment before `security.outbound`),
     /// `Some` replaces it with `RootCerts::Specific` from exactly the declared certificates - never a
-    /// union of the two (see [`super::tls_roots`]). This constructor never presents a client
+    /// union of the two (see `sutura_http_client::tls`). This constructor never presents a client
     /// identity - [`Self::rotating_agent`] is the one that does, over the same declaration
     /// (`security.outbound.client_certificate`/`client_key`, `github.com/telekom/sutura#911`).
     #[must_use]
@@ -468,16 +215,7 @@ impl HttpAspectReader {
         bounds: ReadBounds,
         anchors: Option<sutura_tls::LoadedAnchors>,
     ) -> Self {
-        Self::rotating(
-            endpoint,
-            property,
-            token,
-            bounds,
-            sutura_tls::Rotating::fixed(agent_from_tls(
-                Budget::socket(bounds.timeout()),
-                super::tls_roots::config(anchors, None),
-            )),
-        )
+        Self::rotating(endpoint, property, token, bounds, sutura_http_client::fixed(bounds, anchors))
     }
 
     /// The rotation-lane constructor: holds the rotating agent handle a composition root built (via
@@ -517,25 +255,7 @@ impl HttpAspectReader {
         bounds: ReadBounds,
         declared: Option<sutura_tls::Declared>,
     ) -> Result<OutboundAgent, sutura_tls::LoadError> {
-        let Some(declared) = declared else {
-            return Ok((
-                sutura_tls::Rotating::fixed(agent_from_tls(
-                    Budget::socket(bounds.timeout()),
-                    super::tls_roots::config(None, None),
-                )),
-                None,
-            ));
-        };
-        let (anchors, identity) = declared.into_parts();
-        let socket = Budget::socket(bounds.timeout());
-        let rebuild = move |loaded, identity: Option<sutura_tls::LoadedIdentity>| {
-            Ok::<_, sutura_tls::LoadError>(agent_from_tls(socket, super::tls_roots::config(Some(loaded), identity)))
-        };
-        let initial_anchors = sutura_tls::load_anchors(&anchors)?;
-        let initial_identity = identity.as_ref().map(sutura_tls::load_identity).transpose()?;
-        let initial = agent_from_tls(socket, super::tls_roots::config(Some(initial_anchors), initial_identity));
-        let rotator = sutura_tls::Rotator::new(anchors, identity, rebuild, initial);
-        Ok((rotator.rotating(), Some(rotator)))
+        sutura_http_client::rotating_agent(bounds, declared)
     }
 
     #[expect(
@@ -969,6 +689,3 @@ fn harvest_metric(entity: &Value, property: &str) -> Result<MetricAspect, HttpRe
     serde_json::from_value(Value::Object(document))
         .map_err(|cause| HttpReaderError::NotTheCanonicalShape { entity: ENTITY, cause })
 }
-
-#[cfg(test)]
-mod tests;

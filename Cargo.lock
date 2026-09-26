@@ -4278,13 +4278,11 @@ dependencies = [
 name = "sutura-catalog-datahub"
 version = "0.5.1"
 dependencies = [
- "base64 0.23.1",
- "rcgen",
- "rustls",
  "serde",
  "serde_json",
  "sutura-dev",
  "sutura-domain",
+ "sutura-http-client",
  "sutura-semantic",
  "sutura-tls",
  "thiserror 2.0.20",
@@ -4320,7 +4318,10 @@ dependencies = [
  "serde",
  "serde_json",
  "sutura-domain",
+ "sutura-http-client",
+ "sutura-tls",
  "thiserror 2.0.20",
+ "ureq",
 ]
 
 [[package]]
@@ -4350,6 +4351,7 @@ dependencies = [
  "sutura-catalog-datahub",
  "sutura-catalog-local",
  "sutura-catalog-okf",
+ "sutura-catalog-openmetadata",
  "sutura-config",
  "sutura-dev",
  "sutura-domain",
@@ -4547,6 +4549,20 @@ dependencies = [
  "utoipa",
  "utoipa-axum",
  "utoipa-swagger-ui",
+]
+
+[[package]]
+name = "sutura-http-client"
+version = "0.5.1"
+dependencies = [
+ "base64 0.23.1",
+ "rcgen",
+ "rustls",
+ "serde_json",
+ "sutura-domain",
+ "sutura-tls",
+ "thiserror 2.0.20",
+ "ureq",
 ]
 
 [[package]]
