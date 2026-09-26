@@ -123,6 +123,14 @@ impl FileClass {
         }
     }
 
+    /// The most bytes this file may hold: a bundle is a list of roots, a pair is one identity.
+    const fn cap(self) -> usize {
+        match self {
+            Self::AnchorBundle => crate::MAX_BUNDLE_BYTES,
+            Self::IdentityPair => crate::MAX_IDENTITY_BYTES,
+        }
+    }
+
     /// The audit-line class this file's refusal is reported under.
     const fn material(self) -> MaterialClass {
         match self {
@@ -373,7 +381,7 @@ fn probe(anchors: &Anchors, identity: Option<&Identity>) -> Probe {
 
 /// One declared file, through the same bounded reader the boot-time loaders use.
 fn read_bounded(path: &Path, class: FileClass) -> Result<Vec<u8>, ProbeError> {
-    crate::read_bounded(path, |path, cause| class.read_error(path, cause)).map_err(|cause| (class.material(), cause))
+    crate::read_bounded(path, class.cap(), |path, cause| class.read_error(path, cause)).map_err(|cause| (class.material(), cause))
 }
 
 #[cfg(test)]

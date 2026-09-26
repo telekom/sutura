@@ -1,5 +1,5 @@
 diff --git a/crates/sutura-config/src/settings/layers.rs b/crates/sutura-config/src/settings/layers.rs
-index e3072f9b3..363146f0c 100644
+index e3072f9b3..0e41419f0 100644
 --- a/crates/sutura-config/src/settings/layers.rs
 +++ b/crates/sutura-config/src/settings/layers.rs
 @@ -276,7 +276,7 @@ pub(super) fn read(sources: &Sources) -> Result<Layered, SettingsLoadError> {
@@ -7,7 +7,7 @@ index e3072f9b3..363146f0c 100644
  fn collect_origins(cache: &config::Value) -> Result<Origins, SettingsError> {
      fn walk(value: &config::Value, path: &mut Vec<String>, origins: &mut Origins, depth: u32) -> Result<(), SettingsError> {
 -        if depth > MERGE_DEPTH_LIMIT {
-+        if depth > MERGE_DEPTH_LIMIT * 2 {
++        if depth >= MERGE_DEPTH_LIMIT {
              return Err(SettingsError::MergeDepth {
                  found: depth,
                  limit: MERGE_DEPTH_LIMIT,
