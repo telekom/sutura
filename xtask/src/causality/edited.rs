@@ -144,7 +144,7 @@ pub(super) enum Deletion {
     Named(Vec<Ident>),
 }
 
-/// SHAPE A over `path`, for [`super::plan::plan`]'s use over EVERY compiled file - not only one
+/// SHAPE A over `path`, for [`super::plan::plan_with_base`]'s use over EVERY compiled file - not only one
 /// with no other test-side change, which is the gap `github.com/telekom/sutura#1031`'s own review
 /// found: the first cut of this ran only inside the `Adds::Nothing` arm, so a file that also added
 /// a new test, a helper, or edited a DIFFERENT existing test never asked the deletion question for
