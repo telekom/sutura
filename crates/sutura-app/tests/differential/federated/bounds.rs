@@ -29,9 +29,10 @@ use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use super::corpus::{derived, every_question};
-use super::{BUDGET, bundle, posture, source, tables_on};
+use super::harness::{BUDGET, bundle, tables_on};
 use crate::adapters::{BrokerCannotFail, deadline};
 use crate::adapters::{a_caller, shared_credential};
+use crate::adapters::{posture, source};
 use sutura_app::ServiceError;
 use sutura_domain::query::ToolOutcome;
 use sutura_domain::warehouse::UnreadableCell;
@@ -238,7 +239,7 @@ fn execute(case: Case) -> Measurement {
     let warehouses = match case.topology {
         Topology::One => sutura_app::Warehouses::of(one),
         Topology::Two => sutura_app::Warehouses::of(one)
-            .and(measured_on(corpus, &super::lookup_source(), &pinned))
+            .and(measured_on(corpus, &super::corpus::lookup_source(), &pinned))
             .expect("two measured sources have different names"),
     };
     let bundle = sutura_app::verify_and_validate(pinned, &warehouses).expect("the measured topology validates");

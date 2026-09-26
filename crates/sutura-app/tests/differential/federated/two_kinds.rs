@@ -22,7 +22,9 @@ use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, ResultBatches, Warehouse};
 
-use super::{Side, derived, duckdb_on, engine_on, lookup_source, source};
+use super::corpus::{derived, lookup_source};
+use super::harness::{Side, duckdb_on, engine_on};
+use crate::adapters::source;
 
 pub(super) enum TwoKinds {
     DuckDb(sutura_exec_duckdb::DuckDbWarehouse),
