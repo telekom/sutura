@@ -187,7 +187,7 @@ throw away the only description of the fault that exists.
 ## `fn serve_stdio`
 
 ```rust
-pub async fn serve_stdio<S>(service: std::sync::Arc<S>, permitted: sutura_app::Permitted, prose: sutura_app::prompt::CatalogProse, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, instructions: std::sync::Arc<str>, operator_instructions: Option<std::sync::Arc<str>>) -> Result<(), NotServed>
+pub async fn serve_stdio<S>(service: std::sync::Arc<S>, permitted: sutura_app::Permitted, prose: sutura_app::prompt::CatalogProse, list_physical_schema: bool, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, instructions: std::sync::Arc<str>, operator_instructions: Option<std::sync::Arc<str>>) -> Result<(), NotServed>
 ```
 
 Serves the agent surface over standard input and output, until the client disconnects.
@@ -360,7 +360,7 @@ re-resolved per request out of each request's `Asked`, never out of a session.
 ### `fn service`
 
 ```rust
-pub fn service<S>(surface: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, instructions: std::sync::Arc<str>, operator_instructions: Option<std::sync::Arc<str>>) -> rmcp::transport::StreamableHttpService<crate::AgentSurface<S>, rmcp::transport::streamable_http_server::session::local::LocalSessionManager>
+pub fn service<S>(surface: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse, list_physical_schema: bool, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, instructions: std::sync::Arc<str>, operator_instructions: Option<std::sync::Arc<str>>) -> rmcp::transport::StreamableHttpService<crate::AgentSurface<S>, rmcp::transport::streamable_http_server::session::local::LocalSessionManager>
 ```
 
 Builds the streamable-HTTP transport over one `Surface`, as a plain `tower_service::Service`
@@ -568,6 +568,10 @@ Holds the service behind an `Arc` because a tool call is answered on the blockin
 port has to outlive the future that started the call.
 
 #### Methods
+
+```rust
+pub const fn listing_physical_schema(self, enabled: bool) -> Self
+```
 
 ```rust
 pub const fn new(service: Arc<S>, asking: Asking, prose: sutura_app::prompt::CatalogProse, admission: Admission, reply: RequestTimeout, instructions: Arc<str>, operator_instructions: Option<Arc<str>>) -> Self
@@ -1117,7 +1121,7 @@ the view, never this type's.
 ##### Methods
 
 ```rust
-pub fn of(view: &ScopedView<'_>, prose: CatalogProse, instructions: Option<&str>) -> Self
+pub fn of(view: &ScopedView<'_>, prose: CatalogProse, instructions: Option<&str>, list_physical_schema: bool) -> Self
 ```
 
 The reader's view of one pinned bundle, under the prose setting this deployment was started
@@ -1134,6 +1138,26 @@ from a bare `&PinnedDefinitions` would hand every caller the whole bundle again,
 the defect this surface shipped until it took the view. `ScopedView` borrows the bundle, so
 this builder cannot reach `SemanticCatalog::load` - the knowledge sections and the metrics
 are filtered by the caller's own grant, never by a call the renderer omits.
+
+##### Implements
+
+`Debug`, `Serialize`
+
+#### `struct ModelContent`
+
+```rust
+pub struct ModelContent
+```
+
+##### Implements
+
+`Debug`, `Serialize`
+
+#### `struct ColumnContent`
+
+```rust
+pub struct ColumnContent
+```
 
 ##### Implements
 

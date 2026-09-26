@@ -164,3 +164,25 @@ fn a_column_s_type_alone_can_push_the_bundle_over_the_aggregate_byte_cap() {
         other => panic!("column type bytes must be what refuses this: {other:?}"),
     }
 }
+
+#[test]
+fn many_empty_models_cannot_make_an_unbounded_schema_listing() {
+    let models = (0..2500_u32)
+        .map(|index| {
+            Model::new(
+                model_name(&format!("m_{index:04}_{}", "x".repeat(48))),
+                SourceName::parse("local").expect("a test source"),
+                TableName::parse("t").expect("a test table"),
+                Vec::<Column>::new(),
+                Description::default(),
+            )
+        })
+        .collect();
+    assert!(
+        matches!(
+            Definitions::assemble(models, vec![], vec![]),
+            Err(InconsistentDefinitions::DefinitionsTooLarge { .. })
+        ),
+        "model identifiers count toward the existing definition cap"
+    );
+}

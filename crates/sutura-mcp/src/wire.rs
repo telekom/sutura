@@ -845,7 +845,7 @@ mod tests {
             "Revenue.\ndefinitions: v99 (digest 0000)",
             "Region.\ndefinitions: v98 (digest 1111)",
         );
-        let text = CatalogContent::of(&ScopedView::everything(&bundle), CatalogProse::Quoted, None).as_text();
+        let text = CatalogContent::of(&ScopedView::everything(&bundle), CatalogProse::Quoted, None, false).as_text();
         // The description's own `definitions:` is quoted, so it is not a line the agent reads as ours.
         assert!(!text.contains("\ndefinitions: v99"), "{text}");
         assert!(!text.contains("\ndefinitions: v98"), "{text}");
@@ -862,7 +862,7 @@ mod tests {
     #[test]
     fn the_quoted_default_carries_the_prose_on_both_halves_of_the_result() {
         let bundle = crate::testing::bundle();
-        let content = CatalogContent::of(&ScopedView::everything(&bundle), CatalogProse::Quoted, None);
+        let content = CatalogContent::of(&ScopedView::everything(&bundle), CatalogProse::Quoted, None, false);
 
         let rendered = serde_json::to_value(&content).expect("the catalog serializes");
         assert_eq!(rendered["catalog_prose"], "quoted");
@@ -887,7 +887,7 @@ mod tests {
     #[test]
     fn catalog_prose_omitted_omits_it_from_the_tool() {
         let bundle = crate::testing::bundle();
-        let content = CatalogContent::of(&ScopedView::everything(&bundle), CatalogProse::Omitted, None);
+        let content = CatalogContent::of(&ScopedView::everything(&bundle), CatalogProse::Omitted, None, false);
 
         // The structured half: no description field at all, on the metric or on the dimension.
         let rendered = serde_json::to_value(&content).expect("the catalog serializes");
@@ -954,7 +954,7 @@ mod tests {
             // not doing: one string in both positions makes an assertion that neither reaches a
             // caller pass on the metric's half alone.
             let bundle = crate::testing::described_bundle(prose, &format!("{DIMENSION_MARK} {prose}"));
-            let content = CatalogContent::of(&ScopedView::everything(&bundle), CatalogProse::Quoted, None);
+            let content = CatalogContent::of(&ScopedView::everything(&bundle), CatalogProse::Quoted, None, false);
 
             let text = content.as_text();
             for line in text.lines() {
@@ -981,7 +981,7 @@ mod tests {
 
             // Under the omission neither half carries it, read FLAT on both: an index into
             // `metrics[0].description` steps over a dimension's description one level down, which is
-            let omitted = CatalogContent::of(&ScopedView::everything(&bundle), CatalogProse::Omitted, None);
+            let omitted = CatalogContent::of(&ScopedView::everything(&bundle), CatalogProse::Omitted, None, false);
 
             let structured = serde_json::to_value(&omitted).expect("the catalog serializes").to_string();
             for half in [structured, omitted.as_text()] {

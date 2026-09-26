@@ -33,6 +33,35 @@ mod deadline;
 #[cfg(test)]
 mod asking;
 
+#[test]
+fn physical_models_are_listed_only_when_enabled_on_both_tool_halves() {
+    use sutura_domain::pinned::view::ScopedView;
+
+    use crate::wire::CatalogContent;
+
+    let bundle = testing::bundle();
+    let view = ScopedView::everything(&bundle);
+    let model_label = "model orders (table orders)";
+    let model_description = "Orders, one row per order.";
+    let disabled = CatalogContent::of(&view, CatalogProse::Quoted, None, false);
+    let disabled_json = serde_json::to_value(&disabled).expect("the catalog serializes");
+    assert!(disabled_json.get("models").is_none(), "{disabled_json}");
+    assert!(!disabled.as_text().contains(model_label));
+
+    let enabled = CatalogContent::of(&view, CatalogProse::Quoted, None, true);
+    let enabled_json = serde_json::to_value(&enabled).expect("the catalog serializes");
+    assert_eq!(enabled_json["models"][0]["name"], "orders");
+    assert_eq!(enabled_json["models"][0]["columns"][0]["name"], "amount_cents");
+    assert_eq!(enabled_json["models"][0]["description"], model_description);
+    assert!(enabled.as_text().contains(model_label));
+    assert!(enabled.as_text().contains(&format!("> {model_description}")));
+
+    let omitted = CatalogContent::of(&view, CatalogProse::Omitted, None, true);
+    let omitted_json = serde_json::to_value(&omitted).expect("the catalog serializes");
+    assert!(omitted_json["models"][0].get("description").is_none());
+    assert!(!omitted.as_text().contains(model_description));
+}
+
 /// A client and a server joined by an in-memory pipe, with the peer permitted everything.
 ///
 /// **The client is `rmcp`'s own**, which is what "with no client of ours in the loop" means: the

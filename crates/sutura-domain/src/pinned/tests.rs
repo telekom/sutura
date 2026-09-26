@@ -13,11 +13,12 @@ use super::{
     MAX_VERSION_LEN, NotExecutedReason, NotValidated, PinnedDefinitions,
 };
 use crate::calendar::{Date, TimeRange};
-use crate::catalog::{Anchor, AnchorValue, Audience, Definitions, Description, Metric, Model};
+use crate::catalog::{Anchor, AnchorValue, Audience, AudienceGrant, Definitions, Description, GrantedAudiences, Metric, Model};
 use crate::definitions::DefinitionDigest;
 use crate::knowledge::{Capability, Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use crate::measure::{AggregatedColumn, Measure, Term};
-use crate::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
+use crate::model::{Aggregate, AudienceId, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
+use crate::pinned::view::ScopedView;
 use crate::source::{ExecutedAs, SourcePosture};
 
 fn metric_name(raw: &str) -> MetricName {
@@ -81,6 +82,33 @@ fn manifest(source: &str) -> ContributionManifest {
         SourceName::parse(source).expect("a test source is a source"),
         Contribution::of(crate::capabilities::MetadataCapabilities::nothing()),
     )
+}
+
+#[test]
+fn model_listing_requires_its_own_explicit_audience() {
+    let model_without_audience = definitions(None).models().values().next().expect("one model").clone();
+    let grant = AudienceGrant::parse(BTreeSet::from([AudienceId::parse("finance").expect("an audience")]))
+        .expect("one identifier grants");
+    let restricted = Model::new(
+        ModelName::parse("private_orders").expect("a model"),
+        SourceName::parse("local").expect("a source"),
+        TableName::parse("private_orders").expect("a table"),
+        BTreeSet::<ColumnName>::new(),
+        Description::default(),
+    )
+    .with_audience(Audience::Restricted(grant));
+    let pinned =
+        pin(Definitions::assemble(vec![model_without_audience, restricted], vec![], vec![]).expect("physical-only definitions"));
+    assert_eq!(ScopedView::everything(&pinned).models().count(), 2);
+    assert_eq!(ScopedView::granted_by(&pinned, GrantedAudiences::none()).models().count(), 0);
+    let finance = ScopedView::granted_by(
+        &pinned,
+        GrantedAudiences::of(BTreeSet::from([AudienceId::parse("finance").expect("an audience")])),
+    );
+    assert_eq!(
+        finance.models().map(|model| model.name().as_str()).collect::<Vec<_>>(),
+        vec!["private_orders"]
+    );
 }
 
 fn june() -> TimeRange {

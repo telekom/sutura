@@ -362,6 +362,7 @@ Why a model document could not become a domain `Model`.
 
 #### Variants
 
+- `Audience`
 - `ColumnDescription` - One column's own `description:` is not usable prose.
 - `PrimaryKey` - The model's own `primary_key:` names a column it does not declare.
 

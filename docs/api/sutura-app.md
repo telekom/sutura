@@ -917,12 +917,9 @@ the guidance here would teach an agent to attempt something the surface refuses 
 which costs a turn and teaches it the wrong model of what it is talking to. What replaces it is
 one short section saying the field does not exist and that there is no way to widen it.
 
-**No column, no table, no model and no measure expression.** This is the same content `GET
-/v1/catalog` already returns and deliberately not one field more: a metric's name, its prose,
-its grains, its dimensions and their permitted values. A caller needs those to ask a valid
-question; it needs no column name to do it, and a column name in an agent's context is a name it
-will eventually try to use. The `tests` module below asserts that no model name, table name or
-column name from the bundle appears in the output.
+**No measure expression.** By default the prompt also omits models, tables and columns. A
+deployment can opt into a descriptive physical-schema listing; it does not make those names
+queryable or certify a metric. The default-absence and enabled cases are tested separately.
 
 **Nothing about identity.** There is none - the deployment token authenticates the deployment and
 not the caller - and a prompt that mentioned per-caller scoping would describe a control that does
@@ -1088,6 +1085,10 @@ pub const fn instructions(&self) -> Option<&'a str>
 ```
 
 ```rust
+pub const fn listing_physical_schema(self, enabled: bool) -> Self
+```
+
+```rust
 pub const fn new(tools: &'a [Tool], prose: CatalogProse, instructions: Option<&'a str>) -> Self
 ```
 
@@ -1185,6 +1186,10 @@ The operator's text is DEPLOYMENT-WIDE, the same for every caller, never audienc
 is scoped is the catalog prose this tool returns, not the deployment's own instructions. The
 preamble therefore frames it as trustworthy configuration to follow, and the one limit it names
 is the tool's own - it cannot make `ask_metric` answer a question outside the certified set.
+
+### `use physical_schema`
+
+The model and column names this view may list. Never selects a query plan.
 
 ### `use guidance`
 

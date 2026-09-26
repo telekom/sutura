@@ -4,7 +4,7 @@
 //! cannot live there. [`ScopedView`] borrows the bundle instead. Mapping a claim to a
 //! [`GrantedAudiences`] is deployment policy, done above this crate.
 
-use crate::catalog::{GrantedAudiences, Metric};
+use crate::catalog::{GrantedAudiences, Metric, Model};
 use crate::model::MetricName;
 use crate::pinned::PinnedDefinitions;
 
@@ -99,6 +99,14 @@ impl<'a> ScopedView<'a> {
             .metrics()
             .values()
             .filter(|metric| self.visible(metric))
+    }
+
+    /// Models with an explicit audience visible to this caller. A whole-bundle view sees all.
+    pub fn models(&self) -> impl Iterator<Item = &'a Model> + '_ {
+        self.pinned.definitions().models().values().filter(|model| match &self.scope {
+            Scope::Everything => true,
+            Scope::Granted(granted) => model.audience().is_some_and(|audience| audience.visible_to(granted.as_set())),
+        })
     }
 
     fn visible(&self, metric: &Metric) -> bool {

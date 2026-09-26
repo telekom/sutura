@@ -79,6 +79,16 @@ fn an_operator_can_set_a_finite_instructions_limit() {
 }
 
 #[test]
+fn physical_schema_listing_requires_an_explicit_setting() {
+    let defaults = Settings::load(&Sources::defaults(Environment::Development)).expect("the defaults load");
+    assert!(!defaults.prompt().list_physical_schema());
+    let enabled =
+        Settings::load(&Sources::defaults(Environment::Development).with_overlay("prompt:\n  list_physical_schema: true\n"))
+            .expect("the opt-in loads");
+    assert!(enabled.prompt().list_physical_schema());
+}
+
+#[test]
 fn the_defaults_alone_do_not_start_a_production_deployment() {
     // The single most important assertion in this file: shipping the defaults to production is a
     // refusal, not a permissive service. Two refusals, because two separate controls are missing.

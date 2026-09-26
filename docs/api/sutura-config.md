@@ -3073,7 +3073,7 @@ The hops whose forwarded header is believed.
 
 What goes into the agent-facing system prompt that this deployment hands out.
 
-Three keys, and each one is read: `sutura_app::prompt::render` consumes the text and prose choice,
+Four keys, and each one is read: `sutura_app::prompt::render` consumes the text, prose choice and schema opt-in,
 and the CLI composition root reads the file under the byte limit. `sutura prompt` reaches both.
 That is a requirement rather than a remark - this
 crate has shipped a group of keys that were parsed, range-checked, refused on a bad value and
@@ -3279,6 +3279,16 @@ The operator's own text, if a path was configured.
 ```rust
 pub const fn instructions_max_bytes(&self) -> InstructionsMaxBytes
 ```
+
+```rust
+pub const fn list_physical_schema(&self) -> bool
+```
+
+```rust
+pub const fn listing_physical_schema(self, enabled: bool) -> Self
+```
+
+Enables the descriptive physical-schema listing on agent surfaces.
 
 ```rust
 pub const fn new(instructions_file: Option<InstructionsFile>, catalog_prose: CatalogProse) -> Self
