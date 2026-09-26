@@ -111,9 +111,10 @@ impl RowSet {
     }
 }
 
-// These adapters collect domain rows before `of_row_set` clones each column and builds Arrow
-// arrays. Charge three copies of the row estimate to cover that conversion peak. One incoming row
-// is decoded before `push` can refuse it; ClickHouse also holds its separately bounded wire body.
+// DuckDB, ClickHouse, and Oracle collect domain rows before `of_row_set` clones each column and
+// builds Arrow arrays. Charge three copies of the row estimate for that conversion peak. One
+// incoming row is decoded before `push` can refuse it; ClickHouse also holds its separately
+// bounded wire body. Postgres does not use this collector.
 
 /// Why a row-collecting stream was refused under a byte budget.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]

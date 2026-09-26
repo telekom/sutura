@@ -507,9 +507,9 @@ fn clickhouse_group(
 fn clickhouse_group(
     sources: &[&SourceName],
     registry: &sutura_config::SourceRegistry,
-    _runtime: sutura_config::RuntimeSettings,
+    runtime: sutura_config::RuntimeSettings,
 ) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    super::clickhouse::open_clickhouse(sources, registry, _runtime)?;
+    super::clickhouse::open_clickhouse(sources, registry, runtime)?;
     // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
     Err(String::from(
         "`open_clickhouse` returned an open registry on a build with no ClickHouse adapter linked",
@@ -534,9 +534,9 @@ fn oracle_group(
 fn oracle_group(
     sources: &[&SourceName],
     registry: &sutura_config::SourceRegistry,
-    _runtime: sutura_config::RuntimeSettings,
+    runtime: sutura_config::RuntimeSettings,
 ) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    super::oracle::open_oracle(sources, registry, _runtime)?;
+    super::oracle::open_oracle(sources, registry, runtime)?;
     // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
     Err(String::from(
         "`open_oracle` returned an open registry on a build with no Oracle adapter linked",

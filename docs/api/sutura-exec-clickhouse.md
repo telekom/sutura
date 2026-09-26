@@ -502,8 +502,8 @@ Opens the transport over `endpoint` with no TLS at all - a `plaintext` channel, 
 fixture tier's loopback path.
 
 `max_response_bytes` is the most this transport reads off the wire for one response body;
-the composition root derives it from the same working-set ceiling that sizes the decode
-budget, so the wire read and the in-memory decode are one bound.
+the composition root derives both caps from the working-set ceiling. They are spent
+independently: the held wire body and decoded rows can overlap in memory.
 
 ```rust
 pub fn connect_secured(endpoint: Endpoint, auth: Option<BasicAuth>, tls: ureq::tls::TlsConfig, max_response_bytes: u64) -> Self

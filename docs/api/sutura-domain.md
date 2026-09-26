@@ -14095,8 +14095,8 @@ invariant makes the ragged case unreachable.
 would be the one nobody had read.
 **It charges nothing against a `ResultBudget`, and that is a limit rather than an oversight.**
 Its input is rows the caller already holds, so a budget here would check after the spend.
-The row-speaking adapters charge their decode loops before calling this conversion; fakes
-that hand this function rows directly do not gain a byte bound from it.
+`DuckDB`, `ClickHouse`, and `Oracle` charge their decode loops before calling this conversion.
+Postgres still builds a whole `RowSet` first; this function does not bound it or fakes.
 
 ### Module `raw`
 
