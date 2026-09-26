@@ -632,6 +632,11 @@ fn changed_test_shape(base_content: &str, head_content: &str) -> Verdict {
 /// [`changed_test_shape`] over any set of files: every base file is removed before the head set
 /// is written, so a path in `base` and not in `head` is a rename or a deletion to git.
 fn changed_tree(base_files: &[(&str, &str)], head_files: &[(&str, &str)]) -> Verdict {
+    committed_tree("test: change an existing test", base_files, head_files)
+}
+
+/// [`changed_tree`] with the head commit's `message`, so a cell can carry a trailer.
+fn committed_tree(message: &str, base_files: &[(&str, &str)], head_files: &[(&str, &str)]) -> Verdict {
     assert!(
         std::env::var_os("NEXTEST").is_some(),
         "this fixture changes the process directory; run it under `just test`"
@@ -648,7 +653,7 @@ fn changed_tree(base_files: &[(&str, &str)], head_files: &[(&str, &str)]) -> Ver
     git(&dir, &["config", "user.name", "test"]);
     std::fs::write(
         dir.join("Cargo.toml"),
-        "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[profile.ci]\ninherits = \"dev\"\n",
     )
     .unwrap();
     std::fs::write(dir.join("flake.nix"), "{ }\n").unwrap();
@@ -665,10 +670,11 @@ fn changed_tree(base_files: &[(&str, &str)], head_files: &[(&str, &str)]) -> Ver
         std::fs::remove_file(dir.join(path)).unwrap();
     }
     for (path, content) in head_files {
+        std::fs::create_dir_all(dir.join(path).parent().expect("a file path")).unwrap();
         std::fs::write(dir.join(path), content).unwrap();
     }
     git(&dir, &["add", "-A"]);
-    git(&dir, &["commit", "-q", "-m", "test: change an existing test"]);
+    git(&dir, &["commit", "-q", "-m", message]);
 
     let original = std::env::current_dir().expect("current directory");
     std::env::set_current_dir(&dir).expect("fixture directory");
@@ -708,4 +714,19 @@ fn a_moved_file_is_read_at_base_under_its_old_path() {
     let base = [("src/lib.rs", "mod a;\n"), ("src/a.rs", body)];
     let head = [("src/lib.rs", "mod b;\n"), ("src/b.rs", &*body.replace("    // one\n", ""))];
     assert_eq!(changed_tree(&base, &head), Verdict::Pass);
+}
+
+/// `github.com/telekom/sutura#1068`: a waiver excuses the deletion it names, not the range. The
+/// head deletes `existing`'s assertion under a `Weakens-Test:` trailer and adds `added`, which is
+/// green on base because nothing it reads changed - so the range must still fail. Before the fix
+/// the fully waived deletion answered `Pass` and `added` was never measured.
+#[test]
+fn a_waived_deletion_still_proves_the_test_added_beside_it() {
+    let base = "pub fn f() -> u8 { 1 }\n#[cfg(test)]\nmod tests {\n    use super::f;\n    #[test]\n    fn existing() {\n        assert_eq!(f(), 1);\n    }\n}\n";
+    let head = [
+        ("src/lib.rs", &*base.replace("        assert_eq!(f(), 1);\n", "")),
+        ("tests/it.rs", "#[test]\nfn added() {\n    assert_eq!(wired::f(), 1);\n}\n"),
+    ];
+    let message = "test: move the pin of f\n\nWeakens-Test: existing - tests/it.rs pins f instead";
+    assert_eq!(committed_tree(message, &[("src/lib.rs", base)], &head), Verdict::Fail);
 }
