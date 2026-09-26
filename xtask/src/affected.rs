@@ -18,8 +18,9 @@
 //! every category. A new adapter arrives by registering it in the registry (or by being a crate);
 //! no workflow line is asked to know its name in advance.
 //!
-//! `Cargo.lock` is named by no crate or registry; [`lockfile`] attributes its diff to the adapters
-//! the changed packages reach, and fails closed to `core` on anything else, so it only narrows.
+//! `Cargo.lock` is named by no crate or registry; the `lockfile` submodule attributes its diff to
+//! the adapters the changed packages reach, and fails closed to `core` on anything else, so it only
+//! narrows.
 //!
 //! **That fail-open is held at the OUTPUT boundary, not only in `Categories::needs`, and the
 //! difference is the whole reason `crate_categories` exists.** A workflow condition reads an
