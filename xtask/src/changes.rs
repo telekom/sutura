@@ -377,14 +377,14 @@ fn print_report(paths: &[String], result: &Classification) {
 
 /// `xtask classify [--since <ref>] [path...]` - the hook and CI entry point.
 pub(crate) fn run_classify(args: &[String]) -> Verdict {
-    let paths = match args.split_first() {
+    let (paths, base) = match args.split_first() {
         Some((flag, rest)) if flag == "--since" => {
             let Some(base) = rest.first() else {
                 eprintln!("xtask classify: --since needs a git ref");
                 return Verdict::Usage;
             };
             if let Some(found) = changed_paths(base) {
-                found
+                (found, Some(base.as_str()))
             } else {
                 // A bad or unreachable base ref must not look like an empty diff.
                 println!("xtask classify: git could not diff against `{base}` - running everything");
@@ -394,17 +394,17 @@ pub(crate) fn run_classify(args: &[String]) -> Verdict {
                     ..Classification::default()
                 };
                 write_github_output(&result);
-                affected::finish(&[]);
+                affected::finish(&[], None);
                 return Verdict::Pass;
             }
         }
-        _ => args.to_vec(),
+        _ => (args.to_vec(), None),
     };
 
     let result = classify(&paths);
     print_report(&paths, &result);
     write_github_output(&result);
-    affected::finish(&paths);
+    affected::finish(&paths, base);
     Verdict::Pass
 }
 
