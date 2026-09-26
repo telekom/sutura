@@ -20,24 +20,26 @@ Derived in part from Curity's OAuth developer skills (Apache-2.0) - see `VENDOR.
 ## Validating an incoming access token
 
 `sutura-http` validates one: `TokenValidator::verify` is on the request path the router builds, so
-this section describes built behaviour rather than a design. Configuration comes from the
-environment and is never hardcoded:
+this section describes built behaviour rather than a design. Configuration is structured YAML
+in `RawInbound` (`crates/sutura-config/src/raw.rs`), not environment variables:
 
-| Setting | Meaning |
+| Field | Meaning |
 | --- | --- |
-| `JWKS_URI` | the authorization server's key set |
-| `ISSUER` | expected `iss` |
-| `AUDIENCE` | this service's identifier, expected in `aud` |
-| `ALGORITHM` | the accepted signing algorithm, e.g. `ES256` |
+| `key_set_file` | the authorization server's key set (a file path) |
+| `authorization_server` | expected `iss` |
+| `resource` | this service's identifier, expected in `aud` |
+| `algorithms` | the accepted signing algorithms (required, never defaulted) |
+| `transit_issuer` | `behind-gateway`: the issuer that must have signed the transit proof |
+| `transit_audience` | `behind-gateway`: the audience the transit proof must carry |
 
 Rules, all of them:
 
 - Verify the signature against the key selected by the token's `kid`.
-- **Accept only `ALGORITHM`.** Let the library decide and it will honour the token's own
+- **Accept only `algorithms`.** Let the library decide and it will honour the token's own
   `alg` - that is the `alg: none` and RS/HS confusion class.
 - Check `exp` and `nbf` against current UTC.
-- Check `iss` equals `ISSUER` exactly.
-- Check `aud` **contains** `AUDIENCE`. A token minted for another API must not work here;
+- Check `iss` equals `authorization_server` exactly.
+- Check `aud` **contains** `resource`. A token minted for another API must not work here;
   this is the check people omit, and it is the one that makes tokens transferable.
 - Cache the JWKS in memory keyed by `kid`, fetch on miss, and make it thread-safe. Do not
   fetch per request, and do not refetch on every unknown `kid` without a bound - that is a

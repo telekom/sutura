@@ -36,20 +36,21 @@ external timeout killed them, twice, 50 minutes apart.
 | `just test` / `just causality` / `just ship-check` and every pre-commit tier block, no output | `timeout 20 docker info; echo $?` - **124 means wedged**, and `SKIP=rust-tests` will not help because the hang is not in the hook's own step. Then `df -h` before restarting anything: a restart cannot fix a host out of space, and the bounded paths print that advice where a hang cannot |
 | stray processes accumulate | the probe kills its child, not the child's descendants; `docker` CLI plugins outlive it until the daemon recovers |
 | a gate hangs only AFTER provisioning starts | it should not any more - the readiness loop's `ps` carries the query budget, so this is a bug rather than the known shape |
-| `just validate` ends with `interrupted by the user`/signal 15, or `Killed: 9`, mid-`nix build`, with no exit file | not a hang - a KILL, and a non-verdict rather than a red: `df -h` first, `memory_pressure` second. `justfile:180-182` runs under `set -euo pipefail`, so the missing exit file is the expected shape of a killed build, not a second symptom (`github.com/telekom/sutura#405`) |
+| `just validate` ends with `interrupted by the user`/signal 15, or `Killed: 9`, mid-`nix build`, with no exit file | not a hang - a KILL, and a non-verdict rather than a red: `df -h` first, `memory_pressure` second. `justfile:191-193` runs under `set -euo pipefail`, so the missing exit file is the expected shape of a killed build, not a second symptom (`github.com/telekom/sutura#405`) |
 
 Every wait on a docker child *that goes through `compose::docker`* is bounded, and the budgets are
 per KIND of call because one number cannot serve a pull and a status query:
 `SUTURA_DOCKER_PROBE_TIMEOUT_SECS` for the pre-flight, `SUTURA_DOCKER_QUERY_TIMEOUT_SECS` for a
 `ps` / `port` / `ls`, and `SUTURA_DOCKER_PROVISION_TIMEOUT_SECS` for an `up` / `down`. The defaults
-and the argument for each are in `xtask/src/compose/docker/bounded.rs`, not repeated here.
+and the argument for each are in `xtask/src/compose/docker/bounded.rs` (query, provision) and
+`xtask/src/compose/docker.rs` (probe), not repeated here.
 
-**What holds that, and where it stops.** Nothing does yet - it is one wait loop in one module,
-which is a shape rather than a mechanism, and a `.output()` written beside it would be unbounded
-again with every test still green. The path-scoped gate that would hold it is issue 274, and what
-even that holds is narrower than the sentence: *no second wait loop in that directory*, never
-*every docker child is bounded*. So do not read a green run as the property, and check these three
-before concluding a hang is not a wait:
+**What holds that, and where it stops.** `check-bounded-wait` holds *locality*: across the compose
+tier, one file of the docker module may wait on a child, so a `.output()` in a sibling file fails
+the gate. It holds nothing about boundedness - a `.output()` added beside the bounded loop INSIDE
+that file is invisible to it, and so is a wait laundered through a helper outside the tier. So do
+not read a green run as the property, and check these three before
+concluding a hang is not a wait:
 
 | Not covered | Why |
 | --- | --- |

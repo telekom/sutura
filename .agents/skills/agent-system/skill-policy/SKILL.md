@@ -38,10 +38,12 @@ Every imported skill declares one, in a `## Provenance` section in the body:
 | `normalized` | behaviour preserved, format changed for local validation |
 | `adapted` | content or workflow changed for this repo |
 | `local` | written here, no upstream |
+| `generated` | produced by an in-repo generator (`ms-rust`'s `generate.py`); refresh through it, never hand-edit |
 
 State the upstream repo, the upstream path, the licence, the commit or date, and what changed
-locally. Keep it in the body, not in frontmatter: `check-skills` allows only `name` and
-`description` there, and adding keys would mean changing the gate.
+locally. Keep it in the body, not in frontmatter: `check-skills` hand-parses that block as
+single-line `key: value` pairs and checks only `name` and `description`, so anything else there
+is read by nothing.
 
 If a copy has diverged so far that our behaviour is the source of truth, call it `adapted`.
 Do not describe it as a mirror it no longer is.
@@ -69,7 +71,7 @@ same ground means routing has to guess, and the wrong one gets loaded. Merge ins
 4. Register it: active tier goes in `skill-router.json` **and** the group `README.md`; library
    tier goes in `.agents/skill-library/README.md`.
 5. Note derived documentation in `VENDOR.md` when the licence requires attribution.
-6. `cargo xtask check-skills`, then `prek run --files <touched>`.
+6. `cargo xtask check-skills`, then `just hooks --files <touched>`.
 
 ## Updating
 
