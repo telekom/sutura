@@ -43,6 +43,20 @@ avoids `check-boundaries` by construction only for the read `sutura-tls` perform
 shared between two adapters of the same class needs its OWN named-crate-against-a-class row, not a
 reused sentence.
 
+**`sutura-bounded-read` is the `sutura-tls` shape for the catalog side: the bounded single-open
+document read and `BTreeSet`-sorted walk that `sutura-catalog-local`, `sutura-catalog-okf`
+(hardened by `#1022`) and `sutura-catalog-datacontract` (`#1043`) each carried a copy of**
+(`github.com/telekom/sutura#1045`). It is unprefixed for the same reason `sutura-tls` is - a small
+read two or more adapters of the SAME `xtask/src/boundaries/adapters.rs` class ("metadata
+providers") both need, with no crypto provider, no network client and no `sutura-config` - so it
+joins no existing prefix's rules and starts in no forbidden class by construction. The one clause
+of the `sutura-tls` paragraph that still needed a mechanism here is its "no `sutura-config`":
+a settings crate parses a declaration and never reads bytes, so a settings edge back into this read
+is exactly the file I/O a settings crate must not do. That is held by a `FORBIDDEN_EDGES` row
+(`sutura-bounded-read -> sutura-config`, `Edges::Normal`) rather than by the sentence, and the
+three catalog adapters map its closed [`ReadError`]/[`WalkError`] enums into their own, keeping
+their variants and rendered messages unchanged.
+
 Rules that are not visible from a manifest:
 
 - **`sutura-domain`'s dependency list is an allowlist walked over the whole resolve graph**, so a

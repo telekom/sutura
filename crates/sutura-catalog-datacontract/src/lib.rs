@@ -27,12 +27,10 @@
 //! and a digest that moves between two runs over unchanged files is a digest nobody can act on, so
 //! the walk collects into a `BTreeSet` and yields sorted. An empty or missing directory is an error
 //! ([`DataContractError::Empty`], [`DataContractError::NotADirectory`]) rather than a silently-empty
-//! catalog, for the same reason the OKF and local catalogs refuse one. This walk and
-//! [`read_document`] are, deliberately, the identical shape `sutura-catalog-okf` carries after
-//! `#1022`'s hardening - a third copy of one bounded-read mechanism rather than a fourth
-//! divergent one. Extracting the shared shape into one crate is tracked as a follow-up
-//! (`github.com/telekom/sutura#1045`) rather than done in this PR, to keep this diff to the one
-//! adapter it adds.
+//! catalog, for the same reason the OKF and local catalogs refuse one. This walk and the read are
+//! the bounded, single-open shape `sutura-catalog-okf` carries after `#1022`'s hardening - shared
+//! now through one crate, `sutura_bounded_read`, rather than a third copy of one mechanism
+//! (`github.com/telekom/sutura#1045`).
 //!
 //! **A contract without a self-report of its version is refused by name.** `apiVersion` and `kind`
 //! are required by the standard and this adapter reads both: an unknown `apiVersion` (a `v2.x` or
@@ -79,16 +77,6 @@ use sutura_domain::pinned::{
 
 /// The extensions a data-contract document may carry.
 const DOCUMENT_EXTENSIONS: &[&str] = &["yaml", "yml"];
-
-/// The most documents a catalog root may hold - a startup bound, walk refused as soon as it crosses.
-const MAX_CATALOG_DOCUMENTS: usize = 1_000;
-/// The most bytes a catalog root's documents may sum to - a startup bound, enforced on the READ
-/// itself (each file is opened once, `fstat`'d on that handle for being a regular file and for its
-/// size, and the read is done in chunks capped at the bytes the aggregate had left), the same shape
-/// `sutura-catalog-okf`'s and `sutura-catalog-local`'s `MAX_CATALOG_BYTES` take for the identical
-/// reason those crates have one: a served catalog directory is operator-mounted, and an unbounded
-/// aggregate read is a startup cost nobody asked to pay.
-const MAX_CATALOG_BYTES: u64 = 16 * 1024 * 1024;
 
 /// The two halves of a bundle's content, read and checked but not yet pinned.
 type Content = (Definitions, Knowledge);
@@ -143,53 +131,8 @@ impl DataContractCatalog {
     /// stray `README.md` does not break a load. A regular file with the right extension and the wrong
     /// content still fails loudly at deserialisation.
     fn documents(&self) -> Result<Vec<PathBuf>, DataContractError> {
-        if !self.root.is_dir() {
-            return Err(DataContractError::NotADirectory { path: self.root.clone() });
-        }
-        let mut found = BTreeSet::new();
-        let mut pending = vec![self.root.clone()];
-        while let Some(directory) = pending.pop() {
-            let entries = std::fs::read_dir(&directory).map_err(|cause| DataContractError::Io {
-                path: directory.clone(),
-                cause,
-            })?;
-            for entry in entries {
-                let entry = entry.map_err(|cause| DataContractError::Io {
-                    path: directory.clone(),
-                    cause,
-                })?;
-                let path = entry.path();
-                let kind = entry.file_type().map_err(|cause| DataContractError::Io {
-                    path: path.clone(),
-                    cause,
-                })?;
-                #[expect(
-                    clippy::filetype_is_file,
-                    reason = "a catalog document is a regular file - a link, a socket or a device node is not, and skipping those is the point"
-                )]
-                let is_document = kind.is_file()
-                    && path
-                        .extension()
-                        .and_then(|ext| ext.to_str())
-                        .is_some_and(|ext| DOCUMENT_EXTENSIONS.contains(&ext));
-                if kind.is_dir() {
-                    pending.push(path);
-                } else if is_document {
-                    found.insert(path);
-                    if found.len() > MAX_CATALOG_DOCUMENTS {
-                        return Err(DataContractError::TooManyDocuments {
-                            path: self.root.clone(),
-                            found: found.len(),
-                            limit: MAX_CATALOG_DOCUMENTS,
-                        });
-                    }
-                }
-            }
-        }
-        if found.is_empty() {
-            return Err(DataContractError::Empty { path: self.root.clone() });
-        }
-        Ok(found.into_iter().collect())
+        sutura_bounded_read::walk(&self.root, DOCUMENT_EXTENSIONS, sutura_bounded_read::MAX_CATALOG_DOCUMENTS)
+            .map_err(map_walk_error)
     }
 
     /// Reads every contract and assembles the bundle.
@@ -206,23 +149,21 @@ impl DataContractCatalog {
     /// currently is. "Opened once" is held by review, not by a test, for the reason
     /// `sutura-catalog-okf::read_all`'s own doc states: the window between two back-to-back opens
     /// is sub-microsecond, under what a swap-timing test can land reliably. The refusal paths and
-    /// their exact reach are [`read_document`]'s contract.
+    /// their exact reach are [`sutura_bounded_read::read_document`]'s contract.
     fn read_all(&self) -> Result<Content, DataContractError> {
         let mut models = Vec::new();
         let mut relationships = Vec::new();
         let mut unique_columns: BTreeMap<ModelName, BTreeSet<ColumnName>> = BTreeMap::new();
         let mut total_bytes: u64 = 0;
         for path in self.documents()? {
-            let flags = rustix::fs::OFlags::RDONLY
-                .union(rustix::fs::OFlags::NOFOLLOW)
-                .union(rustix::fs::OFlags::NONBLOCK)
-                .union(rustix::fs::OFlags::CLOEXEC);
-            let fd = rustix::fs::open(&path, flags, rustix::fs::Mode::empty()).map_err(|cause| DataContractError::Open {
-                path: path.clone(),
-                cause,
-            })?;
-            let ReadDocument { text, consumed } = read_document(&fd, &path, &self.root, total_bytes)?;
-            total_bytes += consumed;
+            // ONE open per contract, and everything about the file decided from the handle that is
+            // actually read - the read, the regular-file check, the byte budget and the post-read
+            // recheck all live in `sutura_bounded_read::read_document`, on the ONE handle it
+            // opened. The refusal half, the `O_NOFOLLOW` / `O_NONBLOCK` / `O_CLOEXEC` flags, is that
+            // crate's open; see its `read.rs` for why a document swapped for a symlink or a FIFO is
+            // refused at open, and why the budget is enforced on the read itself.
+            let text = sutura_bounded_read::read_document(&self.root, &path, total_bytes).map_err(map_read_error)?;
+            total_bytes += text.len() as u64;
             let parsed = self.parse_contract(&path, &text)?;
             models.extend(parsed.models);
             relationships.extend(parsed.relationships);
@@ -603,105 +544,39 @@ pub enum UnsupportedApiVersion {
     Unknown(String),
 }
 
-/// The text of one contract, and the number of bytes it consumed from the aggregate budget.
-///
-/// A plain struct rather than a `(String, u64)` return: the two are always read together, and the
-/// named field keeps the "one document" boundary legible in [`DataContractCatalog::read_all`].
-#[derive(Debug)]
-struct ReadDocument {
-    text: String,
-    consumed: u64,
+/// Maps a [`sutura_bounded_read::WalkError`] into this adapter's own refusal variants, carrying the
+/// same message each variant rendered before this crate existed.
+fn map_walk_error(cause: sutura_bounded_read::WalkError) -> DataContractError {
+    match cause {
+        sutura_bounded_read::WalkError::NotADirectory { path } => DataContractError::NotADirectory { path },
+        sutura_bounded_read::WalkError::Io { path, cause } => DataContractError::Io { path, cause },
+        sutura_bounded_read::WalkError::TooManyDocuments { path, found, limit } => {
+            DataContractError::TooManyDocuments { path, found, limit }
+        }
+        sutura_bounded_read::WalkError::Empty { path } => DataContractError::Empty { path },
+    }
 }
 
-/// Reads one contract's bytes against the aggregate byte bound.
-///
-/// Bounded on the OPENED HANDLE: the contract is `fstat`'d for being a regular file, its size
-/// against the remaining budget is the fast path that refuses a legitimately-oversized file before
-/// anything is read, and the read itself is done in chunks capped at the bytes the aggregate had
-/// left - so a file that lies about its size, or grows while it is being read, is refused as
-/// [`DataContractError::TooLarge`] rather than allocated.
-fn read_document(
-    fd: impl rustix::fd::AsFd,
-    path: &Path,
-    root: &Path,
-    total_bytes: u64,
-) -> Result<ReadDocument, DataContractError> {
-    // `fstat` on the descriptor we are about to read from: this is the file actually being
-    // read, not a separately-named path. A non-regular file that opens anyway - a device, for
-    // one - is refused here rather than read; a swapped symlink and a swapped FIFO are refused
-    // at the open itself (`O_NOFOLLOW` / `O_NONBLOCK`), before this check runs.
-    let stat = rustix::fs::fstat(fd.as_fd()).map_err(|cause| DataContractError::Open {
-        path: path.to_path_buf(),
-        cause,
-    })?;
-    if rustix::fs::FileType::from_raw_mode(stat.st_mode) != rustix::fs::FileType::RegularFile {
-        return Err(DataContractError::NotARegularFile {
-            path: path.to_path_buf(),
-        });
-    }
-    let remaining = MAX_CATALOG_BYTES - total_bytes.min(MAX_CATALOG_BYTES);
-    if stat.st_size.cast_unsigned() > remaining {
-        let found = total_bytes.saturating_add(stat.st_size.cast_unsigned());
-        return Err(DataContractError::TooLarge {
-            path: root.to_path_buf(),
-            document: path.to_path_buf(),
+/// Maps a [`sutura_bounded_read::ReadError`] into this adapter's own refusal variants. `TooLarge`
+/// names the document that crossed the bound with `document` and the catalog root with `root`, the
+/// same roles the message text gives them.
+fn map_read_error(cause: sutura_bounded_read::ReadError) -> DataContractError {
+    match cause {
+        sutura_bounded_read::ReadError::Open { path, cause } => DataContractError::Open { path, cause },
+        sutura_bounded_read::ReadError::NotARegularFile { path } => DataContractError::NotARegularFile { path },
+        sutura_bounded_read::ReadError::TooLarge {
+            root,
+            document,
             found,
-            limit: MAX_CATALOG_BYTES,
-        });
-    }
-    // The read is on the descriptor itself, in bounded chunks: a document that grows while it
-    // is being read cannot allocate past the bytes the aggregate had left, in any one chunk.
-    let mut buf = Vec::new();
-    let mut chunk = [0u8; 16 * 1024];
-    loop {
-        let n = rustix::io::read(fd.as_fd(), &mut chunk).map_err(|cause| DataContractError::Io {
-            path: path.to_path_buf(),
-            cause: cause.into(),
-        })?;
-        if n == 0 {
-            break;
-        }
-        if buf.len() as u64 + n as u64 > remaining.saturating_add(1) {
-            let found = total_bytes.saturating_add(remaining.saturating_add(1));
-            return Err(DataContractError::TooLarge {
-                path: root.to_path_buf(),
-                document: path.to_path_buf(),
-                found,
-                limit: MAX_CATALOG_BYTES,
-            });
-        }
-        match chunk.get(..n) {
-            Some(read) => buf.extend_from_slice(read),
-            // `read` never reports more bytes than the chunk held; the bound is the one
-            // guard if it ever did.
-            None => {
-                return Err(DataContractError::TooLarge {
-                    path: path.to_path_buf(),
-                    document: path.to_path_buf(),
-                    found: total_bytes.saturating_add(u64::try_from(n).unwrap_or(u64::MAX)),
-                    limit: MAX_CATALOG_BYTES,
-                });
-            }
-        }
-    }
-    let text = String::from_utf8(buf).map_err(|cause| DataContractError::Io {
-        path: path.to_path_buf(),
-        cause: std::io::Error::new(std::io::ErrorKind::InvalidData, cause),
-    })?;
-    // `take` caps the read; if the file actually held more than `remaining` bytes, what arrived
-    // still is - so re-check the length of what was READ, which closes the case of a file that
-    // grew between the `fstat` and the read.
-    if text.len() as u64 > remaining {
-        let found = total_bytes.saturating_add(text.len() as u64);
-        return Err(DataContractError::TooLarge {
-            path: root.to_path_buf(),
-            document: path.to_path_buf(),
+            limit,
+        } => DataContractError::TooLarge {
+            path: root,
+            document,
             found,
-            limit: MAX_CATALOG_BYTES,
-        });
+            limit,
+        },
+        sutura_bounded_read::ReadError::Io { path, cause } => DataContractError::Io { path, cause },
     }
-    let consumed = text.len() as u64;
-    Ok(ReadDocument { text, consumed })
 }
 
 /// Why a directory could not be read as a data-contract catalog.
