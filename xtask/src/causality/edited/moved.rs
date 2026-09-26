@@ -8,8 +8,10 @@
 //! of what is left. Nothing else is excused, so every other refusal still fires.
 //!
 //! **THE MATCH IS ONE-TO-ONE, ON NAME AND TOKENS.** An item is its attached attributes through its
-//! closing brace, split on whitespace, so indentation and line breaks do not matter and one changed
-//! literal, a removed assertion, a dropped `#[test]` or an added `#[ignore]` does. Each re-added
+//! closing brace, lexed as Rust tokens, so comments (doc comments too), indentation and line breaks
+//! do not matter, and neither does a visibility on the item's OWN signature - a helper moved into a
+//! sibling module gains `pub(super)`. One changed literal or path, a removed assertion, a dropped
+//! `#[test]`, an added `#[ignore]` or a visibility anywhere in the body does. Each re-added
 //! item excuses ONE deleted item and is spent: a move beside a same-named test deleted or weakened
 //! elsewhere excuses only the move. A name that ALSO has a new version in the file it left is not a
 //! move candidate there - that file rewrote it, which is an edit, not a move.
@@ -21,8 +23,10 @@
 //! What this does NOT cover, stated next to the claim:
 //! - **A move within one file** is still refused: an item whose identical copy stays in its own file
 //!   cancels there and excuses nothing.
-//! - **A move and a rename**, or a move rustfmt reflowed differently at its new depth, is still a
-//!   deletion - both change the key.
+//! - **A move and a rename** is still a deletion, and so is an item this lexer cannot read (an
+//!   unbalanced slice, a stray delimiter): it has no key, so it matches nothing. A reflow that adds
+//!   or drops a trailing comma changes the key too, because `(a,)` and `(a)` differ. A string's
+//!   `\`-newline continuation is keyed by value, so re-indenting it is layout as well.
 //! - **Equal tokens are not equal resolution.** The destination may import a different item under
 //!   a name the test uses; only `fn` items are compared, never a `use`, `const` or fixture file - the
 //!   same reach `deletion_in` has, which names nothing for those either.
@@ -30,6 +34,8 @@
 //!   `BaseOutcome::GreenAfterAMove`, INCONCLUSIVE, not a pass.
 
 use std::ops::RangeInclusive;
+
+use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
 
 use crate::causality::attributes::attached;
 use crate::causality::diff::{ChangedFile, RemovedLine};
@@ -42,14 +48,15 @@ use crate::causality::scoped::function_name;
 #[derive(Debug)]
 struct Item {
     name: Ident,
-    tokens: Vec<String>,
+    /// `None` when the slice does not lex, which matches nothing.
+    tokens: Option<Vec<String>>,
     /// 1-based, attached attributes through closing brace - the numbering `RemovedLine` uses.
     span: RangeInclusive<usize>,
 }
 
 impl Item {
     fn is(&self, other: &Self) -> bool {
-        self.name == other.name && self.tokens == other.tokens
+        self.name == other.name && self.tokens.is_some() && self.tokens == other.tokens
     }
 }
 
@@ -67,13 +74,7 @@ fn items(text: Option<String>) -> Vec<Item> {
         };
         let start = attached(&lines, index).first().map_or(index, |(at, _)| *at);
         let last = item_end(&lines, index);
-        let tokens = lines
-            .get(start..=last)
-            .unwrap_or_default()
-            .iter()
-            .flat_map(|one| one.split_whitespace())
-            .map(String::from)
-            .collect();
+        let tokens = key(&lines.get(start..=last).unwrap_or_default().join("\n"));
         out.push(Item {
             name,
             tokens,
@@ -82,6 +83,91 @@ fn items(text: Option<String>) -> Vec<Item> {
         index = last.saturating_add(1);
     }
     out
+}
+
+/// `source`'s tokens with comments and layout gone and its own leading visibility dropped, or `None`
+/// if it does not lex.
+fn key(source: &str) -> Option<Vec<String>> {
+    let trees: Vec<TokenTree> = source.parse::<TokenStream>().ok()?.into_iter().collect();
+    let mut signature = 0_usize;
+    while let [TokenTree::Punct(hash), TokenTree::Group(attribute), ..] = trees.get(signature..).unwrap_or_default()
+        && hash.as_char() == '#'
+        && attribute.delimiter() == Delimiter::Bracket
+    {
+        signature = signature.saturating_add(2);
+    }
+    let visibility = match trees.get(signature..).unwrap_or_default() {
+        [TokenTree::Ident(vis), TokenTree::Group(scope), ..] if vis == "pub" && scope.delimiter() == Delimiter::Parenthesis => 2,
+        [TokenTree::Ident(vis), ..] if vis == "pub" => 1,
+        _ => 0,
+    };
+    let own = trees.get(..signature).unwrap_or_default().iter();
+    let rest = trees.get(signature.saturating_add(visibility)..).unwrap_or_default().iter();
+    let mut out = Vec::new();
+    flatten(own.chain(rest).cloned().collect(), &mut out);
+    Some(out)
+}
+
+/// Every token of `stream`, delimiters included, less `#[doc = ..]` - the form a doc comment lexes to.
+fn flatten(stream: TokenStream, out: &mut Vec<String>) {
+    let mut trees = stream.into_iter().peekable();
+    while let Some(tree) = trees.next() {
+        match tree {
+            TokenTree::Punct(hash) if hash.as_char() == '#' && trees.peek().is_some_and(is_doc) => {
+                trees.next();
+            }
+            TokenTree::Group(group) => {
+                let (open, close) = match group.delimiter() {
+                    Delimiter::Parenthesis => ("(", ")"),
+                    Delimiter::Brace => ("{", "}"),
+                    Delimiter::Bracket => ("[", "]"),
+                    Delimiter::None => ("", ""),
+                };
+                out.push(String::from(open));
+                flatten(group.stream(), out);
+                out.push(String::from(close));
+            }
+            // Joint keeps `&&` apart from `& &`. Not after `?`, `,` or `;`, which start no longer
+            // operator: rustfmt breaks `x?.y()` into `x?` and `.y()` at a different depth.
+            TokenTree::Punct(punct) => {
+                let joint = punct.spacing() == Spacing::Joint && !matches!(punct.as_char(), '?' | ',' | ';');
+                out.push(format!("{}{}", punct.as_char(), if joint { "~" } else { "" }));
+            }
+            TokenTree::Ident(ident) => out.push(ident.to_string()),
+            TokenTree::Literal(literal) => out.push(continued(&literal.to_string())),
+        }
+    }
+}
+
+/// `literal` with each `\`-newline continuation's following whitespace dropped, as the compiler
+/// drops it: re-indenting a moved string changes its source, never its value. A raw string has no
+/// escapes and is kept whole.
+fn continued(literal: &str) -> String {
+    if !literal.trim_start_matches(['b', 'c']).starts_with('"') {
+        return String::from(literal);
+    }
+    let mut out = String::with_capacity(literal.len());
+    let mut chars = literal.chars().peekable();
+    while let Some(one) = chars.next() {
+        out.push(one);
+        if one != '\\' {
+            continue;
+        }
+        match chars.next() {
+            Some('\n') => {
+                out.push('\n');
+                while chars.next_if(|next| matches!(next, ' ' | '\t' | '\n' | '\r')).is_some() {}
+            }
+            Some(escaped) => out.push(escaped),
+            None => {}
+        }
+    }
+    out
+}
+
+fn is_doc(tree: &TokenTree) -> bool {
+    matches!(tree, TokenTree::Group(group) if group.delimiter() == Delimiter::Bracket
+        && matches!(group.stream().into_iter().next(), Some(TokenTree::Ident(doc)) if doc == "doc"))
 }
 
 /// Each file's removed lines, less those inside an item the range moved unchanged to another file.

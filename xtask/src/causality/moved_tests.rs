@@ -120,3 +120,74 @@ fn a_test_moved_unchanged_whose_helper_changed_on_the_way_is_still_a_deletion() 
     ]);
     assert_eq!(plan, Plan::DeletedTests(vec![deleted("crates/x/tests/a.rs", &["foo"])]));
 }
+
+/// `reflowed` at base: a comment and a method chain rustfmt broke over three lines.
+const REFLOWED: &str = "#[test]\nfn reflowed() {\n    // the sum\n    let total = [1, 2]\n        .iter()\n        .sum::<i32>();\n    assert_eq!(total, 3);\n}\n";
+/// The same test moved: its comment edited and the chain joined onto one line.
+const REJOINED: &str = "#[test]\nfn reflowed() {\n    // the sum of both\n    let total = [1, 2].iter().sum::<i32>();\n    assert_eq!(total, 3);\n}\n";
+
+#[test]
+fn an_unchanged_move_with_an_edited_comment_and_a_reflow_is_not_a_deletion() {
+    let plan = plan_of(&[
+        ["crates/x/tests/a.rs", &format!("{REFLOWED}{BAR}"), BAR],
+        ["crates/x/tests/c.rs", "", REJOINED],
+    ]);
+    assert!(
+        matches!(plan, Plan::Separable(_)),
+        "comments and layout are not the key, got {plan:?}"
+    );
+}
+
+/// A helper moved into a sibling module gains `pub(super)` so its callers still reach it.
+#[test]
+fn a_moved_helper_that_gains_pub_super_is_not_a_deletion() {
+    let calls = "#[test]\nfn foo() {\n    assert!(helper());\n}\n";
+    let helper = "fn helper() -> bool {\n    2 + 2 == 4\n}\n";
+    let plan = plan_of(&[
+        ["crates/x/tests/a.rs", &format!("{helper}{calls}{BAR}"), BAR],
+        ["crates/x/tests/c.rs", "", &format!("pub(super) {helper}{calls}")],
+    ]);
+    assert!(
+        matches!(plan, Plan::Separable(_)),
+        "the item's own visibility is not the key, got {plan:?}"
+    );
+}
+
+/// Beside a move only the token key recognises, so the refusal is the literal's alone.
+#[test]
+fn a_moved_test_with_one_changed_literal_is_refused_beside_a_reflowed_move() {
+    let changed = BAR.replace('6', "7");
+    let plan = plan_of(&[
+        ["crates/x/tests/a.rs", &format!("{REFLOWED}{BAR}"), ""],
+        ["crates/x/tests/c.rs", "", &format!("{REJOINED}{changed}")],
+    ]);
+    assert_eq!(plan, Plan::DeletedTests(vec![deleted("crates/x/tests/a.rs", &["bar"])]));
+}
+
+/// The same name reached by another path may be another function.
+#[test]
+fn a_moved_test_whose_call_path_changed_is_refused_beside_a_reflowed_move() {
+    let before = "#[test]\nfn looks_up() {\n    assert!(lookup_source().is_some());\n}\n";
+    let after = before.replace("lookup_source", "super::corpus::lookup_source");
+    let plan = plan_of(&[
+        ["crates/x/tests/a.rs", &format!("{REFLOWED}{before}"), ""],
+        ["crates/x/tests/c.rs", "", &format!("{REJOINED}{after}")],
+    ]);
+    assert_eq!(plan, Plan::DeletedTests(vec![deleted("crates/x/tests/a.rs", &["looks_up"])]));
+}
+
+/// A test moved out of an inline module is dedented, and so is a `\`-continued string in it:
+/// its source changes, its value does not. The edited comment is what the whitespace key refused.
+#[test]
+fn a_moved_test_whose_continued_string_was_reindented_is_not_a_deletion() {
+    let inline = "mod inner {\n    #[test]\n    fn says() {\n        // one line\n        assert_eq!(\"a \\\n                    b\", \"a b\");\n    }\n}\n";
+    let file = "#[test]\nfn says() {\n    // one line, continued\n    assert_eq!(\"a \\\n                b\", \"a b\");\n}\n";
+    let plan = plan_of(&[
+        ["crates/x/tests/a.rs", &format!("{BAR}{inline}"), BAR],
+        ["crates/x/tests/c.rs", "", file],
+    ]);
+    assert!(
+        matches!(plan, Plan::Separable(_)),
+        "a continuation is keyed by value, got {plan:?}"
+    );
+}
