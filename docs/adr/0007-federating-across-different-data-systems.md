@@ -1351,3 +1351,32 @@ identifier case concern above still needs a live Oracle cell.
 
 The direct driver does not supply per-subject token authentication. ADR 0008 keeps that decision
 deferred; the adapter's own header records the separate transport and redirect limits.
+
+## Eighth amendment, 2026-09-26: the comparison half of *How a cross-source join key is declared and compared* is decided
+
+**The *What is explicitly not decided* bullet of that name is half-spent, and the half that is spent
+is the comparison half.** Left above as written, per the amendment convention; the correction is
+here. `docs/how-a-join-key-is-compared.md` is the record: the combiner classifies each leg's link
+column to one of five kinds from its Arrow schema before either leg's rows are read, and refuses a
+mismatch as `FederatedAnswerRefusal::LinkTypeMismatch` - a deterministic caller-facing refusal, not a
+silent non-match. A floating-point link key is refused separately as `FloatLinkKey`, which is this
+record's float-key rule enforced at the combine.
+
+**What remains open is the declaration half the bullet also names.** No catalog or plan field says
+the two sides are comparable before either leg runs; `Column::data_type` is descriptive text and
+nothing branches on it, and `Relationship` carries no comparability field. The runtime check fires
+after both legs have executed, which is the cost of deciding from the schema rather than from a
+declaration. The smallest design that would move the check earlier - a classifier from `ColumnType`
+text to a kind, in `federated_plan` - does not exist today. That is the half this amendment does not
+close.
+
+## Ninth amendment, 2026-09-26: `describes_identity()` is no longer a constant returning `false`
+
+The Identity section (line 937) said *There is no per-caller identity, `describes_identity()` is a
+`const fn` returning `false` printed on every boot, and the bearer token authenticates the
+deployment*. `describes_identity()` is now an instance method:
+`pub const fn describes_identity(&self) -> bool { self.inbound.is_some() }`
+(`crates/sutura-config/src/security.rs:518`), and it returns `true` when a deployment declares an
+inbound identity issuer. `sutura-runtime/src/banner.rs:283` records this change. The bearer token
+still authenticates the deployment; what changed is that a deployment can now declare it has
+per-caller identity, and the startup log prints that declaration.
