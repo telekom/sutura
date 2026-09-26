@@ -2403,14 +2403,13 @@ That is the half of <code>docs/adr/0012</code>'s <em>the corpus is files, not co
 cases were values in this module. The fixture table (<code>corpus/conformance_events.csv</code>) set the
 precedent: a tracked data file read at compile time, served from the file rather than from a
 copied constant.</p>
-<h1 id="what-this-corpus-does-not-contain-stated-so-nobody-reads-it-as-the-whole-suite">What this corpus does NOT contain, stated so nobody reads it as the whole suite<a class="headerlink" href="#what-this-corpus-does-not-contain-stated-so-nobody-reads-it-as-the-whole-suite" title="Permanent link">&para;</a></h1>
-<ul>
-<li><strong>The three cases <code>docs/adr/0012</code> names</strong> - a filter on a remote dimension over an orphan key,
-  a ratio whose denominator is zero for one subgroup, and a <code>CountDistinct</code> spanning two join
-  keys. <code>federated_cases</code> holds one federated plan, a plain sum over a second table, and none
-  of the three. It is a value in this module, not a file: the <code>.case</code> loader reads no federated
-  plan.</li>
-</ul>
+<h1 id="the-federated-cases-and-the-one-adapter-pair-that-runs-them">The federated cases, and the one adapter pair that runs them<a class="headerlink" href="#the-federated-cases-and-the-one-adapter-pair-that-runs-them" title="Permanent link">&para;</a></h1>
+<p>The three cases <code>docs/adr/0012</code> names - a filter on a remote dimension over an orphan key, a
+ratio whose denominator is zero for one subgroup, and a <code>CountDistinct</code> spanning two join keys -
+are <code>.case</code> files too. <code>federated_cases</code> holds the two with an answer; the <code>CountDistinct</code> one
+is refused by <code>FederatedPlan::new</code> and asserted as that refusal, since there is no plan to
+execute. Only <code>tests/federated_bound.rs</code> binds the two-warehouse arm, over two in-process
+engines of ONE kind, so these rows say nothing yet about any other adapter.</p>
 <h1 id="null-placement-in-a-group-key-decided-and-what-the-null-row-does-and-does-not-detect">Null placement in a group key: decided, and what the null row does and does NOT detect<a class="headerlink" href="#null-placement-in-a-group-key-decided-and-what-the-null-row-does-and-does-not-detect" title="Permanent link">&para;</a></h1>
 <p><strong><code>ASC NULLS LAST</code>, everywhere, and it is not this corpus's choice to make.</strong> <code>sutura_sql</code>'s
 <code>ordered_nulls_last</code> states the placement in the AST for every dialect and
@@ -2612,10 +2611,7 @@ is caught by <code>the_loader_reads_every_case_file</code> in that module's own 
 <h3 id="fn-federated_cases"><code>fn federated_cases</code><a class="headerlink" href="#fn-federated_cases" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">federated_cases</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">FederatedCase</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>Every federated question in the corpus: one, hand-built.</p>
-<p><code>total-by-region-and-day</code>'s sum, with the region's display name read off a lookup table on a
-second source. The null region has no lookup row and survives the join because the plan
-includes unmatched fact rows.</p>
+<p>Every federated question in the corpus with an answer, read from its <code>.case</code> file.</p>
 <h3 id="constant-table"><code>constant TABLE</code><a class="headerlink" href="#constant-table" title="Permanent link">&para;</a></h3>
 <p>The one table every case reads.</p>
 <h2 id="module-execute">Module <code>execute</code><a class="headerlink" href="#module-execute" title="Permanent link">&para;</a></h2>
