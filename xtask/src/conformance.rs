@@ -19,8 +19,8 @@
 //!
 //! | Candidate | Why not |
 //! | --- | --- |
-//! | `Warehouse` implementors | 27 in this workspace, and most are FAKES. A text scan cannot tell `RecordingWarehouse` from a deployable adapter, and the registry's own header says the fakes are deliberately unregistered because *a cell that cannot fail reads as coverage* |
-//! | crate membership (`crates/sutura-exec-*`) | Counts a crate that implements the port and is not claimed as a registered data system - `sutura-exec-bigquery` is exactly that today, so this source would demand an exemption for a crate nothing has registered |
+//! | `Warehouse` implementors | Most are FAKES. A text scan cannot tell `RecordingWarehouse` from a deployable adapter, and the registry's own header says the fakes are deliberately unregistered because *a cell that cannot fail reads as coverage* |
+//! | crate membership (`crates/sutura-exec-*`) | Counts a crate that implements the port whether or not anything registered it, so a crate added before its registry line would demand an exemption rather than read as unregistered |
 //! | **the `data_systems` registry arm** | **Chosen.** It is the declaration of what the golden matrix is a matrix OVER, `docs/adr/0012` says CI's own job matrix is emitted from it, and it is keyed by the same name a pack's emitted test carries |
 //!
 //! So the authority is the arm, read by [`scan::cells`], and the crate each entry belongs to is

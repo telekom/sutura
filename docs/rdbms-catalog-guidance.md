@@ -13,7 +13,7 @@ description: What a database dictionary can contribute as metadata, what it cann
 The crate implements the conversion half of issue #151 and
 `docs/adr/0011-pluggable-by-declaration.md`'s RDBMS row. It is intended for a metadata source that
 reads a database's own dictionary - `information_schema` plus whatever table comments a human
-wrote - and declares **structure and prose** and nothing else. It is the narrowest declaration this
+wrote - and declares **structure, prose, foreign-key joins and column types** and nothing else. It is the narrowest declaration this
 repository makes, and it exists because a database with DDL and comments and no semantic layer is
 where every adoption starts. `docs/adr/0013-a-raw-sql-tool-off-by-default.md` is the ramp
 that deployment's story continues; this page is the catalog half of it.
@@ -36,6 +36,8 @@ explicitly:
   evidence it found; the converter checks only that evidence is present and does not re-derive it
   from the constraint. A composite (multi-column) foreign key cannot be represented at all, so a
   reader must refuse or omit it before the converter ever sees it.
+- **Column types** - a column's declared type, where the dictionary records one.
+- **Column descriptions** - column comments.
 
 And nothing else. There is **no measure, no grain, no definitional filter, no value allowlist, no
 anchor and no cardinality** - a human declares those in a semantic layer. A bundle from this source

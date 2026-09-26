@@ -529,3 +529,12 @@ first-party model pack supplying the missing summaries against the paths the dat
 would close the gap - that is the one untried lever left, and it is a larger piece of work than a
 workflow. The release to watch is one whose notes mention Rust taint through owned-`String`
 construction, or canonical paths for sysroot crates in a buildless database.
+
+## Third amendment, 2026-09-26: the provenance count is three, not five
+
+*Signed-Releases* says `.github/actions/attest-and-sign` makes FIVE `attest-build-provenance` calls
+and that `collect-provenance` validates five records. It makes three: one over every release asset
+and one per manifest list, of which there are two. There were four lists, one pair per shipped
+binary, before `github.com/telekom/sutura#685` step 2 folded `sutura-serve` into `sutura-cli`, and
+the action's own comment above the manifest-list step says so. `cargo xtask collect-provenance`
+refuses anything but three bundles (`xtask/src/release_provenance.rs`).
