@@ -6,35 +6,35 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="What a database dictionary can contribute as metadata, what it cannot certify, and the identity boundary on what the reader can see.">
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/rdbms-catalog-guidance/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/api/sutura-catalog-wren/">
       
       
-        <link rel="prev" href="../where-identity-is-proven/">
+        <link rel="prev" href="../sutura-catalog-rdbms/">
       
       
-        <link rel="next" href="../what-agent-identity-can-carry/">
+        <link rel="next" href="../sutura-semantic/">
       
       
         
       
       
-      <link rel="icon" href="../assets/favicon.svg">
+      <link rel="icon" href="../../assets/favicon.svg">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>An RDBMS dictionary as a metadata source - sutura</title>
+        <title>sutura-catalog-wren - sutura</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -47,9 +47,9 @@
       
     
     
-      <link rel="stylesheet" href="../css/telekom.css">
+      <link rel="stylesheet" href="../../css/telekom.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#an-rdbms-dictionary-as-a-metadata-source" class="md-skip">
+        <a href="#sutura-catalog-wren" class="md-skip">
           Skip to content
         </a>
       
@@ -94,9 +94,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="../assets/sutura.svg" alt="logo">
+  <img src="../../assets/sutura.svg" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              An RDBMS dictionary as a metadata source
+              sutura-catalog-wren
             
           </span>
         </div>
@@ -241,9 +241,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="../assets/sutura.svg" alt="logo">
+  <img src="../../assets/sutura.svg" alt="logo">
 
     </a>
     sutura
@@ -301,7 +301,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href=".." class="md-nav__link ">
+            <a href="../.." class="md-nav__link ">
               
   
   
@@ -345,7 +345,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/" class="md-nav__link">
+      <a href="../../concepts/" class="md-nav__link">
         
   
   
@@ -373,7 +373,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/" class="md-nav__link">
+      <a href="../../getting-started/" class="md-nav__link">
         
   
   
@@ -401,7 +401,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../qa/" class="md-nav__link">
+      <a href="../../qa/" class="md-nav__link">
         
   
   
@@ -429,7 +429,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../agent-prompt/" class="md-nav__link">
+      <a href="../../agent-prompt/" class="md-nav__link">
         
   
   
@@ -437,6 +437,397 @@
     
   
     The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operating it
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Operating it
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The local chat demo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../where-identity-is-proven/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where each identity claim is proven
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rdbms-catalog-guidance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An RDBMS dictionary as a metadata source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../what-agent-identity-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What an agent identity can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../what-okf-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What an OKF-style catalog can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../what-openmetadata-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What an OpenMetadata catalog can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../what-a-data-contract-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What an Open Data Contract Standard catalog can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
   
 
     
@@ -478,18 +869,6 @@
       
         
       
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
     
     
     
@@ -503,17 +882,17 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
             
   
   
   <span class="md-ellipsis">
     
   
-    Operating it
+    Building it
   
 
     
@@ -524,12 +903,12 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_2">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
   
-    Operating it
+    Building it
   
 
           </label>
@@ -542,14 +921,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../serving/" class="md-nav__link">
+      <a href="../../architecture/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Serving over HTTP
+    Architecture
   
 
     
@@ -570,14 +949,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../verifying-a-release/" class="md-nav__link">
+      <a href="../../contributing/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Verifying a release
+    Contributing
   
 
     
@@ -598,14 +977,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../demo/" class="md-nav__link">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    The local chat demo
+    Building without direct egress
   
 
     
@@ -626,14 +1005,160 @@
   
   
     <li class="md-nav__item">
-      <a href="../integrations/" class="md-nav__link">
+      <a href="../../publishing/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Integrations
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
   
 
     
@@ -654,14 +1179,154 @@
   
   
     <li class="md-nav__item">
-      <a href="../where-identity-is-proven/" class="md-nav__link">
+      <a href="../sutura-catalog-local/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Where each identity claim is proven
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-datahub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-datahub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-okf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-okf
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-datacontract/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-datacontract
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-openmetadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-openmetadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-rdbms/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-rdbms
   
 
     
@@ -698,7 +1363,7 @@
   <span class="md-ellipsis">
     
   
-    An RDBMS dictionary as a metadata source
+    sutura-catalog-wren
   
 
     
@@ -716,7 +1381,7 @@
   <span class="md-ellipsis">
     
   
-    An RDBMS dictionary as a metadata source
+    sutura-catalog-wren
   
 
     
@@ -742,43 +1407,88 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-this-source-is-and-what-it-is-not" class="md-nav__link">
+  <a href="#struct-summary" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What this source is, and what it is not
+        struct Summary
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="struct Summary">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methods
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#promoting-a-number-into-one" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#implements" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Promoting a number into one
+        Implements
       
     </span>
   </a>
   
 </li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
-  <a href="#what-the-runtime-prompt-says" class="md-nav__link">
+  <a href="#enum-importerror" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What the runtime prompt says
+        enum ImportError
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="enum ImportError">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#what-this-page-deliberately-does-not-claim" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#implements_1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What this page deliberately does not claim
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fn-import" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        fn import
       
     </span>
   </a>
@@ -801,670 +1511,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../what-agent-identity-can-carry/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    What an agent identity can carry
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../what-okf-can-carry/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    What an OKF-style catalog can carry
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../what-openmetadata-can-carry/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    What an OpenMetadata catalog can carry
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../what-a-data-contract-can-carry/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    What an Open Data Contract Standard catalog can carry
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../changelog/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Changelog
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-    
-      
-        
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
-        
-          
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Building it
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Building it
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../architecture/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../contributing/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Contributing
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../enterprise-mirrors/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Building without direct egress
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../publishing/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Publishing the docs
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    
-    
-      
-        
-          
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-    
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
-        
-          
-          <div class="md-nav__link md-nav__container">
-            <a href="../api/" class="md-nav__link ">
-              
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    API
-  
-
-    
-  </span>
-  
-  
-
-            </a>
-            
-              
-              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
-                <span class="md-nav__icon md-icon"></span>
-              </label>
-            
-          </div>
-        
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_5">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    API
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../api/sutura-domain/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    sutura-domain
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../api/sutura-catalog-local/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    sutura-catalog-local
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../api/sutura-catalog-datahub/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    sutura-catalog-datahub
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../api/sutura-catalog-okf/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    sutura-catalog-okf
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../api/sutura-catalog-datacontract/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    sutura-catalog-datacontract
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../api/sutura-catalog-openmetadata/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    sutura-catalog-openmetadata
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../api/sutura-catalog-rdbms/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    sutura-catalog-rdbms
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../api/sutura-catalog-wren/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    sutura-catalog-wren
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../api/sutura-semantic/" class="md-nav__link">
+      <a href="../sutura-semantic/" class="md-nav__link">
         
   
   
@@ -1492,7 +1539,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-sql/" class="md-nav__link">
+      <a href="../sutura-sql/" class="md-nav__link">
         
   
   
@@ -1520,7 +1567,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-exec-datafusion/" class="md-nav__link">
+      <a href="../sutura-exec-datafusion/" class="md-nav__link">
         
   
   
@@ -1548,7 +1595,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-exec-duckdb/" class="md-nav__link">
+      <a href="../sutura-exec-duckdb/" class="md-nav__link">
         
   
   
@@ -1576,7 +1623,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-exec-bigquery/" class="md-nav__link">
+      <a href="../sutura-exec-bigquery/" class="md-nav__link">
         
   
   
@@ -1604,7 +1651,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-exec-postgres/" class="md-nav__link">
+      <a href="../sutura-exec-postgres/" class="md-nav__link">
         
   
   
@@ -1632,7 +1679,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-exec-clickhouse/" class="md-nav__link">
+      <a href="../sutura-exec-clickhouse/" class="md-nav__link">
         
   
   
@@ -1660,7 +1707,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-exec-oracle/" class="md-nav__link">
+      <a href="../sutura-exec-oracle/" class="md-nav__link">
         
   
   
@@ -1688,7 +1735,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-tls/" class="md-nav__link">
+      <a href="../sutura-tls/" class="md-nav__link">
         
   
   
@@ -1716,7 +1763,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-http-client/" class="md-nav__link">
+      <a href="../sutura-http-client/" class="md-nav__link">
         
   
   
@@ -1744,7 +1791,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-bounded-read/" class="md-nav__link">
+      <a href="../sutura-bounded-read/" class="md-nav__link">
         
   
   
@@ -1772,7 +1819,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-app/" class="md-nav__link">
+      <a href="../sutura-app/" class="md-nav__link">
         
   
   
@@ -1800,7 +1847,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-config/" class="md-nav__link">
+      <a href="../sutura-config/" class="md-nav__link">
         
   
   
@@ -1828,7 +1875,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-runtime/" class="md-nav__link">
+      <a href="../sutura-runtime/" class="md-nav__link">
         
   
   
@@ -1856,7 +1903,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-http/" class="md-nav__link">
+      <a href="../sutura-http/" class="md-nav__link">
         
   
   
@@ -1884,7 +1931,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-mcp/" class="md-nav__link">
+      <a href="../sutura-mcp/" class="md-nav__link">
         
   
   
@@ -1912,7 +1959,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-conformance/" class="md-nav__link">
+      <a href="../sutura-conformance/" class="md-nav__link">
         
   
   
@@ -1940,7 +1987,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-dev/" class="md-nav__link">
+      <a href="../sutura-dev/" class="md-nav__link">
         
   
   
@@ -2003,43 +2050,88 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-this-source-is-and-what-it-is-not" class="md-nav__link">
+  <a href="#struct-summary" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What this source is, and what it is not
+        struct Summary
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="struct Summary">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methods
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#promoting-a-number-into-one" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#implements" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Promoting a number into one
+        Implements
       
     </span>
   </a>
   
 </li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
-  <a href="#what-the-runtime-prompt-says" class="md-nav__link">
+  <a href="#enum-importerror" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What the runtime prompt says
+        enum ImportError
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="enum ImportError">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#what-this-page-deliberately-does-not-claim" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#implements_1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What this page deliberately does not claim
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fn-import" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        fn import
       
     </span>
   </a>
@@ -2066,98 +2158,62 @@
   
 
 
-<h1 id="an-rdbms-dictionary-as-a-metadata-source">An RDBMS dictionary as a metadata source<a class="headerlink" href="#an-rdbms-dictionary-as-a-metadata-source" title="Permanent link">&para;</a></h1>
-<blockquote>
-<p><strong>Implementation status:</strong> the crate currently converts dictionary records and is tested only
-through the fake <code>FixtureReader</code>. There is no production dictionary reader or database client,
-and no composition root links or serves this catalog. Operators cannot configure or use it in a
-shipped binary yet.</p>
-</blockquote>
-<p>The crate implements the conversion half of issue #151 and
-<code>docs/adr/0011-pluggable-by-declaration.md</code>'s RDBMS row. It is intended for a metadata source that
-reads a database's own dictionary - <code>information_schema</code> plus whatever table comments a human
-wrote - and declares <strong>structure and prose</strong> and nothing else. It is the narrowest declaration this
-repository makes, and it exists because a database with DDL and comments and no semantic layer is
-where every adoption starts. <code>docs/adr/0013-a-raw-sql-tool-off-by-default.md</code> is the ramp
-that deployment's story continues; this page is the catalog half of it.</p>
-<p>This page describes the converter's contract and the intended boundary of a future production
-reader. The runtime prompt does not consume connector-specific text from this page. It derives the
-same guidance from a pinned bundle directly: non-empty physical structure and zero metrics.</p>
-<h2 id="what-this-source-is-and-what-it-is-not">What this source is, and what it is not<a class="headerlink" href="#what-this-source-is-and-what-it-is-not" title="Permanent link">&para;</a></h2>
-<p>A dictionary is mainly DDL and comments: the tables, the columns, their constraints, and prose written
-against them. The converter accepts exactly that, and the declaration says so
-explicitly:</p>
+<!-- GENERATED FILE - do not edit.
+     Written by docs/.tools/rustdoc_to_markdown.py from rustdoc JSON.
+     Edit the doc comments in the crate source instead, then regenerate.
+     The commands are on the API reference landing page. -->
+
+<h1 id="sutura-catalog-wren">sutura-catalog-wren<a class="headerlink" href="#sutura-catalog-wren" title="Permanent link">&para;</a></h1>
+<p>The public API of <code>sutura-catalog-wren</code>, rendered from rustdoc JSON.</p>
+<p><code>sutura import wren &lt;dir&gt; &lt;out&gt;</code>.</p>
+<p><code>&lt;dir&gt;</code> is a <code>WrenAI</code> project directory - read as <code>&lt;dir&gt;/manifest.json</code>, the MDL manifest
+<code>wren-core-base::mdl::manifest</code> defines (layout version 2; <code>wire</code>'s own header names the
+upstream source this was read from). Everything this converter knows about a wren project is in
+that one file: no second reader for a <code>views/</code> directory or a knowledge export, because nothing
+upstream of the manifest declares one that this converter's own module header does not already
+name as out of scope.</p>
+<h2 id="struct-summary"><code>struct Summary</code><a class="headerlink" href="#struct-summary" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Summary</span>
+</span></code></pre></div>
+<p>What ran, for the two lines the command prints.</p>
+<h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">metrics</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">models</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">refusals</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationships</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
+<p><code>Debug</code></p>
+<h2 id="enum-importerror"><code>enum ImportError</code><a class="headerlink" href="#enum-importerror" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ImportError</span>
+</span></code></pre></div>
+<p>Why an import wrote nothing, or stopped part-way through writing.</p>
+<h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>Structure</strong> - the tables and their columns.</li>
-<li><strong>Descriptions</strong> - table comments.</li>
-<li><strong>Relationships</strong> - the join a foreign key records, in the safe direction: the referenced column
-  must be the sole column of a primary or unique constraint before the join maps to <code>ManyToOne</code>.
-  Membership in a composite constraint does not qualify. The reader records which single-column
-  evidence it found; the converter checks only that evidence is present and does not re-derive it
-  from the constraint. A composite (multi-column) foreign key cannot be represented at all, so a
-  reader must refuse or omit it before the converter ever sees it.</li>
+<li><code>Read</code></li>
+<li><code>NotAManifest</code></li>
+<li><code>DestinationNotEmpty</code> - <code>&lt;out&gt;</code> already holds files. Refused rather than written into, because a document an earlier run wrote and this manifest no longer produces would sit beside the new output as if this run had converted it - and deleting the operator's files is not this command's call.</li>
+<li><code>Write</code></li>
 </ul>
-<p>And nothing else. There is <strong>no measure, no grain, no definitional filter, no value allowlist, no
-anchor and no cardinality</strong> - a human declares those in a semantic layer. A bundle from this source
-therefore loads, pins and validates with <strong>zero metrics</strong>, and answers no certified question on its
-own. That is not a limitation the deployment is missing; it is the honest statement about what a
-physical schema, by itself, knows.</p>
-<p>A future production reader will see only the objects the database exposes to its configured
-identity. <code>load()</code> has no request identity, and this converter does not build impersonation at the
-source.</p>
-<p>A foreign key is the one apparent exception and it is worth saying exactly why it is not one. A
-relationship arrives with its endpoints, but <strong>no declared cardinality</strong> - the dictionary vouches for
-the direction a constraint can prove and no fan-out it cannot - so the relationship does <strong>not</strong> by
-itself license a dimension. That is <code>a_foreign_key_licenses_no_dimension_without_a_declared_cardinality</code>.</p>
-<h2 id="promoting-a-number-into-one">Promoting a number into one<a class="headerlink" href="#promoting-a-number-into-one" title="Permanent link">&para;</a></h2>
-<p>This is the intended ramp, and it is the reason the "answers no certified question" sentence is not
-a dead end. Once a production reader and composition exist, a deployment can make a number certified
-from this quiet starting point:</p>
-<ul>
-<li>Someone authors a <strong>semantic layer</strong> - a metric over a model the dictionary already reads. Combining
-  that declaration with this adapter is outside the current implementation.</li>
-<li>That is the normal channel <code>docs/adr/0013-a-raw-sql-tool-off-by-default.md</code> is designed
-  to feed: the ungoverned answer that worked is a written demand signal, and defining the metric
-  makes the next identical question certified.</li>
-<li>The catalog parse validates the new declaration the same way it validates every other - a
-  <code>Measure</code> with no expression field, dimensions checked against the model - so "define a metric" is
-  a workflow with a checkpoint, not advice.</li>
-</ul>
-<p>Each is an option with a payoff. This adapter itself remains a dictionary-only catalog with zero
-metrics.</p>
-<h2 id="what-the-runtime-prompt-says">What the runtime prompt says<a class="headerlink" href="#what-the-runtime-prompt-says" title="Permanent link">&para;</a></h2>
-<p>A bundle with physical structure and zero metrics gets a dedicated prompt section. It tells the
-agent three things the ordinary empty metric list cannot say on its own:</p>
-<ul>
-<li>no table or column in the bundle is a certified metric;</li>
-<li>descriptions, including database comments, are authored and untrusted descriptive prose, not a
-  definition or an instruction;</li>
-<li>promoting a number means having a person author semantic metadata for it and loading that new
-  definition before the number becomes askable.</li>
-</ul>
-<p>The trigger is the pinned content and its digest-covered capability manifest, not an adapter name or
-source label. That keeps the instruction true for any declaring source with the same physical-only
-shape and keeps database names out of the prompt.</p>
-<h2 id="what-this-page-deliberately-does-not-claim">What this page deliberately does not claim<a class="headerlink" href="#what-this-page-deliberately-does-not-claim" title="Permanent link">&para;</a></h2>
-<p><code>docs/adr/0016-what-datahub-can-carry.md</code> decision 7 established the rule for a narrow connector, and
-this page follows the same boundary by keeping two claims out of the adapter contract:</p>
-<ul>
-<li>It does not prescribe a database configuration. A database's DDL, constraints and comments are
-  whatever they already are, and nothing here turns a particular configuration into a precondition.
-  Every choice named on this page is an option with a payoff.</li>
-<li>It does not make metrics, comments or a raw tool prerequisites for conversion. A dictionary
-  without them converts to a bundle whose declaration is exactly the empty-of-metric truth.</li>
-</ul>
-<p>Options name their payoff without becoming preconditions.</p>
+<h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h2 id="fn-import"><code>fn import</code><a class="headerlink" href="#fn-import" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">import</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">,</span><span class="w"> </span><span class="n">destination</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">Summary</span><span class="p">,</span><span class="w"> </span><span class="n">ImportError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Converts the wren project at <code>source</code> into markdown catalog documents and a refusal report
+under <code>destination</code>, which must be absent or empty.</p>
+<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<p>If <code>&lt;source&gt;/manifest.json</code> cannot be read or is not a wren MDL manifest this converter's <code>wire</code>
+module can parse, if <code>destination</code> already holds a file, or if it cannot be written to.</p>
 
 
 
 
 
 
-
-  
-  
 
 
 
@@ -2223,10 +2279,10 @@ this page follows the same boundary by keeping two claims out of the adapter con
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>
