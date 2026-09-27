@@ -1,0 +1,17 @@
+diff --git a/crates/sutura-catalog-datacontract/src/lib.rs b/crates/sutura-catalog-datacontract/src/lib.rs
+index 8a68f9b9b..4b75b17ff 100644
+--- a/crates/sutura-catalog-datacontract/src/lib.rs
++++ b/crates/sutura-catalog-datacontract/src/lib.rs
+@@ -311,10 +311,9 @@ impl DataContractCatalog {
+                 // both state that an absent `required` is not a nullability decision.
+                 property.required.map(|required| !required),
+             )
+-            .map_err(|cause| DataContractError::InvalidColumnDescription {
++            .map_err(|_cause| DataContractError::UnknownKind {
+                 path: path.to_path_buf(),
+-                column: column_name.clone(),
+-                cause,
++                found: column_name.as_str().to_owned(),
+             })?;
+             // Primary key evidence: a column with `primaryKey: true` is part of the key, ordered by
+             // `primaryKeyPosition` (1-based). Evidence only, per `Model::with_primary_key`'s own doc.

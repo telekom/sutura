@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-catalog-datacontract/src/lib.rs b/crates/sutura-catalog-datacontract/src/lib.rs
+index 8a68f9b9b..318ea283d 100644
+--- a/crates/sutura-catalog-datacontract/src/lib.rs
++++ b/crates/sutura-catalog-datacontract/src/lib.rs
+@@ -262,9 +262,9 @@ impl DataContractCatalog {
+ 
+     /// One [`SchemaObject`] into a domain [`Model`].
+     fn convert_model(&self, path: &Path, object: &SchemaObject) -> Result<Model, DataContractError> {
+-        let name = ModelName::parse(object.name.as_str()).map_err(|cause| DataContractError::InvalidName {
++        let name = ModelName::parse(object.name.as_str()).map_err(|_cause| DataContractError::UnknownKind {
+             path: path.to_path_buf(),
+-            cause,
++            found: object.name.clone(),
+         })?;
+         // The physical table name is the object's `physicalName` (e.g. `table_1_2_0`) where the
+         // author wrote one, falling back to its `name`; the model name is always the object's name,

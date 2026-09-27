@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-catalog-openmetadata/src/http.rs b/crates/sutura-catalog-openmetadata/src/http.rs
+index 1bdb7090d..15c7c6ed5 100644
+--- a/crates/sutura-catalog-openmetadata/src/http.rs
++++ b/crates/sutura-catalog-openmetadata/src/http.rs
+@@ -278,7 +278,10 @@ impl HttpSnapshotReader {
+                 detail: EndpointMessage::bounded(&text),
+             });
+         }
+-        serde_json::from_str(&text).map_err(|cause| HttpReaderError::NotADocument { entity, cause })
++        serde_json::from_str(&text).map_err(|cause| HttpReaderError::NotADocument {
++            entity: "notables",
++            cause,
++        })
+     }
+ 
+     /// Whether a page's own fields say more results exist than the page this reader read.

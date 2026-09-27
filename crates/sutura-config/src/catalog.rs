@@ -13,8 +13,8 @@ use sutura_domain::pinned::DefinitionVersion;
 
 pub mod rdbms;
 pub use crate::catalog::rdbms::{
-    CatalogConnection, CatalogEnvironment, InvalidConnection, InvalidRdbmsCatalog, LiveRowPredicate, PredicateOperator,
-    RdbmsSettings,
+    CatalogConnection, CatalogEnvironment, DocumentationSchema, InvalidConnection, InvalidDocumentationSchema,
+    InvalidRdbmsCatalog, LiveRowPredicate, PredicateOperator, RdbmsSettings,
 };
 
 /// Which adapter the catalog configuration names, and therefore which one opens it.
@@ -70,9 +70,10 @@ pub enum CatalogKind {
     Openmetadata,
     /// An RDBMS dictionary, decided by `sutura-catalog-rdbms` over a `DictionaryReader` port.
     ///
-    /// **A declarable kind no binary this repository ships can open yet, for the identical reason
-    /// [`Self::Openmetadata`] states.** The crate decides the conversion against a recorded
-    /// dictionary; a reader over a real socket lands with `#972`.
+    /// **A declarable kind that opens only on a build that links the `rdbms` feature** (which
+    /// turns on `sutura-catalog-rdbms`'s `live` reader over a Postgres documentation schema); a
+    /// build without it refuses the kind by name naming the feature, the same stand
+    /// [`Self::Openmetadata`] makes. The composition root decides which, never the settings parse.
     Rdbms,
 }
 /// The configured word did not name a kind of catalog this build has.

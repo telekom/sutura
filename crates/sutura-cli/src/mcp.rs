@@ -13,9 +13,9 @@
 //! so there is no settings-less invocation left for them to name - a parallel argument to the
 //! declared catalog is the legacy shim #970 removes, not a path that survives. `catalog.kind: okf`
 //! is an unconditional dependency of this build, so it always opens; `openmetadata` opens behind
-//! this binary's `openmetadata` feature and `rdbms` has no reader on any build - both are refused
-//! by name with the same message `sutura serve` gives, because both roots dispatch the same
-//! `crate::catalog::open_catalog`.
+//! this binary's `openmetadata` feature and `rdbms` opens behind its `rdbms` feature - a build
+//! without the feature refuses both by name with the same message `sutura serve` gives, because
+//! both roots dispatch the same `crate::catalog::open_catalog`.
 //!
 //! Kept in its own module rather than inlined into `commands.rs` because it is a composition of its
 //! own - the driving port over a pipe, with an async runtime the other commands do not want - and
@@ -71,7 +71,7 @@ pub(crate) fn mcp() -> ExitCode {
         let outbound = crate::serve::outbound::resolve(&settings)?;
         // **The declared catalog, through the ONE opener `sutura serve` uses.** A deployment that
         // names `catalog.kind: openmetadata` or `rdbms` without this binary linking the reader
-        // (`openmetadata` is behind the `openmetadata` feature; `rdbms` has no reader on any build)
+        // (`openmetadata` is behind the `openmetadata` feature; `rdbms` behind its `rdbms` feature)
         // is refused here with the same operator-facing message `serve` gives - both roots call
         // `crate::catalog::open_catalog`, so the refusal cannot drift.
         let catalogs = crate::catalog::open_catalog(settings.catalogs(), outbound.as_ref())?;

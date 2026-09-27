@@ -172,6 +172,16 @@ configuration it is handed. Order is declaration order, which is content order: 
 manifest is a `BTreeMap` keyed on each entry's `CatalogSettings::name`, so this ordering is
 what a reviewer reads and manifest determinism does not depend on it surviving a rename.
 
+## `use DocumentationSchema`
+
+A typed PostgreSQL schema name holding the documentation rows.
+
+Binding a schema name as a quoted, validated identifier - never interpolating it into a SQL
+statement as raw text. The accepted set is `[A-Za-z0-9_]`, the same leaves every Postgres
+identifier is built from, and case is preserved. It also doubles as the physical schema the
+described objects are documented against when the dictionary rows' own schema differs from a
+separate `catalog` part - see the dictionary contract.
+
 ## `use InvalidCatalogSettings`
 
 Why a catalog configuration is not usable.
@@ -182,6 +192,10 @@ Why an rdbms catalog's `connection:` block is not usable.
 
 **Limit:** an `InvalidConnection::Transport` cause is the `sources:` transport reader's own, so
 its message names the key under `sources.<catalog name>` rather than under this block.
+
+## `use InvalidDocumentationSchema`
+
+Why a declared documentation schema is not usable.
 
 ## `use InvalidRdbmsCatalog`
 
@@ -1474,9 +1488,10 @@ that exists in a record rather than in a linked crate is still a word an operato
   deployment's `REST` API and maps it into the crate's recorded `Snapshot` shape.
 - `Rdbms` - An RDBMS dictionary, decided by `sutura-catalog-rdbms` over a `DictionaryReader` port.
 
-  **A declarable kind no binary this repository ships can open yet, for the identical reason
-  `Self::Openmetadata` states.** The crate decides the conversion against a recorded
-  dictionary; a reader over a real socket lands with `#972`.
+  **A declarable kind that opens only on a build that links the `rdbms` feature** (which
+  turns on `sutura-catalog-rdbms`'s `live` reader over a Postgres documentation schema); a
+  build without it refuses the kind by name naming the feature, the same stand
+  `Self::Openmetadata` makes. The composition root decides which, never the settings parse.
 
 #### Methods
 
@@ -1744,12 +1759,26 @@ and the same fail-closed channel rules, through the one function both call:
 
 A non-empty environment key. Empty would select no dictionary rows, silently.
 
+### `use DocumentationSchema`
+
+A typed PostgreSQL schema name holding the documentation rows.
+
+Binding a schema name as a quoted, validated identifier - never interpolating it into a SQL
+statement as raw text. The accepted set is `[A-Za-z0-9_]`, the same leaves every Postgres
+identifier is built from, and case is preserved. It also doubles as the physical schema the
+described objects are documented against when the dictionary rows' own schema differs from a
+separate `catalog` part - see the dictionary contract.
+
 ### `use InvalidConnection`
 
 Why an rdbms catalog's `connection:` block is not usable.
 
 **Limit:** an `InvalidConnection::Transport` cause is the `sources:` transport reader's own, so
 its message names the key under `sources.<catalog name>` rather than under this block.
+
+### `use InvalidDocumentationSchema`
+
+Why a declared documentation schema is not usable.
 
 ### `use InvalidRdbmsCatalog`
 
@@ -1785,9 +1814,10 @@ selects dictionary rows, the source the described objects are served from, and t
 Split out of `catalog.rs` at the crate's 1000-line cap. The parent re-exports every type, so
 `crate::catalog::<Name>` and the crate root's `pub use` both still resolve.
 
-**Parsed, not read:** nothing in this repository opens an rdbms catalog yet. The composition
-root still refuses `kind: rdbms` by name, so every value here is a checked declaration no reader
-has consumed.
+**Parsed here, read by a composition root that links the `live` reader.** This crate's own job
+ends at a checked declaration; a build with `sutura-catalog-rdbms`'s `live` feature consumes
+these values into a reader over a Postgres documentation schema, and a build without it refuses
+`kind: rdbms` by name. Every value below is a checked declaration either way.
 
 #### `struct RdbmsSettings`
 
@@ -1805,6 +1835,12 @@ as one `Option`, so no state with half of it set is representable.
 ```rust
 pub const fn connection(&self) -> &CatalogConnection
 ```
+
+```rust
+pub const fn dictionary_schema(&self) -> Option<&DocumentationSchema>
+```
+
+The schema holding the dictionary rows, or `None` for the reader's documented default.
 
 ```rust
 pub const fn environment(&self) -> &CatalogEnvironment
@@ -1909,6 +1945,47 @@ pub fn as_str(&self) -> &str
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
+#### `struct DocumentationSchema`
+
+```rust
+pub struct DocumentationSchema
+```
+
+A typed PostgreSQL schema name holding the documentation rows.
+
+Binding a schema name as a quoted, validated identifier - never interpolating it into a SQL
+statement as raw text. The accepted set is `[A-Za-z0-9_]`, the same leaves every Postgres
+identifier is built from, and case is preserved. It also doubles as the physical schema the
+described objects are documented against when the dictionary rows' own schema differs from a
+separate `catalog` part - see the dictionary contract.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum InvalidDocumentationSchema`
+
+```rust
+pub enum InvalidDocumentationSchema
+```
+
+Why a declared documentation schema is not usable.
+
+##### Variants
+
+- `Empty`
+- `NotIdentifier`
+
+##### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 #### `struct CatalogConnection`
 
 ```rust
@@ -1962,6 +2039,7 @@ Why an rdbms catalog's own keys are not usable.
 - `EmptyEnvironment`
 - `SourceAlias`
 - `UnknownSourceAlias`
+- `DictionarySchema`
 - `PredicateColumn`
 - `UnknownPredicateOperator`
 - `PredicateValueMissing`

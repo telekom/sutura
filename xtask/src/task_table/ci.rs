@@ -69,7 +69,15 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-devenv-shell",
         description: "every devenv script body goes through the wrapper ShellCheck reads",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // The wrapper and one routed body satisfy the builder and discovery floors. The
+            // second script body bypasses the wrapper.
+            seeds: &[(
+                "devenv.nix",
+                "{ pkgs, ... }:\nlet\n  linted = name: bashOptions: text:\n    pkgs.writeShellApplication { name = \"sutura-${name}\"; inherit bashOptions text; extraShellCheckFlags = [ \"-x\" ]; };\n  runs = name: body: \"${linted name [ \"errexit\" ] body}/bin/sutura-${name}\";\nin\n{\n  scripts.good.exec = runs \"good\" \"echo good\";\n  scripts.bad.exec = \"echo unchecked\";\n}\n",
+            )],
+            in_scope: Some("devenv.nix"),
+        },
         run: devenv_shell::run,
     },
     Task {

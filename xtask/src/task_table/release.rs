@@ -29,7 +29,17 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-attribution-owner",
         description: "no committed ATTRIBUTION.md, and release.yml generates the attribution asset",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // The release still names its generator; the committed copy alone breaks ownership.
+            seeds: &[
+                ("ATTRIBUTION.md", "stale generated notice\n"),
+                (
+                    ".github/workflows/release.yml",
+                    "- run: cargo run -p xtask -- attribution dist/notice.md\n",
+                ),
+            ],
+            in_scope: Some("ATTRIBUTION.md"),
+        },
         run: attribution::run_check_owner,
     },
     Task {
