@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-datahub/src/http.rs b/crates/sutura-catalog-datahub/src/http.rs
+index d4073220c..5024bc8ea 100644
+--- a/crates/sutura-catalog-datahub/src/http.rs
++++ b/crates/sutura-catalog-datahub/src/http.rs
+@@ -326,7 +326,7 @@ impl HttpAspectReader {
+                 detail: EndpointMessage::bounded(&text),
+             });
+         }
+-        serde_json::from_str(&text).map_err(|cause| HttpReaderError::NotADocument { entity, cause })
++        serde_json::from_str(&text).map_err(|cause| HttpReaderError::NotTheCanonicalShape { entity, cause })
+     }
+ 
+     /// Whether a page's own fields say more results exist than the page this reader read.

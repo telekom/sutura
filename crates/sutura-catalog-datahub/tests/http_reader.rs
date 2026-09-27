@@ -157,6 +157,32 @@ mod tests {
         );
     }
 
+    /// **A body that is not UTF-8 is refused as unreadable, not as unreached.**
+    #[test]
+    fn a_response_that_cannot_be_read_as_text_is_refused() {
+        let server = FakeServer::start(vec![Scripted::raw(200, vec![0xFF, 0xFE])]);
+        let error = reader(&server, 10, GENEROUS_CAP).read().err();
+        drop(server.finish());
+        let cause = error.as_ref().map(http_cause);
+        assert!(
+            matches!(cause, Some(HttpReaderError::Unreadable { entity: "dataset", .. })),
+            "{cause:?}"
+        );
+    }
+
+    /// **A 200 whose body is text but not JSON is refused as not a document.**
+    #[test]
+    fn a_successful_response_that_is_not_json_is_refused() {
+        let server = FakeServer::start(vec![Scripted::raw(200, b"not-json-at-all".to_vec())]);
+        let error = reader(&server, 10, GENEROUS_CAP).read().err();
+        drop(server.finish());
+        let cause = error.as_ref().map(http_cause);
+        assert!(
+            matches!(cause, Some(HttpReaderError::NotADocument { entity: "dataset", .. })),
+            "{cause:?}"
+        );
+    }
+
     /// **The decoded snapshot certifies the same `Measure` the recorded fixture does.**
     ///
     /// This is issue #202's own question, answered over the wire instead of over a recorded string:
