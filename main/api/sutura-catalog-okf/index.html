@@ -2330,8 +2330,11 @@ sends a reader to read all of them.</p>
 <li><code>UncheckableKnowledge</code></li>
 <li><code>Empty</code></li>
 <li><code>TooManyDocuments</code></li>
-<li><code>TooLarge</code> - The read of this document would push the running total over <code>MAX_CATALOG_BYTES</code>.</li>
+<li><code>TooManyEntries</code> - The walk visited more directory entries than <code>MAX_CATALOG_ENTRIES</code> permits.</li>
 </ul>
+<p>Bounds the tree, not the documents: a wide directory of skipped non-document files, or a
+  bind-mount cycle that would not terminate, is refused here rather than walked without end.
+- <code>TooLarge</code> - The read of this document would push the running total over <code>MAX_CATALOG_BYTES</code>.</p>
 <p><code>path</code> is the catalog root, matching <code>TooManyDocuments</code> and <code>Empty</code> above - the rendered
   text names "the catalog", so the path in it has to be the catalog's, not one file's.
   <code>document</code> is the one whose bytes pushed the running total past <code>limit</code>. <code>found</code> is that

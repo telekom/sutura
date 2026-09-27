@@ -1989,7 +1989,9 @@ messages unchanged, and keeps whatever it does with the text after the read (par
 split its frontmatter, dispatch on its kind). The two sharp bounds a catalog clamps each document
 to are asymmetric: the document-count cap on the walk (<code>MAX_CATALOG_DOCUMENTS</code>) is a default a
 caller may override through <code>walk()</code>'s <code>max_documents</code> parameter, while the aggregate-byte cap on
-the read (<code>MAX_CATALOG_BYTES</code>) is hard-coded inside <code>read_document</code> and not a parameter at all.</p>
+the read (<code>MAX_CATALOG_BYTES</code>) is hard-coded inside <code>read_document</code> and not a parameter at all.
+The entry cap on the walk (<code>MAX_CATALOG_ENTRIES</code>) is hard-coded too, and bounds the tree rather
+than the documents in it.</p>
 <h2 id="use-max_catalog_bytes"><code>use MAX_CATALOG_BYTES</code><a class="headerlink" href="#use-max_catalog_bytes" title="Permanent link">&para;</a></h2>
 <h2 id="use-readerror"><code>use ReadError</code><a class="headerlink" href="#use-readerror" title="Permanent link">&para;</a></h2>
 <p>Why a bounded document read could not complete.</p>
@@ -2015,6 +2017,15 @@ as soon as it is large enough, rather than walked to its end first. <strong>Docu
 a directory holding this many document-shaped files plus an unbounded number of other entries
 (subdirectories, non-document files, a skipped symlink) is unaffected - this bounds what becomes
 a document, not the size of the tree it lives in.</p>
+<h2 id="use-max_catalog_entries"><code>use MAX_CATALOG_ENTRIES</code><a class="headerlink" href="#use-max_catalog_entries" title="Permanent link">&para;</a></h2>
+<p>The most directory entries a walk may visit before it refuses.</p>
+<p>The document cap bounds what becomes a document; this bounds the tree itself. Skipped entries -
+subdirectories, non-document files, links - never reach the document count, so without this a
+wide tree, or a bind-mount cycle the kernel's link limit does not stop, is walked without end.
+Checked on every entry read, so the refusal comes as soon as the bound is crossed. Ten times the
+document cap: a catalog root holds its documents plus a README or a few subdirectories, not
+nine non-documents for every document, and ten thousand directory reads is still a startup cost
+rather than a stall.</p>
 <h2 id="use-walkerror"><code>use WalkError</code><a class="headerlink" href="#use-walkerror" title="Permanent link">&para;</a></h2>
 <p>Why the walk could not produce the sorted document list.</p>
 <h2 id="use-walk"><code>use walk</code><a class="headerlink" href="#use-walk" title="Permanent link">&para;</a></h2>
@@ -2028,7 +2039,8 @@ still fails loudly at deserialisation, which is the caller's job.</p>
 <h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
 <p><code>WalkError::NotADirectory</code> when <code>root</code> is not a directory; <code>WalkError::Io</code> for a failure to
 read <code>root</code> or a directory within it; <code>WalkError::TooManyDocuments</code> once a directory crosses
-<code>max_documents</code>; <code>WalkError::Empty</code> when <code>root</code> holds no documents.</p>
+<code>max_documents</code>; <code>WalkError::TooManyEntries</code> once the walk visits more than
+<code>MAX_CATALOG_ENTRIES</code> entries; <code>WalkError::Empty</code> when <code>root</code> holds no documents.</p>
 
 
 

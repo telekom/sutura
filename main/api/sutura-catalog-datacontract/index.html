@@ -2361,10 +2361,13 @@ sends a reader to read all of them.</p>
 <li><code>UncheckableKnowledge</code></li>
 <li><code>Empty</code></li>
 <li><code>TooManyDocuments</code></li>
-<li><code>TooLarge</code></li>
-<li><code>NotARegularFile</code></li>
-<li><code>Digest</code></li>
+<li><code>TooManyEntries</code> - The walk visited more directory entries than <code>MAX_CATALOG_ENTRIES</code> permits.</li>
 </ul>
+<p>Bounds the tree, not the documents: a wide directory of skipped non-document files, or a
+  bind-mount cycle that would not terminate, is refused here rather than walked without end.
+- <code>TooLarge</code>
+- <code>NotARegularFile</code>
+- <code>Digest</code></p>
 <h3 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 
