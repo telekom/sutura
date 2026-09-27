@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-semantic/src/plan.rs b/crates/sutura-semantic/src/plan.rs
+--- a/crates/sutura-semantic/src/plan.rs
++++ b/crates/sutura-semantic/src/plan.rs
+@@ -305,7 +305,7 @@
+         // column for them to constrain, so nothing can leak.
+         let bindings = predicates_and_params(resolution, &requested, own_table, &time_column)?;
+         let metric = resolution.metric;
+-        let measure = plan_measure(closed, |column| PlanColumn::new(own_table.clone(), column.clone()));
++        let measure = plan_measure(closed, |_| time_column.clone());
+         QueryPlan::new(
+             model.source().clone(),
+             metric.name().clone(),

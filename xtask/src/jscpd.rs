@@ -300,9 +300,12 @@ fn thresholds_agree(run_gate_text: &str) -> Result<(), String> {
 /// The gate's decision, computed from the raw clones and the parsed allowlist.
 ///
 /// Pure and unit-tested with synthetic [`Duplicate`]s - no `jscpd` binary - so the exit code is
-/// held by a test: flipping the `Fail` arm here reddens the suite, which is the #371 refusal held
-/// by a mechanism rather than by recall (the falsifier cannot reach this branch, because
-/// `check-jscpd` refuses earlier on the missing binary and the missing allowlist file).
+/// held by a test: flipping the `Fail` arm here reddens the suite. The shared falsifier also
+/// seeds the config, threshold anchor, allowlist and a real clone. The sweep checks that `jscpd`
+/// reports the clone before accepting `run`'s failing verdict, and `checks.nextest` provisions
+/// the pinned binary. A local `just test` without it fails the sweep instead of passing on the
+/// missing-binary refusal. The verdict alone does not identify which `run` arm failed; a
+/// controlled mutation of the finding arm is needed to establish that separately.
 fn decide(clones: &[Duplicate], allow: &Allowlist) -> Verdict {
     let findings = findings(clones, allow);
     if findings.is_empty() {
@@ -421,6 +424,21 @@ fn scan(root: &Path, jscpd: &Path, config: &[u8]) -> Result<Vec<Duplicate>, Stri
     let text = std::fs::read_to_string(&report_path).map_err(|e| format!("could not read {}: {e}", report_path.display()))?;
     let value: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("jscpd JSON report was not valid: {e}"))?;
     parse_report(&value)
+}
+
+#[cfg(test)]
+pub(crate) fn assert_seeded_clone(root: &Path) {
+    let scanner = which("jscpd").expect("the falsifier needs jscpd on PATH");
+    let (config, _) = load_config(root).expect("the falsifier needs valid jscpd config");
+    let clones = scan(root, &scanner, &config).expect("jscpd must scan the falsifier tree");
+    assert!(
+        clones.iter().any(|clone| {
+            let names = [&clone.first.name, &clone.second.name];
+            names.iter().any(|name| name.ends_with("crates/example/src/first.rs"))
+                && names.iter().any(|name| name.ends_with("crates/example/src/second.rs"))
+        }),
+        "jscpd did not report the seeded clone between first.rs and second.rs: {clones:?}"
+    );
 }
 
 /// Parse the narrow fields this verdict needs while tolerating additions to jscpd's report.

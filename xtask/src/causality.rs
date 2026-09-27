@@ -96,6 +96,7 @@ pub(crate) mod attributes;
 mod base;
 mod claim;
 mod coverage;
+mod declared;
 mod diff;
 mod edited;
 mod features;
@@ -128,7 +129,7 @@ mod stack;
 mod weakens;
 mod worktree;
 
-use base::{BaseOutcome, classify_base, report_base, tail};
+use base::{BaseOutcome, classify_base, report_base_scoped, tail};
 use coverage::{Coverage, Scope};
 use diff::changed_with_additions;
 use features::{Activation, BaseText, Trees};
@@ -218,6 +219,7 @@ fn prove(
     for f in &first.remove {
         println!("  remove:    {f}  (added in this branch)");
     }
+    declared::report_kept(files, separable);
     report_orphaned_modules(&first.remove, files, read);
     for f in &separable.held_back {
         println!("  held:      {f}  (carries its own tests)");
@@ -346,7 +348,7 @@ fn reconstruct_and_run(
             return Verdict::Fail;
         }
         let (retry_ok, retry_out) = cargo_test(wt, target, scope.only, Tree::Reconstructed);
-        return report_base(
+        return report_base_scoped(
             &classify_base(
                 &retry_out,
                 retry_ok,
@@ -359,6 +361,7 @@ fn reconstruct_and_run(
             scope.coverage,
             scope.moved,
             scope.reverted.attempt(true),
+            scoped.tests(),
         );
     }
 
@@ -374,13 +377,14 @@ fn reconstruct_and_run(
         return Verdict::Fail;
     }
 
-    report_base(
+    report_base_scoped(
         &outcome,
         &base_out,
         false,
         scope.coverage,
         scope.moved,
         scope.reverted.attempt(false),
+        scoped.tests(),
     )
 }
 
@@ -637,7 +641,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             // `Claim-Cell:` rather than a blanket override.
             let waived = weakens::Waived::of(&worktree::messages(&root, &at));
             match report_deleted_tests(&deleted, &waived) {
-                Verdict::Pass => partition(&files, &working_tree),
+                Verdict::Pass => declared::keep(partition(&files, &working_tree), &working_tree, &base_tree),
                 refused => return refused,
             }
         }
@@ -670,7 +674,19 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             if let Some(ref declared) = claim
                 && let Scan::Runnable(scoped) = Scan::of(&files, &inseparable, &working_tree)
             {
-                return claim::run(&root, &scoped, &inseparable, declared, claim::Caller::TEST_CAUSALITY);
+                let claim_verdict = claim::run(&root, &scoped, &inseparable, declared, claim::Caller::TEST_CAUSALITY);
+                let names: BTreeSet<String> = declared.cells().iter().cloned().collect();
+                if let Some(ordinary) = scoped.minus(&names) {
+                    eprintln!("xtask test-causality: FAILED - an inseparable claim left ordinary tests unproved:");
+                    for test in ordinary.tests() {
+                        eprintln!("  not proved: {}", test.name());
+                    }
+                    eprintln!(
+                        "Move the ordinary tests to a separable file, or declare each as a claim cell with a killing mutation."
+                    );
+                    return Verdict::Fail;
+                }
+                return claim_verdict;
             }
             report_not_separable(
                 &inseparable,
@@ -784,123 +800,10 @@ mod moved_tests;
 
 #[cfg(test)]
 mod tests {
-    use std::process::Command;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
     use super::base::BaseOutcome;
+    use super::fixtures::{Mutation, inseparable_claim_case};
     use super::{BaseState, retry_with_held_back};
     use crate::Verdict;
-
-    /// One unique temp directory per real-git test, so paths never collide under nextest.
-    static SEQ: AtomicUsize = AtomicUsize::new(0);
-
-    fn git(dir: &std::path::Path, args: &[&str]) {
-        let out = git_output(dir, args);
-        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
-    }
-
-    /// A `git` invocation in `dir`, with the caller's git environment stripped.
-    ///
-    /// `strip_git_env` is not optional here: the pre-commit hook runs `just test` with
-    /// `GIT_DIR`/`GIT_INDEX_FILE` pointing at the OUTER repo's own commit, and an unstripped
-    /// `rev-parse`/`diff` inside this fixture reads THAT repo instead of `dir` - measured live,
-    /// where `base` came back as the outer repo's real HEAD and `run` refused to resolve a merge
-    /// base against it.
-    fn git_output(dir: &std::path::Path, args: &[&str]) -> std::process::Output {
-        let mut command = Command::new("git");
-        crate::repo::strip_git_env(&mut command);
-        command.current_dir(dir).args(args).output().expect("git runs")
-    }
-
-    /// Which mutation `inseparable_claim_case` commits, if any.
-    #[derive(Clone, Copy)]
-    enum Mutation {
-        /// Changes `f`'s return value again, so the cell's own `assert_eq!(f(), 2)` fails.
-        Kills,
-        /// Touches the production line without changing `f`'s return value, so the cell stays
-        /// green - applies cleanly and kills nothing.
-        DoesNotKill,
-        /// No patch is committed at all.
-        Missing,
-    }
-
-    /// `github.com/telekom/sutura#837` direction 2's own fixture: ONE file, `src/lib.rs`, carries
-    /// both an implementation change (`f`'s return value moves from 1 to 2) and its own
-    /// `#[cfg(test)] mod tests` in the SAME commit - no other file changes at all - so `plan()`
-    /// has no separable test file and `causality::run` reaches `Plan::NotSeparable`. Before this
-    /// decision that arm returned `Verdict::Pass` unconditionally, so `Verdict::Fail` from any
-    /// case here is reachable ONLY through the new dispatch into `claim::run`.
-    fn inseparable_claim_case(declare: bool, mutation: Mutation) -> Verdict {
-        assert!(
-            std::env::var_os("NEXTEST").is_some(),
-            "this fixture moves the process's current directory, so it must have the process to \
-             itself: run it under `just test`."
-        );
-        let dir = std::env::temp_dir().join(format!(
-            "sutura-causality-inseparable-{}-{}",
-            std::process::id(),
-            SEQ.fetch_add(1, Ordering::Relaxed)
-        ));
-        let _swept = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("temp dir");
-        git(&dir, &["init", "-q", "-b", "main"]);
-        git(&dir, &["config", "user.email", "test@example.com"]);
-        git(&dir, &["config", "user.name", "test"]);
-
-        std::fs::write(
-            dir.join("Cargo.toml"),
-            "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[profile.ci]\ninherits = \"dev\"\n",
-        )
-        .unwrap();
-        std::fs::create_dir_all(dir.join("src")).unwrap();
-        std::fs::write(dir.join("src/lib.rs"), "pub fn f() -> u8 { 1 }\n").unwrap();
-        std::fs::write(dir.join("flake.nix"), "{ }\n").unwrap();
-        git(&dir, &["add", "-A"]);
-        git(&dir, &["commit", "-q", "-m", "init"]);
-        let base = String::from_utf8(git_output(&dir, &["rev-parse", "HEAD"]).stdout)
-            .expect("utf8")
-            .trim()
-            .to_owned();
-
-        let head_content = "pub fn f() -> u8 { 2 }\n\n#[cfg(test)]\nmod tests {\n    use super::f;\n\n    #[test]\n    fn the_wired_one() {\n        assert_eq!(f(), 2);\n    }\n}\n";
-        std::fs::write(dir.join("src/lib.rs"), head_content).unwrap();
-
-        let mutated: Option<String> = match mutation {
-            Mutation::Kills => Some(head_content.replacen("{ 2 }", "{ 9 }", 1)),
-            Mutation::DoesNotKill => Some(head_content.replacen("pub fn f() -> u8 { 2 }", "pub fn f() -> u8 { 2 } // same", 1)),
-            Mutation::Missing => None,
-        };
-        if let Some(mutated) = mutated {
-            // Same technique as `run_dispatches_to_the_claim_arm`'s patch: a hand-diffed pair of
-            // files renamed onto `src/lib.rs`, so the mutation's own commit stays out of the
-            // measured `base..HEAD` range.
-            std::fs::write(dir.join(".old.rs"), head_content).unwrap();
-            std::fs::write(dir.join(".new.rs"), &mutated).unwrap();
-            let diffed = git_output(&dir, &["diff", "--no-index", "--", ".old.rs", ".new.rs"]);
-            let patch = String::from_utf8_lossy(&diffed.stdout)
-                .replace(".old.rs", "src/lib.rs")
-                .replace(".new.rs", "src/lib.rs");
-            std::fs::remove_file(dir.join(".old.rs")).unwrap();
-            std::fs::remove_file(dir.join(".new.rs")).unwrap();
-            std::fs::create_dir_all(dir.join("devco/claim-mutations")).unwrap();
-            std::fs::write(dir.join("devco/claim-mutations/the_wired_one.patch"), &patch).unwrap();
-        }
-
-        git(&dir, &["add", "-A"]);
-        let message = if declare {
-            "feat: pin f's changed return value\n\nClaim-Cell: the_wired_one"
-        } else {
-            "feat: change f's return value and add its own test"
-        };
-        git(&dir, &["commit", "-q", "-m", message]);
-
-        let original = std::env::current_dir().expect("a current directory");
-        std::env::set_current_dir(&dir).expect("point the process at the fixture repo");
-        let verdict = super::run(&[String::from("--since"), base]);
-        std::env::set_current_dir(&original).expect("restore the current directory");
-        drop(std::fs::remove_dir_all(&dir));
-        verdict
-    }
 
     /// `github.com/telekom/sutura#837` direction 2, half one: a complete declaration on an
     /// inseparable diff is EVALUATED, and a mutation that kills by the cell's own assertion is
@@ -919,7 +822,7 @@ mod tests {
     #[test]
     fn a_declared_claim_cell_is_evaluated_from_an_inseparable_plan() {
         assert_eq!(
-            inseparable_claim_case(true, Mutation::Kills),
+            inseparable_claim_case(true, Mutation::Kills, None),
             Verdict::Pass,
             "a complete declaration on an inseparable diff must be consulted, and its killing \
              mutation accepted"
@@ -934,7 +837,7 @@ mod tests {
     #[test]
     fn an_inseparable_claim_cell_whose_mutation_does_not_kill_is_refused() {
         assert_eq!(
-            inseparable_claim_case(true, Mutation::DoesNotKill),
+            inseparable_claim_case(true, Mutation::DoesNotKill, None),
             Verdict::Fail,
             "reaching the arm and finding the mutation does not kill must refuse - the old route \
              answered `Verdict::Pass` unconditionally here"
@@ -948,10 +851,23 @@ mod tests {
     #[test]
     fn an_inseparable_claim_cell_with_no_committed_patch_is_refused_as_missing() {
         assert_eq!(
-            inseparable_claim_case(true, Mutation::Missing),
+            inseparable_claim_case(true, Mutation::Missing, None),
             Verdict::Fail,
             "a declared cell with no patch must refuse as missing - the old route answered \
              `Verdict::Pass` unconditionally here"
+        );
+    }
+
+    #[test]
+    fn an_inseparable_claim_does_not_hide_an_ordinary_test() {
+        assert_eq!(
+            inseparable_claim_case(
+                true,
+                Mutation::Kills,
+                Some("    #[test]\n    fn the_ordinary_one() { assert_eq!(super::g(), 1); }"),
+            ),
+            Verdict::Fail,
+            "the claimed mutation cannot prove a neighbouring ordinary test in the same inseparable file"
         );
     }
 
@@ -963,7 +879,7 @@ mod tests {
     #[test]
     fn an_inseparable_plan_with_no_declaration_stays_the_same_non_verdict() {
         assert_eq!(
-            inseparable_claim_case(false, Mutation::Missing),
+            inseparable_claim_case(false, Mutation::Missing, None),
             Verdict::Pass,
             "no `Claim-Cell:` trailer at all must still be the loud NOT MECHANICALLY SEPARABLE pass"
         );

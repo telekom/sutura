@@ -175,7 +175,8 @@ mod tests {
              single_user_because: \"the hosted BigQuery acceptance uses one acknowledged shared CI identity\"\n  \
              inbound:\n    mode: \"direct\"\n    resource: \"{resource}\"\n    \
              authorization_server: \"{issuer_url}\"\n    key_set_file: \"{key_set}\"\n    \
-             algorithms: [\"RS256\"]\n    token_type: \"any\"\n\
+             algorithms: [\"RS256\"]\n    token_type: \"any\"\n    \
+             accept_any_token_type: true\n\
              telemetry:\n  format: \"bunyan\"\n\
              catalogs:\n  - name: \"{CATALOG}\"\n    kind: \"datahub\"\n    \
              dir: \"/unused-for-datahub\"\n    data_dir: \"/unused-for-datahub\"\n    \

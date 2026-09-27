@@ -528,12 +528,45 @@ fn a_ratio_term_naming_the_metric_s_own_model_plans_like_one_naming_none() {
         top: None,
     };
     let planned = mono(&resolution);
-    assert!(
-        matches!(
-            planned.measures().first().measure(),
-            sutura_domain::plan::PlanMeasure::Ratio { .. }
-        ),
-        "a same-model term must still plan the ratio"
+    let sutura_domain::plan::PlanMeasure::Ratio {
+        numerator, denominator, ..
+    } = planned.measures().first().measure()
+    else {
+        panic!("a same-model term must still plan the ratio");
+    };
+    let own_table = facts.table_name();
+    assert_eq!(
+        numerator.column().table(),
+        own_table,
+        "numerator resolves against the metric's own table"
+    );
+    assert_eq!(
+        numerator.column().column(),
+        &column("amount_cents"),
+        "numerator keeps its declared column"
+    );
+    let sutura_domain::plan::PlanTerm::Aggregate { aggregate, .. } = numerator else {
+        panic!("numerator is an aggregate term");
+    };
+    assert_eq!(*aggregate, Aggregate::Sum, "numerator keeps its declared aggregate");
+
+    assert_eq!(
+        denominator.column().table(),
+        own_table,
+        "a denominator naming the metric's own model resolves against that model's table, not a separate leg"
+    );
+    assert_eq!(
+        denominator.column().column(),
+        &column("customer_key"),
+        "denominator keeps its declared column"
+    );
+    let sutura_domain::plan::PlanTerm::Aggregate { aggregate, .. } = denominator else {
+        panic!("denominator is an aggregate term");
+    };
+    assert_eq!(
+        *aggregate,
+        Aggregate::CountDistinct,
+        "denominator keeps its declared aggregate"
     );
 }
 

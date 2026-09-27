@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-sql/src/expression.rs b/crates/sutura-sql/src/expression.rs
+--- a/crates/sutura-sql/src/expression.rs
++++ b/crates/sutura-sql/src/expression.rs
+@@ -589,7 +589,7 @@
+             cause,
+         })?;
+     polyglot_sql::dialects::Dialect::get(target)
+-        .parse(&format!("{WRAPPER}{sql}"))
++        .parse(&format!("{WRAPPER}, {sql}"))
+         .map_err(|cause| ExpressionError::RenderedDoesNotParse {
+             tag: tag.clone(),
+             dialect,

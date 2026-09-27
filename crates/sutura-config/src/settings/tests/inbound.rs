@@ -1,4 +1,5 @@
-//! What an inbound-identity declaration is read as, and what it refuses.
+//! What an inbound-identity declaration is read as, and what it refuses - with the one
+//! `rate_limit.trusted_proxies` refusal beside it, since it too names who is trusted to say who asks.
 //!
 //! A file of its own because `settings/tests.rs` reached the thousand-line limit
 //! `cargo xtask max-lines` enforces. The seam is the one [`crate::settings::inbound`] already has in
@@ -304,14 +305,84 @@ fn a_transit_lifetime_above_the_ceiling_does_not_start() {
     );
 }
 
+/// Loads `overlay` over the development defaults and returns the refusal's message.
+///
+/// The message and not the variant, because naming the setting and its opt-in IS the contract: an
+/// operator reads the sentence, never the variant.
+fn refusal(overlay: String) -> String {
+    Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay))
+        .expect_err("this configuration does not start")
+        .reason()
+        .to_string()
+}
+
+fn loads(overlay: String) -> Settings {
+    Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay)).expect("this configuration starts")
+}
+
 #[test]
-fn a_transit_lifetime_at_the_ceiling_loads() {
-    let at = format!(
+fn direct_token_type_any_does_not_start_without_its_opt_in() {
+    let rendered = refusal(format!("security:\n{DIRECT_INBOUND}    token_type: \"any\"\n"));
+    assert!(rendered.contains("`security.inbound.token_type` is `any`"), "{rendered}");
+    assert!(
+        rendered.contains("`security.inbound.accept_any_token_type: true`"),
+        "{rendered}"
+    );
+    // Behind a gateway `any` is the only way to say the component sets no `typ`, so it needs no opt-in.
+    let gateway = GATEWAY_INBOUND.replace("transit_token_type: \"at+jwt\"", "transit_token_type: \"any\"");
+    let settings = loads(format!("security:\n{gateway}"));
+    assert!(
+        settings
+            .security()
+            .inbound()
+            .expect("the declaration is there")
+            .accepts_any_token_class()
+    );
+}
+
+#[test]
+fn direct_token_type_any_starts_with_its_opt_in() {
+    let settings = loads(format!(
+        "security:\n{DIRECT_INBOUND}    token_type: \"any\"\n    accept_any_token_type: true\n"
+    ));
+    assert!(
+        settings
+            .security()
+            .inbound()
+            .expect("the declaration is there")
+            .accepts_any_token_class()
+    );
+}
+
+#[test]
+fn a_transit_lifetime_at_the_ceiling_does_not_start_without_its_opt_in() {
+    let rendered = refusal(format!(
         "security:\n{GATEWAY_INBOUND}    transit_max_lifetime_seconds: {}\n",
         ProofLifetime::MAX_SECONDS
+    ));
+    assert!(
+        rendered.contains("`security.inbound.transit_max_lifetime_seconds` is 3600"),
+        "{rendered}"
     );
-    let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(at))
-        .expect("a lifetime at the ceiling is loadable");
+    assert!(
+        rendered.contains("`security.inbound.accept_long_transit_lifetime: true`"),
+        "{rendered}"
+    );
+    // The opt-in starts one second past five minutes, not at the ceiling alone.
+    let rendered = refusal(format!("security:\n{GATEWAY_INBOUND}    transit_max_lifetime_seconds: 301\n"));
+    assert!(
+        rendered.contains("`security.inbound.transit_max_lifetime_seconds` is 301"),
+        "{rendered}"
+    );
+    loads(format!("security:\n{GATEWAY_INBOUND}    transit_max_lifetime_seconds: 300\n"));
+}
+
+#[test]
+fn a_transit_lifetime_at_the_ceiling_loads_with_its_opt_in() {
+    let settings = loads(format!(
+        "security:\n{GATEWAY_INBOUND}    transit_max_lifetime_seconds: {}\n    accept_long_transit_lifetime: true\n",
+        ProofLifetime::MAX_SECONDS
+    ));
     let inbound = settings.security().inbound().expect("the declaration is there");
     assert_eq!(
         inbound
@@ -320,5 +391,37 @@ fn a_transit_lifetime_at_the_ceiling_loads() {
             .expect("the gateway mode carries a ceiling")
             .seconds(),
         ProofLifetime::MAX_SECONDS,
+    );
+}
+
+/// A forwarded client address with its `trusted_proxies` key open for entries.
+const FORWARDED: &str = "rate_limit:\n  client_address: \"forwarded\"\n  trusted_proxies:\n";
+
+#[test]
+fn a_trusted_proxy_block_covering_every_address_does_not_start_without_its_opt_in() {
+    for block in ["0.0.0.0/0", "::/0", "10.0.0.0/0"] {
+        let rendered = refusal(format!("{FORWARDED}    - \"{block}\"\n"));
+        assert!(
+            rendered.contains(&format!("`rate_limit.trusted_proxies` holds `{block}`")),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("`rate_limit.accept_every_address_as_proxy: true`"),
+            "{rendered}"
+        );
+    }
+    loads(format!("{FORWARDED}    - \"10.0.0.0/8\"\n"));
+}
+
+#[test]
+fn a_trusted_proxy_block_covering_every_address_starts_with_its_opt_in() {
+    let settings = loads(format!(
+        "{FORWARDED}    - \"0.0.0.0/0\"\n  accept_every_address_as_proxy: true\n"
+    ));
+    assert!(
+        settings
+            .rate_limit()
+            .trusted_proxies()
+            .trusts("203.0.113.7".parse().expect("an address"))
     );
 }

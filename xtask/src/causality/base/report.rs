@@ -6,10 +6,23 @@
 
 use crate::Verdict;
 use crate::causality::coverage::Coverage;
+use crate::causality::place::AddedTest;
 use crate::causality::provenance::Moved;
 use crate::causality::reverted::{self, Reverted};
 
-use super::{BaseOutcome, earned, reported_per_test, tests_run};
+use super::{BaseOutcome, earned, reported_per_test, results, tests_run};
+
+#[cfg(test)]
+pub(crate) fn report_base(
+    outcome: &BaseOutcome,
+    output: &str,
+    retried: bool,
+    coverage: &Coverage,
+    moved: &Moved,
+    reverted: &Reverted,
+) -> Verdict {
+    report_base_scoped(outcome, output, retried, coverage, moved, reverted, &[])
+}
 
 /// Turn a base run into the gate's verdict.
 ///
@@ -27,15 +40,16 @@ use super::{BaseOutcome, earned, reported_per_test, tests_run};
 /// the branch added. [`earned`] decides which wording each outcome may print; `prove`'s own arms
 /// print theirs before either run, where they are asking for something rather than reporting
 /// coverage.
-pub(crate) fn report_base(
+pub(crate) fn report_base_scoped(
     outcome: &BaseOutcome,
     output: &str,
     retried: bool,
     coverage: &Coverage,
     moved: &Moved,
     reverted: &Reverted,
+    scoped: &[AddedTest],
 ) -> Verdict {
-    let measured = state_the_gap(earned(outcome, coverage), outcome, coverage, output);
+    let measured = state_the_gap(earned(outcome, coverage), outcome, coverage, output, scoped, moved);
     // ONE CALL SITE, and the DECISION beside it is pure. It was a loop in each red arm, and review
     // measured what that cost: deleting the one in `RedOutsideTheDiff` reddened nothing, because
     // every test of that arm goes through a wrapper passing `Reverted::Behaviour`. The choice of
@@ -243,7 +257,14 @@ pub(crate) fn report_base(
 /// Silent whenever [`tests_run`] cannot read a number, or the number it reads is not smaller than
 /// the scope: an unreadable or matching summary has nothing to correct, and this function may only
 /// ever narrow a claim, never widen one.
-fn state_the_gap(measured: String, outcome: &BaseOutcome, coverage: &Coverage, output: &str) -> String {
+fn state_the_gap(
+    measured: String,
+    outcome: &BaseOutcome,
+    coverage: &Coverage,
+    output: &str,
+    scoped: &[AddedTest],
+    moved: &Moved,
+) -> String {
     if !reported_per_test(outcome) {
         return measured;
     }
@@ -254,10 +275,35 @@ fn state_the_gap(measured: String, outcome: &BaseOutcome, coverage: &Coverage, o
     if ran >= named {
         return measured;
     }
-    format!(
+    let mut stated = format!(
         "{measured}\n  named {named} into the scope filter; the base run's own summary shows only \
-         {ran} of them actually ran - the rest never existed there (orphaned, not proven)"
-    )
+         {ran} of them actually ran - the rest produced no base result (not proven)"
+    );
+    let reported: Vec<String> = results(output)
+        .into_iter()
+        .filter(|one| super::is_scoped(one, scoped))
+        .collect();
+    if reported.len() != ran {
+        stated.push_str("\n  per-test output does not account for the summary; skipped names cannot be identified safely");
+        return stated;
+    }
+    for test in scoped {
+        if !reported.iter().any(|one| super::is_scoped(one, std::slice::from_ref(test))) {
+            let reason = if moved.names().iter().any(|name| name.as_str() == test.name()) {
+                "base has this name, but no result matched its filter key; a cfg gate or module move may explain it"
+            } else {
+                "no matching base result; this test may be new, cfg-gated, or under another module path"
+            };
+            stated.push_str("\n  not run at base: ");
+            stated.push_str(test.name());
+            stated.push_str(" in ");
+            stated.push_str(test.file());
+            stated.push_str(" (");
+            stated.push_str(reason);
+            stated.push(')');
+        }
+    }
+    stated
 }
 
 /// Did the base tree fail because a module's FILE is not there?
@@ -403,10 +449,41 @@ mod tests {
             "     Summary [   0.4s] 2 tests run: 1 passed, 1 failed, 1727 skipped\n",
             "error: test run failed\n",
         );
-        let stated = state_the_gap(earned(&outcome, &coverage), &outcome, &coverage, output);
+        let stated = state_the_gap(earned(&outcome, &coverage), &outcome, &coverage, output, &[], &Moved::Nothing);
         assert!(stated.starts_with("10 of 13 added tests measured"), "{stated}");
         assert!(stated.contains("named 10 into the scope filter"), "{stated}");
         assert!(stated.contains("only 2 of them actually ran"), "{stated}");
+    }
+
+    #[test]
+    fn a_partial_base_run_names_each_test_without_a_result() {
+        let scope = scoped("pa", "pa/src/lib.rs", &["ran", "skipped_a", "skipped_b"]);
+        let coverage = Coverage::Measured {
+            measured: 3,
+            unmeasured: Vec::new(),
+            not_runnable: Vec::new(),
+        };
+        let moved = Moved::Wholly(vec![
+            String::from("ran"),
+            String::from("skipped_a"),
+            String::from("skipped_b"),
+        ]);
+        let outcome = BaseOutcome::GreenAfterAMove {
+            moved: moved.names().to_vec(),
+        };
+        let output = concat!(
+            "  TRY 1 FAIL [   0.021s] (1/3) pa tests::ran\n",
+            "  TRY 2 PASS [   0.021s] (1/3) pa tests::ran\n",
+            "     Summary [   0.4s] 1 test run: 1 passed, 2 skipped\n",
+        );
+        let stated = state_the_gap(earned(&outcome, &coverage), &outcome, &coverage, output, &scope, &moved);
+        assert!(stated.contains("not run at base: skipped_a in pa/src/lib.rs"), "{stated}");
+        assert!(stated.contains("not run at base: skipped_b in pa/src/lib.rs"), "{stated}");
+        assert!(!stated.contains("not run at base: ran"), "{stated}");
+        assert!(
+            stated.contains("base has this name, but no result matched its filter key"),
+            "{stated}"
+        );
     }
 
     #[test]
@@ -424,7 +501,7 @@ mod tests {
         };
         let output = "     Summary [   0.1s] 2 tests run: 1 passed, 1 failed, 0 skipped\n";
         assert_eq!(
-            state_the_gap(earned(&outcome, &coverage), &outcome, &coverage, output),
+            state_the_gap(earned(&outcome, &coverage), &outcome, &coverage, output, &[], &Moved::Nothing),
             "2 of 2 added tests measured"
         );
     }
@@ -445,7 +522,9 @@ mod tests {
                 earned(&BaseOutcome::DidNotCompile, &coverage),
                 &BaseOutcome::DidNotCompile,
                 &coverage,
-                output
+                output,
+                &[],
+                &Moved::Nothing,
             ),
             "0 of 6 added tests measured"
         );
