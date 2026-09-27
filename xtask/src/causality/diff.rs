@@ -258,8 +258,7 @@ mod tests {
         let files = parse_diff(diff);
         let numbers: Vec<usize> = files
             .first()
-            .map(|file| file.added.iter().map(|line| line.number).collect())
-            .unwrap_or_default();
+            .map_or_default(|file| file.added.iter().map(|line| line.number).collect());
         // Line 8 is context, so the replacement lands on 9 - not on 8, and not on 10.
         assert_eq!(numbers, vec![9]);
     }

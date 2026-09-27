@@ -159,7 +159,7 @@ fn judge(files: &[(&str, &str)]) -> Vec<String> {
             // only the action's own `save:` gate protects the write - which means a caller can add
             // `if: ${{ MAIN_PUSH }}` (or `if: false`) to stop a pull request's RESTORE while
             // leaving `save:` intact and `check-workflows` green. `if:` on a caller is refused.
-            if uses == STORE_ACTION {
+            if uses == STORE_ACTION || uses == "$/.github/actions/nix-store-cache" {
                 if step.has("if:") {
                     out.push(format!(
                         "{label}:{}  {uses} must carry no `if:` - it restores on every event, and gating it (e.g. `if: ${{{{ {MAIN_PUSH} }}}}`) stops a pull request's restore while the `save:` inside the action passes the write anchor",
@@ -752,6 +752,17 @@ pub(super) mod tests {
             assert_eq!(found.len(), 1, "{found:#?}");
             assert!(found.first().is_some_and(|p| p.contains("must carry no `if:`")), "{found:#?}");
         }
+    }
+
+    #[test]
+    fn self_repository_store_callers_cannot_gate_the_restore() {
+        let store = step_using(super::STORE_CACHE, "save:", &format!("${{{{ {MAIN_PUSH} }}}}"));
+        let caller = "      - uses: $/.github/actions/nix-store-cache\n";
+        let clean = super::judge(&[("ci.yml", &format!("{caller}{store}"))]);
+        assert!(clean.is_empty(), "{clean:#?}");
+        let found = super::judge(&[("ci.yml", &format!("{caller}        if: false\n{store}"))]);
+        assert_eq!(found.len(), 1, "{found:#?}");
+        assert!(found.first().is_some_and(|p| p.contains("must carry no `if:`")), "{found:#?}");
     }
 
     #[test]

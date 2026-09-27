@@ -1,0 +1,12 @@
+diff --git a/xtask/src/guidance/constants.rs b/xtask/src/guidance/constants.rs
+--- a/xtask/src/guidance/constants.rs
++++ b/xtask/src/guidance/constants.rs
+@@ -506,7 +506,7 @@
+             let Some(siblings) = enums.get(&one.kind) else {
+                 continue;
+             };
+-            for wrong in siblings.iter().filter(|v| **v != one.variant) {
++            for wrong in siblings.iter().filter(|v| **v == one.variant) {
+                 if names(&sentence.text, wrong) {
+                     into.problems.push(format!(
+                         "{rel}:{}: says `{wrong}` in the sentence citing [`{on}`]'s `{name}`, which holds \

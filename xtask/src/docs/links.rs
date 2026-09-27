@@ -591,8 +591,7 @@ mod tests {
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|since| since.as_nanos())
-                .unwrap_or_default()
+                .map_or_default(|since| since.as_nanos())
         );
         let path = std::env::temp_dir().join(unique);
         std::fs::create_dir_all(&path).unwrap();

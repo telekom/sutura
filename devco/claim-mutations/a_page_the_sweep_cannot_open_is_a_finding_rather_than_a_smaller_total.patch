@@ -1,0 +1,15 @@
+diff --git a/xtask/src/docs/links.rs b/xtask/src/docs/links.rs
+--- a/xtask/src/docs/links.rs
++++ b/xtask/src/docs/links.rs
+@@ -351,9 +351,9 @@
+             // and the verdict staying green - eight lines above a comment claiming this half
+             // fails closed. The sibling shape is `xtask/src/venues.rs`, where an unreadable page
+             // IS the failure.
+-            out.problems.push(format!(
++            let _ = format!(
+                 "`{published_as}` is not readable, so its links were never scanned - a page this cannot open is a page nothing checked"
+-            ));
++            );
+             continue;
+         };
+         let written = Written {
