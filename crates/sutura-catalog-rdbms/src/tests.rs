@@ -28,6 +28,22 @@ fn over() -> RdbmsCatalog<FixtureReader> {
     crate::fixture::over_fixture_source(name(), version())
 }
 
+#[test]
+fn a_dictionary_catalog_binds_models_to_its_declared_data_source() {
+    let catalog_name = SourceName::parse("dictionary").expect("catalog name parses");
+    let source_alias = SourceName::parse("warehouse").expect("source alias parses");
+    let pinned = RdbmsCatalog::new(catalog_name.clone(), source_alias.clone(), version(), FixtureReader)
+        .load()
+        .expect("the fixture dictionary loads");
+    let orders = ModelName::parse("orders").expect("model name parses");
+    assert_eq!(
+        pinned.definitions().model(&orders).expect("the fixture has orders").source(),
+        &source_alias,
+    );
+    assert!(pinned.manifest().get(&catalog_name).is_some());
+    assert!(pinned.manifest().get(&source_alias).is_none());
+}
+
 fn address(schema: &str, table: &str) -> TableAddress {
     TableAddress::in_schema(schema.to_owned(), table.to_owned())
 }
@@ -177,7 +193,7 @@ fn a_column_type_too_long_to_represent_is_dropped_rather_than_refusing_the_load(
         ],
         Vec::new(),
     );
-    let pinned = RdbmsCatalog::new(name(), version(), SparseReader(dictionary))
+    let pinned = RdbmsCatalog::new(name(), name(), version(), SparseReader(dictionary))
         .load()
         .expect("a long column type still loads");
     let orders = pinned
@@ -198,7 +214,7 @@ fn a_primary_key_naming_an_undeclared_column_is_refused() {
         Vec::new(),
     ));
     assert!(matches!(
-        RdbmsCatalog::new(name(), version(), out_of_step).load(),
+        RdbmsCatalog::new(name(), name(), version(), out_of_step).load(),
         Err(RdbmsError::Inconsistent {
             cause: InconsistentDefinitions::UnknownPrimaryKeyColumn { .. }
         })
@@ -217,7 +233,7 @@ fn a_column_comment_carrying_a_control_character_refuses_the_load() {
         Vec::new(),
     ));
     assert!(matches!(
-        RdbmsCatalog::new(name(), version(), crlf).load(),
+        RdbmsCatalog::new(name(), name(), version(), crlf).load(),
         Err(RdbmsError::ColumnDescription { .. })
     ));
 }
@@ -265,7 +281,7 @@ fn a_sparse_dictionary_does_not_overclaim_its_declaration() {
             Some(SingleColumnTargetUniqueness::UniqueConstraint),
         )],
     ));
-    let pinned = RdbmsCatalog::new(name(), version(), fk_only)
+    let pinned = RdbmsCatalog::new(name(), name(), version(), fk_only)
         .load()
         .expect("a sparse dictionary loads");
     let produced = MetadataCapabilities::produced(pinned.definitions(), pinned.knowledge());
@@ -284,7 +300,7 @@ fn a_sparse_dictionary_does_not_overclaim_its_declaration() {
         vec![table("orders", vec!["order_id".to_owned()], Some("Orders.".to_owned()))],
         Vec::new(),
     ));
-    let pinned = RdbmsCatalog::new(name(), version(), prose_only)
+    let pinned = RdbmsCatalog::new(name(), name(), version(), prose_only)
         .load()
         .expect("a prose-only dictionary loads");
     let produced = MetadataCapabilities::produced(pinned.definitions(), pinned.knowledge());
@@ -307,7 +323,7 @@ fn a_sparse_dictionary_does_not_overclaim_its_declaration() {
 #[test]
 fn an_empty_dictionary_refuses_instead_of_overclaiming_structure() {
     let empty = SparseReader(Dictionary::new(Vec::new(), Vec::new()));
-    let refused = RdbmsCatalog::new(name(), version(), empty)
+    let refused = RdbmsCatalog::new(name(), name(), version(), empty)
         .load()
         .expect_err("a dictionary with no visible table cannot provide Structure");
     assert!(matches!(refused, RdbmsError::NoVisibleTables), "{refused:?}");
@@ -339,7 +355,7 @@ fn an_unnamed_relationship_with_long_endpoints_gets_a_bounded_deterministic_name
         )],
     ));
 
-    let catalog = RdbmsCatalog::new(name(), version(), reader);
+    let catalog = RdbmsCatalog::new(name(), name(), version(), reader);
     let first = catalog
         .load()
         .expect("long endpoints still produce a valid relationship name");
@@ -382,7 +398,7 @@ fn a_relationship_requires_single_column_target_uniqueness_evidence() {
         )],
     ));
     assert!(matches!(
-        RdbmsCatalog::new(name(), version(), relationship_without_evidence).load(),
+        RdbmsCatalog::new(name(), name(), version(), relationship_without_evidence).load(),
         Err(RdbmsError::TargetUniquenessUnknown { table, column })
             if table == "public.customers" && column == "customer_id"
     ));
@@ -418,7 +434,7 @@ fn a_table_comment_carrying_a_control_character_refuses_the_load() {
         )],
         Vec::new(),
     ));
-    let refused = RdbmsCatalog::new(name(), version(), crlf)
+    let refused = RdbmsCatalog::new(name(), name(), version(), crlf)
         .load()
         .expect_err("a control character the renderer would drop is not a loadable description");
     match refused {
@@ -456,7 +472,7 @@ impl DictionaryReader for FailingReader {
 /// error; the swallowed read is already caught by the load returning `Ok` at all.
 #[test]
 fn a_reader_failure_is_surfaced_by_the_load() {
-    let refused = RdbmsCatalog::new(name(), version(), FailingReader)
+    let refused = RdbmsCatalog::new(name(), name(), version(), FailingReader)
         .load()
         .expect_err("a reader that cannot read has no dictionary to assemble");
     assert!(
@@ -491,7 +507,7 @@ fn schema_qualified_tables_keep_distinct_model_and_physical_identities() {
         Vec::new(),
     ));
 
-    let pinned = RdbmsCatalog::new(name(), version(), two_schemas)
+    let pinned = RdbmsCatalog::new(name(), name(), version(), two_schemas)
         .load()
         .expect("two schema-qualified tables with one bare name are distinct models");
     let models = pinned.definitions().models();
@@ -524,7 +540,7 @@ fn a_physical_table_identifier_that_would_be_trimmed_is_refused() {
         Vec::new(),
     ));
     assert!(matches!(
-        RdbmsCatalog::new(name(), version(), table_with_space).load(),
+        RdbmsCatalog::new(name(), name(), version(), table_with_space).load(),
         Err(RdbmsError::TableName { table, .. }) if table == "public.orders "
     ));
 
@@ -540,7 +556,7 @@ fn a_physical_table_identifier_that_would_be_trimmed_is_refused() {
         Vec::new(),
     ));
     assert!(matches!(
-        RdbmsCatalog::new(name(), version(), schema_with_space).load(),
+        RdbmsCatalog::new(name(), name(), version(), schema_with_space).load(),
         Err(RdbmsError::SchemaName { schema, .. }) if schema == " public"
     ));
 
@@ -555,7 +571,7 @@ fn a_physical_table_identifier_that_would_be_trimmed_is_refused() {
         Vec::new(),
     ));
     assert!(matches!(
-        RdbmsCatalog::new(name(), version(), catalog_with_space).load(),
+        RdbmsCatalog::new(name(), name(), version(), catalog_with_space).load(),
         Err(RdbmsError::CatalogName { catalog, .. }) if catalog == " warehouse"
     ));
 
@@ -576,7 +592,7 @@ fn a_physical_table_identifier_that_would_be_trimmed_is_refused() {
         )],
     ));
     assert!(matches!(
-        RdbmsCatalog::new(name(), version(), relationship_column_with_space).load(),
+        RdbmsCatalog::new(name(), name(), version(), relationship_column_with_space).load(),
         Err(RdbmsError::ColumnName { table, column, .. })
             if table == "public.orders" && column == "customer_id "
     ));
@@ -589,7 +605,7 @@ fn a_physical_column_identifier_that_would_be_trimmed_is_refused() {
         Vec::new(),
     ));
     assert!(matches!(
-        RdbmsCatalog::new(name(), version(), column_with_space).load(),
+        RdbmsCatalog::new(name(), name(), version(), column_with_space).load(),
         Err(RdbmsError::ColumnName { table, column, .. })
             if table == "public.orders" && column == "order_id "
     ));
@@ -675,7 +691,7 @@ fn repeated_constraint_names_are_namespaced_by_their_endpoints() {
         ],
     ));
 
-    let pinned = RdbmsCatalog::new(name(), version(), repeated_name)
+    let pinned = RdbmsCatalog::new(name(), name(), version(), repeated_name)
         .load()
         .expect("qualified endpoints namespace repeated constraint names");
     let relationships = pinned.definitions().relationships();
@@ -699,7 +715,7 @@ fn duplicate_physical_table_addresses_are_refused() {
     ));
 
     assert!(matches!(
-        RdbmsCatalog::new(name(), version(), duplicate).load(),
+        RdbmsCatalog::new(name(), name(), version(), duplicate).load(),
         Err(RdbmsError::DuplicateTable { table }) if table == "public.orders"
     ));
 }
@@ -724,7 +740,7 @@ fn a_relationship_to_an_unknown_physical_table_is_refused() {
         )],
     ));
     assert!(matches!(
-        RdbmsCatalog::new(name(), version(), unknown_target).load(),
+        RdbmsCatalog::new(name(), name(), version(), unknown_target).load(),
         Err(RdbmsError::UnknownRelationshipTable { table }) if table == "public.customers"
     ));
 
@@ -740,7 +756,7 @@ fn a_relationship_to_an_unknown_physical_table_is_refused() {
         )],
     ));
     assert!(matches!(
-        RdbmsCatalog::new(name(), version(), unknown_origin).load(),
+        RdbmsCatalog::new(name(), name(), version(), unknown_origin).load(),
         Err(RdbmsError::UnknownRelationshipTable { table }) if table == "public.orders"
     ));
 }
@@ -750,7 +766,7 @@ fn a_relationship_to_an_unknown_physical_table_is_refused() {
 fn a_dictionary_over_the_declared_row_cap_refuses() {
     let reader = SparseReader(crate::fixture::corpus());
     let bounds = DictionaryBounds::new(NonZeroU64::new(2).expect("two is non-zero"), NonZeroU64::MAX);
-    let refused = RdbmsCatalog::new(name(), version(), reader)
+    let refused = RdbmsCatalog::new(name(), name(), version(), reader)
         .with_bounds(bounds)
         .load()
         .expect_err("three entries over a two-row cap refuse");
@@ -765,7 +781,7 @@ fn a_dictionary_over_the_declared_row_cap_refuses() {
 fn a_dictionary_at_the_declared_row_cap_loads() {
     let reader = SparseReader(crate::fixture::corpus());
     let bounds = DictionaryBounds::new(NonZeroU64::new(3).expect("three is non-zero"), NonZeroU64::MAX);
-    let pinned = RdbmsCatalog::new(name(), version(), reader)
+    let pinned = RdbmsCatalog::new(name(), name(), version(), reader)
         .with_bounds(bounds)
         .load()
         .expect("three entries under a three-row cap load");

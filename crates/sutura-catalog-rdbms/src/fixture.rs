@@ -83,8 +83,8 @@ pub fn corpus() -> Dictionary {
 ///
 /// The constructor the conformance registry uses to register the adapter; it is `pub` because an
 /// integration suite is a separate crate and cannot reach a `#[cfg(test)]` item.
-pub const fn over_fixture_source(name: SourceName, version: DefinitionVersion) -> RdbmsCatalog<FixtureReader> {
-    RdbmsCatalog::new(name, version, FixtureReader)
+pub fn over_fixture_source(name: SourceName, version: DefinitionVersion) -> RdbmsCatalog<FixtureReader> {
+    RdbmsCatalog::new(name.clone(), name, version, FixtureReader)
 }
 
 #[cfg(test)]

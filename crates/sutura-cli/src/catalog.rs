@@ -64,6 +64,11 @@ pub(crate) enum OpenedCatalogs {
     /// `sutura-catalog-okf` holds), so `catalog.kind: datacontract` is openable by every build of
     /// this binary.
     DataContract(Vec<sutura_catalog_datacontract::DataContractCatalog>),
+    /// A live RDBMS dictionary, behind this crate's default-off `rdbms` feature - see
+    /// `Cargo.toml` for why it is default-off (artefact: its reader links outbound TLS). Opened over
+    /// a Postgres documentation schema by [`sutura_catalog_rdbms::postgres_reader::PostgresReader`].
+    #[cfg(feature = "rdbms")]
+    Rdbms(Vec<sutura_catalog_rdbms::RdbmsCatalog<sutura_catalog_rdbms::postgres_reader::PostgresReader>>),
 }
 
 /// Opens every catalog the settings declare.
@@ -121,12 +126,9 @@ pub(crate) fn open_catalog(
         // `Openmetadata` is openable behind the `openmetadata` feature; a build without it gets
         // the not-linked refusal `open_openmetadata_catalogs` returns.
         sutura_config::CatalogKind::Openmetadata => open_openmetadata_catalogs(catalogs, outbound),
-        // Declarable, and refused by name unconditionally: the crate has no reader over anything
-        // but a recorded dictionary, so no feature could make it honestly openable yet.
-        sutura_config::CatalogKind::Rdbms => Err(String::from(
-            "catalog.kind: rdbms names a metadata adapter with no reader over a real dictionary \
-             yet - see github.com/telekom/sutura#972",
-        )),
+        // `Rdbms` is openable behind the `rdbms` feature; a build without it gets the not-linked
+        // refusal `open_rdbms_catalogs` returns, which names the feature.
+        sutura_config::CatalogKind::Rdbms => open_rdbms_catalogs(catalogs),
     }
 }
 
@@ -144,6 +146,8 @@ pub(crate) fn load(catalogs: &OpenedCatalogs) -> Result<PinnedDefinitions, Strin
         #[cfg(feature = "openmetadata")]
         OpenedCatalogs::Openmetadata(catalogs) => load_each(catalogs),
         OpenedCatalogs::DataContract(catalogs) => load_each(catalogs),
+        #[cfg(feature = "rdbms")]
+        OpenedCatalogs::Rdbms(catalogs) => load_each(catalogs),
     }
 }
 
@@ -243,6 +247,15 @@ where
             combiner,
             working_set_bytes,
         ),
+        #[cfg(feature = "rdbms")]
+        OpenedCatalogs::Rdbms(catalogs) => LocalService::start_composed(
+            catalogs,
+            engines,
+            sutura_runtime::TracingAuditSink::new(),
+            broker,
+            combiner,
+            working_set_bytes,
+        ),
     }
     .map(|service| {
         service
@@ -326,6 +339,144 @@ fn open_openmetadata_catalogs(
     Err(String::from(
         "catalog.kind: openmetadata names a metadata adapter this binary was not built to link - \
          build sutura-cli with --features openmetadata, or declare markdown catalogs",
+    ))
+}
+
+/// Opens every declared `rdbms` catalog at once, behind this crate's `rdbms` feature.
+#[cfg(feature = "rdbms")]
+fn open_rdbms_catalogs(catalogs: &sutura_config::Catalogs) -> Result<OpenedCatalogs, String> {
+    catalogs
+        .each()
+        .map(open_one_rdbms_catalog)
+        .collect::<Result<Vec<_>, String>>()
+        .map(OpenedCatalogs::Rdbms)
+}
+
+#[cfg(feature = "rdbms")]
+fn open_one_rdbms_catalog(
+    settings: &sutura_config::CatalogSettings,
+) -> Result<sutura_catalog_rdbms::RdbmsCatalog<sutura_catalog_rdbms::postgres_reader::PostgresReader>, String> {
+    use sutura_catalog_rdbms::postgres_reader::{PostgresReader, RowPredicate};
+    use sutura_exec_postgres::connection::{ConnectionTarget, config as pg_config};
+    use sutura_exec_postgres::tls::{TlsAnchors, TlsIdentity, client_config};
+
+    let rdbms = settings.rdbms().ok_or_else(|| {
+        format!(
+            "`catalogs.{}` is `kind: rdbms` yet carries no rdbms settings, which CatalogSettings::parse should have refused",
+            settings.name()
+        )
+    })?;
+    let connection = rdbms.connection();
+
+    // The driver config, from the catalog's OWN read-only connection - a catalog read has no caller
+    // to run as, so it is never borrowed from a `sources:` entry.
+    let (target, port) = match connection.dial() {
+        sutura_config::sources::placement::PostgresDial::Tcp { host, port } => (ConnectionTarget::Host(host.as_str()), *port),
+        sutura_config::sources::placement::PostgresDial::UnixSocket { directory, port } => {
+            (ConnectionTarget::UnixSocket(directory), *port)
+        }
+    };
+    let config = pg_config(
+        target,
+        port,
+        connection.database(),
+        connection.user(),
+        connection.password_file(),
+    )
+    .map_err(|cause| {
+        format!(
+            "`catalogs.{}.connection.password_file` could not be read: {cause}",
+            settings.name()
+        )
+    })?;
+
+    // Resolve the declared transport into a `rustls::ClientConfig` (`verified`/`mutual`) or `None`
+    // for `plaintext`. The transport layer has already refused plaintext to a remote host.
+    let tls = match connection.transport() {
+        sutura_config::sources::transport::SourceTransport::Plaintext => None,
+        sutura_config::sources::transport::SourceTransport::Verified { anchors } => {
+            let anchors = match anchors {
+                sutura_config::sources::transport::TrustAnchors::System => TlsAnchors::System,
+                sutura_config::sources::transport::TrustAnchors::File(path) => TlsAnchors::Bundle(path.clone()),
+            };
+            Some(client_config(&anchors, None).map_err(|cause| {
+                format!(
+                    "`catalogs.{}.connection` is declared TLS and its material is not usable: {cause}",
+                    settings.name()
+                )
+            })?)
+        }
+        sutura_config::sources::transport::SourceTransport::Mutual { anchors, identity } => {
+            let anchors = match anchors {
+                sutura_config::sources::transport::TrustAnchors::System => TlsAnchors::System,
+                sutura_config::sources::transport::TrustAnchors::File(path) => TlsAnchors::Bundle(path.clone()),
+            };
+            let tls_identity = TlsIdentity::new(identity.certificate().clone(), identity.key().clone());
+            Some(client_config(&anchors, Some(&tls_identity)).map_err(|cause| {
+                format!(
+                    "`catalogs.{}.connection` is declared mTLS and its material is not usable: {cause}",
+                    settings.name()
+                )
+            })?)
+        }
+    };
+
+    // The documentation schema, defaulting to the reader's own documented default.
+    let documentation_schema = rdbms.dictionary_schema().map_or_else(
+        || String::from(sutura_catalog_rdbms::postgres_reader::DEFAULT_DOCUMENTATION_SCHEMA),
+        |schema| String::from(schema.as_str()),
+    );
+    let environment = String::from(rdbms.environment().as_str());
+
+    let predicate = match rdbms.live_row_predicate() {
+        None => RowPredicate::None,
+        Some(p) => match p.operator() {
+            sutura_config::PredicateOperator::IsNull => RowPredicate::IsNull(String::from(p.column().as_str())),
+            sutura_config::PredicateOperator::IsNotNull => RowPredicate::IsNotNull(String::from(p.column().as_str())),
+            sutura_config::PredicateOperator::Equals => RowPredicate::Equals {
+                column: String::from(p.column().as_str()),
+                value: p
+                    .value()
+                    .map(String::from)
+                    .ok_or_else(|| format!("`catalogs.{}.live_row_predicate` is `equals` with no value, which CatalogSettings::parse should have refused", settings.name()))?,
+            },
+        },
+    };
+
+    let reader = PostgresReader::new(
+        config,
+        tls,
+        documentation_schema,
+        environment,
+        predicate,
+        rdbms.max_dictionary_rows(),
+        rdbms.max_dictionary_bytes(),
+    )
+    .map_err(|cause| {
+        format!(
+            "`catalogs.{}` has an invalid dictionary reader setting: {cause}",
+            settings.name()
+        )
+    })?;
+
+    // The contribution manifest stays under the catalog NAME while the semantic models bind to the
+    // declared `source_alias` - see `RdbmsCatalog::new`'s split of its two name arguments.
+    let bounds = reader.bounds();
+    Ok(sutura_catalog_rdbms::RdbmsCatalog::new(
+        settings.name().clone(),
+        rdbms.source_alias().clone(),
+        settings.version().clone(),
+        reader,
+    )
+    .with_bounds(bounds))
+}
+
+/// The refusal for a build that did not link the `rdbms` adapter - the message names the feature.
+#[cfg(not(feature = "rdbms"))]
+fn open_rdbms_catalogs(_catalogs: &sutura_config::Catalogs) -> Result<OpenedCatalogs, String> {
+    Err(String::from(
+        "catalog.kind: rdbms names a metadata adapter this binary was not built to link - \
+         build sutura-cli with --features rdbms, or declare markdown catalogs",
     ))
 }
 

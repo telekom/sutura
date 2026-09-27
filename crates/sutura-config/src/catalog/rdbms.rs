@@ -6,9 +6,10 @@
 //! Split out of `catalog.rs` at the crate's 1000-line cap. The parent re-exports every type, so
 //! `crate::catalog::<Name>` and the crate root's `pub use` both still resolve.
 //!
-//! **Parsed, not read:** nothing in this repository opens an rdbms catalog yet. The composition
-//! root still refuses `kind: rdbms` by name, so every value here is a checked declaration no reader
-//! has consumed.
+//! **Parsed here, read by a composition root that links the `live` reader.** This crate's own job
+//! ends at a checked declaration; a build with `sutura-catalog-rdbms`'s `live` feature consumes
+//! these values into a reader over a Postgres documentation schema, and a build without it refuses
+//! `kind: rdbms` by name. Every value below is a checked declaration either way.
 
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
@@ -29,6 +30,7 @@ pub struct RdbmsSettings {
     environment: CatalogEnvironment,
     live_row_predicate: Option<LiveRowPredicate>,
     source_alias: SourceName,
+    dictionary_schema: Option<DocumentationSchema>,
     max_dictionary_rows: Option<NonZeroU64>,
     max_dictionary_bytes: Option<NonZeroU64>,
     connection: CatalogConnection,
@@ -60,10 +62,17 @@ impl RdbmsSettings {
             .as_ref()
             .ok_or(InvalidRdbmsCatalog::Missing { key: "connection" })?;
         let connection = CatalogConnection::parse(name, connection).map_err(|cause| InvalidRdbmsCatalog::Connection { cause })?;
+        let dictionary_schema = raw
+            .dictionary_schema
+            .as_deref()
+            .map(DocumentationSchema::parse)
+            .transpose()
+            .map_err(|cause| InvalidRdbmsCatalog::DictionarySchema { cause })?;
         Ok(Self {
             environment,
             live_row_predicate,
             source_alias,
+            dictionary_schema,
             max_dictionary_rows: non_zero("max_dictionary_rows", raw.max_dictionary_rows)?,
             max_dictionary_bytes: non_zero("max_dictionary_bytes", raw.max_dictionary_bytes)?,
             connection,
@@ -86,6 +95,13 @@ impl RdbmsSettings {
     #[must_use]
     pub const fn source_alias(&self) -> &SourceName {
         &self.source_alias
+    }
+
+    /// The schema holding the dictionary rows, or `None` for the reader's documented default.
+    #[inline]
+    #[must_use]
+    pub const fn dictionary_schema(&self) -> Option<&DocumentationSchema> {
+        self.dictionary_schema.as_ref()
     }
 
     /// The declared row cap, or `None` for the reader's own default.
@@ -224,6 +240,45 @@ impl CatalogEnvironment {
     }
 }
 
+/// A typed PostgreSQL schema name holding the documentation rows.
+///
+/// Binding a schema name as a quoted, validated identifier - never interpolating it into a SQL
+/// statement as raw text. The accepted set is `[A-Za-z0-9_]`, the same leaves every Postgres
+/// identifier is built from, and case is preserved. It also doubles as the physical schema the
+/// described objects are documented against when the dictionary rows' own schema differs from a
+/// separate `catalog` part - see the dictionary contract.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentationSchema(String);
+
+impl DocumentationSchema {
+    /// Reads a declared documentation schema.
+    fn parse(written: &str) -> Result<Self, InvalidDocumentationSchema> {
+        let trimmed = written.trim();
+        if trimmed.is_empty() {
+            return Err(InvalidDocumentationSchema::Empty);
+        }
+        if !trimmed.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(InvalidDocumentationSchema::NotIdentifier);
+        }
+        Ok(Self(String::from(trimmed)))
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Why a declared documentation schema is not usable.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidDocumentationSchema {
+    #[error("`dictionary_schema` is empty")]
+    Empty,
+    #[error("`dictionary_schema` is not a schema identifier - it must be letters, digits and underscores")]
+    NotIdentifier,
+}
+
 /// An rdbms catalog's own read-only Postgres connection.
 ///
 /// The same parsed types a `sources:` Postgres entry holds ([`PostgresDial`], [`SourceTransport`])
@@ -340,6 +395,11 @@ pub enum InvalidRdbmsCatalog {
     },
     #[error("`source_alias` is `{alias}`, which names no declared source")]
     UnknownSourceAlias { alias: SourceName },
+    #[error("`dictionary_schema` is not usable: {cause}")]
+    DictionarySchema {
+        #[source]
+        cause: InvalidDocumentationSchema,
+    },
     #[error("`live_row_predicate.column` is not a column name")]
     PredicateColumn {
         #[source]

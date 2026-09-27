@@ -9,9 +9,9 @@
 //! adapter. It says which kinds it provides and which it does not, and it is measured against that
 //! declaration rather than against the golden adapters' oracle.
 //!
-//! This crate implements the dictionary conversion from `github.com/telekom/sutura#151`. A live
-//! reader remains outside it; the runtime prompt derives the zero-metric physical-schema guidance
-//! from the pinned bundle rather than coupling the application to this adapter.
+//! This crate implements the dictionary conversion from `github.com/telekom/sutura#151`. The
+//! runtime derives the zero-metric physical-schema guidance from the pinned bundle rather than
+//! coupling the application to this adapter.
 //!
 //! # What a real dictionary yields
 //!
@@ -59,12 +59,9 @@
 //! ([`sutura_domain::catalog::ColumnType`]) and a primary key is evidence
 //! ([`sutura_domain::catalog::Model::with_primary_key`]).
 //!
-//! **What this update does NOT do: read any of it from a real database.** The only
-//! [`DictionaryReader`] this crate has is [`fixture::FixtureReader`], serving a recorded corpus -
-//! see "What is built here, and what is NOT" below, unchanged by this update. The fixture now
-//! carries a type, a comment and a key for two columns, so the conversion, the declaration and the
-//! byte accounting are exercised the same way the rest of this adapter always has been - against a
-//! recording, not a socket.
+//! The fixture carries a type, a comment and a key for two columns, so the converter's mapping and
+//! byte accounting are exercised without a socket. The feature-gated live reader also reads these
+//! fields from a declared Postgres documentation schema; its provisioned test is the socket venue.
 //!
 //! # The declaration, and what it means for the bundle
 //!
@@ -82,16 +79,20 @@
 //!
 //! This crate contains the conversion [`RdbmsCatalog`] applies to dictionary records, and it is
 //! tested against a fake reader that serves a recorded dictionary - the port gets a fake,
-//! not mocked SQL (`github.com/telekom/sutura#151`'s thing 4). What it does not contain is a
-//! database client in the library closure: [`DictionaryReader`] is the seam a real reader over a
-//! Postgres socket will implement, and the only implementor today is the recorded fixture source in
-//! [`fixture`]. A production reader is outside this crate's current scope.
+//! not mocked SQL (`github.com/telekom/sutura#151`'s thing 4). Since #972, it also contains the
+//! live implementor over a Postgres documentation schema ([`postgres_reader`]), behind a
+//! default-off `live` feature so the library closure stays domain + thiserror and no build links
+//! the reader's `tokio-postgres`/`rustls`/`ring` stack without asking for it.
 //!
-//! **And nothing serves it:** no composition root links this crate (its only dependant is
-//! `sutura-app`, as a dev-dependency), so this is a registered, declaring catalog rather than a
-//! served one - exactly the state `sutura-catalog-datahub` holds, which is the precedent copied.
+//! **The fake dominates the suite; the live reader is the production half, feature-gated.**
+//! [`DictionaryReader`] is the seam both implement ([`fixture::FixtureReader`] the recorded corpus,
+//! [`postgres_reader::PostgresReader`] a real connection), and the conversion is the same for both.
+//! A composition root that links the `live` feature serves `catalog.kind: rdbms`; a build without
+//! it refuses by name. (Its only other dependant is `sutura-app`, as a dev-dependency.)
 
 pub mod fixture;
+#[cfg(feature = "live")]
+pub mod postgres_reader;
 
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
@@ -126,11 +127,9 @@ fn exact_physical_identifier(raw: &str) -> Result<&str, InvalidIdentifier> {
 /// Where a dictionary's records come from.
 ///
 /// **The fake seam.** Everything above this trait is decided and tested against a recorded
-/// dictionary served by [`fixture::FixtureReader`]; a real implementor speaks to a Postgres socket,
-/// reads `information_schema` / `pg_catalog`, decodes into [`Dictionary`], and maps its own failures
-/// into [`RdbmsError::Read`]. A port rather than a method on [`RdbmsCatalog`] for the same reason
-/// the warehouse port exists: a catalog that could be swapped for a live source without the
-/// conversion changing is the point.
+/// dictionary served by [`fixture::FixtureReader`]. The feature-gated
+/// [`postgres_reader::PostgresReader`] reads a declared documentation schema over a Postgres
+/// socket and maps its failures into [`RdbmsError::Read`]. Both use the same conversion.
 ///
 /// A [`Relationship`] carries exactly one origin column and one target column, so a composite
 /// (multi-column) foreign key is not representable in it. A real implementor must therefore either
@@ -254,6 +253,7 @@ pub enum RdbmsError {
 #[derive(Debug, Clone)]
 pub struct RdbmsCatalog<R> {
     name: SourceName,
+    source_alias: SourceName,
     version: DefinitionVersion,
     reader: R,
     bounds: Option<DictionaryBounds>,
@@ -261,9 +261,10 @@ pub struct RdbmsCatalog<R> {
 
 impl<R> RdbmsCatalog<R> {
     /// Opens a catalog over a dictionary reader.
-    pub const fn new(name: SourceName, version: DefinitionVersion, reader: R) -> Self {
+    pub const fn new(name: SourceName, source_alias: SourceName, version: DefinitionVersion, reader: R) -> Self {
         Self {
             name,
+            source_alias,
             version,
             reader,
             bounds: None,
@@ -272,9 +273,14 @@ impl<R> RdbmsCatalog<R> {
 
     /// Holds the dictionary read to `bounds`; without it the row count is unchecked here.
     ///
-    /// No composition root calls this yet: startup refuses `kind: rdbms` until a reader over a real
-    /// dictionary exists (#972), and that is where the declared `max_dictionary_rows` and
-    /// `max_dictionary_bytes` arrive.
+    /// The composition root that links the `live` reader passes the declared
+    /// `max_dictionary_rows`/`max_dictionary_bytes` here (see `open_one_rdbms_catalog`); a reader
+    /// over a live socket also enforces them inline, but this stays the conversion's own post-decode
+    /// guard over a [`Dictionary`] whatever the reader did.
+    ///
+    /// **The reading reader holds the caps inline too** ([`postgres_reader`] abandons a stream that
+    /// crosses the ceiling); this guard is the second, non-network half that a recorded or fetched
+    /// dictionary gets regardless of the transport.
     #[must_use]
     pub const fn with_bounds(mut self, bounds: DictionaryBounds) -> Self {
         self.bounds = Some(bounds);
@@ -375,7 +381,7 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
                     })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let model = Model::new(name, self.name.clone(), physical_table.clone(), columns, description)
+        let model = Model::new(name, self.source_alias.clone(), physical_table.clone(), columns, description)
             .with_primary_key(primary_key)
             .map_err(|cause| RdbmsError::Inconsistent { cause })?;
         Ok((physical_table, model))

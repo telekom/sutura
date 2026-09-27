@@ -12,12 +12,44 @@ description = "A SemanticCatalog adapter over an RDBMS dictionary: the narrowest
 [dependencies]
 sutura-domain = { workspace = true }
 thiserror = { workspace = true }
+# The LIVE Postgres dictionary reader (`src/postgres_reader.rs`), behind the default-off `live`
+# feature for the ARTEFACT reason `sutura/crate-map` states: a networked adapter's outbound TLS
+# stack must not reach a build that did not ask for it. The library closure stays domain + thiserror;
+# everything here arrives with that feature and with nothing else. `tokio-postgres` is pure Rust,
+# `tokio-postgres-rustls` pulls `ring` - so a `--features live` build is where the network cost is
+# paid, and `deny.toml`'s `all-features = true` compiles, lints and tests it on every gate run.
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "time", "sync", "macros"], optional = true }
+tokio-postgres = { workspace = true, optional = true }
+tokio-postgres-rustls = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+futures-util = { workspace = true, optional = true }
+
+[features]
+# The live Postgres dictionary reader, compatible with a provisioned tier. Default-off: a build
+# that does not ask for it links no `tokio-postgres`/`rustls`/`ring` stack, which is what keeps the
+# musl cross builds and every published artefact free of it. `sutura-cli`'s `rdbms` feature turns
+# this on and composes the reader.
+live = [
+  "dep:tokio",
+  "dep:tokio-postgres",
+  "dep:tokio-postgres-rustls",
+  "dep:rustls",
+  "dep:futures-util",
+]
 
 [dev-dependencies]
 # The compiler: the acceptance suite proves a dictionary bundle answers no certified question
 # because no metric is defined, which requires `sutura-semantic::compile` to reach `MetricUnknown`.
 # Dev-only, so the library closure stays domain + thiserror.
 sutura-semantic = { workspace = true }
+# The provisioned-tier reach and skip-or-fail direction for `tests/provisioned.rs` - the same
+# crate every tier-backed fixture in this workspace uses (`sutura/dev`), scoped to `sutura-domain`.
+sutura-dev = { workspace = true }
+# `tests/provisioned.rs` exercises the live reader against a real Postgres tier, so it only builds
+# (and only the `--all-features` gates reach it) with the `live` feature that links the reader.
+[[test]]
+name = "provisioned"
+required-features = ["live"]
 
 [lints]
 workspace = true
