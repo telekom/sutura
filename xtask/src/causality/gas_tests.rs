@@ -870,8 +870,28 @@ fn mixed_claim_cell_is_killed(pure_in_same_commit: bool) {
 /// A test file that only wraps a call-site argument, beside one genuinely added test that is red on
 /// base: the added test's proof runs and passes, and the verdict is still INCONCLUSIVE, because the
 /// edited file was reverted unmeasured and a wrap is not evidence it is an adaptor.
+///
+/// In a child process, as the first cell here is: a tree that cannot run this rule fails to build the
+/// fixture, and that compiler output in this test's own capture would read as the OUTER base failing
+/// to build.
 #[test]
 fn a_wrapped_call_site_beside_an_added_test_caps_the_pass_at_inconclusive() {
+    const CHILD: &str = "SUTURA_CAUSALITY_WRAPPED_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = Command::new(std::env::current_exe().expect("the test executable has a path"))
+            .args([
+                "--exact",
+                "causality::gas_tests::a_wrapped_call_site_beside_an_added_test_caps_the_pass_at_inconclusive",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .expect("the test executable runs");
+        assert!(
+            output.status.success(),
+            "a pass beside an edited test file must be capped at INCONCLUSIVE"
+        );
+        return;
+    }
     let old = "use wired::render;\n\n#[test]\nfn renders() {\n    assert_eq!(render(2), 2);\n}\n";
     let wrapped =
         "use wired::render;\n\n#[test]\nfn renders() {\n    use wired::View;\n    assert_eq!(render(View::of(2)), 2);\n}\n";
