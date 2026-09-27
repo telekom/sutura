@@ -76,7 +76,7 @@ use std::sync::Arc;
 
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
-use sutura_app::prompt::CatalogProse;
+use sutura_app::prompt::{CatalogProse, Tool};
 use sutura_app::surface::Surface;
 use sutura_config::RequestTimeout;
 use sutura_runtime::Admission;
@@ -118,16 +118,16 @@ pub fn config() -> StreamableHttpServerConfig {
 /// `service_factory` is called by the SDK ONCE PER REQUEST under [`config`]'s stateless mode (see
 /// the module documentation) - never once per process and never once per session - so each call
 /// clones the shared `service`/`admission` handles rather than allocating a second data-system
-/// connection or a second permit set. `instructions` is cloned the same way, and for the same
-/// reason it is an `Arc<str>` rather than a `String`: this factory runs on every request, not only
-/// on the `initialize` that reads it back.
+/// connection or a second permit set. `tools` is cloned the same way, and for the same reason it is
+/// an `Arc<[Tool]>` rather than a `Vec`: this factory runs on every request, not only on the
+/// `initialize` that renders the prompt from it.
 #[must_use]
 pub fn service<S>(
     surface: Arc<S>,
     prose: CatalogProse,
     admission: Admission,
     reply: RequestTimeout,
-    instructions: Arc<str>,
+    tools: Arc<[Tool]>,
     operator_instructions: Option<Arc<str>>,
 ) -> StreamableHttpService<AgentSurface<S>, LocalSessionManager>
 where
@@ -141,7 +141,7 @@ where
                 prose,
                 admission.clone(),
                 reply,
-                Arc::clone(&instructions),
+                Arc::clone(&tools),
                 operator_instructions.clone(),
             ))
         },

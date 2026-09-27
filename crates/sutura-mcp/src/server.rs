@@ -181,10 +181,11 @@ use std::time::Instant;
 
 use rmcp::model::{
     CallToolRequestMethod, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ErrorCode, Implementation,
-    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig,
+    InitializeRequestParams, InitializeResult, ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData, ServerHandler};
+use sutura_app::prompt::{PromptInputs, Tool};
 use sutura_app::surface::{Surface, SurfaceFailure, cause_chain};
 use sutura_app::{Asked, Capability};
 use sutura_config::RequestTimeout;
@@ -228,25 +229,17 @@ pub struct AgentSurface<S> {
     /// was the state that existed, and the fix is that it is no longer representable. It bounds the
     /// WAIT and not the question - see the module documentation.
     reply: RequestTimeout,
-    /// What a cooperative client is told at `initialize` - `sutura prompt`'s own rendered document,
-    /// from [`sutura_app::prompt::render`], not a fixed sentence: `telekom/sutura#776`, replacing a
-    /// six-line const that never named a tool, a metric or a refusal from THIS bundle.
-    ///
-    /// **Still advisory, and that has not changed.** A gateway of the shape this product runs behind
-    /// ignores everything but tools, so a client that never reads this must still be answered
-    /// correctly - and is, because every rule is on the other side of the port.
-    ///
-    /// `Arc<str>` and not `String`: under [`crate::http::service`]'s stateless mode a fresh
-    /// `AgentSurface` is built per REQUEST, not per connection (see that module's own doc comment),
-    /// so a `String` here would copy the whole rendered document - which grows with every metric and
-    /// example the pinned bundle carries - on every call, not only the `initialize` this field
-    /// answers. A clone here is a refcount bump, the same reason `admission` is held behind an `Arc`.
-    instructions: Arc<str>,
+    /// The operations the `initialize` prompt describes. The prompt is `sutura prompt`'s own document,
+    /// rendered at `initialize` by [`sutura_app::prompt::render`] (`telekom/sutura#776`), and it is
+    /// **still advisory**: a gateway that ignores everything but tools is answered correctly, because
+    /// every rule is on the other side of the port. An `Arc` because [`crate::http::service`]'s
+    /// stateless mode builds a fresh `AgentSurface` per REQUEST.
+    tools: Arc<[Tool]>,
     /// The operator's own text, before it is folded into the rendered prompt - the value the
     /// `describe_catalog` tool carries through `tools/call` so a surface that never delivers
     /// `initialize.instructions` still reaches the operator's rules.
     ///
-    /// Deliberately the RAW text and not the full rendered [`Self::instructions`]: the catalog tool
+    /// Deliberately the RAW text and not the full rendered prompt: the catalog tool
     /// appends it under its own "operator's instructions" heading, exactly as the prompt does, so
     /// folding the whole prompt here would put a document inside a document.
     ///
@@ -289,12 +282,8 @@ impl<S> AgentSurface<S> {
     /// took. The module documentation carries why this key rather than one of this transport's own,
     /// and what the deadline does not stop.
     ///
-    /// **`instructions` is required and is the fifth, for the same reason as the rest: only a
-    /// composition root has read the settings and the pinned bundle both** - `sutura`'s `mcp`
-    /// subcommand and `sutura-cli`'s `serve::agent::mount` each render it with
-    /// [`sutura_app::prompt::render`], the same call `sutura prompt` makes, over the same bundle
-    /// this `service` answers from. No default here, and deliberately: a sentence this crate hard-
-    /// coded could never have named a tool, a metric or a refusal that this deployment actually has.
+    /// **`tools` is required and is the fifth: only a composition root has read the settings** that
+    /// say which operations this deployment mounts - the same list `sutura prompt` renders.
     #[must_use]
     pub const fn new(
         service: Arc<S>,
@@ -302,7 +291,7 @@ impl<S> AgentSurface<S> {
         prose: sutura_app::prompt::CatalogProse,
         admission: Admission,
         reply: RequestTimeout,
-        instructions: Arc<str>,
+        tools: Arc<[Tool]>,
         operator_instructions: Option<Arc<str>>,
     ) -> Self {
         Self {
@@ -311,7 +300,7 @@ impl<S> AgentSurface<S> {
             prose,
             admission,
             reply,
-            instructions,
+            tools,
             operator_instructions,
         }
     }
@@ -367,10 +356,25 @@ where
     fn get_info(&self) -> ServerConfig {
         // `Implementation::new` and not `from_build_env`: that helper reads the build environment of
         // the crate it is compiled into, which is the SDK, so a server using it introduces itself as
-        // the SDK. `env!` here expands in this crate.
+        // the SDK. `env!` here expands in this crate. No `instructions`: see `initialize`.
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")))
-            .with_instructions(self.instructions.to_string())
+    }
+
+    /// The SDK's own negotiation, plus the prompt. Here and not in `get_info`, which the SDK also
+    /// hands out on paths that carry no caller.
+    fn initialize(
+        &self,
+        request: InitializeRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<InitializeResult, ErrorData>> + Send + '_ {
+        context.peer.set_peer_info(request.clone());
+        let view = sutura_domain::pinned::view::ScopedView::everything(self.service.definitions());
+        let inputs = PromptInputs::new(&self.tools, self.prose, self.operator_instructions.as_deref());
+        std::future::ready(
+            self.negotiate_initialize(&request)
+                .map(|negotiated| negotiated.with_instructions(sutura_app::prompt::render(&view, &inputs))),
+        )
     }
 
     /// The tools this peer may invoke, and no cursor: the set is bounded by
@@ -614,9 +618,7 @@ impl RenderedCause {
     ///
     /// Safe here because `sutura_domain::question::MalformedQuestion`'s own note guarantees no
     /// variant, and no link of any variant's cause chain, carries the caller's own text - the same
-    /// guarantee [`invalid`] relied on before this type existed. [`invalid`] never walks
-    /// `MalformedQuestion::NotAnObject`, whose cause is the `serde_json::Error` [`Self::outer_only`]
-    /// describes.
+    /// guarantee [`invalid`] relied on before this type existed - for every variant but `NotAnObject`.
     fn of(error: &(dyn core::error::Error + 'static)) -> Self {
         let mut message = error.to_string();
         for cause in cause_chain(error) {
@@ -688,8 +690,8 @@ fn invalid_statement(error: &MalformedStatement) -> ErrorData {
 ///
 /// The chain is walked into the message because `Display` on a `thiserror` enum prints the outermost
 /// sentence only, and here the inner one is the half that names the field or the character set. See
-/// [`RenderedCause::of`] for why that walk is safe - and [`RenderedCause::outer_only`] for why an
-/// arguments object that did not deserialize is not walked: the HTTP surface redacts the same case.
+/// [`RenderedCause::of`] for why that walk is safe, and [`RenderedCause::outer_only`] for the one
+/// variant it is not walked for.
 fn invalid(error: &MalformedQuestion) -> ErrorData {
     match error {
         MalformedQuestion::NotAnObject { .. } => RenderedCause::outer_only(error),

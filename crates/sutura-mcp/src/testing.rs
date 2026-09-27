@@ -54,17 +54,16 @@ use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Val
 /// The number the anchor certifies, and the number the answering fake reproduces.
 pub(crate) const ANCHORED_VALUE: i64 = 197_122;
 
-/// A fixture for [`crate::AgentSurface`]'s `instructions` field.
+/// A fixture for [`crate::AgentSurface`]'s `tools` field: the operations the `initialize` prompt
+/// describes, which is every certified one.
 ///
-/// None of this crate's own tests assert on `initialize`'s `instructions` content - that document
-/// is `sutura_app::prompt::render`'s claim, pinned by that crate's own snapshots - so every fixture
-/// here needs only *a* value, not the rendered one.
-pub(crate) fn instructions() -> Arc<str> {
-    Arc::from("test fixture instructions")
+/// Named for what it feeds - `initialize.instructions` - rather than for its type.
+pub(crate) fn instructions() -> Arc<[sutura_app::prompt::Tool]> {
+    Arc::from(sutura_app::prompt::Tool::ALL)
 }
 
 /// A fixture for [`crate::AgentSurface`]'s `operator_instructions` field - the operator's own text
-/// the catalog tool carries, distinct from the full rendered document [`instructions`] holds.
+/// the catalog tool carries, distinct from the full rendered document `initialize` answers with.
 ///
 /// `Option` rather than a bare `Arc<str>` because it is threaded into `AgentSurface::new`'s
 /// `Option<Arc<str>>` slot; the wrap is the shape the production signature demands, not a fixture

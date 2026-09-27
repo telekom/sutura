@@ -298,17 +298,16 @@ fn agent_tools(settings: &sutura_config::Settings) -> Vec<Tool> {
 
 /// The whole rendered agent prompt and the operator's own text, read ONCE.
 ///
-/// What `prompt` prints, and since `telekom/sutura#776` what a served MCP transport's
-/// `initialize.instructions` carries too, so a served agent actually receives the bundle's knowledge
-/// instead of a fixed sentence naming none of it. The second element is the raw operator text, read
-/// from the same file and same settings by the same call - so a composition root that renders the
-/// prompt and carries the operator text to the catalog tool never reads the file twice, and the two
-/// cannot disagree.
+/// What `prompt` prints: the operator's whole-bundle view. A served MCP transport's
+/// `initialize.instructions` is the same document rendered per caller from [`served_prompt`]'s
+/// inputs, so a served agent receives its own view of the bundle's knowledge instead of a fixed
+/// sentence naming none of it. The second element is the raw operator text, read from the same
+/// file and same settings by the same call.
 ///
-/// Shared rather than reimplemented per composition root - `crate::mcp` and `crate::serve::agent`
-/// both call this - for the reason `#266`'s `H1` already named for `catalog_prose`: two roots
-/// resolving one document separately is how a later change to either stops matching what this
-/// command prints for the same settings.
+/// Its inputs are shared with [`served_prompt`] rather than reimplemented per composition root, for
+/// the reason `#266`'s `H1` already named for `catalog_prose`: two roots resolving one document
+/// separately is how a later change to either stops matching what this command prints for the same
+/// settings.
 pub(crate) fn agent_instructions(
     pinned: &PinnedDefinitions,
     settings: &sutura_config::Settings,
@@ -316,8 +315,20 @@ pub(crate) fn agent_instructions(
     let (prose, operator) = prompt_inputs(settings.prompt())?;
     let tools = agent_tools(settings);
     let inputs = PromptInputs::new(&tools, prose, operator.as_deref());
-    Ok((sutura_app::prompt::render(pinned, &inputs), operator))
+    Ok((sutura_app::prompt::render(&ScopedView::everything(pinned), &inputs), operator))
 }
+
+/// What a served agent surface renders its `initialize` prompt from, per caller: the tools this
+/// deployment mounts and the operator's own text, read ONCE - the same file and settings
+/// [`agent_instructions`] reads for `prompt`.
+pub(crate) fn served_prompt(settings: &sutura_config::Settings) -> Result<ServedPrompt, String> {
+    let (_prose, operator) = prompt_inputs(settings.prompt())?;
+    Ok((std::sync::Arc::from(agent_tools(settings)), operator))
+}
+/// The served prompt's tools and the operator's own text, returned together by [`served_prompt`].
+///
+/// Named for the reason [`RenderedPromptWithOperator`] is.
+type ServedPrompt = (std::sync::Arc<[Tool]>, Option<String>);
 /// The rendered prompt and the operator's own text, returned together by [`agent_instructions`].
 ///
 /// A named alias because the inline tuple is over the complexity threshold in `clippy.toml` - the
