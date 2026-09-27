@@ -58,7 +58,25 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-crap",
         description: "the CRAP policy is a gate, its allowlist annotated, its scope real",
         kind: Kind::Hygiene(Reads::Prose),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // A valid one-member workspace and matching pin/page leave the unannotated
+            // allowlist entry as the sole refusal.
+            seeds: &[
+                ("Cargo.toml", "[workspace]\nmembers = [\"crates/sutura-domain\"]\n"),
+                (
+                    "crates/sutura-domain/Cargo.toml",
+                    "[package]\nname = \"sutura-domain\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+                ),
+                ("crates/sutura-domain/src/lib.rs", "pub fn fixture() {}\n"),
+                (
+                    ".cargo-crap.toml",
+                    "threshold = 30\nfail-above = true\nallow = [\n  \"sutura-domain::*\",\n]\n",
+                ),
+                ("nix/crap.nix", "crapVersion = \"0.4.3\";\n"),
+                ("docs/crap.md", "cargo-crap 0.4.3\n"),
+            ],
+            in_scope: Some(".cargo-crap.toml"),
+        },
         run: crap::run_check,
     },
     Task {
