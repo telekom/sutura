@@ -188,7 +188,26 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-bounded-wait",
         description: "one place in the compose tier can be blocked by a child process",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // One legitimate docker waiter and the declared lsof allowance satisfy the two
+            // witness floors. The second waiter in a sibling is the own-rule violation.
+            seeds: &[
+                ("xtask/src/compose.rs", "mod docker;\n"),
+                (
+                    "xtask/src/compose/docker.rs",
+                    "fn bounded(child: &mut std::process::Child) { let _ = child.wait(); }\n",
+                ),
+                (
+                    "xtask/src/compose/lock.rs",
+                    "fn owner(command: &mut std::process::Command) { let _ = command.output(); }\n",
+                ),
+                (
+                    "xtask/src/compose/extra.rs",
+                    "fn unbounded(command: &mut std::process::Command) { let _ = command.status(); }\n",
+                ),
+            ],
+            in_scope: Some("xtask/src/compose/extra.rs"),
+        },
         run: bounded_wait::run,
     },
     Task {
