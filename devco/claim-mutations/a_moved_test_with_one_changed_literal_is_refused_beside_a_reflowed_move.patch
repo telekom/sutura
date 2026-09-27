@@ -1,0 +1,13 @@
+diff --git a/xtask/src/causality/edited/moved.rs b/xtask/src/causality/edited/moved.rs
+index 9e3ffcd36..66d27e506 100644
+--- a/xtask/src/causality/edited/moved.rs
++++ b/xtask/src/causality/edited/moved.rs
+@@ -134,7 +134,7 @@ fn flatten(stream: TokenStream, out: &mut Vec<String>) {
+                 out.push(format!("{}{}", punct.as_char(), if joint { "~" } else { "" }));
+             }
+             TokenTree::Ident(ident) => out.push(ident.to_string()),
+-            TokenTree::Literal(literal) => out.push(continued(&literal.to_string())),
++            TokenTree::Literal(_) => out.push(continued("")),
+         }
+     }
+ }
