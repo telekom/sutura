@@ -1,0 +1,10 @@
+diff --git a/crates/sutura-http/src/inbound/keys.rs b/crates/sutura-http/src/inbound/keys.rs
+--- a/crates/sutura-http/src/inbound/keys.rs
++++ b/crates/sutura-http/src/inbound/keys.rs
+@@ -407,5 +407,5 @@
+         AlgorithmParameters::EllipticCurve(_) => KeyFamily::EllipticCurve,
+         AlgorithmParameters::OctetKeyPair(_) => KeyFamily::EdwardsCurve,
+-        _ => return Err(InvalidKeySet::UnsupportedKeyFamily),
++        _ => return Err(InvalidKeySet::NoUsableKey),
+     };
+     let key = DecodingKey::from_jwk(jwk).map_err(|cause| InvalidKeySet::UnusableKey { cause })?;
