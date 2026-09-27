@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-sql/src/generate.rs b/crates/sutura-sql/src/generate.rs
+--- a/crates/sutura-sql/src/generate.rs
++++ b/crates/sutura-sql/src/generate.rs
+@@ -626,7 +626,7 @@
+         }
+         PlaceholderStyle::Question | PlaceholderStyle::Colon => {
+             let count = placeholder_count(ast, dialect);
+-            if count != params.len() {
++            if count < params.len() {
+                 return Err(GenerateError::PlaceholderCountMismatch {
+                     dialect,
+                     placeholders: count,
