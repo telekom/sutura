@@ -223,3 +223,30 @@ fn a_helper_moved_into_a_new_path_module_stays_declared_at_base() {
         "a declared module must not be deleted from the base tree: {separable:?}"
     );
 }
+
+/// The same split's other half: a sibling test module that existed at base follows the helpers to
+/// their new module, changing only its `use` line. Restoring it puts base imports under a parent
+/// kept at HEAD, which no longer has them, and the base fails to build the same way.
+#[test]
+fn a_sibling_test_module_that_follows_a_moved_helper_stays_at_head() {
+    let helper = "pub fn four() -> i32 {\n    2 + 2\n}\n";
+    let sibling = "#[cfg(test)]\nmod kinds;\n";
+    let head = format!("#[path = \"a/harness.rs\"]\nmod harness;\n{sibling}#[cfg(test)]\n#[path = \"a/moved.rs\"]\nmod moved;\n");
+    let plan = plan_of(&[
+        ["crates/x/tests/a.rs", &format!("{helper}{sibling}{FOO}"), &head],
+        ["crates/x/tests/a/harness.rs", "", helper],
+        ["crates/x/tests/a/moved.rs", "", FOO],
+        [
+            "crates/x/tests/a/kinds.rs",
+            &format!("use super::four;\n{BAR}"),
+            &format!("use super::harness::four;\n{BAR}"),
+        ],
+    ]);
+    let Plan::Separable(separable) = plan else {
+        panic!("a pure move must reach the proof, got {plan:?}");
+    };
+    assert!(
+        !separable.revert.contains(&String::from("crates/x/tests/a/kinds.rs")),
+        "a test module declared by a kept test file must stay beside it: {separable:?}"
+    );
+}
