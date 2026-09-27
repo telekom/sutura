@@ -3486,7 +3486,7 @@ collecting.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-73-1"><a id="__codelineno-73-1" name="__codelineno-73-1" href="#__codelineno-73-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_production</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
 <p>Is this the environment the strict refusals apply to?</p>
-<p>A method rather than <code>== Environment::Production</code> at each call site: there are five
+<p>A method rather than <code>== Environment::Production</code> at each call site: there are four
 refusals keyed off it, and a fourth variant added later has to answer this question once.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-74-1"><a id="__codelineno-74-1" name="__codelineno-74-1" href="#__codelineno-74-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnknownEnvironment</span><span class="o">&gt;</span>
 </span></code></pre></div>
@@ -4103,8 +4103,8 @@ not as an omission from this one.</p>
 <h1 id="why-there-is-no-environment-derived-default-here">Why there is no environment-derived default here<a class="headerlink" href="#why-there-is-no-environment-derived-default-here" title="Permanent link">&para;</a></h1>
 <p><code>ApiSettings</code> and <code>LogFormat</code> default by
 <code>Environment</code> and record whether an operator wrote the value down, so the
-startup log can tell "somebody chose this" from "nobody did". Neither key here does, and the
-reason is that neither decision is a function of the environment.</p>
+startup log can tell "somebody chose this" from "nobody did". No key here does, and the reason
+is that none of these decisions is a function of the environment.</p>
 <p>Whether a catalog's authors are trusted enough to quote their prose into an agent's context is a
 fact about who writes the catalog, not about whether the process is on a laptop. A default that
 dropped the prose in production would be worse than either fixed answer: an agent with no
@@ -6052,8 +6052,9 @@ exist here. Bounded in length, because it is a foreign string heading for a requ
 </span></code></pre></div>
 <p>Parses a scope.</p>
 <p>A scope is a URL (<code>https://www.googleapis.com/auth/bigquery.readonly</code>), so it allows the <code>%</code>
-and letters a URL does rather than the narrower set an audience does. Same bound, same reason:
-it belongs in a request and a refusal should never log it raw.</p>
+and letters a URL does rather than the narrower set an audience does. A longer bound than an
+audience's, and the same reason for having one: it belongs in a request and a refusal should
+never log it raw.</p>
 <h5 id="implements_93">Implements<a class="headerlink" href="#implements_93" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>Hash</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code></p>
 <h4 id="struct-workloadidentityconfig"><code>struct WorkloadIdentityConfig</code><a class="headerlink" href="#struct-workloadidentityconfig" title="Permanent link">&para;</a></h4>

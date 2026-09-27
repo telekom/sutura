@@ -3120,8 +3120,8 @@ it - the same <code>CatalogProse</code> and the same <code>&gt;</code> per-line 
 catalog prose from the prompt also withholds it from the tool. The byte cap is the bundle's own:
 knowledge is bounded at load by <code>sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES</code>. This function
 never sees the operator's own instructions text at all - that text is a separate field the MCP
-catalog reply (<code>sutura_mcp::wire::CatalogContent</code>) carries beside this one and states, honestly,
-as unbounded.</p>
+catalog reply (<code>sutura_mcp::wire::CatalogContent</code>) carries beside this one, read at startup
+under <code>prompt.instructions_max_bytes</code>.</p>
 <p><strong>Section order is <code>declaration</code>, <code>glossary</code>, <code>not_defined</code>, <code>caveats</code>, <code>examples</code> - fixed, and
 deliberately not the prompt's own order.</strong> The declaration's own sentences ("listed below", "at
 the end of this document" for the prompt, "at the end of these knowledge sections" for the tool)

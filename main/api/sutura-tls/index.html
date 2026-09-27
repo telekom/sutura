@@ -1979,7 +1979,8 @@ dependency, so this module's input is the RESOLVED material a composition root e
 declaration."</em> That argument is about <code>sutura-config</code> - a settings crate parses a path and never
 reads it, so the file read belongs to whichever adapter opens the connection - and it says nothing
 about two <em>adapters</em> sharing the read. <code>github.com/telekom/sutura#125</code>'s remaining half needs the
-same bundle-or-system-store read a second time, for the <code>BigQuery</code> wire, and copying
+same bundle-or-system-store read a second time - for the <code>BigQuery</code> wire then, and for the
+<code>ureq</code>-based catalog readers now that the wire is gone - and copying
 <code>bundle_roots</code>/<code>system_roots</code>/the identity loaders a second time is exactly the duplication
 <code>AGENTS.md</code> asks not to hold twice.</p>
 <h1 id="what-is-shared-and-what-deliberately-is-not">What is shared, and what deliberately is not<a class="headerlink" href="#what-is-shared-and-what-deliberately-is-not" title="Permanent link">&para;</a></h1>
@@ -2073,9 +2074,9 @@ the host store) rather than letting each source repeat the check.</p>
 <p><strong><code>Clone</code>, unlike <code>LoadedIdentity</code>.</strong> <code>CertificateDer</code> is public material by construction (a
 certificate, never a key), and a deployment-wide declaration is read ONCE and then handed to every
 fixed-host client that needs it - <code>github.com/telekom/sutura#125</code>'s <code>security.outbound</code> covers the
-<code>BigQuery</code> wire and the STS exchange from a single boot-time read, so a composition root needs one
-loaded value it can give to more than one <code>crate</code>-external constructor without re-reading the
-bundle or the host store per call site.</p>
+<code>datahub</code> and <code>openmetadata</code> catalog readers over <code>sutura_http_client</code> from a single boot-time
+read, so a composition root needs one loaded value it can give to more than one
+<code>crate</code>-external constructor without re-reading the bundle or the host store per call site.</p>
 <h3 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h3>
 <p><code>Clone</code>, <code>Debug</code>, <code>IntoIterator</code></p>
 <h2 id="struct-loadedidentity"><code>struct LoadedIdentity</code><a class="headerlink" href="#struct-loadedidentity" title="Permanent link">&para;</a></h2>
@@ -2098,8 +2099,8 @@ no <code>&amp;self</code> accessor for it that would not lie about ownership.</p
 <p>The private key's DER encoding kind - see <code>KeyKind</code>.</p>
 <p><strong>Why this exists rather than a caller matching <code>PrivateKeyDer</code> itself.</strong> Matching
 <code>rustls_pki_types::PrivateKeyDer</code>'s variant directly would make <code>rustls-pki-types</code> a
-dependency of every caller merely to ask which kind a key is - <code>sutura_exec_bigquery</code>'s own
-<code>wire::tls::client_cert</code> needs exactly this, to choose the PEM label a re-armored key is
+dependency of every caller merely to ask which kind a key is - <code>sutura_http_client</code>'s own
+<code>tls::client_cert</code> needs exactly this, to choose the PEM label a re-armored key is
 written under (<code>ureq</code>'s own key type recovers its kind from that label, not from a value a
 caller passes it). This crate already depends on <code>rustls-pki-types</code> for the read; this
 method is the answer in this crate's own vocabulary.</p>
@@ -2123,7 +2124,7 @@ method is the answer in this crate's own vocabulary.</p>
 <p>A resolved <code>security.outbound</code> declaration: the anchors always present once the block is
 written, and the optional client identity beside them - <code>github.com/telekom/sutura#911</code>.</p>
 <p><strong>Why one type and not two independently-optional parameters.</strong> A composition root threads
-this from boot to every fixed-host consumer (the <code>BigQuery</code> wire, the <code>datahub</code> reader); an
+this from boot to every fixed-host consumer (the <code>datahub</code> and <code>openmetadata</code> readers); an
 identity can never be declared without anchors (<code>security.outbound</code> always requires
 <code>transport_anchors</code> once the block itself exists), so pairing them is a type that cannot
 disagree with that invariant rather than two values a call site could thread inconsistently.</p>

@@ -2335,8 +2335,9 @@ line this adapter reads.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DataContractError</span>
 </span></code></pre></div>
 <p>Why a directory could not be read as a data-contract catalog.</p>
-<p>Every variant carries the path, because a catalog is many files and a message that names no file
-sends a reader to read all of them.</p>
+<p>Every variant but five (<code>TargetUniquenessUnknown</code>, <code>RelationshipName</code>, <code>Inconsistent</code>,
+<code>UncheckableKnowledge</code>, <code>Digest</code>) carries the path, because a catalog is many files and a
+message that names no file sends a reader to read all of them.</p>
 <h3 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>NotADirectory</code></li>

@@ -3176,8 +3176,8 @@ line and the compared text two different things, with nothing downstream able to
 <p><strong>Held to <code>DimensionValue</code>'s rule by calling it, not by restating it</strong>, and that includes the
 length: the cap is <code>MAX_DIMENSION_VALUE_CHARS</code> rather than a number of this type's own, for the
 reason <code>MAX_DESCRIPTION_BYTES</code> gives about two constants derived from one measurement. 64
-characters is three times the longest decimal an <code>i64</code> can render, so no number a data system can
-return is refused by the length alone. <strong>A long enough STRING scalar would be</strong> - the type does
+characters is more than three times the longest decimal an <code>i64</code> can render, so no number a data
+system can return is refused by the length alone. <strong>A long enough STRING scalar would be</strong> - the type does
 not require the text to read as a number, see below - and 64 characters is where an anchor over
 prose stops being certifiable. That bound is the declared value's and is deliberately not
 widened for this caller.</p>
@@ -3292,9 +3292,10 @@ and the code are what a <code>grep</code> needs, and <code>sutura_catalog_local<
 because the rule is this type's rule and every adapter that matches on it already spells it;
 renaming it for the second caller would be churn across the workspace for a word. Whoever names
 the field says which field - the anchor value's own callers carry this as a <code>source</code>.</p>
-<p>Every variant carries the offending text, unlike <code>InvalidDescription</code>, and the asymmetry is the
-one <code>crate::knowledge::InvalidPhrase</code> and <code>crate::knowledge::InvalidNoteBody</code> already make: a
-value is at most <code>MAX_DIMENSION_VALUE_CHARS</code> characters, so naming it is what sends an author to
+<p>Every variant but <code>Empty</code> carries the offending text, unlike
+<code>InvalidDescription</code>, and the asymmetry is the one <code>crate::knowledge::InvalidPhrase</code> and
+<code>crate::knowledge::InvalidNoteBody</code> already make: a value is at most
+<code>MAX_DIMENSION_VALUE_CHARS</code> characters, so naming it is what sends an author to
 the line in the file, while naming four kilobytes of prose would not.</p>
 <p><strong>Nothing on the request path may render one of these.</strong> <code>sutura_http::wire</code> parses a caller's
 filter value and reports the field and the index without the cause, for the reason
@@ -4347,13 +4348,14 @@ turns it into <code>crate::query::RefusalReason::CredentialUnavailable</code>. O
 spelled.</p>
 <h3 id="use-presented"><code>use Presented</code><a class="headerlink" href="#use-presented" title="Permanent link">&para;</a></h3>
 <p>What an adapter presents, for one leg.</p>
-<p><strong>Three shapes, because there are three postures and the third one is not the absence of the
-other two.</strong> The engine that ships cannot impersonate anybody - one process, one
-operating-system identity - so under a two-variant shape it would receive a value it ignores,
+<p><strong>Three shapes over two postures: impersonation at the source arrives by two mechanisms, and the
+shared shape is not the absence of the other two.</strong> The engine that ships cannot impersonate
+anybody - one process, one operating-system identity - so under a two-variant shape it would
+receive a value it ignores,
 and "the service-identity fallback was removed" would mean the fallback came back as a variant
 nobody looked at. Under three there is nothing to ignore: the shared leg's value holds no
 credential material, so an adapter cannot mistake it for one, and a reader of this enum can see
-that a third posture exists without reading an adapter.</p>
+that a third shape exists without reading an adapter.</p>
 <p>An adapter matches exhaustively on what it received and returns its own typed error for a shape
 it is not configured for. <code>docs/adr/0008</code> part 4 states both directions and says which is the
 dangerous one: an adapter that quietly <em>accepted</em> subject material it cannot use would report a
@@ -5080,7 +5082,7 @@ the plan stage at query time - resolves <code>None</code> against it.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-225-1"><a id="__codelineno-225-1" name="__codelineno-225-1" href="#__codelineno-225-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidTerm</span>
 </span></code></pre></div>
 <p>Why a term was rejected.</p>
-<p>Four variants rather than one message, because each of them is a different mistake and the
+<p>Five variants rather than one message, because each of them is a different mistake and the
 variant is what says which. A single "invalid term" would send an author back to compare their
 line against a grammar.</p>
 <h4 id="variants_25">Variants<a class="headerlink" href="#variants_25" title="Permanent link">&para;</a></h4>
@@ -5110,7 +5112,7 @@ one sentence and neither of them can collide with a scalar YAML resolves itself.
 <h4 id="variants_26">Variants<a class="headerlink" href="#variants_26" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Null</code> - The measure is null for that row. The generator guards the denominator - a <code>NULLIF</code>, or the dialect's own safe-divide.</li>
-<li><code>Fail</code> - The division is emitted unguarded, and the fault is raised where the value crosses back into the domain. A definition choosing this is saying an empty period is a fault and not a figure.</li>
+<li><code>Fail</code> - The division is emitted unguarded, and the fault is raised by <code>crate::warehouse::Real</code>'s finiteness check when the value crosses back into the domain. A definition choosing this is saying an empty period is a fault and not a figure.</li>
 </ul>
 <p><strong>The word used to be a wish, and this paragraph is the correction.</strong> "Unguarded" is not the
   same as "fails": both generators cast the numerator to a floating type first, because integer
@@ -5172,8 +5174,8 @@ and model together to know which model to check a column against.</p>
 <p><strong>Definitional, not a question.</strong> <code>mrr</code> means recurring revenue <em>from active subscriptions</em>, and
 a statement that omits that predicate returns a different number under the same name - the exact
 failure this repository exists to prevent, arrived at by omission rather than by tampering. So a
-required filter is applied to every question about the metric, and a caller cannot see it, choose
-it or turn it off.</p>
+required filter is applied to every question about the metric at plan time, and a caller cannot
+see it, choose it or turn it off.</p>
 <p>Its values come from the catalog rather than from a caller, and they are still bound as
 parameters rather than written into the statement. Not because the catalog is untrusted in the
 way a caller is, but because a value that is sometimes inlined and sometimes bound is a generator
@@ -6352,8 +6354,8 @@ cannot live there. <code>ScopedView</code> borrows the bundle instead. Mapping a
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-336-1"><a id="__codelineno-336-1" name="__codelineno-336-1" href="#__codelineno-336-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">everything</span><span class="p">(</span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">a</span><span class="w"> </span><span class="nc">PinnedDefinitions</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Every metric, unfiltered - for the surfaces <code>docs/adr/0028</code> names as retaining the whole
-bundle. Public, so not sealed against misuse; what it buys is that nothing downstream
-renders a catalog from a bare <code>&amp;PinnedDefinitions</code>.</p>
+bundle. Public, so not sealed against misuse, and only review keeps a renderer from reading a
+bare <code>&amp;PinnedDefinitions</code> instead.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-337-1"><a id="__codelineno-337-1" name="__codelineno-337-1" href="#__codelineno-337-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">granted_by</span><span class="p">(</span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">a</span><span class="w"> </span><span class="nc">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">granted</span><span class="p">:</span><span class="w"> </span><span class="nc">GrantedAudiences</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>A caller mapped to this set.</p>
@@ -7582,8 +7584,8 @@ a number that is too large, a number in the wrong place, and a value nothing rea
 <li><code>OutOfRange</code> - A predicate binds a parameter the list does not hold.</li>
 <li><code>OutOfPlaceholderOrder</code> - A predicate binds a parameter out of placeholder order.</li>
 </ul>
-<p><code>position</code> is how many predicates before it bound one, which is the placeholder a positional
-  dialect would give it.
+<p><code>position</code> is how many parameters were bound before this one, which is the placeholder a
+  positional dialect would give it.
 - <code>NeverRead</code> - The set carries a parameter no predicate binds.</p>
 <h5 id="implements_101">Implements<a class="headerlink" href="#implements_101" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
@@ -7640,7 +7642,7 @@ carries exactly this.</p>
 <p><strong>The canonical constructor.</strong> <code>Self::none</code> is the empty spelling of it and repeats no
 check, because a set with no parameters has no index to resolve.</p>
 <p>The three checks are ordered for the DIAGNOSTIC and not for cost - the whole walk is linear
-over a list bounded by <code>MAX_DIMENSIONS</code> plus a metric's
+over a list bounded by <code>MAX_FILTERS</code> plus a metric's
 required filters plus the two range bounds. An index the set cannot hold is reported as that
 rather than as an ordering fault, because the author who wrote the wrong number needs to read
 the number, and an out-of-range index is out of order as well.</p>
@@ -9449,7 +9451,7 @@ after the aggregate - refusing a result that exceeds them - so a question that s
 groups it into one bucket is inside it. The span is what rows-read is a function of, so the span is
 where the cap goes.</p>
 <p><strong>3653 days is ten calendar years, counted at its longest.</strong> Ten consecutive Gregorian years hold
-3652 or 3653 days depending on where the leap days fall, so this number is the one that lets
+3651, 3652 or 3653 days depending on where the leap days fall, so this number is the one that lets
 <em>any</em> ten-year window through rather than most of them. Ten years is chosen because it covers the
 reporting a person actually does - a decade of annual figures, five years of quarters, three years
 of months - and the longest range anywhere in this repository's example corpus, in its questions
@@ -9861,7 +9863,7 @@ echoed" a property of the type rather than a discipline at every call site.</p>
 <h3 id="struct-rawstatement"><code>struct RawStatement</code><a class="headerlink" href="#struct-rawstatement" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-575-1"><a id="__codelineno-575-1" name="__codelineno-575-1" href="#__codelineno-575-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RawStatement</span>
 </span></code></pre></div>
-<p>One statement, as a caller sent it: unparsed text, bounded and non-empty.</p>
+<p>One statement, in the form it is executed: trimmed, bounded, non-empty text.</p>
 <p><strong>This is not a SQL type.</strong> Nothing here reads a keyword out of the text - <code>docs/adr/0013</code>'s own
 rule against inspecting a statement to decide read-only applies to every other purpose a parser
 might be tempted for, and this newtype's whole job is bounding the edge, not understanding the
@@ -9870,7 +9872,8 @@ middle. Sutura hands the bytes to the data system's own parser unexamined.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-576-1"><a id="__codelineno-576-1" name="__codelineno-576-1" href="#__codelineno-576-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The statement text, for the one adapter that runs it and for an audit record.</p>
-<p><strong>Never handed to a renderer for a caller-facing message.</strong> This is the field <code>docs/adr/0013</code>'s
+<p><strong>Never handed to a renderer for a caller-facing message</strong> - held by review, not by this
+type, since the accessor is public. This is the field <code>docs/adr/0013</code>'s
 consequences call "an audit-only field never returned to the caller" - the accessor exists for
 <code>crate::audit::CallRecord::of_raw</code> and for the execution port, not for a wire type to echo back.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-577-1"><a id="__codelineno-577-1" name="__codelineno-577-1" href="#__codelineno-577-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidRawStatement</span><span class="o">&gt;</span>
@@ -9952,7 +9955,7 @@ derivation function would be a coupling this module's whole reason for existing 
 it: <code>RawOutcome</code> has no field of that type anywhere in this module, so a raw result cannot be
 rendered as certified by filling in a digest - there is nowhere to put one. A <code>compile_fail</code>
 doctest on this type, paired with a compiling twin, is what keeps that a property of the type
-rather than a claim in this comment: see <code>crate::raw</code> module tests.</p>
+rather than a claim in this comment: see the <code>compile_fail_has_no_provenance</code> doctests below.</p>
 <p>The two variants deliberately do not mirror <code>ToolOutcome</code>'s field names: <code>Rows</code> rather than
 <code>Answer</code>, so a wire type built by matching on both cannot pattern-match its way to identical
 output.</p>
@@ -9972,8 +9975,8 @@ output.</p>
 <code>ToolOutcome::refusal</code>'s own shape.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-583-1"><a id="__codelineno-583-1" name="__codelineno-583-1" href="#__codelineno-583-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">row_count</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
-<p>How many rows this outcome carries, for an audit record. <code>0</code> for a refusal - nothing ran, or
-nothing came back.</p>
+<p>How many rows this outcome carries, for an audit record. <code>0</code> for a refusal - a refusal carries
+no rows, regardless of how far execution got.</p>
 <h4 id="implements_138">Implements<a class="headerlink" href="#implements_138" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
 <h3 id="constant-max_raw_statement_bytes"><code>constant MAX_RAW_STATEMENT_BYTES</code><a class="headerlink" href="#constant-max_raw_statement_bytes" title="Permanent link">&para;</a></h3>
@@ -10089,8 +10092,9 @@ the offending input as typed fields; the <code>#[error]</code> text is a conveni
 part nobody writes unless the type demands it.</strong> A boolean acknowledgement records that somebody
 clicked past a question; this records what they meant, on the source's own entry, and the startup
 log prints it beside the posture.</p>
-<p>Construct it with <code>parse</code>. There is no other way in: the field is private, there is
-no <code>Deserialize</code>, and <code>TryFrom&lt;String&gt;</code> delegates to the same constructor.</p>
+<p>Construct it with <code>parse</code>, or with <code>written_under</code>, which
+<code>parse</code> delegates to. There is no other way in: the field is private, there is no <code>Deserialize</code>,
+and <code>TryFrom&lt;String&gt;</code> delegates to <code>parse</code>.</p>
 <p>No <code>Default</code>, deliberately. A default reason is a reason nobody gave.</p>
 <h4 id="methods_93">Methods<a class="headerlink" href="#methods_93" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-586-1"><a id="__codelineno-586-1" name="__codelineno-586-1" href="#__codelineno-586-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
@@ -10146,8 +10150,8 @@ operator wrote has no value to travel, so there is no leg for it to reach.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-593-1"><a id="__codelineno-593-1" name="__codelineno-593-1" href="#__codelineno-593-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">reason</span><span class="p">:</span><span class="w"> </span><span class="nc">AcknowledgementReason</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Wraps an operator's reason as the witness.</p>
-<p>Takes the parsed reason rather than a string, so the only way to a witness is through
-<code>AcknowledgementReason::parse</code> - one canonical constructor, and this is not a second copy of
+<p>Takes the parsed reason rather than a string, so the only way to a witness is through a parsed
+<code>AcknowledgementReason</code> - one canonical constructor, and this is not a second copy of
 its checks.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-594-1"><a id="__codelineno-594-1" name="__codelineno-594-1" href="#__codelineno-594-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">reason</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">AcknowledgementReason</span>
 </span></code></pre></div>
@@ -10180,8 +10184,9 @@ value that never passed a constructor.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-596-1"><a id="__codelineno-596-1" name="__codelineno-596-1" href="#__codelineno-596-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The spelling, for the startup log and for a wire shape.</p>
-<p>The one definition of the word, so what a log line says and what an answer carries cannot
-drift apart.</p>
+<p>The one definition a log line and an answer both read, so they cannot drift apart.
+<code>NAMES</code> spells the same words a second time, and a test in <code>source/tests.rs</code>
+holds the two in step.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-597-1"><a id="__codelineno-597-1" name="__codelineno-597-1" href="#__codelineno-597-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">deliverable_by</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">capability</span><span class="p">:</span><span class="w"> </span><span class="nc">ImpersonationCapability</span><span class="p">,</span><span class="w"> </span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">SourceName</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">PostureNotDeliverable</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Refuses a posture the linked adapter has no way to perform.</p>
@@ -10190,8 +10195,8 @@ a property of the BUILD.</strong> Configuration says which posture the deploymen
 <code>ImpersonationCapability</code> says whether the code that was linked can carry a per-subject
 credential at all. <code>sutura-config</code> cannot see the second, so the comparison lives where both
 are in scope - the composition root - and this is the one function that makes it.</p>
-<p>Two exhaustive matches with no wildcard arm, so a third posture or a third capability is a
-compile error here rather than a case that quietly falls through to <code>Ok</code>.</p>
+<p>One exhaustive match over the pair with no wildcard arm, so a third posture or a third
+capability is a compile error here rather than a case that quietly falls through to <code>Ok</code>.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-598-1"><a id="__codelineno-598-1" name="__codelineno-598-1" href="#__codelineno-598-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">what_decides_what_a_caller_sees</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>What decides what a subject sees here, as a sentence for the startup log.</p>

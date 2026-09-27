@@ -2061,8 +2061,8 @@ layer is installed on the versioned subtree only, and assembly proved every rout
 <p>Every route this crate governs.</p>
 <p>Built as a function rather than a <code>const</code> because the paths are composed from <code>API_V1_PREFIX</code>
 and <code>base_paths</code>, and composing them here is what keeps one owner for a path.</p>
-<p><code>pub</code> because <code>crate::router::assemble</code> reads it to refuse an ungoverned route, and because a test
-in <code>crate::openapi</code> compares it against the generated document's operation identifiers.</p>
+<p><code>pub</code> because <code>tests/operations.rs</code> compares it against the generated document's operations;
+<code>crate::router::assemble</code> reads it through <code>capability_of</code> to refuse an ungoverned route.</p>
 <h2 id="use-permitted_for"><code>use permitted_for</code><a class="headerlink" href="#use-permitted_for" title="Permanent link">&para;</a></h2>
 <p>What a caller <code>Asked</code> names may do.</p>
 <p>See the module documentation for the two cases <code>Asked</code> itself carries, and for why the
@@ -2310,11 +2310,11 @@ fn _reachable(</em>: sutura_http::ReplicaSpendGauge) {}
 </span><span id="__span-4-98"><a id="__codelineno-4-98" name="__codelineno-4-98" href="#__codelineno-4-98"></a># What this gates, and what it does not
 </span><span id="__span-4-99"><a id="__codelineno-4-99" name="__codelineno-4-99" href="#__codelineno-4-99"></a>
 </span><span id="__span-4-100"><a id="__codelineno-4-100" name="__codelineno-4-100" href="#__codelineno-4-100"></a>**It decides which OPERATIONS a caller may invoke. It decides nothing about which rows an answer
-</span><span id="__span-4-101"><a id="__codelineno-4-101" name="__codelineno-4-101" href="#__codelineno-4-101"></a>contains.** Both routes read the same pinned bundle and every question executes under the same
-</span><span id="__span-4-102"><a id="__codelineno-4-102" name="__codelineno-4-102" href="#__codelineno-4-102"></a>identity, because no source executes as the asking subject - `docs/adr/0014`'s leg 1 establishes
-</span><span id="__span-4-103"><a id="__codelineno-4-103" name="__codelineno-4-103" href="#__codelineno-4-103"></a>who is asking and leg 2 does not exist. A caller granted `sutura:metrics.ask` and not
-</span><span id="__span-4-104"><a id="__codelineno-4-104" name="__codelineno-4-104" href="#__codelineno-4-104"></a>`sutura:catalog.read` cannot list the catalog and gets exactly the same numbers from a question as
-</span><span id="__span-4-105"><a id="__codelineno-4-105" name="__codelineno-4-105" href="#__codelineno-4-105"></a>anybody else would.
+</span><span id="__span-4-101"><a id="__codelineno-4-101" name="__codelineno-4-101" href="#__codelineno-4-101"></a>contains.** The catalog and question routes read the same pinned bundle and every question
+</span><span id="__span-4-102"><a id="__codelineno-4-102" name="__codelineno-4-102" href="#__codelineno-4-102"></a>executes under the same identity, because no source executes as the asking subject -
+</span><span id="__span-4-103"><a id="__codelineno-4-103" name="__codelineno-4-103" href="#__codelineno-4-103"></a>`docs/adr/0014`'s leg 1 establishes who is asking and leg 2 does not exist. A caller granted
+</span><span id="__span-4-104"><a id="__codelineno-4-104" name="__codelineno-4-104" href="#__codelineno-4-104"></a>`sutura:metrics.ask` and not `sutura:catalog.read` cannot list the catalog and gets exactly the
+</span><span id="__span-4-105"><a id="__codelineno-4-105" name="__codelineno-4-105" href="#__codelineno-4-105"></a>same numbers from a question as anybody else would.
 </span><span id="__span-4-106"><a id="__codelineno-4-106" name="__codelineno-4-106" href="#__codelineno-4-106"></a>
 </span><span id="__span-4-107"><a id="__codelineno-4-107" name="__codelineno-4-107" href="#__codelineno-4-107"></a># Where the grant comes from, and the two holes a reader should check for
 </span><span id="__span-4-108"><a id="__codelineno-4-108" name="__codelineno-4-108" href="#__codelineno-4-108"></a>
@@ -2387,8 +2387,8 @@ fields with accessors, which is the rule for a <code>pub struct</code> in a libr
 <p>Every route this crate governs.</p>
 <p>Built as a function rather than a <code>const</code> because the paths are composed from <code>API_V1_PREFIX</code>
 and <code>base_paths</code>, and composing them here is what keeps one owner for a path.</p>
-<p><code>pub</code> because <code>crate::router::assemble</code> reads it to refuse an ungoverned route, and because a test
-in <code>crate::openapi</code> compares it against the generated document's operation identifiers.</p>
+<p><code>pub</code> because <code>tests/operations.rs</code> compares it against the generated document's operations;
+<code>crate::router::assemble</code> reads it through <code>capability_of</code> to refuse an ungoverned route.</p>
 <h3 id="fn-capability_of"><code>fn capability_of</code><a class="headerlink" href="#fn-capability_of" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">capability_of</span><span class="p">(</span><span class="n">method</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">axum</span><span class="p">::</span><span class="n">http</span><span class="p">::</span><span class="n">Method</span><span class="p">,</span><span class="w"> </span><span class="n">route</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_app</span><span class="p">::</span><span class="n">Capability</span><span class="o">&gt;</span>
 </span></code></pre></div>
@@ -4478,9 +4478,9 @@ inbound identity attached. Nothing else may reach the transport.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-128-1"><a id="__codelineno-128-1" name="__codelineno-128-1" href="#__codelineno-128-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">inbound_identity</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Arc</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">inbound</span><span class="p">::</span><span class="n">InboundGate</span><span class="o">&gt;&gt;</span>
 </span></code></pre></div>
 <p>Leg 1, if this deployment has it.</p>
-<p>Read by <code>crate::router</code> to install the layer, and by nothing else - a handler must not be able
-to reach the validator, which is why the middleware takes the gate as its own state rather than
-reading it back out of this one.</p>
+<p>Read by <code>crate::router</code> to install the layer, and by nothing else. The accessor is public, so
+review rather than the type keeps a handler off the validator; the middleware takes the gate
+as its own state rather than reading it back out of this one.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-129-1"><a id="__codelineno-129-1" name="__codelineno-129-1" href="#__codelineno-129-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">metrics</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">metrics</span><span class="p">::</span><span class="n">Metrics</span>
 </span></code></pre></div>
 <p>The transport's metrics observer: records question outcomes, admission and rate-limit
@@ -4999,7 +4999,7 @@ the predicate's shape and never the source of a value.</p>
 <p>What a question produced.</p>
 <p><strong>The two variants come back with different statuses</strong>, and the <code>outcome</code> discriminator is what a
 caller branches on within one of them. An answer is a <code>200</code>. A refusal is a <code>403</code>, <code>404</code>, <code>409</code>,
-<code>413</code>, <code>422</code> or <code>503</code> depending on why - <code>refusal</code> holds the mapping and the reasoning, and
+<code>413</code>, <code>422</code>, <code>429</code> or <code>503</code> depending on why - <code>refusal</code> holds the mapping and the reasoning, and
 <code>Outcome</code> is what pairs the two.</p>
 <p>It used to be <code>200</code> for both, on the grounds that an error status invites a client library to
 retry. That was checked and does not hold; more to the point, a <code>200</code> made a governance refusal
@@ -5095,8 +5095,8 @@ says about it.</p>
 documentation.</p>
 <p><strong>The variant NAMES carry no <code>Raw</code> prefix</strong> (<code>clippy::enum_variant_names</code> over this
 already-<code>Raw</code>-prefixed type) - only their serialized tags do, pinned by an explicit
-<code>#[serde(rename)]</code> on each: <code>Refusal</code> alone would serialize exactly the certified path's own
-<code>outcome: "refusal"</code>, the one collision <code>docs/adr/0013</code> forbids.</p>
+<code>#[serde(rename)]</code> on each, so no container-level <code>rename_all</code> can turn <code>Refusal</code> into the
+certified path's own <code>outcome: "refusal"</code>, the one collision <code>docs/adr/0013</code> forbids.</p>
 <h3 id="use-runsqlbody"><code>use RunSqlBody</code><a class="headerlink" href="#use-runsqlbody" title="Permanent link">&para;</a></h3>
 <p>One raw statement, as the request body.</p>
 <h3 id="use-runsqloutcome"><code>use RunSqlOutcome</code><a class="headerlink" href="#use-runsqloutcome" title="Permanent link">&para;</a></h3>
@@ -5136,8 +5136,7 @@ two keys on both bodies, because both carry rows and need the same two labels fo
 <p><code>RawOutcomeBody</code> tags <code>outcome: "raw_rows"</code> / <code>outcome: "raw_refusal"</code> - never <code>"answer"</code> or
 <code>"refusal"</code> - and carries no <code>provenance</code> or <code>definition_digest</code> key at any depth, matching
 <code>sutura_mcp::wire::raw::RawContent</code>'s shape on the other transport.</p>
-<p>The two are kept equal by review, the same limit <code>super::OutcomeBody</code>'s own module
-documentation states for the certified pair.</p>
+<p>The two are kept equal by review, the same limit <code>sutura_mcp::wire</code> states for the certified pair.</p>
 <h4 id="struct-runsqlbody"><code>struct RunSqlBody</code><a class="headerlink" href="#struct-runsqlbody" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-172-1"><a id="__codelineno-172-1" name="__codelineno-172-1" href="#__codelineno-172-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RunSqlBody</span>
 </span></code></pre></div>
@@ -5162,8 +5161,8 @@ documentation states for the certified pair.</p>
 documentation.</p>
 <p><strong>The variant NAMES carry no <code>Raw</code> prefix</strong> (<code>clippy::enum_variant_names</code> over this
 already-<code>Raw</code>-prefixed type) - only their serialized tags do, pinned by an explicit
-<code>#[serde(rename)]</code> on each: <code>Refusal</code> alone would serialize exactly the certified path's own
-<code>outcome: "refusal"</code>, the one collision <code>docs/adr/0013</code> forbids.</p>
+<code>#[serde(rename)]</code> on each, so no container-level <code>rename_all</code> can turn <code>Refusal</code> into the
+certified path's own <code>outcome: "refusal"</code>, the one collision <code>docs/adr/0013</code> forbids.</p>
 <h5 id="variants_20">Variants<a class="headerlink" href="#variants_20" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>Rows</code></li>

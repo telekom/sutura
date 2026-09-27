@@ -2310,8 +2310,9 @@ is not something the directory knows - it is a commit id or a tag that only the 
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">OkfCatalogError</span>
 </span></code></pre></div>
 <p>Why a directory could not be read as an OKF catalog.</p>
-<p>Every variant carries the path, because a catalog is many files and a message that names no file
-sends a reader to read all of them.</p>
+<p>Every variant but three (<code>Inconsistent</code>, <code>UncheckableKnowledge</code>, <code>Digest</code>) carries the path,
+because a catalog is many files and a message that names no file sends a reader to read all of
+them.</p>
 <h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>NotADirectory</code></li>
@@ -2330,11 +2331,11 @@ sends a reader to read all of them.</p>
 <li><code>UncheckableKnowledge</code></li>
 <li><code>Empty</code></li>
 <li><code>TooManyDocuments</code></li>
-<li><code>TooManyEntries</code> - The walk visited more directory entries than <code>MAX_CATALOG_ENTRIES</code> permits.</li>
+<li><code>TooManyEntries</code> - The walk visited more directory entries than <code>sutura_bounded_read::MAX_CATALOG_ENTRIES</code> permits.</li>
 </ul>
 <p>Bounds the tree, not the documents: a wide directory of skipped non-document files, or a
   bind-mount cycle that would not terminate, is refused here rather than walked without end.
-- <code>TooLarge</code> - The read of this document would push the running total over <code>MAX_CATALOG_BYTES</code>.</p>
+- <code>TooLarge</code> - The read of this document would push the running total over <code>sutura_bounded_read::MAX_CATALOG_BYTES</code>.</p>
 <p><code>path</code> is the catalog root, matching <code>TooManyDocuments</code> and <code>Empty</code> above - the rendered
   text names "the catalog", so the path in it has to be the catalog's, not one file's.
   <code>document</code> is the one whose bytes pushed the running total past <code>limit</code>. <code>found</code> is that

@@ -1996,8 +1996,9 @@ relationship) as <strong>declared-and-empty may-provide kinds</strong>, the 0011
 extracts. It is tested against a fake reader that serves recorded documents - the port gets a fake,
 not mocked HTTP. <code>SnapshotReader</code> is the seam a real reader over <code>OpenMetadata</code>'s <code>REST</code> API
 (<code>/api/v1/tables</code>, <code>/api/v1/metrics</code>, …) implements, with a bearer credential; that HTTP reader is
-deliberately NOT in this first PR, so the crate stays green (a service has no network in the nix
-sandbox). The <code>http</code> reader + the live provisioned leg are the recorded follow-up.</p>
+deliberately NOT in the default build, so the crate stays green (a service has no network in the
+nix sandbox). That reader is <code>src/http.rs</code>, behind the default-off <code>http</code> feature; the live
+provisioned leg is the recorded follow-up.</p>
 <h1 id="the-declaration-and-what-it-means-for-the-bundle">The declaration, and what it means for the bundle<a class="headerlink" href="#the-declaration-and-what-it-means-for-the-bundle" title="Permanent link">&para;</a></h1>
 <p><code>Structure</code>, <code>Descriptions</code> and <code>Relationships</code> are provided unconditionally: a <code>Table</code> with its
 <code>columns[]</code> becomes a model, its <code>description</code> the model's description, and a <code>tableConstraint</code> /
@@ -2010,10 +2011,10 @@ whose relationships are all unconstrained therefore carries none, lawfully.</p>
 <p><code>Metrics</code>, <code>Grains</code> and <code>Cardinality</code> are declared-and-empty may-provide kinds: whether a bundle
 carries any is the deployment's decision (it defined a metric whose binding resolves, or it did
 not), so absence is faithful rather than an aspirational claim. The metric entity IS decoded and
-<code>metricType</code> + <code>granularity</code> + <code>dimensions[].type</code> are read, but <code>Measure</code> is minted only where a
-column binding resolves to a domain <code>Term</code> without certifying a foreign dialect's free text - which
-the recorded fixtures deliberately do not - so today those kinds arrive empty and the expression
-strings stay reported-not-defined, exactly as the ADR 0016 refusal demands.</p>
+<code>metricType</code> + <code>granularity</code> are read, but no metric is minted: its bound column cannot be read
+out of a foreign dialect's expression string without certifying that text, so those kinds
+arrive empty and the expression strings stay reported-not-defined, exactly as the ADR 0016
+refusal demands.</p>
 <p><code>RequiredFilters</code>, <code>AllowedValues</code> and <code>Anchors</code> are not declared at all: the filter is a raw SQL
 <code>where</code> never parsed into <code>RequiredFilter</code>, a dimension carries no allowlist, and the metric/table
 entities carry no <code>Anchor</code>. <code>KnowledgeCapabilities::none()</code> on the knowledge half, because only
