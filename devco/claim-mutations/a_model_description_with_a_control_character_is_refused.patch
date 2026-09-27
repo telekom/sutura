@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-catalog-datacontract/src/lib.rs b/crates/sutura-catalog-datacontract/src/lib.rs
+index 8a68f9b9b..9783075f1 100644
+--- a/crates/sutura-catalog-datacontract/src/lib.rs
++++ b/crates/sutura-catalog-datacontract/src/lib.rs
+@@ -337,9 +337,9 @@ impl DataContractCatalog {
+             .map(str::trim)
+             .filter(|text| !text.is_empty());
+         let description = match description {
+-            Some(text) => Description::parse(text).map_err(|cause| DataContractError::InvalidDescription {
++            Some(text) => Description::parse(text).map_err(|_cause| DataContractError::UnknownKind {
+                 path: path.to_path_buf(),
+-                cause,
++                found: String::from("description"),
+             })?,
+             None => Description::default(),
+         };
