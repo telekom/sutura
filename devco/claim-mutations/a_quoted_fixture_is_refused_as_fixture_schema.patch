@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-exec-duckdb/src/lib.rs b/crates/sutura-exec-duckdb/src/lib.rs
+index 9143c7c64..5d93fc907 100644
+--- a/crates/sutura-exec-duckdb/src/lib.rs
++++ b/crates/sutura-exec-duckdb/src/lib.rs
+@@ -669,10 +669,7 @@ fn duck_types(path: &Path) -> Result<String, DuckDbError> {
+         path: path.display().to_string(),
+         cause,
+     })?;
+-    let columns = sutura_domain::warehouse::csv::infer(&text).map_err(|cause| DuckDbError::FixtureSchema {
+-        path: path.display().to_string(),
+-        cause,
+-    })?;
++    let columns = sutura_domain::warehouse::csv::infer(&text).unwrap_or_default();
+     let mapped = columns
+         .into_iter()
+         .map(|column| {
