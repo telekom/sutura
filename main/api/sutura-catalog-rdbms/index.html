@@ -1980,9 +1980,9 @@ table prose. It is not a
 semantic layer and does not pretend to be one - which is the whole point of a <strong>declaring</strong>
 adapter. It says which kinds it provides and which it does not, and it is measured against that
 declaration rather than against the golden adapters' oracle.</p>
-<p>This crate implements the dictionary conversion from <code>github.com/telekom/sutura#151</code>. A live
-reader remains outside it; the runtime prompt derives the zero-metric physical-schema guidance
-from the pinned bundle rather than coupling the application to this adapter.</p>
+<p>This crate implements the dictionary conversion from <code>github.com/telekom/sutura#151</code>. The
+runtime derives the zero-metric physical-schema guidance from the pinned bundle rather than
+coupling the application to this adapter.</p>
 <h1 id="what-a-real-dictionary-yields">What a real dictionary yields<a class="headerlink" href="#what-a-real-dictionary-yields" title="Permanent link">&para;</a></h1>
 <p>ADR 0016's method, applied here: read a real dictionary before writing the adapter. A throwaway
 reader, measured once against a two-table Postgres 18 schema (two tables, a primary key each, one
@@ -2048,12 +2048,9 @@ existing reader and every test fixture here keeps compiling. Neither licenses an
 cardinality or a measure would: a type is descriptive text
 (<code>sutura_domain::catalog::ColumnType</code>) and a primary key is evidence
 (<code>sutura_domain::catalog::Model::with_primary_key</code>).</p>
-<p><strong>What this update does NOT do: read any of it from a real database.</strong> The only
-<code>DictionaryReader</code> this crate has is <code>fixture::FixtureReader</code>, serving a recorded corpus -
-see "What is built here, and what is NOT" below, unchanged by this update. The fixture now
-carries a type, a comment and a key for two columns, so the conversion, the declaration and the
-byte accounting are exercised the same way the rest of this adapter always has been - against a
-recording, not a socket.</p>
+<p>The fixture carries a type, a comment and a key for two columns, so the converter's mapping and
+byte accounting are exercised without a socket. The feature-gated live reader also reads these
+fields from a declared Postgres documentation schema; its provisioned test is the socket venue.</p>
 <h1 id="the-declaration-and-what-it-means-for-the-bundle">The declaration, and what it means for the bundle<a class="headerlink" href="#the-declaration-and-what-it-means-for-the-bundle" title="Permanent link">&para;</a></h1>
 <p><code>SemanticCatalog::capabilities</code> provides <code>Structure</code> and may provide <code>Descriptions</code>,
 <code>Relationships</code>, <code>ColumnTypes</code> and <code>ColumnDescriptions</code>. A sparse dictionary - structure with no
@@ -2067,23 +2064,23 @@ a deployment whose whole model is a physical schema must not be told it has metr
 <h1 id="what-is-built-here-and-what-is-not">What is built here, and what is NOT<a class="headerlink" href="#what-is-built-here-and-what-is-not" title="Permanent link">&para;</a></h1>
 <p>This crate contains the conversion <code>RdbmsCatalog</code> applies to dictionary records, and it is
 tested against a fake reader that serves a recorded dictionary - the port gets a fake,
-not mocked SQL (<code>github.com/telekom/sutura#151</code>'s thing 4). What it does not contain is a
-database client in the library closure: <code>DictionaryReader</code> is the seam a real reader over a
-Postgres socket will implement, and the only implementor today is the recorded fixture source in
-<code>fixture</code>. A production reader is outside this crate's current scope.</p>
-<p><strong>And nothing serves it:</strong> no composition root links this crate (its only dependant is
-<code>sutura-app</code>, as a dev-dependency), so this is a registered, declaring catalog rather than a
-served one - exactly the state <code>sutura-catalog-datahub</code> holds, which is the precedent copied.</p>
+not mocked SQL (<code>github.com/telekom/sutura#151</code>'s thing 4). Since #972, it also contains the
+live implementor over a Postgres documentation schema (<code>postgres_reader</code>), behind a
+default-off <code>live</code> feature so the library closure stays domain + thiserror and no build links
+the reader's <code>tokio-postgres</code>/<code>rustls</code>/<code>ring</code> stack without asking for it.</p>
+<p><strong>The fake dominates the suite; the live reader is the production half, feature-gated.</strong>
+<code>DictionaryReader</code> is the seam both implement (<code>fixture::FixtureReader</code> the recorded corpus,
+<code>postgres_reader::PostgresReader</code> a real connection), and the conversion is the same for both.
+A composition root that links the <code>live</code> feature serves <code>catalog.kind: rdbms</code>; a build without
+it refuses by name. (Its only other dependant is <code>sutura-app</code>, as a dev-dependency.)</p>
 <h2 id="trait-dictionaryreader"><code>trait DictionaryReader</code><a class="headerlink" href="#trait-dictionaryreader" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">trait</span><span class="w"> </span><span class="n">DictionaryReader</span>
 </span></code></pre></div>
 <p>Where a dictionary's records come from.</p>
 <p><strong>The fake seam.</strong> Everything above this trait is decided and tested against a recorded
-dictionary served by <code>fixture::FixtureReader</code>; a real implementor speaks to a Postgres socket,
-reads <code>information_schema</code> / <code>pg_catalog</code>, decodes into <code>Dictionary</code>, and maps its own failures
-into <code>RdbmsError::Read</code>. A port rather than a method on <code>RdbmsCatalog</code> for the same reason
-the warehouse port exists: a catalog that could be swapped for a live source without the
-conversion changing is the point.</p>
+dictionary served by <code>fixture::FixtureReader</code>. The feature-gated
+<code>postgres_reader::PostgresReader</code> reads a declared documentation schema over a Postgres
+socket and maps its failures into <code>RdbmsError::Read</code>. Both use the same conversion.</p>
 <p>A <code>Relationship</code> carries exactly one origin column and one target column, so a composite
 (multi-column) foreign key is not representable in it. A real implementor must therefore either
 refuse the whole read or omit that one foreign key when it encounters one, and must document
@@ -2128,43 +2125,50 @@ a reader back to all of them.</p>
 one per composition and a generic keeps the chosen reader visible. It carries the declared name
 and version it is recorded under, the same way the other catalog adapters carry their own.</p>
 <h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="nc">DefinitionVersion</span><span class="p">,</span><span class="w"> </span><span class="n">reader</span><span class="p">:</span><span class="w"> </span><span class="nc">R</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="nc">DefinitionVersion</span><span class="p">,</span><span class="w"> </span><span class="n">reader</span><span class="p">:</span><span class="w"> </span><span class="nc">R</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Opens a catalog over a dictionary reader.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_bounds</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">DictionaryBounds</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Holds the dictionary read to <code>bounds</code>; without it the row count is unchecked here.</p>
-<p>No composition root calls this yet: startup refuses <code>kind: rdbms</code> until a reader over a real
-dictionary exists (#972), and that is where the declared <code>max_dictionary_rows</code> and
-<code>max_dictionary_bytes</code> arrive.</p>
+<p>The composition root that links the <code>live</code> reader passes the declared
+<code>max_dictionary_rows</code>/<code>max_dictionary_bytes</code> here (see <code>open_one_rdbms_catalog</code>); a reader
+over a live socket also enforces them inline, but this stays the conversion's own post-decode
+guard over a <code>Dictionary</code> whatever the reader did.</p>
+<p><strong>The reading reader holds the caps inline too</strong> (<code>postgres_reader</code> abandons a stream that
+crosses the ceiling); this guard is the second, non-network half that a recorded or fetched
+dictionary gets regardless of the transport.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_source_alias</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">source_alias</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Binds models from this dictionary to a separately declared data source.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Clone</code>, <code>Debug</code>, <code>SemanticCatalog</code></p>
 <h2 id="struct-tableaddress"><code>struct TableAddress</code><a class="headerlink" href="#struct-tableaddress" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TableAddress</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TableAddress</span>
 </span></code></pre></div>
 <p>A table's physical address as a dictionary reports it.</p>
 <p>A schema is required because it is the first part that distinguishes same-named tables in one
 database. The catalog is optional because not every target renders a three-part table path.</p>
 <h3 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">catalog</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">catalog</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The catalog above the schema, when the dictionary reports one for generated statements.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">in_schema</span><span class="p">(</span><span class="n">schema</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">in_schema</span><span class="p">(</span><span class="n">schema</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>A table in a schema of the connected catalog.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">catalog</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">schema</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">catalog</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">schema</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>A physical table address, split into the dictionary fields that own its identity.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">schema</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">schema</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The schema immediately above the table.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">table</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">table</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The table's own name.</p>
 <h3 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h3>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h2 id="struct-columnmetadata"><code>struct ColumnMetadata</code><a class="headerlink" href="#struct-columnmetadata" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ColumnMetadata</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ColumnMetadata</span>
 </span></code></pre></div>
 <p>What a dictionary's own <code>information_schema</code>/catalog view says about one column beyond its
 name: its declared data type, and a column comment if a human wrote one.</p>
@@ -2178,50 +2182,50 @@ business depending on - one adapter importing another's type crosses the boundar
 <code>sutura-catalog-*</code> crates are not supposed to cross, for a coincidence of shape between three
 sources whose actual dictionaries have no reason to keep matching.</p>
 <h3 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">data_type</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">data_type</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">description</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">description</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">data_type</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">description</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">data_type</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">description</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <h3 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h3>
 <p><code>Clone</code>, <code>Debug</code>, <code>Default</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h2 id="struct-table"><code>struct Table</code><a class="headerlink" href="#struct-table" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Table</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Table</span>
 </span></code></pre></div>
 <p>One semantic model, the physical table it selects, and the prose written against it.</p>
 <p><code>column_metadata</code> and <code>primary_key</code> are both additive - see <code>Self::with_column_metadata</code> and
 <code>Self::with_primary_key</code> - rather than <code>Self::new</code> parameters, so a reader that has neither
 (or a test fixture built before either existed) keeps compiling unchanged.</p>
 <h3 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">address</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableAddress</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">address</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableAddress</span>
 </span></code></pre></div>
 <p>The physical table address, as the dictionary spells each part.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">column_metadata</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">column</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">ColumnMetadata</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">column_metadata</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">column</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">ColumnMetadata</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>One column's type/comment evidence, by the dictionary's own spelling of its name.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">columns</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">]</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">columns</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">]</span>
 </span></code></pre></div>
 <p>The columns the table exposes.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">description</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">description</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The table's comment, if a human wrote one.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">model</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">model</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The semantic model name assigned to this table.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">model</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">address</span><span class="p">:</span><span class="w"> </span><span class="nc">TableAddress</span><span class="p">,</span><span class="w"> </span><span class="n">columns</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">description</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">model</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">address</span><span class="p">:</span><span class="w"> </span><span class="nc">TableAddress</span><span class="p">,</span><span class="w"> </span><span class="n">columns</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">description</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>A semantic model over a physical table.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">primary_key</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">]</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">primary_key</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">]</span>
 </span></code></pre></div>
 <p>Which columns the dictionary's own constraint names as this table's primary key.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_column_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">metadata</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">IntoIterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_column_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">metadata</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">IntoIterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Attaches per-column type and comment evidence, keyed by the dictionary's own column spelling.</p>
 <p>A column named here that is not in <code>Self::columns</code> is dropped rather than refused: the
 conversion reads metadata only for a column it is already about to declare, and a stray key
 says nothing this crate's error vocabulary is set up to report against a table.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_primary_key</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">primary_key</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_primary_key</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">primary_key</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Declares which of this table's columns the dictionary's own primary or unique-key constraint
 names - evidence only, the same as <code>sutura_domain::catalog::Model::with_primary_key</code>, which
@@ -2237,23 +2241,23 @@ own labelling of which constraint is which.</p>
 <h3 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h3>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h2 id="struct-dictionary"><code>struct Dictionary</code><a class="headerlink" href="#struct-dictionary" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Dictionary</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Dictionary</span>
 </span></code></pre></div>
 <p>A dictionary: the tables, and the relationships a foreign key between them records.</p>
 <h3 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">tables</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Table</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">relationships</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Relationship</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">tables</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Table</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">relationships</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Relationship</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>A dictionary assembled from what a reader fetched.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationships</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">Relationship</span><span class="p">]</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationships</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">Relationship</span><span class="p">]</span>
 </span></code></pre></div>
 <p>The relationships a foreign key records.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tables</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">Table</span><span class="p">]</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tables</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">Table</span><span class="p">]</span>
 </span></code></pre></div>
 <p>The tables the dictionary names.</p>
 <h3 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h3>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h2 id="enum-singlecolumntargetuniqueness"><code>enum SingleColumnTargetUniqueness</code><a class="headerlink" href="#enum-singlecolumntargetuniqueness" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">SingleColumnTargetUniqueness</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">SingleColumnTargetUniqueness</span>
 </span></code></pre></div>
 <p>Why the target column of a foreign key is known to be individually unique.</p>
 <p>This variant records what the reader found in the dictionary; it carries no constraint name and
@@ -2267,47 +2271,47 @@ verify that the underlying constraint is truly single-column.</p>
 <h3 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h3>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h2 id="struct-relationship"><code>struct Relationship</code><a class="headerlink" href="#struct-relationship" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Relationship</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Relationship</span>
 </span></code></pre></div>
 <p>A join a foreign key records: the two endpoints, their columns, and single-column target-key
 evidence.</p>
 <p><code>SingleColumnTargetUniqueness</code> is evidence for the safe <code>ManyToOne</code> direction, not a metric
 cardinality. Without it, loading refuses before a domain relationship is emitted.</p>
 <h3 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The foreign key's name, if the dictionary named it.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">origin_table</span><span class="p">:</span><span class="w"> </span><span class="nc">TableAddress</span><span class="p">,</span><span class="w"> </span><span class="n">origin_column</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">target_table</span><span class="p">:</span><span class="w"> </span><span class="nc">TableAddress</span><span class="p">,</span><span class="w"> </span><span class="n">target_column</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">target_uniqueness</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">SingleColumnTargetUniqueness</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">origin_table</span><span class="p">:</span><span class="w"> </span><span class="nc">TableAddress</span><span class="p">,</span><span class="w"> </span><span class="n">origin_column</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">target_table</span><span class="p">:</span><span class="w"> </span><span class="nc">TableAddress</span><span class="p">,</span><span class="w"> </span><span class="n">target_column</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">target_uniqueness</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">SingleColumnTargetUniqueness</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>A relationship's endpoints, with target-key evidence if the reader has any.</p>
 <p>Loading refuses this value when <code>target_uniqueness</code> is <code>None</code>.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">origin_column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">origin_column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The column the foreign key starts from.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">origin_table</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableAddress</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">origin_table</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableAddress</span>
 </span></code></pre></div>
 <p>The table the foreign key starts from.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">target_column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">target_column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The column the foreign key points to.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">target_table</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableAddress</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">target_table</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableAddress</span>
 </span></code></pre></div>
 <p>The table the foreign key points to.</p>
 <h3 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h3>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h2 id="struct-dictionarybounds"><code>struct DictionaryBounds</code><a class="headerlink" href="#struct-dictionarybounds" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DictionaryBounds</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DictionaryBounds</span>
 </span></code></pre></div>
 <p>What one dictionary read may spend: a row cap and a byte cap.</p>
 <p>Each cap is non-zero BY TYPE - a zero cap would refuse every read rather than bound one - and
 <code>sutura-config</code> refuses a written zero at load with the same type, so a declared bound arrives
 here with nothing left to check. Which default an absent bound takes is the reader's to say.</p>
 <h3 id="methods_6">Methods<a class="headerlink" href="#methods_6" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">max_bytes</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">NonZeroU64</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">max_bytes</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">NonZeroU64</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">max_rows</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">NonZeroU64</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">max_rows</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">NonZeroU64</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">max_rows</span><span class="p">:</span><span class="w"> </span><span class="nc">NonZeroU64</span><span class="p">,</span><span class="w"> </span><span class="n">max_bytes</span><span class="p">:</span><span class="w"> </span><span class="nc">NonZeroU64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">max_rows</span><span class="p">:</span><span class="w"> </span><span class="nc">NonZeroU64</span><span class="p">,</span><span class="w"> </span><span class="n">max_bytes</span><span class="p">:</span><span class="w"> </span><span class="nc">NonZeroU64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <h3 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h3>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
@@ -2322,22 +2326,171 @@ foreign key from the fact table to the lookup. There are <strong>no metrics</str
 point of the narrowest metadata source, and what makes
 <code>a_bundle_from_a_dictionary_loads_validates_and_answers_no_certified_question</code> pass.</p>
 <h3 id="struct-fixturereader"><code>struct FixtureReader</code><a class="headerlink" href="#struct-fixturereader" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureReader</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureReader</span>
 </span></code></pre></div>
 <p>The fake <code>DictionaryReader</code> that serves the recorded corpus.</p>
 <h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>DictionaryReader</code></p>
 <h3 id="fn-corpus"><code>fn corpus</code><a class="headerlink" href="#fn-corpus" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">corpus</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Dictionary</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">corpus</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Dictionary</span>
 </span></code></pre></div>
 <p>The recorded dictionary: the two tables the spike named, with their comments, and the one
 foreign key between them.</p>
 <h3 id="fn-over_fixture_source"><code>fn over_fixture_source</code><a class="headerlink" href="#fn-over_fixture_source" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">over_fixture_source</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">DefinitionVersion</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">RdbmsCatalog</span><span class="o">&lt;</span><span class="n">FixtureReader</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">over_fixture_source</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">DefinitionVersion</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">RdbmsCatalog</span><span class="o">&lt;</span><span class="n">FixtureReader</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>A <code>crate::RdbmsCatalog</code> over the recorded corpus.</p>
 <p>The constructor the conformance registry uses to register the adapter; it is <code>pub</code> because an
 integration suite is a separate crate and cannot reach a <code>#[cfg(test)]</code> item.</p>
+<h2 id="module-postgres_reader">Module <code>postgres_reader</code><a class="headerlink" href="#module-postgres_reader" title="Permanent link">&para;</a></h2>
+<p>The live Postgres documentation-schema reader, behind the default-off <code>live</code> feature.</p>
+<p>This is the reader the crate's module header has said, since #151, "a real implementor" would
+be: one that speaks to a Postgres socket, reads a documentation schema, decodes into
+<code>crate::Dictionary</code>, and maps its own failures into <code>crate::RdbmsError::Read</code>. It is the
+companion to <code>crate::fixture::FixtureReader</code> - the fake is the recorded corpus this port was
+tested against, and this is the live implementor over a real connection.</p>
+<h1 id="the-documentation-schema-contract">The documentation-schema contract<a class="headerlink" href="#the-documentation-schema-contract" title="Permanent link">&para;</a></h1>
+<p>A <strong>documented fixed schema</strong> - one column per documented dictionary row, so the reader never
+guesses at structure, named <code>columns</code> inside the declared documentation schema:</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>environment</code></td>
+<td>The deployment environment key this row's descriptions apply to.</td>
+</tr>
+<tr>
+<td><code>catalog_name</code></td>
+<td>The physical catalog above the schema, when generated statements need one.</td>
+</tr>
+<tr>
+<td><code>schema_name</code></td>
+<td>The physical schema the described table lives in.</td>
+</tr>
+<tr>
+<td><code>table_name</code></td>
+<td>The physical table.</td>
+</tr>
+<tr>
+<td><code>model_name</code></td>
+<td>The semantic model name to bind the table to.</td>
+</tr>
+<tr>
+<td><code>table_description</code></td>
+<td>Authored table prose; <code>NULL</code> for none.</td>
+</tr>
+<tr>
+<td><code>column_name</code></td>
+<td>The physical column.</td>
+</tr>
+<tr>
+<td><code>column_ordinal</code></td>
+<td>The column's stable order within the table.</td>
+</tr>
+<tr>
+<td><code>column_type</code></td>
+<td>The physical data type, as <code>information_schema</code> reports it.</td>
+</tr>
+<tr>
+<td><code>column_description</code></td>
+<td>Authored column prose; <code>NULL</code> for none.</td>
+</tr>
+<tr>
+<td><code>is_primary_key</code></td>
+<td>A <code>boolean</code>: is this column the sole column of a primary or unique key.</td>
+</tr>
+<tr>
+<td><code>is_deleted</code></td>
+<td>A soft-delete marker: <code>false</code> selects live rows on every read.</td>
+</tr>
+</tbody>
+</table>
+<p>The reader selects <code>is_deleted = false</code> unconditionally and binds the declared <code>environment</code> and
+the equals-predicate value as SQL parameters - <strong>never interpolating configuration values into
+the statement</strong>. The schema and predicate column are checked at the reader's constructor,
+then quoted as identifiers, so neither can be the vehicle for SQL. The predicate
+operator comes from a closed set rendered as fixed text.</p>
+<h1 id="foreign-keys-are-unsupported-in-this-first-slice-and-the-reader-does-not-pretend-otherwise">Foreign keys are unsupported in this first slice - and the reader does not pretend otherwise<a class="headerlink" href="#foreign-keys-are-unsupported-in-this-first-slice-and-the-reader-does-not-pretend-otherwise" title="Permanent link">&para;</a></h1>
+<p>The documented schema carries no foreign-key columns, so this reader emits a
+<code>crate::Dictionary</code> with <strong>no <code>crate::Relationship</code>s</strong>. That is a real, explicit limit,
+stated here. It is not an invented uniqueness assertion: single-column primary-key evidence is
+read per column (<code>is_primary_key</code>) and that alone is ever emitted; nothing in this reader
+fabricates a foreign key or a target-uniqueness claim on the reader's behalf.</p>
+<h1 id="read-only-streamed-bounded">Read-only, streamed, bounded<a class="headerlink" href="#read-only-streamed-bounded" title="Permanent link">&para;</a></h1>
+<p>The read runs inside a single read-only transaction (<code>read_only</code>, <code>RepeatableRead</code>). Rows are
+streamed with <code>query_raw</code> - the driver's extended-protocol portal, which does not materialise
+the result set up front - and the row cap and byte cap are enforced <strong>inline</strong>, abandoning the
+stream the moment the declared ceiling is crossed. This bounds the streamed row payload;
+the converter's separate post-decode guard bounds the assembled dictionary. The driver still
+materialises one row before its size is checked. Neither bound limits elapsed read time.</p>
+<h1 id="connection-and-transport-policy">Connection and transport policy<a class="headerlink" href="#connection-and-transport-policy" title="Permanent link">&para;</a></h1>
+<p>The reader uses the catalog's own declared connection and transport policy. Anchor/identity
+material is resolved by a composition root into a <code>rustls::ClientConfig</code> for <code>verified</code>/<code>mutual</code>
+channels, or <code>None</code> for <code>plaintext</code>. When a <code>ClientConfig</code> is supplied the reader forces
+<code>SslMode::Require</code> so a server declining TLS cannot silently downgrade the verifier to
+cleartext - the same hardening <code>sutura-exec-postgres::connect_secured</code> applies. There is no
+unconditional <code>NoTls</code>: plaintext is reached only through the declared <code>plaintext</code> mode, which
+the transport layer already refuses for a remote host.</p>
+<h1 id="feature-gating">Feature gating<a class="headerlink" href="#feature-gating" title="Permanent link">&para;</a></h1>
+<p>This module is <code>#[cfg(feature = "live")]</code>. A build without the feature links no
+<code>tokio-postgres</code>/<code>tokio-postgres-rustls</code>/<code>rustls</code>/<code>ring</code> stack, and the composition root refuses
+the catalog by name.</p>
+<h3 id="enum-invalidreaderconfig"><code>enum InvalidReaderConfig</code><a class="headerlink" href="#enum-invalidreaderconfig" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidReaderConfig</span>
+</span></code></pre></div>
+<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Schema</code></li>
+<li><code>PredicateColumn</code></li>
+<li><code>DefaultBound</code></li>
+</ul>
+<h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="enum-rowpredicate"><code>enum RowPredicate</code><a class="headerlink" href="#enum-rowpredicate" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RowPredicate</span>
+</span></code></pre></div>
+<p>A live-row predicate rendered into the dictionary query and bound as parameters.</p>
+<p><code>PostgresReader::new</code> validates the column identifier before it can reach SQL text. The
+operator is from a fixed set rendered as fixed text; an <code>equals</code> value is bound as a parameter.</p>
+<h4 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>None</code> - No live-row filter beyond the soft-delete marker.</li>
+<li><code>IsNull</code> - <code>column IS NULL</code>.</li>
+<li><code>IsNotNull</code> - <code>column IS NOT NULL</code>.</li>
+<li><code>Equals</code> - <code>column = $N</code>, value bound as a parameter.</li>
+</ul>
+<h4 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-postgresreader"><code>struct PostgresReader</code><a class="headerlink" href="#struct-postgresreader" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PostgresReader</span>
+</span></code></pre></div>
+<p>A live <code>crate::DictionaryReader</code> over a Postgres documentation schema.</p>
+<p>Owns the driver configuration and the optional TLS verifier, plus the environment key, the
+optional live-row predicate and the read bounds. The TLS <code>ClientConfig</code> is supplied by a
+composition root that resolved the declared <code>transport_mode</code>; <code>None</code> selects the <code>plaintext</code>
+channel. The read-only transaction, parameter binding and inline caps are all this reader's own.</p>
+<h4 id="methods_7">Methods<a class="headerlink" href="#methods_7" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bounds</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">DictionaryBounds</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">config</span><span class="p">:</span><span class="w"> </span><span class="nc">tokio_postgres</span><span class="p">::</span><span class="n">Config</span><span class="p">,</span><span class="w"> </span><span class="n">tls</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">rustls</span><span class="p">::</span><span class="n">ClientConfig</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">documentation_schema</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">environment</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">predicate</span><span class="p">:</span><span class="w"> </span><span class="nc">RowPredicate</span><span class="p">,</span><span class="w"> </span><span class="n">row_cap</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">NonZeroU64</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">byte_cap</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">NonZeroU64</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidReaderConfig</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Builds the reader. <code>tls</code> is <code>Some(rustls::ClientConfig)</code> for a <code>verified</code>/<code>mutual</code> channel
+and <code>None</code> for a declared <code>plaintext</code> one. <code>documentation_schema</code> and <code>environment</code> are
+validated identifiers supplied by the composition root. An absent <code>row_cap</code>/<code>byte_cap</code>
+selects the reader's own documented defaults.</p>
+<h4 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>DictionaryReader</code></p>
+<h3 id="constant-default_documentation_schema"><code>constant DEFAULT_DOCUMENTATION_SCHEMA</code><a class="headerlink" href="#constant-default_documentation_schema" title="Permanent link">&para;</a></h3>
+<p>The documented default documentation schema, used when no <code>dictionary_schema</code> is configured.</p>
+<h3 id="constant-default_max_dictionary_rows"><code>constant DEFAULT_MAX_DICTIONARY_ROWS</code><a class="headerlink" href="#constant-default_max_dictionary_rows" title="Permanent link">&para;</a></h3>
+<p>The documented default row cap on one dictionary read.</p>
+<h3 id="constant-default_max_dictionary_bytes"><code>constant DEFAULT_MAX_DICTIONARY_BYTES</code><a class="headerlink" href="#constant-default_max_dictionary_bytes" title="Permanent link">&para;</a></h3>
+<p>The documented default byte cap on one dictionary read.</p>
 
 
 
