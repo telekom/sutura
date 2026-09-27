@@ -284,7 +284,7 @@ fn month_start(from: Date, delta_months: i64) -> Result<Date, InvalidDate> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ClockUnavailable, LastWire, RangeResolutionError, WallClock, resolve_range};
+    use super::{ClockUnavailable, InvalidRangeShape, LastWire, RangeResolutionError, WallClock, resolve_range};
     use sutura_domain::calendar::Date;
 
     struct FixedClock(Date);
@@ -359,28 +359,40 @@ mod tests {
             Some(last(1, "month", false)),
         )
         .expect_err("both shapes at once is refused");
-        assert!(matches!(error, RangeResolutionError::Shape(_)), "{error:?}");
+        assert!(
+            matches!(error, RangeResolutionError::Shape(InvalidRangeShape::AmbiguousOrMissing)),
+            "{error:?}"
+        );
     }
 
     #[test]
     fn neither_shape_is_also_ambiguous() {
         let clock = FixedClock(Date::parse("2026-09-16").expect("a real date"));
         let error = resolve_range(&clock, None, None, None).expect_err("no shape at all is refused");
-        assert!(matches!(error, RangeResolutionError::Shape(_)), "{error:?}");
+        assert!(
+            matches!(error, RangeResolutionError::Shape(InvalidRangeShape::AmbiguousOrMissing)),
+            "{error:?}"
+        );
     }
 
     #[test]
     fn a_zero_count_is_refused() {
         let clock = FixedClock(Date::parse("2026-09-16").expect("a real date"));
         let error = resolve_range(&clock, None, None, Some(last(0, "month", false))).expect_err("zero names no period");
-        assert!(matches!(error, RangeResolutionError::Shape(_)), "{error:?}");
+        assert!(
+            matches!(error, RangeResolutionError::Shape(InvalidRangeShape::ZeroCount)),
+            "{error:?}"
+        );
     }
 
     #[test]
     fn an_unknown_unit_is_refused() {
         let clock = FixedClock(Date::parse("2026-09-16").expect("a real date"));
         let error = resolve_range(&clock, None, None, Some(last(1, "fortnight", false))).expect_err("not one of the five");
-        assert!(matches!(error, RangeResolutionError::Shape(_)), "{error:?}");
+        assert!(
+            matches!(error, RangeResolutionError::Shape(InvalidRangeShape::Unit(_))),
+            "{error:?}"
+        );
     }
 
     /// The refusal proof for an unreadable clock, not just the happy path where it answers - a

@@ -113,7 +113,17 @@ pub fn install(telemetry: &TelemetrySettings) -> Result<(), TelemetryNotInstalle
 
 /// The filter: `RUST_LOG` if it is set and parses, otherwise the configured directive.
 fn filter(telemetry: &TelemetrySettings) -> Result<EnvFilter, TelemetryNotInstalled> {
-    match std::env::var(FILTER_VARIABLE) {
+    resolve_filter(std::env::var(FILTER_VARIABLE), telemetry)
+}
+
+/// The decision extracted from [`filter`] so the `NotUnicode` arm - which needs non-UTF8 bytes in
+/// `RUST_LOG` and so cannot be set through `std::env::set_var` in a `#![forbid(unsafe_code)]`
+/// crate - is testable without touching the real environment.
+fn resolve_filter(
+    env: Result<String, std::env::VarError>,
+    telemetry: &TelemetrySettings,
+) -> Result<EnvFilter, TelemetryNotInstalled> {
+    match env {
         Ok(directive) if !directive.trim().is_empty() => {
             EnvFilter::try_new(&directive).map_err(|cause| TelemetryNotInstalled::Filter {
                 source_name: FILTER_VARIABLE,
@@ -143,7 +153,7 @@ fn configured(telemetry: &TelemetrySettings) -> Result<EnvFilter, TelemetryNotIn
 mod tests {
     use sutura_config::LogFormat;
 
-    use super::{TelemetryNotInstalled, subscriber};
+    use super::{TelemetryNotInstalled, resolve_filter, subscriber};
     use crate::testing::{capture_with, settings};
 
     /// Emits one event inside a span through a subscriber built for `format`.
@@ -208,5 +218,17 @@ mod tests {
         };
         assert_eq!(source_name, "telemetry.filter");
         assert_eq!(directive, "==");
+    }
+
+    #[test]
+    fn a_non_unicode_rust_log_is_refused_as_filter_not_unicode() {
+        // `RUST_LOG` holding non-UTF8 bytes cannot be set through `std::env::set_var` (which takes a
+        // `&str`), and this crate is `#![forbid(unsafe_code)]`, so the only way to exercise the
+        // `NotUnicode` arm is through `resolve_filter` with a synthetic `VarError`.
+        let non_unicode = std::env::VarError::NotUnicode(std::ffi::OsString::from("non-utf8"));
+        let Err(error) = resolve_filter(Err(non_unicode), &settings(LogFormat::Pretty, "trace")) else {
+            panic!("non-Unicode `RUST_LOG` must not build a subscriber");
+        };
+        assert!(matches!(error, TelemetryNotInstalled::FilterNotUnicode), "{error:?}");
     }
 }
