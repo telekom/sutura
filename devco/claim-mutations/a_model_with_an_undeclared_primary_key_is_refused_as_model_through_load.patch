@@ -1,0 +1,22 @@
+diff --git a/crates/sutura-catalog-local/src/lib.rs b/crates/sutura-catalog-local/src/lib.rs
+index 00cc49974..c9c930617 100644
+--- a/crates/sutura-catalog-local/src/lib.rs
++++ b/crates/sutura-catalog-local/src/lib.rs
+@@ -472,11 +472,12 @@ impl Collected {
+         match kind {
+             DocumentKind::Model => {
+                 let doc: ModelDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
+-                self.models
+-                    .push(doc.into_domain(description).map_err(|cause| LocalCatalogError::Model {
+-                        path: PathBuf::from(path),
+-                        cause,
+-                    })?);
++                self.models.push(
++                    doc.into_domain(description)
++                        .map_err(|_cause| LocalCatalogError::NotADirectory {
++                            path: PathBuf::from(path),
++                        })?,
++                );
+             }
+             DocumentKind::Relationship => {
+                 let doc: RelationshipDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;

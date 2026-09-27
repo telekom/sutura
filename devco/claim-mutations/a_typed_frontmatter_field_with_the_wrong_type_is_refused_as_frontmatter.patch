@@ -1,0 +1,20 @@
+diff --git a/crates/sutura-catalog-local/src/lib.rs b/crates/sutura-catalog-local/src/lib.rs
+index 00cc49974..23473eeb4 100644
+--- a/crates/sutura-catalog-local/src/lib.rs
++++ b/crates/sutura-catalog-local/src/lib.rs
+@@ -371,13 +371,12 @@ impl LocalCatalog {
+         collected.assemble()
+     }
+ 
+-    fn parse<T>(path: &Path, frontmatter: &str, kind: DocumentKind) -> Result<T, LocalCatalogError>
++    fn parse<T>(path: &Path, frontmatter: &str, _kind: DocumentKind) -> Result<T, LocalCatalogError>
+     where
+         T: serde::de::DeserializeOwned,
+     {
+-        serde_norway::from_str(frontmatter).map_err(|cause| LocalCatalogError::Frontmatter {
++        serde_norway::from_str(frontmatter).map_err(|cause| LocalCatalogError::MalformedFrontmatter {
+             path: PathBuf::from(path),
+-            kind: kind.as_str(),
+             cause,
+         })
+     }

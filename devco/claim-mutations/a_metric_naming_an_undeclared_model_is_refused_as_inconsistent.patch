@@ -1,0 +1,18 @@
+diff --git a/crates/sutura-catalog-local/src/lib.rs b/crates/sutura-catalog-local/src/lib.rs
+index 00cc49974..2cc72853e 100644
+--- a/crates/sutura-catalog-local/src/lib.rs
++++ b/crates/sutura-catalog-local/src/lib.rs
+@@ -551,8 +551,11 @@ impl Collected {
+     /// what keeps a fifth kind from needing an edit here. An adapter mapping a fixed external schema
+     /// gets the opposite treatment - `of([..])`, so a new kind leaves its declaration alone.
+     fn assemble(self) -> Result<Content, LocalCatalogError> {
+-        let definitions = Definitions::assemble(self.models, self.relationships, self.metrics)
+-            .map_err(|cause| LocalCatalogError::Inconsistent { cause })?;
++        let definitions =
++            Definitions::assemble(self.models, self.relationships, self.metrics).map_err(|cause| LocalCatalogError::Model {
++                path: PathBuf::new(),
++                cause: InvalidModelDocument::PrimaryKey(Box::new(cause)),
++            })?;
+         let knowledge = Knowledge::assemble(
+             &definitions,
+             KnowledgeInput::new(
