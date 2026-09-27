@@ -1774,3 +1774,36 @@ check in this repository reaches a real dataset, so a `validate` built on that m
 the hot path of every question with its own failure mode unmeasured, and a `per_replica_spend_ceiling`
 that reads as enforced when it may not be is worse than one that is documented as inert. The evidence
 above is recorded so the next round starts from the option name rather than from the question.
+
+## Twenty-first amendment, 2026-09-26: the two-filter limit is stale
+
+**Status of the amendment: accepted; it corrects two sentences this record made, and carries no new
+gate and no new run.**
+
+The Tenth amendment said *"Nothing checks that the two nextest filters are complements"* and named
+`binary(two_principals)` and `not binary(two_principals)`, which appeared in two `just` recipes and
+two flake apps, and that *"no gate reads a nextest filter expression"*. The Twelfth amendment said
+the *"second limit that amendment names, the two nextest filters, is untouched and is
+telekom/sutura#430"*. Both sentences were written before telekom/sutura#503 landed (2026-09-09):
+`check-scope`'s filter-parity half (`xtask/src/tasks.rs`, `filter_pairs` / `selector`) parses every
+`just` recipe and every inline `apps.<name>` in `flake.nix`, discovers same-name pairs by name, reads
+the literal `-E` selector from both sides, and fails on disagreement, a missing side, or a
+no-pairs-empty-scan floor. Its integration tests are in `xtask/tests/task_filters.rs` through the
+real `check-scope` entry point. So the Tenth amendment's *"no gate reads a nextest filter
+expression"* and the Twelfth amendment's *"untouched"* are stale: a gate has read both sides since
+#503, five days before the Fourteenth amendment.
+
+The Fourteenth amendment then removed `two_principals.rs`, the `bigquery-two-principals` task and
+app, and the `not binary(two_principals)` clause, so the specific complement pair the Tenth
+amendment named no longer exists. The live successors - `bigquery-declared-principal`,
+`keycloak-served-test`, and `e2e-datahub-adbc` - each carry one `-E` filter duplicated as a separate
+literal in the `just` recipe and the matching `nix` app, and `check-scope` holds their alignment:
+same-name pairs must agree byte-for-byte, and a missing side is a failure.
+
+**The limit, because `check-scope` holds less than the Tenth amendment's wording asked for:** it
+holds ALIGNMENT of same-name pairs - that the two copies agree - not that two differently named
+filters are complements. The Tenth amendment's *"complements"* described the removed pair, where one
+filter was `not (<the other>)` and the two partitioned the tests. The live pairs are duplicates, not
+complements, and the gate holds the duplication invariant, not a partition. It compares two literal
+strings; it does not parse nextest filter syntax, and it does not check that a filter selects a real
+test - that is `check-venues`' job for the venue anchors.

@@ -1,0 +1,15 @@
+diff --git a/xtask/src/causality/edited/moved.rs b/xtask/src/causality/edited/moved.rs
+index aea4ab3a8..51ffd4f91 100644
+--- a/xtask/src/causality/edited/moved.rs
++++ b/xtask/src/causality/edited/moved.rs
+@@ -96,8 +96,8 @@ fn key(source: &str) -> Option<Vec<String>> {
+         signature = signature.saturating_add(2);
+     }
+     let visibility = match trees.get(signature..).unwrap_or_default() {
+-        [TokenTree::Ident(vis), TokenTree::Group(scope), ..] if vis == "pub" && scope.delimiter() == Delimiter::Parenthesis => 2,
+-        [TokenTree::Ident(vis), ..] if vis == "pub" => 1,
++        [TokenTree::Ident(vis), TokenTree::Group(scope), ..] if vis == "pub " && scope.delimiter() == Delimiter::Parenthesis => 2,
++        [TokenTree::Ident(vis), ..] if vis == "pub " => 1,
+         _ => 0,
+     };
+     let own = trees.get(..signature).unwrap_or_default().iter();

@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-datacontract/src/lib.rs b/crates/sutura-catalog-datacontract/src/lib.rs
+index 8a68f9b9b..2639afcaa 100644
+--- a/crates/sutura-catalog-datacontract/src/lib.rs
++++ b/crates/sutura-catalog-datacontract/src/lib.rs
+@@ -177,7 +177,7 @@ impl DataContractCatalog {
+             domain_relationships.push(self.convert_relationship(relationship, &unique_columns)?);
+         }
+         let definitions = Definitions::assemble(models, domain_relationships, Vec::new())
+-            .map_err(|cause| DataContractError::Inconsistent { cause })?;
++            .map_err(|_cause| DataContractError::Empty { path: self.root.clone() })?;
+         // This adapter supplies no referent-bearing knowledge. `KnowledgeInput::none()` assembles an
+         // empty knowledge that declares nothing - which is what `capabilities()` says it declares.
+         let knowledge = Knowledge::assemble(&definitions, KnowledgeInput::none())

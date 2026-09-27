@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-tls/src/lib.rs b/crates/sutura-tls/src/lib.rs
+index f7602450c..100b037c7 100644
+--- a/crates/sutura-tls/src/lib.rs
++++ b/crates/sutura-tls/src/lib.rs
+@@ -87,7 +87,7 @@ fn read_bounded(path: &Path, cap: usize, on_error: impl Fn(&Path, std::io::Error
+     file.take(bound)
+         .read_to_end(&mut bytes)
+         .map_err(|cause| on_error(path, cause))?;
+-    if bytes.len() > cap {
++    if bytes.len() >= cap {
+         return Err(on_error(
+             path,
+             std::io::Error::new(std::io::ErrorKind::InvalidData, "the declared material exceeds the read cap"),

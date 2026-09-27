@@ -6,8 +6,8 @@
 
 use crate::registry::{Falsifier, Kind, Reads, Task};
 use crate::{
-    answer_path_cache, boot_order, boundaries, bounded_wait, conformance, newtype_leaks, one_bound, orphan_modules, refusals,
-    serde_parse, shared_client, threshold_expect, unsafe_containment, worktree_state,
+    answer_path_cache, boot_order, boundaries, bounded_wait, catalog_opened_once, conformance, newtype_leaks, one_bound,
+    orphan_modules, refusals, serde_parse, shared_client, threshold_expect, unsafe_containment, worktree_state,
 };
 
 pub(crate) const TASKS: &[Task] = &[
@@ -108,7 +108,21 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-boot-order",
         description: "the pre-flight runs after the credential and before the transport",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // Both declared roots have call sites; only the HTTP root starts serving before
+            // its pre-flight. The other root keeps the missing-call floors satisfied.
+            seeds: &[
+                (
+                    "crates/sutura-cli/src/serve.rs",
+                    "fn run() {\n    let opened = open_engine();\n    serve_until_stopped();\n    boot::refuse_absent_tables();\n}\n",
+                ),
+                (
+                    "crates/sutura-cli/src/mcp.rs",
+                    "fn run() {\n    let opened = open_engine();\n    boot::refuse_absent_tables();\n    sutura_mcp::serve_stdio();\n}\n",
+                ),
+            ],
+            in_scope: Some("crates/sutura-cli/src/serve.rs"),
+        },
         run: boot_order::run,
     },
     Task {
@@ -119,7 +133,18 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-one-bound",
         description: "one composition root builds one execution bound, and a transport builds none",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // The constructor exists and all three transport takers are called. A single
+            // composition root builds two independent bounds.
+            seeds: &[
+                ("crates/sutura-runtime/src/admission.rs", "pub fn from_settings() {}\n"),
+                (
+                    "crates/sutura-cli/src/main.rs",
+                    "fn run() {\n    let first = Admission::from_settings(settings);\n    let second = Admission::from_settings(settings);\n    ServiceState::new(first);\n    AgentSurface::new(second);\n    serve_stdio(first);\n}\n",
+                ),
+            ],
+            in_scope: Some("crates/sutura-cli/src/main.rs"),
+        },
         run: one_bound::run,
     },
     Task {
@@ -127,9 +152,12 @@ pub(crate) const TASKS: &[Task] = &[
         // written into a record, checked against the lock it was taken from. `docs/adr/0018` says the
         // BigQuery wire costs zero new packages because `libduckdb-sys` already resolves the same
         // `ureq`; that record's own last consequence noted nothing gated it, which AGENTS.md calls a
-        // wish rather than a rule.
+        // wish rather than a rule. `docs/adr/0023`'s no-client property was the same shape a step
+        // later: a measurement of one transport's feature closure held by review, with the record
+        // itself saying a `reqwest` arriving would not trip the gate. The third rule is that
+        // property, held against the lock now.
         name: "check-shared-client",
-        description: "one `ureq` in the lock, still shared with `libduckdb-sys` (docs/adr/0018)",
+        description: "one `ureq` in the lock, still shared with `libduckdb-sys` (docs/adr/0018), and neither client docs/adr/0023 forbids",
         kind: Kind::Hygiene(Reads::Code),
         falsifier: Falsifier {
             // Two `ureq` versions, with `libduckdb-sys` still depending on one: the two-versions
@@ -154,7 +182,13 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-serde-parse",
         description: "a validated newtype's serde goes through its constructor, both ways",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            seeds: &[(
+                "choice.rs",
+                "#[derive(serde::Deserialize)]\npub enum Choice { Empty }\nimpl Choice {\n    pub fn parse(raw: &str) -> Result<Self, Bad> { todo!() }\n}\n",
+            )],
+            in_scope: Some("choice.rs"),
+        },
         run: serde_parse::run,
     },
     Task {
@@ -179,7 +213,26 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-bounded-wait",
         description: "one place in the compose tier can be blocked by a child process",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // One legitimate docker waiter and the declared lsof allowance satisfy the two
+            // witness floors. The second waiter in a sibling is the own-rule violation.
+            seeds: &[
+                ("xtask/src/compose.rs", "mod docker;\n"),
+                (
+                    "xtask/src/compose/docker.rs",
+                    "fn bounded(child: &mut std::process::Child) { let _ = child.wait(); }\n",
+                ),
+                (
+                    "xtask/src/compose/lock.rs",
+                    "fn owner(command: &mut std::process::Command) { let _ = command.output(); }\n",
+                ),
+                (
+                    "xtask/src/compose/extra.rs",
+                    "fn unbounded(command: &mut std::process::Command) { let _ = command.status(); }\n",
+                ),
+            ],
+            in_scope: Some("xtask/src/compose/extra.rs"),
+        },
         run: bounded_wait::run,
     },
     Task {
@@ -212,6 +265,29 @@ pub(crate) const TASKS: &[Task] = &[
         kind: Kind::Hygiene(Reads::Code),
         falsifier: Falsifier::declared_in_programme(),
         run: conformance::run,
+    },
+    Task {
+        // Beside `check-answer-path-caches` because it is the same shape: a rule the code cannot
+        // state about itself, read as text, starting from a tree that already obeys it. What it
+        // holds is "each catalog document is opened once" - the property the file catalogs'
+        // own comments said was held by review, because a swap-timing test cannot land in the
+        // sub-microsecond window between two back-to-back opens. This gate is the static half:
+        // no path-based `std::fs` read outside the registered `read_dir` walk.
+        //
+        // The falsifier seeds a `std::fs::read_to_string(&path)` into the local catalog's
+        // library root - the exact mutation the comment described - so the refusal comes from this
+        // gate's own rule rather than from an empty-scan floor.
+        name: "check-catalog-opened-once",
+        description: "no path-based std::fs read in the catalog crates outside the registered walk",
+        kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier {
+            seeds: &[(
+                "crates/sutura-catalog-local/src/leaky_read.rs",
+                "fn f(path: &std::path::Path) {\n    let _ = std::fs::read_to_string(&path);\n}\n",
+            )],
+            in_scope: Some("crates/sutura-catalog-local/src/leaky_read.rs"),
+        },
+        run: catalog_opened_once::run,
     },
     Task {
         // A threshold lint's cause is a NUMBER, which is a property of the surrounding

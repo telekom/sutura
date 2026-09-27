@@ -10,6 +10,11 @@
 /// is already only ever compiled under `cfg(test)`.
 mod deadline;
 
+/// The counting fake for the two `docs/adr/0008` cells below. `#[cfg(test)]` for the reason
+/// `tests_support.rs`'s `mod priced` carries it (`telekom/sutura#657`).
+#[cfg(test)]
+mod dry_run_counter;
+
 use std::collections::BTreeSet;
 
 use sutura_domain::calendar::{Date, TimeRange};
@@ -36,6 +41,7 @@ use super::tests_support::{
     TransientlyBrokenWarehouse,
 };
 use super::{ServiceError, SpendLedger, Warehouses, exceeds_row_cap, verify_anchors, verify_and_validate};
+use dry_run_counter::DryRunCountingWarehouse;
 
 /// Bare `answer`, pinned to a 1 GiB working set, no spend ceiling - not imported as `super::answer`.
 ///
@@ -278,6 +284,85 @@ fn a_posture_is_recorded_in_provenance_per_leg() {
     // And the two halves of provenance stay separable: the digest is over authored content, so it
     // does not move when the posture does.
     assert_eq!(provenance.digest(), bundle().digest());
+}
+
+#[test]
+fn answer_calls_dry_run_even_when_the_preflight_accepts() {
+    // `docs/adr/0008`: `answer` must call the source's `dry_run` and must not skip the check because
+    // a value is already `Accepted` - the pre-flight's own answer is the data system's opinion at
+    // pre-flight time, not an authorization decision.
+    //
+    // `DryRunCountingWarehouse` with `DryRunOutcome::Accepted` answers `PreFlight::Accepted` from
+    // `dry_run`, so the answer proceeds past the pre-flight to `execute` - which is the path that
+    // would silently skip `dry_run` if a future change read the `Accepted` as "already checked".
+    // The `dry_runs()` counter on the fake proves the call was made; `executions()` proves the
+    // answer completed, so the assertion is not passing against a path that refused early.
+    let working = Warehouses::of(FixedWarehouse::answering(source(), shared(), certified()));
+    let validated = verify_and_validate(bundle(), &working).expect("the anchor reproduces its number");
+    let warehouse = DryRunCountingWarehouse::new(source(), shared(), certified(), DryRunOutcome::Accepted);
+    let warehouses = Warehouses::of(warehouse);
+    let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let outcome = answer(
+        &validated,
+        &question,
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &warehouses,
+    )
+    .expect("the fake answers")
+    .into_outcome();
+    assert!(
+        matches!(outcome, ToolOutcome::Answer { .. }),
+        "the pre-flight accepted, so this answers"
+    );
+    assert_eq!(
+        warehouses.get(&source()).expect("the source is registered").dry_runs(),
+        1,
+        "answer must call dry_run even when the pre-flight accepts"
+    );
+    assert_eq!(
+        warehouses.get(&source()).expect("the source is registered").executions(),
+        1,
+        "the answer completed, so the dry-run count is not zero from an early refusal"
+    );
+}
+
+#[test]
+fn a_dry_run_refusal_stops_the_answer_before_execute() {
+    // ADR 0008's other half: a dry-run that the source refuses must stop the answer, so `execute`
+    // is never reached. The existing `a_source_that_refuses_the_preflight_is_refused_and_never_executed`
+    // in `credentials.rs` pins the refusal outcome and zero executions but does not count `dry_runs`;
+    // this cell adds the call count, proving the refusal came FROM `dry_run` and not from a skip.
+    let working = Warehouses::of(FixedWarehouse::answering(source(), shared(), certified()));
+    let validated = verify_and_validate(bundle(), &working).expect("the anchor reproduces its number");
+    let refusing = DryRunCountingWarehouse::new(source(), shared(), certified(), DryRunOutcome::SourceRefused);
+    let warehouses = Warehouses::of(refusing);
+    let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let outcome = answer(
+        &validated,
+        &question,
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &warehouses,
+    )
+    .expect("a pre-flight refusal is a governed answer")
+    .into_outcome();
+    let ToolOutcome::Refusal {
+        reason: RefusalReason::SourceRefused { .. },
+    } = outcome
+    else {
+        panic!("a dry-run refusal must come back as a SourceRefused refusal, not {outcome:?}");
+    };
+    assert_eq!(
+        warehouses.get(&source()).expect("the source is registered").dry_runs(),
+        1,
+        "answer called dry_run once, and the refusal came from that call"
+    );
+    assert_eq!(
+        warehouses.get(&source()).expect("the source is registered").executions(),
+        0,
+        "a dry-run refusal must stop the answer before execute"
+    );
 }
 
 #[test]

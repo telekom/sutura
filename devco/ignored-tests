@@ -1,0 +1,12 @@
+# Every #[ignore]d test this tree carries, one `<path>::<fn_name>` per line.
+# `cargo xtask check-ignored-tests` refuses an #[ignore]d test not listed here and a
+# line naming a test that is no longer #[ignore]d. It reads the literal attribute only:
+# see the gate's header for what it does not see.
+crates/sutura-catalog-datahub/tests/provisioned.rs::a_bearerless_read_is_401_under_the_enforced_tier
+crates/sutura-catalog-datahub/tests/provisioned.rs::a_document_served_by_a_real_datahub_decodes_into_a_certified_metric
+crates/sutura-catalog-datahub/tests/provisioned.rs::the_provisioned_datahub_serves_the_surface_a_reader_would_call
+crates/sutura-cli/tests/served/e2e_adbc.rs::served_datahub_metric_executes_through_adbc_bigquery
+crates/sutura-cli/tests/served/keycloak_test.rs::a_real_idp_mints_an_id_token_whose_aud_is_a_third_partys
+crates/sutura-cli/tests/served/keycloak_test.rs::a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused
+crates/sutura-exec-bigquery/tests/declared_principal.rs::each_subject_executes_as_its_own_principal_at_the_declared_pool
+crates/sutura-exec-bigquery/tests/declared_principal.rs::the_deployments_own_identity_is_neither_subjects_principal

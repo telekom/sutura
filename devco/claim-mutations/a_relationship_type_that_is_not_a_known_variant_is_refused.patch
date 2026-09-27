@@ -1,0 +1,18 @@
+diff --git a/crates/sutura-catalog-openmetadata/src/http.rs b/crates/sutura-catalog-openmetadata/src/http.rs
+index 1bdb7090d..9afab7289 100644
+--- a/crates/sutura-catalog-openmetadata/src/http.rs
++++ b/crates/sutura-catalog-openmetadata/src/http.rs
+@@ -552,8 +552,11 @@ fn harvest_relationship(
+     if let Some(relationship_type) = relationship_type {
+         drop(document.insert(String::from("relationship_type"), Value::String(relationship_type)));
+     }
+-    let relationship = serde_json::from_value(Value::Object(document))
+-        .map_err(|cause| HttpReaderError::NotTheCanonicalShape { entity, cause })?;
++    let relationship =
++        serde_json::from_value(Value::Object(document)).map_err(|cause| HttpReaderError::NotTheCanonicalShape {
++            entity: "notables",
++            cause,
++        })?;
+     Ok(Some((name, relationship)))
+ }
+ 

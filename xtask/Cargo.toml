@@ -8,6 +8,10 @@ publish = false
 description = "Repo automation: the dependency-boundary, file-length and unused-dependency gates."
 
 [dependencies]
+# The causality gate keys a moved `fn` on its token stream, so comments and layout drop out. Already
+# in `Cargo.lock` under `syn`, so no new package; declared here, not in the workspace table, because
+# the root manifest is at the line cap. Without `proc-macro` it always lexes with its own fallback.
+proc-macro2 = { version = "1.0.107", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

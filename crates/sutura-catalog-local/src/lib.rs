@@ -205,6 +205,12 @@ pub enum LocalCatalogError {
     /// the walk refuses as soon as it crosses `limit` rather than finishing the tree first.
     #[error("the catalog at {path} holds more than {limit} documents ({found} found before the walk stopped)")]
     TooManyDocuments { path: PathBuf, found: usize, limit: usize },
+    /// The walk visited more directory entries than `MAX_CATALOG_ENTRIES` permits.
+    ///
+    /// Bounds the tree, not the documents: a wide directory of skipped non-document files, or a
+    /// bind-mount cycle that would not terminate, is refused here rather than walked without end.
+    #[error("the catalog at {path} holds more than {limit} entries ({found} visited before the walk stopped)")]
+    TooManyEntries { path: PathBuf, found: usize, limit: usize },
     /// The documents read so far sum to more bytes than `MAX_CATALOG_BYTES` permits.
     ///
     /// `path` is the catalog root, matching `TooManyDocuments` and `Empty` above - the rendered
@@ -318,6 +324,13 @@ impl LocalCatalog {
             // opened. The refusal half, the `O_NOFOLLOW` / `O_NONBLOCK` / `O_CLOEXEC` flags, is that
             // crate's open. See its `read.rs` for why a document swapped for a symlink or a FIFO is
             // refused at open, and why the budget is enforced on the read itself.
+            //
+            // "Opened once" is held by `cargo xtask check-catalog-opened-once`, a static gate that
+            // refuses any path-based `std::fs` read in this crate's non-test source: a hand
+            // mutation that appends a second, unguarded `std::fs::read_to_string(&path)` right
+            // after this call is killed by that gate rather than by a swap-timing test. The limit:
+            // a second `rustix::fs::open` of the path or a read through an alias
+            // (`use std::fs as disk;`) escapes the text scan.
             let text = sutura_bounded_read::read_document(&self.root, &path, total_bytes).map_err(map_read_error)?;
             total_bytes = total_bytes.saturating_add(text.len() as u64);
             let split = frontmatter::split(&text).map_err(|cause| LocalCatalogError::Malformed {
@@ -380,6 +393,9 @@ fn map_walk_error(cause: sutura_bounded_read::WalkError) -> LocalCatalogError {
             LocalCatalogError::TooManyDocuments { path, found, limit }
         }
         sutura_bounded_read::WalkError::Empty { path } => LocalCatalogError::Empty { path },
+        sutura_bounded_read::WalkError::TooManyEntries { path, found, limit } => {
+            LocalCatalogError::TooManyEntries { path, found, limit }
+        }
     }
 }
 

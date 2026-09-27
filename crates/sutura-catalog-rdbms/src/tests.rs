@@ -1,3 +1,5 @@
+use std::num::NonZeroU64;
+
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::{DeclarableKind, DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{InconsistentDefinitions, InvalidDescription};
@@ -10,8 +12,41 @@ use sutura_domain::query::{Query, RefusalReason};
 
 use crate::fixture::FixtureReader;
 use crate::{
-    Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, SingleColumnTargetUniqueness, Table, TableAddress,
+    Dictionary, DictionaryBounds, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, SingleColumnTargetUniqueness, Table,
+    TableAddress,
 };
+
+#[cfg(feature = "live")]
+#[test]
+fn the_reader_rejects_untrusted_sql_identifiers_before_opening_a_connection() {
+    use crate::postgres_reader::{InvalidReaderConfig, PostgresReader, RowPredicate};
+
+    let config = tokio_postgres::Config::new();
+    let schema = PostgresReader::new(
+        config.clone(),
+        None,
+        String::from("dictionary\"; DROP SCHEMA public; --"),
+        String::from("test"),
+        RowPredicate::None,
+        None,
+        None,
+    );
+    assert!(matches!(schema, Err(InvalidReaderConfig::Schema)));
+
+    let predicate = PostgresReader::new(
+        config,
+        None,
+        String::from("dictionary"),
+        String::from("test"),
+        RowPredicate::Equals {
+            column: String::from("state\" OR true --"),
+            value: String::from("live"),
+        },
+        None,
+        None,
+    );
+    assert!(matches!(predicate, Err(InvalidReaderConfig::PredicateColumn)));
+}
 
 fn name() -> SourceName {
     SourceName::parse("local").expect("a test name is a name")
@@ -23,6 +58,23 @@ fn version() -> DefinitionVersion {
 
 fn over() -> RdbmsCatalog<FixtureReader> {
     crate::fixture::over_fixture_source(name(), version())
+}
+
+#[test]
+fn a_dictionary_catalog_binds_models_to_its_declared_data_source() {
+    let catalog_name = SourceName::parse("dictionary").expect("catalog name parses");
+    let source_alias = SourceName::parse("warehouse").expect("source alias parses");
+    let pinned = RdbmsCatalog::new(catalog_name.clone(), version(), FixtureReader)
+        .with_source_alias(source_alias.clone())
+        .load()
+        .expect("the fixture dictionary loads");
+    let orders = ModelName::parse("orders").expect("model name parses");
+    assert_eq!(
+        pinned.definitions().model(&orders).expect("the fixture has orders").source(),
+        &source_alias,
+    );
+    assert!(pinned.manifest().get(&catalog_name).is_some());
+    assert!(pinned.manifest().get(&source_alias).is_none());
 }
 
 fn address(schema: &str, table: &str) -> TableAddress {
@@ -740,4 +792,31 @@ fn a_relationship_to_an_unknown_physical_table_is_refused() {
         RdbmsCatalog::new(name(), version(), unknown_origin).load(),
         Err(RdbmsError::UnknownRelationshipTable { table }) if table == "public.orders"
     ));
+}
+
+/// The fixture's two tables and one relationship are three entries, one over a cap of two.
+#[test]
+fn a_dictionary_over_the_declared_row_cap_refuses() {
+    let reader = SparseReader(crate::fixture::corpus());
+    let bounds = DictionaryBounds::new(NonZeroU64::new(2).expect("two is non-zero"), NonZeroU64::MAX);
+    let refused = RdbmsCatalog::new(name(), version(), reader)
+        .with_bounds(bounds)
+        .load()
+        .expect_err("three entries over a two-row cap refuse");
+    assert!(
+        matches!(refused, RdbmsError::ExceedsBounds { rows, limit } if rows == 3 && limit.get() == 2),
+        "{refused:?}"
+    );
+}
+
+/// The same three entries under a cap of three load: the cap is a ceiling, not an off-by-one.
+#[test]
+fn a_dictionary_at_the_declared_row_cap_loads() {
+    let reader = SparseReader(crate::fixture::corpus());
+    let bounds = DictionaryBounds::new(NonZeroU64::new(3).expect("three is non-zero"), NonZeroU64::MAX);
+    let pinned = RdbmsCatalog::new(name(), version(), reader)
+        .with_bounds(bounds)
+        .load()
+        .expect("three entries under a three-row cap load");
+    assert_eq!(pinned.definitions().models().len(), 2);
 }

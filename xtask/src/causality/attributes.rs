@@ -252,6 +252,9 @@ pub(crate) struct Cells {
     unreached: Vec<Range<usize>>,
     /// Tests declared here that a run in this venue reaches.
     runs: usize,
+    /// The names of the tests whose block carries a literal `#[ignore]`, for
+    /// `crate::ignored_tests`' census.
+    ignored: Vec<String>,
     /// Cells whose run is decided by an attribute this cannot evaluate, with the spelling.
     ///
     /// STATED AND NOT EVIDENCE, rather than refused, and the difference was measured. Routing
@@ -292,6 +295,11 @@ impl Cells {
     /// unreachable from this venue THROUGH THAT FILE, which is what this says.
     pub(crate) const fn nothing_runs(&self) -> bool {
         self.runs == 0 && !self.unreached.is_empty()
+    }
+
+    /// The tests declared here under a literal `#[ignore]`, by function name.
+    pub(crate) fn ignored(&self) -> &[String] {
+        &self.ignored
     }
 
     /// Tests declared here that a run reaches - the number a caller states beside its own count.
@@ -460,7 +468,22 @@ pub(crate) fn cells(text: &str, code: &str) -> Cells {
                 .undecidable
                 .push(format!("`{opening}` over the test at line {}", at.saturating_add(1)));
         }
-        if gated.is_some() || block.iter().any(|(_, opening)| opening.starts_with("#[ignore")) {
+        let ignored = block.iter().any(|(_, opening)| opening.starts_with("#[ignore"));
+        if ignored {
+            // From the item down, not the item line alone: `item_below` stops at a `/* .. */`
+            // line, which is not the `fn` it sits above.
+            match lines
+                .get(at..)
+                .and_then(|below| below.iter().find_map(|line| super::scoped::function_name(line.trim())))
+            {
+                Some(name) => found.ignored.push(String::from(name.as_str())),
+                None => found.unresolved.push(format!(
+                    "no function name under the `#[ignore]` at line {}",
+                    at.saturating_add(1)
+                )),
+            }
+        }
+        if gated.is_some() || ignored {
             // FROM THE BLOCK'S FIRST LINE, not from the declaring attribute: `#[ignore]` is legal
             // ABOVE `#[test]`, and a region starting at the declaration left the `#[ignore]` line
             // itself outside it - so a reach written in the ignore's own reason string counted as

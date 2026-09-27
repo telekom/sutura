@@ -36,11 +36,11 @@ pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Res
             catalog: raw_catalog.name.clone(),
             cause,
         })?;
-        let settings = CatalogSettings::parse(
+        let settings = CatalogSettings::parse_optional(
             name,
             kind,
-            PathBuf::from(&raw_catalog.dir),
-            PathBuf::from(&raw_catalog.data_dir),
+            raw_catalog.dir.as_deref().map(PathBuf::from),
+            raw_catalog.data_dir.as_deref().map(PathBuf::from),
             version,
         )
         .map_err(|cause| SettingsError::Catalog { cause })?;
@@ -104,6 +104,7 @@ fn refuse_rdbms_keys(settings: &CatalogSettings, raw: &RawCatalog) -> Result<(),
         ("source_alias", raw.source_alias.is_some()),
         ("max_dictionary_rows", raw.max_dictionary_rows.is_some()),
         ("max_dictionary_bytes", raw.max_dictionary_bytes.is_some()),
+        ("dictionary_schema", raw.dictionary_schema.is_some()),
         ("connection", raw.connection.is_some()),
     ];
     match written.into_iter().find(|&(_, written)| written) {
