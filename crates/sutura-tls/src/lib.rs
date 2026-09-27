@@ -48,6 +48,7 @@
 //! An untrusted-issuer chain is never refused here - verification is the handshake's job, and a
 //! caller that folds these bytes into its own verifier is exactly the thing that refuses it.
 
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use rustls_pki_types::pem::PemObject as _;
@@ -55,6 +56,45 @@ use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 
 mod rotate;
 pub use rotate::{Outcome, POLL_INTERVAL, Rotating, Rotator};
+
+/// The most a declared client certificate chain or private key file may hold.
+///
+/// Read at boot and then on every rotation poll for the life of the process, so an unbounded read is
+/// a denial-of-service primitive whatever else it is - availability is a security property here.
+/// Sixty-four kibibytes is far above any identity pair: a chain of a dozen certificates with
+/// 4096-bit keys is under half of it, and a PKCS#8 key is a couple of kilobytes. The same value and
+/// argument as `sutura-http`'s `MAX_MATERIAL_BYTES` for its serving pair.
+const MAX_IDENTITY_BYTES: usize = 64 * 1024;
+
+/// The most a declared trust anchor bundle may hold.
+///
+/// A bundle is a list of roots, not a pair, so the identity cap does not fit it: a distribution's
+/// full CA bundle measured 491,106 bytes for 129 roots, seven and a half times that cap. Four
+/// mebibytes is about eight times the measured bundle, which leaves room for one extended with a
+/// deployment's own roots, and is still a bounded read every poll.
+const MAX_BUNDLE_BYTES: usize = 4 * 1024 * 1024;
+
+/// Reads one declared file, refused past `cap` bytes with the caller's own variant.
+///
+/// The one reader the boot-time loaders and the rotation poll share. `take` rather than a
+/// `metadata` length, so the bound is on what was read, and one byte past the cap is read on
+/// purpose to tell "too large" from "exactly the cap". The refusal is the variant `on_error` builds
+/// for an unreadable file, with an `InvalidData` cause.
+fn read_bounded(path: &Path, cap: usize, on_error: impl Fn(&Path, std::io::Error) -> LoadError) -> Result<Vec<u8>, LoadError> {
+    let file = std::fs::File::open(path).map_err(|cause| on_error(path, cause))?;
+    let mut bytes = Vec::new();
+    let bound = u64::try_from(cap).unwrap_or(u64::MAX).saturating_add(1);
+    file.take(bound)
+        .read_to_end(&mut bytes)
+        .map_err(|cause| on_error(path, cause))?;
+    if bytes.len() > cap {
+        return Err(on_error(
+            path,
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "the declared material exceeds the read cap"),
+        ));
+    }
+    Ok(bytes)
+}
 
 /// Where a declared trust anchor bundle is read from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -311,8 +351,8 @@ pub fn load_identity(identity: &Identity) -> Result<LoadedIdentity, LoadError> {
 /// Reads a declared PEM bundle into raw certificate DER, refusing an invalid entry rather than
 /// skipping it.
 fn bundle_certificates(anchors_path: &Path) -> Result<LoadedAnchors, LoadError> {
-    let bundle = std::fs::read(anchors_path).map_err(|cause| LoadError::AnchorsRead {
-        path: anchors_path.display().to_string(),
+    let bundle = read_bounded(anchors_path, MAX_BUNDLE_BYTES, |path, cause| LoadError::AnchorsRead {
+        path: path.display().to_string(),
         cause,
     })?;
     let certificates = CertificateDer::pem_slice_iter(&bundle)
@@ -343,7 +383,7 @@ fn system_certificates(loaded: rustls_native_certs::CertificateResult) -> Result
 
 /// Reads and parses the client certificate chain, refused if it holds no certificate.
 fn load_certificate(path: &Path) -> Result<Vec<CertificateDer<'static>>, LoadError> {
-    let bytes = std::fs::read(path).map_err(|cause| LoadError::IdentityRead {
+    let bytes = read_bounded(path, MAX_IDENTITY_BYTES, |path, cause| LoadError::IdentityRead {
         path: path.display().to_string(),
         cause,
     })?;
@@ -364,7 +404,7 @@ fn load_certificate(path: &Path) -> Result<Vec<CertificateDer<'static>>, LoadErr
 
 /// Reads and parses the client private key, refused if it is not a key this build can present.
 fn load_private_key(path: &Path) -> Result<PrivateKeyDer<'static>, LoadError> {
-    let bytes = std::fs::read(path).map_err(|cause| LoadError::IdentityRead {
+    let bytes = read_bounded(path, MAX_IDENTITY_BYTES, |path, cause| LoadError::IdentityRead {
         path: path.display().to_string(),
         cause,
     })?;
@@ -547,5 +587,88 @@ mod tests {
         std::fs::write(&bad_key, "not a private key\n").expect("a bad key writes");
         let identity = Identity::new(certificate, bad_key);
         assert!(matches!(load_identity(&identity), Err(LoadError::IdentityKey { .. })));
+    }
+
+    /// `pem` repeated whole, then `#` filler, to exactly `size` bytes; the filler is not PEM.
+    fn padded(pem: &str, size: usize) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(size);
+        while bytes.len().saturating_add(pem.len()) <= size {
+            bytes.extend_from_slice(pem.as_bytes());
+        }
+        bytes.resize(size, b'#');
+        bytes
+    }
+
+    fn root_pem() -> String {
+        let issued = rcgen::generate_simple_self_signed([String::from(SUBJECT)]).expect("a self-signed pair generates");
+        issued.cert.pem()
+    }
+
+    #[test]
+    fn a_distribution_sized_bundle_loads() {
+        let scratch = Scratch::new("bundle-distribution");
+        let bundle = scratch.directory.join("bundle.pem");
+        std::fs::write(&bundle, padded(&root_pem(), 491_106)).expect("a bundle writes");
+        let loaded = load_anchors(&Anchors::Bundle(bundle)).expect("a bundle the size of a distribution's loads");
+        assert!(loaded.len() > 129, "{}", loaded.len());
+    }
+
+    #[test]
+    fn a_bundle_exactly_at_the_cap_loads() {
+        let scratch = Scratch::new("bundle-at-cap");
+        let bundle = scratch.directory.join("bundle.pem");
+        std::fs::write(&bundle, padded(&root_pem(), MAX_BUNDLE_BYTES)).expect("an at-cap bundle writes");
+        let loaded = load_anchors(&Anchors::Bundle(bundle)).expect("a bundle exactly at the cap loads");
+        assert!(loaded.len() > 1, "the padded bundle holds many roots");
+    }
+
+    #[test]
+    fn a_bundle_one_byte_over_the_cap_is_refused() {
+        let scratch = Scratch::new("bundle-over-cap");
+        let over = scratch.directory.join("over.pem");
+        std::fs::write(&over, padded(&root_pem(), MAX_BUNDLE_BYTES.saturating_add(1))).expect("an over-cap file writes");
+        assert!(matches!(
+            load_anchors(&Anchors::Bundle(over.clone())),
+            Err(LoadError::AnchorsRead { path, cause })
+                if path == over.display().to_string()
+                && cause.to_string().contains("exceeds the read cap")
+        ));
+    }
+
+    #[test]
+    fn an_identity_pair_exactly_at_the_cap_loads() {
+        let scratch = Scratch::new("identity-at-cap");
+        let issued = rcgen::generate_simple_self_signed([String::from(SUBJECT)]).expect("a self-signed pair generates");
+        let certificate = scratch.directory.join("client.crt");
+        let key = scratch.directory.join("client.key");
+        std::fs::write(&certificate, padded(&issued.cert.pem(), MAX_IDENTITY_BYTES)).expect("a certificate writes");
+        std::fs::write(&key, padded(&issued.signing_key.serialize_pem(), MAX_IDENTITY_BYTES)).expect("a key writes");
+        let loaded = load_identity(&Identity::new(certificate, key)).expect("a pair exactly at the cap loads");
+        assert!(loaded.chain().len() > 1, "the padded chain file holds many copies");
+    }
+
+    #[test]
+    fn an_identity_certificate_one_byte_over_the_cap_is_refused() {
+        let scratch = Scratch::new("cert-over-cap");
+        let over = scratch.directory.join("over.crt");
+        std::fs::write(&over, vec![b'#'; MAX_IDENTITY_BYTES.saturating_add(1)]).expect("an over-cap file writes");
+        let identity = Identity::new(over, scratch.directory.join("client.key"));
+        assert!(matches!(
+            load_identity(&identity),
+            Err(LoadError::IdentityRead { path, .. }) if path == identity.certificate().display().to_string()
+        ));
+    }
+
+    #[test]
+    fn an_identity_key_one_byte_over_the_cap_is_refused() {
+        let scratch = Scratch::new("key-over-cap");
+        let (certificate, _) = scratch.pair("client");
+        let over = scratch.directory.join("over.key");
+        std::fs::write(&over, vec![b'#'; MAX_IDENTITY_BYTES.saturating_add(1)]).expect("an over-cap file writes");
+        let identity = Identity::new(certificate, over);
+        assert!(matches!(
+            load_identity(&identity),
+            Err(LoadError::IdentityRead { path, .. }) if path == identity.key().display().to_string()
+        ));
     }
 }
