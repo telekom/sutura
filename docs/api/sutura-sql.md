@@ -1177,6 +1177,16 @@ differently. A plan that will not render is a bug here or upstream.
   than one join key is the only caller, so this is reachable only from a compound key on one
   of these dialects, and a caller cannot narrow a catalog document out of it - an operator
   changes the relationship or the dialect.
+- `PlaceholderCountMismatch` - The rendered statement's bind placeholders do not match its bound parameters.
+
+  Fail-closed: a statement sent with more placeholders than values (or fewer) is a runtime
+  defect at the data system, not a test failure. The `emitted` list tracks each guard
+  embedding's values, and this check holds the two together at render time rather than in a
+  golden test alone. Counted from the AST, not from rendered text: a `?` inside a string
+  literal is a different `Expression` variant and is invisible to the walk.
+
+  For `Numbered` (Postgres) the `placeholders` field is the count of DISTINCT `$n` indices,
+  not the count of `Parameter` nodes - a legal statement can repeat `$1` for a guarded ratio.
 
 #### Implements
 
