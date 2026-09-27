@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-exec-datafusion/src/lib.rs b/crates/sutura-exec-datafusion/src/lib.rs
+index 02a4ab06d..c870a78d6 100644
+--- a/crates/sutura-exec-datafusion/src/lib.rs
++++ b/crates/sutura-exec-datafusion/src/lib.rs
+@@ -499,9 +499,7 @@ impl DataFusionWarehouse {
+             conjuncts.push(predicate(plan.params(), filter.predicate())?);
+         }
+         let mut remaining = conjuncts.into_iter();
+-        let Some(first) = remaining.next() else {
+-            return Err(DataFusionError::NoPredicate);
+-        };
++        let first = remaining.next().unwrap_or_else(|| datafusion::logical_expr::lit(true));
+         builder = builder
+             .filter(remaining.fold(first, Expr::and))
+             .map_err(|cause| DataFusionError::Build { cause })?;

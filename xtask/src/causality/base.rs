@@ -432,7 +432,7 @@ pub(super) const fn reported_per_test(outcome: &BaseOutcome) -> bool {
 /// `Summary [   0.4s] 2 tests run: 1 passed, 1 failed, 0 skipped` is nextest's own wording as of
 /// 0.9.143; `1 test run:` is the singular the same line takes at exactly one.
 pub(super) fn tests_run(text: &str) -> Option<usize> {
-    text.lines().find_map(|line| {
+    text.lines().rev().find_map(|line| {
         let words: Vec<&str> = line.split_whitespace().collect();
         words.windows(3).find_map(|w| match w {
             [n, "test" | "tests", "run:"] => n.parse().ok(),
@@ -876,5 +876,14 @@ mod tests {
             Some(0)
         );
         assert_eq!(tests_run("error[E0432]: unresolved import `crate::thing`"), None);
+    }
+
+    #[test]
+    fn tests_run_uses_outer_summary_after_nested_fixture() {
+        let output = concat!(
+            "     Summary [   0.1s] 1 test run: 1 passed\n",
+            "     Summary [   0.4s] 2 tests run: 2 passed\n",
+        );
+        assert_eq!(tests_run(output), Some(2));
     }
 }

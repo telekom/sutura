@@ -205,6 +205,13 @@ impl OkfCatalog {
             // post-read recheck all live in `sutura_bounded_read::read_document`, on the ONE handle
             // it opened. The refusal half, the `O_NOFOLLOW` / `O_NONBLOCK` / `O_CLOEXEC` flags, is
             // that crate's open.
+            //
+            // "Opened once" is held by `cargo xtask check-catalog-opened-once`, a static gate that
+            // refuses any path-based `std::fs` read in this crate's non-test source: a hand
+            // mutation that appends a second, unguarded `std::fs::read_to_string(&path)` right
+            // after this call is killed by that gate rather than by a swap-timing test. The limit:
+            // a second `rustix::fs::open` of the path or a read through an alias
+            // (`use std::fs as disk;`) escapes the text scan.
             let text = sutura_bounded_read::read_document(&self.root, &path, total_bytes).map_err(map_read_error)?;
             total_bytes += text.len() as u64;
             models.push(self.descriptor_to_model(&path, &text)?);
@@ -229,6 +236,9 @@ fn map_walk_error(cause: sutura_bounded_read::WalkError) -> OkfCatalogError {
             OkfCatalogError::TooManyDocuments { path, found, limit }
         }
         sutura_bounded_read::WalkError::Empty { path } => OkfCatalogError::Empty { path },
+        sutura_bounded_read::WalkError::TooManyEntries { path, found, limit } => {
+            OkfCatalogError::TooManyEntries { path, found, limit }
+        }
     }
 }
 
@@ -334,6 +344,12 @@ pub enum OkfCatalogError {
     Empty { path: PathBuf },
     #[error("the catalog at {path} holds more than {limit} documents ({found} found before the walk stopped)")]
     TooManyDocuments { path: PathBuf, found: usize, limit: usize },
+    /// The walk visited more directory entries than `MAX_CATALOG_ENTRIES` permits.
+    ///
+    /// Bounds the tree, not the documents: a wide directory of skipped non-document files, or a
+    /// bind-mount cycle that would not terminate, is refused here rather than walked without end.
+    #[error("the catalog at {path} holds more than {limit} entries ({found} visited before the walk stopped)")]
+    TooManyEntries { path: PathBuf, found: usize, limit: usize },
     /// The read of this document would push the running total over `MAX_CATALOG_BYTES`.
     ///
     /// `path` is the catalog root, matching `TooManyDocuments` and `Empty` above - the rendered

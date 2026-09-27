@@ -103,6 +103,10 @@ finer split is a cheap change if a caller ever needs the branch.
   A startup bound: `path` is the catalog root, `found` is how many document-shaped entries the
   walk had counted when it stopped - which may be less than the directory's true total, because
   the walk refuses as soon as it crosses `limit` rather than finishing the tree first.
+- `TooManyEntries` - The walk visited more directory entries than `MAX_CATALOG_ENTRIES` permits.
+
+  Bounds the tree, not the documents: a wide directory of skipped non-document files, or a
+  bind-mount cycle that would not terminate, is refused here rather than walked without end.
 - `TooLarge` - The documents read so far sum to more bytes than `MAX_CATALOG_BYTES` permits.
 
   `path` is the catalog root, matching `TooManyDocuments` and `Empty` above - the rendered

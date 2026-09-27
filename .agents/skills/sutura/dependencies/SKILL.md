@@ -126,4 +126,6 @@ of failure available, because the build is green and the fault appears when the 
 dependency pins with `~`, and the reason goes next to the pin rather than in a commit message.
 
 `cargo xtask check-shared-client` is the related gate on the other side: it holds that the HTTP
-client stays *shared* with an existing resolution rather than adding packages to `Cargo.lock`.
+client stays *shared* with an existing resolution rather than adding packages to `Cargo.lock`, and
+that none of the two client crates `docs/adr/0023`'s no-client measurement forbids resolves in the
+lock at all.

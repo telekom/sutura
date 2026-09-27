@@ -115,6 +115,10 @@ sends a reader to read all of them.
 - `UncheckableKnowledge`
 - `Empty`
 - `TooManyDocuments`
+- `TooManyEntries` - The walk visited more directory entries than `MAX_CATALOG_ENTRIES` permits.
+
+  Bounds the tree, not the documents: a wide directory of skipped non-document files, or a
+  bind-mount cycle that would not terminate, is refused here rather than walked without end.
 - `TooLarge` - The read of this document would push the running total over `MAX_CATALOG_BYTES`.
 
   `path` is the catalog root, matching `TooManyDocuments` and `Empty` above - the rendered

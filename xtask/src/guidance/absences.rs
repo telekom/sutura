@@ -227,7 +227,7 @@ const ABSENCES: &[Absence] = &[
 /// header records that limit - the marker sits mid-sentence in the flattened view. Stripping it is
 /// safe here and is not safe there for the reason stated over `flatten`: `#` also opens a Markdown
 /// heading, and `///` opens nothing else.
-fn prose(rel: &str, text: &str) -> String {
+pub(in crate::guidance) fn prose(rel: &str, text: &str) -> String {
     // Through `Path::extension` rather than `ends_with`, which
     // `clippy::case_sensitive_file_extension_comparisons` refuses: `A.RS` is a Rust file to every
     // tool that reads this tree, and a check deciding otherwise would read such a file as Markdown.

@@ -5813,6 +5813,7 @@ dependencies = [
 name = "xtask"
 version = "0.5.1"
 dependencies = [
+ "proc-macro2",
  "serde",
  "serde_json",
  "sha2",

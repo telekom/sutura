@@ -1,0 +1,12 @@
+diff --git a/xtask/src/catalog_opened_once.rs b/xtask/src/catalog_opened_once.rs
+--- a/xtask/src/catalog_opened_once.rs
++++ b/xtask/src/catalog_opened_once.rs
+@@ -237,7 +237,7 @@ fn decide(found: &Scanned) -> Verdict {
+ 
+ /// Is this `needle` in this `file` a registered call site?
+ fn is_registered(rel: &str, needle: &str) -> bool {
+-    REGISTERED.iter().any(|entry| entry.file == rel && entry.needle == needle)
++    REGISTERED.iter().any(|entry| entry.file == rel && entry.needle != needle)
+ }
+ 
+ /// Remove ASCII whitespace so a call broken by rustfmt's `max_width` still matches.
