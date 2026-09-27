@@ -135,7 +135,15 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-gate-classification",
         description: "every hygiene gate is in exactly one of the plan's two groups",
         kind: Kind::Hygiene(Reads::Prose),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // Both tables parse and each contains a real gate. The other registered gates are
+            // unclassified, so the disagreement walk, not a missing-page floor, must refuse.
+            seeds: &[(
+                "docs/implementation-plan-identity-and-services.md",
+                "| Gate | What it reads |\n| --- | --- |\n| `check-pins` | code |\n\n| Gate | On a prose-only pull request |\n| --- | --- |\n| `text-hygiene` | deferred |\n",
+            )],
+            in_scope: Some("docs/implementation-plan-identity-and-services.md"),
+        },
         run: gate_classification::run,
     },
     Task {
@@ -146,7 +154,24 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-inconclusive",
         description: "every venue invoking a gate that can answer INCONCLUSIVE handles exit 3",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // All four declared sites are present and handle exit 3. The extra invocation in
+            // nix/rogue.sh has no declared handling and must be named as a new site.
+            seeds: &[
+                ("justfile", "causality:\n    cargo run -p xtask -- test-causality\n"),
+                ("flake.nix", "{ } # root marker\napp = nix run .#causality\n"),
+                (
+                    "devenv.nix",
+                    "status=0\ncargo run -p xtask -- test-causality || status=$?\nif [ \"$status\" -eq 3 ]; then exit 3; fi\nexit \"$status\"\n",
+                ),
+                (
+                    ".github/workflows/ci.yml",
+                    "run: |\n  status=0\n  cargo run -p xtask -- test-causality || status=$?\n  if [ \"$status\" -eq 3 ]; then exit 3; fi\n  exit \"$status\"\n",
+                ),
+                ("nix/rogue.sh", "#!/usr/bin/env bash\ncargo run -p xtask -- test-causality\n"),
+            ],
+            in_scope: Some("nix/rogue.sh"),
+        },
         run: inconclusive::run,
     },
 ];
