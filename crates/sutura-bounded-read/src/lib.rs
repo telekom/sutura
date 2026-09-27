@@ -20,9 +20,11 @@
 //! to are asymmetric: the document-count cap on the walk ([`MAX_CATALOG_DOCUMENTS`]) is a default a
 //! caller may override through [`walk()`]'s `max_documents` parameter, while the aggregate-byte cap on
 //! the read ([`MAX_CATALOG_BYTES`]) is hard-coded inside [`read_document`] and not a parameter at all.
+//! The entry cap on the walk ([`MAX_CATALOG_ENTRIES`]) is hard-coded too, and bounds the tree rather
+//! than the documents in it.
 
 mod read;
 mod walk;
 
 pub use read::{MAX_CATALOG_BYTES, ReadError, read_document};
-pub use walk::{MAX_CATALOG_DOCUMENTS, WalkError, walk};
+pub use walk::{MAX_CATALOG_DOCUMENTS, MAX_CATALOG_ENTRIES, WalkError, walk};

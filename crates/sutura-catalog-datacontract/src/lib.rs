@@ -554,6 +554,9 @@ fn map_walk_error(cause: sutura_bounded_read::WalkError) -> DataContractError {
             DataContractError::TooManyDocuments { path, found, limit }
         }
         sutura_bounded_read::WalkError::Empty { path } => DataContractError::Empty { path },
+        sutura_bounded_read::WalkError::TooManyEntries { path, found, limit } => {
+            DataContractError::TooManyEntries { path, found, limit }
+        }
     }
 }
 
@@ -679,6 +682,12 @@ pub enum DataContractError {
     Empty { path: PathBuf },
     #[error("the catalog at {path} holds more than {limit} documents ({found} found before the walk stopped)")]
     TooManyDocuments { path: PathBuf, found: usize, limit: usize },
+    /// The walk visited more directory entries than `MAX_CATALOG_ENTRIES` permits.
+    ///
+    /// Bounds the tree, not the documents: a wide directory of skipped non-document files, or a
+    /// bind-mount cycle that would not terminate, is refused here rather than walked without end.
+    #[error("the catalog at {path} holds more than {limit} entries ({found} visited before the walk stopped)")]
+    TooManyEntries { path: PathBuf, found: usize, limit: usize },
     #[error("the catalog at {path} holds more than {limit} bytes of documents (the read stopped at {document}, {found} found)")]
     TooLarge {
         path: PathBuf,

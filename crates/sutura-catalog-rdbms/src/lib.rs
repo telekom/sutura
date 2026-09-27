@@ -238,6 +238,12 @@ pub enum RdbmsError {
         #[source]
         cause: sutura_domain::definitions::NotDigestible,
     },
+    /// The dictionary carries more tables and relationships than the declared row cap.
+    ///
+    /// Checked on the decoded dictionary, whatever the reader did. The byte cap is not checked here:
+    /// a [`Dictionary`] carries no byte count, so it is the reader's to hold against the response.
+    #[error("the dictionary carries {rows} entries, over the declared maximum of {limit}")]
+    ExceedsBounds { rows: u64, limit: NonZeroU64 },
 }
 
 /// A catalog read from an RDBMS dictionary.
@@ -250,12 +256,29 @@ pub struct RdbmsCatalog<R> {
     name: SourceName,
     version: DefinitionVersion,
     reader: R,
+    bounds: Option<DictionaryBounds>,
 }
 
 impl<R> RdbmsCatalog<R> {
     /// Opens a catalog over a dictionary reader.
     pub const fn new(name: SourceName, version: DefinitionVersion, reader: R) -> Self {
-        Self { name, version, reader }
+        Self {
+            name,
+            version,
+            reader,
+            bounds: None,
+        }
+    }
+
+    /// Holds the dictionary read to `bounds`; without it the row count is unchecked here.
+    ///
+    /// No composition root calls this yet: startup refuses `kind: rdbms` until a reader over a real
+    /// dictionary exists (#972), and that is where the declared `max_dictionary_rows` and
+    /// `max_dictionary_bytes` arrive.
+    #[must_use]
+    pub const fn with_bounds(mut self, bounds: DictionaryBounds) -> Self {
+        self.bounds = Some(bounds);
+        self
     }
 }
 
@@ -267,6 +290,15 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
     fn assemble(&self, dictionary: &Dictionary) -> Result<Content, RdbmsError> {
         if dictionary.tables.is_empty() {
             return Err(RdbmsError::NoVisibleTables);
+        }
+        if let Some(bounds) = self.bounds {
+            let rows = dictionary.tables.len() as u64 + dictionary.relationships.len() as u64;
+            if rows > bounds.max_rows().get() {
+                return Err(RdbmsError::ExceedsBounds {
+                    rows,
+                    limit: bounds.max_rows(),
+                });
+            }
         }
         let mut models = Vec::with_capacity(dictionary.tables.len());
         let mut models_by_table = BTreeMap::new();

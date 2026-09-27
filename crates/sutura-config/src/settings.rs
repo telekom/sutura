@@ -366,6 +366,9 @@ pub enum SettingsError {
         refusals.iter().map(ToString::to_string).collect::<Vec<String>>().join("\n  - ")
     )]
     NotFitToServe { refusals: Vec<NotFitToServe> },
+    /// The merged configuration nests more deeply than the origin walk descends.
+    #[error("the configuration nests more deeply than {limit} levels (the walk stopped at depth {found})")]
+    MergeDepth { found: u32, limit: u32 },
 }
 
 /// The whole resolved configuration.

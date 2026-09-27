@@ -150,6 +150,10 @@ a reader back to all of them.
 - `TargetUniquenessUnknown` - The referenced column had no single-column primary or unique-key evidence.
 - `Inconsistent` - The assembled definitions did not hold together.
 - `Digest` - Pinning failed.
+- `ExceedsBounds` - The dictionary carries more tables and relationships than the declared row cap.
+
+  Checked on the decoded dictionary, whatever the reader did. The byte cap is not checked here:
+  a `Dictionary` carries no byte count, so it is the reader's to hold against the response.
 
 ### Implements
 
@@ -174,6 +178,16 @@ pub const fn new(name: SourceName, version: DefinitionVersion, reader: R) -> Sel
 ```
 
 Opens a catalog over a dictionary reader.
+
+```rust
+pub const fn with_bounds(self, bounds: DictionaryBounds) -> Self
+```
+
+Holds the dictionary read to `bounds`; without it the row count is unchecked here.
+
+No composition root calls this yet: startup refuses `kind: rdbms` until a reader over a real
+dictionary exists (#972), and that is where the declared `max_dictionary_rows` and
+`max_dictionary_bytes` arrive.
 
 ### Implements
 

@@ -194,6 +194,22 @@ fn an_outer_codec_around_parquet_is_refused_rather_than_unwrapped() {
     drop(std::fs::remove_dir_all(dir));
 }
 
+/// An extension naming no format this engine reads is refused, rather than read as CSV with a
+/// schema inferred from a file that may be any shape. The bytes ARE a valid CSV, so a fallback to
+/// the CSV reader would attach it.
+#[test]
+fn attach_file_refuses_an_unknown_extension() {
+    let dir = scratch("datafusion-attach-unknown-format");
+    let path = dir.join("orders.xyz");
+    std::fs::write(&path, CSV).expect("the fixture is writable");
+    let refused = engine().attach_file(&crate::orders(), &path);
+    drop(std::fs::remove_dir_all(dir));
+    assert!(
+        matches!(refused, Err(DataFusionError::UnknownFormat { ref extension, .. }) if extension == "xyz"),
+        "an unknown extension should be refused, got {refused:?}"
+    );
+}
+
 /// The suffixes a composition root offers are the suffixes the parse accepts.
 ///
 /// One table, read two ways: a `sutura_cli` file search that spelled its own list could offer a

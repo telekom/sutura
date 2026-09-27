@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-exec-datafusion/src/lib.rs b/crates/sutura-exec-datafusion/src/lib.rs
+index 02a4ab06..bd6bcbca 100644
+--- a/crates/sutura-exec-datafusion/src/lib.rs
++++ b/crates/sutura-exec-datafusion/src/lib.rs
+@@ -551,11 +551,6 @@ impl DataFusionWarehouse {
+         // Before the lookup, and it has to be before: `TableReference::bare` of the last part would
+         // find the registered file and answer about it, which is a different table from the one the
+         // catalog named.
+-        if table.qualifier().is_some() {
+-            return Err(DataFusionError::QualifiedTableUnreachable {
+-                table: table.to_string(),
+-            });
+-        }
+         let frame = self
+             .context
+             .table(table_reference(table.name()))
