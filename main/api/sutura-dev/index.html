@@ -2672,6 +2672,10 @@ why that signal was the wrong one.</p>
 <p>The variable that overrides the machine class, in <strong>both</strong> directions.</p>
 <p>Named once, here, because a message that tells somebody to set it and a read that spells it
 differently is a fix that does not work and looks like it should.</p>
+<h3 id="constant-required"><code>constant REQUIRED</code><a class="headerlink" href="#constant-required" title="Permanent link">&para;</a></h3>
+<p>The sentence the <code>Requirement::Required</code> failure carries, so a reader of a run's output can
+tell a cell that never reached its tier from one its own assertion failed - <code>xtask</code>'s claim arm
+does.</p>
 <h3 id="constant-not_required"><code>constant NOT_REQUIRED</code><a class="headerlink" href="#constant-not_required" title="Permanent link">&para;</a></h3>
 <p>Every spelling of <code>FORCE</code> that means <em>no</em>, lowercased and trimmed.</p>
 <p><strong>Public because a second reader of this decision exists and may not depend on this crate.</strong>
