@@ -454,9 +454,30 @@ mod tests {
     use std::num::NonZeroU64;
     use std::path::Path;
 
-    use super::PredicateOperator;
+    use super::{CatalogConnection, InvalidConnection, PredicateOperator};
     use crate::environment::Environment;
+    use crate::raw::RawCatalogConnection;
     use crate::settings::{Settings, Sources};
+    use sutura_domain::model::SourceName;
+
+    #[test]
+    fn a_remote_plaintext_catalog_connection_is_refused() {
+        let raw = RawCatalogConnection {
+            host: Some(String::from("192.0.2.1")),
+            unix_socket: None,
+            port: Some(5432),
+            database: Some(String::from("dictionary")),
+            user: Some(String::from("reader")),
+            password_file: Some(String::from("/run/secrets/dictionary")),
+            transport_mode: Some(String::from("plaintext")),
+            transport_anchors: None,
+            client_certificate: None,
+            client_key: None,
+        };
+        let name = SourceName::parse("dictionary").expect("a catalog name parses");
+        let error = CatalogConnection::parse(&name, &raw).expect_err("remote plaintext is unsafe");
+        assert!(matches!(error, InvalidConnection::Channel { .. }), "{error:?}");
+    }
 
     #[test]
     fn a_complete_rdbms_entry_reaches_the_catalog_settings() {

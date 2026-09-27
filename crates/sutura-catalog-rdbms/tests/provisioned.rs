@@ -170,7 +170,7 @@ mod provisioned {
         )
         .expect("the fixture reader settings parse");
 
-        let catalog = RdbmsCatalog::new(catalog_name.clone(), source_alias.clone(), version, reader);
+        let catalog = RdbmsCatalog::new(catalog_name.clone(), version, reader).with_source_alias(source_alias.clone());
         let pinned = catalog.load().expect("the live dictionary loads");
         let orders = ModelName::parse("orders").expect("model name parses");
         assert_eq!(

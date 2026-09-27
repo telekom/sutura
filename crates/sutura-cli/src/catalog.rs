@@ -460,15 +460,13 @@ fn open_one_rdbms_catalog(
     })?;
 
     // The contribution manifest stays under the catalog NAME while the semantic models bind to the
-    // declared `source_alias` - see `RdbmsCatalog::new`'s split of its two name arguments.
+    // declared `source_alias` - see `RdbmsCatalog::with_source_alias`.
     let bounds = reader.bounds();
-    Ok(sutura_catalog_rdbms::RdbmsCatalog::new(
-        settings.name().clone(),
-        rdbms.source_alias().clone(),
-        settings.version().clone(),
-        reader,
+    Ok(
+        sutura_catalog_rdbms::RdbmsCatalog::new(settings.name().clone(), settings.version().clone(), reader)
+            .with_source_alias(rdbms.source_alias().clone())
+            .with_bounds(bounds),
     )
-    .with_bounds(bounds))
 }
 
 /// The refusal for a build that did not link the `rdbms` adapter - the message names the feature.

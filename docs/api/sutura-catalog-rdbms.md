@@ -171,7 +171,7 @@ and version it is recorded under, the same way the other catalog adapters carry 
 ### Methods
 
 ```rust
-pub const fn new(name: SourceName, source_alias: SourceName, version: DefinitionVersion, reader: R) -> Self
+pub fn new(name: SourceName, version: DefinitionVersion, reader: R) -> Self
 ```
 
 Opens a catalog over a dictionary reader.
@@ -190,6 +190,12 @@ guard over a `Dictionary` whatever the reader did.
 **The reading reader holds the caps inline too** (`postgres_reader` abandons a stream that
 crosses the ceiling); this guard is the second, non-network half that a recorded or fetched
 dictionary gets regardless of the transport.
+
+```rust
+pub fn with_source_alias(self, source_alias: SourceName) -> Self
+```
+
+Binds models from this dictionary to a separately declared data source.
 
 ### Implements
 

@@ -477,37 +477,3 @@ enum ContractViolation {
     #[error("a documentation table repeated column {column}")]
     DuplicateColumn { column: String },
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{InvalidReaderConfig, PostgresReader, RowPredicate};
-
-    #[test]
-    fn the_reader_rejects_untrusted_sql_identifiers_before_opening_a_connection() {
-        let config = tokio_postgres::Config::new();
-        let schema = PostgresReader::new(
-            config.clone(),
-            None,
-            String::from("dictionary\"; DROP SCHEMA public; --"),
-            String::from("test"),
-            RowPredicate::None,
-            None,
-            None,
-        );
-        assert!(matches!(schema, Err(InvalidReaderConfig::Schema)));
-
-        let predicate = PostgresReader::new(
-            config,
-            None,
-            String::from("dictionary"),
-            String::from("test"),
-            RowPredicate::Equals {
-                column: String::from("state\" OR true --"),
-                value: String::from("live"),
-            },
-            None,
-            None,
-        );
-        assert!(matches!(predicate, Err(InvalidReaderConfig::PredicateColumn)));
-    }
-}

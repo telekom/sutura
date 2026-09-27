@@ -261,7 +261,8 @@ pub struct RdbmsCatalog<R> {
 
 impl<R> RdbmsCatalog<R> {
     /// Opens a catalog over a dictionary reader.
-    pub const fn new(name: SourceName, source_alias: SourceName, version: DefinitionVersion, reader: R) -> Self {
+    pub fn new(name: SourceName, version: DefinitionVersion, reader: R) -> Self {
+        let source_alias = name.clone();
         Self {
             name,
             source_alias,
@@ -269,6 +270,13 @@ impl<R> RdbmsCatalog<R> {
             reader,
             bounds: None,
         }
+    }
+
+    /// Binds models from this dictionary to a separately declared data source.
+    #[must_use]
+    pub fn with_source_alias(mut self, source_alias: SourceName) -> Self {
+        self.source_alias = source_alias;
+        self
     }
 
     /// Holds the dictionary read to `bounds`; without it the row count is unchecked here.
