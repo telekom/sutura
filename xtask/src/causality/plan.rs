@@ -64,6 +64,8 @@ pub(crate) enum Plan {
     /// says *this gate did not measure your change* has to be able to name the changed files it
     /// could not revert, and this is one of the three that returns before the proof block.
     NotSeparable { files: Vec<String>, build_inputs: Vec<String> },
+    /// Every test file in scope only wrapped call-site arguments, by path: [`edited::callsite`].
+    EditedTests(Vec<String>),
 }
 
 /// The groups the reconstruction sorts a diff's Rust files into.
@@ -169,7 +171,7 @@ pub(crate) fn plan_with_base(files: &[ChangedFile], read: &PostImage<'_>, base: 
         return Plan::DeletedTests(deleted_tests);
     }
 
-    super::declared::keep(partition(files, read), read, base)
+    edited::callsite::separate(files, read, base)
 }
 
 /// Keep the existing test harness callable against the pre-change planner.

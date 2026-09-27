@@ -398,10 +398,25 @@ pub(super) fn report_only_ignored(names: &[Ident], coverage: &Coverage) -> Verdi
     Verdict::Pass
 }
 
+/// The verdict for a range whose every test file in scope only wrapped call-site arguments.
+///
+/// INCONCLUSIVE and never a pass: nothing was run, because an edited test existed at base and is
+/// no evidence for the change - `super::edited::callsite` carries the criterion and its limit.
+pub(super) fn report_edited(paths: &[String]) -> Verdict {
+    for path in paths {
+        println!("  edited, not added: {path}  (only call-site arguments wrapped; the base run takes its base version)");
+    }
+    println!();
+    println!("xtask test-causality: INCONCLUSIVE - every test file in scope only wrapped call-site arguments,");
+    println!("so no test in scope is new and none was run. Add a test that is red on base, or prove the");
+    println!("change by MUTATION and state it in the handoff. Exit code 3, not a pass.");
+    Verdict::Inconclusive
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        Coverage, Ident, Moved, Verdict, moved_lines, no_base_behaviour, not_separable_lines, orphaned_lines,
+        Coverage, Ident, Moved, Verdict, moved_lines, no_base_behaviour, not_separable_lines, orphaned_lines, report_edited,
         report_no_base_behaviour, report_not_separable, report_only_ignored, scope_lines, unreverted_lines,
     };
     use crate::causality::fixtures::{changed, tree};
@@ -454,6 +469,13 @@ mod tests {
         );
         let ignored = [Ident::parse("acceptance").expect("an identifier")];
         assert_eq!(report_only_ignored(&ignored, &only_ignored(&["acceptance"])), Verdict::Pass);
+    }
+
+    /// An edited test is no evidence for the change, so a range with nothing else never passes.
+    #[test]
+    fn a_range_of_only_edited_tests_is_inconclusive_never_a_pass() {
+        let edited = [String::from("crates/x/tests/a.rs")];
+        assert_eq!(report_edited(&edited), Verdict::Inconclusive);
     }
 
     #[test]

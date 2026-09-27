@@ -134,7 +134,7 @@ use coverage::{Coverage, Scope};
 use diff::changed_with_additions;
 use features::{Activation, BaseText, Trees};
 use place::AddedTest;
-use plan::{Plan, Separable, partition, plan_with_base};
+use plan::{Plan, Separable, plan_with_base};
 use provenance::{Commit, Moved, Reach};
 use refusals::{
     report_deleted_tests, report_enabled_tests, report_head_failure, report_unclaimed_additions, report_unnamed_tests,
@@ -142,8 +142,8 @@ use refusals::{
 };
 use relocation::{Claim, Images, Relocation};
 use remedies::{
-    report_moved, report_no_base_behaviour, report_not_separable, report_only_ignored, report_orphaned_modules, report_scope,
-    report_silent, report_unreverted,
+    report_edited, report_moved, report_no_base_behaviour, report_not_separable, report_only_ignored, report_orphaned_modules,
+    report_scope, report_silent, report_unreverted,
 };
 use reverted::Attempts;
 use runner::{Tree, cargo_test};
@@ -641,7 +641,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             // `Claim-Cell:` rather than a blanket override.
             let waived = weakens::Waived::of(&worktree::messages(&root, &at));
             match report_deleted_tests(&deleted, &waived) {
-                Verdict::Pass => declared::keep(partition(&files, &working_tree), &working_tree, &base_tree),
+                Verdict::Pass => edited::callsite::separate(&files, &working_tree, &base_tree),
                 refused => return refused,
             }
         }
@@ -656,6 +656,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         // refuses the macro, so it is the refusal with no waiver applied - fail-closed.
         Plan::DeletedTests(deleted) => report_deleted_tests(&deleted, &weakens::Waived::default()),
         Plan::BaseUnreadable(files) => report_unreadable(&files),
+        Plan::EditedTests(paths) => report_edited(&paths),
         Plan::NotSeparable {
             files: inseparable,
             build_inputs,

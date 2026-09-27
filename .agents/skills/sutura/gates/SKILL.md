@@ -1077,6 +1077,19 @@ recognise their own situation and never reaches for the substitute.** Two substi
 which is the one that yields a real `ok - red on base, green on head`, or **prove by mutation** as
 above.
 
+**The existing tests that change only to follow such a signature no longer cause it.** A test file
+that existed at base under the same path is EDITED, not added, when its whole change is call-site
+arguments wrapped - `render(&defs)` -> `render(&Wrapper::of(&defs))` - plus imports of names the
+other image never spells. `causality::edited::callsite` compares the two images as `proc_macro2`
+token trees: inside a call's `(..)`, each head argument is the base one or contains it as one
+contiguous token run behind only identifiers, `&`, `:` and `(` and ahead of only `)`. Such a file is
+reverted with the implementation, none of its tests counts as proof, and a range whose every test
+file is edited is `Plan::EditedTests`, INCONCLUSIVE (exit 3). A changed literal, assertion, statement,
+helper body, name, extra argument or operator anywhere in the file leaves it ADDED. **The limit:** the
+wrapper's own behaviour is not read - `f(x)` -> `f(weaken(x))` is a wrap by that criterion - and a
+file that ALSO adds a test is added as a whole, so its wrapped calls still break the base build and
+the substitutes above still apply.
+
 **AND A TEST THAT PINNS EXISTING BEHAVIOUR NEED NOT BE PROVEN BY HAND when it declares a claim
 cell.** A test the base tree already satisfies can never be red against base - there is nothing to
 revert - so the only honest proof is a mutation, and `causality::claim` is the mechanism that lets a
