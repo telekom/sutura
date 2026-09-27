@@ -85,9 +85,17 @@ pub(crate) fn parse_policy(text: &str) -> Result<Policy, String> {
             fail_above = Some(value == "true");
         } else if let Some(value) = value_of(line, "epsilon") {
             epsilon = value.parse::<f64>().ok();
-        } else if line.starts_with("allow") && line.contains('[') {
-            // `allow = []` on one line is an empty list, not the start of a block.
-            in_allow = !line.contains(']');
+        } else if let Some(value) = line
+            .strip_prefix("allow")
+            .and_then(|rest| rest.trim_start().strip_prefix('='))
+        {
+            let value = value.trim();
+            in_allow = value
+                .strip_prefix('[')
+                .is_some_and(|rest| rest.trim().is_empty() || rest.trim_start().starts_with('#'));
+            if !in_allow {
+                allow.extend(inline_allow(value, index.saturating_add(1), previous_was_comment)?);
+            }
         }
 
         if is_comment {
@@ -114,6 +122,29 @@ pub(crate) fn parse_policy(text: &str) -> Result<Policy, String> {
         epsilon,
         allow,
     })
+}
+
+/// Decode a one-line array, retaining its comment for the annotation check. Unsupported TOML
+/// string forms are refused rather than silently read as an empty allowlist.
+fn inline_allow(value: &str, line: usize, previous_was_comment: bool) -> Result<Vec<AllowEntry>, String> {
+    let unreadable = || format!("{POLICY_FILE}:{line}: allow must be a double-quoted string array or a multiline block");
+    let mut stream = serde_json::Deserializer::from_str(value).into_iter::<Vec<String>>();
+    let patterns = stream
+        .next()
+        .ok_or_else(unreadable)?
+        .map_err(|error| format!("{}: {error}", unreadable()))?;
+    let trailing = value.get(stream.byte_offset()..).unwrap_or_default().trim();
+    if !trailing.is_empty() && !trailing.starts_with('#') {
+        return Err(unreadable());
+    }
+    Ok(patterns
+        .into_iter()
+        .map(|pattern| AllowEntry {
+            pattern,
+            line,
+            annotated: previous_was_comment || trailing.starts_with('#'),
+        })
+        .collect())
 }
 
 /// `key = value`, with the value trimmed of quotes, of a trailing comment, and of a Nix
@@ -345,6 +376,30 @@ mod tests {
         let policy = parse_policy("threshold = 30.0\nallow = []\nfail-above = true\n").expect("parses");
         assert!(policy.allow.is_empty(), "the one-line empty allow list is read as empty");
         assert!(policy.fail_above);
+    }
+
+    #[test]
+    fn inline_allow_entries_are_read_and_annotations_do_not_become_patterns() {
+        for (prefix, suffix, annotated) in [
+            ("", "", false),
+            ("# generated dispatch\n", "", true),
+            ("", " # generated dispatch, not \"Another::*\" ]", true),
+        ] {
+            let text =
+                format!("threshold = 30.0\nfail-above = true\n{prefix}allow = [\"Generated::*\", \"Hash#name\"]{suffix}\n");
+            let policy = parse_policy(&text).expect("inline array parses");
+            let line = if prefix.is_empty() { 3 } else { 4 };
+            assert_eq!(
+                policy.allow,
+                ["Generated::*", "Hash#name"].map(|pattern| AllowEntry {
+                    pattern: String::from(pattern),
+                    line,
+                    annotated
+                })
+            );
+        }
+        let unsupported = parse_policy("threshold = 30.0\nfail-above = true\nallow = ['Unsupported::*']\n");
+        assert!(unsupported.is_err(), "an unreadable array must not become an empty allowlist");
     }
 
     #[test]

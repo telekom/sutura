@@ -4,12 +4,15 @@
 //! `part2`: `super::base` decides WHAT happened, this module decides what to TELL the reader about
 //! it. The seam is the one [`super::earned`] already draws between classifying and wording.
 
+use std::fmt::Write as _;
+
 use crate::Verdict;
 use crate::causality::coverage::Coverage;
+use crate::causality::place::AddedTest;
 use crate::causality::provenance::Moved;
 use crate::causality::reverted::{self, Reverted};
 
-use super::{BaseOutcome, earned, reported_per_test, tests_run};
+use super::{BaseOutcome, earned, is_failing, reported_per_test, strip_retry, tests_run};
 
 /// Turn a base run into the gate's verdict.
 ///
@@ -34,8 +37,9 @@ pub(crate) fn report_base(
     coverage: &Coverage,
     moved: &Moved,
     reverted: &Reverted,
+    scoped: &[AddedTest],
 ) -> Verdict {
-    let measured = state_the_gap(earned(outcome, coverage), outcome, coverage, output);
+    let measured = state_the_gap(earned(outcome, coverage), outcome, coverage, output, scoped);
     // ONE CALL SITE, and the DECISION beside it is pure. It was a loop in each red arm, and review
     // measured what that cost: deleting the one in `RedOutsideTheDiff` reddened nothing, because
     // every test of that arm goes through a wrapper passing `Reverted::Behaviour`. The choice of
@@ -229,35 +233,111 @@ pub(crate) fn report_base(
     }
 }
 
-/// Correct `measured` when nextest's own `Summary` line ran FEWER of the scope than the filter
-/// named, and say so on its own line.
-///
-/// **THE DEFECT THIS CLOSES.** [`earned`]'s wording is honest about ZERO measured, but not about a
-/// PARTIAL one: [`super::Attributed::PerTest`] says a run produced SOME per-test result, not that
-/// it produced one for every name the filter carries. `Coverage::scoped_count` is baked in before
-/// either run, so `10 of 13 added tests measured` reused the SCOPE's own count under the word
-/// "measured" - `github.com/telekom/sutura#893`, measured on a real run: 10 names in the filter,
-/// 8 of them orphaned (their file sits in `remove:`, never compiled at base), and nextest's own
-/// `2 tests run` line said so twenty lines above a verdict that never read it.
-///
-/// Silent whenever [`tests_run`] cannot read a number, or the number it reads is not smaller than
-/// the scope: an unreadable or matching summary has nothing to correct, and this function may only
-/// ever narrow a claim, never widen one.
-fn state_the_gap(measured: String, outcome: &BaseOutcome, coverage: &Coverage, output: &str) -> String {
+/// Name the scope separately from observed results: a summary count cannot identify a missing
+/// key, and one expanded or overlapping key can match several (or the same) runtime tests.
+fn state_the_gap(measured: String, outcome: &BaseOutcome, coverage: &Coverage, output: &str, scoped: &[AddedTest]) -> String {
     if !reported_per_test(outcome) {
         return measured;
     }
-    let named = coverage.scoped_count();
-    let Some(ran) = tests_run(output) else {
-        return measured;
+    format!("{}; {}", coverage.named(), observed_scope(output, scoped))
+}
+
+/// The runner forces all final statuses after the outer Summary and all captured output before
+/// it. Reading only that recap keeps nested nextest output from posing as a result of this run.
+fn observed_scope(output: &str, scoped: &[AddedTest]) -> String {
+    let lines: Vec<&str> = output.lines().collect();
+    let Some(summary) = lines.iter().rposition(|line| line.trim_start().starts_with("Summary [")) else {
+        return String::from("no final base summary; scoped execution could not be reconciled");
     };
-    if ran >= named {
-        return measured;
+    let results: Vec<FinalResult<'_>> = lines.iter().skip(summary + 1).filter_map(|line| final_result(line)).collect();
+    let completed = |status: &str| !matches!(status, "SKIP" | "XFAIL");
+    let matched = scoped
+        .iter()
+        .filter(|test| {
+            results
+                .iter()
+                .any(|FinalResult { status, binary, path }| completed(status) && test.claims(Some(binary), path))
+        })
+        .count();
+    let mut result = format!("{matched} of {} scoped keys match completed base results", scoped.len());
+    if let Some(ran) = tests_run(output) {
+        let _written = write!(result, "; nextest reports {ran} tests run");
     }
-    format!(
-        "{measured}\n  named {named} into the scope filter; the base run's own summary shows only \
-         {ran} of them actually ran - the rest never existed there (orphaned, not proven)"
-    )
+    for test in scoped {
+        if results
+            .iter()
+            .any(|FinalResult { status, binary, path }| completed(status) && test.claims(Some(binary), path))
+        {
+            continue;
+        }
+        let _written = write!(result, "\n  not run on base: {} in {}", test.name(), test.file());
+        if results
+            .iter()
+            .any(|FinalResult { status, binary, path }| *status == "SKIP" && test.claims(Some(binary), path))
+        {
+            result.push_str(" - skipped by nextest");
+        } else if results
+            .iter()
+            .any(|FinalResult { status, binary, path }| *status == "XFAIL" && test.claims(Some(binary), path))
+        {
+            result.push_str(" - nextest could not execute the test");
+        } else {
+            let _written = write!(result, " - no recognized final result matches {}", test.term());
+            for FinalResult { binary, path, .. } in &results {
+                if path.split("::").any(|part| part == test.name()) {
+                    let _written = write!(result, "\n    same name reported under a different key: {binary} {path}");
+                }
+            }
+            result.push_str("\n    compilation cfg and module wiring are not distinguished by this run");
+        }
+    }
+    result
+}
+
+struct FinalResult<'a> {
+    status: &'a str,
+    binary: &'a str,
+    path: &'a str,
+}
+
+fn final_result(line: &str) -> Option<FinalResult<'_>> {
+    let (status, rest) = line.trim().split_once(" [")?;
+    let status = strip_retry(status);
+    let status = if status.starts_with("FLAKY ") || status.starts_with("FLKY-FL ") {
+        status.split_once(' ')?.0
+    } else {
+        status
+    };
+    if !matches!(
+        status,
+        "PASS"
+            | "LEAK"
+            | "TIMEOUT-PASS"
+            | "SLOW"
+            | "SLOW + LEAK"
+            | "SLOW+TMPASS"
+            | "FLAKY"
+            | "FLKY-FL"
+            | "FL+LK"
+            | "LKFAIL"
+            | "TMT"
+            | "XFAIL"
+            | "SKIP"
+    ) && !is_failing(status)
+    {
+        return None;
+    }
+    let (_, named) = rest.split_once(']')?;
+    let named = named.trim();
+    let named = if named.starts_with('(') {
+        named.split_once(')')?.1
+    } else {
+        named
+    };
+    let mut words = named.split_whitespace();
+    let binary = words.next()?;
+    let path = words.next()?;
+    words.next().is_none().then_some(FinalResult { status, binary, path })
 }
 
 /// Did the base tree fail because a module's FILE is not there?
@@ -295,7 +375,7 @@ mod tests {
 
     /// The report for a scope whose every test is new here, for the same reason.
     fn reported(outcome: &BaseOutcome, output: &str, retried: bool, coverage: &Coverage) -> Verdict {
-        report_base(outcome, output, retried, coverage, &Moved::Nothing, &Reverted::Behaviour)
+        report_base(outcome, output, retried, coverage, &Moved::Nothing, &Reverted::Behaviour, &[])
     }
 
     #[test]
@@ -401,19 +481,27 @@ mod tests {
         let output = concat!(
             "        FAIL [   0.021s] (2/2) pa tests::the_added_one\n",
             "     Summary [   0.4s] 2 tests run: 1 passed, 1 failed, 1727 skipped\n",
+            "FAIL [ 0.1s] pa tests::the_added_one\n",
+            "PASS [ 0.1s] pa tests::second\n",
             "error: test run failed\n",
         );
-        let stated = state_the_gap(earned(&outcome, &coverage), &outcome, &coverage, output);
-        assert!(stated.starts_with("10 of 13 added tests measured"), "{stated}");
-        assert!(stated.contains("named 10 into the scope filter"), "{stated}");
-        assert!(stated.contains("only 2 of them actually ran"), "{stated}");
+        let keys = scoped(
+            "pa",
+            "crates/pa/src/lib.rs",
+            &["the_added_one", "second", "a", "b", "c", "d", "e", "f", "g", "h"],
+        );
+        let stated = state_the_gap(earned(&outcome, &coverage), &outcome, &coverage, output, &keys);
+        assert!(
+            stated.starts_with("10 of 13 added tests named; 2 of 10 scoped keys match completed base results"),
+            "{stated}"
+        );
+        assert!(stated.contains("nextest reports 2 tests run"), "{stated}");
     }
 
     #[test]
-    fn a_fully_ran_scope_states_nothing_extra() {
-        // The silent case, and the one that must stay silent: every named test ran on base, so
-        // there is no gap to state, and appending one anyway would print a correction nobody
-        // needs beside every ordinary passing run.
+    fn a_fully_ran_scope_keeps_named_and_observed_counts_distinct() {
+        // Every key ran: retain the distinction between scope and runtime instances without
+        // inventing a missing name.
         let coverage = Coverage::Measured {
             measured: 2,
             unmeasured: Vec::new(),
@@ -422,10 +510,11 @@ mod tests {
         let outcome = BaseOutcome::RedByAssertion {
             failed: vec![String::from("pa tests::t")],
         };
-        let output = "     Summary [   0.1s] 2 tests run: 1 passed, 1 failed, 0 skipped\n";
+        let output = "Summary [ 0.1s] 2 tests run: 1 passed, 1 failed\nFAIL [ 0.1s] pa tests::t\nPASS [ 0.1s] pa tests::u\n";
+        let keys = scoped("pa", "crates/pa/src/lib.rs", &["t", "u"]);
         assert_eq!(
-            state_the_gap(earned(&outcome, &coverage), &outcome, &coverage, output),
-            "2 of 2 added tests measured"
+            state_the_gap(earned(&outcome, &coverage), &outcome, &coverage, output, &keys),
+            "2 of 2 added tests named; 2 of 2 scoped keys match completed base results; nextest reports 2 tests run"
         );
     }
 
@@ -445,9 +534,111 @@ mod tests {
                 earned(&BaseOutcome::DidNotCompile, &coverage),
                 &BaseOutcome::DidNotCompile,
                 &coverage,
-                output
+                output,
+                &[],
             ),
             "0 of 6 added tests measured"
+        );
+    }
+
+    #[test]
+    fn a_moved_scope_names_missing_and_skipped_keys_without_borrowing_nested_results() {
+        let keys = scoped("pa", "crates/pa/src/a.rs", &["ran", "missing", "skipped"]);
+        let output = concat!(
+            "Summary [ 0.1s] 1 test run: 1 passed\n",
+            "PASS [ 0.1s] pa a::tests::missing\n",
+            "Summary [ 0.2s] 1 test run: 1 passed, 2 skipped\n",
+            "PASS [ 0.1s] pa a::tests::ran\n",
+            "SKIP [       ] pa a::tests::skipped\n",
+            "SKIP [       ] pb a::tests::missing\n",
+            "SKIP [       ] pa b::tests::missing\n",
+        );
+        let moved = Moved::Wholly(keys.iter().map(|test| String::from(test.name())).collect());
+        let outcome = classify_base(output, true, &keys, &moved, &Reverted::Behaviour);
+        let coverage = named(3);
+        let stated = state_the_gap(earned(&outcome, &coverage), &outcome, &coverage, output, &keys);
+        assert!(
+            stated.starts_with("3 of 3 added tests named; 1 of 3 scoped keys match completed base results"),
+            "{stated}"
+        );
+        assert!(
+            stated.contains("not run on base: missing in crates/pa/src/a.rs - no recognized final result matches"),
+            "{stated}"
+        );
+        assert!(stated.contains("different key: pb a::tests::missing"), "{stated}");
+        assert!(stated.contains("different key: pa b::tests::missing"), "{stated}");
+        assert!(
+            stated.contains("not run on base: skipped in crates/pa/src/a.rs - skipped by nextest"),
+            "{stated}"
+        );
+        assert_eq!(
+            report_base(&outcome, output, false, &coverage, &moved, &Reverted::Behaviour, &keys),
+            Verdict::Inconclusive
+        );
+
+        let mut overlapping = scoped("pa", "crates/pa/src/lib.rs", &["ran"]);
+        overlapping.extend(scoped("pa", "crates/pa/src/a.rs", &["ran"]));
+        let stated = state_the_gap(earned(&outcome, &named(2)), &outcome, &named(2), output, &overlapping);
+        assert!(
+            stated.contains("2 of 2 scoped keys match completed base results; nextest reports 1 tests run"),
+            "{stated}"
+        );
+        assert_eq!(
+            stated.lines().count(),
+            1,
+            "overlapping keys must not invent a missing name: {stated}"
+        );
+
+        let expanded = scoped("pa", "crates/pa/src/a.rs", &["renders", "missing"]);
+        let output = concat!(
+            "Summary [ 0.1s] 2 tests run: 2 passed\n",
+            "PASS [ 0.1s] pa a::tests::renders::case_1\n",
+            "PASS [ 0.1s] pa a::tests::renders::case_2\n",
+        );
+        let stated = state_the_gap(earned(&outcome, &named(2)), &outcome, &named(2), output, &expanded);
+        assert!(
+            stated.contains("1 of 2 scoped keys match completed base results; nextest reports 2 tests run"),
+            "{stated}"
+        );
+        assert!(
+            stated.contains("not run on base: missing in crates/pa/src/a.rs - no recognized final result matches"),
+            "expanded cases must not hide the absent key: {stated}"
+        );
+
+        let one = scoped("pa", "crates/pa/src/a.rs", &["ran"]);
+        for status in [
+            "PASS",
+            "LEAK",
+            "TIMEOUT-PASS",
+            "SLOW",
+            "SLOW + LEAK",
+            "SLOW+TMPASS",
+            "FLAKY 2/2",
+            "FLKY-FL 2/2",
+            "FAIL",
+            "FAIL + LEAK",
+            "LEAK-FAIL",
+            "TIMEOUT",
+            "SIGSEGV",
+            "ABORT",
+            "TRY 2 FAIL",
+            "TRY 2 FL+LK",
+            "TRY 2 LKFAIL",
+            "TRY 2 TMT",
+        ] {
+            let output = format!("Summary [ 0.1s] 1 test run: 1 passed\n{status} [ 0.1s] (  1/100) pa a::tests::ran\n");
+            let stated = state_the_gap(earned(&outcome, &named(1)), &outcome, &named(1), &output, &one);
+            assert!(
+                stated.contains("1 of 1 scoped keys match completed base results"),
+                "{status}: {stated}"
+            );
+            assert_eq!(stated.lines().count(), 1, "{status}: {stated}");
+        }
+        let output = "Summary [ 0.1s] 1 test run: 1 exec failed\nXFAIL [ 0.1s] pa a::tests::ran\n";
+        let stated = state_the_gap(earned(&outcome, &named(1)), &outcome, &named(1), output, &one);
+        assert!(
+            stated.contains("not run on base: ran in crates/pa/src/a.rs - nextest could not execute the test"),
+            "{stated}"
         );
     }
 }

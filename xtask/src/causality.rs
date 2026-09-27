@@ -359,6 +359,7 @@ fn reconstruct_and_run(
             scope.coverage,
             scope.moved,
             scope.reverted.attempt(true),
+            scoped.tests(),
         );
     }
 
@@ -381,6 +382,7 @@ fn reconstruct_and_run(
         scope.coverage,
         scope.moved,
         scope.reverted.attempt(false),
+        scoped.tests(),
     )
 }
 
@@ -656,21 +658,24 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             files: inseparable,
             build_inputs,
         } => {
-            // `github.com/telekom/sutura#837` DIRECTION 2: a complete declaration is CONSULTED
-            // even here, not merely mentioned. The claim arm needs no revert at all - `claim::run`
-            // mutates and re-runs at HEAD, never at base - so inseparability does not disqualify
-            // it; only whether the diff's own added tests can be NAMED does, which is the same
-            // `Scan::of` the `Plan::Separable` arm below already asks of its own test files.
-            //
-            // A Scan outcome other than `Runnable` (unnameable, an enabling declaration, all
-            // ignored) falls through to the unconsulted-declaration line unchanged: this arm
-            // cannot build the `Scoped` value `claim::run` needs, so it has not reached the claim
-            // arm either, and says so exactly as it did before this decision.
             let claim = claim::Claim::of(&worktree::messages(&root, &at));
-            if let Some(ref declared) = claim
+            if let Some(declared) = &claim
                 && let Scan::Runnable(scoped) = Scan::of(&files, &inseparable, &working_tree)
             {
-                return claim::run(&root, &scoped, &inseparable, declared, claim::Caller::TEST_CAUSALITY);
+                let claim_verdict = claim::run(&root, &scoped, &inseparable, declared, claim::Caller::TEST_CAUSALITY);
+                if claim_verdict != Verdict::Pass {
+                    return claim_verdict;
+                }
+                let declared_names: BTreeSet<String> = declared.cells().iter().cloned().collect();
+                let Some(remaining) = scoped.minus(&declared_names) else {
+                    return Verdict::Pass; // every added test is a declared cell
+                };
+                eprintln!("xtask test-causality: FAIL - added tests beside declared claim cells have no base/head proof");
+                for one in remaining.tests() {
+                    eprintln!("  {}: inseparable from its implementation - no base/head proof", one.name());
+                }
+                eprintln!("Separate these tests from their implementation so the base/head proof can run.");
+                return Verdict::Fail;
             }
             report_not_separable(
                 &inseparable,
@@ -817,6 +822,8 @@ mod tests {
     enum Mutation {
         /// Changes `f`'s return value again, so the cell's own `assert_eq!(f(), 2)` fails.
         Kills,
+        /// The same killing mutation beside an undeclared ordinary test.
+        KillsBesideOrdinary,
         /// Touches the production line without changing `f`'s return value, so the cell stays
         /// green - applies cleanly and kills nothing.
         DoesNotKill,
@@ -862,11 +869,16 @@ mod tests {
             .trim()
             .to_owned();
 
-        let head_content = "pub fn f() -> u8 { 2 }\n\n#[cfg(test)]\nmod tests {\n    use super::f;\n\n    #[test]\n    fn the_wired_one() {\n        assert_eq!(f(), 2);\n    }\n}\n";
-        std::fs::write(dir.join("src/lib.rs"), head_content).unwrap();
+        let mut head_content = String::from(
+            "pub fn f() -> u8 { 2 }\n\n#[cfg(test)]\nmod tests {\n    use super::f;\n\n    #[test]\n    fn the_wired_one() {\n        assert_eq!(f(), 2);\n    }\n}\n",
+        );
+        if matches!(mutation, Mutation::KillsBesideOrdinary) {
+            head_content.push_str("\n#[test]\nfn the_plain_one() { assert_eq!(1, 1); }\n");
+        }
+        std::fs::write(dir.join("src/lib.rs"), &head_content).unwrap();
 
         let mutated: Option<String> = match mutation {
-            Mutation::Kills => Some(head_content.replacen("{ 2 }", "{ 9 }", 1)),
+            Mutation::Kills | Mutation::KillsBesideOrdinary => Some(head_content.replacen("{ 2 }", "{ 9 }", 1)),
             Mutation::DoesNotKill => Some(head_content.replacen("pub fn f() -> u8 { 2 }", "pub fn f() -> u8 { 2 } // same", 1)),
             Mutation::Missing => None,
         };
@@ -874,7 +886,7 @@ mod tests {
             // Same technique as `run_dispatches_to_the_claim_arm`'s patch: a hand-diffed pair of
             // files renamed onto `src/lib.rs`, so the mutation's own commit stays out of the
             // measured `base..HEAD` range.
-            std::fs::write(dir.join(".old.rs"), head_content).unwrap();
+            std::fs::write(dir.join(".old.rs"), &head_content).unwrap();
             std::fs::write(dir.join(".new.rs"), &mutated).unwrap();
             let diffed = git_output(&dir, &["diff", "--no-index", "--", ".old.rs", ".new.rs"]);
             let patch = String::from_utf8_lossy(&diffed.stdout)
@@ -902,20 +914,12 @@ mod tests {
         verdict
     }
 
-    /// `github.com/telekom/sutura#837` direction 2, half one: a complete declaration on an
-    /// inseparable diff is EVALUATED, and a mutation that kills by the cell's own assertion is
-    /// accepted.
-    ///
-    /// NOT DISCRIMINATING ALONE, stated rather than hidden: the old `Plan::NotSeparable`
-    /// fallback (`report_not_separable`) also answers `Verdict::Pass`, unconditionally, so this
-    /// assertion by itself cannot be shown red-on-base - confirmed by hand: neutralising the
-    /// dispatch guard below with `&& false` leaves this test green. The causal evidence that the
-    /// NEW dispatch, not the old fallback, is what answers here is the CONTRAST with the two
-    /// tests after it: the same fixture shape with an invalid declaration
-    /// (`Mutation::DoesNotKill`, `Mutation::Missing`) answers `Verdict::Fail` under the same
-    /// neutralising mutation - reversed to green - which an unconditional fallback could never
-    /// do. A single arm sensitive to the patch's validity is not reachable through one that is
-    /// not.
+    #[test]
+    fn a_claim_cell_cannot_carry_an_ordinary_inseparable_test() {
+        assert_eq!(inseparable_claim_case(true, Mutation::KillsBesideOrdinary), Verdict::Fail);
+    }
+
+    /// A fully declared inseparable scope still runs its killing mutation.
     #[test]
     fn a_declared_claim_cell_is_evaluated_from_an_inseparable_plan() {
         assert_eq!(

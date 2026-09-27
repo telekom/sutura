@@ -297,15 +297,15 @@ fn collect(text: &str, read: ReadFailure) -> Vec<String> {
 /// The two this tree cannot provoke on demand - `FAIL + LEAK` and `LEAK-FAIL`, one for a failing
 /// test that also leaked and one for a leak the profile fails on - are read off the pinned
 /// binary's own string table rather than guessed, alongside `ABORT` and `XFAIL`. `XFAIL` is
-/// deliberately absent: an expected failure that failed is a PASS.
+/// deliberately absent: nextest could not execute the test, so no assertion ran.
 const FAILING_STATUSES: &[&str] = &["FAIL", "FAIL + LEAK", "TIMEOUT", "ABORT", "LEAK-FAIL"];
 
 /// Is this status one that a test did not pass under?
 ///
 /// Abnormal termination is one status PER SIGNAL, so the rule for those is the SHAPE rather than
-/// a list that goes stale on the next platform or the next signal. `PASS`, `LEAK` and `XFAIL` are
-/// the statuses 0.9.143 prints that are not failures, and the direction of a status this does not
-/// recognise is [`BaseOutcome::Unattributed`] - no proof claimed - rather than a red attributed
+/// a list that goes stale on the next platform or the next signal. `PASS` and `LEAK` are not
+/// failures; `XFAIL` means the process could not execute and supplies no assertion evidence.
+/// The direction of a status this does not recognise is [`BaseOutcome::Unattributed`] - no proof claimed - rather than a red attributed
 /// to whichever test the line happened to name.
 fn is_failing(status: &str) -> bool {
     status.starts_with("SIG") || FAILING_STATUSES.contains(&status)
@@ -755,7 +755,8 @@ mod tests {
                 false,
                 &named(1),
                 &all,
-                &Reverted::Behaviour
+                &Reverted::Behaviour,
+                &under_test,
             ),
             Verdict::Inconclusive
         );
@@ -772,7 +773,7 @@ mod tests {
         };
         assert_eq!(classify_base(green, true, &two, &mixed, &Reverted::Behaviour), partial);
         assert_eq!(
-            report_base(&partial, green, false, &named(2), &mixed, &Reverted::Behaviour),
+            report_base(&partial, green, false, &named(2), &mixed, &Reverted::Behaviour, &two),
             Verdict::Fail
         );
     }

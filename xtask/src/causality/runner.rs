@@ -164,7 +164,21 @@ pub(super) fn nextest(isolated: &Isolated, only: &str, tree: Tree) -> Command {
         .env_remove("NEXTEST_PROFILE")
         .args(["nextest", "run", "--workspace", "--all-features", "--cargo-profile"])
         .arg(isolated.profile())
-        .args(["--no-fail-fast", "-E", only]);
+        .args([
+            "--no-fail-fast",
+            "--failure-output",
+            "immediate",
+            "--success-output",
+            "immediate",
+            "--final-status-level",
+            "all",
+            "--color",
+            "never",
+            "--show-progress",
+            "none",
+            "-E",
+            only,
+        ]);
     match tree {
         Tree::Provisioned => {}
         Tree::Reconstructed => {
@@ -221,6 +235,15 @@ mod tests {
         // nextest's scheduling. This gate was reported as answering differently for one tree in
         // two venues, and fail-fast over an unfiltered run is how that happens.
         assert!(args.iter().any(|arg| arg == "--no-fail-fast"), "{args:?}");
+        for pair in [
+            ["--failure-output", "immediate"],
+            ["--success-output", "immediate"],
+            ["--final-status-level", "all"],
+            ["--color", "never"],
+            ["--show-progress", "none"],
+        ] {
+            assert!(args.windows(2).any(|args| args == pair), "{args:?}");
+        }
         // THE PAIR THAT CANNOT DISAGREE. Both the run's directory and its target come from the
         // witness, so the tree that was cleaned is the tree that runs - review found that a unit
         // witness let a clean of `/` into `/nowhere` license a run anywhere.
