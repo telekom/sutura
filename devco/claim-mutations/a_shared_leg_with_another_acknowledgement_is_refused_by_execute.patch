@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-exec-duckdb/src/lib.rs b/crates/sutura-exec-duckdb/src/lib.rs
+index 9143c7c64..ce5d9a0db 100644
+--- a/crates/sutura-exec-duckdb/src/lib.rs
++++ b/crates/sutura-exec-duckdb/src/lib.rs
+@@ -389,9 +389,7 @@ impl DuckDbWarehouse {
+         // for the source. The capability check goes first because its message is the one that names
+         // what a broker did wrong, and after it the only shape left is the shared one - so what this
+         // call actually decides is whether the acknowledgement witness on the leg is this source's.
+-        presented
+-            .agrees_with(&self.posture, &self.source)
+-            .map_err(|cause| DuckDbError::PresentedDisagreesWithPosture { cause })
++        Ok(())
+     }
+ 
+     fn render(executable: Executable<'_>) -> Result<GeneratedQuery, DuckDbError> {

@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-exec-postgres/src/lib.rs b/crates/sutura-exec-postgres/src/lib.rs
+index e98c6fc5d..03f0f35ed 100644
+--- a/crates/sutura-exec-postgres/src/lib.rs
++++ b/crates/sutura-exec-postgres/src/lib.rs
+@@ -761,8 +761,7 @@ impl Warehouse for PostgresWarehouse {
+     /// FIRST, then the deadline is re-checked: the wait for it is itself outside the deadline, so a
+     /// caller queued behind a slow statement can arrive already spent, refused locally as
+     /// `DeadlineSpent` rather than sent to the server.
+-    fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
+-        self.deliverable(presented)?;
++    fn dry_run(&self, executable: Executable<'_>, _presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
+         let query = Self::render(executable)?;
+         self.prepare_with_deadline(&query, deadline)?;
+         Ok(PreFlight::Accepted { estimated_bytes: None })

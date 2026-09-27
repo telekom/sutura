@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-duckdb/src/lib.rs b/crates/sutura-exec-duckdb/src/lib.rs
+index 9143c7c64..9042586b8 100644
+--- a/crates/sutura-exec-duckdb/src/lib.rs
++++ b/crates/sutura-exec-duckdb/src/lib.rs
+@@ -396,7 +396,7 @@ impl DuckDbWarehouse {
+ 
+     fn render(executable: Executable<'_>) -> Result<GeneratedQuery, DuckDbError> {
+         match executable {
+-            Executable::Query(plan) => generate(plan, Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause }),
++            Executable::Query(plan) => generate(plan, Dialect::Postgres).map_err(|cause| DuckDbError::Render { cause }),
+             Executable::Leg(leg) => generate_leg(leg, Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause }),
+         }
+     }

@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-exec-postgres/src/lib.rs b/crates/sutura-exec-postgres/src/lib.rs
+index e98c6fc5d..830ff76ab 100644
+--- a/crates/sutura-exec-postgres/src/lib.rs
++++ b/crates/sutura-exec-postgres/src/lib.rs
+@@ -442,7 +442,9 @@ impl PostgresWarehouse {
+             path: path.display().to_string(),
+             cause,
+         })?;
+-        let schema = importer::infer_fixture_schema(&text).map_err(|cause| PostgresError::FixtureSchema { cause })?;
++        let schema = importer::infer_fixture_schema(&text)
++            .or_else(|_| importer::infer_schema(&text))
++            .map_err(|cause| PostgresError::InvalidColumnName { cause })?;
+         self.load_schema(table, path, &schema)
+     }
+ 
