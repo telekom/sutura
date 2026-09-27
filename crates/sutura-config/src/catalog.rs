@@ -187,14 +187,22 @@ pub enum InvalidCatalogSettings {
 }
 
 impl CatalogSettings {
-    /// Reads the declared name, kind, optional directories and version label.
+    /// Reads the declared name, kind, directories and version label.
     ///
-    /// The version arrives already parsed, because what identifies a snapshot of a directory is
-    /// a commit id or a build number and only the caller has it. Existence of the directories is
-    /// deliberately *not* checked here: this type is the configuration, and a directory that
-    /// disappears between reading the configuration and loading the catalog would make an
-    /// existence check here a claim that goes stale immediately. The load is what fails.
+    /// Existence of the directories is checked when the catalog loads, not here: a directory can
+    /// disappear after configuration parsing.
     pub fn parse(
+        name: SourceName,
+        kind: CatalogKind,
+        dir: PathBuf,
+        data_dir: PathBuf,
+        version: DefinitionVersion,
+    ) -> Result<Self, InvalidCatalogSettings> {
+        Self::parse_optional(name, kind, Some(dir), Some(data_dir), version)
+    }
+
+    /// Allows the live catalog kind to omit directories while requiring them for other kinds.
+    pub(crate) fn parse_optional(
         name: SourceName,
         kind: CatalogKind,
         dir: Option<PathBuf>,
@@ -470,8 +478,8 @@ mod tests {
         CatalogSettings::parse(
             name(name_raw),
             kind(),
-            Some(PathBuf::from("/nowhere/catalog")),
-            Some(PathBuf::from("/nowhere/data")),
+            PathBuf::from("/nowhere/catalog"),
+            PathBuf::from("/nowhere/data"),
             version(),
         )
         .expect("a declared catalog is a catalog")
@@ -530,37 +538,12 @@ mod tests {
 
     #[test]
     fn an_empty_directory_is_refused_rather_than_resolving_to_the_working_directory() {
-        let error = CatalogSettings::parse(
-            name("catalog"),
-            kind(),
-            Some(PathBuf::new()),
-            Some(PathBuf::from("data")),
-            version(),
-        )
-        .expect_err("an empty catalog directory is not a directory");
+        let error = CatalogSettings::parse(name("catalog"), kind(), PathBuf::new(), PathBuf::from("data"), version())
+            .expect_err("an empty catalog directory is not a directory");
         assert_eq!(error, InvalidCatalogSettings::EmptyPath { name: "catalogs[].dir" });
 
-        let error = CatalogSettings::parse(
-            name("catalog"),
-            kind(),
-            Some(PathBuf::from("catalog")),
-            Some(PathBuf::new()),
-            version(),
-        )
-        .expect_err("an empty data directory is not a directory");
-        assert_eq!(
-            error,
-            InvalidCatalogSettings::EmptyPath {
-                name: "catalogs[].data_dir"
-            }
-        );
-
-        let error = CatalogSettings::parse(name("catalog"), kind(), None, Some(PathBuf::from("data")), version())
-            .expect_err("a missing catalog directory is not a directory");
-        assert_eq!(error, InvalidCatalogSettings::EmptyPath { name: "catalogs[].dir" });
-
-        let error = CatalogSettings::parse(name("catalog"), kind(), Some(PathBuf::from("catalog")), None, version())
-            .expect_err("a missing data directory is not a directory");
+        let error = CatalogSettings::parse(name("catalog"), kind(), PathBuf::from("catalog"), PathBuf::new(), version())
+            .expect_err("an empty data directory is not a directory");
         assert_eq!(
             error,
             InvalidCatalogSettings::EmptyPath {
@@ -733,8 +716,8 @@ mod tests {
             let base = CatalogSettings::parse(
                 name("catalog"),
                 kind,
-                Some(PathBuf::from("/nowhere/catalog")),
-                Some(PathBuf::from("/nowhere/data")),
+                PathBuf::from("/nowhere/catalog"),
+                PathBuf::from("/nowhere/data"),
                 version(),
             )
             .expect("a directory and a version are a settings");

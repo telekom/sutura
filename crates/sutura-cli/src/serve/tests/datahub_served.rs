@@ -25,8 +25,8 @@ fn a_datahub_catalog_with_no_token_file_is_refused_naming_it() {
     let datahub = CatalogSettings::parse(
         name(),
         CatalogKind::Datahub,
-        Some(PathBuf::from("/nowhere/catalog")),
-        Some(PathBuf::from("/nowhere/data")),
+        PathBuf::from("/nowhere/catalog"),
+        PathBuf::from("/nowhere/data"),
         version(),
     )
     .expect("a directory and a version are a settings");
@@ -44,8 +44,8 @@ fn a_datahub_catalog_missing_only_the_token_file_is_refused_naming_that_field() 
     let datahub = CatalogSettings::parse(
         name(),
         CatalogKind::Datahub,
-        Some(PathBuf::from("/nowhere/catalog")),
-        Some(PathBuf::from("/nowhere/data")),
+        PathBuf::from("/nowhere/catalog"),
+        PathBuf::from("/nowhere/data"),
         version(),
     )
     .expect("a directory and a version are a settings")
@@ -67,8 +67,8 @@ fn a_datahub_catalog_with_a_plaintext_endpoint_beyond_loopback_is_refused() {
     let datahub = CatalogSettings::parse(
         name(),
         CatalogKind::Datahub,
-        Some(PathBuf::from("/nowhere/catalog")),
-        Some(PathBuf::from("/nowhere/data")),
+        PathBuf::from("/nowhere/catalog"),
+        PathBuf::from("/nowhere/data"),
         version(),
     )
     .expect("a directory and a version are a settings")
