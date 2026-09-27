@@ -1062,9 +1062,8 @@
         apps.causality = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-causality" ''
-            # cargo-nextest as well: the gate shells out to `cargo nextest`, and without it
-            # the run fails with "no such command" rather than a verdict.
-            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
+            # The gate shells out to nextest, and its falsifier test runs the pinned jscpd.
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:${jscpd}/bin:$PATH"
 
             ${cargoLinkEnv}
             # The warm start carries the baked-`OUT_DIR` sweep itself, for the whole of #346:
