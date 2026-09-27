@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-postgres/src/importer.rs b/crates/sutura-exec-postgres/src/importer.rs
+index a86d76596..f617e2d4e 100644
+--- a/crates/sutura-exec-postgres/src/importer.rs
++++ b/crates/sutura-exec-postgres/src/importer.rs
+@@ -155,7 +155,7 @@ pub(crate) fn infer_schema(text: &str) -> Result<Schema, InvalidIdentifier> {
+     let mut lines = text.lines();
+     let names = split_row(lines.next().unwrap_or_default());
+     let column_count = names.len();
+-    for name in &names {
++    for name in names.iter().skip(1) {
+         ColumnName::parse(name)?;
+     }
+     let mut columns: Vec<ColumnAccumulator> = names

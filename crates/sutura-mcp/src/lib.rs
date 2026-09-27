@@ -208,11 +208,11 @@ pub enum Asking {
 /// produced, and the reply deadline is how long one peer waits for one of them. None of the three
 /// cancels a question already inside the pool - see [`server`] and #160.
 ///
-/// **`instructions` is the fourth required value, and it is what a peer's `initialize` result
-/// carries as `instructions` - `telekom/sutura#776`.** It has to be rendered before this call, by
-/// [`sutura_app::prompt::render`] over the settings and the pinned bundle this `service` answers
-/// from, because this crate performs no catalog I/O of its own; the composition root that already
-/// read both is `sutura`'s `mcp` subcommand.
+/// **`tools` is the fourth required value: the operations a peer's `initialize.instructions` prompt
+/// describes - `telekom/sutura#776`.** The surface renders that prompt itself, with
+/// [`sutura_app::prompt::render`] over the bundle this `service` answers from; the composition root
+/// that read the settings - `sutura`'s `mcp` subcommand - decides which tools this deployment
+/// mounts.
 ///
 /// Returns when the peer closes or is cancelled.
 ///
@@ -227,7 +227,7 @@ pub async fn serve_stdio<S>(
     prose: sutura_app::prompt::CatalogProse,
     admission: sutura_runtime::Admission,
     reply: sutura_config::RequestTimeout,
-    instructions: std::sync::Arc<str>,
+    tools: std::sync::Arc<[sutura_app::prompt::Tool]>,
     operator_instructions: Option<std::sync::Arc<str>>,
 ) -> Result<(), NotServed>
 where
@@ -240,7 +240,7 @@ where
             prose,
             admission,
             reply,
-            instructions,
+            tools,
             operator_instructions,
         ),
         rmcp::transport::stdio(),

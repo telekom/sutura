@@ -17,10 +17,11 @@
 //!    are actually exposed, so a deployment that does not expose the catalog listing gets a prompt
 //!    that does not tell an agent to call it. A prompt naming an operation that is not there is
 //!    worse than a shorter prompt: the agent spends its turns discovering the absence.
-//! 2. **The pinned bundle** - every metric, its grains, its dimensions and the values a filter may
-//!    use, read off the same [`PinnedDefinitions`] every answer is computed from. It cannot describe
-//!    a metric this deployment does not serve, because there is nowhere for such a metric to come
-//!    from.
+//! 2. **The pinned bundle, as one caller's [`ScopedView`]** - every metric that caller may see, its
+//!    grains, its dimensions and the values a filter may use, read off the same [`PinnedDefinitions`]
+//!    every answer is computed from. It cannot describe a metric this deployment does not serve,
+//!    because there is nowhere for such a metric to come from, and it cannot describe one the view
+//!    withholds, because [`render`] takes the view and never the bare bundle.
 //! 3. **The operator's own text** - [`PromptInputs::instructions`], appended as the last section.
 //!    Appended and never substituted: see the note on layering below.
 //!
@@ -292,11 +293,20 @@ impl<'a> PromptInputs<'a> {
 /// The whole prompt, as markdown.
 ///
 /// Deterministic in its inputs: every collection walked here is a `BTreeMap` or a `BTreeSet`, and
-/// the grains are sorted explicitly. Two calls with the same bundle produce the same bytes, which is
+/// the grains are sorted explicitly. Two calls with the same view produce the same bytes, which is
 /// what lets the rendering be pinned by a snapshot rather than described.
+///
+/// **Takes a [`ScopedView`], never a bare `&PinnedDefinitions`**, for the reason
+/// [`catalog_knowledge`] states: the metric list and every knowledge section are the view's, so a
+/// served caller's prompt names only what that caller may see, and the operator-side commands say
+/// [`ScopedView::everything`] out loud. The definitions version and digest stay the bundle's -
+/// `docs/adr/0028`'s "the digest is the bundle's, not the view's".
 #[must_use]
-pub fn render(pinned: &PinnedDefinitions, inputs: &PromptInputs<'_>) -> String {
-    let notes = pinned.knowledge();
+pub fn render(view: &ScopedView<'_>, inputs: &PromptInputs<'_>) -> String {
+    let pinned = view.pinned();
+    let (notes, scoped) = scoped_knowledge(view);
+    let notes = notes.as_ref();
+    let audience = knowledge::Audience::Prompt { scoped };
     let mut sections: Vec<String> = vec![
         what_this_is(inputs),
         workflow(inputs),
@@ -305,15 +315,15 @@ pub fn render(pinned: &PinnedDefinitions, inputs: &PromptInputs<'_>) -> String {
         // that has just been told to use a name from the list is the one that needs to know which
         // names were considered and rejected. Empty - and therefore dropped - unless the provider
         // declares that it records such a thing.
-        knowledge::not_defined(notes, inputs.prose, knowledge::Audience::Prompt),
+        knowledge::not_defined(notes, inputs.prose, audience),
         bounds(),
         no_such_field(inputs),
         operations(inputs.tools),
-        knowledge::declaration(notes, knowledge::Audience::Prompt),
-        knowledge::glossary(notes, inputs.prose, knowledge::Audience::Prompt),
+        knowledge::declaration(notes, audience),
+        knowledge::glossary(notes, inputs.prose, audience),
         physical_schema_guidance(pinned),
-        metrics(pinned, inputs.prose),
-        knowledge::examples(notes, inputs.prose, knowledge::Audience::Prompt),
+        metrics(view, notes, inputs.prose),
+        knowledge::examples(notes, inputs.prose, audience),
         provenance(inputs),
     ];
     if let Some(text) = inputs.instructions {
@@ -375,14 +385,7 @@ pub fn render(pinned: &PinnedDefinitions, inputs: &PromptInputs<'_>) -> String {
 /// `tests::tool_audience::the_tool_reply_orders_its_sections_so_the_declarations_position_claims_hold`.
 #[must_use]
 pub fn catalog_knowledge(view: &ScopedView<'_>, prose: CatalogProse) -> String {
-    let (notes, scoped): (Cow<'_, Knowledge>, bool) = if view.is_everything() {
-        // The deployment's own view keeps the whole bundle - absences included, and no note withheld
-        // because a caveat referred to a metric the caller could not see. This is the stdio operator
-        // and every operator-side command, where `docs/adr/0028` retains the whole bundle.
-        (Cow::Borrowed(view.pinned().knowledge()), false)
-    } else {
-        (Cow::Owned(view.pinned().knowledge().scoped(view)), true)
-    };
+    let (notes, scoped) = scoped_knowledge(view);
     let notes = notes.as_ref();
     let audience = knowledge::Audience::Tool { scoped };
     let mut sections: Vec<String> = vec![
@@ -417,6 +420,19 @@ pub fn catalog_knowledge(view: &ScopedView<'_>, prose: CatalogProse) -> String {
 }
 
 const CAVEATS_HEADING: &str = "## Caveats, by metric";
+
+/// The knowledge `view` may see, and whether it was narrowed to get there.
+///
+/// The deployment's own view keeps the whole bundle - absences included, and no note withheld
+/// because a caveat referred to a metric the caller could not see. This is the stdio operator and
+/// every operator-side command, where `docs/adr/0028` retains the whole bundle.
+fn scoped_knowledge<'v>(view: &ScopedView<'v>) -> (Cow<'v, Knowledge>, bool) {
+    if view.is_everything() {
+        (Cow::Borrowed(view.pinned().knowledge()), false)
+    } else {
+        (Cow::Owned(view.pinned().knowledge().scoped(view)), true)
+    }
+}
 
 /// The honest starting point for a deployment that has physical structure and no semantic layer.
 ///
@@ -654,14 +670,14 @@ fn operations(tools: &[Tool]) -> String {
     lines.join("\n")
 }
 
-/// The metric vocabulary, read off the pinned bundle.
-fn metrics(pinned: &PinnedDefinitions, prose: CatalogProse) -> String {
-    let definitions = pinned.definitions();
+/// The metric vocabulary, read off the caller's view of the pinned bundle.
+fn metrics(view: &ScopedView<'_>, notes: &Knowledge, prose: CatalogProse) -> String {
+    let pinned = view.pinned();
     // The version and the digest read straight off the bundle rather than through a `Provenance`.
     // Provenance is what travels with an ANSWER and now carries the posture each leg executed as;
     // nothing executed to render a prompt, so there is no execution record to describe and asking for
     // one would mean inventing a leg.
-    let count = definitions.metrics().len();
+    let count = view.metrics().count();
     let how_many = match count {
         0 => String::from(
             "This snapshot defines no metric at all, so there is nothing that can be asked. Say so \
@@ -687,10 +703,10 @@ fn metrics(pinned: &PinnedDefinitions, prose: CatalogProse) -> String {
         lines.push(String::new());
         lines.push(String::from(PROSE_OMITTED_NOTICE));
     }
-    for (name, metric) in definitions.metrics() {
+    for metric in view.metrics() {
         lines.push(String::new());
-        lines.push(format!("### {name}\n"));
-        lines.push(one_metric(metric, pinned.knowledge(), prose));
+        lines.push(format!("### {}\n", metric.name()));
+        lines.push(one_metric(metric, notes, prose));
     }
     lines.join("\n")
 }

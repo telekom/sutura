@@ -29,7 +29,7 @@ use sutura_app::surface::Surface as _;
 use sutura_config::RequestTimeout;
 use sutura_runtime::Admission;
 
-use crate::commands::{Composed, agent_instructions, catalog_prose, render, report};
+use crate::commands::{Composed, catalog_prose, render, report, served_prompt};
 use crate::sources::{Opened, OpenedWith, configured, open_engine};
 // The `BigQuery` arm's half of the same question, and reached only from that arm - so the import is
 // gated for the reason `sources::bigquery`'s are: `dead_code` is `deny` here, and this crate's
@@ -49,7 +49,7 @@ type Served<W> = (
     CatalogProse,
     Admission,
     RequestTimeout,
-    std::sync::Arc<str>,
+    std::sync::Arc<[sutura_app::prompt::Tool]>,
     Option<std::sync::Arc<str>>,
 );
 
@@ -274,10 +274,10 @@ where
     // bundle `Surface::answer` computes against, so what this composes the prompt over cannot drift
     // from what it certifies over - `telekom/sutura#776`.
     //
-    // One read, two uses: `agent_instructions` both renders the prompt and returns the operator's
-    // raw text it read to do so, so the surface gets the SAME text the prompt folded in - never a
-    // second read of the same path that could disagree with the first.
-    let (instructions, operator_instructions) = agent_instructions(service.definitions(), settings)?;
+    // One read, two uses: the surface folds the operator's raw text into the prompt it renders AND
+    // carries it through the catalog tool - never a second read of the same path that could disagree
+    // with the first.
+    let (tools, operator_instructions) = served_prompt(settings)?;
     let operator_instructions = operator_instructions.map(std::sync::Arc::from);
     Ok((
         service,
@@ -289,7 +289,7 @@ where
         // here for the reason the other two are, and the agent surface applies it where it awaits
         // the port - it has no layer to hang it on.
         settings.server().request_timeout(),
-        std::sync::Arc::from(instructions),
+        tools,
         operator_instructions,
     ))
 }
@@ -325,7 +325,7 @@ mod tests {
         prose: sutura_app::prompt::CatalogProse,
         admission: sutura_runtime::Admission,
         reply: sutura_config::RequestTimeout,
-        instructions: std::sync::Arc<str>,
+        tools: std::sync::Arc<[sutura_app::prompt::Tool]>,
         operator_instructions: Option<std::sync::Arc<str>>,
     ) -> rmcp::service::RunningService<rmcp::RoleClient, ()>
     where
@@ -341,7 +341,7 @@ mod tests {
                 prose,
                 admission,
                 reply,
-                instructions,
+                tools,
                 operator_instructions,
             ),
             server_side,

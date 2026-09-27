@@ -28,6 +28,7 @@ use sutura_domain::knowledge::{
 };
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term};
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
+use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
 use sutura_domain::query::{Filter, MAX_DIMENSIONS, MAX_RANGE_DAYS, Query};
 
@@ -197,7 +198,10 @@ fn definitions() -> Definitions {
 }
 
 fn rendered(tools: &[Tool], prose: CatalogProse, instructions: Option<&str>) -> String {
-    render(&bundle(), &PromptInputs::new(tools, prose, instructions))
+    render(
+        &ScopedView::everything(&bundle()),
+        &PromptInputs::new(tools, prose, instructions),
+    )
 }
 
 // ------------------------------------------------------------------ the knowledge fixture ---
@@ -307,7 +311,10 @@ fn bundle_with(declares: KnowledgeCapabilities) -> PinnedDefinitions {
 }
 
 fn rendered_with(declares: KnowledgeCapabilities, prose: CatalogProse) -> String {
-    render(&bundle_with(declares), &PromptInputs::new(Tool::ALL, prose, None))
+    render(
+        &ScopedView::everything(&bundle_with(declares)),
+        &PromptInputs::new(Tool::ALL, prose, None),
+    )
 }
 
 /// Everything declared, everything populated: the reference-adapter case.
@@ -754,7 +761,7 @@ fn a_declared_and_empty_absence_list_is_not_the_same_document_as_an_undeclared_o
     // The distinction the whole capability mechanism exists to carry, at the point where it becomes a
     // sentence somebody reads. Both bundles record no absences; only one of them keeps such a list.
     let declared = render(
-        &{
+        &ScopedView::everything(&{
             let definitions = definitions();
             let empty = Knowledge::assemble(
                 &definitions,
@@ -768,7 +775,7 @@ fn a_declared_and_empty_absence_list_is_not_the_same_document_as_an_undeclared_o
             )
             .expect("an empty absence list is consistent with any definitions");
             pin(definitions, empty)
-        },
+        }),
         &PromptInputs::new(Tool::ALL, CatalogProse::Quoted, None),
     );
     assert!(declared.contains("## Terms this deployment records as NOT defined"));
@@ -914,7 +921,7 @@ fn a_note_carries_its_author_s_prose_while_the_structured_lines_carry_only_decla
     let prose = format!("Read it out of {TABLE}.{MEASURED_COLUMN} in model {MODEL}.");
     let knowledge = notes_carrying(&definitions, TABLE, &prose);
     let text = render(
-        &pin(definitions, knowledge),
+        &ScopedView::everything(&pin(definitions, knowledge)),
         &PromptInputs::new(Tool::ALL, CatalogProse::Quoted, None),
     );
 
@@ -953,7 +960,7 @@ fn a_declared_and_empty_kind_says_so_rather_than_pointing_at_a_missing_section()
     )
     .expect("an empty bundle of every kind is consistent with any definitions");
     let text = render(
-        &pin(definitions, empty),
+        &ScopedView::everything(&pin(definitions, empty)),
         &PromptInputs::new(Tool::ALL, CatalogProse::Quoted, None),
     );
     // Absences already do this, and it is what the other three are being held to.

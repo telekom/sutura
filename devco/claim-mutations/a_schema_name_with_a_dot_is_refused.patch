@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-exec-postgres/src/lib.rs b/crates/sutura-exec-postgres/src/lib.rs
+index e98c6fc5d..a046e41e6 100644
+--- a/crates/sutura-exec-postgres/src/lib.rs
++++ b/crates/sutura-exec-postgres/src/lib.rs
+@@ -374,11 +374,6 @@ impl PostgresWarehouse {
+         config: &tokio_postgres::Config,
+         schema: &str,
+     ) -> Result<Self, PostgresError> {
+-        if !schema.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+-            return Err(PostgresError::InvalidSchemaName {
+-                schema: String::from(schema),
+-            });
+-        }
+         let warehouse = Self::connect(source, posture, config)?;
+         warehouse.runtime.block_on(async {
+             warehouse

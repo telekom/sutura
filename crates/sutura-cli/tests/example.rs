@@ -575,7 +575,7 @@ mod tests {
     /// actually hand out.
     fn prompt(pinned: &PinnedDefinitions, prose: sutura_app::prompt::CatalogProse) -> String {
         sutura_app::prompt::render(
-            pinned,
+            &sutura_domain::pinned::view::ScopedView::everything(pinned),
             &sutura_app::prompt::PromptInputs::new(sutura_app::prompt::Tool::ALL, prose, None),
         )
     }
