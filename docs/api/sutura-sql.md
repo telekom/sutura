@@ -152,8 +152,8 @@ pub fn sql(&self) -> &str
 The data systems a statement can be rendered for.
 
 A closed set rather than a passthrough of the dialect layer's thirty-three, because each entry
-here is a claim that we generate correct SQL for it and have a golden that says so. Adding one is
-a feature flag, a match arm and a snapshot.
+here is a claim that we generate correct SQL for it and have a golden that says so. Adding one
+is a feature flag, a match arm and a snapshot.
 
 ## `use PlaceholderStyle`
 
@@ -365,8 +365,8 @@ pub enum Dialect
 The data systems a statement can be rendered for.
 
 A closed set rather than a passthrough of the dialect layer's thirty-three, because each entry
-here is a claim that we generate correct SQL for it and have a golden that says so. Adding one is
-a feature flag, a match arm and a snapshot.
+here is a claim that we generate correct SQL for it and have a golden that says so. Adding one
+is a feature flag, a match arm and a snapshot.
 
 #### Variants
 
@@ -676,24 +676,15 @@ Why a dialect name was not recognised.
 
 ### `constant ALL`
 
-Every dialect, for iterating a golden suite over all of them.
+Every dialect, in declaration order, for iterating a golden suite over all of them.
 
-A `const` rather than a derive, and **the compiler is what holds a new variant rather than the
-test below.** A sixth variant does not compile until seven production exhaustive matches over
-`Dialect` answer for it: `as_str`, `placeholder_style`, `identifier_quote`, `date_trunc_shape`,
-`qualification` and `identifier_case` in this file, and `dialect_type` in
-`mod@crate::generate`. So a data system cannot arrive without somebody deciding how it renders.
-
-**What is held by review and by nothing else is the edge from the enum to this list**, and this
-paragraph used to promise the opposite. `every_dialect_is_in_all` restates the five names by
-hand, so a sixth variant added to the enum and OMITTED here leaves it green while the golden
-suite iterates five of six and reads as covered; a variant added to both turns it red on the
-length assertion until the literal is bumped. `crates/sutura-app/tests/golden/dialects.rs` does
-not close the edge either - it compares this list against that suite's own registry, never the
-enum against this list, and says so itself. Closing it needs a derivation whose exhaustive
-`match` over `Dialect` is what BUILDS the list to compare against; a restated array anywhere in
-that chain reintroduces the same hole one level down, which is why the obvious rewrite of the
-test body is not the fix. `github.com/telekom/sutura#410` carries the measurement.
+**The enum and this list are one macro input, so the edge between them is held by
+construction.** A variant added to the enum is in both; there is no second place to
+forget it. A sixth variant still does not compile until seven production exhaustive
+matches over `Dialect` answer for it: `as_str`, `placeholder_style`, `identifier_quote`,
+`date_trunc_shape`, `qualification` and `identifier_case` in this file, and
+`dialect_type` in `mod@crate::generate`. `github.com/telekom/sutura#410` measured the
+hand-restated list this replaces.
 
 ## Module `expression`
 

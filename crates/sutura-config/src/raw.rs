@@ -510,8 +510,10 @@ pub(crate) struct RawCatalog {
     /// which is where `SourceKind::BigQuery` makes the same stand.
     #[serde(default = "catalog_kind_markdown")]
     pub(crate) kind: String,
-    pub(crate) dir: String,
-    pub(crate) data_dir: String,
+    #[serde(default)]
+    pub(crate) dir: Option<String>,
+    #[serde(default)]
+    pub(crate) data_dir: Option<String>,
     pub(crate) version: String,
     /// `catalog.kind: datahub`/`openmetadata`'s endpoint (`scheme://host[:port]`, no trailing
     /// slash). Absent for every other kind; `parse_catalogs` requires it when `kind` parses as

@@ -1,0 +1,13 @@
+diff --git a/xtask/src/causality/edited/moved.rs b/xtask/src/causality/edited/moved.rs
+index 89610a962..4fcff5915 100644
+--- a/xtask/src/causality/edited/moved.rs
++++ b/xtask/src/causality/edited/moved.rs
+@@ -173,7 +173,7 @@ fn is_doc(tree: &TokenTree) -> bool {
+     let mut inner = group.stream().into_iter();
+     group.delimiter() == Delimiter::Bracket
+         && matches!(inner.next(), Some(TokenTree::Ident(doc)) if doc == "doc")
+-        && matches!(inner.next(), Some(TokenTree::Punct(equals)) if equals.as_char() == '=')
++        && !matches!(inner.next(), Some(TokenTree::Punct(equals)) if equals.as_char() == '!')
+ }
+ 
+ /// Each file's removed lines, less those inside an item the range moved unchanged to another file.

@@ -97,14 +97,26 @@ pub(crate) fn open_catalog(
     }
     match first {
         sutura_config::CatalogKind::Markdown => Ok(OpenedCatalogs::Markdown(
-            catalogs.each().map(open_one_markdown_catalog).collect(),
+            catalogs
+                .each()
+                .map(open_one_markdown_catalog)
+                .collect::<Result<Vec<_>, String>>()?,
         )),
         // `Okf` and `DataContract` are unconditional dependencies of this build, so their arms are
         // always linked.
-        sutura_config::CatalogKind::Okf => Ok(OpenedCatalogs::Okf(catalogs.each().map(open_one_okf_catalog).collect())),
-        sutura_config::CatalogKind::DataContract => Ok(OpenedCatalogs::DataContract(
-            catalogs.each().map(open_one_data_contract_catalog).collect(),
+        sutura_config::CatalogKind::Okf => Ok(OpenedCatalogs::Okf(
+            catalogs
+                .each()
+                .map(open_one_okf_catalog)
+                .collect::<Result<Vec<_>, String>>()?,
         )),
+        sutura_config::CatalogKind::DataContract => Ok(OpenedCatalogs::DataContract(
+            catalogs
+                .each()
+                .map(open_one_data_contract_catalog)
+                .collect::<Result<Vec<_>, String>>()?,
+        )),
+
         sutura_config::CatalogKind::Datahub => open_datahub_catalogs(catalogs, outbound),
         // `Openmetadata` is openable behind the `openmetadata` feature; a build without it gets
         // the not-linked refusal `open_openmetadata_catalogs` returns.
@@ -257,29 +269,37 @@ where
 }
 
 /// Opens one declared markdown catalog.
-fn open_one_markdown_catalog(settings: &sutura_config::CatalogSettings) -> LocalCatalog {
-    LocalCatalog::new(
+fn open_one_markdown_catalog(settings: &sutura_config::CatalogSettings) -> Result<LocalCatalog, String> {
+    let dir = settings.dir().ok_or_else(|| {
+        format!(
+            "`catalogs.{}.dir` is required for catalog.kind: markdown - this adapter reads a directory of documents",
+            settings.name()
+        )
+    })?;
+    Ok(LocalCatalog::new(
         settings.name().clone(),
-        PathBuf::from(settings.dir()),
+        PathBuf::from(dir),
         settings.version().clone(),
-    )
+    ))
 }
 
 /// Opens one declared `okf` catalog: a directory of Table Schema descriptors, wrapped in
 /// `sutura_catalog_okf::OkfCatalog`.
 ///
-/// **Infallible - `OkfCatalog::new` cannot fail** (the name and folder reads that can fail happen
-/// at `load`, not at open), so unlike its `datahub` sibling this takes no `Result`: the `Okf` arm
-/// of `open_catalog` never refuses.
-fn open_one_okf_catalog(settings: &sutura_config::CatalogSettings) -> sutura_catalog_okf::OkfCatalog {
-    sutura_catalog_okf::OkfCatalog::new(
+/// Refuses a missing directory before constructing the adapter; folder reads happen at `load`.
+fn open_one_okf_catalog(settings: &sutura_config::CatalogSettings) -> Result<sutura_catalog_okf::OkfCatalog, String> {
+    let dir = settings.dir().ok_or_else(|| {
+        format!(
+            "`catalogs.{}.dir` is required for catalog.kind: okf - this adapter reads a directory of Table Schema descriptors",
+            settings.name()
+        )
+    })?;
+    Ok(sutura_catalog_okf::OkfCatalog::new(
         settings.name().clone(),
-        PathBuf::from(settings.dir()),
+        PathBuf::from(dir),
         settings.version().clone(),
-    )
+    ))
 }
-
-/// Opens every declared `openmetadata` catalog, behind this crate's `openmetadata` feature.
 #[cfg(feature = "openmetadata")]
 fn open_openmetadata_catalogs(
     catalogs: &sutura_config::Catalogs,
@@ -367,15 +387,21 @@ fn open_one_openmetadata_catalog(
 /// Opens one declared `datacontract` catalog: a directory of ODCS v3 contract documents, wrapped in
 /// `sutura_catalog_datacontract::DataContractCatalog`.
 ///
-/// **Infallible - `DataContractCatalog::new` cannot fail** (the name and folder reads that can fail
-/// happen at `load`, not at open), so unlike its `datahub` sibling this takes no `Result`: the
-/// `DataContract` arm of `open_catalog` never refuses.
-fn open_one_data_contract_catalog(settings: &sutura_config::CatalogSettings) -> sutura_catalog_datacontract::DataContractCatalog {
-    sutura_catalog_datacontract::DataContractCatalog::new(
+/// Refuses a missing directory before constructing the adapter; folder reads happen at `load`.
+fn open_one_data_contract_catalog(
+    settings: &sutura_config::CatalogSettings,
+) -> Result<sutura_catalog_datacontract::DataContractCatalog, String> {
+    let dir = settings.dir().ok_or_else(|| {
+        format!(
+            "`catalogs.{}.dir` is required for catalog.kind: datacontract - this adapter reads a directory of contract documents",
+            settings.name()
+        )
+    })?;
+    Ok(sutura_catalog_datacontract::DataContractCatalog::new(
         settings.name().clone(),
-        PathBuf::from(settings.dir()),
+        PathBuf::from(dir),
         settings.version().clone(),
-    )
+    ))
 }
 
 /// Opens every declared `datahub` catalog, behind this crate's `datahub` feature.
