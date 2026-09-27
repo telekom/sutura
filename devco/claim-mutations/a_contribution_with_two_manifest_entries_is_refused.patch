@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-app/src/assemble.rs b/crates/sutura-app/src/assemble.rs
+index 04e004c7e..1da1dac6a 100644
+--- a/crates/sutura-app/src/assemble.rs
++++ b/crates/sutura-app/src/assemble.rs
+@@ -226,8 +226,8 @@ pub fn assemble(bundles: &[PinnedDefinitions]) -> Result<PinnedDefinitions, Comp
+         // bundle that failed to say who produced it, and there is nothing to merge it under.
+         let mut entries = bundle.manifest().entries().iter();
+         let (name, record) = match (entries.next(), entries.next()) {
+-            (Some((name, record)), None) => (name.clone(), record),
+-            _ => {
++            (Some((name, record)), _) => (name.clone(), record),
++            (None, _) => {
+                 return Err(CompositionError::NotASingleContribution {
+                     count: bundle.manifest().entries().len(),
+                 });

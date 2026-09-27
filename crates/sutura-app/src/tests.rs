@@ -436,6 +436,11 @@ mod not_validated;
 #[cfg(test)]
 mod spend_test;
 
+/// Refusals provoked through the public entry points, each asserting the variant it maps to.
+/// `#[cfg(test)]` for `not_validated`'s reason above.
+#[cfg(test)]
+mod mapped_refusals;
+
 #[test]
 fn the_row_cap_refuses_at_one_row_over_and_cannot_be_lifted_by_a_failed_conversion() {
     // The plan asks a data system for one row MORE than it will certify, so a result carrying

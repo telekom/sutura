@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-app/src/assemble.rs b/crates/sutura-app/src/assemble.rs
+index 04e004c7e..826dc9d33 100644
+--- a/crates/sutura-app/src/assemble.rs
++++ b/crates/sutura-app/src/assemble.rs
+@@ -210,7 +210,7 @@ struct Contributor<'a> {
+ /// to begin with - a caller that already has a `Vec` passes `&bundles`.
+ pub fn assemble(bundles: &[PinnedDefinitions]) -> Result<PinnedDefinitions, CompositionError> {
+     let Some(first) = bundles.first() else {
+-        return Err(CompositionError::Empty);
++        return Err(CompositionError::NotASingleContribution { count: 0 });
+     };
+     let version = first.version().clone();
+     let mut contributions = Vec::with_capacity(bundles.len());
