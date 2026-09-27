@@ -238,8 +238,8 @@ fn a_declared_two_subject_map_admits_the_source_to_the_broker() {
     // **Named for admission, because admission is all it asserts.** It used to be named for the
     // source being *answerable*, and review broke that name: a broker that admits this registry and
     // then refuses to mint for every subject keeps this cell green, because what is read is
-    // `count()` and not an answer. The mint is the next cell's question; no cell anywhere asks a real
-    // BigQuery as a declared subject.
+    // `count()` and not an answer. What a declared subject is minted is the next cell's question, and
+    // no cell anywhere asks a real BigQuery as one.
     let broker = super::super::broker::build_broker(&registry(&bigquery_entry(
         "warehouse",
         "impersonation-at-source",
