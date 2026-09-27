@@ -157,7 +157,13 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-serde-parse",
         description: "a validated newtype's serde goes through its constructor, both ways",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            seeds: &[(
+                "choice.rs",
+                "#[derive(serde::Deserialize)]\npub enum Choice { Empty }\nimpl Choice {\n    pub fn parse(raw: &str) -> Result<Self, Bad> { todo!() }\n}\n",
+            )],
+            in_scope: Some("choice.rs"),
+        },
         run: serde_parse::run,
     },
     Task {
