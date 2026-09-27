@@ -2848,7 +2848,15 @@ differently. A plan that will not render is a bug here or upstream.</p>
   that may be rejected: the boot-time probe for a <code>many_to_one</code> relationship declaring more
   than one join key is the only caller, so this is reachable only from a compound key on one
   of these dialects, and a caller cannot narrow a catalog document out of it - an operator
-  changes the relationship or the dialect.</p>
+  changes the relationship or the dialect.
+- <code>PlaceholderCountMismatch</code> - The rendered statement's bind placeholders do not match its bound parameters.</p>
+<p>Fail-closed: a statement sent with more placeholders than values (or fewer) is a runtime
+  defect at the data system, not a test failure. The <code>emitted</code> list tracks each guard
+  embedding's values, and this check holds the two together at render time rather than in a
+  golden test alone. Counted from the AST, not from rendered text: a <code>?</code> inside a string
+  literal is a different <code>Expression</code> variant and is invisible to the walk.</p>
+<p>For <code>Numbered</code> (Postgres) the <code>placeholders</code> field is the count of DISTINCT <code>$n</code> indices,
+  not the count of <code>Parameter</code> nodes - a legal statement can repeat <code>$1</code> for a guarded ratio.</p>
 <h4 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="fn-generate"><code>fn generate</code><a class="headerlink" href="#fn-generate" title="Permanent link">&para;</a></h3>
