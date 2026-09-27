@@ -39,11 +39,8 @@ pub(crate) fn sort_and_limit(
     // the grouped ones, at `group_count - 1` - both read off the SAME label list the tie-break was
     // built from, so this cannot name a column the projection does not carry.
     let primary_label = match top.by() {
-        TopBy::Metric => labels.last().map(String::as_str).unwrap_or_default(),
-        TopBy::Period => labels
-            .get(group_count.saturating_sub(1))
-            .map(String::as_str)
-            .unwrap_or_default(),
+        TopBy::Metric => labels.last().map_or_default(String::as_str),
+        TopBy::Period => labels.get(group_count.saturating_sub(1)).map_or_default(String::as_str),
     };
     let ascending = matches!(top.direction(), TopDirection::Asc);
     let primary = Expr::Column(Column::new_unqualified(primary_label)).sort(ascending, false);

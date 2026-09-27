@@ -169,10 +169,6 @@ enum Outcome {
 /// The ordering is the whole point. A deadline armed at startup would be a bound on how long the
 /// server may run; armed at shutdown it is a bound on how long the drain may take, which is the
 /// thing an orchestrator's kill timer is racing.
-#[expect(
-    clippy::integer_division_remainder_used,
-    reason = "the `select!` macro expands through remainder arithmetic to pick a poll order; nothing here does"
-)]
 async fn drain<F>(serving: F, shutdown: &Shutdown) -> Outcome
 where
     F: Future<Output = Result<(), std::io::Error>>,

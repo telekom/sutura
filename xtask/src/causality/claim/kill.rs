@@ -73,7 +73,7 @@ pub(super) fn classify_mutation(text: &str, cell: &AddedTest, read: &PostImage<'
         MutationKill::Killed
     } else {
         MutationKill::NotByAssertion {
-            site: sites.first().map(|(path, line)| format!("{path}:{line}")).unwrap_or_default(),
+            site: sites.first().map_or_default(|(path, line)| format!("{path}:{line}")),
         }
     }
 }

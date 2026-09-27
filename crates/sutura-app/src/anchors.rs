@@ -212,13 +212,9 @@ pub fn source_of<'bundle>(pinned: &'bundle PinnedDefinitions, metric: &MetricNam
 /// A small helper the composition root uses to describe a metric, kept here so the ordering is the
 /// same one [`verify_anchors`] picks a grain by.
 pub fn grains_coarsest_first(pinned: &PinnedDefinitions, metric: &MetricName) -> Vec<Grain> {
-    pinned
-        .definitions()
-        .metric(metric)
-        .map(|definition| {
-            let mut grains: Vec<Grain> = definition.grains().iter().copied().collect();
-            grains.sort_unstable_by(|a, b| b.cmp(a));
-            grains
-        })
-        .unwrap_or_default()
+    pinned.definitions().metric(metric).map_or_default(|definition| {
+        let mut grains: Vec<Grain> = definition.grains().iter().copied().collect();
+        grains.sort_unstable_by(|a, b| b.cmp(a));
+        grains
+    })
 }

@@ -445,8 +445,7 @@ fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], rea
             .get_or_init(|| {
                 repo::all_files()
                     .and_then(|census| census.into_listing(repo::Unmigrated::Causality))
-                    .map(|(_root, files)| files)
-                    .unwrap_or_default()
+                    .map_or_default(|(_root, files)| files)
             })
             .iter()
             // `is_compiled_rust` rather than an extension test, so the one rule that decides

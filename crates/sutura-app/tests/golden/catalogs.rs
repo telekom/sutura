@@ -249,8 +249,7 @@ where
                 .measures()
                 .iter()
                 .find(|m| m.metric() == name)
-                .map(|m| m.guard().iter().collect())
-                .unwrap_or_default();
+                .map_or_default(|m| m.guard().iter().collect());
             for required in metric.required_filters() {
                 let present = plan.filters().iter().any(|f| {
                     matches!(f.origin(), PredicateOrigin::Definition) && f.predicate().column().column() == required.column()

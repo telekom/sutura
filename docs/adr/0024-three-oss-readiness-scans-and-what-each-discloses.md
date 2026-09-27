@@ -74,8 +74,8 @@ gated behind that flip.
 ### No copied tree can arrive attributed to us
 
 **`REUSE.toml` already stated this hazard in prose, named the remedy, and nothing held it.**
-Verbatim from its own header: *a newly vendored third-party file is **silently attributed to the
-sutura authors*** until the narrowing block is appended, and *adding a vendored tree means appending
+Verbatim from its own header: _a newly vendored third-party file is **silently attributed to the
+sutura authors**_ until the narrowing block is appended, and *adding a vendored tree means appending
 a block, never editing the catch-all*. A rule with no mechanism is a wish, so it is a gate now: every
 immediate child of `vendor/` must be narrowed by an `[[annotations]]` block **and** recorded in
 `VENDOR.md`, and - the other direction, on `check-skills`' precedent - every `vendor/` block must

@@ -285,7 +285,7 @@ fn collect(text: &str, read: ReadFailure) -> Vec<String> {
 ///
 /// `ABORT` is the WINDOWS spelling and never matches on this platform, which is the whole reason
 /// this list is measured rather than read off a status table: it was carried alone while an
-/// aborting base parsed to zero failures. Measured side by side on 0.9.143:
+/// aborting base parsed to zero failures. The captured output is:
 ///
 /// ```text
 ///     SIGSEGV [   0.282s] (3/4) pa tests::segfaults
@@ -297,16 +297,16 @@ fn collect(text: &str, read: ReadFailure) -> Vec<String> {
 /// The two this tree cannot provoke on demand - `FAIL + LEAK` and `LEAK-FAIL`, one for a failing
 /// test that also leaked and one for a leak the profile fails on - are read off the pinned
 /// binary's own string table rather than guessed, alongside `ABORT` and `XFAIL`. `XFAIL` is
-/// deliberately absent: nextest could not execute the test, so no assertion ran.
+/// deliberately absent: it means the test process failed to launch, so it is not assertion evidence.
 const FAILING_STATUSES: &[&str] = &["FAIL", "FAIL + LEAK", "TIMEOUT", "ABORT", "LEAK-FAIL"];
 
 /// Is this status one that a test did not pass under?
 ///
 /// Abnormal termination is one status PER SIGNAL, so the rule for those is the SHAPE rather than
 /// a list that goes stale on the next platform or the next signal. `PASS` and `LEAK` are not
-/// failures; `XFAIL` means the process could not execute and supplies no assertion evidence.
-/// The direction of a status this does not recognise is [`BaseOutcome::Unattributed`] - no proof claimed - rather than a red attributed
-/// to whichever test the line happened to name.
+/// assertion failures; `XFAIL` means the test process failed to launch. A status this does not
+/// recognise remains [`BaseOutcome::Unattributed`] - no proof claimed - rather than a red
+/// attributed to whichever test the line happened to name.
 fn is_failing(status: &str) -> bool {
     status.starts_with("SIG") || FAILING_STATUSES.contains(&status)
 }
@@ -613,9 +613,9 @@ mod tests {
 
     #[test]
     fn a_leaking_failure_and_a_timeout_are_failures_and_a_pass_is_not() {
-        // The status is everything before the ` [`, so a two-word one is read whole. `PASS`,
-        // `LEAK` and `XFAIL` are the statuses 0.9.143 prints that are NOT failures, and reading
-        // one as a failure would attribute a red to a test that passed.
+        // The status is everything before the ` [`, so a two-word one is read whole. `PASS`
+        // and `LEAK` are not assertion failures. `XFAIL` means launch failure, so attributing
+        // it to an assertion would claim evidence from a test that never ran.
         let failing = concat!(
             "     FAIL + LEAK [   0.010s] (1/3) pa tests::leaks\n",
             "     TIMEOUT [   1.005s] (2/3) pa tests::hangs\n",
