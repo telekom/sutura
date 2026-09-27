@@ -1,7 +1,7 @@
 //! Refusal variants that were defined, raised in production, and never provoked by a test.
 //!
 //! Each cell drives one variant through the crate's public entry point - `InboundGate::establish`
-//! for the token-claim refusals, `KeySet::parse` for the key-set refusal - and asserts the specific
+//! for the token refusals, `KeySet::parse` for the key-set refusals - and asserts the specific
 //! `TokenRejected` or `InvalidKeySet` variant rather than a bare `is_err`.
 
 use std::time::Instant;
@@ -136,6 +136,23 @@ async fn a_token_with_too_many_actors_is_refused_with_too_many_actors() {
     );
 }
 
+/// A token whose header names an empty `kid` is refused with [`TokenRejected::UnusableKeyId`],
+/// before any key is looked up.
+#[tokio::test]
+async fn a_token_naming_an_empty_key_id_is_refused_with_unusable_key_id() {
+    let pair = key_pair();
+    let gate = gate_over(&direct(), &jwks(KID, &pair));
+    let token = signed(&pair, "", &claims("someone@example.com", RESOURCE, ISSUER, ""));
+    let rejected = gate
+        .establish(&bearer(&token), Instant::now())
+        .await
+        .expect_err("an empty key id names no key");
+    assert!(
+        matches!(rejected, TokenRejected::UnusableKeyId { .. }),
+        "expected UnusableKeyId, got {rejected:?}"
+    );
+}
+
 // ------------------------------------------------- InvalidKeySet through parse ----
 
 /// A JWK set carrying a key whose `kty` is neither `oct`, `RSA`, `EC`, nor `OKP` is refused
@@ -149,5 +166,28 @@ fn a_key_set_with_an_unsupported_key_family_is_refused_at_load() {
     assert!(
         matches!(refused, InvalidKeySet::UnsupportedKeyFamily),
         "expected UnsupportedKeyFamily, got {refused:?}"
+    );
+}
+
+/// A JWK whose own `kid` is empty is refused with [`InvalidKeySet::UnusableKeyId`] at load.
+#[test]
+fn a_key_set_with_an_empty_key_id_is_refused_at_load() {
+    let refused = KeySet::parse(&jwks("", &key_pair())).expect_err("an empty key id is refused at load");
+    assert!(
+        matches!(refused, InvalidKeySet::UnusableKeyId { .. }),
+        "expected UnusableKeyId, got {refused:?}"
+    );
+}
+
+/// A JWK of a supported family whose key material does not decode is refused with
+/// [`InvalidKeySet::UnusableKey`] at load.
+#[test]
+fn a_key_set_with_undecodable_key_material_is_refused_at_load() {
+    // `EC` on `P-256` passes the family match; `x` and `y` are not base64url.
+    let document = r#"{"keys":[{"kty":"EC","crv":"P-256","kid":"broken","use":"sig","x":"!!!","y":"!!!"}]}"#;
+    let refused = KeySet::parse(document).expect_err("undecodable key material is refused at load");
+    assert!(
+        matches!(refused, InvalidKeySet::UnusableKey { .. }),
+        "expected UnusableKey, got {refused:?}"
     );
 }
