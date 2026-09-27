@@ -4,6 +4,7 @@
 
 use std::error::Error as _;
 
+use crate::catalog::InvalidCatalogSettings;
 use crate::settings::{Environment, Settings, SettingsError, Sources};
 
 /// A complete rdbms entry's own keys. A cell edits one line with [`edit`].
@@ -138,6 +139,23 @@ fn an_rdbms_key_on_another_kind_is_refused() {
     }
     let chain = refusal(&overlay("markdown", &[], Some(CONNECTION)));
     assert_names(&chain, "`catalogs.dict.connection` is read only when `kind` is `rdbms`");
+}
+
+#[test]
+fn a_non_rdbms_catalog_without_either_directory_is_refused_at_load() {
+    for (directories, expected) in [
+        ("    data_dir: data\n", "catalogs[].dir"),
+        ("    dir: catalog\n", "catalogs[].data_dir"),
+    ] {
+        let overlay = format!("catalogs:\n  - name: model\n    kind: markdown\n{directories}    version: test-1\n");
+        let error = load(&overlay).expect_err("a non-rdbms catalog needs both directories");
+        match error.reason() {
+            SettingsError::Catalog {
+                cause: InvalidCatalogSettings::EmptyPath { name },
+            } => assert_eq!(*name, expected),
+            other => panic!("expected a catalog path refusal for {expected}, got {other:?}"),
+        }
+    }
 }
 
 #[test]

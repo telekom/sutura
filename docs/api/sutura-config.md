@@ -1523,8 +1523,10 @@ code and not by index so that reordering the list does not silently rename a con
 #### Methods
 
 ```rust
-pub fn data_dir(&self) -> &Path
+pub fn data_dir(&self) -> Option<&Path>
 ```
+
+The declared data directory. Required for every kind except `rdbms`.
 
 ```rust
 pub const fn deadline_seconds(&self) -> Option<u64>
@@ -1534,8 +1536,10 @@ The declared read deadline in seconds, or `None` to use the reader's own recomme
 default.
 
 ```rust
-pub fn dir(&self) -> &Path
+pub fn dir(&self) -> Option<&Path>
 ```
+
+The declared catalog directory. Required for every kind except `rdbms`.
 
 ```rust
 pub fn endpoint(&self) -> Option<&str>
@@ -1572,13 +1576,10 @@ The declared name, which the contribution manifest keys on.
 pub fn parse(name: SourceName, kind: CatalogKind, dir: PathBuf, data_dir: PathBuf, version: DefinitionVersion) -> Result<Self, InvalidCatalogSettings>
 ```
 
-Reads the declared name, kind, the two directories and the version label.
+Reads the declared name, kind, directories and version label.
 
-The version arrives already parsed, because what identifies a snapshot of a directory is
-a commit id or a build number and only the caller has it. Existence of the directories is
-deliberately *not* checked here: this type is the configuration, and a directory that
-disappears between reading the configuration and loading the catalog would make an
-existence check here a claim that goes stale immediately. The load is what fails.
+Existence of the directories is checked when the catalog loads, not here: a directory can
+disappear after configuration parsing.
 
 ```rust
 pub const fn rdbms(&self) -> Option<&RdbmsSettings>
@@ -1679,7 +1680,7 @@ Why a catalog configuration is not usable.
 
 #### Variants
 
-- `EmptyPath` - A path was empty, which resolves to the process working directory - a different directory on every host, and never the one the operator meant.
+- `EmptyPath` - A required path was empty, which would resolve to the process working directory.
 - `EmptyCatalog` - No catalog was declared, so there is nothing to serve.
 - `DuplicateName` - Two catalogs share one declared name, so the contribution manifest could not tell them apart.
 - `MissingForDatahub` - A `catalog.kind: datahub` entry did not declare a field only that kind needs.
@@ -4948,8 +4949,8 @@ The certificate and key this process would terminate TLS with, if any were confi
 The sources this deployment declares: one entry per data system, keyed by the alias a model names.
 
 **Beside `catalogs[].data_dir` rather than instead of it, and the two answer different questions.**
-`catalogs[].dir` and `catalogs[].data_dir` are the *catalog*: authored definitions, and the directory the
-`sutura` command reads. A `sources:` entry is a *data system*: what kind it is, where it is, which
+For directory-backed catalogs, `catalogs[].dir` and `catalogs[].data_dir` locate authored definitions;
+an `rdbms` catalog needs neither path. A `sources:` entry is a *data system*: what kind it is, where it is, which
 identity a query reaches it as, and which identity re-ran its anchors at boot. A model's `source:`
 is the key that selects one.
 
