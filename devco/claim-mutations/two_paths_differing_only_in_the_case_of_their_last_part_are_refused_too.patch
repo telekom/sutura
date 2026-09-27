@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-domain/src/plan/tables.rs b/crates/sutura-domain/src/plan/tables.rs
+index 6df7097be..dafcdcb48 100644
+--- a/crates/sutura-domain/src/plan/tables.rs
++++ b/crates/sutura-domain/src/plan/tables.rs
+@@ -150,8 +150,8 @@ impl StatementTables {
+             if let Some(earlier) = collision {
+                 return Err(AmbiguousTables::OneIdentifierTwoTables {
+                     alias: candidate.name().clone(),
+-                    first: earlier.to_string(),
+-                    second: candidate.to_string(),
++                    first: candidate.to_string(),
++                    second: earlier.to_string(),
+                 });
+             }
+             seen.push(candidate);

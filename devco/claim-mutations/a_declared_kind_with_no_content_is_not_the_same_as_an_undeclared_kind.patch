@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/capabilities.rs b/crates/sutura-domain/src/capabilities.rs
+index 2036cf2f5..890188c2a 100644
+--- a/crates/sutura-domain/src/capabilities.rs
++++ b/crates/sutura-domain/src/capabilities.rs
+@@ -519,7 +519,7 @@ impl MetadataCapabilities {
+         }
+         for kind in Self::every_kind() {
+             if self.declares(kind) && !produced.declares(kind) && !Self::absent_is_conditional(&self.definitions, kind) {
+-                return Err(UnfaithfulDeclaration::Unprovided { kind });
++                return Err(UnfaithfulDeclaration::Undeclared { kind });
+             }
+         }
+         Ok(())
