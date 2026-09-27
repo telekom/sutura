@@ -20,7 +20,8 @@
 //!   `crate::inbound::token::TokenValidator::verify`, after a signature check;
 //! - it implements no `Deserialize`, with a `compile_fail` doctest and a compiling twin;
 //! - the only thing that puts one into a request is `crate::inbound::require_verified_caller`, which
-//!   runs the verification.
+//!   runs the verification, and `crate::capability::establish_asked` is what reads it back out and
+//!   calls [`of_verified`].
 //!
 //! So the question a reviewer should ask has changed from *"can a request reach this parameter"* to
 //! *"can a request produce this type"*, and the answer to the second is no.
@@ -54,7 +55,7 @@ pub(crate) fn established() -> RequestContext {
 
 /// The request context for one call whose caller proved who it is.
 ///
-/// **Borrows the chain AND the assertion the verification produced rather than assembling one.**
+/// **Copies the chain AND the assertion the verification produced rather than assembling one.**
 /// Nothing is added here and nothing is decided here: the subject came out of a `sub` claim, the
 /// actors out of an `act` claim, and both were parsed by `sutura_domain::identity` so a control
 /// character cannot reach the audit line this context is recorded under. The caller's own assertion

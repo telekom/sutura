@@ -1,5 +1,5 @@
-//! The FILES half of this composition root: declared directories become one open engine, with the
-//! tables it registered beside it.
+//! The FILES half of this composition root: each declared directory becomes its own open engine,
+//! merged into one `Warehouses` registry, with the tables it registered beside it.
 //!
 //! **Split out of the composition root when a fourth `SourceKind` pushed that file past the
 //! unexemptable 1000-line cap**, into the shape its two siblings already had: the dispatcher stays
@@ -41,10 +41,11 @@ pub(super) fn open_files(
     for source in declared {
         let configured = configured_source(source, registry)?;
         let engine = build_engine(source, configured, runtime)?;
-        // Matched rather than read off a `data_dir()` every kind had to have. `build_engine` has
-        // already refused every kind this binary cannot open, so the other arm is unreachable here -
-        // written as a branch rather than an `expect` because the workspace denies both, and because a
-        // second openable kind should arrive as a compile error at this line too.
+        // Matched rather than read off a `data_dir()` every kind had to have. The dispatcher
+        // (`kind::group_by_kind`) has already routed only `files`-kind sources here, so the other
+        // arm is unreachable here - written as a branch rather than an `expect` because the
+        // workspace denies both, and because a second openable kind should arrive as a compile
+        // error at this line too.
         let sutura_config::SourcePlacement::Files { ref data_dir } = *configured.placement() else {
             return Err(format!(
                 "`sources.{source}` reached the attach step with a placement no linked adapter reads, \
@@ -95,7 +96,7 @@ pub(super) fn open_files(
 /// match lives in [`super::open_engine`], which is where a declared kind is DISPATCHED to an adapter. It was
 /// here while the second kind's answer was a refusal, because a refusal per source reads the same
 /// wherever it is written; once the answer is a different registry, only the dispatcher can hold it.
-/// Reaching this function is therefore a statement that `one_kind` said `files`.
+/// Reaching this function is therefore a statement that `kind::group_by_kind` sorted it into `files`.
 ///
 /// **The cross-check is here and not in `sutura-config`, and the split follows what each half can
 /// see.** Configuration says which posture the deployment is asking for; whether the LINKED adapter can

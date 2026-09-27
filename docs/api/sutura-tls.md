@@ -15,7 +15,8 @@ dependency, so this module's input is the RESOLVED material a composition root e
 declaration."* That argument is about `sutura-config` - a settings crate parses a path and never
 reads it, so the file read belongs to whichever adapter opens the connection - and it says nothing
 about two *adapters* sharing the read. `github.com/telekom/sutura#125`'s remaining half needs the
-same bundle-or-system-store read a second time, for the `BigQuery` wire, and copying
+same bundle-or-system-store read a second time - for the `BigQuery` wire then, and for the
+`ureq`-based catalog readers now that the wire is gone - and copying
 `bundle_roots`/`system_roots`/the identity loaders a second time is exactly the duplication
 `AGENTS.md` asks not to hold twice.
 
@@ -147,9 +148,9 @@ the host store) rather than letting each source repeat the check.
 **`Clone`, unlike `LoadedIdentity`.** `CertificateDer` is public material by construction (a
 certificate, never a key), and a deployment-wide declaration is read ONCE and then handed to every
 fixed-host client that needs it - `github.com/telekom/sutura#125`'s `security.outbound` covers the
-`BigQuery` wire and the STS exchange from a single boot-time read, so a composition root needs one
-loaded value it can give to more than one `crate`-external constructor without re-reading the
-bundle or the host store per call site.
+`datahub` and `openmetadata` catalog readers over `sutura_http_client` from a single boot-time
+read, so a composition root needs one loaded value it can give to more than one
+`crate`-external constructor without re-reading the bundle or the host store per call site.
 
 ### Implements
 
@@ -190,8 +191,8 @@ The private key's DER encoding kind - see `KeyKind`.
 
 **Why this exists rather than a caller matching `PrivateKeyDer` itself.** Matching
 `rustls_pki_types::PrivateKeyDer`'s variant directly would make `rustls-pki-types` a
-dependency of every caller merely to ask which kind a key is - `sutura_exec_bigquery`'s own
-`wire::tls::client_cert` needs exactly this, to choose the PEM label a re-armored key is
+dependency of every caller merely to ask which kind a key is - `sutura_http_client`'s own
+`tls::client_cert` needs exactly this, to choose the PEM label a re-armored key is
 written under (`ureq`'s own key type recovers its kind from that label, not from a value a
 caller passes it). This crate already depends on `rustls-pki-types` for the read; this
 method is the answer in this crate's own vocabulary.
@@ -228,7 +229,7 @@ A resolved `security.outbound` declaration: the anchors always present once the 
 written, and the optional client identity beside them - `github.com/telekom/sutura#911`.
 
 **Why one type and not two independently-optional parameters.** A composition root threads
-this from boot to every fixed-host consumer (the `BigQuery` wire, the `datahub` reader); an
+this from boot to every fixed-host consumer (the `datahub` and `openmetadata` readers); an
 identity can never be declared without anchors (`security.outbound` always requires
 `transport_anchors` once the block itself exists), so pairing them is a type that cannot
 disagree with that invariant rather than two values a call site could thread inconsistently.

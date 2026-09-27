@@ -161,8 +161,9 @@ sutura-catalog-local = { workspace = true }
 sutura-catalog-wren = { workspace = true }
 # The settings tree, for `sutura prompt` alone. It is here so the prompt an operator pipes into an
 # agent's configuration is rendered from the SAME layered configuration the service would read -
-# `prompt.instructions_file` and `prompt.catalog_prose`, defaults then files then one variable per
-# key - rather than from a second set of flags that could disagree with it.
+# `prompt.instructions_file`, `prompt.catalog_prose` and `prompt.instructions_max_bytes`, defaults
+# then files then one variable per key - rather than from a second set of flags that could disagree
+# with it.
 sutura-config = { workspace = true }
 sutura-domain = { workspace = true }
 sutura-semantic = { workspace = true }

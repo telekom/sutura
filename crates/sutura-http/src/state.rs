@@ -451,9 +451,9 @@ impl ServiceState {
 
     /// Leg 1, if this deployment has it.
     ///
-    /// Read by `crate::router` to install the layer, and by nothing else - a handler must not be able
-    /// to reach the validator, which is why the middleware takes the gate as its own state rather than
-    /// reading it back out of this one.
+    /// Read by `crate::router` to install the layer, and by nothing else. The accessor is public, so
+    /// review rather than the type keeps a handler off the validator; the middleware takes the gate
+    /// as its own state rather than reading it back out of this one.
     #[inline]
     #[must_use]
     pub const fn inbound_identity(&self) -> Option<&Arc<crate::inbound::InboundGate>> {

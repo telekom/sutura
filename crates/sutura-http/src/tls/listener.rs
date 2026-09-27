@@ -101,9 +101,9 @@ impl axum::serve::Listener for TlsListener {
     /// The next connection that is ready to carry a request.
     ///
     /// The trait cannot report an error, so a closed channel - which means the accept task is gone,
-    /// and it only goes when the socket is unusable - parks forever rather than returning a
-    /// connection that does not exist. The graceful-shutdown future is then what ends the server,
-    /// which is the same thing that ends it in the ordinary case.
+    /// and it returns only once the server has dropped this listener's receiver - parks forever
+    /// rather than returning a connection that does not exist. The graceful-shutdown future is then
+    /// what ends the server, which is the same thing that ends it in the ordinary case.
     async fn accept(&mut self) -> (Self::Io, Self::Addr) {
         let Some(ready) = self.accepted.recv().await else {
             tracing::error!("the TLS accept task stopped; this listener will accept nothing further");

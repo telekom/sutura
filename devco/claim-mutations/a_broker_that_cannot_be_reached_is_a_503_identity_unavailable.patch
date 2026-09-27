@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http/src/routes/v1/query.rs b/crates/sutura-http/src/routes/v1/query.rs
+index 300d48585..aa08d4af1 100644
+--- a/crates/sutura-http/src/routes/v1/query.rs
++++ b/crates/sutura-http/src/routes/v1/query.rs
+@@ -407,7 +407,7 @@ pub(super) fn failed(failure: &SurfaceFailure) -> Failure {
+         // because both are worth retrying; different code, because they are diagnosed differently.
+         SurfaceFailure::Broker { ref cause } => {
+             tracing::error!(error = %cause, chain = ?chain, "the credential broker did not answer");
+-            Failure::IdentityUnavailable
++            Failure::Unavailable
+         }
+         // Our own wiring, so it carries nothing outward. An operator finds it in this line.
+         SurfaceFailure::Miswired { ref cause } => {

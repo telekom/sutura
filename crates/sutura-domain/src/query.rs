@@ -58,7 +58,7 @@ pub const MAX_FILTERS: usize = 16;
 /// where the cap goes.
 ///
 /// **3653 days is ten calendar years, counted at its longest.** Ten consecutive Gregorian years hold
-/// 3652 or 3653 days depending on where the leap days fall, so this number is the one that lets
+/// 3651, 3652 or 3653 days depending on where the leap days fall, so this number is the one that lets
 /// *any* ten-year window through rather than most of them. Ten years is chosen because it covers the
 /// reporting a person actually does - a decade of annual figures, five years of quarters, three years
 /// of months - and the longest range anywhere in this repository's example corpus, in its questions

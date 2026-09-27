@@ -6,6 +6,7 @@
 
 use std::time::Instant;
 
+use crate::inbound::InvalidGroup;
 use crate::inbound::keys::{InvalidKeySet, KeySet};
 use crate::inbound::token::TokenRejected;
 use crate::testing::{ISSUER, KID, RESOURCE};
@@ -80,6 +81,47 @@ async fn a_token_with_an_unusable_groups_claim_is_refused_with_unusable_groups()
     assert!(
         matches!(rejected, TokenRejected::UnusableGroups { .. }),
         "expected UnusableGroups, got {rejected:?}"
+    );
+}
+
+/// A `groups` value one character past `MAX_GROUP_LENGTH` (128) is refused as
+/// [`InvalidGroup::TooLong`], carrying both counts.
+#[tokio::test]
+async fn a_group_claim_value_past_the_length_bound_is_refused() {
+    let pair = key_pair();
+    let gate = gate_over(&direct(), &jwks(KID, &pair));
+    let extra = serde_json::json!({ "groups": ["g".repeat(129)] }).to_string();
+    let token = signed(&pair, KID, &claims("someone@example.com", RESOURCE, ISSUER, &extra));
+    let result = gate.establish(&bearer(&token), Instant::now()).await;
+    assert!(
+        matches!(
+            result,
+            Err(TokenRejected::UnusableGroups {
+                cause: InvalidGroup::TooLong { found: 129, limit: 128 }
+            })
+        ),
+        "expected TooLong 129/128, got {result:?}"
+    );
+}
+
+/// One `groups` value past `MAX_GROUPS` (64) is refused as [`InvalidGroup::TooMany`]. Each value is
+/// short, so the token stays far under `MAX_TOKEN_BYTES` and this is the count bound, not the byte one.
+#[tokio::test]
+async fn too_many_group_claim_values_are_refused() {
+    let pair = key_pair();
+    let gate = gate_over(&direct(), &jwks(KID, &pair));
+    let groups: Vec<String> = (0..65).map(|n| format!("g{n}")).collect();
+    let extra = serde_json::json!({ "groups": groups }).to_string();
+    let token = signed(&pair, KID, &claims("someone@example.com", RESOURCE, ISSUER, &extra));
+    let result = gate.establish(&bearer(&token), Instant::now()).await;
+    assert!(
+        matches!(
+            result,
+            Err(TokenRejected::UnusableGroups {
+                cause: InvalidGroup::TooMany { limit: 64 }
+            })
+        ),
+        "expected TooMany 64, got {result:?}"
     );
 }
 

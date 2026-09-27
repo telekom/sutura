@@ -107,8 +107,8 @@ mod refresh;
 ///
 /// What carries the fact instead is `sutura_config::SourceKind`: the vocabulary of kinds is the
 /// vocabulary of adapters, an unknown word is a parse refusal, and which adapter opens a declared kind
-/// is an exhaustive match in [`build_engine`] - so a second kind is a compile error there rather than
-/// an arm that falls through.
+/// is an exhaustive match in `kind::group_by_kind` - so a second kind is a compile error there
+/// rather than an arm that falls through.
 ///
 /// `#[cfg(test)]`, which is the honest consequence: nothing in the serving path reads it any more, and
 /// `dead_code` is `deny` here - so leaving it compiled would have been a constant that looks like a
@@ -591,14 +591,14 @@ async fn serve_as_configured(
 ///
 /// **One variant per LINKED adapter, and the enum is here rather than in `sutura-app` for the reason
 /// that crate's `warehouses` module states: which adapters a process holds is a property of the
-/// BUILD.** `sutura_app::Warehouses<W>` is generic in one `W`, so the first three variants are each
+/// BUILD.** `sutura_app::Warehouses<W>` is generic in one `W`, so the single-kind variants are each
 /// a single-kind registry - the choice of which one got built, made once, at the one place that can
 /// see both the declarations and the link.
 ///
-/// **[`Self::Mixed`] is `telekom/sutura#112`'s closed enum, and it is what makes the other three
+/// **[`Self::Mixed`] is `telekom/sutura#112`'s closed enum, and it is what makes the single-kind
 /// variants a fast path rather than the whole decision.** `open_engine` still takes them when every
 /// declared source shares a kind - no erasure, no `crate::serve::kind::AnyWarehouse` in the type -
-/// and reaches for [`Self::Mixed`] the moment more than one of `kind::group_by_kind`'s three groups
+/// and reaches for [`Self::Mixed`] the moment more than one of `kind::group_by_kind`'s groups
 /// is non-empty. A catalog whose models sit on a `files` source AND a `bigquery` source now opens
 /// both, instead of the startup refusal this comment used to describe.
 pub(crate) enum OpenedSources {
@@ -706,11 +706,11 @@ where
 
 /// The service for every shape whose adapter cannot carry a per-subject credential at all.
 ///
-/// **One function rather than the same four lines in four arms**, and the argument is one sentence
-/// for all of them: `DataFusionWarehouse`, `PostgresWarehouse` and `ClickHouseWarehouse` each
-/// declare `ImpersonationCapability::NoPlaceForASubject`, each composition root refuses an
-/// `impersonation-at-source` entry at the posture cross-check before opening one, and so the only
-/// identity a question is answered under is the one this process holds.
+/// **One function rather than the same four lines in five arms**, and the argument is one sentence
+/// for all of them: `DataFusionWarehouse`, `PostgresWarehouse`, `ClickHouseWarehouse` and
+/// `OracleWarehouse` each declare `ImpersonationCapability::NoPlaceForASubject`, each composition
+/// root refuses an `impersonation-at-source` entry at the posture cross-check before opening one,
+/// and so the only identity a question is answered under is the one this process holds.
 /// `sutura_config::StaticCredentialBroker` is exactly that: it reads the `sources:` tree this root
 /// already parsed, every source declared `shared-service-user` is served as itself, nothing is ever
 /// exchanged - and a source the broker holds nothing for is refused as `credential_unavailable`

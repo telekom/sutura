@@ -236,13 +236,14 @@ impl Expiry {
 
 /// What an adapter presents, for one leg.
 ///
-/// **Three shapes, because there are three postures and the third one is not the absence of the
-/// other two.** The engine that ships cannot impersonate anybody - one process, one
-/// operating-system identity - so under a two-variant shape it would receive a value it ignores,
+/// **Three shapes over two postures: impersonation at the source arrives by two mechanisms, and the
+/// shared shape is not the absence of the other two.** The engine that ships cannot impersonate
+/// anybody - one process, one operating-system identity - so under a two-variant shape it would
+/// receive a value it ignores,
 /// and "the service-identity fallback was removed" would mean the fallback came back as a variant
 /// nobody looked at. Under three there is nothing to ignore: the shared leg's value holds no
 /// credential material, so an adapter cannot mistake it for one, and a reader of this enum can see
-/// that a third posture exists without reading an adapter.
+/// that a third shape exists without reading an adapter.
 ///
 /// An adapter matches exhaustively on what it received and returns its own typed error for a shape
 /// it is not configured for. `docs/adr/0008` part 4 states both directions and says which is the

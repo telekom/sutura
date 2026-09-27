@@ -205,8 +205,9 @@ fn parse_operator_text(name: &'static str, raw: &str, limit: usize) -> Result<St
 /// clicked past a question; this records what they meant, on the source's own entry, and the startup
 /// log prints it beside the posture.
 ///
-/// Construct it with [`parse`](Self::parse). There is no other way in: the field is private, there is
-/// no `Deserialize`, and `TryFrom<String>` delegates to the same constructor.
+/// Construct it with [`parse`](Self::parse), or with [`written_under`](Self::written_under), which
+/// `parse` delegates to. There is no other way in: the field is private, there is no `Deserialize`,
+/// and `TryFrom<String>` delegates to `parse`.
 ///
 /// No `Default`, deliberately. A default reason is a reason nobody gave.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -323,8 +324,8 @@ pub struct SharedIdentityDeclared {
 impl SharedIdentityDeclared {
     /// Wraps an operator's reason as the witness.
     ///
-    /// Takes the parsed reason rather than a string, so the only way to a witness is through
-    /// [`AcknowledgementReason::parse`] - one canonical constructor, and this is not a second copy of
+    /// Takes the parsed reason rather than a string, so the only way to a witness is through a parsed
+    /// [`AcknowledgementReason`] - one canonical constructor, and this is not a second copy of
     /// its checks.
     #[inline]
     #[must_use]
@@ -375,8 +376,9 @@ impl SourcePosture {
 
     /// The spelling, for the startup log and for a wire shape.
     ///
-    /// The one definition of the word, so what a log line says and what an answer carries cannot
-    /// drift apart.
+    /// The one definition a log line and an answer both read, so they cannot drift apart.
+    /// [`NAMES`](Self::NAMES) spells the same words a second time, and a test in `source/tests.rs`
+    /// holds the two in step.
     #[inline]
     #[must_use]
     pub const fn as_str(&self) -> &'static str {
@@ -410,8 +412,8 @@ impl SourcePosture {
     /// credential at all. `sutura-config` cannot see the second, so the comparison lives where both
     /// are in scope - the composition root - and this is the one function that makes it.
     ///
-    /// Two exhaustive matches with no wildcard arm, so a third posture or a third capability is a
-    /// compile error here rather than a case that quietly falls through to `Ok`.
+    /// One exhaustive match over the pair with no wildcard arm, so a third posture or a third
+    /// capability is a compile error here rather than a case that quietly falls through to `Ok`.
     pub fn deliverable_by(&self, capability: ImpersonationCapability, source: &SourceName) -> Result<(), PostureNotDeliverable> {
         match (self, capability) {
             // One arm for the two combinations that are fine, because `match_same_arms` is denied and

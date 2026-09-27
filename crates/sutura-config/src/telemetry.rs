@@ -31,7 +31,7 @@ pub struct UnknownLogFormat {
 }
 
 impl LogFormat {
-    /// Every accepted spelling.
+    /// The canonical spellings.
     pub const NAMES: &'static [&'static str] = &["bunyan", "pretty"];
 
     /// Reads a format name.
