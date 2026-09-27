@@ -144,6 +144,11 @@ pub(super) fn parse_rate_limit(raw: &RawSettings, environment: Environment) -> R
     };
     let proxies =
         TrustedProxies::parse(&raw.rate_limit.trusted_proxies).map_err(|cause| SettingsError::TrustedProxy { cause })?;
+    if let Some(&block) = proxies.covering_every_address()
+        && !raw.rate_limit.accept_every_address_as_proxy
+    {
+        return Err(SettingsError::EveryAddressAsProxyNotAccepted { block });
+    }
     Ok(RateLimitSettings::new(
         // The same shape as `api.docs` above: the value, then whether anybody wrote it down. The
         // second is not derivable from the first once it is stored, and the startup log needs both.

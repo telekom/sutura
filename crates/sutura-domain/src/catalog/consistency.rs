@@ -319,6 +319,26 @@ impl Definitions {
         Ok(assembled)
     }
 
+    /// Builds [`Definitions`] from pre-assembled maps without cross-reference checking.
+    ///
+    /// Behind the `test-fakes` feature, so no shipped artefact contains it: a broken bundle built
+    /// this way is a fake that simulates what a buggy catalog adapter could produce, letting a
+    /// downstream test provoke a `BundleInconsistent` variant through `sutura_semantic::compile`.
+    /// `assemble` is the only constructor a shipped build reaches; this one exists so a test does
+    /// not have to monkeypatch the assembler.
+    #[cfg(any(test, feature = "test-fakes"))]
+    pub const fn from_parts(
+        models: BTreeMap<ModelName, Model>,
+        relationships: BTreeMap<RelationshipName, Relationship>,
+        metrics: BTreeMap<MetricName, Metric>,
+    ) -> Self {
+        Self {
+            models,
+            relationships,
+            metrics,
+        }
+    }
+
     /// The authored bytes across the whole bundle. What [`MAX_DEFINITIONS_BYTES`] bounds.
     fn authored_bytes(&self) -> usize {
         let models = sum_bytes(self.models.values().map(model_bytes));

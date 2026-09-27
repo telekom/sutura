@@ -69,8 +69,9 @@
 //! than silently dropping out. FAIL CLOSED on parsing none, for that gate's own stated reason: a
 //! parser that silently sees half a file is worse than no parser.
 //!
-//! Before compilation, a resolve-only preflight rejects `sutura-domain/agreement` in each shipped
-//! root's normal target dependencies, for every target declared by the cross list and host mapping.
+//! Before compilation, a resolve-only preflight rejects `sutura-domain/agreement` and
+//! `sutura-domain/test-fakes` in each shipped root's normal target dependencies, for every target
+//! declared by the cross list and host mapping.
 //! Build dependencies, proc-macro hosts and dev dependencies are outside that projection. This is
 //! resolved feature selection, not inspection of emitted code or proof of runtime data disclosure.
 //!
@@ -456,6 +457,9 @@ fn inspect_features(text: &str, root: &str) -> Result<(), &'static str> {
             if row.features.split(',').any(|feature| feature == "agreement") {
                 return Err("sutura-domain/agreement is enabled in normal target dependencies");
             }
+            if row.features.split(',').any(|feature| feature == "test-fakes") {
+                return Err("sutura-domain/test-fakes is enabled in normal target dependencies");
+            }
         }
     }
     if !found_root || !found_domain {
@@ -712,6 +716,17 @@ mod tests {
         );
         let repeat_only = "root v0.1.0|\nsutura-domain v0.1.0| (*)\n";
         assert_eq!(inspect_features(repeat_only, "root"), Ok(()));
+    }
+
+    /// `test-fakes` builds `Definitions` past `assemble`'s cross-reference checks, so a shipped root
+    /// that resolves it is refused the same way `agreement` is.
+    #[test]
+    fn a_shipped_root_resolving_test_fakes_is_refused() {
+        let faked = "root v0.1.0|\nsutura-domain v0.1.0|default,test-fakes\n";
+        assert_eq!(
+            inspect_features(faked, "root"),
+            Err("sutura-domain/test-fakes is enabled in normal target dependencies")
+        );
     }
 
     #[test]

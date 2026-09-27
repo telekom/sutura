@@ -336,14 +336,15 @@ impl KeycloakFixture {
     /// venue already owns (`token_class_where_an_access_token_is_required` in
     /// `docs/where-identity-is-proven.md`'s claims matrix). This fixture's own claim is narrower:
     /// a real signature and a real key set verify, not that this deployment's RFC 9068 class-check
-    /// also applies to a provider that does not mint that class by default.
+    /// also applies to a provider that does not mint that class by default. `accept_any_token_type`
+    /// is the operator's opt-in `direct` refuses to start without.
     pub(crate) fn settings_naming(&self, resource: &str) -> String {
         settings_crediting(
             &example_root(),
             &format!(
                 "  inbound:\n    mode: \"direct\"\n    resource: \"{resource}\"\n    \
                  authorization_server: \"{}\"\n    key_set_file: \"{}\"\n    algorithms: [\"RS256\"]\n    \
-                 token_type: \"any\"\n",
+                 token_type: \"any\"\n    accept_any_token_type: true\n",
                 self.issuer,
                 self.key_set_file.display(),
             ),

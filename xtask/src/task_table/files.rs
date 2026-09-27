@@ -8,6 +8,57 @@
 use crate::registry::{Falsifier, Kind, Reads, Task};
 use crate::{crap, ignored_tests, jscpd, line_endings, max_lines, text};
 
+/// A Rust clone above the gate's 30-line and 250-token thresholds.
+const JSCPD_CLONE: &str = "pub fn calculate(input: usize) -> usize {
+    let value_0 = input + 0;
+    let value_1 = input + 1;
+    let value_2 = input + 2;
+    let value_3 = input + 3;
+    let value_4 = input + 4;
+    let value_5 = input + 5;
+    let value_6 = input + 6;
+    let value_7 = input + 7;
+    let value_8 = input + 8;
+    let value_9 = input + 9;
+    let value_10 = input + 10;
+    let value_11 = input + 11;
+    let value_12 = input + 12;
+    let value_13 = input + 13;
+    let value_14 = input + 14;
+    let value_15 = input + 15;
+    let value_16 = input + 16;
+    let value_17 = input + 17;
+    let value_18 = input + 18;
+    let value_19 = input + 19;
+    let value_20 = input + 20;
+    let value_21 = input + 21;
+    let value_22 = input + 22;
+    let value_23 = input + 23;
+    let value_24 = input + 24;
+    let value_25 = input + 25;
+    let value_26 = input + 26;
+    let value_27 = input + 27;
+    let value_28 = input + 28;
+    let value_29 = input + 29;
+    let value_30 = input + 30;
+    let value_31 = input + 31;
+    let value_32 = input + 32;
+    let value_33 = input + 33;
+    let value_34 = input + 34;
+    let value_35 = input + 35;
+    let value_36 = input + 36;
+    let value_37 = input + 37;
+    let value_38 = input + 38;
+    let value_39 = input + 39;
+    let value_40 = input + 40;
+    let value_41 = input + 41;
+    let value_42 = input + 42;
+    let value_43 = input + 43;
+    let value_44 = input + 44;
+    value_0 + value_1
+}
+";
+
 pub(crate) const TASKS: &[Task] = &[
     Task {
         name: "max-lines",
@@ -27,7 +78,20 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-jscpd",
         description: "no copied block in crates/ or xtask/ without a reason in devco/dup-ignore",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // Seed every input the scanner needs, then present one unexcused clone.
+            seeds: &[
+                ("devco/jscpd.json", "{\"ignore\": []}\n"),
+                ("devco/dup-ignore", "# no clone exceptions\n"),
+                (
+                    "nix/run-gate.sh",
+                    "nix run .#jscpd -- --format rust --min-lines 30 --min-tokens 250\n",
+                ),
+                ("crates/example/src/first.rs", JSCPD_CLONE),
+                ("crates/example/src/second.rs", JSCPD_CLONE),
+            ],
+            in_scope: Some("crates/example/src/second.rs"),
+        },
         run: jscpd::run,
     },
     Task {

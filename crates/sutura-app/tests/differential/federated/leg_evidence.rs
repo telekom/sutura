@@ -81,7 +81,7 @@ const LEG_EXECUTING: &[(&str, LegEvidence)] = &[
     (
         "duckdb",
         LegEvidence::Executed {
-            at: "crates/sutura-app/tests/differential/federated.rs",
+            at: "crates/sutura-app/tests/differential/federated/harness.rs",
             venue: Venue::Provisionable,
         },
     ),

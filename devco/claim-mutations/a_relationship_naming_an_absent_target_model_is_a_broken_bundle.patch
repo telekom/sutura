@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-semantic/src/resolve.rs b/crates/sutura-semantic/src/resolve.rs
+index ce4dd5467..1e9edf74e 100644
+--- a/crates/sutura-semantic/src/resolve.rs
++++ b/crates/sutura-semantic/src/resolve.rs
+@@ -364,9 +364,7 @@ fn resolve_dimension<'a>(
+             .ok_or_else(|| BundleInconsistent::RelationshipAbsent { dimension: name.clone() })?;
+         let joined = definitions
+             .model(relationship.target_model())
+-            .ok_or_else(|| BundleInconsistent::JoinTargetMissing {
+-                model: relationship.target_model().clone(),
+-            })?;
++            .ok_or_else(|| BundleInconsistent::RelationshipAbsent { dimension: name.clone() })?;
+         hops.push(ResolvedJoin {
+             relationship,
+             model: joined,

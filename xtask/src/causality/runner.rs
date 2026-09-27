@@ -164,7 +164,7 @@ pub(super) fn nextest(isolated: &Isolated, only: &str, tree: Tree) -> Command {
         .env_remove("NEXTEST_PROFILE")
         .args(["nextest", "run", "--workspace", "--all-features", "--cargo-profile"])
         .arg(isolated.profile())
-        .args(["--no-fail-fast", "-E", only]);
+        .args(["--no-fail-fast", "--status-level", "all", "-E", only]);
     match tree {
         Tree::Provisioned => {}
         Tree::Reconstructed => {
