@@ -155,6 +155,7 @@ mod tests {
 
     #[test]
     fn every_registered_hygiene_gate_refuses_a_tree_it_cannot_attest() {
+        const SCANNED_CLONE_TASK: &str = "check-jscpd";
         // EVERY GATE IN THE TABLE, EXECUTED AGAINST A TREE IT MUST REFUSE, AND REFUSED ON ITS
         // OWN RULE - `github.com/telekom/sutura#371`. This is the guard that drove `falsifier_tree`
         // out of `main.rs`; see that file's header for the 1000-line cap it pays. It drives the
@@ -211,6 +212,9 @@ mod tests {
                     task.name
                 );
             }
+            if task.name == SCANNED_CLONE_TASK {
+                crate::jscpd::assert_seeded_clone(&tree);
+            }
 
             std::env::set_current_dir(&tree).expect("point the process at the falsifier tree");
             // STEP 3 - THE OWN-RULE FAIL ASSERTION, at the `Verdict` level rather than its exit
@@ -235,6 +239,10 @@ mod tests {
         // loop reddens that gate instead. The hand-written anchor list this replaces was #371's
         // own defect 8: red when a name joins the list, green when one is left out of it.
         let registered: Vec<&str> = crate::hygiene_gates().map(|(name, _)| name).collect();
+        assert!(
+            executed.contains(&SCANNED_CLONE_TASK),
+            "the scanner probe is keyed to check-jscpd; a renamed task must update that probe"
+        );
         assert!(
             !registered.is_empty(),
             "the sweep registers no gate - this test judged nothing"
