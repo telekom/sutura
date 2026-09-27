@@ -11,7 +11,7 @@ mod tests {
     use sutura_conformance::corpus;
     use sutura_dev::provisioned;
     use sutura_domain::plan::Executable;
-    use sutura_domain::warehouse::Warehouse as _;
+    use sutura_domain::warehouse::{ResultBudget, Warehouse as _};
     use sutura_exec_oracle::{OracleError, OracleWarehouse, fixture::FixtureCredential};
     use sutura_sql::{Dialect, generate};
 
@@ -41,12 +41,14 @@ mod tests {
             .set_credentials(&user, &password);
         let setup = oracledb::connect(config).expect("the provisioned Oracle accepts the fixture credential");
         let fixture = FixtureCredential::from_env().expect("the named task sets the fixture credential");
+        let budget = ResultBudget::of_bytes(core::num::NonZeroUsize::new(1024 * 1024).expect("a mebibyte is positive"));
         let warehouse = OracleWarehouse::connect_fixture(
             corpus::source(),
             corpus::posture(),
             endpoint.host(),
             endpoint.port(),
             &fixture,
+            budget,
         )
         .expect("the adapter opens the provisioned Oracle");
         let case = corpus::cases()
@@ -111,6 +113,7 @@ mod tests {
             endpoint.host(),
             endpoint.port(),
             &fixture,
+            budget,
         )
         .expect("the adapter opens a fresh connection after the fixture table changed");
         let answered = warehouse
