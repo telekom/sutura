@@ -334,18 +334,42 @@ fn scan(census: repo::Census, must_judge: &[&str]) -> Result<Scanned, repo::Refu
     })
 }
 
+/// The floor check: every refused list must be populated, or the gate guards nothing.
+///
+/// `LEAKY`, `SEALED` and `SEQUENCE_TRAITS` were the original three. `LEAKY_ACCESSORS` and
+/// `SEQUENCE_RETURNS` were missing from the floor until measured: emptying either disables the
+/// method-return-shape scan with no floor firing. An empty list is a colluding diff, not a policy.
+fn lists_are_populated<T, U, V, W, X>(
+    leaky: &[T],
+    sealed: &[U],
+    sequence_traits: &[V],
+    leaky_accessors: &[W],
+    sequence_returns: &[X],
+) -> Result<(), ()> {
+    if leaky.is_empty()
+        || sealed.is_empty()
+        || sequence_traits.is_empty()
+        || leaky_accessors.is_empty()
+        || sequence_returns.is_empty()
+    {
+        eprintln!(
+            "xtask check-newtype-leaks: FAILED - a refused list is empty (LEAKY, SEALED, \
+             SEQUENCE_TRAITS, LEAKY_ACCESSORS, SEQUENCE_RETURNS); this gate would guard nothing"
+        );
+        return Err(());
+    }
+    Ok(())
+}
+
 pub(crate) fn run(_args: &[String]) -> Verdict {
     // Closure #3's empty floor, refused at the gate rather than left to the sweep: a refusal gate
     // whose refused list is empty guards nothing. Measured live - emptying `LEAKY`, `SEALED` and
     // `SEQUENCE_TRAITS` to `&[]` reported "ok ... 0 sealed witness type(s)" at exit 0, the empty
-    // scan floor not firing because the files were still read. An empty list is a colluding diff,
-    // not a policy, so the gate refuses it. The architecture guard (the diff where an entry or
+    // scan floor not firing because the files were still read. `LEAKY_ACCESSORS` and
+    // `SEQUENCE_RETURNS` were the same hole one layer on. An empty list is a colluding diff, not a
+    // policy, so the gate refuses all five. The architecture guard (the diff where an entry or
     // removal is argued) is the surrounding `const` table; this is the mechanism that notices.
-    if LEAKY.is_empty() || SEALED.is_empty() || SEQUENCE_TRAITS.is_empty() {
-        eprintln!(
-            "xtask check-newtype-leaks: FAILED - a refused list is empty (LEAKY, SEALED, \
-             SEQUENCE_TRAITS); this gate would guard nothing"
-        );
+    if lists_are_populated(LEAKY, SEALED, SEQUENCE_TRAITS, LEAKY_ACCESSORS, SEQUENCE_RETURNS).is_err() {
         return Verdict::Fail;
     }
 
