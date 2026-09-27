@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-openmetadata/src/http.rs b/crates/sutura-catalog-openmetadata/src/http.rs
+index 1bdb7090d..5db89bf38 100644
+--- a/crates/sutura-catalog-openmetadata/src/http.rs
++++ b/crates/sutura-catalog-openmetadata/src/http.rs
+@@ -265,7 +265,7 @@ impl HttpSnapshotReader {
+             .limit(hard_ceiling)
+             .read_to_string()
+             .map_err(|cause| HttpReaderError::Unreadable {
+-                entity,
++                entity: "notables",
+                 cause: Box::new(cause),
+             })?;
+         if text.len() as u64 > cap {

@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-catalog-datacontract/src/lib.rs b/crates/sutura-catalog-datacontract/src/lib.rs
+index 8a68f9b9b..79ab81340 100644
+--- a/crates/sutura-catalog-datacontract/src/lib.rs
++++ b/crates/sutura-catalog-datacontract/src/lib.rs
+@@ -488,8 +488,9 @@ enum ReferenceShapeUnsupported {
+ impl ReferenceShapeUnsupported {
+     fn into_error(self, path: &Path) -> DataContractError {
+         match self {
+-            Self::Composite => DataContractError::CompositeKeyUnrepresentable {
++            Self::Composite => DataContractError::UnsupportedReference {
+                 path: path.to_path_buf(),
++                reference: String::from("composite"),
+             },
+             Self::NotShorthand(reference) => DataContractError::UnsupportedReference {
+                 path: path.to_path_buf(),
