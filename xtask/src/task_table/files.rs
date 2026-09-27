@@ -6,7 +6,7 @@
 //! refusing next - `github.com/telekom/sutura#626`.
 
 use crate::registry::{Falsifier, Kind, Reads, Task};
-use crate::{crap, jscpd, line_endings, max_lines, text};
+use crate::{crap, ignored_tests, jscpd, line_endings, max_lines, text};
 
 pub(crate) const TASKS: &[Task] = &[
     Task {
@@ -60,6 +60,15 @@ pub(crate) const TASKS: &[Task] = &[
         kind: Kind::Hygiene(Reads::Prose),
         falsifier: Falsifier::declared_in_programme(),
         run: crap::run_check,
+    },
+    Task {
+        // An `#[ignore]` on a live test takes it out of the default suite and nothing said so.
+        // `Reads::Code`: no `docs/*.md` diff can add one.
+        name: "check-ignored-tests",
+        description: "every #[ignore]d test is listed in devco/ignored-tests, and every line there is one",
+        kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
+        run: ignored_tests::run,
     },
     Task {
         // NOT `Kind::Hygiene`, for the same reason as `check-api-docs`: it COMPILES, with

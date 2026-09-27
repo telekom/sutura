@@ -246,6 +246,7 @@ both ends: `DeclaredPrincipals::parse` (a startup refusal) and `adbc::identity::
 (`AdbcError::UnusableTarget`, because `Presented` is a public port).
 
 **The limit on all of the above, stated where the claim is:** `check-guidance`'s leg-2 rule
-(`xtask/src/guidance/leg_two.rs`) holds this page to the venue cell, but its scope is
-`md`/`nix`/`yml`/`yaml`/`toml`/`sh` - **no gate in this repository can refuse a leg-2 overstatement
-in a Rust comment**, and it matches literal wordings, so a paraphrase escapes.
+(`xtask/src/guidance/leg_two.rs`) holds this page to the venue cell, over prose files
+(`md`/`nix`/`yml`/`yaml`/`toml`/`sh`) and `.rs` doc comments (`///`, `//!`) only - **a `//` or
+`/* */` comment or a string literal in Rust is not read** - and it matches literal wordings, so a
+paraphrase escapes.

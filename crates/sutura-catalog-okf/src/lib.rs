@@ -205,6 +205,13 @@ impl OkfCatalog {
             // post-read recheck all live in `sutura_bounded_read::read_document`, on the ONE handle
             // it opened. The refusal half, the `O_NOFOLLOW` / `O_NONBLOCK` / `O_CLOEXEC` flags, is
             // that crate's open.
+            //
+            // "Opened once" is held by `cargo xtask check-catalog-opened-once`, a static gate that
+            // refuses any path-based `std::fs` read in this crate's non-test source: a hand
+            // mutation that appends a second, unguarded `std::fs::read_to_string(&path)` right
+            // after this call is killed by that gate rather than by a swap-timing test. The limit:
+            // a second `rustix::fs::open` of the path or a read through an alias
+            // (`use std::fs as disk;`) escapes the text scan.
             let text = sutura_bounded_read::read_document(&self.root, &path, total_bytes).map_err(map_read_error)?;
             total_bytes += text.len() as u64;
             models.push(self.descriptor_to_model(&path, &text)?);

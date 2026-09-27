@@ -65,9 +65,10 @@ Those three plus secure-by-design are the definition of *correct* in review here
   and proves only its own half. The run this sentence once cited was of an HTTP exchange the ADBC
   adoption deleted.
   `docs/where-identity-is-proven.md` decides which venue may be cited, and `check-guidance` refuses
-  this claim while that page records no run - **in prose files only**: its scope is
-  `md`/`nix`/`yml`/`yaml`/`toml`/`sh`, so the same overstatement in a Rust comment is held by
-  review alone.
+  this claim while that page records no run - in prose files (`md`/`nix`/`yml`/`yaml`/`toml`/`sh`)
+  and in `.rs` doc comments (`///`, `//!`) only. A `//` or `/* */` comment or a string literal in
+  Rust is not read, and a paraphrase escapes, so the same overstatement there is held by review
+  alone.
 - **Never commit or force-push unless asked.** Prefer stacked, individually reviewable PRs via stax.
 - **This shell's cargo env leaks into other checkouts** - `CARGO_*CODEGEN_BACKEND=cranelift` and
   `DUCKDB_*_DIR` are unscoped, and a C++-linking crate built under them aborts. Unset them before
