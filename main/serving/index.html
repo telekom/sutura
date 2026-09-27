@@ -3280,14 +3280,17 @@ would even once one had.</p>
 without an orchestrator being reconfigured. It carries no version, no build identifier, no
 dependency list, no configuration and no catalog content, because an unauthenticated caller can
 always reach it - so every field it might have is a field handed to anybody who can route a packet.</p>
-<p><strong>A limit on the allowlist, not on the two routes above.</strong> <code>/health</code> and <code>/metrics</code> are the existing
-shape of a plain, non-wildcard <code>.route(</code> merged at the top level of <code>assemble</code> outside the version
-prefix and outside <code>Ungoverned::mount</code> - and nothing new here holds that shape. A future route
-merged the same way is not caught by the <code>Ungoverned</code> type (it never touches the mount), by
-<code>check-boundaries</code>' text scan (only <code>.nest</code>/<code>.nest_service</code>/<code>.route_service</code>/<code>.fallback_service</code> and
-a wildcard <code>.route</code> are needles - a named <code>.route(</code> is deliberately not one, for the reason stated
-at <code>xtask/src/boundaries/ungoverned.rs</code>), by <code>ungoverned_routes()</code>'s allowlist record (nothing is
-recorded for it to check), or by a behaviour cell (none dials it). It is held by review alone.</p>
+<p><strong>A limit on the allowlist, not on the two routes above.</strong> A route merged at the top level of
+<code>assemble</code>, outside the version prefix and outside <code>Ungoverned::mount</code>, is caught by
+<code>check-boundaries</code>' <code>ungoverned</code> half only when it is written as a literal <code>.route(</code>: any <code>.route(</code>
+in <code>sutura-http</code> or <code>sutura-cli</code> is a needle, and a hit passes only inside <code>Ungoverned::mount</code>,
+inside a <code>#[cfg(test)] mod tests</code> block, in a file whose path ends in <code>tests.rs</code> (by naming
+convention - see the limit note in <code>ungoverned.rs</code>), or at a site recorded in
+<code>ungoverned::ALLOWED_ROUTES</code> (<code>/openapi.json</code> in <code>router.rs</code>, the RFC 9728 well-known path in
+<code>routes/protected_resource.rs</code>). <code>/health</code> and <code>/metrics</code> are merged through
+<code>.routes(utoipa_axum::routes!(..))</code>, whose <code>.route(</code> is inside the macro, so they are invisible to
+the needle - and <strong>a future route merged the same way is too</strong>. That shape is held by review alone,
+the limit stated at <code>xtask/src/boundaries/ungoverned.rs</code>.</p>
 <p>The interface description is served everywhere except production, where it is off by default. It
 describes the surface, which is business information even with no row of data in it.</p>
 <h3 id="the-metrics-endpoint">The metrics endpoint<a class="headerlink" href="#the-metrics-endpoint" title="Permanent link">&para;</a></h3>

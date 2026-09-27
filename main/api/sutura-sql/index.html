@@ -2078,8 +2078,8 @@ nonempty <code>params</code> with text it did not derive from them.</p>
 <h2 id="use-dialect"><code>use Dialect</code><a class="headerlink" href="#use-dialect" title="Permanent link">&para;</a></h2>
 <p>The data systems a statement can be rendered for.</p>
 <p>A closed set rather than a passthrough of the dialect layer's thirty-three, because each entry
-here is a claim that we generate correct SQL for it and have a golden that says so. Adding one is
-a feature flag, a match arm and a snapshot.</p>
+here is a claim that we generate correct SQL for it and have a golden that says so. Adding one
+is a feature flag, a match arm and a snapshot.</p>
 <h2 id="use-placeholderstyle"><code>use PlaceholderStyle</code><a class="headerlink" href="#use-placeholderstyle" title="Permanent link">&para;</a></h2>
 <p>How a bind parameter is written.</p>
 <h2 id="use-construct"><code>use Construct</code><a class="headerlink" href="#use-construct" title="Permanent link">&para;</a></h2>
@@ -2244,8 +2244,8 @@ position to put <code>a</code> in. See that accessor.</p>
 </span></code></pre></div>
 <p>The data systems a statement can be rendered for.</p>
 <p>A closed set rather than a passthrough of the dialect layer's thirty-three, because each entry
-here is a claim that we generate correct SQL for it and have a golden that says so. Adding one is
-a feature flag, a match arm and a snapshot.</p>
+here is a claim that we generate correct SQL for it and have a golden that says so. Adding one
+is a feature flag, a match arm and a snapshot.</p>
 <h4 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>DuckDb</code></li>
@@ -2471,22 +2471,14 @@ and one of them - <code>WEEK(&lt;WEEKDAY&gt;)</code> - is not expressible as a s
 <h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="constant-all"><code>constant ALL</code><a class="headerlink" href="#constant-all" title="Permanent link">&para;</a></h3>
-<p>Every dialect, for iterating a golden suite over all of them.</p>
-<p>A <code>const</code> rather than a derive, and <strong>the compiler is what holds a new variant rather than the
-test below.</strong> A sixth variant does not compile until seven production exhaustive matches over
-<code>Dialect</code> answer for it: <code>as_str</code>, <code>placeholder_style</code>, <code>identifier_quote</code>, <code>date_trunc_shape</code>,
-<code>qualification</code> and <code>identifier_case</code> in this file, and <code>dialect_type</code> in
-<code>mod@crate::generate</code>. So a data system cannot arrive without somebody deciding how it renders.</p>
-<p><strong>What is held by review and by nothing else is the edge from the enum to this list</strong>, and this
-paragraph used to promise the opposite. <code>every_dialect_is_in_all</code> restates the five names by
-hand, so a sixth variant added to the enum and OMITTED here leaves it green while the golden
-suite iterates five of six and reads as covered; a variant added to both turns it red on the
-length assertion until the literal is bumped. <code>crates/sutura-app/tests/golden/dialects.rs</code> does
-not close the edge either - it compares this list against that suite's own registry, never the
-enum against this list, and says so itself. Closing it needs a derivation whose exhaustive
-<code>match</code> over <code>Dialect</code> is what BUILDS the list to compare against; a restated array anywhere in
-that chain reintroduces the same hole one level down, which is why the obvious rewrite of the
-test body is not the fix. <code>github.com/telekom/sutura#410</code> carries the measurement.</p>
+<p>Every dialect, in declaration order, for iterating a golden suite over all of them.</p>
+<p><strong>The enum and this list are one macro input, so the edge between them is held by
+construction.</strong> A variant added to the enum is in both; there is no second place to
+forget it. A sixth variant still does not compile until seven production exhaustive
+matches over <code>Dialect</code> answer for it: <code>as_str</code>, <code>placeholder_style</code>, <code>identifier_quote</code>,
+<code>date_trunc_shape</code>, <code>qualification</code> and <code>identifier_case</code> in this file, and
+<code>dialect_type</code> in <code>mod@crate::generate</code>. <code>github.com/telekom/sutura#410</code> measured the
+hand-restated list this replaces.</p>
 <h2 id="module-expression">Module <code>expression</code><a class="headerlink" href="#module-expression" title="Permanent link">&para;</a></h2>
 <p>Compile: an authored SQL fragment becomes one checked expression per target dialect.</p>
 <p><code>sutura_domain::expression</code> holds the fragment as text and knows nothing about SQL, because the
