@@ -461,7 +461,9 @@ pub(super) fn tests_run(text: &str) -> Option<usize> {
 // the gate's verdict and printed explanation, this module owns classifying one. See its own
 // header for why that seam and not a `part2`.
 mod report;
-pub(crate) use report::{report_base, tail};
+#[cfg(test)]
+pub(crate) use report::report_base;
+pub(crate) use report::{report_base_scoped, tail};
 
 #[cfg(test)]
 mod tests {
@@ -771,8 +773,7 @@ mod tests {
                 false,
                 &named(1),
                 &all,
-                &Reverted::Behaviour,
-                &[]
+                &Reverted::Behaviour
             ),
             Verdict::Inconclusive
         );
@@ -789,7 +790,7 @@ mod tests {
         };
         assert_eq!(classify_base(green, true, &two, &mixed, &Reverted::Behaviour), partial);
         assert_eq!(
-            report_base(&partial, green, false, &named(2), &mixed, &Reverted::Behaviour, &[]),
+            report_base(&partial, green, false, &named(2), &mixed, &Reverted::Behaviour),
             Verdict::Fail
         );
     }

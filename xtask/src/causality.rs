@@ -129,7 +129,7 @@ mod stack;
 mod weakens;
 mod worktree;
 
-use base::{BaseOutcome, classify_base, report_base, tail};
+use base::{BaseOutcome, classify_base, report_base_scoped, tail};
 use coverage::{Coverage, Scope};
 use diff::changed_with_additions;
 use features::{Activation, BaseText, Trees};
@@ -348,7 +348,7 @@ fn reconstruct_and_run(
             return Verdict::Fail;
         }
         let (retry_ok, retry_out) = cargo_test(wt, target, scope.only, Tree::Reconstructed);
-        return report_base(
+        return report_base_scoped(
             &classify_base(
                 &retry_out,
                 retry_ok,
@@ -377,7 +377,7 @@ fn reconstruct_and_run(
         return Verdict::Fail;
     }
 
-    report_base(
+    report_base_scoped(
         &outcome,
         &base_out,
         false,

@@ -493,7 +493,7 @@ mod tests {
         // EXIT 3, not 0 and not 1. Not a pass - this run carries no red-before-green evidence at
         // all - and not the failure it was, which blamed an author for the gate's own partition.
         assert_eq!(
-            report_base(&outcome, green, false, &named(1), &Moved::Nothing, &unreachable, &[]),
+            report_base(&outcome, green, false, &named(1), &Moved::Nothing, &unreachable),
             Verdict::Inconclusive
         );
         // AND THE DIRECTION THAT MAY NOT MOVE. The same green run, over a revert that CAN reach
@@ -509,8 +509,7 @@ mod tests {
                 false,
                 &named(1),
                 &Moved::Nothing,
-                &Reverted::Behaviour,
-                &[]
+                &Reverted::Behaviour
             ),
             Verdict::Fail
         );
@@ -535,8 +534,7 @@ mod tests {
                 false,
                 &named(1),
                 &Moved::Nothing,
-                &unreachable,
-                &[]
+                &unreachable
             ),
             Verdict::Pass
         );

@@ -12,6 +12,18 @@ use crate::causality::reverted::{self, Reverted};
 
 use super::{BaseOutcome, earned, reported_per_test, results, tests_run};
 
+#[cfg(test)]
+pub(crate) fn report_base(
+    outcome: &BaseOutcome,
+    output: &str,
+    retried: bool,
+    coverage: &Coverage,
+    moved: &Moved,
+    reverted: &Reverted,
+) -> Verdict {
+    report_base_scoped(outcome, output, retried, coverage, moved, reverted, &[])
+}
+
 /// Turn a base run into the gate's verdict.
 ///
 /// `retried` only changes what the operator is told: after a second attempt, "not separable at
@@ -28,7 +40,7 @@ use super::{BaseOutcome, earned, reported_per_test, results, tests_run};
 /// the branch added. [`earned`] decides which wording each outcome may print; `prove`'s own arms
 /// print theirs before either run, where they are asking for something rather than reporting
 /// coverage.
-pub(crate) fn report_base(
+pub(crate) fn report_base_scoped(
     outcome: &BaseOutcome,
     output: &str,
     retried: bool,
@@ -329,7 +341,7 @@ mod tests {
 
     /// The report for a scope whose every test is new here, for the same reason.
     fn reported(outcome: &BaseOutcome, output: &str, retried: bool, coverage: &Coverage) -> Verdict {
-        report_base(outcome, output, retried, coverage, &Moved::Nothing, &Reverted::Behaviour, &[])
+        report_base(outcome, output, retried, coverage, &Moved::Nothing, &Reverted::Behaviour)
     }
 
     #[test]
