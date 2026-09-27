@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-catalog-datacontract/src/lib.rs b/crates/sutura-catalog-datacontract/src/lib.rs
+index 8a68f9b9b..68e18540d 100644
+--- a/crates/sutura-catalog-datacontract/src/lib.rs
++++ b/crates/sutura-catalog-datacontract/src/lib.rs
+@@ -279,9 +279,9 @@ impl DataContractCatalog {
+         let mut seen = BTreeSet::new();
+         let mut primary_key = Vec::new();
+         for property in &object.properties {
+-            let column_name = ColumnName::parse(property.name.as_str()).map_err(|cause| DataContractError::InvalidColumn {
++            let column_name = ColumnName::parse(property.name.as_str()).map_err(|_cause| DataContractError::UnknownKind {
+                 path: path.to_path_buf(),
+-                cause,
++                found: property.name.clone(),
+             })?;
+             if !seen.insert(column_name.clone()) {
+                 return Err(DataContractError::DuplicateColumn {

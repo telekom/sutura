@@ -85,6 +85,9 @@ pub(super) enum Tree {
     Provisioned,
     /// The base worktree under `target/`, which no provisioner has ever seen.
     Reconstructed,
+    /// The claim arm's kill worktree, also unprovisioned - but there a skip would pass as a
+    /// mutation the cell survived, so the requirement is FORCED and an absent tier fails loudly.
+    Mutated,
 }
 
 /// The nextest invocation for one run.
@@ -114,6 +117,11 @@ pub(super) enum Tree {
 /// against base behaviour* - a false alarm rather than a false green, which is the direction to
 /// be wrong in. Closing it means publishing an endpoint into a second root, and a second root for
 /// the discovery file is the cross-worktree defect `dev/src/scope.rs` exists to prevent.
+///
+/// THE CLAIM ARM'S KILL RUN IS THE EXCEPTION, `Tree::Mutated`: there a skip reads as a mutation
+/// the cell survived, which is a false verdict rather than a false alarm. So the requirement is
+/// forced and `claim::kill::attest` reads the resulting tier failure as INCONCLUSIVE. A
+/// tier-backed claim cell is still not provable here; it is no longer misreported.
 ///
 /// `--no-fail-fast` IS AFFORDABLE ONLY BECAUSE THE RUN IS SCOPED, and it is what makes the verdict
 /// the same twice. Over the whole suite it would be a long bill for output nobody reads; over the
@@ -157,8 +165,14 @@ pub(super) fn nextest(isolated: &Isolated, only: &str, tree: Tree) -> Command {
         .args(["nextest", "run", "--workspace", "--all-features", "--cargo-profile"])
         .arg(isolated.profile())
         .args(["--no-fail-fast", "-E", only]);
-    if tree == Tree::Reconstructed {
-        command.env_remove(sutura_dev::requirement::FORCE);
+    match tree {
+        Tree::Provisioned => {}
+        Tree::Reconstructed => {
+            command.env_remove(sutura_dev::requirement::FORCE);
+        }
+        Tree::Mutated => {
+            command.env(sutura_dev::requirement::FORCE, "1");
+        }
     }
     command
 }
@@ -292,6 +306,12 @@ mod tests {
         assert!(
             !removed(Tree::Provisioned),
             "the root keeps it: that is the tree whose endpoint was published"
+        );
+        assert!(
+            nextest(&isolated, "test(=t)", Tree::Mutated)
+                .get_envs()
+                .any(|(name, value)| name == requirement && value == Some(OsStr::new("1"))),
+            "the kill worktree forces it, so a tier-gated cell cannot skip into a survived mutation"
         );
     }
 }

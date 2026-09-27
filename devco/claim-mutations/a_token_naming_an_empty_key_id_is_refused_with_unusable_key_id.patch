@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http/src/inbound/token.rs b/crates/sutura-http/src/inbound/token.rs
+index 38deb96eb..517a2559d 100644
+--- a/crates/sutura-http/src/inbound/token.rs
++++ b/crates/sutura-http/src/inbound/token.rs
+@@ -370,7 +370,7 @@ impl TokenValidator {
+         }
+         let header = jsonwebtoken::decode_header(token).map_err(|cause| TokenRejected::UnreadableHeader { cause })?;
+         let named = header.kid.ok_or(TokenRejected::NoKeyId)?;
+-        KeyId::parse(named).map_err(|cause| TokenRejected::UnusableKeyId { cause })
++        KeyId::parse(named).ok().ok_or(TokenRejected::NoKeyId)
+     }
+ 
+     /// Verifies the token with the key and turns its claims into a caller.

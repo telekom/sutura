@@ -273,3 +273,73 @@ fn a_table_on_an_unknown_source_is_refused() {
     let error = over(snapshot).load().expect_err("an unknown source is refused");
     assert!(matches!(error, OpenMetadataError::UnknownSource { model, .. } if model == "orders"));
 }
+
+/// A table whose name is not an identifier is refused as `Identifier`, naming the kind and value.
+#[test]
+fn a_table_whose_name_is_not_an_identifier_is_refused() {
+    let snapshot: Snapshot = serde_json::from_str(
+        r#"{"tables":[{"service":"warehouse","name":"123orders","columns":["order_id"],"description":"Orders."}],"relationships":{},"metrics":[]}"#,
+    )
+    .expect("the snapshot is well-formed");
+    let error = over(snapshot)
+        .load()
+        .expect_err("a table name starting with a digit is refused");
+    match &error {
+        OpenMetadataError::Identifier { kind, value, .. } => {
+            assert_eq!(*kind, "model", "expected the model kind, got: {error:?}");
+            assert_eq!(value, "123orders", "expected the bad value, got: {error:?}");
+        }
+        other => panic!("expected Identifier, got {other:?}"),
+    }
+}
+
+/// A table description carrying a control character is refused as `Description`. BEL, not a CR:
+/// the adapter trims the description first, and `str::trim` strips whitespace but not BEL.
+#[test]
+fn a_table_whose_description_is_not_usable_is_refused() {
+    let snapshot: Snapshot = serde_json::from_str(
+        r#"{"tables":[{"service":"warehouse","name":"orders","columns":["order_id"],"description":"Orders.\u0007"}],"relationships":{},"metrics":[]}"#,
+    )
+    .expect("the snapshot is well-formed");
+    let error = over(snapshot)
+        .load()
+        .expect_err("a description with a control character is refused");
+    match error {
+        OpenMetadataError::Description { on, .. } => assert_eq!(on, "orders"),
+        other => panic!("expected Description, got {other:?}"),
+    }
+}
+
+/// A column description carrying a control character is refused as `ColumnDescription`, naming
+/// the model and the column.
+#[test]
+fn a_column_whose_description_is_not_usable_is_refused() {
+    let snapshot: Snapshot = serde_json::from_str(
+        r#"{"tables":[{"service":"warehouse","name":"orders","columns":["order_id"],"description":"Orders.","column_metadata":{"order_id":{"description":"The id.\u0007"}}}],"relationships":{},"metrics":[]}"#,
+    )
+    .expect("the snapshot is well-formed");
+    let error = over(snapshot)
+        .load()
+        .expect_err("a column description with a control character is refused");
+    match error {
+        OpenMetadataError::ColumnDescription { on, column, .. } => {
+            assert_eq!(on, "orders");
+            assert_eq!(column.as_str(), "order_id");
+        }
+        other => panic!("expected ColumnDescription, got {other:?}"),
+    }
+}
+
+/// A primary-key column that is not among the table's own columns is refused as `Inconsistent`.
+#[test]
+fn a_primary_key_column_not_among_the_columns_is_refused() {
+    let snapshot: Snapshot = serde_json::from_str(
+        r#"{"tables":[{"service":"warehouse","name":"orders","columns":["order_id"],"description":"Orders.","primary_key":["missing_col"]}],"relationships":{},"metrics":[]}"#,
+    )
+    .expect("the snapshot is well-formed");
+    let error = over(snapshot).load().expect_err("a dangling primary key column is refused");
+    assert!(
+        matches!(error, OpenMetadataError::Inconsistent { .. }),
+        "expected Inconsistent, got: {error:?}"
+    );
+}

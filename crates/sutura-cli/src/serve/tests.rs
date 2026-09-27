@@ -612,15 +612,14 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
     crate::catalog::open_catalog(&catalogs, None).expect("markdown is the kind every build links");
 }
 
-/// Every kind `sutura serve` refuses on EVERY build: `rdbms` (no reader over a real dictionary yet -
-/// the follow-up its refusal names). `okf` and `datahub` are NOT here: the former is now an
-/// unconditional dependency of this binary (see `crates/sutura-cli/Cargo.toml`), so its arm is always
-/// linked and never refused, and the latter's, and the `openmetadata` one's, not-linked refusals are
-/// the `cfg(not(feature = "..."))` halves of `a_declared_catalog_kind_this_build_cannot_open_is_a_
-/// boot_refusal_naming_it` above (datahub) and `a_declared_openmetadata_catalog_build_without_the_
-/// feature_is_refused_naming_it` below (openmetadata).
+/// The `rdbms`-kind not-linked refusal, held as its own cell: a default build (without the
+/// feature) refuses `catalog.kind: rdbms` by name, naming the feature an operator would build
+/// with - the same stand `datahub`'s and `openmetadata`'s own not-linked refusals make. This cell
+/// is `#[cfg(not(feature = "rdbms"))]` because the `--all-features` gates enable `rdbms`. The
+/// provisioned catalog test exercises its live reader directly; no served RDBMS cell runs here.
 #[test]
-fn a_declared_catalog_kind_without_a_reader_is_refused_naming_the_follow_up() {
+#[cfg(not(feature = "rdbms"))]
+fn a_declared_rdbms_catalog_build_without_the_feature_is_refused_naming_it() {
     use sutura_config::{CatalogKind, CatalogSettings, Catalogs};
     use sutura_domain::model::SourceName;
     use sutura_domain::pinned::DefinitionVersion;
@@ -634,9 +633,12 @@ fn a_declared_catalog_kind_without_a_reader_is_refused_naming_the_follow_up() {
     )
     .expect("a directory and a version are a settings");
     let catalogs = Catalogs::parse(vec![catalog]).expect("one declared catalog is a registry");
-    let err = crate::catalog::open_catalog(&catalogs, None).expect_err("a kind with no reader is refused by name");
+    let err = crate::catalog::open_catalog(&catalogs, None).expect_err("a build without the feature refuses rdbms");
     assert!(err.contains("catalog.kind: rdbms"), "{err}");
-    assert!(err.contains("#972"), "a kind with no reader names its follow-up: {err}");
+    assert!(
+        err.contains("--features rdbms"),
+        "a build without the feature names the remedy: {err}"
+    );
 }
 
 /// The `openmetadata`-kind not-linked refusal, held as its own cell: a default build (without the

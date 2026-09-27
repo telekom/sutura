@@ -163,7 +163,7 @@ pub(super) fn accounted_for(file: &ChangedFile, lines: &[&str]) -> Option<Declar
 /// block does not hide it. `crates/sutura-app/tests/golden.rs` writes this, and ignoring it would
 /// resolve the declaration to a file that is not there - which is a refusal, so the wrong answer
 /// here reddens a correct change.
-fn relocated(lines: &[&str], at: usize) -> Option<String> {
+pub(super) fn relocated(lines: &[&str], at: usize) -> Option<String> {
     attached(lines, at).into_iter().find_map(|(_, opening)| {
         opening
             .strip_prefix("#[path")?

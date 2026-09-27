@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-datacontract/src/lib.rs b/crates/sutura-catalog-datacontract/src/lib.rs
+index 8a68f9b9b..83d61e6d5 100644
+--- a/crates/sutura-catalog-datacontract/src/lib.rs
++++ b/crates/sutura-catalog-datacontract/src/lib.rs
+@@ -548,7 +548,7 @@ pub enum UnsupportedApiVersion {
+ /// same message each variant rendered before this crate existed.
+ fn map_walk_error(cause: sutura_bounded_read::WalkError) -> DataContractError {
+     match cause {
+-        sutura_bounded_read::WalkError::NotADirectory { path } => DataContractError::NotADirectory { path },
++        sutura_bounded_read::WalkError::NotADirectory { path } => DataContractError::NotARegularFile { path },
+         sutura_bounded_read::WalkError::Io { path, cause } => DataContractError::Io { path, cause },
+         sutura_bounded_read::WalkError::TooManyDocuments { path, found, limit } => {
+             DataContractError::TooManyDocuments { path, found, limit }

@@ -76,7 +76,13 @@ fn holds(phase: &str) -> Result<String, String> {
              bit-for-bit the state this repository shipped before the wrapper existed",
         ));
     }
-    if !phase.contains(SYNTAX) {
+    // The syntax check, read off the INVOCATION line rather than off the whole phase, so a
+    // `bash -n` inside a comment is not the evidence - the same isolation the `-x` check below
+    // applies to its flag.
+    let invoked = phase
+        .lines()
+        .any(|line| line.split_once('#').map_or(line, |(code, _)| code).contains(SYNTAX));
+    if !invoked {
         return Err(format!(
             "the checkPhase does not run `{SYNTAX}`, so a body that does not PARSE would build:\n    {}",
             phase.trim()
@@ -303,5 +309,21 @@ mod tests {
         let none = serde_json::json!({ "/nix/store/a.drv": { "env": { "name": "x" } } });
         let refusal = phase_of(&none, "/nix/store/a.drv").expect_err("no phase refuses");
         assert!(refusal.contains("NO checkPhase"), "{refusal}");
+    }
+
+    #[test]
+    fn a_syntax_check_mentioned_only_in_a_comment_is_not_the_syntax_check() {
+        // The `bash -n` check used `phase.contains(SYNTAX)`, a substring match over the WHOLE
+        // phase text. A `bash -n` inside a comment - not a real invocation - satisfied it, so a
+        // body that does not parse would build. The sibling `-x` check reads its flag off the
+        // invocation line only; `bash -n` now gets the same isolation.
+        let commented = concat!(
+            "runHook preCheck\n",
+            "  # this phase used to run bash -n but no longer does\n",
+            "  /nix/store/x-ShellCheck/bin/shellcheck -x \"$target\"\n",
+            "runHook postCheck\n",
+        );
+        let refusal = holds(commented).expect_err("a comment mentioning bash -n is not the check");
+        assert!(refusal.contains("does not run `bash -n`"), "{refusal}");
     }
 }

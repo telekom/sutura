@@ -329,37 +329,7 @@ pub(in crate::guidance) fn spans(text: &str) -> Vec<&str> {
     parts.into_iter().take(closed).skip(1).step_by(2).collect()
 }
 
-/// `cargo xtask <name>` mentioned anywhere must be a task that exists.
-fn bad_task_references(read: &crate::causality::regions::PostImage<'_>, files: &[String]) -> Vec<String> {
-    let known = known_tasks();
-    let mut problems = Vec::new();
-    for rel in files {
-        if !has_ext(rel, &["md", "nix", "yaml", "yml"]) {
-            continue;
-        }
-        let Some(text) = read(rel) else {
-            continue;
-        };
-        for (i, line) in text.lines().enumerate() {
-            for marker in ["cargo xtask ", "-p xtask -- "] {
-                let mut rest = line;
-                while let Some(at) = rest.find(marker) {
-                    let tail = rest.get(at + marker.len()..).unwrap_or("");
-                    if let Some(name) = task_name_at(tail)
-                        && !known.contains(name)
-                    {
-                        problems.push(format!(
-                            "{rel}:{}: `{name}` is not an xtask task - it was renamed or deleted",
-                            i + 1
-                        ));
-                    }
-                    rest = tail;
-                }
-            }
-        }
-    }
-    problems
-}
+mod references;
 
 fn stale_phrases(read: &crate::causality::regions::PostImage<'_>, files: &[String]) -> Vec<String> {
     let mut problems = Vec::new();
@@ -444,7 +414,7 @@ fn tree_problems(
         .collect();
     problems.extend(leg_two::problems(root, read, &leg_two_files));
     problems.extend(count_mismatches(read, files, text_files));
-    problems.extend(bad_task_references(read, text_files));
+    problems.extend(references::bad_task_references(read, text_files));
     // `files` and `text_files`, like `count_mismatches`: the mechanism is derived from ANY file, and
     // the scope limit is about where a claim may be made rather than about what may be read.
     problems.extend(host_mismatches(strict_read, files, text_files));

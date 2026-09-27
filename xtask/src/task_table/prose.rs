@@ -13,7 +13,20 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-skills",
         description: "the skill router and the skill tree agree",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // The router parses and one skill resolves; its second route names no skill.
+            seeds: &[
+                (
+                    ".agents/skills/skill-router.json",
+                    "{\"groups\":{\"sample\":{\"skills\":{\"kept\":{},\"missing\":{}}}}}\n",
+                ),
+                (
+                    ".agents/skills/sample/kept/SKILL.md",
+                    "---\nname: kept\ndescription: A routed skill.\n---\n\n# Kept\n",
+                ),
+            ],
+            in_scope: Some(".agents/skills/skill-router.json"),
+        },
         run: skills::run,
     },
     Task {
@@ -24,7 +37,23 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-scope",
         description: "a narrowed just recipe prints the scope it covered",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // The narrow recipe points to a wider check, but omits its own package from output.
+            seeds: &[
+                (
+                    "justfile",
+                    concat!(
+                        "narrow:\n    @echo 'See `just ",
+                        "wide`'\n    cargo nextest run -p xtask\nwide:\n    cargo nextest run --workspace\nparity:\n    cargo nextest run -E 'test(foo)'\n",
+                    ),
+                ),
+                (
+                    "flake.nix",
+                    "apps.parity = {\n  program = ''\n    cargo nextest run -E 'test(foo)'\n  '';\n};\n",
+                ),
+            ],
+            in_scope: Some("justfile"),
+        },
         run: tasks::run,
     },
     Task {
@@ -38,7 +67,19 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-docs",
         description: "the nav in mkdocs.yml and the pages under docs/ agree",
         kind: Kind::Hygiene(Reads::Prose),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // The site has a nav, a reachable link, and its required font setting. One page is
+            // still outside the nav and the exclusion set.
+            seeds: &[
+                (
+                    "mkdocs.yml",
+                    "nav:\n  - Home: index.md\ntheme:\n  name: material\n  font: false\n",
+                ),
+                ("docs/index.md", "[Home](index.md)\n"),
+                ("docs/orphan.md", "A page with no nav entry.\n"),
+            ],
+            in_scope: Some("docs/orphan.md"),
+        },
         run: docs::run,
     },
     Task {
@@ -49,7 +90,18 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-api-links",
         description: "no page under docs/api links to a Rust path",
         kind: Kind::Hygiene(Reads::Prose),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // The generated-page and scheme-agreement floors hold; the page publishes a dead
+            // Rust-path destination that the link scanner must name.
+            seeds: &[
+                ("docs/.tools/rustdoc_to_markdown.py", "REAL_SCHEMES = (\"http\", \"https\")\n"),
+                (
+                    "docs/api/generated.md",
+                    "<!-- GENERATED FILE - do not edit. -->\n[bad](crate::path::Item)\n",
+                ),
+            ],
+            in_scope: Some("docs/api/generated.md"),
+        },
         run: api_links::run,
     },
     Task {
@@ -71,7 +123,21 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-examples",
         description: "every directory under examples/ is reached by a test",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // One workspace test reaches a published example, satisfying the corpus and test
+            // floors. The second published directory has no reachable test.
+            seeds: &[
+                ("Cargo.toml", "[workspace]\nmembers = [\"crates/sutura-catalog-datahub\"]\n"),
+                ("xtask/src/main.rs", "fn main() {}\n"),
+                (
+                    "crates/sutura-catalog-datahub/tests/multi_player.rs",
+                    "#[test]\nfn reads_example() { let _ = \"../../examples/reached/data.txt\"; }\n",
+                ),
+                ("examples/reached/data.txt", "fixture\n"),
+                ("examples/orphan/README.md", "No test reaches this example.\n"),
+            ],
+            in_scope: Some("examples/orphan/README.md"),
+        },
         run: examples::run,
     },
     Task {
@@ -82,7 +148,15 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-gate-classification",
         description: "every hygiene gate is in exactly one of the plan's two groups",
         kind: Kind::Hygiene(Reads::Prose),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // Both tables parse and each contains a real gate. The other registered gates are
+            // unclassified, so the disagreement walk, not a missing-page floor, must refuse.
+            seeds: &[(
+                "docs/implementation-plan-identity-and-services.md",
+                "| Gate | What it reads |\n| --- | --- |\n| `check-pins` | code |\n\n| Gate | On a prose-only pull request |\n| --- | --- |\n| `text-hygiene` | deferred |\n",
+            )],
+            in_scope: Some("docs/implementation-plan-identity-and-services.md"),
+        },
         run: gate_classification::run,
     },
     Task {
@@ -93,7 +167,24 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-inconclusive",
         description: "every venue invoking a gate that can answer INCONCLUSIVE handles exit 3",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // All four declared sites are present and handle exit 3. The extra invocation in
+            // nix/rogue.sh has no declared handling and must be named as a new site.
+            seeds: &[
+                ("justfile", "causality:\n    cargo run -p xtask -- test-causality\n"),
+                ("flake.nix", "{ } # root marker\napp = nix run .#causality\n"),
+                (
+                    "devenv.nix",
+                    "status=0\ncargo run -p xtask -- test-causality || status=$?\nif [ \"$status\" -eq 3 ]; then exit 3; fi\nexit \"$status\"\n",
+                ),
+                (
+                    ".github/workflows/ci.yml",
+                    "run: |\n  status=0\n  cargo run -p xtask -- test-causality || status=$?\n  if [ \"$status\" -eq 3 ]; then exit 3; fi\n  exit \"$status\"\n",
+                ),
+                ("nix/rogue.sh", "#!/usr/bin/env bash\ncargo run -p xtask -- test-causality\n"),
+            ],
+            in_scope: Some("nix/rogue.sh"),
+        },
         run: inconclusive::run,
     },
 ];

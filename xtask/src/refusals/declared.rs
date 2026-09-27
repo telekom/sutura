@@ -225,13 +225,15 @@ fn enum_body(text: &str, from: usize) -> Option<&str> {
 
 /// The top-level variant names in an enum body.
 ///
-/// Depth-counted, so a field named `Something` inside a struct variant is not a variant, and
-/// indentation is not what decides. A doc comment or an attribute line has no identifier followed
-/// by `{`, `(` or `,` at depth zero, so neither reads as one.
+/// Depth-counted over comments-blanked text, so a field named `Something` inside a struct variant
+/// is not a variant, and a brace inside a comment does not move the depth. A doc comment or an
+/// attribute line has no identifier followed by `{`, `(` or `,` at depth zero, so neither reads as
+/// one.
 fn variant_names(body: &str) -> Vec<String> {
+    let blanked = crate::rust_source::blank_comments(body);
     let mut names = Vec::new();
     let mut depth = 0_usize;
-    for line in body.lines() {
+    for line in blanked.lines() {
         let trimmed = line.trim();
         if depth == 0
             && let Some(name) = variant_at(trimmed)
@@ -352,6 +354,15 @@ mod tests {
                 String::from("Nested")
             ]
         );
+    }
+
+    #[test]
+    fn a_doc_comment_containing_braces_does_not_skew_depth() {
+        // An unbalanced `{` in a doc comment was counted as depth, so every variant below it read
+        // as nested and vanished. A balanced `{example}` nets to zero on its line and proves
+        // nothing, so the fixture opens one and never closes it.
+        let body = "\n    /// Opens a `{` block.\n    Real,\n    Also,\n";
+        assert_eq!(variant_names(body), vec![String::from("Real"), String::from("Also")]);
     }
 
     #[test]

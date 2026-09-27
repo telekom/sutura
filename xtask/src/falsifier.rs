@@ -16,33 +16,28 @@
 //! legitimate pass: a tree with no text file genuinely has no over-long file and no CRLF, so only a
 //! violation falsifies them. Measured - without the seed, `max-lines`, `line-endings` and
 //! `text-hygiene` all answer `ok` here, and every other gate is falsified by the bare root alone.
-//! No extension here is `.rs`, deliberately: `check-expect-thresholds` anchors its floor on
-//! `xtask/src/main.rs` (see `threshold_expect`), which no falsifier tree can contain, so a
-//! foreign `.rs` would no longer buy it a satisfied floor - the absent anchor still refuses it
-//! (`Refusal::NotJudged`). And `check-worktree-state` is the reason `nix/shared-scratch.sh`
-//! exists rather than a Rust file.
+//! The shared tree has no `.rs` file. Gates with a Rust subject seed their own: for example,
+//! `check-expect-thresholds` supplies its required `xtask/src/main.rs` anchor with a forbidden
+//! attribute. Without that seed, its absent-anchor refusal (`Refusal::NotJudged`) would say
+//! nothing about the threshold rule. `check-worktree-state` uses `nix/shared-scratch.sh` because
+//! its subject is a shared-path write in a shell script.
 //!
-//! **A seed is what makes a refusal come from a gate's OWN RULE rather than from a missing input,
-//! and only five of the gates here manage that.** Measured on `d26814e2` plus this commit by
-//! running every registered hygiene gate inside a reconstruction of this tree and classifying its
-//! first line: **23 refuse on an absent or unreadable input, 9 on an empty-scan floor, and 5 on
-//! their own rule** - `max-lines`, `line-endings` and `text-hygiene` off the seeded text files,
-//! `check-worktree-state` off the shell script, and `check-nix-platform` off `nix/platform.nix`.
-//!
-//! **THOSE THREE NUMBERS ARE A MEASUREMENT AND NOTHING EXECUTES THEM, which is the residue
-//! `telekom/sutura#371` names.** The sentence they replace said 20 / 8 / 3 over 31 gates and was
-//! wrong in every figure by the time it was read: all 37 gates refuse, so the test below stayed
-//! green for the whole time the split was stale. A gate that stops refusing on its own rule and
-//! starts refusing on a missing input is a weaker gate and moves nothing here. `AGENTS.md` prefers
-//! a check to a sentence and this is still a sentence: classifying a reason mechanically means
-//! capturing each gate's own output in-process, which is a design question rather than a one-liner.
-//! **So treat the split as of its commit and re-measure rather than citing it.**
+//! **A seed is what makes a refusal come from a gate's OWN RULE rather than from a missing input.**
+//! The shared files falsify some rules directly; task-specific seeds cover others. The test below
+//! asserts a `Fail` verdict and that each declared subject exists, but it does not classify the
+//! refusal's reason. A gate can still refuse on a different arm after its real finding decays.
+//! The review mutation for each new seed must suppress that finding and observe the sweep fail;
+//! that is the limit `telekom/sutura#371` names.
 //!
 //! `telekom/sutura#405` asks its own gate to be one of them, so the shell script below carries a
 //! real violation - an unkeyed path under the machine's temporary root - and
 //! `check-worktree-state` refuses it by name, with a line number, having found and adjudicated one
 //! taking. The file is a `.sh` under `nix/` because that is a scope no other gate in the sweep
 //! reads for content, so it falsifies exactly one gate.
+//!
+//! `check-skills` compares a parsed router with the skill tree only after checking three agent
+//! links. The shared tree gives it valid links; otherwise a missing-link refusal would hide the
+//! seeded missing route. Other gates skip these symlinks in the file census.
 //!
 //! **Why this module exists at all, rather than sitting in `main.rs`:** that file hit the
 //! 1000-line cap on the merge of two branches that both grew it, and `sutura/gates` says to move
@@ -70,6 +65,15 @@ pub(crate) fn falsifier_tree() -> PathBuf {
     std::fs::create_dir_all(&root).expect("a scratch root");
     std::fs::write(root.join("flake.nix"), "{ }\n").expect("the first root marker");
     std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = []\n").expect("the second root marker");
+    std::fs::create_dir_all(root.join(".agents/skills")).expect("the routed skills tree");
+    for link in crate::repo::INDEX_SYMLINKS {
+        let path = root.join(link);
+        std::fs::create_dir_all(path.parent().expect("a skill link has a parent")).expect("an agent directory");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("../.agents/skills", path).expect("an agent skill link");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir("../.agents/skills", path).expect("an agent skill link");
+    }
     // Over the 1000-line cap and clean in every other way, so `max-lines` is the only gate this
     // file is about.
     let mut over_long = String::new();

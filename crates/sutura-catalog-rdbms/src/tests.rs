@@ -16,6 +16,38 @@ use crate::{
     TableAddress,
 };
 
+#[cfg(feature = "live")]
+#[test]
+fn the_reader_rejects_untrusted_sql_identifiers_before_opening_a_connection() {
+    use crate::postgres_reader::{InvalidReaderConfig, PostgresReader, RowPredicate};
+
+    let config = tokio_postgres::Config::new();
+    let schema = PostgresReader::new(
+        config.clone(),
+        None,
+        String::from("dictionary\"; DROP SCHEMA public; --"),
+        String::from("test"),
+        RowPredicate::None,
+        None,
+        None,
+    );
+    assert!(matches!(schema, Err(InvalidReaderConfig::Schema)));
+
+    let predicate = PostgresReader::new(
+        config,
+        None,
+        String::from("dictionary"),
+        String::from("test"),
+        RowPredicate::Equals {
+            column: String::from("state\" OR true --"),
+            value: String::from("live"),
+        },
+        None,
+        None,
+    );
+    assert!(matches!(predicate, Err(InvalidReaderConfig::PredicateColumn)));
+}
+
 fn name() -> SourceName {
     SourceName::parse("local").expect("a test name is a name")
 }
@@ -26,6 +58,23 @@ fn version() -> DefinitionVersion {
 
 fn over() -> RdbmsCatalog<FixtureReader> {
     crate::fixture::over_fixture_source(name(), version())
+}
+
+#[test]
+fn a_dictionary_catalog_binds_models_to_its_declared_data_source() {
+    let catalog_name = SourceName::parse("dictionary").expect("catalog name parses");
+    let source_alias = SourceName::parse("warehouse").expect("source alias parses");
+    let pinned = RdbmsCatalog::new(catalog_name.clone(), version(), FixtureReader)
+        .with_source_alias(source_alias.clone())
+        .load()
+        .expect("the fixture dictionary loads");
+    let orders = ModelName::parse("orders").expect("model name parses");
+    assert_eq!(
+        pinned.definitions().model(&orders).expect("the fixture has orders").source(),
+        &source_alias,
+    );
+    assert!(pinned.manifest().get(&catalog_name).is_some());
+    assert!(pinned.manifest().get(&source_alias).is_none());
 }
 
 fn address(schema: &str, table: &str) -> TableAddress {

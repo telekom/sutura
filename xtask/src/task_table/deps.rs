@@ -15,7 +15,13 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-pins",
         description: "no tool is pinned by both nix and pixi",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            seeds: &[
+                ("flake.nix", "apps.zizmor = { type = \"app\"; };\n"),
+                ("pixi.toml", "[dependencies]\nzizmor = \"1.0\"\n"),
+            ],
+            in_scope: Some("pixi.toml"),
+        },
         run: pins::run,
     },
     Task {
@@ -65,7 +71,16 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-arrow",
         description: "one Arrow major in Cargo.lock, or an explained exception",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            seeds: &[
+                (
+                    "Cargo.lock",
+                    "[[package]]\nname = \"arrow\"\nversion = \"59.0.0\"\n\n[[package]]\nname = \"arrow-schema\"\nversion = \"60.0.0\"\n",
+                ),
+                ("devco/arrow-majors-allow", "59 2026-09-27 engine major\n"),
+            ],
+            in_scope: Some("Cargo.lock"),
+        },
         run: arrow_major::run,
     },
     Task {
@@ -115,7 +130,26 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-shipped-binaries",
         description: "every release-path binary literal equals nix/shipped.nix, and every documented feature build is probed",
         kind: Kind::Hygiene(Reads::Prose),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // The feature build is documented and probed; only the release literal drifts.
+            seeds: &[
+                (
+                    "nix/shipped.nix",
+                    "binaries = [\n  { bin = \"sutura\"; package = \"sutura-cli\"; probeFeatures = [ \"bigquery\" ]; }\n];\n",
+                ),
+                (
+                    ".github/workflows/release.yml",
+                    "name: release\nenv:\n  BINARIES: sutura-serve\njobs:\n  link:\n    runs-on: ubuntu-latest\n    steps:\n      - run: |\n          test -n \"$BINARIES\" || exit 1\n          nix build \".#feature-probes-${TARGET}\"\n          if [ ! -s \"$manifest\" ]; then exit 1; fi\n          for bin in $BINARIES; do echo \"$bin\"; done\n",
+                ),
+                (".github/actions/build-artefacts/action.yml", "name: build-artefacts\n"),
+                ("docs/index.md", "# Index\n"),
+                (
+                    "docs/probe.md",
+                    "```bash\ncargo build --release -p sutura-cli --features bigquery\n```\n",
+                ),
+            ],
+            in_scope: Some(".github/workflows/release.yml"),
+        },
         run: shipped::run,
     },
     Task {
@@ -151,7 +185,16 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-feature-remedies",
         description: "a refusal that says to rebuild names a feature the crate declares",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            seeds: &[
+                (
+                    "crates/thing/src/lib.rs",
+                    "fn refuse() -> &'static str { \"Build thing with --features bogus\" }\n",
+                ),
+                ("crates/thing/Cargo.toml", "[features]\ntls = []\n"),
+            ],
+            in_scope: Some("crates/thing/src/lib.rs"),
+        },
         run: feature_remedies::run,
     },
 ];

@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http/src/inbound/keys.rs b/crates/sutura-http/src/inbound/keys.rs
+index 2e038aa3f..0ff7d2f0c 100644
+--- a/crates/sutura-http/src/inbound/keys.rs
++++ b/crates/sutura-http/src/inbound/keys.rs
+@@ -408,7 +408,7 @@ fn verifier_for(jwk: &Jwk) -> Result<Verifier, InvalidKeySet> {
+         AlgorithmParameters::OctetKeyPair(_) => KeyFamily::EdwardsCurve,
+         _ => return Err(InvalidKeySet::UnsupportedKeyFamily),
+     };
+-    let key = DecodingKey::from_jwk(jwk).map_err(|cause| InvalidKeySet::UnusableKey { cause })?;
++    let key = DecodingKey::from_jwk(jwk).ok().ok_or(InvalidKeySet::NoUsableKey)?;
+     Ok(Verifier { key, family })
+ }
+ 

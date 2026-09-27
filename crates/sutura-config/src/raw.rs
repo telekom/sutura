@@ -556,6 +556,10 @@ pub(crate) struct RawCatalog {
     /// The declared `sources:` alias the dictionary's described objects are served from.
     #[serde(default)]
     pub(crate) source_alias: Option<String>,
+    /// The schema holding the documentation rows - a typed identifier, never a SQL fragment. Absent
+    /// selects the reader's documented default.
+    #[serde(default)]
+    pub(crate) dictionary_schema: Option<String>,
     /// The row cap on one dictionary read. Absent selects the reader's default.
     #[serde(default)]
     pub(crate) max_dictionary_rows: Option<u64>,

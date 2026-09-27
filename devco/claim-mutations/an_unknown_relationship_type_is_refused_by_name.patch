@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-catalog-datacontract/src/lib.rs b/crates/sutura-catalog-datacontract/src/lib.rs
+index 8a68f9b9b..ffcf90332 100644
+--- a/crates/sutura-catalog-datacontract/src/lib.rs
++++ b/crates/sutura-catalog-datacontract/src/lib.rs
+@@ -359,9 +359,9 @@ impl DataContractCatalog {
+         if let Some(found) = declaration.r#type.as_deref()
+             && found != FOREIGN_KEY_TYPE
+         {
+-            return Err(DataContractError::UnknownRelationshipType {
++            return Err(DataContractError::UnsupportedReference {
+                 path: path.to_path_buf(),
+-                found: found.to_owned(),
++                reference: found.to_owned(),
+             });
+         }
+         let origin = SingleColumnReference::parse(&declaration.from).map_err(|cause| cause.into_error(path))?;

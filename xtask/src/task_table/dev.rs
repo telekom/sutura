@@ -93,7 +93,29 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-fuzz",
         description: "every fuzz target is declared, seeded, and run by the workflow",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // All required target inputs are present. Only the dictionary's entry is invalid.
+            seeds: &[
+                (
+                    "fuzz/Cargo.toml",
+                    "[profile.release]\npanic = \"abort\"\n[[bin]]\nname = \"sample\"\npath = \"fuzz_targets/sample.rs\"\n",
+                ),
+                ("fuzz/Cargo.lock", "lock\n"),
+                ("fuzz/fuzz_targets/sample.rs", "libfuzzer_sys::fuzz_target!(|_: &[u8]| {});\n"),
+                ("fuzz/seeds/sample/input", "seed\n"),
+                ("fuzz/dictionaries/sample.dict", "invalid entry\n"),
+                (
+                    ".github/workflows/fuzz.yml",
+                    "strategy:\n  matrix:\n    target:\n      - sample\n",
+                ),
+                (".github/workflows/release.yml", "name: Release\n"),
+                (
+                    ".pre-commit-config.yaml",
+                    "repos:\n  - repo: local\n    hooks:\n      - id: fuzz\n        files: '^fuzz/'\n",
+                ),
+            ],
+            in_scope: Some("fuzz/dictionaries/sample.dict"),
+        },
         run: fuzz::run,
     },
     Task {

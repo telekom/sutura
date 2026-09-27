@@ -169,7 +169,7 @@ pub(crate) fn plan_with_base(files: &[ChangedFile], read: &PostImage<'_>, base: 
         return Plan::DeletedTests(deleted_tests);
     }
 
-    partition(files, read)
+    super::declared::keep(partition(files, read), read, base)
 }
 
 /// Keep the existing test harness callable against the pre-change planner.
