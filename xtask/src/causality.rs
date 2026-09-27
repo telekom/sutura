@@ -96,6 +96,7 @@ pub(crate) mod attributes;
 mod base;
 mod claim;
 mod coverage;
+mod declared;
 mod diff;
 mod edited;
 mod features;
@@ -218,6 +219,7 @@ fn prove(
     for f in &first.remove {
         println!("  remove:    {f}  (added in this branch)");
     }
+    declared::report_kept(files, separable);
     report_orphaned_modules(&first.remove, files, read);
     for f in &separable.held_back {
         println!("  held:      {f}  (carries its own tests)");
@@ -637,7 +639,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             // `Claim-Cell:` rather than a blanket override.
             let waived = weakens::Waived::of(&worktree::messages(&root, &at));
             match report_deleted_tests(&deleted, &waived) {
-                Verdict::Pass => partition(&files, &working_tree),
+                Verdict::Pass => declared::keep(partition(&files, &working_tree), &working_tree, &base_tree),
                 refused => return refused,
             }
         }
