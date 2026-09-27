@@ -227,3 +227,45 @@ fn the_offered_suffixes_are_exactly_the_parsed_ones() {
         );
     }
 }
+
+/// Each affordance wraps the engine's own failure on a missing file as `Attach` naming the table.
+/// The `cause` is version-dependent engine text, so only the variant and the table are asserted.
+fn missing(file: &str) -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("no-such-dir").join(file)
+}
+
+#[test]
+fn attach_csv_refuses_a_path_that_does_not_exist() {
+    let refused = engine().attach_csv(&crate::orders(), &missing("orders.csv"));
+    assert!(
+        matches!(&refused, Err(DataFusionError::Attach { table, .. }) if table == "orders"),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn attach_json_refuses_a_path_that_does_not_exist() {
+    let refused = engine().attach_json(&crate::orders(), &missing("orders.ndjson"));
+    assert!(
+        matches!(&refused, Err(DataFusionError::Attach { table, .. }) if table == "orders"),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn attach_parquet_refuses_a_path_that_does_not_exist() {
+    let refused = engine().attach_parquet(&crate::orders(), &missing("orders.parquet"));
+    assert!(
+        matches!(&refused, Err(DataFusionError::Attach { table, .. }) if table == "orders"),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn attach_file_refuses_a_missing_csv_path() {
+    let refused = engine().attach_file(&crate::orders(), &missing("orders.csv"));
+    assert!(
+        matches!(&refused, Err(DataFusionError::Attach { table, .. }) if table == "orders"),
+        "{refused:?}"
+    );
+}

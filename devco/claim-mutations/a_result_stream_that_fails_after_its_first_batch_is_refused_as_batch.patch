@@ -1,0 +1,17 @@
+diff --git a/crates/sutura-exec-bigquery/src/adbc.rs b/crates/sutura-exec-bigquery/src/adbc.rs
+index 328cb3454..1dec58755 100644
+--- a/crates/sutura-exec-bigquery/src/adbc.rs
++++ b/crates/sutura-exec-bigquery/src/adbc.rs
+@@ -552,10 +552,8 @@ where
+             core::num::NonZeroUsize::new(MOST_RESULT_BYTES).unwrap_or(core::num::NonZeroUsize::MIN),
+         ),
+     );
+-    for batch in reader {
+-        accumulating
+-            .push(batch.map_err(AdbcError::Batch)?)
+-            .map_err(AdbcError::Unannounced)?;
++    for batch in reader.flatten() {
++        accumulating.push(batch).map_err(AdbcError::Unannounced)?;
+     }
+     Ok(accumulating.finish())
+ }

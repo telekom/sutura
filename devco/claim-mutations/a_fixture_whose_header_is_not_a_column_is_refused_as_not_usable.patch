@@ -1,0 +1,18 @@
+diff --git a/crates/sutura-exec-bigquery/src/lib.rs b/crates/sutura-exec-bigquery/src/lib.rs
+index 36bdc1b24..5b1bdb3b9 100644
+--- a/crates/sutura-exec-bigquery/src/lib.rs
++++ b/crates/sutura-exec-bigquery/src/lib.rs
+@@ -472,10 +472,9 @@ where
+             path: csv.display().to_string(),
+             cause,
+         })?;
+-        let fixture = crate::importer::read_fixture(&text).map_err(|cause| FixtureNotLoaded::NotUsable {
+-            path: csv.display().to_string(),
+-            cause,
+-        })?;
++        let Ok(fixture) = crate::importer::read_fixture(&text) else {
++            return Ok(0);
++        };
+         let statement = fixture.create_statement(table);
+         // No parameters, deliberately, and the no-injection invariant is about exactly this
+         // position: a bind parameter carries a VALUE FROM A QUESTION, and there is no question here.

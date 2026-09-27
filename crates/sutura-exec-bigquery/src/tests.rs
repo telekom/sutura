@@ -34,6 +34,7 @@ use crate::{BigQueryError, BigQueryWarehouse};
 /// The transports and fixtures these assertions are written against.
 mod fakes;
 mod preflight;
+mod refusals;
 mod results;
 
 use fakes::{
