@@ -371,16 +371,30 @@ fn is_manifest(rel: &str) -> bool {
         .is_some_and(|dir| !dir.contains('/'))
 }
 
+/// A needle inside a one-line string literal is live in the dense form and satisfies nothing the
+/// compiler emits, so each of the three is refused before it is counted as a registry, the harness
+/// or a binding - the fail-open half of the limit `scan`'s header declares.
+fn unquoted(rel: &str, text: &str, needle: &str) -> Result<(), String> {
+    scan::quoted(text, needle).first().map_or(Ok(()), |line| {
+        Err(format!(
+            "{rel}: line {line}: a string literal spells `{needle}`, and a needle is the whole evidence \
+             this gate has - a quoted declaration is not a declaration"
+        ))
+    })
+}
+
 /// One file's contribution to the scan.
 fn inspect(rel: &str, text: &str, found: &mut Sources) -> Result<(), String> {
     let (code, dense) = scan::lexed(text);
     if !scan::sites(&dense, scan::REGISTRY_ARM).is_empty() {
+        unquoted(rel, text, scan::REGISTRY_ARM)?;
         found.registries.push(Site {
             path: rel.to_owned(),
             dense: dense.clone(),
         });
     }
     if !scan::sites(&dense, scan::PACKS_MACRO).is_empty() {
+        unquoted(rel, text, scan::PACKS_MACRO)?;
         found.definitions.push(rel.to_owned());
         // The definition's own recursive arms name the macro; nothing there is a binding.
         return Ok(());
@@ -389,16 +403,7 @@ fn inspect(rel: &str, text: &str, found: &mut Sources) -> Result<(), String> {
     if sites.is_empty() || !is_test_target(rel) {
         return Ok(());
     }
-    // A needle inside a one-line string literal is live in the dense form and satisfies nothing
-    // the compiler emits, so it is refused before anything is parsed rather than counted as a
-    // binding - the fail-open half of the limit `scan`'s header declares.
-    if let Some(line) = scan::quoted(text, scan::BINDING).first() {
-        return Err(format!(
-            "{rel}: line {line}: a string literal spells `{}`, and a needle is the whole evidence \
-             this gate has - a quoted declaration is not a declaration",
-            scan::BINDING
-        ));
-    }
+    unquoted(rel, text, scan::BINDING)?;
     let paths = scan::module_paths(&code).map_err(|why| format!("{rel}: {why}"))?;
     for line in sites {
         let invocation = scan::invocation(&dense, &paths, line).map_err(|why| format!("{rel}: {why}"))?;
@@ -684,5 +689,31 @@ mod tests {
             Some("crates/sutura-exec-duckdb/")
         );
         assert_eq!(owner("xtask/src/conformance.rs"), None);
+    }
+
+    /// **A string literal spelling the registry arm is not a declaration.** Before the `quoted`
+    /// guard was applied to `REGISTRY_ARM`, a one-line literal spelling `(data_systems:..)` was
+    /// counted as a live registry - the exact asymmetry the `BINDING` guard already closed. This
+    /// test calls `inspect` directly with a fixture that has the arm in a string literal and no
+    /// real arm, and asserts the refusal.
+    #[test]
+    fn a_string_literal_spelling_the_registry_arm_is_not_a_registry() {
+        let text = "let note = \"(data_systems:$cell:ident)\";\n";
+        let mut found = super::Sources {
+            read: 0,
+            registries: Vec::new(),
+            definitions: Vec::new(),
+            bindings: Vec::new(),
+            dirs: std::collections::BTreeMap::new(),
+        };
+        let result = super::inspect("crates/example/src/lib.rs", text, &mut found);
+        let Err(why) = result else {
+            panic!("a string literal spelling the arm was accepted as a registry")
+        };
+        assert!(
+            why.contains("quoted declaration is not a declaration"),
+            "the refusal names the quoted-literal shape: {why}"
+        );
+        assert!(found.registries.is_empty(), "no registry was recorded");
     }
 }
