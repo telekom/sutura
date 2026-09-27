@@ -24,8 +24,8 @@
 //!
 //! [`ApiSettings`](crate::api::ApiSettings) and [`LogFormat`](crate::telemetry::LogFormat) default by
 //! [`Environment`](crate::Environment) and record whether an operator wrote the value down, so the
-//! startup log can tell "somebody chose this" from "nobody did". Neither key here does, and the
-//! reason is that neither decision is a function of the environment.
+//! startup log can tell "somebody chose this" from "nobody did". No key here does, and the reason
+//! is that none of these decisions is a function of the environment.
 //!
 //! Whether a catalog's authors are trusted enough to quote their prose into an agent's context is a
 //! fact about who writes the catalog, not about whether the process is on a laptop. A default that
@@ -81,7 +81,7 @@ pub struct UnknownCatalogProse {
 }
 
 impl CatalogProse {
-    /// Every accepted spelling.
+    /// The canonical spellings.
     pub const NAMES: &'static [&'static str] = &["quoted", "omitted"];
 
     /// Reads the word.

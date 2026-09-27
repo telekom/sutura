@@ -47,11 +47,12 @@ impl UnknownEnvironment {
 }
 
 impl Environment {
-    /// Every accepted spelling, in the order the enum declares them.
+    /// The canonical spellings, in the order the enum declares them.
     ///
-    /// One list, used by [`Environment::parse`], by the error message above and by the test that
-    /// asserts a round trip. A second list is how an added variant becomes unparseable while
-    /// still being documented.
+    /// One list, used by the error message above and by the test that asserts a round trip - which
+    /// fails if a name here stops parsing. `parse` and `as_str` spell the words again as their own
+    /// literals; a second list is how an added variant becomes unparseable while still being
+    /// documented.
     pub const NAMES: &'static [&'static str] = &["development", "test", "production"];
 
     /// Reads an environment name.
@@ -84,7 +85,7 @@ impl Environment {
 
     /// Is this the environment the strict refusals apply to?
     ///
-    /// A method rather than `== Environment::Production` at each call site: there are five
+    /// A method rather than `== Environment::Production` at each call site: there are four
     /// refusals keyed off it, and a fourth variant added later has to answer this question once.
     #[inline]
     pub const fn is_production(self) -> bool {

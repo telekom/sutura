@@ -94,8 +94,9 @@ pub enum OkfCatalogError
 
 Why a directory could not be read as an OKF catalog.
 
-Every variant carries the path, because a catalog is many files and a message that names no file
-sends a reader to read all of them.
+Every variant but three (`Inconsistent`, `UncheckableKnowledge`, `Digest`) carries the path,
+because a catalog is many files and a message that names no file sends a reader to read all of
+them.
 
 ### Variants
 
@@ -115,11 +116,11 @@ sends a reader to read all of them.
 - `UncheckableKnowledge`
 - `Empty`
 - `TooManyDocuments`
-- `TooManyEntries` - The walk visited more directory entries than `MAX_CATALOG_ENTRIES` permits.
+- `TooManyEntries` - The walk visited more directory entries than `sutura_bounded_read::MAX_CATALOG_ENTRIES` permits.
 
   Bounds the tree, not the documents: a wide directory of skipped non-document files, or a
   bind-mount cycle that would not terminate, is refused here rather than walked without end.
-- `TooLarge` - The read of this document would push the running total over `MAX_CATALOG_BYTES`.
+- `TooLarge` - The read of this document would push the running total over `sutura_bounded_read::MAX_CATALOG_BYTES`.
 
   `path` is the catalog root, matching `TooManyDocuments` and `Empty` above - the rendered
   text names "the catalog", so the path in it has to be the catalog's, not one file's.

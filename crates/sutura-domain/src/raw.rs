@@ -35,7 +35,7 @@ use core::fmt;
 /// what it returns.
 pub const MAX_RAW_STATEMENT_BYTES: usize = 64 * 1024;
 
-/// One statement, as a caller sent it: unparsed text, bounded and non-empty.
+/// One statement, in the form it is executed: trimmed, bounded, non-empty text.
 ///
 /// **This is not a SQL type.** Nothing here reads a keyword out of the text - `docs/adr/0013`'s own
 /// rule against inspecting a statement to decide read-only applies to every other purpose a parser
@@ -87,7 +87,8 @@ impl RawStatement {
 
     /// The statement text, for the one adapter that runs it and for an audit record.
     ///
-    /// **Never handed to a renderer for a caller-facing message.** This is the field `docs/adr/0013`'s
+    /// **Never handed to a renderer for a caller-facing message** - held by review, not by this
+    /// type, since the accessor is public. This is the field `docs/adr/0013`'s
     /// consequences call "an audit-only field never returned to the caller" - the accessor exists for
     /// `crate::audit::CallRecord::of_raw` and for the execution port, not for a wire type to echo back.
     #[inline]
@@ -190,7 +191,7 @@ impl fmt::Display for RawRefusalReason {
 /// it: `RawOutcome` has no field of that type anywhere in this module, so a raw result cannot be
 /// rendered as certified by filling in a digest - there is nowhere to put one. A `compile_fail`
 /// doctest on this type, paired with a compiling twin, is what keeps that a property of the type
-/// rather than a claim in this comment: see `crate::raw` module tests.
+/// rather than a claim in this comment: see the `compile_fail_has_no_provenance` doctests below.
 ///
 /// The two variants deliberately do not mirror `ToolOutcome`'s field names: `Rows` rather than
 /// `Answer`, so a wire type built by matching on both cannot pattern-match its way to identical
@@ -220,8 +221,8 @@ impl RawOutcome {
         }
     }
 
-    /// How many rows this outcome carries, for an audit record. `0` for a refusal - nothing ran, or
-    /// nothing came back.
+    /// How many rows this outcome carries, for an audit record. `0` for a refusal - a refusal carries
+    /// no rows, regardless of how far execution got.
     #[inline]
     #[must_use]
     pub const fn row_count(&self) -> usize {

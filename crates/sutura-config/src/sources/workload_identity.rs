@@ -291,8 +291,9 @@ impl WifScope {
     /// Parses a scope.
     ///
     /// A scope is a URL (`https://www.googleapis.com/auth/bigquery.readonly`), so it allows the `%`
-    /// and letters a URL does rather than the narrower set an audience does. Same bound, same reason:
-    /// it belongs in a request and a refusal should never log it raw.
+    /// and letters a URL does rather than the narrower set an audience does. A longer bound than an
+    /// audience's, and the same reason for having one: it belongs in a request and a refusal should
+    /// never log it raw.
     pub fn parse(raw: &str) -> Result<Self, InvalidWorkloadIdentity> {
         let trimmed = raw.trim();
         if trimmed.is_empty() {

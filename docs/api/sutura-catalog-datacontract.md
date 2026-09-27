@@ -127,8 +127,9 @@ pub enum DataContractError
 
 Why a directory could not be read as a data-contract catalog.
 
-Every variant carries the path, because a catalog is many files and a message that names no file
-sends a reader to read all of them.
+Every variant but five (`TargetUniquenessUnknown`, `RelationshipName`, `Inconsistent`,
+`UncheckableKnowledge`, `Digest`) carries the path, because a catalog is many files and a
+message that names no file sends a reader to read all of them.
 
 ### Variants
 

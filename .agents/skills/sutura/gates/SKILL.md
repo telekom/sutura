@@ -1165,7 +1165,7 @@ took out. A waiver excuses only that deletion: a fully waived set falls through 
 plan, so a test the same range adds is still proven (`github.com/telekom/sutura#1068` - it used to
 pass the range unmeasured). The same fall-through means a waived deletion beside an inseparable file
 now reaches `Plan::NotSeparable` and refuses where it used to pass; only a `Claim-Cell:` clears it
-there. It reads the PRE-image, threaded into `causality::plan` as a third argument
+there. It reads the PRE-image, threaded into `causality::plan::plan_with_base` as a third argument
 (`edited::deletion_in`). An edit inside a `#[cfg(test)]` helper fn that a `#[test]`
 calls is routed into proof when it adds a line (`edited::edited_helper_caller` names the caller);
 a pure behavioural deletion in that helper names the caller for the `Weakens-Test:` refusal.

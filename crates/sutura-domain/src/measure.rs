@@ -192,7 +192,7 @@ struct TermRepr {
 
 /// Why a term was rejected.
 ///
-/// Four variants rather than one message, because each of them is a different mistake and the
+/// Five variants rather than one message, because each of them is a different mistake and the
 /// variant is what says which. A single "invalid term" would send an author back to compare their
 /// line against a grammar.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -285,8 +285,9 @@ pub enum ZeroDenominator {
     /// dialect's own safe-divide.
     #[serde(rename = "yields_null")]
     Null,
-    /// The division is emitted unguarded, and the fault is raised where the value crosses back into
-    /// the domain. A definition choosing this is saying an empty period is a fault and not a figure.
+    /// The division is emitted unguarded, and the fault is raised by [`crate::warehouse::Real`]'s
+    /// finiteness check when the value crosses back into the domain. A definition choosing this is
+    /// saying an empty period is a fault and not a figure.
     ///
     /// **The word used to be a wish, and this paragraph is the correction.** "Unguarded" is not the
     /// same as "fails": both generators cast the numerator to a floating type first, because integer
@@ -384,8 +385,8 @@ impl Measure {
 /// **Definitional, not a question.** `mrr` means recurring revenue *from active subscriptions*, and
 /// a statement that omits that predicate returns a different number under the same name - the exact
 /// failure this repository exists to prevent, arrived at by omission rather than by tampering. So a
-/// required filter is applied to every question about the metric, and a caller cannot see it, choose
-/// it or turn it off.
+/// required filter is applied to every question about the metric at plan time, and a caller cannot
+/// see it, choose it or turn it off.
 ///
 /// Its values come from the catalog rather than from a caller, and they are still bound as
 /// parameters rather than written into the statement. Not because the catalog is untrusted in the

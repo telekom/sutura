@@ -46,8 +46,8 @@ pub struct ScopedView<'a> {
 
 impl<'a> ScopedView<'a> {
     /// Every metric, unfiltered - for the surfaces `docs/adr/0028` names as retaining the whole
-    /// bundle. Public, so not sealed against misuse; what it buys is that nothing downstream
-    /// renders a catalog from a bare `&PinnedDefinitions`.
+    /// bundle. Public, so not sealed against misuse, and only review keeps a renderer from reading a
+    /// bare `&PinnedDefinitions` instead.
     #[inline]
     #[must_use]
     pub const fn everything(pinned: &'a PinnedDefinitions) -> Self {

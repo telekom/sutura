@@ -45,7 +45,7 @@ pub enum MalformedQuestion {
     Range(#[from] sutura_runtime::relative_range::RangeResolutionError),
 }
 
-/// Which status a refusal comes back as. Its own file because that is eleven judgements with a
+/// Which status a refusal comes back as. Its own file because each refusal is a judgement with a
 /// reason each, and they belong beside one another rather than scattered through this one.
 ///
 /// [`RefusalBody`] stays here, with the other wire shapes, because it is part of the published
@@ -104,9 +104,9 @@ pub struct QuestionBody {
 #[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TopBody {
-    /// How many groups to return. Must be positive, and no more than this deployment will
-    /// certify - a larger count is the same refusal an unbounded question over that many groups
-    /// already gets.
+    /// How many groups to return. Must be positive here; the deployment's row cap is applied
+    /// when the query is resolved, not by this conversion - a larger count is the same refusal
+    /// an unbounded question over that many groups already gets.
     #[schema(example = 10)]
     n: u32,
     /// `metric` ranks by the question's own measure; `period` ranks by the time bucket.
@@ -237,7 +237,7 @@ fn query_of(body: QuestionBody, clock: &impl sutura_runtime::relative_range::Wal
 ///
 /// **The two variants come back with different statuses**, and the `outcome` discriminator is what a
 /// caller branches on within one of them. An answer is a `200`. A refusal is a `403`, `404`, `409`,
-/// `413`, `422` or `503` depending on why - [`refusal`] holds the mapping and the reasoning, and
+/// `413`, `422`, `429` or `503` depending on why - [`refusal`] holds the mapping and the reasoning, and
 /// [`Outcome`] is what pairs the two.
 ///
 /// It used to be `200` for both, on the grounds that an error status invites a client library to

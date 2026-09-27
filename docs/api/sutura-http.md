@@ -115,8 +115,8 @@ Every route this crate governs.
 Built as a function rather than a `const` because the paths are composed from `API_V1_PREFIX`
 and `base_paths`, and composing them here is what keeps one owner for a path.
 
-`pub` because `crate::router::assemble` reads it to refuse an ungoverned route, and because a test
-in `crate::openapi` compares it against the generated document's operation identifiers.
+`pub` because `tests/operations.rs` compares it against the generated document's operations;
+`crate::router::assemble` reads it through `capability_of` to refuse an ungoverned route.
 
 ## `use permitted_for`
 
@@ -438,11 +438,11 @@ forget. A layer over the whole subtree cannot, and the only place left to forget
 # What this gates, and what it does not
 
 **It decides which OPERATIONS a caller may invoke. It decides nothing about which rows an answer
-contains.** Both routes read the same pinned bundle and every question executes under the same
-identity, because no source executes as the asking subject - `docs/adr/0014`'s leg 1 establishes
-who is asking and leg 2 does not exist. A caller granted `sutura:metrics.ask` and not
-`sutura:catalog.read` cannot list the catalog and gets exactly the same numbers from a question as
-anybody else would.
+contains.** The catalog and question routes read the same pinned bundle and every question
+executes under the same identity, because no source executes as the asking subject -
+`docs/adr/0014`'s leg 1 establishes who is asking and leg 2 does not exist. A caller granted
+`sutura:metrics.ask` and not `sutura:catalog.read` cannot list the catalog and gets exactly the
+same numbers from a question as anybody else would.
 
 # Where the grant comes from, and the two holes a reader should check for
 
@@ -533,8 +533,8 @@ Every route this crate governs.
 Built as a function rather than a `const` because the paths are composed from `API_V1_PREFIX`
 and `base_paths`, and composing them here is what keeps one owner for a path.
 
-`pub` because `crate::router::assemble` reads it to refuse an ungoverned route, and because a test
-in `crate::openapi` compares it against the generated document's operation identifiers.
+`pub` because `tests/operations.rs` compares it against the generated document's operations;
+`crate::router::assemble` reads it through `capability_of` to refuse an ungoverned route.
 
 ### `fn capability_of`
 
@@ -3464,9 +3464,9 @@ pub const fn inbound_identity(&self) -> Option<&Arc<crate::inbound::InboundGate>
 
 Leg 1, if this deployment has it.
 
-Read by `crate::router` to install the layer, and by nothing else - a handler must not be able
-to reach the validator, which is why the middleware takes the gate as its own state rather than
-reading it back out of this one.
+Read by `crate::router` to install the layer, and by nothing else. The accessor is public, so
+review rather than the type keeps a handler off the validator; the middleware takes the gate
+as its own state rather than reading it back out of this one.
 
 ```rust
 pub const fn metrics(&self) -> &crate::metrics::Metrics
@@ -4189,7 +4189,7 @@ What a question produced.
 
 **The two variants come back with different statuses**, and the `outcome` discriminator is what a
 caller branches on within one of them. An answer is a `200`. A refusal is a `403`, `404`, `409`,
-`413`, `422` or `503` depending on why - `refusal` holds the mapping and the reasoning, and
+`413`, `422`, `429` or `503` depending on why - `refusal` holds the mapping and the reasoning, and
 `Outcome` is what pairs the two.
 
 It used to be `200` for both, on the grounds that an error status invites a client library to
@@ -4348,8 +4348,8 @@ documentation.
 
 **The variant NAMES carry no `Raw` prefix** (`clippy::enum_variant_names` over this
 already-`Raw`-prefixed type) - only their serialized tags do, pinned by an explicit
-`#[serde(rename)]` on each: `Refusal` alone would serialize exactly the certified path's own
-`outcome: "refusal"`, the one collision `docs/adr/0013` forbids.
+`#[serde(rename)]` on each, so no container-level `rename_all` can turn `Refusal` into the
+certified path's own `outcome: "refusal"`, the one collision `docs/adr/0013` forbids.
 
 ### `use RunSqlBody`
 
@@ -4411,8 +4411,7 @@ two keys on both bodies, because both carry rows and need the same two labels fo
 `"refusal"` - and carries no `provenance` or `definition_digest` key at any depth, matching
 `sutura_mcp::wire::raw::RawContent`'s shape on the other transport.
 
-The two are kept equal by review, the same limit `super::OutcomeBody`'s own module
-documentation states for the certified pair.
+The two are kept equal by review, the same limit `sutura_mcp::wire` states for the certified pair.
 
 #### `struct RunSqlBody`
 
@@ -4455,8 +4454,8 @@ documentation.
 
 **The variant NAMES carry no `Raw` prefix** (`clippy::enum_variant_names` over this
 already-`Raw`-prefixed type) - only their serialized tags do, pinned by an explicit
-`#[serde(rename)]` on each: `Refusal` alone would serialize exactly the certified path's own
-`outcome: "refusal"`, the one collision `docs/adr/0013` forbids.
+`#[serde(rename)]` on each, so no container-level `rename_all` can turn `Refusal` into the
+certified path's own `outcome: "refusal"`, the one collision `docs/adr/0013` forbids.
 
 ##### Variants
 

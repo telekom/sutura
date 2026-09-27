@@ -291,7 +291,7 @@ impl TryFrom<String> for DialectTag {
 
 /// The word itself, so a refusal can name the dialect a fragment was authored for.
 ///
-/// Worth having rather than `{:?}` at each site: eleven refusals in `sutura_sql::expression` carry a
+/// Worth having rather than `{:?}` at each site: twelve refusals in `sutura_sql::expression` carry a
 /// tag, and `DialectTag("duckdb")` is the derived `Debug` those would otherwise print into a message
 /// an operator reads.
 impl core::fmt::Display for DialectTag {
@@ -730,7 +730,7 @@ mod tests {
         let deserialized: DialectTag =
             serde_json::from_str("\"portable\"").expect("the reserved word is one a document can write");
         assert_eq!(deserialized, DialectTag::portable());
-        // `Display` is the word and not the derived `Debug`, which is what eleven refusals in
+        // `Display` is the word and not the derived `Debug`, which is what twelve refusals in
         // `sutura_sql::expression` interpolate.
         assert_eq!(DialectTag::portable().to_string(), "portable");
         assert_eq!(tag("clickhouse").to_string(), "clickhouse");

@@ -17,8 +17,7 @@
 //! `"refusal"` - and carries no `provenance` or `definition_digest` key at any depth, matching
 //! `sutura_mcp::wire::raw::RawContent`'s shape on the other transport.
 //!
-//! The two are kept equal by review, the same limit `super::OutcomeBody`'s own module
-//! documentation states for the certified pair.
+//! The two are kept equal by review, the same limit `sutura_mcp::wire` states for the certified pair.
 
 #![expect(
     clippy::too_long_first_doc_paragraph,
@@ -66,8 +65,8 @@ impl TryFrom<RunSqlBody> for RawStatement {
 ///
 /// **The variant NAMES carry no `Raw` prefix** (`clippy::enum_variant_names` over this
 /// already-`Raw`-prefixed type) - only their serialized tags do, pinned by an explicit
-/// `#[serde(rename)]` on each: `Refusal` alone would serialize exactly the certified path's own
-/// `outcome: "refusal"`, the one collision `docs/adr/0013` forbids.
+/// `#[serde(rename)]` on each, so no container-level `rename_all` can turn `Refusal` into the
+/// certified path's own `outcome: "refusal"`, the one collision `docs/adr/0013` forbids.
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 #[serde(tag = "outcome")]
 pub enum RawOutcomeBody {
@@ -178,9 +177,8 @@ mod tests {
         assert!(!rendered.contains("definition_digest"), "{rendered}");
     }
 
-    /// Three of the four; `TooManyRows`'s own status is pinned on the other transport.
-    ///
-    /// (`sutura_mcp::wire::raw::tests`), so this file does not name all four variants of
+    /// Three of the four; `TooManyRows`'s own status is pinned through the real router in
+    /// `crate::harness::run_sql`, so this file does not name all four variants of
     /// `RawRefusalReason` and read as a census over the enum `cargo xtask check-refusal-coverage`
     /// enrols it under - see that gate's own module documentation for why a file naming every
     /// variant supplies no evidence for any of them.
