@@ -1,5 +1,5 @@
 diff --git a/crates/sutura-catalog-datacontract/src/lib.rs b/crates/sutura-catalog-datacontract/src/lib.rs
-index 8a68f9b9b..d103b53c9 100644
+index 8a68f9b9b..4de070449 100644
 --- a/crates/sutura-catalog-datacontract/src/lib.rs
 +++ b/crates/sutura-catalog-datacontract/src/lib.rs
 @@ -575,7 +575,7 @@ fn map_read_error(cause: sutura_bounded_read::ReadError) -> DataContractError {
@@ -7,7 +7,7 @@ index 8a68f9b9b..d103b53c9 100644
              limit,
          },
 -        sutura_bounded_read::ReadError::Io { path, cause } => DataContractError::Io { path, cause },
-+        sutura_bounded_read::ReadError::Io { path, cause: _ } => DataContractError::Empty { path },
++        sutura_bounded_read::ReadError::Io { path, .. } => DataContractError::Empty { path },
      }
  }
  
