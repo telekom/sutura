@@ -9,7 +9,7 @@
 //!
 //! What survives is the ONE-sided duplication against a source that does not speak Arrow:
 //! `every_type_this_adapter_maps_answers_what_the_engine_answers` in
-//! `crates/sutura-exec-duckdb/src/lib.rs` maps a `duckdb::types::Value`, and that crate still may
+//! `crates/sutura-exec-duckdb/src/tests.rs` maps a `duckdb::types::Value`, and that crate still may
 //! not name an Arrow type - the `duckdb` crate declares `arrow ^58` while this major is 59
 //! (`devco/arrow-majors-allow`). So the agreement between those two is asserted as the same
 //! expected column written out in both places, and the two test names quote each other, so a change
@@ -76,7 +76,7 @@ fn wide_decimal(value: i128, scale: i8) -> ArrayRef {
 /// same rows rather than a second list of its own.
 fn mapping_table() -> Vec<Case> {
     // The twin of `every_type_this_adapter_maps_answers_what_the_engine_answers` in
-    // `crates/sutura-exec-duckdb/src/lib.rs`. Same logical values, same expected column, one row per
+    // `crates/sutura-exec-duckdb/src/tests.rs`. Same logical values, same expected column, one row per
     // width - because a Parquet `INT32` column under a `min` or a `max` answered there and errored
     // here, which is one plan with two outcomes depending on which adapter ran it.
     // Boundary values rather than round ones, written in hex where the decimal form is a bit pattern
@@ -188,7 +188,7 @@ fn a_32_bit_float_is_refused_here_because_the_data_source_refuses_it() {
     // answering 0.10000000149011612 through one adapter and erroring through the other. Refusing is
     // the half of that disagreement that can be fixed without inventing a rendering: there is no
     // `f64` that is `0.1_f32`. `a_32_bit_float_is_refused_here_because_it_is_refused_there` in
-    // `crates/sutura-exec-duckdb/src/lib.rs` is the same assertion against the data source.
+    // `crates/sutura-exec-duckdb/src/tests.rs` is the same assertion against the data source.
     let array = Float32Array::from(vec![0.1_f32]);
     let error = cell("amount", &array, 0).expect_err("a 32-bit float is not mapped");
     assert!(matches!(error, UnreadableCell::UnsupportedType { .. }), "{error:?}");
@@ -205,7 +205,7 @@ fn a_32_bit_float_is_refused_here_because_the_data_source_refuses_it() {
 fn a_non_finite_double_is_refused_here_because_the_data_source_refuses_it() {
     // THE FINDING THIS ARM EXISTS FOR, and the twin of
     // `a_non_finite_double_is_refused_here_because_it_is_refused_there` in
-    // `crates/sutura-exec-duckdb/src/lib.rs`. This arm was `Value::Real(..)` on a raw `f64`, and the
+    // `crates/sutura-exec-duckdb/src/tests.rs`. This arm was `Value::Real(..)` on a raw `f64`, and the
     // value that reached it was real: a ratio measure declaring `zero_denominator: fails` is
     // translated as an unguarded division with the numerator cast to `Float64`, and IEEE float
     // division by zero answers `inf` rather than failing. So the metric answered the string "inf"
