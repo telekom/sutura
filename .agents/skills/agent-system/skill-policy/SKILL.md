@@ -35,7 +35,6 @@ Every imported skill declares one, in a `## Provenance` section in the body:
 | Status | Means |
 | --- | --- |
 | `mirror` | imported as-is |
-| `normalized` | behaviour preserved, format changed for local validation |
 | `adapted` | content or workflow changed for this repo |
 | `local` | written here, no upstream |
 | `generated` | produced by an in-repo generator (`ms-rust`'s `generate.py`); refresh through it, never hand-edit |
