@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-exec-bigquery/src/identity_read.rs b/crates/sutura-exec-bigquery/src/identity_read.rs
+index 71ed07ab2..36943a3ac 100644
+--- a/crates/sutura-exec-bigquery/src/identity_read.rs
++++ b/crates/sutura-exec-bigquery/src/identity_read.rs
+@@ -91,7 +91,9 @@ where
+     // the reader to exhaustion, so a truncated stream is an `Err` rather than a short answer. What
+     // remains is the shape check, which is the one that matters here: a partial answer to *who am
+     // I* would be a wrong identity, and any shape but 1x1 is refused.
+-    let rows = answered.to_rows().map_err(|cause| BigQueryError::Unreadable { cause })?;
++    let rows = answered
++        .to_rows()
++        .map_err(|_cause| BigQueryError::NoIdentityInTheAnswer { rows: 0, columns: 0 })?;
+     let shape = || BigQueryError::NoIdentityInTheAnswer {
+         rows: rows.rows().len(),
+         columns: rows.columns().len(),

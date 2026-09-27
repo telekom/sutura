@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-okf/src/lib.rs b/crates/sutura-catalog-okf/src/lib.rs
+index ebe03c260..5082cb0f9 100644
+--- a/crates/sutura-catalog-okf/src/lib.rs
++++ b/crates/sutura-catalog-okf/src/lib.rs
+@@ -117,7 +117,7 @@ impl OkfCatalog {
+             .ok_or_else(|| OkfCatalogError::Unnamed {
+                 path: path.to_path_buf(),
+             })?;
+-        let table = TableName::parse(stem).map_err(|cause| OkfCatalogError::InvalidName {
++        let table = TableName::parse(stem).map_err(|cause| OkfCatalogError::InvalidColumn {
+             path: path.to_path_buf(),
+             cause,
+         })?;

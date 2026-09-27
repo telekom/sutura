@@ -1,0 +1,21 @@
+diff --git a/crates/sutura-catalog-datahub/src/lib.rs b/crates/sutura-catalog-datahub/src/lib.rs
+index a96e82f63..a391a460d 100644
+--- a/crates/sutura-catalog-datahub/src/lib.rs
++++ b/crates/sutura-catalog-datahub/src/lib.rs
+@@ -322,14 +322,13 @@ impl<R: AspectReader> DataHubCatalog<R> {
+             let column_name = Self::identifier(column, |raw| ColumnName::parse(raw), "column", dataset.name())?;
+             let metadata = dataset.column_metadata(column);
+             let column = Column::from_metadata(
+-                column_name.clone(),
++                column_name,
+                 metadata.and_then(document::ColumnMetadata::data_type),
+                 metadata.and_then(document::ColumnMetadata::description),
+                 None,
+             )
+-            .map_err(|cause| DataHubError::ColumnDescription {
++            .map_err(|cause| DataHubError::Description {
+                 on: dataset.name().to_owned(),
+-                column: column_name.clone(),
+                 cause,
+             })?;
+             columns.push(column);

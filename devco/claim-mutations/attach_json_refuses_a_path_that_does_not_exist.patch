@@ -1,0 +1,17 @@
+diff --git a/crates/sutura-exec-datafusion/src/attach.rs b/crates/sutura-exec-datafusion/src/attach.rs
+index 381790de0..f683b095c 100644
+--- a/crates/sutura-exec-datafusion/src/attach.rs
++++ b/crates/sutura-exec-datafusion/src/attach.rs
+@@ -228,11 +228,7 @@ impl DataFusionWarehouse {
+                 self.context
+                     .register_json(crate::translate::table_reference(table), located.as_str(), options),
+             )
+-            .map_err(|cause| DataFusionError::Attach {
+-                table: String::from(table.as_str()),
+-                path: located,
+-                cause,
+-            })
++            .map_err(|cause| DataFusionError::Build { cause })
+     }
+ 
+     /// Exposes a deliberately simple conformance fixture CSV with exact shared types.
