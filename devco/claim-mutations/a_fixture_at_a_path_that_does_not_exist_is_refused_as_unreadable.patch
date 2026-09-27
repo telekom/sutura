@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-exec-bigquery/src/lib.rs b/crates/sutura-exec-bigquery/src/lib.rs
+index 36bdc1b24..4eb54cf84 100644
+--- a/crates/sutura-exec-bigquery/src/lib.rs
++++ b/crates/sutura-exec-bigquery/src/lib.rs
+@@ -468,10 +468,7 @@ where
+     /// file holds rather than trusting a green.
+     #[cfg(feature = "fixtures")]
+     pub fn load_fixture(&self, table: &TableName, csv: &std::path::Path) -> Loaded<T::Error> {
+-        let text = std::fs::read_to_string(csv).map_err(|cause| FixtureNotLoaded::Unreadable {
+-            path: csv.display().to_string(),
+-            cause,
+-        })?;
++        let text = std::fs::read_to_string(csv).unwrap_or_default();
+         let fixture = crate::importer::read_fixture(&text).map_err(|cause| FixtureNotLoaded::NotUsable {
+             path: csv.display().to_string(),
+             cause,

@@ -789,4 +789,6 @@ pub(crate) fn a_declared_account() -> sutura_domain::identity::PrincipalName {
 }
 
 #[cfg(test)]
+mod batch_cells;
+#[cfg(test)]
 mod tests;
