@@ -2902,6 +2902,18 @@ them one at a time.</p>
 <td>a zero refuses every assertion, and past an hour "short-lived" is not being used</td>
 </tr>
 <tr>
+<td><code>security.inbound.token_type: any</code> in <code>direct</code> without <code>security.inbound.accept_any_token_type: true</code></td>
+<td>any token the issuer signs for this audience is then an access token, an OIDC ID token included. Behind a gateway <code>transit_token_type: any</code> needs no opt-in: it is the only way to say the component sets no <code>typ</code></td>
+</tr>
+<tr>
+<td><code>security.inbound.transit_max_lifetime_seconds</code> above 300 without <code>security.inbound.accept_long_transit_lifetime: true</code></td>
+<td>an assertion replays for as long as it lives, so a window past five minutes is written down by name</td>
+</tr>
+<tr>
+<td>a <code>rate_limit.trusted_proxies</code> block with a <code>/0</code> prefix without <code>rate_limit.accept_every_address_as_proxy: true</code></td>
+<td>it trusts every address, so every caller writes its own <code>X-Forwarded-For</code></td>
+</tr>
+<tr>
 <td>an explicit <code>rate_limit.enabled: false</code> in production</td>
 <td>one question is an aggregate over up to ten years of history, so an unbounded caller is an unbounded load on the data system</td>
 </tr>
@@ -2989,7 +3001,8 @@ is refused at startup.</p>
 </span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nt">key_set_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/etc/sutura/keys/jwks.json"</span>
 </span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="nt">algorithms</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"RS256"</span><span class="p p-Indicator">]</span>
 </span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="c1"># token_type defaults to RFC 9068's `at+jwt`. Leave it out unless your issuer uses another</span>
-</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="c1"># profile - and read the class check below before writing `any`.</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="c1"># profile - and read the class check below before writing `any`, which does not start</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">    </span><span class="c1"># without `accept_any_token_type: true` beside it.</span>
 </span></code></pre></div>
 <p><strong><code>behind-gateway</code> - a fronting component authenticated the caller.</strong> This deployment validates a
 short-lived <strong>identity assertion that component signed</strong>, and derives the subject from that
@@ -3811,7 +3824,12 @@ selects which file is layered, so a file that could change it would be self-refe
 <tr>
 <td><code>security.inbound.token_type</code></td>
 <td><code>at+jwt</code></td>
-<td><code>direct</code> only. Which class of token, out of the <code>typ</code> header. <code>any</code> switches the check off and is printed at <code>WARN</code> on every boot. <strong>Leaving it alone is the safe reading</strong> - see <a href="#who-is-asking">who is asking</a></td>
+<td><code>direct</code> only. Which class of token, out of the <code>typ</code> header. <code>any</code> switches the check off, does not start without <code>security.inbound.accept_any_token_type: true</code>, and is printed at <code>WARN</code> on every boot. <strong>Leaving it alone is the safe reading</strong> - see <a href="#who-is-asking">who is asking</a></td>
+</tr>
+<tr>
+<td><code>security.inbound.accept_any_token_type</code></td>
+<td><code>false</code></td>
+<td><code>direct</code> only. The operator accepts <code>token_type: any</code> by name</td>
 </tr>
 <tr>
 <td><code>security.inbound.transit_token_type</code></td>
@@ -3821,7 +3839,12 @@ selects which file is layered, so a file that could change it would be self-refe
 <tr>
 <td><code>security.inbound.transit_max_lifetime_seconds</code></td>
 <td><code>120</code></td>
-<td><code>behind-gateway</code> only. The longest <code>exp - iat</code> this deployment will call short-lived. Between 1 and 3600. An assertion with no <code>iat</code> is refused</td>
+<td><code>behind-gateway</code> only. The longest <code>exp - iat</code> this deployment will call short-lived. Between 1 and 3600; above 300 only with <code>security.inbound.accept_long_transit_lifetime: true</code>. An assertion with no <code>iat</code> is refused</td>
+</tr>
+<tr>
+<td><code>security.inbound.accept_long_transit_lifetime</code></td>
+<td><code>false</code></td>
+<td><code>behind-gateway</code> only. The operator accepts a <code>transit_max_lifetime_seconds</code> above 300 by name</td>
 </tr>
 <tr>
 <td><code>security.credential_cache.enabled</code></td>
@@ -3886,7 +3909,12 @@ selects which file is layered, so a file that could change it would be self-refe
 <tr>
 <td><code>rate_limit.trusted_proxies</code></td>
 <td>empty</td>
-<td>The hops whose <code>X-Forwarded-For</code> is believed. <code>forwarded</code> with this empty is refused</td>
+<td>The hops whose <code>X-Forwarded-For</code> is believed. <code>forwarded</code> with this empty is refused, and so is a <code>/0</code> block without <code>rate_limit.accept_every_address_as_proxy: true</code></td>
+</tr>
+<tr>
+<td><code>rate_limit.accept_every_address_as_proxy</code></td>
+<td><code>false</code></td>
+<td>The operator accepts a <code>trusted_proxies</code> block that covers every address by name</td>
 </tr>
 <tr>
 <td><code>telemetry.service_name</code></td>
