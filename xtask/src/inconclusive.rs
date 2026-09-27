@@ -257,8 +257,13 @@ fn judge(site: &Site, one: &Found<'_>, sources: &[Source]) -> Vec<String> {
 }
 
 /// A declared passthrough with a `||` on it is not a passthrough.
+///
+/// Inline `#` comments are stripped before the `||` check, so a comment that mentions `||` on a
+/// real invocation line is not a false positive. A `#` preceded by whitespace starts the comment
+/// - a flake app reference like `.#causality` does not, because its `#` is part of the reference.
 fn propagation_problems(site: &Site, one: &Found<'_>) -> Vec<String> {
-    if !one.line.contains("||") {
+    let code = inline_comment_stripped(one.line);
+    if !code.contains("||") {
         return Vec::new();
     }
     vec![format!(
@@ -266,6 +271,22 @@ fn propagation_problems(site: &Site, one: &Found<'_>) -> Vec<String> {
          turns 3 into whatever follows it: {}",
         one.label, one.number, site.because, one.line
     )]
+}
+
+/// The text before the first inline `#` comment on `line`.
+///
+/// A `#` starts a comment when it is at the start of the line or preceded by whitespace - the
+/// shape in Nix, the justfile and the shell files this gate scans. A `#` inside a flake app
+/// reference (`.#causality`) is preceded by `.` and is not a comment, so it is left in place.
+fn inline_comment_stripped(line: &str) -> &str {
+    let mut before = None;
+    for (at, c) in line.char_indices() {
+        if c == '#' && before.is_none_or(char::is_whitespace) {
+            return line.get(..at).unwrap_or(line);
+        }
+        before = Some(c);
+    }
+    line
 }
 
 /// A declared branch has to capture the status, compare it against 3, and pass the rest on.
@@ -369,6 +390,27 @@ mod tests {
             let problems = judge(just, &found("justfile", suppressed), &[]);
             assert_eq!(problems.len(), 1, "`{suppressed}` turns 3 into 0: {problems:?}");
         }
+    }
+
+    #[test]
+    fn a_pipe_in_an_inline_comment_is_not_a_suppression() {
+        // An inline `#` comment that mentions `||` on a real invocation line is not a suppression:
+        // the shell never sees the `||` because it is in a comment. Before inline comments were
+        // stripped, the `||` in the comment would read as a real pipe and flag a passthrough that
+        // does not exist.
+        let just = site("justfile");
+        assert_eq!(just.handling, Handling::Propagates);
+        let line = "cargo run -q -p xtask -- test-causality --since HEAD~1 # run || true here";
+        let problems = judge(just, &found("justfile", line), &[]);
+        assert!(
+            problems.is_empty(),
+            "a `||` inside an inline comment is not a suppression: {problems:?}"
+        );
+        // And the `#` in a flake app reference is not a comment, so a real `||` after it is still
+        // caught.
+        let real = "nix run .#causality -- --since \"$BASE\" || true";
+        let problems = judge(just, &found("justfile", real), &[]);
+        assert_eq!(problems.len(), 1, "a real `||` is still flagged: {problems:?}");
     }
 
     #[test]

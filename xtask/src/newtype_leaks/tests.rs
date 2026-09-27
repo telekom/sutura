@@ -1,4 +1,4 @@
-use super::{LEAKY, SEALED, in_scope, last_segment, leaked_by, trait_impls, trait_path};
+use super::{LEAKY, SEALED, in_scope, last_segment, leaked_by, lists_are_populated, trait_impls, trait_path};
 use crate::serde_parse::scan::code_lines;
 
 /// The sealed types a source's TRAIT impls hand out, as the gate reads them.
@@ -452,4 +452,39 @@ fn the_anchor_set_is_the_sealed_tables_distinct_files_and_all_of_them_are_in_sco
     let mut sorted = anchors.clone();
     sorted.dedup();
     assert_eq!(sorted.len(), anchors.len(), "the anchor set repeats a path: {anchors:?}");
+}
+
+#[test]
+fn an_empty_leaky_accessors_list_is_refused_by_the_floor() {
+    // The floor check existed for LEAKY, SEALED and SEQUENCE_TRAITS, but LEAKY_ACCESSORS and
+    // SEQUENCE_RETURNS were missing: emptying either disabled the method-return-shape scan with
+    // no floor firing. The five-list floor is the mechanism that notices.
+    let full_accessors = &["iter", "into_iter"];
+    let full_returns = &["[", "Vec<"];
+    let full_traits = &["Borrow", "Deref"];
+    let empty_str: &[&str] = &[];
+    assert!(
+        lists_are_populated(LEAKY, SEALED, full_traits, empty_str, full_returns).is_err(),
+        "an empty LEAKY_ACCESSORS must be refused, not pass silently"
+    );
+    assert!(
+        lists_are_populated(LEAKY, SEALED, full_traits, full_accessors, empty_str).is_err(),
+        "an empty SEQUENCE_RETURNS must be refused, not pass silently"
+    );
+    assert!(
+        lists_are_populated(empty_str, SEALED, full_traits, full_accessors, full_returns).is_err(),
+        "an empty LEAKY must be refused"
+    );
+    assert!(
+        lists_are_populated(LEAKY, empty_str, full_traits, full_accessors, full_returns).is_err(),
+        "an empty SEALED must be refused"
+    );
+    assert!(
+        lists_are_populated(LEAKY, SEALED, empty_str, full_accessors, full_returns).is_err(),
+        "an empty SEQUENCE_TRAITS must be refused"
+    );
+    assert!(
+        lists_are_populated(LEAKY, SEALED, full_traits, full_accessors, full_returns).is_ok(),
+        "all five populated must pass the floor"
+    );
 }

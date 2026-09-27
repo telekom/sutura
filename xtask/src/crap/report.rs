@@ -135,10 +135,15 @@ pub(crate) fn value_of(line: &str, key: &str) -> Option<String> {
     Some(String::from(rest.trim_end_matches(';').trim().trim_matches('"')))
 }
 
-/// The first double-quoted run in the line, if any.
+/// The first quoted run in the line, if any - a TOML literal (`'...'`) or basic (`"..."`) string.
+///
+/// Whichever quote comes FIRST opens the entry, so a `"` in a trailing comment does not override
+/// the `'` that opened the value. Splitting on `"` alone dropped every single-quoted entry.
 fn quoted(line: &str) -> Option<String> {
-    let (_, after) = line.split_once('"')?;
-    let (inner, _) = after.split_once('"')?;
+    let (_, from_open) = line.split_at(line.find(['"', '\''])?);
+    let mut chars = from_open.chars();
+    let quote = chars.next()?;
+    let (inner, _) = chars.as_str().split_once(quote)?;
     Some(String::from(inner))
 }
 
@@ -427,5 +432,31 @@ mod tests {
         // The committed file does not state one, which is what keeps the tool and the gate in
         // step without a synchroniser.
         assert_eq!(committed_policy().epsilon, None);
+    }
+
+    #[test]
+    fn a_single_quoted_allowlist_entry_is_not_silently_dropped() {
+        // TOML allows `'...'` literal strings in array entries. `quoted()` once split on `"` only,
+        // so a single-quoted entry was silently absent from the allowlist - the gate then judged
+        // the function it should have passed over. The `"` in the comment must not win either.
+        let policy = parse_policy(concat!(
+            "threshold = 30.0\n",
+            "fail-above = true\n",
+            "allow = [\n",
+            "  'src/other/**', # a vendored port, \"upstream's\" shape\n",
+            "  \"Generated::*\",\n",
+            "]\n",
+        ))
+        .expect("parses");
+        let found: Vec<&str> = policy.allow.iter().map(|e| e.pattern.as_str()).collect();
+        assert_eq!(
+            found,
+            vec!["src/other/**", "Generated::*"],
+            "both quote spellings must be collected"
+        );
+        assert!(
+            policy.allow[0].annotated,
+            "the trailing comment on the single-quoted entry counts"
+        );
     }
 }
