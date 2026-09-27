@@ -24,7 +24,23 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-scope",
         description: "a narrowed just recipe prints the scope it covered",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // The narrow recipe points to a wider check, but omits its own package from output.
+            seeds: &[
+                (
+                    "justfile",
+                    concat!(
+                        "narrow:\n    @echo 'See `just ",
+                        "wide`'\n    cargo nextest run -p xtask\nwide:\n    cargo nextest run --workspace\nparity:\n    cargo nextest run -E 'test(foo)'\n",
+                    ),
+                ),
+                (
+                    "flake.nix",
+                    "apps.parity = {\n  program = ''\n    cargo nextest run -E 'test(foo)'\n  '';\n};\n",
+                ),
+            ],
+            in_scope: Some("justfile"),
+        },
         run: tasks::run,
     },
     Task {
