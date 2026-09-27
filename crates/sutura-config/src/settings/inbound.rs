@@ -74,7 +74,7 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
                 .map_err(|cause| SettingsError::InboundValue { cause })?,
                 match written.transit_max_lifetime_seconds {
                     None => ProofLifetime::default_lifetime(),
-                    Some(seconds) => ProofLifetime::parse(seconds).map_err(|cause| SettingsError::InboundValue { cause })?,
+                    Some(seconds) => transit_lifetime(seconds, written.accept_long_transit_lifetime)?,
                 },
             ),
         }),
@@ -91,15 +91,34 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
             // Absent means RFC 9068's `at+jwt`, which is the safe reading, and an empty string is
             // treated as absent the way `security.access_token` treats one: an unset variable arrives
             // in a shell as `""`, and reading that as "check nothing" would be the check switching
-            // itself off. Turning it off is the word `any`.
+            // itself off. Turning it off is the word `any`, and it does not start unless the operator
+            // also accepts it by name.
             token_type: match written.token_type.as_deref().map(str::trim) {
                 None | Some("") => RequiredTokenType::access_token(),
-                Some(written) => {
-                    RequiredTokenType::parse(TokenType::KEY, written).map_err(|cause| SettingsError::InboundValue { cause })?
-                }
+                Some(value) => match RequiredTokenType::parse(TokenType::KEY, value)
+                    .map_err(|cause| SettingsError::InboundValue { cause })?
+                {
+                    RequiredTokenType::Any if !written.accept_any_token_type => {
+                        return Err(SettingsError::InboundAnyTokenTypeNotAccepted);
+                    }
+                    parsed => parsed,
+                },
             },
         }),
     }
+}
+
+/// A written transit lifetime: inside the ceiling, and past [`ProofLifetime::SHORT_LIVED_SECONDS`]
+/// only with the operator's acceptance by name.
+fn transit_lifetime(seconds: u64, accepted: bool) -> Result<ProofLifetime, SettingsError> {
+    let lifetime = ProofLifetime::parse(seconds).map_err(|cause| SettingsError::InboundValue { cause })?;
+    if seconds > ProofLifetime::SHORT_LIVED_SECONDS && !accepted {
+        return Err(SettingsError::TransitLifetimeNotAccepted {
+            found: seconds,
+            limit: ProofLifetime::SHORT_LIVED_SECONDS,
+        });
+    }
+    Ok(lifetime)
 }
 
 /// The key this mode needs and did not get.

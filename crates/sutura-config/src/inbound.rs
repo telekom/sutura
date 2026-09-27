@@ -75,7 +75,8 @@ pub use crate::inbound::primitive::{
 /// finding it answers is cross-JWT substitution: without it, any JWT the issuer signed with this
 /// audience verifies, an OIDC ID token included whenever the resource identifier equals the client id.
 /// So [`Self::Exactly`] is the default in the `direct` mode - RFC 9068's `at+jwt` - and turning it off
-/// is a value an operator writes, `any`, which the startup log prints at `WARN`.
+/// is a value an operator writes, `any`, which the startup log prints at `WARN`. In `direct` it does
+/// not start without `accept_any_token_type: true` beside it.
 ///
 /// There is no `Option<TokenType>` here, for the reason `docs/adr/0014` gives about `mode`: an absent
 /// value reads as "not configured yet" at every call site, and the one thing that has to be legible is
@@ -86,9 +87,10 @@ pub enum RequiredTokenType {
     Exactly { typ: TokenType },
     /// Any class of token the issuer signed for this audience.
     ///
-    /// **Not a default anywhere.** In the `direct` mode it is written as `token_type: "any"`; in
-    /// `behind-gateway` as `transit_token_type: "any"`, where it is also the only way to say "this
-    /// component sets no `typ`". Either way [`InboundIdentity::type_check`] renders a sentence the
+    /// **Not a default anywhere.** In the `direct` mode it is written as `token_type: "any"` plus
+    /// `accept_any_token_type: true`; in `behind-gateway` as `transit_token_type: "any"` alone, where
+    /// it is also the only way to say "this component sets no `typ`", so an opt-in would be a second
+    /// spelling of the same word. Either way [`InboundIdentity::type_check`] renders a sentence the
     /// startup log prints, so a deployment running with it is visible on every boot.
     Any,
 }

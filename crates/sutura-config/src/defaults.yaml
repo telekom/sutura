@@ -109,8 +109,8 @@ security:
   #       # token_type is OPTIONAL and defaults to RFC 9068's `at+jwt`. Leaving it out is the safe
   #       # reading: without a class check, ANY JWT this issuer signed for this audience verifies -
   #       # an OIDC ID token included, whenever the resource identifier is also a client id, which
-  #       # is the ordinary arrangement. Write `any` to switch the check off; the startup log then
-  #       # says so at WARN on every boot.
+  #       # is the ordinary arrangement. Write `any` to switch the check off; it does not start
+  #       # without `accept_any_token_type: true`, and the startup log says so at WARN on every boot.
   #       # token_type: "at+jwt"
   #
   #   security:
@@ -123,9 +123,10 @@ security:
   #       algorithms: ["ES256"]
   #       # REQUIRED in this mode, because a component's `typ` is a fact only the deployment knows -
   #       # there is nothing this crate could guess that does not either reject every request or
-  #       # check nothing. Write `any` if the component sets none.
+  #       # check nothing. Write `any` if the component sets none; that needs no opt-in here.
   #       transit_token_type: "at+jwt"
-  #       # Optional; 120 seconds by default, one hour at most. An assertion declaring a longer
+  #       # Optional; 120 seconds by default, one hour at most, and above 300 only with
+  #       # `accept_long_transit_lifetime: true`. An assertion declaring a longer
   #       # `exp - iat` than this is refused, and one with no `iat` at all is refused - so what
   #       # "short-lived" means is a number this deployment chose rather than one the component
   #       # handed it. Inside that window an intercepted assertion REPLAYS: nothing binds one to a
@@ -164,7 +165,8 @@ rate_limit:
   api_per_second: 10
   api_burst: 20
   # `peer` or `forwarded`. `forwarded` refuses to start with an empty `trusted_proxies`, because a
-  # header nobody vouched for is a bucket the caller chooses.
+  # header nobody vouched for is a bucket the caller chooses. A `/0` block trusts every address and
+  # does not start without `accept_every_address_as_proxy: true`.
   client_address: "peer"
   trusted_proxies: []
 
