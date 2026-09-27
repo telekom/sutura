@@ -24,12 +24,8 @@ use crate::causality::scoped::Scoped;
 /// One unique temp directory per real-git test, so the paths never collide under nextest.
 static SEQ: AtomicUsize = AtomicUsize::new(0);
 
-/// A throwaway git repo for the git-backed arms.
-///
-/// `git apply --numstat`, `git apply --check` and `git checkout HEAD --` run against a REAL repo
-/// here, which the string fixtures cannot exercise: a mutation parser that only read `diff --git`
-/// headers would pass every one of them while missing a header-less patch that `git apply`
-/// accepts.
+/// A throwaway git repo: `git apply` and `git checkout HEAD --` against a REAL repo, which a
+/// parser reading only `diff --git` headers would pass while missing a header-less patch.
 struct Repo {
     dir: PathBuf,
 }
@@ -227,11 +223,8 @@ fn a_kill_by_the_cells_own_assertion_is_the_kill() {
     assert_eq!(classify_mutation(KILLED, &cell(), &reader()), MutationKill::Killed);
 }
 
-// R4 BLOCKING RED: the SAME cell, declared `#[tokio::test] async fn` - the shape BOTH of #761's
-// cells actually use. `fn_line_is` matching only bare `fn` answered `test_fn_region` = `None` for
-// every `async fn`/`pub fn` cell, so a real assertion kill misread as `NotByAssertion` and the arm
-// could not accept the PR it exists for. `fn_line_is` now reuses `scoped::function_name` (#347's
-// extractor, which already carries these shapes).
+// The SAME cell, declared `#[tokio::test] async fn` (#761's shape): matching only a bare `fn`
+// misread a real assertion kill as `NotByAssertion`; `scoped::function_name` carries these shapes.
 #[test]
 fn a_kill_by_an_async_fns_own_assertion_is_the_kill() {
     assert_eq!(classify_mutation(KILLED, &cell(), &async_reader()), MutationKill::Killed);
@@ -299,11 +292,8 @@ fn a_kill_by_another_files_test_region_is_refused() {
     );
 }
 
-// R4 NON-BLOCKING (finding 2): the own-FN half of the kill rule had no red cell - MF (widening
-// `test_fn_region` to the whole file) reddened no author cell, because every refusal fixture's
-// site sat in ANOTHER file. A site on a PRODUCTION line of the cell's OWN file - inside the file,
-// outside its own test fn - must still be refused, and this is exactly what MF would flip to
-// `Killed`.
+// The own-FN half of the kill rule: a site on a PRODUCTION line of the cell's OWN file is still
+// refused, which widening `test_fn_region` to the whole file would flip to `Killed`.
 #[test]
 fn a_panic_on_a_production_line_of_the_cells_own_file_is_refused() {
     let text = concat!(
@@ -409,13 +399,8 @@ fn an_ordinary_run_failure_still_reaches_the_normal_classification() {
     );
 }
 
-// THE ASYMMETRY `base.rs`'s ordinary proof already closed and this arm did not: a FAILED run
-// (`ok = false`) naming no test at all is not entitled to *the mutation does not kill it* -
-// that claim belongs only to a run that reports SUCCESS with nothing failing. A subprocess a
-// signal killed before nextest could print anything is `could_not_attest`-unrecognised AND
-// `base::failures`-empty, which used to fall through to the SAME `NotAsserted` a genuine green
-// run produces. RED before this fix: `classify_mutation`/`attest` could not tell the two apart,
-// so this asserted `Cause::NotKilled` and passed.
+// A FAILED run naming no test at all (a signal kill before nextest printed anything) is not
+// entitled to *the mutation does not kill it*, which only a SUCCESSFUL run may claim.
 #[test]
 fn a_failed_run_naming_no_test_at_all_is_not_a_verdict_about_the_cell() {
     assert_eq!(
@@ -423,6 +408,26 @@ fn a_failed_run_naming_no_test_at_all_is_not_a_verdict_about_the_cell() {
         Err(Cause::BuildFailed {
             cell: String::from("the_added_one"),
             why: String::from("the run failed but named no test failing at all - not a verdict about the declaration"),
+        })
+    );
+}
+
+// #1092: a cell the forced requirement ended at its tier lookup in the kill worktree never ran,
+// so it is a non-verdict rather than a survived mutation. The run text is here, not in `probe`,
+// because `probe` is reverted with the implementation on causality's base.
+#[test]
+fn a_cell_that_never_reached_its_tier_is_not_a_verdict_about_the_mutation() {
+    let tier_absent = concat!(
+        "        FAIL [   0.021s] (1/1) sutura-cli::bin/sutura audit::tests::the_added_one\n",
+        "thread 'audit::tests::the_added_one' panicked at dev/src/provisioned.rs:413:40:\n",
+        "  This run requires a provisioned service tier, so an absent one is a failure rather than a\n",
+        "error: test run failed\n",
+    );
+    assert_eq!(
+        attest(false, tier_absent, "the_added_one", &cell(), &reader()),
+        Err(Cause::BuildFailed {
+            cell: String::from("the_added_one"),
+            why: String::from("the cell needs a service tier the kill worktree does not provision - it never ran"),
         })
     );
 }
@@ -783,12 +788,8 @@ fn a_patch_with_a_hunk_inside_a_test_region_is_refused() {
     );
 }
 
-// BLOCKING-1 RED (the shift-smuggle the reviewer was handed): a DELETION-ONLY hunk above
-// `#[cfg(test)]` shifts every post-image line number up by 12, and a SECOND hunk then rewrites
-// the cell's own assertion - `git apply` accepts it, and the OLD line-number rule judged the
-// second hunk (post-image line 6) against the un-shifted HEAD region (15..20) and let it through.
-// The TEXT rule compares the region by BYTES on each image, so the assertion edit is still a
-// refusal: `PatchRewritesCell`.
+// A deletion-only hunk above `#[cfg(test)]` shifts every line by 12 before a second hunk rewrites
+// the cell's assertion; the region is compared by BYTES, so it is still `PatchRewritesCell`.
 #[test]
 fn a_deletion_above_the_region_cannot_smuggle_a_test_edit() {
     let src_leading = "// c1\n// c2\n// c3\n// c4\n// c5\n// c6\n// c7\n// c8\n// c9\n// c10\n// c11\n// c12\n";

@@ -191,6 +191,12 @@ pub(super) fn attest(ok: bool, text: &str, cell: &str, added: &AddedTest, read: 
     }
     match classify_mutation(text, added, read) {
         MutationKill::Killed => Ok(()),
+        // `Tree::Mutated` forces the tier requirement, so a tier-gated cell ends at the tier
+        // lookup: it never ran, which is neither a kill nor a survival.
+        _ if text.contains(sutura_dev::requirement::REQUIRED) => Err(Cause::BuildFailed {
+            cell: cell.to_owned(),
+            why: String::from("the cell needs a service tier the kill worktree does not provision - it never ran"),
+        }),
         MutationKill::NotAsserted => Err(Cause::NotKilled { cell: cell.to_owned() }),
         MutationKill::NotByAssertion { site } => Err(Cause::NotByAssertion {
             cell: cell.to_owned(),

@@ -635,7 +635,7 @@ fn kill_cell(wt: &Path, target: &Path, scoped: &Scoped, cell: &str) -> Result<()
     // The isolation clean runs INSIDE `cargo_test` on the same witness (dir, target, profile);
     // there is no second call here whose failure would read as a misleading "does not apply".
     let term = added.term();
-    let (ok, text) = cargo_test(wt, target, &term, Tree::Reconstructed);
+    let (ok, text) = cargo_test(wt, target, &term, Tree::Mutated);
     // ATTEST BEFORE RESTORE: the region the panic site is judged against must be the cell's
     // post-mutation file, because a mixed-file patch shifts its own test region's line numbers -
     // reading the HEAD image would compare a mutated `panicked at <line>` against the wrong region.
