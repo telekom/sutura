@@ -1,9 +1,9 @@
 //! The values an inbound-identity declaration is made of, each parsed rather than checked.
 //!
-//! Five newtypes and one enum, and every one of them exists because the value it holds is compared
-//! against something a caller sent. That is the whole reason they are types: an audience claim is
-//! compared **byte for byte** against [`ResourceIdentifier`], so anything that could make two
-//! spellings of the same identifier compare unequal - or two different identifiers compare equal -
+//! Newtypes and enums, and every one of them exists because the value it holds is compared against
+//! something a caller sent. That is the whole reason they are types: an audience claim is compared
+//! **byte for byte** against [`ResourceIdentifier`], so anything that could make two spellings of
+//! the same identifier compare unequal - or two different identifiers compare equal -
 //! is a hole, and the place to close it is where the value comes into existence.
 //!
 //! # Why URL parsing does not normalise the stored value
@@ -100,8 +100,8 @@ pub enum InvalidInboundValue {
     ///
     /// A resource identifier is not a credential by design - see the module documentation - but a
     /// URL that carries one **is** a credential, and this value is served back unauthenticated as
-    /// RFC 9728 protected-resource metadata. The position marks the `@` that separates userinfo
-    /// from the host; the userinfo itself never reaches this message.
+    /// RFC 9728 protected-resource metadata. The position marks the first `@` after the scheme; the
+    /// userinfo itself never reaches this message.
     #[error(
         "{key} carries userinfo before the host (an `@` at position {position}). A resource \
          identifier is not a credential, and this exact value is served back with no token as \

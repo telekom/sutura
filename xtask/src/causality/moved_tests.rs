@@ -1,10 +1,12 @@
-//! `edited::moved` at the level a caller sees: what `plan_with_base` answers over a range that
-//! moves tests across files. Every cell moves at least one test unchanged, so each is red on a tree
-//! that reads every move as a deletion.
+//! `edited::moved` and `edited::callsite` at the level a caller sees: what `plan_with_base` answers
+//! over a range that moves tests across files, or only wraps call-site arguments inside them. Every
+//! move cell moves at least one test unchanged, so each is red on a tree that reads every move as a
+//! deletion; every call-site cell wraps at least one, so each is red on a tree that reads every
+//! wrap as an added test.
 
 use crate::causality::diff::ChangedFile;
 use crate::causality::fixtures::{changed_removing, tree};
-use crate::causality::plan::{DeletedFrom, Plan, plan_with_base};
+use crate::causality::plan::{DeletedFrom, Plan, Separable, plan_with_base};
 
 const FOO: &str = "#[test]\nfn foo() {\n    assert_eq!(2 + 2, 4);\n}\n";
 const BAR: &str = "#[test]\nfn bar() {\n    assert_eq!(3 + 3, 6);\n}\n";
@@ -269,5 +271,127 @@ fn an_added_src_module_a_held_file_declares_stays_at_head() {
     assert!(
         !separable.revert.contains(&String::from("crates/x/src/support/extra.rs")),
         "an added module a held file declares must not be deleted from the base tree: {separable:?}"
+    );
+}
+
+/// The signature change the call-site cells share: `render` takes a `View` rather than a `D`.
+const RENDER: [&str; 3] = [
+    "crates/x/src/lib.rs",
+    "pub fn render(d: &D) -> String {\n    d.to_string()\n}\n",
+    "pub fn render(v: &View<'_>) -> String {\n    v.0.to_string()\n}\n",
+];
+const RENDERS: &str = "use x::{D, render};\n\n#[test]\nfn renders() {\n    assert_eq!(render(&D(2)), \"2\");\n}\n";
+/// `RENDERS` with the one change the signature forces, and the import the wrapper needs.
+const WRAPPED: &str =
+    "use x::{D, render};\n\n#[test]\nfn renders() {\n    use x::View;\n    assert_eq!(render(&View::of(&D(2))), \"2\");\n}\n";
+
+fn separable(plan: Plan) -> Separable {
+    let Plan::Separable(separable) = plan else {
+        panic!("expected a separable plan, got {plan:?}");
+    };
+    separable
+}
+
+#[test]
+fn a_call_site_argument_wrapped_for_a_changed_signature_is_edited_not_added() {
+    let plan = plan_of(&[
+        RENDER,
+        ["crates/x/tests/a.rs", RENDERS, WRAPPED],
+        ["crates/x/tests/b.rs", "", FOO],
+    ]);
+    let Separable {
+        revert,
+        test_files: measured,
+        ..
+    } = separable(plan);
+    assert!(
+        revert.contains(&String::from("crates/x/tests/a.rs")),
+        "the base run must take the edited test's base version: {revert:?}"
+    );
+    assert_eq!(measured, ["crates/x/tests/b.rs"], "an edited test is no proof of the change");
+}
+
+#[test]
+fn a_range_that_only_wraps_call_sites_is_inconclusive_not_measured() {
+    let plan = plan_of(&[RENDER, ["crates/x/tests/a.rs", RENDERS, WRAPPED]]);
+    assert_eq!(
+        format!("{plan:?}"),
+        r#"EditedTests([Edited { path: "crates/x/tests/a.rs", tests: ["renders"] }])"#
+    );
+}
+
+/// The smuggling shape: a real wrap in one file excuses nothing in another test that ALSO changed
+/// what it asserts, even though that test wraps the same call.
+#[test]
+fn a_changed_assertion_inside_a_wrapped_test_is_still_added() {
+    let weakened = WRAPPED.replace("\"2\");", "\"3\");");
+    let plan = plan_of(&[
+        RENDER,
+        ["crates/x/tests/a.rs", RENDERS, WRAPPED],
+        ["crates/x/tests/c.rs", RENDERS, &weakened],
+    ]);
+    let Separable {
+        revert,
+        test_files: measured,
+        ..
+    } = separable(plan);
+    assert!(revert.contains(&String::from("crates/x/tests/a.rs")), "{revert:?}");
+    assert_eq!(measured, ["crates/x/tests/c.rs"], "a changed expected value is an added test");
+}
+
+/// Each edit the criterion must not read as a wrap, beside one it must: a helper body, an argument
+/// the wrapper adds, an operator before the old argument, an import of a name the base calls, a
+/// wrapped MACRO argument and a glob import.
+#[test]
+fn each_edit_beyond_a_wrapped_call_argument_is_still_added() {
+    let helper = "fn two() -> u8 {\n    2\n}\n\n#[test]\nfn renders() {\n    assert_eq!(render(&D(two())), \"2\");\n}\n";
+    let helper_after =
+        "fn two() -> u8 {\n    3\n}\n\n#[test]\nfn renders() {\n    assert_eq!(render(&View::of(&D(two()))), \"2\");\n}\n";
+    let extra = RENDERS.replace("&D(2)", "&View::of(&D(2), 1)");
+    let negated = RENDERS.replace("&D(2)", "&View::of(!&D(2))");
+    let shadowed = WRAPPED.replace("use x::View;", "use y::render;");
+    let macro_argument = WRAPPED.replace("\"2\");", "weaken(\"2\"));");
+    let glob = WRAPPED.replace("use x::View;", "use y::{View, *};");
+    let plan = plan_of(&[
+        RENDER,
+        ["crates/x/tests/a.rs", RENDERS, WRAPPED],
+        ["crates/x/tests/c1.rs", helper, helper_after],
+        ["crates/x/tests/c2.rs", RENDERS, &extra],
+        ["crates/x/tests/c3.rs", RENDERS, &negated],
+        ["crates/x/tests/c4.rs", RENDERS, &shadowed],
+        ["crates/x/tests/c5.rs", RENDERS, &macro_argument],
+        ["crates/x/tests/c6.rs", RENDERS, &glob],
+    ]);
+    let Separable {
+        revert,
+        test_files: measured,
+        ..
+    } = separable(plan);
+    assert!(revert.contains(&String::from("crates/x/tests/a.rs")), "{revert:?}");
+    let smuggled: Vec<String> = (1..=6).map(|n| format!("crates/x/tests/c{n}.rs")).collect();
+    assert_eq!(measured, smuggled);
+}
+
+/// A trait import changes what an unchanged `x.validate()` resolves to without spelling
+/// `validate`, so an import no wrapper in the file names is never part of an edit.
+#[test]
+fn an_added_trait_import_no_wrapper_names_is_still_added() {
+    let validates = "#[test]\nfn checks() {\n    assert!(x().validate());\n}\n";
+    let traited = "#[test]\nfn checks() {\n    use crate::weak::Weak;\n    assert!(x().validate());\n}\n";
+    let plan = plan_of(&[
+        RENDER,
+        ["crates/x/tests/a.rs", RENDERS, WRAPPED],
+        ["crates/x/tests/t.rs", validates, traited],
+    ]);
+    let Separable {
+        revert,
+        test_files: measured,
+        ..
+    } = separable(plan);
+    assert!(revert.contains(&String::from("crates/x/tests/a.rs")), "{revert:?}");
+    assert_eq!(
+        measured,
+        ["crates/x/tests/t.rs"],
+        "an import the wraps do not need is an edit of its own"
     );
 }

@@ -98,16 +98,16 @@ finer split is a cheap change if a caller ever needs the branch.
   the message does carry is the note's own name or term, which is unique across the catalog and
   is what a `grep` finds.
 - `Empty`
-- `TooManyDocuments` - The walk found more documents than `MAX_CATALOG_DOCUMENTS` permits.
+- `TooManyDocuments` - The walk found more documents than `sutura_bounded_read::MAX_CATALOG_DOCUMENTS` permits.
 
   A startup bound: `path` is the catalog root, `found` is how many document-shaped entries the
   walk had counted when it stopped - which may be less than the directory's true total, because
   the walk refuses as soon as it crosses `limit` rather than finishing the tree first.
-- `TooManyEntries` - The walk visited more directory entries than `MAX_CATALOG_ENTRIES` permits.
+- `TooManyEntries` - The walk visited more directory entries than `sutura_bounded_read::MAX_CATALOG_ENTRIES` permits.
 
   Bounds the tree, not the documents: a wide directory of skipped non-document files, or a
   bind-mount cycle that would not terminate, is refused here rather than walked without end.
-- `TooLarge` - The documents read so far sum to more bytes than `MAX_CATALOG_BYTES` permits.
+- `TooLarge` - The documents read so far sum to more bytes than `sutura_bounded_read::MAX_CATALOG_BYTES` permits.
 
   `path` is the catalog root, matching `TooManyDocuments` and `Empty` above - the rendered
   text names "the catalog", so the path in it has to be the catalog's, not one file's.

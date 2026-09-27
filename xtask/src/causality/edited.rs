@@ -64,6 +64,7 @@ use crate::causality::names::Ident;
 use crate::causality::regions::{AddedLine, PostImage, TestScope, carries_no_behaviour, item_end};
 use crate::causality::scoped::{function_name, is_ignored};
 
+pub(super) mod callsite;
 pub(super) mod moved;
 
 /// A pre-existing test whose item an added line lands inside.

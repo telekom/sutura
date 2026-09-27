@@ -70,8 +70,8 @@ pub enum IncoherentBindings {
     OutOfRange { index: usize, params: usize },
     /// A predicate binds a parameter out of placeholder order.
     ///
-    /// `position` is how many predicates before it bound one, which is the placeholder a positional
-    /// dialect would give it.
+    /// `position` is how many parameters were bound before this one, which is the placeholder a
+    /// positional dialect would give it.
     #[error("the predicate at placeholder {position} binds parameter {index}")]
     OutOfPlaceholderOrder { position: usize, index: usize },
     /// The set carries a parameter no predicate binds.
@@ -121,7 +121,7 @@ impl PlanBindings {
     /// check, because a set with no parameters has no index to resolve.
     ///
     /// The three checks are ordered for the DIAGNOSTIC and not for cost - the whole walk is linear
-    /// over a list bounded by [`MAX_DIMENSIONS`](crate::query::MAX_DIMENSIONS) plus a metric's
+    /// over a list bounded by [`MAX_FILTERS`](crate::query::MAX_FILTERS) plus a metric's
     /// required filters plus the two range bounds. An index the set cannot hold is reported as that
     /// rather than as an ordering fault, because the author who wrote the wrong number needs to read
     /// the number, and an out-of-range index is out of order as well.

@@ -1,14 +1,14 @@
 //! The Oracle half of this composition root: one declared source becomes an open `Warehouse`.
 //!
 //! **`clickhouse`'s shape, for its reasons**: the dispatcher stays in the composition root, both
-//! `open_oracle` definitions live here because the compiler picks between them at the one call site,
+//! `open_oracle` definitions live here because the compiler picks between them at every call site,
 //! and the per-source BUILD lives once in `crate::oracle`, shared with `crate::sources`' own root.
 
 /// Opens one Oracle adapter per declared source, under the declared credential.
 ///
-/// **Nothing is attached and nothing is registered** - the tables live in the database. Everything
-/// that can fail before a listener is bound happens in [`crate::oracle::build`]: the posture
-/// cross-check, the password file, and the connection itself.
+/// **Nothing is attached and nothing is registered** - the tables live in the database. After the
+/// source is looked up, everything that can fail before a listener is bound happens in
+/// [`crate::oracle::build`]: the posture cross-check, the password file, and the connection itself.
 #[cfg(feature = "oracle")]
 pub(crate) fn open_oracle(
     declared: &[&sutura_domain::model::SourceName],
@@ -52,8 +52,9 @@ pub(crate) fn open_oracle(
 }
 
 /// `sutura serve`'s own `oracle` cells: the refusal for a build that did not link the adapter, the
-/// posture refusal, and the furthest a fixture with no server reaches - the declared password file,
-/// alone and beside a `files` source.
+/// posture refusal, the furthest a fixture with no server reaches - the declared password file,
+/// alone and beside a `files` source - and the listener that redirects, proving the driver follows
+/// it to an address nobody declared.
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "oracle")]
