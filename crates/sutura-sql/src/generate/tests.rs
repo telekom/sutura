@@ -10,10 +10,12 @@ use sutura_domain::query::{Top, TopBy, TopDirection, TopN};
 use sutura_domain::warehouse::ParamValue;
 
 use polyglot_sql::builder;
+use polyglot_sql::builder::Expr;
+use polyglot_sql::expressions::{Expression, Parameter, ParameterStyle, Placeholder};
 
 use super::{
-    DISTINCT_LABEL, DeclaredKey, GenerateError, ROWS_LABEL, bucket_expression, generate, generate_key_probe, ordered_nulls_last,
-    render,
+    DISTINCT_LABEL, DeclaredKey, GenerateError, ROWS_LABEL, assert_placeholder_count, bucket_expression, generate,
+    generate_key_probe, ordered_nulls_last, render,
 };
 use crate::dialect::{ALL, Dialect};
 
@@ -544,4 +546,69 @@ fn a_compound_key_probe_renders_only_where_a_null_safe_tuple_distinct_exists() {
             parsed.err()
         );
     }
+}
+
+/// A statement whose placeholder count differs from its bound-parameter count is refused, rather
+/// than sent to a data system with too many or too few bind values.
+///
+/// The mismatch is the shape a future guard-embedding change could produce if the `emitted` list
+/// and the AST diverged: two `?` placeholders in the AST but a one-element parameter list. The
+/// `DuckDb` dialect writes `?` (`PlaceholderStyle::Question`), so the walk counts
+/// `Expression::Placeholder` nodes.
+#[test]
+fn a_statement_whose_placeholder_count_differs_from_its_params_is_refused() {
+    // An AST with two Placeholder nodes but a one-element params list.
+    let placeholder = || Expr(Expression::Placeholder(Placeholder { index: None }));
+    let ast = builder::select(vec![
+        builder::col("t.c").eq(placeholder()),
+        builder::col("t.d").eq(placeholder()),
+    ])
+    .from("t")
+    .build();
+    let dialect = Dialect::DuckDb;
+    let params = vec![ParamValue::Text("one".into())]; // 1 param, 2 placeholders
+
+    let result = assert_placeholder_count(&ast, dialect, &params);
+    assert!(
+        matches!(
+            result,
+            Err(GenerateError::PlaceholderCountMismatch {
+                placeholders: 2,
+                params: 1,
+                ..
+            })
+        ),
+        "a mismatched placeholder count must be refused, got {result:?}"
+    );
+}
+
+/// A `Numbered` (Postgres) statement that reuses `$1` for one parameter - the guarded-ratio shape
+/// a count-only check wrongly refuses - is accepted, because Postgres binds by index and a repeated
+/// `$1` resolves to the same value with no extra bind. The golden
+/// `assert_one_placeholder_per_parameter` accepts the same shape, and this check must not diverge.
+#[test]
+fn a_numbered_statement_that_reuses_one_parameter_for_a_guarded_ratio_is_accepted() {
+    // Two Parameter nodes both naming $1 (index 1) - the shape a guarded ratio produces when the
+    // guard is embedded once per term. One param value, one distinct index.
+    let param = |index: u32| {
+        Expr(Expression::Parameter(Box::new(Parameter {
+            name: None,
+            index: Some(index),
+            style: ParameterStyle::Dollar,
+            quoted: false,
+            string_quoted: false,
+            expression: None,
+        })))
+    };
+    let ast = builder::select(vec![builder::col("t.c").eq(param(1)), builder::col("t.d").eq(param(1))])
+        .from("t")
+        .build();
+    let dialect = Dialect::Postgres;
+    let params = vec![ParamValue::Text("one".into())]; // 1 param, 2 nodes, 1 distinct index
+
+    let result = assert_placeholder_count(&ast, dialect, &params);
+    assert!(
+        result.is_ok(),
+        "a Numbered statement reusing $1 for one parameter must be accepted, got {result:?}"
+    );
 }

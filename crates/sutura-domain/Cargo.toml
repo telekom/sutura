@@ -73,18 +73,22 @@ thiserror = { workspace = true }
 # it cannot come through `arrow-array`.
 arrow-buffer = { workspace = true }
 
-# Two features, both default-off and adding no dependency: `warehouse::agreement`, the typed
-# comparison the differential legs make, and `warehouse::csv`, the shared fixture schema. They are
-# features rather than unconditional modules because both are adapter-test support in the interior
-# of the hexagon, and `sutura_runtime`'s `test-capture` is the shape this repository already uses for
-# that - a consumer asks for one explicitly.
+# Three features, all default-off and adding no dependency: `warehouse::agreement`, the typed
+# comparison the differential legs make, `warehouse::csv`, the shared fixture schema, and
+# `test-fakes`, `Definitions::from_parts`, which builds a bundle past `assemble`'s cross-reference
+# checks so a test can provoke `BundleInconsistent`. They are features rather than unconditional
+# modules because all three are test support in the interior of the hexagon, and `sutura_runtime`'s
+# `test-capture` is the shape this repository already uses for that - a consumer asks for one
+# explicitly.
 #
-# The limit, stated where the switches are: nothing asserts a shipped binary leaves either off.
-# `checks.shipped-features` reads the crate names out of an artefact and these features add none, so
-# what keeps them out of a release is cargo's default set and review.
+# The limit, stated where the switches are: `check-default-features` (`just gates`) refuses
+# `agreement` and `test-fakes` in a shipped root's resolved normal dependencies; nothing asserts the
+# same of `fixtures`. `checks.shipped-features` reads the crate names out of an artefact and these
+# features add none.
 [features]
 agreement = []
 fixtures = []
+test-fakes = []
 
 [lints]
 workspace = true

@@ -135,6 +135,25 @@ pub enum GenerateError {
     /// changes the relationship or the dialect.
     #[error("a compound declared-key probe cannot be rendered for {dialect}: it accepts one column inside DISTINCT")]
     CompoundKeyProbeUnsupported { dialect: Dialect },
+    /// The rendered statement's bind placeholders do not match its bound parameters.
+    ///
+    /// Fail-closed: a statement sent with more placeholders than values (or fewer) is a runtime
+    /// defect at the data system, not a test failure. The `emitted` list tracks each guard
+    /// embedding's values, and this check holds the two together at render time rather than in a
+    /// golden test alone. Counted from the AST, not from rendered text: a `?` inside a string
+    /// literal is a different `Expression` variant and is invisible to the walk.
+    ///
+    /// For `Numbered` (Postgres) the `placeholders` field is the count of DISTINCT `$n` indices,
+    /// not the count of `Parameter` nodes - a legal statement can repeat `$1` for a guarded ratio.
+    #[error(
+        "{dialect} rendered {placeholders} bind placeholders for {params} bound parameters; \
+         the statement does not name one bind parameter per value the plan carries"
+    )]
+    PlaceholderCountMismatch {
+        dialect: Dialect,
+        placeholders: usize,
+        params: usize,
+    },
 }
 
 /// The dialect layer's name for a data system.
@@ -532,6 +551,89 @@ fn render(ast: &Expression, dialect: Dialect) -> Result<String, GenerateError> {
         .map_err(|cause| GenerateError::Render { dialect, cause })
 }
 
+/// The one-based indices the AST's `Expression::Parameter` nodes name.
+///
+/// `Numbered` (Postgres) and `Colon` (Oracle) both render a `Parameter` node; only `Numbered` is
+/// checked for distinct indices, but this collector is shared because the node shape is the same.
+/// Sorted before deduping, since `Vec::dedup` only collapses CONSECUTIVE repeats and a guard's two
+/// predicates can render as `$1 $2 $1 $2` - the same reason the golden
+/// (`assert_one_placeholder_per_parameter`) sorts before it dedupes.
+///
+/// A `Parameter` node with `index: None` (a named parameter, not a positional one) contributes
+/// nothing: `placeholder` always sets `index: Some`, so such a node would be a shape this crate
+/// does not produce, and the golden's text scan would not read a numeric position from it either.
+fn parameter_indices(ast: &Expression) -> Vec<usize> {
+    use polyglot_sql::traversal::ExpressionWalk as _;
+    let mut found: Vec<usize> = ast
+        .find_all(|e| matches!(e, Expression::Parameter(_)))
+        .into_iter()
+        .filter_map(|e| match e {
+            Expression::Parameter(p) => p.index.map(|i| i as usize),
+            _ => None,
+        })
+        .collect();
+    found.sort_unstable();
+    found.dedup();
+    found
+}
+
+/// Counts the bind placeholders the AST carries, per dialect's binding style.
+///
+/// `Question` (`DuckDb`, `BigQuery`, `ClickHouse`): every `Expression::Placeholder` node is one `?`,
+/// and the count must equal the occurrence-based `params` length.
+/// `Colon` (Oracle): every `Expression::Parameter` node is one bind by occurrence, so the node
+/// count must equal `params`.
+/// `Numbered` (Postgres): the DISTINCT `$n` indices, because a repeated `$1` is one parameter, not
+/// two. The count alone is not the full check - [`assert_placeholder_count`] also verifies the
+/// indices are exactly `1..=params`, not merely that the distinct count matches.
+///
+/// Counted from the AST, not from rendered text: a `?` inside a string literal is a different
+/// `Expression` variant and is invisible to this walk.
+fn placeholder_count(ast: &Expression, dialect: Dialect) -> usize {
+    use polyglot_sql::traversal::ExpressionWalk as _;
+    match dialect.placeholder_style() {
+        PlaceholderStyle::Question => ast.count(|e| matches!(e, Expression::Placeholder(_))),
+        PlaceholderStyle::Colon => ast.count(|e| matches!(e, Expression::Parameter(_))),
+        PlaceholderStyle::Numbered => parameter_indices(ast).len(),
+    }
+}
+
+/// Fail-closed: refuses a statement whose placeholder count differs from its bound-parameter
+/// count, so a guard embedded more (or fewer) times than its values were recorded for never reaches
+/// a data system.
+///
+/// `Numbered` (Postgres): checks the DISTINCT indices are exactly `1..=params.len()`, because
+/// Postgres binds `$n` by index and a repeated `$1` resolves to the same value with no extra bind -
+/// a count over nodes would wrongly refuse a legal guarded ratio that embeds the same guard twice.
+/// `Question` and `Colon`: checks the node count equals `params.len()`, because both bind by
+/// occurrence - each `?` or `:n` needs its own value.
+fn assert_placeholder_count(ast: &Expression, dialect: Dialect, params: &[ParamValue]) -> Result<(), GenerateError> {
+    match dialect.placeholder_style() {
+        PlaceholderStyle::Numbered => {
+            let found = parameter_indices(ast);
+            let expected: Vec<usize> = (1..=params.len()).collect();
+            if found != expected {
+                return Err(GenerateError::PlaceholderCountMismatch {
+                    dialect,
+                    placeholders: found.len(),
+                    params: params.len(),
+                });
+            }
+        }
+        PlaceholderStyle::Question | PlaceholderStyle::Colon => {
+            let count = placeholder_count(ast, dialect);
+            if count != params.len() {
+                return Err(GenerateError::PlaceholderCountMismatch {
+                    dialect,
+                    placeholders: count,
+                    params: params.len(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Renders a plan as one statement, paired with its parameters.
 pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
     let bucket = plan.bucket();
@@ -641,7 +743,9 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
         PlaceholderStyle::Question | PlaceholderStyle::Colon => emitted,
         PlaceholderStyle::Numbered => plan.params().to_vec(),
     };
-    Ok(GeneratedQuery::new(plan.source().clone(), render(&ast, dialect)?, params))
+    let sql = render(&ast, dialect)?;
+    assert_placeholder_count(&ast, dialect, &params)?;
+    Ok(GeneratedQuery::new(plan.source().clone(), sql, params))
 }
 
 /// Renders one leg of a federated question as one statement, paired with its parameters.
@@ -742,11 +846,10 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
     // unspecified and a golden over it flaps. Each ascending, nulls last, like `generate`.
     let ast = statement.group_by(grouping).order_by(tiebreak).build();
 
-    Ok(GeneratedQuery::new(
-        leg.source().clone(),
-        render(&ast, dialect)?,
-        leg.params().to_vec(),
-    ))
+    let params = leg.params().to_vec();
+    let sql = render(&ast, dialect)?;
+    assert_placeholder_count(&ast, dialect, &params)?;
+    Ok(GeneratedQuery::new(leg.source().clone(), sql, params))
 }
 
 /// Renders one declared join key's uniqueness probe as one statement.
@@ -832,7 +935,10 @@ pub fn generate_key_probe(key: &DeclaredKey<'_>, dialect: Dialect) -> Result<Gen
     };
     let projection = vec![aliased(rows, ROWS_LABEL)?, aliased(distinct, DISTINCT_LABEL)?];
     let ast = builder::select(projection).from(&table_path(key.table(), dialect)?).build();
-    Ok(GeneratedQuery::new(key.source().clone(), render(&ast, dialect)?, Vec::new()))
+    let params = Vec::new();
+    let sql = render(&ast, dialect)?;
+    assert_placeholder_count(&ast, dialect, &params)?;
+    Ok(GeneratedQuery::new(key.source().clone(), sql, params))
 }
 
 /// What this module claims about the dialect layer, measured against the layer itself.

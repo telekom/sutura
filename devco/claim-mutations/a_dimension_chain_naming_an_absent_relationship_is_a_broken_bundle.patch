@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-semantic/src/resolve.rs b/crates/sutura-semantic/src/resolve.rs
+--- a/crates/sutura-semantic/src/resolve.rs
++++ b/crates/sutura-semantic/src/resolve.rs
+@@ -370,7 +370,9 @@
+     for relationship_name in chain {
+         let relationship = definitions
+             .relationship(relationship_name)
+-            .ok_or_else(|| BundleInconsistent::RelationshipAbsent { dimension: name.clone() })?;
++            .ok_or_else(|| BundleInconsistent::JoinTargetMissing {
++                model: metric.model().clone(),
++            })?;
+         let joined = definitions
+             .model(relationship.target_model())
+             .ok_or_else(|| BundleInconsistent::JoinTargetMissing {
