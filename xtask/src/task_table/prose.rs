@@ -13,7 +13,20 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-skills",
         description: "the skill router and the skill tree agree",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // The router parses and one skill resolves; its second route names no skill.
+            seeds: &[
+                (
+                    ".agents/skills/skill-router.json",
+                    "{\"groups\":{\"sample\":{\"skills\":{\"kept\":{},\"missing\":{}}}}}\n",
+                ),
+                (
+                    ".agents/skills/sample/kept/SKILL.md",
+                    "---\nname: kept\ndescription: A routed skill.\n---\n\n# Kept\n",
+                ),
+            ],
+            in_scope: Some(".agents/skills/skill-router.json"),
+        },
         run: skills::run,
     },
     Task {

@@ -119,6 +119,9 @@ pub(crate) fn shipped_packages(text: &str) -> Vec<String> {
         if trimmed == "];" && line.len().saturating_sub(line.trim_start().len()) == open {
             break;
         }
+        if trimmed.starts_with('#') {
+            continue;
+        }
         for found in packages_in(line) {
             let owned = String::from(found);
             if !names.contains(&owned) {
@@ -752,6 +755,21 @@ mod tests {
     fn a_longer_key_ending_in_package_is_not_a_package() {
         let nix = "  binaries = [\n    { subPackage = \"decoy\"; package = \"sutura-cli\"; }\n  ];\n";
         assert_eq!(shipped_packages(nix), vec!["sutura-cli"]);
+    }
+
+    #[test]
+    fn a_commented_out_package_line_is_not_a_declaration() {
+        // A `#` line inside `binaries = [ ... ]` is a comment in Nix, and a package name in a
+        // comment is not a shipped package. Before the `#`-skip, `packages_in` would read the
+        // commented-out `package = "stale"` and add `"stale"` to the list, which would then be
+        // compiled at the default feature set - a package nobody ships.
+        let nix = concat!(
+            "  binaries = [\n",
+            "    # { bin = \"old\"; package = \"stale\"; }\n",
+            "    { bin = \"sutura\"; package = \"sutura-cli\"; }\n",
+            "  ];\n",
+        );
+        assert_eq!(shipped_packages(nix), vec![String::from("sutura-cli")]);
     }
 
     #[test]

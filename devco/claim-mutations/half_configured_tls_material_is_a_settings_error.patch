@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-config/src/server.rs b/crates/sutura-config/src/server.rs
+index 0c94dcc83..06068fc2d 100644
+--- a/crates/sutura-config/src/server.rs
++++ b/crates/sutura-config/src/server.rs
+@@ -328,10 +328,7 @@ impl TlsMaterial {
+                         name: "server.tls_certificate",
+                     });
+                 }
+-                Err(InvalidTlsMaterial::OnlyOneHalf {
+-                    given: "server.tls_certificate",
+-                    missing: "server.tls_key",
+-                })
++                Ok(None)
+             }
+             (None, Some(key)) => {
+                 if key.is_empty() {

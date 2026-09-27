@@ -1,0 +1,18 @@
+diff --git a/crates/sutura-config/src/settings/catalogs.rs b/crates/sutura-config/src/settings/catalogs.rs
+index 6b4ded220..5c4127514 100644
+--- a/crates/sutura-config/src/settings/catalogs.rs
++++ b/crates/sutura-config/src/settings/catalogs.rs
+@@ -24,10 +24,9 @@ use super::SettingsError;
+ pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Result<Catalogs, SettingsError> {
+     let mut entries = Vec::with_capacity(raw.catalogs.len());
+     for raw_catalog in &raw.catalogs {
+-        let name = SourceName::parse(&raw_catalog.name).map_err(|cause| SettingsError::CatalogName {
+-            written: raw_catalog.name.clone(),
+-            cause,
+-        })?;
++        let Ok(name) = SourceName::parse(&raw_catalog.name) else {
++            continue;
++        };
+         let kind = CatalogKind::parse(&raw_catalog.kind).map_err(|cause| SettingsError::CatalogKind {
+             catalog: raw_catalog.name.clone(),
+             cause,

@@ -201,3 +201,73 @@ fn a_moved_test_that_gains_doc_hidden_is_refused_beside_a_reflowed_move() {
     ]);
     assert_eq!(plan, Plan::DeletedTests(vec![deleted("crates/x/tests/a.rs", &["foo"])]));
 }
+
+/// `github.com/telekom/sutura#1103`, the shape a split at the line cap takes: the tests move to one
+/// new module and the helpers they share to another that names no test. Reverting that one deletes
+/// a file the kept target still declares, so the base does not build and no moved test is measured.
+#[test]
+fn a_helper_moved_into_a_new_path_module_stays_declared_at_base() {
+    let helper = "fn four() -> i32 {\n    2 + 2\n}\n";
+    let head = "#[path = \"a/harness.rs\"]\nmod harness;\n#[cfg(test)]\n#[path = \"a/moved.rs\"]\nmod moved;\n";
+    let plan = plan_of(&[
+        ["crates/x/tests/a.rs", &format!("{helper}{FOO}{BAR}"), &format!("{head}{BAR}")],
+        ["crates/x/tests/a/harness.rs", "", helper],
+        ["crates/x/tests/a/moved.rs", "", FOO],
+    ]);
+    let Plan::Separable(separable) = plan else {
+        panic!("a pure move must reach the proof, got {plan:?}");
+    };
+    assert_eq!(separable.test_files, ["crates/x/tests/a.rs", "crates/x/tests/a/moved.rs"]);
+    assert!(
+        !separable.revert.contains(&String::from("crates/x/tests/a/harness.rs")),
+        "a declared module must not be deleted from the base tree: {separable:?}"
+    );
+}
+
+/// The same split's other half: a sibling test module that existed at base follows the helpers to
+/// their new module, changing only its `use` line. Restoring it puts base imports under a parent
+/// kept at HEAD, which no longer has them, and the base fails to build the same way.
+#[test]
+fn a_sibling_test_module_that_follows_a_moved_helper_stays_at_head() {
+    let helper = "pub fn four() -> i32 {\n    2 + 2\n}\n";
+    let sibling = "#[cfg(test)]\nmod kinds;\n";
+    let head = format!("#[path = \"a/harness.rs\"]\nmod harness;\n{sibling}#[cfg(test)]\n#[path = \"a/moved.rs\"]\nmod moved;\n");
+    let plan = plan_of(&[
+        ["crates/x/tests/a.rs", &format!("{helper}{sibling}{FOO}"), &head],
+        ["crates/x/tests/a/harness.rs", "", helper],
+        ["crates/x/tests/a/moved.rs", "", FOO],
+        [
+            "crates/x/tests/a/kinds.rs",
+            &format!("use super::four;\n{BAR}"),
+            &format!("use super::harness::four;\n{BAR}"),
+        ],
+    ]);
+    let Plan::Separable(separable) = plan else {
+        panic!("a pure move must reach the proof, got {plan:?}");
+    };
+    assert!(
+        !separable.revert.contains(&String::from("crates/x/tests/a/kinds.rs")),
+        "a test module declared by a kept test file must stay beside it: {separable:?}"
+    );
+}
+
+/// The added-file rule on its own: the new module sits under `src/`, so it is not whole-file test
+/// code, and its declarer is held rather than a test file, so the test-code rule cannot fire.
+#[test]
+fn an_added_src_module_a_held_file_declares_stays_at_head() {
+    let before = "pub fn one() -> i32 {\n    1\n}\n";
+    let after = format!("{before}#[cfg(test)]\npub(crate) fn helper() {{}}\nmod extra;\n");
+    let plan = plan_of(&[
+        ["crates/x/src/support.rs", before, &after],
+        ["crates/x/src/support/extra.rs", "", "pub fn two() -> i32 {\n    2\n}\n"],
+        ["crates/x/tests/a.rs", "", FOO],
+    ]);
+    let Plan::Separable(separable) = plan else {
+        panic!("an added test must reach the proof, got {plan:?}");
+    };
+    assert_eq!(separable.test_only, ["crates/x/src/support.rs"]);
+    assert!(
+        !separable.revert.contains(&String::from("crates/x/src/support/extra.rs")),
+        "an added module a held file declares must not be deleted from the base tree: {separable:?}"
+    );
+}

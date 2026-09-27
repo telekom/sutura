@@ -26,7 +26,42 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-unreachable-public-modules",
         description: "no pub module in a library crate that no first-party crate references",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // The five declared test-support exceptions all exist and stay unreferenced.
+            // A sixth crate declares a public module with no production reference.
+            seeds: &[
+                ("Cargo.toml", "[workspace]\nresolver = \"3\"\nmembers = [\"crates/*\"]\n"),
+                (
+                    "crates/sutura-http-client/Cargo.toml",
+                    "[package]\nname = \"sutura-http-client\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+                ),
+                ("crates/sutura-http-client/src/lib.rs", "pub mod tls_test_support {}\n"),
+                (
+                    "crates/sutura-dev/Cargo.toml",
+                    "[package]\nname = \"sutura-dev\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+                ),
+                (
+                    "crates/sutura-dev/src/lib.rs",
+                    "pub mod bench_venue {}\npub mod tolerance {}\n",
+                ),
+                (
+                    "crates/sutura-app/Cargo.toml",
+                    "[package]\nname = \"sutura-app\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+                ),
+                ("crates/sutura-app/src/lib.rs", "pub mod untrusted {}\n"),
+                (
+                    "crates/sutura-exec-datafusion/Cargo.toml",
+                    "[package]\nname = \"sutura-exec-datafusion\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+                ),
+                ("crates/sutura-exec-datafusion/src/lib.rs", "pub mod measurement {}\n"),
+                (
+                    "crates/sutura-domain/Cargo.toml",
+                    "[package]\nname = \"sutura-domain\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+                ),
+                ("crates/sutura-domain/src/lib.rs", "pub mod orphan {}\n"),
+            ],
+            in_scope: Some("crates/sutura-domain/src/lib.rs"),
+        },
         run: orphan_modules::run,
     },
     Task {
@@ -198,7 +233,41 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-refusal-coverage",
         description: "every variant of an enrolled refusal enum is named, or separately excused with a date and reason",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // Each snapshot names only part of each enum, so neither is a census.
+            // T6 is the sole uncovered variant; the enrolled counts must still agree.
+            seeds: &[
+                (
+                    "crates/sutura-domain/src/query.rs",
+                    "pub enum RefusalReason {\n    R0,\n    R1,\n    R2,\n    R3,\n    R4,\n    R5,\n    R6,\n    R7,\n    R8,\n    R9,\n    R10,\n    R11,\n    R12,\n    R13,\n    R14,\n    R15,\n    R16,\n    R17,\n    R18,\n    R19,\n    R20,\n    R21,\n    R22,\n    R23,\n    R24,\n    R25,\n    R26,\n    R27,\n    R28,\n    R29,\n}\n",
+                ),
+                (
+                    "crates/sutura-config/src/settings/posture.rs",
+                    "pub enum NotFitToServe {\n    S0,\n    S1,\n    S2,\n    S3,\n    S4,\n    S5,\n    S6,\n    S7,\n    S8,\n    S9,\n    S10,\n    S11,\n    S12,\n    S13,\n    S14,\n    S15,\n}\n",
+                ),
+                (
+                    "crates/sutura-domain/src/pinned.rs",
+                    "pub enum NotValidated {\n    V0,\n    V1,\n    V2,\n    V3,\n    V4,\n    V5,\n    V6,\n}\n",
+                ),
+                (
+                    "crates/sutura-domain/src/raw.rs",
+                    "pub enum RawRefusalReason {\n    W0,\n    W1,\n    W2,\n    W3,\n}\n",
+                ),
+                (
+                    "crates/sutura-http/src/tls.rs",
+                    "pub enum TlsNotUsable {\n    T0,\n    T1,\n    T2,\n    T3,\n    T4,\n    T5,\n    T6,\n}\n",
+                ),
+                (
+                    "crates/example/tests/first.snap",
+                    "R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 S0 S1 S2 S3 S4 S5 S6 S7 V0 V1 V2 W0 W1 T0 T1 T2\n",
+                ),
+                (
+                    "crates/example/tests/second.snap",
+                    "R15 R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29 S8 S9 S10 S11 S12 S13 S14 S15 V3 V4 V5 V6 W2 W3 T3 T4 T5\n",
+                ),
+            ],
+            in_scope: Some("crates/sutura-http/src/tls.rs"),
+        },
         run: refusals::run,
     },
     Task {
@@ -263,7 +332,33 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-conformance-bindings",
         description: "every registered data system is bound to the conformance packs, or declared unbound",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // The declared Oracle exception is live. A second registered data system has a
+            // resolvable crate and no binding, leaving that own-rule finding as the refusal.
+            seeds: &[
+                (
+                    "crates/sutura-exec-oracle/Cargo.toml",
+                    "[package]\nname = \"sutura-exec-oracle\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+                ),
+                (
+                    "crates/sutura-exec-mim/Cargo.toml",
+                    "[package]\nname = \"sutura-exec-mim\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+                ),
+                (
+                    "crates/sutura-conformance/Cargo.toml",
+                    "[package]\nname = \"sutura-conformance\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+                ),
+                (
+                    "crates/sutura-app/tests/adapters/adapters.rs",
+                    "macro_rules! adapters {\n    (data_systems: $cell:ident) => {\n        $cell!(oracle, sutura_exec_oracle::OracleWarehouse);\n        $cell!(mim, sutura_exec_mim::MimWarehouse);\n    };\n}\n",
+                ),
+                (
+                    "crates/sutura-conformance/src/lib.rs",
+                    "macro_rules! execute_packs { () => {} }\n",
+                ),
+            ],
+            in_scope: Some("crates/sutura-app/tests/adapters/adapters.rs"),
+        },
         run: conformance::run,
     },
     Task {
