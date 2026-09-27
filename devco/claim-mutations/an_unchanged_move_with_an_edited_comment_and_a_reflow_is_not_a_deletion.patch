@@ -1,0 +1,16 @@
+diff --git a/xtask/src/causality/edited/moved.rs b/xtask/src/causality/edited/moved.rs
+index aea4ab3a8..a194b7212 100644
+--- a/xtask/src/causality/edited/moved.rs
++++ b/xtask/src/causality/edited/moved.rs
+@@ -73,7 +73,10 @@ fn items(text: Option<String>) -> Vec<Item> {
+         };
+         let start = attached(&lines, index).first().map_or(index, |(at, _)| *at);
+         let last = item_end(&lines, index);
+-        let tokens = key(&lines.get(start..=last).unwrap_or_default().join("\n"));
++        let tokens = key(&lines.get(start..=last).unwrap_or_default().join("\n")).map(|mut key| {
++            key.push(last.saturating_sub(start).to_string());
++            key
++        });
+         out.push(Item {
+             name,
+             tokens,

@@ -233,3 +233,36 @@ call, so a function carrying one expectation may make two exposures; the reason 
 reviewer reads, and `#[expect]` at least fails when the last one goes away. And the ban says nothing
 about what the exposed `&str` is then *used* for - that is still review, which is why every reason
 here names the destination.
+
+## Second amendment, 2026-09-26: the wire types this record named are gone, and their successors are compiler-held
+
+The "two BigQuery wire documents" section above named `wire::credential`'s private `Document` and
+`TokenResponse`, whose `Debug` removals this record called "held by review, not by a mechanism." Both
+types were deleted with the HTTP wire transport (commit `d1ece3b0`, "replace the HTTP wire transport
+with ADBC"), which removed `crates/sutura-exec-bigquery/src/wire/` wholesale. No type this record names
+survives, so the "held by review" claim now describes no existing type.
+
+Their successors that carry bare credential text are held by a mechanism the compiler enforces:
+`SubjectSource` (`adbc::subject`) and `JobAuthentication` (`adbc::identity`), both `pub(super)`. Each
+gets a private `mod no_debug` in its own module - a negative-impl ambiguity guard that makes adding
+`#[derive(Debug)]` (or any `impl Debug`, anywhere in the crate) an **E0283** (ambiguous associated
+item) at a `const _: fn() = || { .. }` reference to the guarded type. `SubjectSource` holds the
+loopback nonce and secret as bare `String`s, and `JobAuthentication.options` carries the same document
+text through a foreign `adbc_core` `Vec<(OptionDatabase, OptionValue)>` whose `OptionValue` derives `Debug`;
+the guard on each closes the leak a `#[derive(Debug)]` would open at that layer.
+
+**How the gate proves it.** `just lint` is green with the guards in place (the crate builds; the
+reference resolves because only the non-`Debug` blanket impl applies). The kill demonstration is the
+mutation that breaks the guard: add `#[derive(Debug)]` to `SubjectSource` (or to `JobAuthentication`),
+run `just lint`, and it is **red with E0283** naming the `no_debug` const. That is the same
+"verified non-vacuous by unmarking and reading the compiler's reason" discipline this record applied
+to its `compile_fail` doctests. `just causality` cannot prove this guard: it compares changed-test
+outcomes between base and head, and the guard changes no test - the crate compiles identically on
+both, so causality has nothing to compare. The proof is the red-kill, not a green run.
+
+**Limit, stated beside the claim.** The guard forbids `Debug` and nothing else. A hand-written
+`Display` on `SubjectSource` or `JobAuthentication`, or a `tracing`/`format!` call that prints
+`options` or a bare field by name, still leaks - those are held by review, not by this mechanism. The
+foreign `adbc_core` `OptionValue::Debug` still prints the document text if reached directly, which is why
+`JobAuthentication.options` is `pub(super)` rather than public, and why the guard sits on the type
+rather than on the field.

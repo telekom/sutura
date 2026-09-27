@@ -125,8 +125,8 @@ impl CatalogKind {
 pub struct CatalogSettings {
     name: SourceName,
     kind: CatalogKind,
-    dir: PathBuf,
-    data_dir: PathBuf,
+    dir: Option<PathBuf>,
+    data_dir: Option<PathBuf>,
     version: DefinitionVersion,
     /// `catalog.kind: datahub` only - see [`Self::with_datahub_reader`]. `None` for every other
     /// kind, and for a `datahub` entry before that step runs.
@@ -153,8 +153,7 @@ pub struct CatalogSettings {
 /// Why a catalog configuration is not usable.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidCatalogSettings {
-    /// A path was empty, which resolves to the process working directory - a different directory
-    /// on every host, and never the one the operator meant.
+    /// A required path was empty, which would resolve to the process working directory.
     #[error("{name} is empty - write the directory, not nothing")]
     EmptyPath { name: &'static str },
     /// No catalog was declared, so there is nothing to serve.
@@ -188,13 +187,10 @@ pub enum InvalidCatalogSettings {
 }
 
 impl CatalogSettings {
-    /// Reads the declared name, kind, the two directories and the version label.
+    /// Reads the declared name, kind, directories and version label.
     ///
-    /// The version arrives already parsed, because what identifies a snapshot of a directory is
-    /// a commit id or a build number and only the caller has it. Existence of the directories is
-    /// deliberately *not* checked here: this type is the configuration, and a directory that
-    /// disappears between reading the configuration and loading the catalog would make an
-    /// existence check here a claim that goes stale immediately. The load is what fails.
+    /// Existence of the directories is checked when the catalog loads, not here: a directory can
+    /// disappear after configuration parsing.
     pub fn parse(
         name: SourceName,
         kind: CatalogKind,
@@ -202,13 +198,34 @@ impl CatalogSettings {
         data_dir: PathBuf,
         version: DefinitionVersion,
     ) -> Result<Self, InvalidCatalogSettings> {
-        if dir.as_os_str().is_empty() {
+        Self::parse_optional(name, kind, Some(dir), Some(data_dir), version)
+    }
+
+    /// Allows the live catalog kind to omit directories while requiring them for other kinds.
+    pub(crate) fn parse_optional(
+        name: SourceName,
+        kind: CatalogKind,
+        dir: Option<PathBuf>,
+        data_dir: Option<PathBuf>,
+        version: DefinitionVersion,
+    ) -> Result<Self, InvalidCatalogSettings> {
+        if dir.as_ref().is_some_and(|path| path.as_os_str().is_empty()) {
             return Err(InvalidCatalogSettings::EmptyPath { name: "catalogs[].dir" });
         }
-        if data_dir.as_os_str().is_empty() {
+        if data_dir.as_ref().is_some_and(|path| path.as_os_str().is_empty()) {
             return Err(InvalidCatalogSettings::EmptyPath {
                 name: "catalogs[].data_dir",
             });
+        }
+        if kind != CatalogKind::Rdbms {
+            if dir.is_none() {
+                return Err(InvalidCatalogSettings::EmptyPath { name: "catalogs[].dir" });
+            }
+            if data_dir.is_none() {
+                return Err(InvalidCatalogSettings::EmptyPath {
+                    name: "catalogs[].data_dir",
+                });
+            }
         }
         Ok(Self {
             name,
@@ -346,21 +363,22 @@ impl CatalogSettings {
         self.kind
     }
 
+    /// The declared catalog directory. Required for every kind except `rdbms`.
     #[inline]
-    pub fn dir(&self) -> &Path {
-        &self.dir
+    pub fn dir(&self) -> Option<&Path> {
+        self.dir.as_deref()
     }
 
+    /// The declared data directory. Required for every kind except `rdbms`.
     #[inline]
-    pub fn data_dir(&self) -> &Path {
-        &self.data_dir
+    pub fn data_dir(&self) -> Option<&Path> {
+        self.data_dir.as_deref()
     }
 
     #[inline]
     pub const fn version(&self) -> &DefinitionVersion {
         &self.version
     }
-
     /// The declared `DataHub` endpoint, once [`Self::with_datahub_reader`] has run.
     #[inline]
     pub fn endpoint(&self) -> Option<&str> {
@@ -520,9 +538,6 @@ mod tests {
 
     #[test]
     fn an_empty_directory_is_refused_rather_than_resolving_to_the_working_directory() {
-        // The bug this catches: an unset value deserializes to an empty string, an empty path
-        // resolves to `.`, and the service then serves whatever catalog happens to be beside the
-        // binary. That is a different bundle with no diff anywhere.
         let error = CatalogSettings::parse(name("catalog"), kind(), PathBuf::new(), PathBuf::from("data"), version())
             .expect_err("an empty catalog directory is not a directory");
         assert_eq!(error, InvalidCatalogSettings::EmptyPath { name: "catalogs[].dir" });
@@ -545,8 +560,8 @@ mod tests {
         let settings = settings("catalog");
         assert_eq!(settings.name(), &name("catalog"));
         assert_eq!(settings.kind(), CatalogKind::Markdown);
-        assert_eq!(settings.dir(), PathBuf::from("/nowhere/catalog"));
-        assert_eq!(settings.data_dir(), PathBuf::from("/nowhere/data"));
+        assert_eq!(settings.dir(), Some(PathBuf::from("/nowhere/catalog").as_path()));
+        assert_eq!(settings.data_dir(), Some(PathBuf::from("/nowhere/data").as_path()));
         assert_eq!(settings.version().as_str(), "test-1");
     }
 

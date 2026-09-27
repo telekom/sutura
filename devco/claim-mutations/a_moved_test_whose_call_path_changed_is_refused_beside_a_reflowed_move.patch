@@ -1,0 +1,13 @@
+diff --git a/xtask/src/causality/edited/moved.rs b/xtask/src/causality/edited/moved.rs
+index aea4ab3a8..fea98dc91 100644
+--- a/xtask/src/causality/edited/moved.rs
++++ b/xtask/src/causality/edited/moved.rs
+@@ -126,6 +126,8 @@ fn flatten(stream: TokenStream, out: &mut Vec<String>) {
+                 flatten(group.stream(), out);
+                 out.push(String::from(close));
+             }
++            TokenTree::Punct(colon) if colon.as_char() == ':' => {}
++            TokenTree::Ident(_) if matches!(trees.peek(), Some(TokenTree::Punct(next)) if next.as_char() == ':') => {}
+             // Joint keeps `&&` apart from `& &`. Not after `?`, `,` or `;`, which start no longer
+             // operator: rustfmt breaks `x?.y()` into `x?` and `.y()` at a different depth.
+             TokenTree::Punct(punct) => {

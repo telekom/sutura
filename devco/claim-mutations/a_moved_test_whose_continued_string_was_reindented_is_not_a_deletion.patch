@@ -1,0 +1,13 @@
+diff --git a/xtask/src/causality/edited/moved.rs b/xtask/src/causality/edited/moved.rs
+index 9e3ffcd36..0df949a49 100644
+--- a/xtask/src/causality/edited/moved.rs
++++ b/xtask/src/causality/edited/moved.rs
+@@ -156,7 +156,7 @@ fn continued(literal: &str) -> String {
+         match chars.next() {
+             Some('\n') => {
+                 out.push('\n');
+-                while chars.next_if(|next| matches!(next, ' ' | '\t' | '\n' | '\r')).is_some() {}
++                while chars.next_if(|next| matches!(next, '\r')).is_some() {}
+             }
+             Some(escaped) => out.push(escaped),
+             None => {}

@@ -1,0 +1,8 @@
+diff --git a/crates/sutura-app/src/federated/leg.rs b/crates/sutura-app/src/federated/leg.rs
+--- a/crates/sutura-app/src/federated/leg.rs
++++ b/crates/sutura-app/src/federated/leg.rs
+@@ -155,3 +155,3 @@ where
+     let mut priced: Option<u64> = None;
+-    for (leg, warehouse) in legs {
++    for (leg, warehouse) in legs.into_iter().take(1) {
+         if let PreFlight::Accepted {

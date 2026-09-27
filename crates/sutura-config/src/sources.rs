@@ -1,8 +1,8 @@
 //! The sources this deployment declares: one entry per data system, keyed by the alias a model names.
 //!
 //! **Beside `catalogs[].data_dir` rather than instead of it, and the two answer different questions.**
-//! `catalogs[].dir` and `catalogs[].data_dir` are the *catalog*: authored definitions, and the directory the
-//! `sutura` command reads. A `sources:` entry is a *data system*: what kind it is, where it is, which
+//! For directory-backed catalogs, `catalogs[].dir` and `catalogs[].data_dir` locate authored definitions;
+//! an `rdbms` catalog needs neither path. A `sources:` entry is a *data system*: what kind it is, where it is, which
 //! identity a query reaches it as, and which identity re-ran its anchors at boot. A model's `source:`
 //! is the key that selects one.
 //!

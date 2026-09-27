@@ -336,6 +336,12 @@ fn relocated_src(dir: &str, inner: &str, read: &PostImage<'_>) -> Option<Module>
         .into_iter()
         .map(|path| in_dir(dir, path))
         .find(|path| read(path).is_some())?;
+    declared_route(root, &target, read, true)
+}
+
+/// Follow readable module declarations from a root to a file, carrying the declared names.
+/// `path_only` leaves ordinary `src/` modules to their path-derived key.
+fn declared_route(root: String, target: &str, read: &PostImage<'_>, path_only: bool) -> Option<Module> {
     let mut pending = vec![(root, Module::default(), false)];
     let mut visited = BTreeSet::new();
     while let Some((path, within, crossed_path)) = pending.pop() {
@@ -357,7 +363,7 @@ fn relocated_src(dir: &str, inner: &str, read: &PostImage<'_>) -> Option<Module>
                     continue;
                 }
                 let module = within.nested(&name);
-                if candidate == target && crossed_path {
+                if candidate == target && (!path_only || crossed_path) {
                     return Some(module);
                 }
                 pending.push((candidate, module, crossed_path));
@@ -381,30 +387,25 @@ fn relocated_src(dir: &str, inner: &str, read: &PostImage<'_>) -> Option<Module>
 /// Only the target named by the FIRST segment is consulted. A file that some OTHER target also
 /// pulls in by `#[path]` is therefore keyed to this one - which NARROWS the filter rather than
 /// widening it, so the failure direction is a loud `RedOutsideTheDiff` and never a false green.
-/// `tests/support/mod.rs`, which two bigquery targets share, has no `tests/support.rs` above it
+/// `tests/support/mod.rs`, which two bigquery targets share, has no integration root above it
 /// and so falls back to the package.
 fn included_by(package: &CargoName, dir: &str, inner: &str, read: &PostImage<'_>) -> Option<Place> {
     let (first, _) = inner.split_once('/')?;
     let target = CargoName::parse(first)?;
-    let text = read(&in_dir(dir, &format!("tests/{first}.rs")))?;
+    let root = [format!("tests/{first}.rs"), format!("tests/{first}/main.rs")]
+        .into_iter()
+        .map(|path| in_dir(dir, &path))
+        .find(|path| read(path).is_some())?;
+    let file = in_dir(dir, &format!("tests/{inner}"));
+    let within = if file == root {
+        Module::default()
+    } else {
+        declared_route(root, &file, read, false)?
+    };
     Some(Place {
         binary: Binary::Target(package.clone(), target),
-        within: Module::named(&declared_at(&text, inner)?),
+        within,
     })
-}
-
-/// The module name `text` gives the file at `inner` through a `#[path]` declaration.
-///
-/// The attribute is matched as the line rustfmt writes it, spaces included. Any other spelling
-/// finds nothing and the caller falls back to the package - generous, and the direction that
-/// cannot turn into a false green.
-fn declared_at(text: &str, inner: &str) -> Option<Ident> {
-    let attribute = format!("#[path = \"{inner}\"]");
-    let lines: Vec<&str> = text.lines().collect();
-    let at = lines.iter().position(|line| line.trim() == attribute)?;
-    item_below(&lines, at + 1)
-        .and_then(|(_, item)| module_name(item))
-        .and_then(Ident::parse)
 }
 
 /// Where the out-of-line module `name`, declared in the file at `path`, keeps its own source.
@@ -653,6 +654,48 @@ mod tests {
         assert_eq!(
             filterset(&files, &["crates/x/tests/golden/catalogs.rs"], &read),
             "(binary_id(=x::golden) & test(/^catalogs::(?:.*::)?sums(?:::|$)/))"
+        );
+    }
+
+    #[test]
+    fn a_tests_file_reached_through_two_path_declarations_keeps_both_module_names() {
+        let files = vec![changed(
+            "crates/x/tests/differential/federated/bounds.rs",
+            1,
+            &["#[test]", "fn caps_results() {}"],
+        )];
+        let read = tree(&[
+            ("crates/x/Cargo.toml", &manifest("x")),
+            (
+                "crates/x/tests/differential.rs",
+                "#[path = \"differential/federated.rs\"]\nmod federation;\n",
+            ),
+            (
+                "crates/x/tests/differential/federated.rs",
+                "#[path = \"federated/bounds.rs\"]\nmod bounds;\n",
+            ),
+            (
+                "crates/x/tests/differential/federated/bounds.rs",
+                "#[test]\nfn caps_results() {}\n",
+            ),
+        ]);
+        assert_eq!(
+            filterset(&files, &["crates/x/tests/differential/federated/bounds.rs"], &read),
+            "(binary_id(=x::differential) & test(/^federation::bounds::(?:.*::)?caps_results(?:::|$)/))"
+        );
+    }
+
+    #[test]
+    fn a_directory_integration_root_keeps_its_target_and_child_path() {
+        let files = vec![changed("crates/x/tests/served/cells.rs", 1, &["#[test]", "fn responds() {}"])];
+        let read = tree(&[
+            ("crates/x/Cargo.toml", &manifest("x")),
+            ("crates/x/tests/served/main.rs", "#[path = \"cells.rs\"]\nmod requests;\n"),
+            ("crates/x/tests/served/cells.rs", "#[test]\nfn responds() {}\n"),
+        ]);
+        assert_eq!(
+            filterset(&files, &["crates/x/tests/served/cells.rs"], &read),
+            "(binary_id(=x::served) & test(/^requests::(?:.*::)?responds(?:::|$)/))"
         );
     }
 
