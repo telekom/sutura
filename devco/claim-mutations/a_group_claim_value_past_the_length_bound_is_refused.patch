@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http/src/inbound/caller.rs b/crates/sutura-http/src/inbound/caller.rs
+index 672ed7ae2..50b6e4f0d 100644
+--- a/crates/sutura-http/src/inbound/caller.rs
++++ b/crates/sutura-http/src/inbound/caller.rs
+@@ -220,7 +220,7 @@ impl Groups {
+         let mut set = BTreeSet::new();
+         for value in claimed {
+             let found = value.chars().count();
+-            if found > MAX_GROUP_LENGTH {
++            if found > MAX_GROUP_LENGTH.saturating_add(1) {
+                 return Err(InvalidGroup::TooLong {
+                     found,
+                     limit: MAX_GROUP_LENGTH,

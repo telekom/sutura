@@ -97,6 +97,20 @@ async fn a_statement_the_data_system_refuses_is_a_403_carrying_the_domain_shape(
     assert!(body.contains(r#""code":"source_refused""#), "{body}");
 }
 
+#[tokio::test]
+async fn an_empty_statement_is_a_400_not_a_question_through_the_real_router() {
+    // Refused by `RawStatement`'s own parse before admission, so no data system is reached: the
+    // caller's malformed input, not a statement the source declined.
+    let app = over(
+        bundle(),
+        fake_warehouse(),
+        settings(Environment::Development, "tools:\n  run_sql:\n    enabled: true\n"),
+    );
+    let (status, body) = call(&app, request("POST", "/v1/sql/run", None, Body::from(run_sql_body("")))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.contains(r#""code":"not_a_question""#), "{body}");
+}
+
 /// **`#666` round 2, finding 3.** `crate::openapi::document`'s own unit test proves the FUNCTION
 /// omits `/sql/run` when told the switch is off; nothing proved the SERVED route actually calls it
 /// with the deployment's real setting rather than a literal - `crates/sutura-http/src/router.rs`'s
