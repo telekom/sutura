@@ -39,6 +39,11 @@
 
 #[path = "affected/lockfile.rs"]
 mod lockfile;
+#[path = "affected/claim_mutation.rs"]
+mod claim_mutation;
+#[cfg(test)]
+#[path = "affected/mutation_tests.rs"]
+mod mutation_tests;
 
 use std::collections::BTreeSet;
 use std::io::Write as _;
@@ -155,7 +160,9 @@ fn derive_from(paths: &[String], registry: Result<BTreeSet<String>, String>, roo
     } else {
         None
     };
-    let (mut core, selected, mut reasons) = select(paths, registry.as_ref().ok(), locks.as_ref());
+    let (paths, patch_reasons) = claim_mutation::expand(paths, root, base);
+    let (mut core, selected, mut reasons) = select(&paths, registry.as_ref().ok(), locks.as_ref());
+    reasons.extend(patch_reasons);
     let declared = match registry {
         Ok(mut set) => {
             set.insert(String::from(IDENTITY));
