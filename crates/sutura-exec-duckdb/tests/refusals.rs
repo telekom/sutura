@@ -131,6 +131,11 @@ mod refusals {
         );
     }
 
+    /// The kill (rendering in the Postgres dialect) makes `render` SUCCEED. The cell then goes red
+    /// on a downstream `Prepare` catalog error, because this empty database has no `dataset`
+    /// schema, and not at the render step. The assertion names `Render` itself, so an `Ok` - which
+    /// a database holding that schema would answer - is red too, and the kill does not depend on
+    /// what the fixture lacks.
     #[test]
     fn a_plan_over_a_qualified_table_is_refused_as_render() {
         let plan = plan_over_a_qualified_table();

@@ -7,6 +7,10 @@
 //! then hangs up. A missing guard therefore reaches a closed connection and answers a different
 //! error than the refusal, which is what each assertion names. A refusal that needs the server to
 //! answer a query is out of reach here and belongs with the tier-backed cells.
+//!
+//! **Except the two missing-file cells.** Their kill reads the absent file as empty text, and the
+//! column validation refuses that empty header before any SQL (`InvalidColumnName` and
+//! `FixtureSchema`), so the kill swaps which refusal answers and never reaches the connection.
 
 #[cfg(test)]
 mod refusals {
