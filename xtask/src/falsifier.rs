@@ -61,6 +61,12 @@ pub(crate) fn falsifier_tree() -> PathBuf {
     std::fs::create_dir_all(&root).expect("a scratch root");
     std::fs::write(root.join("flake.nix"), "{ }\n").expect("the first root marker");
     std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = []\n").expect("the second root marker");
+    std::fs::create_dir_all(root.join(".agents/skills")).expect("the routed skills tree");
+    for link in crate::repo::INDEX_SYMLINKS {
+        let path = root.join(link);
+        std::fs::create_dir_all(path.parent().expect("a skill link has a parent")).expect("an agent directory");
+        std::os::unix::fs::symlink("../.agents/skills", path).expect("an agent skill link");
+    }
     // Over the 1000-line cap and clean in every other way, so `max-lines` is the only gate this
     // file is about.
     let mut over_long = String::new();
