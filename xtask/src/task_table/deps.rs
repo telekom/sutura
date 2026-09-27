@@ -151,7 +151,16 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-feature-remedies",
         description: "a refusal that says to rebuild names a feature the crate declares",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            seeds: &[
+                (
+                    "crates/thing/src/lib.rs",
+                    "fn refuse() -> &'static str { \"Build thing with --features bogus\" }\n",
+                ),
+                ("crates/thing/Cargo.toml", "[features]\ntls = []\n"),
+            ],
+            in_scope: Some("crates/thing/src/lib.rs"),
+        },
         run: feature_remedies::run,
     },
 ];
