@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-catalog-datahub/src/lib.rs b/crates/sutura-catalog-datahub/src/lib.rs
+index a96e82f63..4cf2a7ae6 100644
+--- a/crates/sutura-catalog-datahub/src/lib.rs
++++ b/crates/sutura-catalog-datahub/src/lib.rs
+@@ -309,7 +309,8 @@ impl<R: AspectReader> DataHubCatalog<R> {
+     fn convert_model(&self, dataset: &document::DatasetAspect) -> Result<Model, DataHubError> {
+         let source = self
+             .sources
+-            .get(dataset.platform())
++            .values()
++            .next()
+             .cloned()
+             .ok_or_else(|| DataHubError::UnknownPlatform {
+                 model: dataset.name().to_owned(),

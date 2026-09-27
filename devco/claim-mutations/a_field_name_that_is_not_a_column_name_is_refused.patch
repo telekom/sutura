@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-okf/src/lib.rs b/crates/sutura-catalog-okf/src/lib.rs
+index ebe03c260..402916ec7 100644
+--- a/crates/sutura-catalog-okf/src/lib.rs
++++ b/crates/sutura-catalog-okf/src/lib.rs
+@@ -130,7 +130,7 @@ impl OkfCatalog {
+         let mut columns = Vec::with_capacity(descriptor.fields.len());
+         let mut seen = BTreeSet::new();
+         for field in descriptor.fields {
+-            let column_name = ColumnName::parse(field.name.as_str()).map_err(|cause| OkfCatalogError::InvalidColumn {
++            let column_name = ColumnName::parse(field.name.as_str()).map_err(|cause| OkfCatalogError::InvalidName {
+                 path: path.to_path_buf(),
+                 cause,
+             })?;

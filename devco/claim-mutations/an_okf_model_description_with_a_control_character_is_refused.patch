@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-catalog-okf/src/lib.rs b/crates/sutura-catalog-okf/src/lib.rs
+index ebe03c260..978530ca0 100644
+--- a/crates/sutura-catalog-okf/src/lib.rs
++++ b/crates/sutura-catalog-okf/src/lib.rs
+@@ -174,10 +174,7 @@ impl OkfCatalog {
+             .ok_or_else(|| OkfCatalogError::MissingDescription {
+                 path: path.to_path_buf(),
+             })?;
+-        let description = Description::parse(description).map_err(|cause| OkfCatalogError::InvalidDescription {
+-            path: path.to_path_buf(),
+-            cause,
+-        })?;
++        let description = Description::parse(description).unwrap_or_default();
+         let model = Model::new(name, self.name.clone(), table, columns, description);
+         // `primaryKey` is a Table Schema field or field list; evidence only, per `Model::with_primary_key`'s
+         // own doc - it licenses no join and nothing here re-derives a cardinality from it.

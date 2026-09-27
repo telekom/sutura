@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-local/src/lib.rs b/crates/sutura-catalog-local/src/lib.rs
+index 00cc49974..a216d21f3 100644
+--- a/crates/sutura-catalog-local/src/lib.rs
++++ b/crates/sutura-catalog-local/src/lib.rs
+@@ -392,7 +392,7 @@ fn map_walk_error(cause: sutura_bounded_read::WalkError) -> LocalCatalogError {
+         sutura_bounded_read::WalkError::TooManyDocuments { path, found, limit } => {
+             LocalCatalogError::TooManyDocuments { path, found, limit }
+         }
+-        sutura_bounded_read::WalkError::Empty { path } => LocalCatalogError::Empty { path },
++        sutura_bounded_read::WalkError::Empty { path } => LocalCatalogError::NotARegularFile { path },
+         sutura_bounded_read::WalkError::TooManyEntries { path, found, limit } => {
+             LocalCatalogError::TooManyEntries { path, found, limit }
+         }

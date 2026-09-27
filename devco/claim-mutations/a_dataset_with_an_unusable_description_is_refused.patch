@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-catalog-datahub/src/lib.rs b/crates/sutura-catalog-datahub/src/lib.rs
+index a96e82f63..d90f7ee11 100644
+--- a/crates/sutura-catalog-datahub/src/lib.rs
++++ b/crates/sutura-catalog-datahub/src/lib.rs
+@@ -334,10 +334,7 @@ impl<R: AspectReader> DataHubCatalog<R> {
+             })?;
+             columns.push(column);
+         }
+-        let description = Description::parse(dataset.description()).map_err(|cause| DataHubError::Description {
+-            on: dataset.name().to_owned(),
+-            cause,
+-        })?;
++        let description = Description::parse(dataset.description()).unwrap_or_default();
+         let primary_key = dataset
+             .primary_key()
+             .iter()
