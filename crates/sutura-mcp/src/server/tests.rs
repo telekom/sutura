@@ -32,6 +32,9 @@ mod deadline;
 /// header says what it builds instead and why.
 #[cfg(test)]
 mod asking;
+/// The `run_sql` malformed-input path, and why `crate::NotServed` has no cell here.
+#[cfg(test)]
+mod variants;
 
 /// A client and a server joined by an in-memory pipe, with the peer permitted everything.
 ///

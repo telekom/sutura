@@ -1,0 +1,10 @@
+diff --git a/crates/sutura-http/src/inbound/token.rs b/crates/sutura-http/src/inbound/token.rs
+--- a/crates/sutura-http/src/inbound/token.rs
++++ b/crates/sutura-http/src/inbound/token.rs
+@@ -411,5 +411,5 @@
+         let groups = match claims.groups {
+             None => Groups::none(),
+-            Some(claimed) => Groups::parse(claimed).map_err(|cause| TokenRejected::UnusableGroups { cause })?,
++            Some(claimed) => Groups::parse(claimed).ok().ok_or(TokenRejected::NoKeyId)?,
+         };
+         // **The verified `exp`, carried forward rather than dropped at the gate.** A broker that

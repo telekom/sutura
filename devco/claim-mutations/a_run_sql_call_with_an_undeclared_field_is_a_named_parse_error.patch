@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-mcp/src/wire/raw.rs b/crates/sutura-mcp/src/wire/raw.rs
+index dcff97b95..df749dcf9 100644
+--- a/crates/sutura-mcp/src/wire/raw.rs
++++ b/crates/sutura-mcp/src/wire/raw.rs
+@@ -22,7 +22,6 @@ use sutura_domain::raw::{RawOutcome, RawStatement};
+ /// this tool from ever growing a second field a caller could smuggle a table name or a row-id list
+ /// through, the same governance boundary [`super::AskArgs`] holds for the certified tool.
+ #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+-#[serde(deny_unknown_fields)]
+ pub struct RunSqlArgs {
+     /// The literal SQL statement to run, as one statement. A string carrying more than one command
+     /// is not rejected here - nothing in this tool reads a keyword out of it - but the server refuses

@@ -16,27 +16,18 @@
 //! legitimate pass: a tree with no text file genuinely has no over-long file and no CRLF, so only a
 //! violation falsifies them. Measured - without the seed, `max-lines`, `line-endings` and
 //! `text-hygiene` all answer `ok` here, and every other gate is falsified by the bare root alone.
-//! No extension here is `.rs`, deliberately: `check-expect-thresholds` anchors its floor on
-//! `xtask/src/main.rs` (see `threshold_expect`), which no falsifier tree can contain, so a
-//! foreign `.rs` would no longer buy it a satisfied floor - the absent anchor still refuses it
-//! (`Refusal::NotJudged`). And `check-worktree-state` is the reason `nix/shared-scratch.sh`
-//! exists rather than a Rust file.
+//! The shared tree has no `.rs` file. Gates with a Rust subject seed their own: for example,
+//! `check-expect-thresholds` supplies its required `xtask/src/main.rs` anchor with a forbidden
+//! attribute. Without that seed, its absent-anchor refusal (`Refusal::NotJudged`) would say
+//! nothing about the threshold rule. `check-worktree-state` uses `nix/shared-scratch.sh` because
+//! its subject is a shared-path write in a shell script.
 //!
-//! **A seed is what makes a refusal come from a gate's OWN RULE rather than from a missing input,
-//! and only five of the gates here manage that.** Measured on `d26814e2` plus this commit by
-//! running every registered hygiene gate inside a reconstruction of this tree and classifying its
-//! first line: **23 refuse on an absent or unreadable input, 9 on an empty-scan floor, and 5 on
-//! their own rule** - `max-lines`, `line-endings` and `text-hygiene` off the seeded text files,
-//! `check-worktree-state` off the shell script, and `check-nix-platform` off `nix/platform.nix`.
-//!
-//! **THOSE THREE NUMBERS ARE A MEASUREMENT AND NOTHING EXECUTES THEM, which is the residue
-//! `telekom/sutura#371` names.** The sentence they replace said 20 / 8 / 3 over 31 gates and was
-//! wrong in every figure by the time it was read: all 37 gates refuse, so the test below stayed
-//! green for the whole time the split was stale. A gate that stops refusing on its own rule and
-//! starts refusing on a missing input is a weaker gate and moves nothing here. `AGENTS.md` prefers
-//! a check to a sentence and this is still a sentence: classifying a reason mechanically means
-//! capturing each gate's own output in-process, which is a design question rather than a one-liner.
-//! **So treat the split as of its commit and re-measure rather than citing it.**
+//! **A seed is what makes a refusal come from a gate's OWN RULE rather than from a missing input.**
+//! The shared files falsify some rules directly; task-specific seeds cover others. The test below
+//! asserts a `Fail` verdict and that each declared subject exists, but it does not classify the
+//! refusal's reason. A gate can still refuse on a different arm after its real finding decays.
+//! The review mutation for each new seed must suppress that finding and observe the sweep fail;
+//! that is the limit `telekom/sutura#371` names.
 //!
 //! `telekom/sutura#405` asks its own gate to be one of them, so the shell script below carries a
 //! real violation - an unkeyed path under the machine's temporary root - and
