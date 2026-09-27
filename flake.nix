@@ -35,7 +35,7 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    jscpd-src.url = "github:kucherenko/jscpd/v5.2.0";
+    jscpd-src.url = "github:kucherenko/jscpd/v5.3.2";
     jscpd-src.flake = false;
     # The ADBC BigQuery driver, self-built from source so every release triple -
     # including the two static musl ones - gets a hermetic, reproducible native
@@ -52,10 +52,11 @@
   outputs = { self, nixpkgs, flake-utils, crane, rust-overlay, jscpd-src, bigquery-adbc-src, arrow-adbc-src, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs {
+        basePkgs = import nixpkgs {
           inherit system;
           overlays = [ (import rust-overlay) ];
         };
+        pkgs = basePkgs // import ./nix/dev-tools.nix { pkgs = basePkgs; };
 
         # The source root as a string, so the filter below can match a REPO-RELATIVE path.
         # `./.` is the flake source, and in every build that is a store path - which is the
@@ -232,8 +233,7 @@
         # The one crane lib, over the one pinned nightly toolchain: the native build, the cross
         # builds, every gate and every shipped artifact all run the same compiler.
         craneLibFor = sys:
-          (crane.mkLib pkgs).overrideToolchain
-            (p: p.rust-bin.fromRustupToolchainFile ./devco/rust-toolchain-nightly.toml);
+          (crane.mkLib pkgs).overrideToolchain toolchain;
 
         # Native build: what `nix build` and `nix flake check` use.
         craneLib = craneLibFor system;
@@ -491,7 +491,7 @@
           # The copy/paste detector, as a package as well as an app. This is the SAME derivation
           # `checks.hygiene` carries on `nativeBuildInputs` and `apps.jscpd` points at, so CI, the
           # `nix run .#jscpd` route and the dev shell all see one jscpd - the pinned `jscpd-src`
-          # v5.2.0 build from `nix/jscpd.nix`. The devenv module references this attribute so the
+          # build from `nix/jscpd.nix`. The devenv module references this attribute so the
           # local shell cannot resolve a different engine than the sandbox attests with.
           jscpd = jscpd;
 

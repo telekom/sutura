@@ -42,9 +42,7 @@ fn edit<'a>(base: &[&'a str], changes: &[&'a str]) -> Vec<&'a str> {
 
 fn overlay(kind: &str, entry: &[&str], connection: Option<&[&str]>) -> String {
     let indent = |lines: &[&str], by: &str| lines.iter().flat_map(|line| [by, line, "\n"]).collect::<String>();
-    let connection = connection
-        .map(|lines| format!("    connection:\n{}", indent(lines, "      ")))
-        .unwrap_or_default();
+    let connection = connection.map_or_default(|lines| format!("    connection:\n{}", indent(lines, "      ")));
     format!(
         "security:\n  identity: single-user\n  single_user_because: a test\nsources:\n  warehouse:\n    kind: files\n    data_dir: /srv/data\n    posture: shared-service-user\n\
          catalogs:\n  - name: dict\n    kind: {kind}\n    dir: /nowhere\n    data_dir: /nowhere\n    version: dict-1\n{}{connection}",

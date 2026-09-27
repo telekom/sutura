@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-semantic/src/plan.rs b/crates/sutura-semantic/src/plan.rs
+--- a/crates/sutura-semantic/src/plan.rs
++++ b/crates/sutura-semantic/src/plan.rs
+@@ -382,7 +382,7 @@
+         },
+     ));
+ 
+-    for required in metric.required_filters() {
++    for required in metric.required_filters().iter().take(0) {
+         let column = PlanColumn::new(own_table.clone(), required.column().clone());
+         let predicate = plan_required_filter(required, column, |value| {
+             params.push(ParamValue::Text(value));

@@ -14,34 +14,16 @@
 resolver = "3"
 members = [
   "crates/sutura-domain",
-  # THE declaring catalog source, measured against its declaration rather than the golden oracle -
-  # `docs/adr/0016`. Everything it decides is tested against a fake reader over recorded aspects; a
-  # real HTTP reader awaits the read-path-cost measurement against a provisioned instance.
+  # Declaring source: conformance is against its declaration; see docs/adr/0016.
   "crates/sutura-catalog-datahub",
   "crates/sutura-catalog-local",
-  # THE NARROWEST metadata connector, and the one that needs no service: a dictionary read from an
-  # RDBMS. It provides structure, prose and the join columns a foreign key records, and declares no
-  # measure, no grain, no definitional filter, no value allowlist and no anchor - `docs/adr/0011`
-  # specifies it and `github.com/telekom/sutura#151` is the issue. Like `sutura-catalog-datahub` it
-  # is a DECLARING source, measured against its own declaration rather than the golden oracle.
+  # Declaring source: capabilities and limits are in docs/adr/0011.
   "crates/sutura-catalog-rdbms",
-  # THE CHEAPEST metadata connector, and the second on-disk vocabulary: a catalog over a directory
-  # of OKF Frictionless Table Schema descriptors. It provides structure and descriptions and declares
-  # no join (a Table Schema foreign key licences no relationship), no measure, no filter, no grain,
-  # no allowlist and no anchor - `docs/what-okf-can-carry.md` is the finding, `#153` the issue. A
-  # DECLARING source, measured against its own declaration rather than the golden oracle.
+  # Declaring source: capabilities and limits are in docs/what-okf-can-carry.md.
   "crates/sutura-catalog-okf",
-  # THE ON-DISK VOCABULARY for interface catalogues exported as data-contract YAML: a catalog over a
-  # directory of Open Data Contract Standard v3 contract documents. It provides Structure and may-
-  # provide Descriptions, ColumnTypes, ColumnDescriptions and (v3.1+) Relationships under the rdbms
-  # target-uniqueness rule, and declares the join-less metric/grain/filter/allowlist/anchor out -
-  # `docs/what-a-data-contract-can-carry.md` is the finding, `#973` the issue. A DECLARING source,
-  # measured against its own declaration rather than the golden oracle.
+  # Declaring source: capabilities and limits are in docs/what-a-data-contract-can-carry.md.
   "crates/sutura-catalog-datacontract",
-  # THE RICHEST of the three measured metadata sources (DataHub / Table Schema / OpenMetadata), and
-  # still a DECLARING connector: it needs a service, and it keeps two half-a-definition slots.
-  # Declared, not defaulted; measured against its own declaration rather than the golden oracle -
-  # `docs/what-openmetadata-can-carry.md` is the finding, `#152` the issue.
+  # Declaring source: capabilities and limits are in docs/what-openmetadata-can-carry.md.
   "crates/sutura-catalog-openmetadata",
   "crates/sutura-catalog-wren",
   "crates/sutura-semantic",
@@ -102,15 +84,8 @@ members = [
   # carrying no adapter prefix so it joins no forbidden class in `xtask/src/boundaries/adapters.rs`.
   "crates/sutura-bounded-read",
   "crates/sutura-cli",
-  # The service runtime. Three crates rather than a fourth for the composition root:
-  # `sutura-config` holds no framework at all, `sutura-runtime` owns the process-global concerns
-  # (the subscriber, the panic hook, the shutdown signal), and `sutura-http` is transport only.
-  # The composition root that names the adapters and drives this transport is `sutura serve`,
-  # inside `sutura-cli` (`crates/sutura-cli/src/serve.rs`) since `github.com/telekom/sutura#685`
-  # step 2 folded the `sutura-serve` binary that used to hold it - there is only one composition
-  # root crate now, the same one `doctor`, `compile` and `query` already live in. Nothing here is
-  # reachable from `sutura-domain` or `sutura-app`, which is what `cargo xtask check-boundaries`
-  # asserts.
+  # Configuration has no framework, runtime owns process globals, and HTTP owns transport.
+  # sutura-cli is the composition root; check-boundaries excludes these from domain and app.
   "crates/sutura-config",
   "crates/sutura-runtime",
   "crates/sutura-http",
@@ -321,7 +296,16 @@ serde_norway = "0.9"
 #     wrong under a feature we said we do not compile. `crate::dialect::DateTruncShape` covers Oracle
 #     the same way it already covers `BigQuery`'s argument order: `bucket_expression` builds the
 #     correct call directly, with no dialect-layer rewrite in between.
-polyglot-sql = { version = "0.12.0", default-features = false, features = ["generate", "builder", "stacker", "dialect-duckdb", "dialect-postgresql", "dialect-clickhouse", "dialect-bigquery", "dialect-oracle"] }
+polyglot-sql = { version = "0.12.0", default-features = false, features = [
+  "generate",
+  "builder",
+  "stacker",
+  "dialect-duckdb",
+  "dialect-postgresql",
+  "dialect-clickhouse",
+  "dialect-bigquery",
+  "dialect-oracle",
+] }
 
 # The local and single-file data system. WITHOUT `bundled`: that feature compiles DuckDB's C++
 # from source, which in the Nix build sandbox is minutes and gigabytes per derivation. We link
@@ -356,7 +340,11 @@ duckdb = "1.10505"
 # What is ON: `parquet`, for the Parquet attach affordance; `datetime_expressions`, for the date
 # truncation every plan needs for its time bucket; and `compression`, for a compressed CSV or NDJSON
 # source. CSV and NDJSON themselves need no feature - they are unconditional.
-datafusion = { version = "55.0.0", default-features = false, features = ["parquet", "datetime_expressions", "compression"] }
+datafusion = { version = "55.0.0", default-features = false, features = [
+  "parquet",
+  "datetime_expressions",
+  "compression",
+] }
 
 # The runtime the in-process engine is driven from, and `rt` is the ONLY feature. The engine is
 # async from the first table lookup to the last batch collected, and `futures::executor::block_on`
@@ -466,7 +454,13 @@ config = { version = "0.15", default-features = false, features = ["yaml"] }
 # for the surface itself, `tokio` for the listener, `matched-path` and `original-uri` so a
 # rate-limit bucket can be keyed by the route a request matched rather than by its raw path. No
 # multipart, no websockets, no forms - this surface accepts one JSON document and returns another.
-axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "matched-path", "original-uri"] }
+axum = { version = "0.8", default-features = false, features = [
+  "http1",
+  "json",
+  "tokio",
+  "matched-path",
+  "original-uri",
+] }
 # `axum`'s own request/response types, named here rather than left transitive: `sutura-mcp` reads
 # `http::request::Parts` directly - not through `axum` - because that is the type the pinned `rmcp`
 # HTTP server transport injects into a tool call's `rmcp::service::RequestContext::extensions`
@@ -610,7 +604,13 @@ ureq = { version = "3", default-features = false, features = ["rustls", "rustls-
 # `tracing-log` bridges the `log` crate, which several dependencies still emit through - without it
 # their diagnostics are dropped silently rather than appearing in the same stream.
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "env-filter", "fmt", "ansi", "std"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+  "registry",
+  "env-filter",
+  "fmt",
+  "ansi",
+  "std",
+] }
 tracing-bunyan-formatter = "0.3"
 tracing-log = "0.2"
 
