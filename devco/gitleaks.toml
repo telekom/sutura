@@ -16,6 +16,9 @@ description = "Imported prose and generated tool output: neither is our source"
 # secret could contain is also called KEY_ALG_RSA_2048.
 regexes = [
   '''KEY_ALG_RSA_2048''',
+  # The compose fixture reuses a YAML alias, not a literal credential. The scanner
+  # reports the alias as a password at each use; the definition and other values stay scanned.
+  '''\*fixture-password''',
 ]
 # Scoped to PATHS rather than to a rule or a regex. `.agents/skills/**` is imported prose
 # whose sha256 `cargo xtask check-skills` verifies, so the usual escape hatch - a

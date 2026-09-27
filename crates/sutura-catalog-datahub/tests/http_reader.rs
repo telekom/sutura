@@ -501,7 +501,7 @@ mod tests {
     /// is held by the round-2 unit cell `a_userinfo_prefix_naming_a_loopback_ip_...` instead).
     #[test]
     fn a_userinfo_endpoint_is_a_parse_refusal_rather_than_a_dial_probe() {
-        let malicious = String::from("http://[::1]:1@127.0.0.1:9002");
+        let malicious = String::from("http://[::1]:1@127.0.0.1:9002"); // betterleaks:allow - rejected userinfo fixture
         let error = Endpoint::parse(&malicious).expect_err("a userinfo prefix is refused before any host is dialled");
         assert_eq!(error, InvalidEndpoint::CredentialsInUrl { given: malicious });
     }

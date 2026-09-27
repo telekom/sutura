@@ -110,7 +110,7 @@
 # scan has somewhere to put a different one, not because the default is sensitive.
 x-fixture-credentials:
   user: &fixture-user ${SUTURA_DEV_USER:-sutura}
-  password: &fixture-password ${SUTURA_DEV_PASSWORD:-sutura}
+  password: &fixture-password ${SUTURA_DEV_PASSWORD:-sutura} # betterleaks:allow - loopback fixture fallback
 
 # The environment the two DataHub BACKEND containers share. The migration job and GMS read the same
 # three stores, so a key written twice is two answers to "which database" - one definition, both

@@ -58,8 +58,8 @@ pub struct Endpoint(String);
 
 impl Endpoint {
     /// Parses and validates against [`Uri`] - the SAME parser `ureq` itself dials with, rather
-    /// than a hand-rolled split, which is what let the round-2 review's userinfo form
-    /// (`http://[::1]:1@localhost`) reach `host_is_loopback` with the wrong string. The stored
+    /// than a hand-rolled split. The round-2 review's userinfo form
+    /// reached `host_is_loopback` with the wrong string. The stored
     /// form is rebuilt from the parsed `scheme`/`authority`, so any root spelling normalises alike.
     pub fn parse(raw: &str) -> Result<Self, InvalidEndpoint> {
         let not_an_http_url = || InvalidEndpoint::NotAnHttpUrl { given: raw.to_owned() };
