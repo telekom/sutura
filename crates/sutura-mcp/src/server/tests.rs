@@ -496,7 +496,8 @@ async fn an_argument_the_catalog_tool_does_not_declare_is_a_named_parse_error() 
         panic!("expected a protocol error, got {error:?}");
     };
     assert_eq!(data.code, ErrorCode::INVALID_PARAMS, "{data:?}");
-    assert!(data.message.contains("metric"), "{}", data.message);
+    // The fixed sentence, never the serde cause that repeats the caller's own key.
+    assert!(!data.message.contains("metric"), "{}", data.message);
     drop(client.cancel().await);
 }
 
@@ -709,9 +710,9 @@ async fn a_query_field_the_domain_does_not_declare_is_a_named_parse_error() {
     let ServiceError::McpError(data) = error else {
         panic!("expected a protocol error, got {error:?}");
     };
-    // Named: the JSON-RPC code for bad parameters, and the field in the message.
+    // Named by the JSON-RPC code for bad parameters, and the caller's own key is not repeated.
     assert_eq!(data.code, ErrorCode::INVALID_PARAMS, "{data:?}");
-    assert!(data.message.contains("sql"), "{}", data.message);
+    assert!(!data.message.contains("sql"), "{}", data.message);
     drop(client.cancel().await);
 }
 

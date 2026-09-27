@@ -23,8 +23,9 @@
 //! # Why a malformed argument is a JSON-RPC error rather than `isError`
 //!
 //! Because it is not a tool *execution* failure - the tool never ran. `-32602` is the name JSON-RPC
-//! already has for it, `MalformedQuestion` names the field, and it is the one channel a caller cannot
-//! read as either an answer or a refusal.
+//! already has for it, `MalformedQuestion` names the field (except for an arguments object that did
+//! not deserialize, whose message never repeats the caller's own keys or values), and it is the one
+//! channel a caller cannot read as either an answer or a refusal.
 //!
 //! **The limit, stated with the claim:** rmcp's own documentation notes that clients typically render
 //! a protocol error opaquely, so a model may see less than the message carries. `Ok(isError: true)`
@@ -613,7 +614,9 @@ impl RenderedCause {
     ///
     /// Safe here because `sutura_domain::question::MalformedQuestion`'s own note guarantees no
     /// variant, and no link of any variant's cause chain, carries the caller's own text - the same
-    /// guarantee [`invalid`] relied on before this type existed.
+    /// guarantee [`invalid`] relied on before this type existed. [`invalid`] never walks
+    /// `MalformedQuestion::NotAnObject`, whose cause is the `serde_json::Error` [`Self::outer_only`]
+    /// describes.
     fn of(error: &(dyn core::error::Error + 'static)) -> Self {
         let mut message = error.to_string();
         for cause in cause_chain(error) {
@@ -627,14 +630,15 @@ impl RenderedCause {
     ///
     /// `MalformedStatement::Statement`'s cause, `sutura_domain::raw::InvalidRawStatement`, carries
     /// none of the text it measured - `Empty`, `TooLong { len, limit }`, `EmbeddedNul` name only the
-    /// shape of the failure. `MalformedStatement::NotAnObject`'s cause is different: its
+    /// shape of the failure. `NotAnObject`'s cause, on both `MalformedStatement` and
+    /// `MalformedQuestion`, is different: its
     /// `#[source]` is a `serde_json::Error` whose own `Display` for an unrecognized field does echo
     /// the caller-chosen key verbatim, bidi controls included (confirmed against a standalone
     /// reproduction pinned to this workspace's `serde_json`/`thiserror` versions, not run in-crate),
     /// so walking it the way [`Self::of`] does would leak that key into a peer's context. `Display`
     /// on this `thiserror` enum prints only the fixed `#[error(...)]` sentence and never reaches
     /// that source - the property this relies on and does not itself enforce.
-    fn outer_only(error: &MalformedStatement) -> Self {
+    fn outer_only(error: &dyn core::error::Error) -> Self {
         Self(error.to_string())
     }
 
@@ -684,9 +688,14 @@ fn invalid_statement(error: &MalformedStatement) -> ErrorData {
 ///
 /// The chain is walked into the message because `Display` on a `thiserror` enum prints the outermost
 /// sentence only, and here the inner one is the half that names the field or the character set. See
-/// [`RenderedCause::of`] for why that walk is safe.
+/// [`RenderedCause::of`] for why that walk is safe - and [`RenderedCause::outer_only`] for why an
+/// arguments object that did not deserialize is not walked: the HTTP surface redacts the same case.
 fn invalid(error: &MalformedQuestion) -> ErrorData {
-    RenderedCause::of(error).into_error_data()
+    match error {
+        MalformedQuestion::NotAnObject { .. } => RenderedCause::outer_only(error),
+        _ => RenderedCause::of(error),
+    }
+    .into_error_data()
 }
 
 /// The pinned bundle, as THIS caller's view, rendered as a tool result.
