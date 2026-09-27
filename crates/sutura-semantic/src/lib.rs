@@ -30,6 +30,8 @@
 //! **Nothing here emits SQL, parses SQL, or names a dialect.** After the split that is a fact about
 //! the dependency list rather than a discipline: there is no SQL generator in this crate's tree to
 //! call.
+#[cfg(test)]
+mod compile_failure_tests;
 pub(crate) mod plan;
 mod resolve;
 use crate::plan::PlanError;

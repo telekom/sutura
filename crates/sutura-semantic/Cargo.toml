@@ -22,5 +22,10 @@ description = "The semantic compiler: a modelled question becomes one plan for o
 sutura-domain = { workspace = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+# Already a normal dependency above; this entry enables the `test-fakes` feature for the
+# `compile_failure_tests` module, the way `sutura-app` asks `sutura-domain` for `agreement`.
+sutura-domain = { workspace = true, features = ["test-fakes"] }
+
 [lints]
 workspace = true
