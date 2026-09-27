@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-openmetadata/src/lib.rs b/crates/sutura-catalog-openmetadata/src/lib.rs
+index e9d606bc8..872cbb8e7 100644
+--- a/crates/sutura-catalog-openmetadata/src/lib.rs
++++ b/crates/sutura-catalog-openmetadata/src/lib.rs
+@@ -251,7 +251,7 @@ impl<R: SnapshotReader> OpenMetadataCatalog<R> {
+             .map(|column| Self::identifier(column, |raw| ColumnName::parse(raw), "column", table.name()))
+             .collect::<Result<Vec<_>, _>>()?;
+         Model::new(name, source, table_name, columns, description)
+-            .with_primary_key(primary_key)
++            .with_primary_key(Vec::new())
+             .map_err(|cause| OpenMetadataError::Inconsistent { cause })
+     }
+ 
