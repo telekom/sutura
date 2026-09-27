@@ -1,0 +1,22 @@
+diff --git a/crates/sutura-catalog-local/src/lib.rs b/crates/sutura-catalog-local/src/lib.rs
+index 00cc49974..529c26587 100644
+--- a/crates/sutura-catalog-local/src/lib.rs
++++ b/crates/sutura-catalog-local/src/lib.rs
+@@ -491,11 +491,12 @@ impl Collected {
+             // the one in `absorb`: a kind added there with no arm does not compile.
+             _ => {
+                 let doc: MetricDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
+-                self.metrics
+-                    .push(doc.into_domain(description).map_err(|cause| LocalCatalogError::Metric {
+-                        path: PathBuf::from(path),
+-                        cause,
+-                    })?);
++                self.metrics.push(
++                    doc.into_domain(description)
++                        .map_err(|_cause| LocalCatalogError::NotADirectory {
++                            path: PathBuf::from(path),
++                        })?,
++                );
+             }
+         }
+         Ok(())

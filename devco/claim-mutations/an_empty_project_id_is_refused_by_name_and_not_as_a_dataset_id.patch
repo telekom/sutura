@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-exec-bigquery/src/transport.rs b/crates/sutura-exec-bigquery/src/transport.rs
+index a48b0af5f..f9ddb2290 100644
+--- a/crates/sutura-exec-bigquery/src/transport.rs
++++ b/crates/sutura-exec-bigquery/src/transport.rs
+@@ -604,11 +604,6 @@ impl ProjectId {
+     /// request, and a too-short id is a diagnostic the settings tree already gives.
+     pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnusableResourceName> {
+         let trimmed = raw.as_ref().trim();
+-        if trimmed.is_empty() {
+-            return Err(UnusableResourceName::Empty {
+-                what: NamedResource::Project,
+-            });
+-        }
+         for (at, character) in trimmed.chars().enumerate() {
+             if !matches!(character, 'a'..='z' | '0'..='9' | '-') {
+                 return Err(UnusableResourceName::Character {

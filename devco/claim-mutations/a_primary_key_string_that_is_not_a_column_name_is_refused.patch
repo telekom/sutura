@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-okf/src/lib.rs b/crates/sutura-catalog-okf/src/lib.rs
+index ebe03c260..9c0a6e469 100644
+--- a/crates/sutura-catalog-okf/src/lib.rs
++++ b/crates/sutura-catalog-okf/src/lib.rs
+@@ -477,7 +477,7 @@ fn primary_key_columns(raw: Option<&serde_norway::Value>) -> Result<Vec<ColumnNa
+     };
+     names
+         .into_iter()
+-        .map(|name| ColumnName::parse(name).map_err(|cause| InvalidPrimaryKeyShape::Column { cause }))
++        .map(|name| ColumnName::parse(name).map_err(|_cause| InvalidPrimaryKeyShape::NotAStringOrList))
+         .collect()
+ }
+ 

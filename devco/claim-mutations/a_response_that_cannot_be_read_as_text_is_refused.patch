@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-datahub/src/http.rs b/crates/sutura-catalog-datahub/src/http.rs
+index d4073220c..684dc34df 100644
+--- a/crates/sutura-catalog-datahub/src/http.rs
++++ b/crates/sutura-catalog-datahub/src/http.rs
+@@ -312,7 +312,7 @@ impl HttpAspectReader {
+             .with_config()
+             .limit(hard_ceiling)
+             .read_to_string()
+-            .map_err(|cause| HttpReaderError::Unreadable {
++            .map_err(|cause| HttpReaderError::Unreachable {
+                 entity,
+                 cause: Box::new(cause),
+             })?;
