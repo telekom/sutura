@@ -334,7 +334,7 @@ impl Cells {
 /// the healthy one at exit 0. `super::scoped` tolerates the same gap for a reason that does not
 /// transfer: there a missed `#[ignore]` is a loud `no tests to run`, and in `crate::examples` it
 /// is a silent exit 0.
-fn decides_a_run_unevaluably(opening: &str) -> bool {
+pub(super) fn decides_a_run_unevaluably(opening: &str) -> bool {
     (opening.starts_with("#[cfg(") && opening != "#[cfg(test)]") || opening.starts_with("#[cfg_attr(")
 }
 
