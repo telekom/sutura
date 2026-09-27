@@ -130,7 +130,26 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-shipped-binaries",
         description: "every release-path binary literal equals nix/shipped.nix, and every documented feature build is probed",
         kind: Kind::Hygiene(Reads::Prose),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // The feature build is documented and probed; only the release literal drifts.
+            seeds: &[
+                (
+                    "nix/shipped.nix",
+                    "binaries = [\n  { bin = \"sutura\"; package = \"sutura-cli\"; probeFeatures = [ \"bigquery\" ]; }\n];\n",
+                ),
+                (
+                    ".github/workflows/release.yml",
+                    "name: release\nenv:\n  BINARIES: sutura-serve\njobs:\n  link:\n    runs-on: ubuntu-latest\n    steps:\n      - run: |\n          test -n \"$BINARIES\" || exit 1\n          nix build \".#feature-probes-${TARGET}\"\n          if [ ! -s \"$manifest\" ]; then exit 1; fi\n          for bin in $BINARIES; do echo \"$bin\"; done\n",
+                ),
+                (".github/actions/build-artefacts/action.yml", "name: build-artefacts\n"),
+                ("docs/index.md", "# Index\n"),
+                (
+                    "docs/probe.md",
+                    "```bash\ncargo build --release -p sutura-cli --features bigquery\n```\n",
+                ),
+            ],
+            in_scope: Some(".github/workflows/release.yml"),
+        },
         run: shipped::run,
     },
     Task {
