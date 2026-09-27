@@ -22,10 +22,13 @@ omits models without an explicit audience; it neither infers visibility from a m
 opens a model. An operator-side whole-bundle view can list every model after the opt-in. This lets
 a physical-only authored catalog declare an audience without inventing a metric.
 
-The served MCP `initialize` prompt is rendered before a caller-specific view exists, so it does
-not include this listing. Authenticated callers read it through `describe_catalog`, where the
-request's view filters the models. The stdio MCP and `sutura prompt` use an operator-side
-whole-bundle view.
+The served MCP `initialize` prompt renders through the same caller-scoped `ScopedView` ADR 0028's
+amendment gives it (`docs/adr`'s own initialize fix), so an enabled deployment's `instructions`
+already carries this caller's own physical listing at `initialize`, cut to their audience -
+`served_initialize_does_not_publish_the_whole_physical_schema` is the cell that pins it never
+carries another caller's models. `describe_catalog` renders the same listing through the same
+per-request view, so the two tools agree. The stdio MCP and `sutura prompt` use an operator-side
+whole-bundle view, so an operator sees every declared model regardless of audience.
 
 ## Limits
 
