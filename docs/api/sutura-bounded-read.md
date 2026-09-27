@@ -28,6 +28,8 @@ split its frontmatter, dispatch on its kind). The two sharp bounds a catalog cla
 to are asymmetric: the document-count cap on the walk (`MAX_CATALOG_DOCUMENTS`) is a default a
 caller may override through `walk()`'s `max_documents` parameter, while the aggregate-byte cap on
 the read (`MAX_CATALOG_BYTES`) is hard-coded inside `read_document` and not a parameter at all.
+The entry cap on the walk (`MAX_CATALOG_ENTRIES`) is hard-coded too, and bounds the tree rather
+than the documents in it.
 
 ## `use MAX_CATALOG_BYTES`
 
@@ -66,6 +68,18 @@ a directory holding this many document-shaped files plus an unbounded number of 
 (subdirectories, non-document files, a skipped symlink) is unaffected - this bounds what becomes
 a document, not the size of the tree it lives in.
 
+## `use MAX_CATALOG_ENTRIES`
+
+The most directory entries a walk may visit before it refuses.
+
+The document cap bounds what becomes a document; this bounds the tree itself. Skipped entries -
+subdirectories, non-document files, links - never reach the document count, so without this a
+wide tree, or a bind-mount cycle the kernel's link limit does not stop, is walked without end.
+Checked on every entry read, so the refusal comes as soon as the bound is crossed. Ten times the
+document cap: a catalog root holds its documents plus a README or a few subdirectories, not
+nine non-documents for every document, and ten thousand directory reads is still a startup cost
+rather than a stall.
+
 ## `use WalkError`
 
 Why the walk could not produce the sorted document list.
@@ -86,4 +100,5 @@ The decision is made from the directory entry's own type rather than from the pa
 
 `WalkError::NotADirectory` when `root` is not a directory; `WalkError::Io` for a failure to
 read `root` or a directory within it; `WalkError::TooManyDocuments` once a directory crosses
-`max_documents`; `WalkError::Empty` when `root` holds no documents.
+`max_documents`; `WalkError::TooManyEntries` once the walk visits more than
+`MAX_CATALOG_ENTRIES` entries; `WalkError::Empty` when `root` holds no documents.
