@@ -964,6 +964,11 @@ mod tools;
 #[cfg(test)]
 mod rdbms_catalog;
 
+/// One refusal per untrusted overlay value, each through `Settings::load`. Same `#[cfg(test)]`
+/// reason as `governance` above.
+#[cfg(test)]
+mod refusals;
+
 /// The depth bound on the merged value-tree walk. Same `#[cfg(test)]` reason as `governance`
 /// above.
 #[cfg(test)]

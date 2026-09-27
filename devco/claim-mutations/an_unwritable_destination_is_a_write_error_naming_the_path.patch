@@ -1,0 +1,34 @@
+diff --git a/crates/sutura-catalog-wren/src/lib.rs b/crates/sutura-catalog-wren/src/lib.rs
+index a3a101081..fcd3fcc89 100644
+--- a/crates/sutura-catalog-wren/src/lib.rs
++++ b/crates/sutura-catalog-wren/src/lib.rs
+@@ -128,12 +128,12 @@ pub fn import(source: &Path, destination: &Path) -> Result<Summary, ImportError>
+ /// directory holds it, exactly as `document.rs`'s own header states.
+ fn write_document(destination: &Path, subdirectory: &str, name: &str, text: &str) -> Result<(), ImportError> {
+     let dir = destination.join(subdirectory);
+-    fs::create_dir_all(&dir).map_err(|source| ImportError::Write {
++    fs::create_dir_all(&dir).map_err(|source| ImportError::Read {
+         path: dir.clone(),
+         source,
+     })?;
+     let path = dir.join(format!("{name}.md"));
+-    fs::write(&path, text).map_err(|source| ImportError::Write { path, source })
++    fs::write(&path, text).map_err(|source| ImportError::Read { path, source })
+ }
+ 
+ /// Writes the refusal report as `<destination>/report.txt`.
+@@ -142,12 +142,12 @@ fn write_document(destination: &Path, subdirectory: &str, name: &str, text: &str
+ /// and a report has no `kind:` tag to be one - naming it `.md` would make the converted catalog
+ /// fail to load over its own report.
+ fn write_report(destination: &Path, converted: &convert::Converted) -> Result<(), ImportError> {
+-    fs::create_dir_all(destination).map_err(|source| ImportError::Write {
++    fs::create_dir_all(destination).map_err(|source| ImportError::Read {
+         path: destination.to_owned(),
+         source,
+     })?;
+     let path = destination.join("report.txt");
+-    fs::write(&path, render::report(converted)).map_err(|source| ImportError::Write { path, source })
++    fs::write(&path, render::report(converted)).map_err(|source| ImportError::Read { path, source })
+ }
+ 
+ #[cfg(test)]

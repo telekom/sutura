@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-app/src/surface.rs b/crates/sutura-app/src/surface.rs
+index 8d02b6d9e..225a24ffa 100644
+--- a/crates/sutura-app/src/surface.rs
++++ b/crates/sutura-app/src/surface.rs
+@@ -524,7 +524,7 @@ where
+         .map_err(|error| match error {
+             // The generic parameter is what cannot survive; the VALUE does, boxed, with its own
+             // `#[source]` chain under it.
+-            ServiceError::Compile { cause } => SurfaceFailure::Compile { cause: Box::new(cause) },
++            ServiceError::Compile { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
+             ServiceError::Warehouse { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
+             // Two brokers' worth of failure, kept apart on the way out for the reason the variants
+             // give: an authorization server that is down and a broker that answered about the wrong
