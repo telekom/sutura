@@ -35,8 +35,9 @@ This crate contains everything `OpenMetadataCatalog` DECIDES about the documents
 extracts. It is tested against a fake reader that serves recorded documents - the port gets a fake,
 not mocked HTTP. `SnapshotReader` is the seam a real reader over `OpenMetadata`'s `REST` API
 (`/api/v1/tables`, `/api/v1/metrics`, …) implements, with a bearer credential; that HTTP reader is
-deliberately NOT in this first PR, so the crate stays green (a service has no network in the nix
-sandbox). The `http` reader + the live provisioned leg are the recorded follow-up.
+deliberately NOT in the default build, so the crate stays green (a service has no network in the
+nix sandbox). That reader is `src/http.rs`, behind the default-off `http` feature; the live
+provisioned leg is the recorded follow-up.
 
 # The declaration, and what it means for the bundle
 
@@ -52,10 +53,10 @@ whose relationships are all unconstrained therefore carries none, lawfully.
 `Metrics`, `Grains` and `Cardinality` are declared-and-empty may-provide kinds: whether a bundle
 carries any is the deployment's decision (it defined a metric whose binding resolves, or it did
 not), so absence is faithful rather than an aspirational claim. The metric entity IS decoded and
-`metricType` + `granularity` + `dimensions[].type` are read, but `Measure` is minted only where a
-column binding resolves to a domain `Term` without certifying a foreign dialect's free text - which
-the recorded fixtures deliberately do not - so today those kinds arrive empty and the expression
-strings stay reported-not-defined, exactly as the ADR 0016 refusal demands.
+`metricType` + `granularity` are read, but no metric is minted: its bound column cannot be read
+out of a foreign dialect's expression string without certifying that text, so those kinds
+arrive empty and the expression strings stay reported-not-defined, exactly as the ADR 0016
+refusal demands.
 
 `RequiredFilters`, `AllowedValues` and `Anchors` are not declared at all: the filter is a raw SQL
 `where` never parsed into `RequiredFilter`, a dimension carries no allowlist, and the metric/table

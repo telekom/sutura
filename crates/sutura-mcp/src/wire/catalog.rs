@@ -108,8 +108,8 @@ pub struct CatalogContent {
     /// Deployment-wide and the same for every caller - never audience-scoped - so it sits outside
     /// the untrusted-catalog notice and under its own "operator's instructions" heading. An operator
     /// who names a restricted metric in it discloses that metric to every caller with `catalog.read`.
-    /// **Unbounded, unlike [`Self::knowledge`]: there is no byte cap on the operator's own text**, and
-    /// it is read from `prompt.instructions_file` fresh and repeated in full on every call.
+    /// Read once at startup, by the CLI composition root under `prompt.instructions_max_bytes`, and
+    /// repeated in full on every call. This wire type does not check that cap itself.
     #[serde(skip_serializing_if = "Option::is_none")]
     instructions: Option<String>,
 }

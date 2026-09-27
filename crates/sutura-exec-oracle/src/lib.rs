@@ -550,10 +550,10 @@ fn date_cell(ts: &oracledb::OracleTimestamp) -> Result<Value, OracleError> {
         })
 }
 
-/// Maps a decoded `NUMBER` exactly: a scale-zero value that fits `i64` maps to [`Value::Integer`],
-/// every other value maps to exact [`Value::Text`] - `PostgresWarehouse::numeric_cell`'s own split,
-/// over `OracleNumber`'s `Display` rather than a hand-rolled decoder, since the driver already
-/// carries an exact base-10 rendering.
+/// Maps a decoded `NUMBER` exactly: a value whose driver-rendered base-10 text parses as an `i64`
+/// maps to [`Value::Integer`], every other value maps to exact [`Value::Text`] -
+/// `PostgresWarehouse::numeric_cell`'s own split, over `OracleNumber`'s `Display` rather than a
+/// hand-rolled decoder, since the driver already carries an exact base-10 rendering.
 fn numeric_cell(value: &oracledb::OracleNumber) -> Value {
     let text = value.to_string();
     text.parse::<i64>().map_or_else(|_| Value::Text(text), Value::Integer)
@@ -650,9 +650,9 @@ impl Warehouse for OracleWarehouse {
     /// `crates/sutura-app/tests/golden/dialects.rs` declares as `Evidence::RenderOnly` for this
     /// dialect and that declaration is unchanged by this constant.
     ///
-    /// Identity is untouched: [`Self::IMPERSONATION`] stays `NoPlaceForASubject`. No composition
-    /// root links this adapter, so no Oracle leg reaches `ExecutedAs::uniform` from any binary; if
-    /// one ever does, `shared-service-user` is what it will present.
+    /// Identity is untouched: [`Self::IMPERSONATION`] stays `NoPlaceForASubject`. No release build
+    /// enables `sutura-cli`'s `oracle` feature (see the module header), so no Oracle leg is served
+    /// there; if one ever is, `shared-service-user` is the posture it will present.
     const EXECUTES_LEGS: bool = true;
 
     fn source(&self) -> &sutura_domain::model::SourceName {
@@ -699,8 +699,8 @@ impl Warehouse for OracleWarehouse {
         KeyUniqueness::read(&rows).map_err(|cause| OracleError::KeyCounts { cause })
     }
 
-    /// `ORA-01476` via [`execute_err_mapped`], or a local [`OracleError::DeadlineSpent`] - the
-    /// caveat this crate exists to hold.
+    /// A local [`OracleError::DeadlineSpent`] - the caveat this crate exists to hold - or a driver
+    /// `CallTimeoutExceeded` re-rendered as [`OracleError::Execute`].
     fn deadline_exceeded(&self, error: &Self::Error) -> bool {
         matches!(*error, OracleError::DeadlineSpent)
             || matches!(*error, OracleError::Execute { ref cause } if cause.is_call_timeout())

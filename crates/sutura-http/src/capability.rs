@@ -20,11 +20,11 @@
 //! # What this gates, and what it does not
 //!
 //! **It decides which OPERATIONS a caller may invoke. It decides nothing about which rows an answer
-//! contains.** Both routes read the same pinned bundle and every question executes under the same
-//! identity, because no source executes as the asking subject - `docs/adr/0014`'s leg 1 establishes
-//! who is asking and leg 2 does not exist. A caller granted `sutura:metrics.ask` and not
-//! `sutura:catalog.read` cannot list the catalog and gets exactly the same numbers from a question as
-//! anybody else would.
+//! contains.** The catalog and question routes read the same pinned bundle and every question
+//! executes under the same identity, because no source executes as the asking subject -
+//! `docs/adr/0014`'s leg 1 establishes who is asking and leg 2 does not exist. A caller granted
+//! `sutura:metrics.ask` and not `sutura:catalog.read` cannot list the catalog and gets exactly the
+//! same numbers from a question as anybody else would.
 //!
 //! # Where the grant comes from, and the two holes a reader should check for
 //!
@@ -117,8 +117,8 @@ impl GovernedRoute {
 /// Built as a function rather than a `const` because the paths are composed from [`API_V1_PREFIX`]
 /// and [`base_paths`], and composing them here is what keeps one owner for a path.
 ///
-/// `pub` because `crate::router::assemble` reads it to refuse an ungoverned route, and because a test
-/// in `crate::openapi` compares it against the generated document's operation identifiers.
+/// `pub` because `tests/operations.rs` compares it against the generated document's operations;
+/// `crate::router::assemble` reads it through [`capability_of`] to refuse an ungoverned route.
 #[must_use]
 pub fn governed() -> [GovernedRoute; 3] {
     [

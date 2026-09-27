@@ -291,7 +291,7 @@ impl TryFrom<String> for DialectTag {
 
 /// The word itself, so a refusal can name the dialect a fragment was authored for.
 ///
-/// Worth having rather than `{:?}` at each site: eleven refusals in `sutura_sql::expression` carry a
+/// Worth having rather than `{:?}` at each site: twelve refusals in `sutura_sql::expression` carry a
 /// tag, and `DialectTag("duckdb")` is the derived `Debug` those would otherwise print into a message
 /// an operator reads.
 impl core::fmt::Display for DialectTag {

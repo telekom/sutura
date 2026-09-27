@@ -19,20 +19,20 @@ translation rather than its judgement.
 
 # What this crate is
 
-**One crate, one transport, and the whole tool set** - which is two tools, because
-`sutura_app::surface::Surface` has two operations: list what this deployment measures, and answer
-one governed question about one metric. `sutura_app::Capability` is the one source for which those
-are, so **the two transports cannot disagree about what this deployment offers**; each of them
-renders that source and each has a `both_transports_describe_the_same_tools` test asserting it did
-not deviate.
+**One crate, one transport, and the whole tool set** - which is three tools, one per capability
+in `sutura_app::Capability`: list what this deployment measures, answer one governed question
+about one metric, and run one literal SQL statement. `sutura_app::Capability` is the one source
+for which those are, so **the two transports cannot disagree about what this deployment
+offers**; each of them renders that source and each has a
+`both_transports_describe_the_same_tools` test asserting it did not deviate.
 
 Five properties are load-bearing and each has a test rather than a paragraph:
 
 * **The schema is generated.** `tool::input_schema` is `schemars::schema_for!` over a wire type
   in `wire` - there is no hand-written JSON object in this crate - and every tool's generated
   bytes are committed as a snapshot, so a new or widened tool input lands in a reviewer's diff.
-  That byte-compare is a mechanism `AGENTS.md` describes as owed rather than standing; this crate
-  is what owes it.
+  The compare is `insta`'s, over the committed files in `src/snapshots/`, so a changed schema
+  fails until its snapshot is re-accepted.
 * **A tool a caller may not invoke is neither advertised nor answered.**
   `AgentSurface::new` requires an `Asking`, which resolves to a `sutura_app::Permitted` either
   once at construction (`TheProcessOwner`) or fresh per call (`PerRequest`); `tools/list` filters
@@ -100,8 +100,8 @@ this crate, and the handler is three methods written by hand.
   `Asking::PerRequest` is read but never produced. Behind this crate's own default-off `http`
   feature, `http::service` is what produces one over a real request - the streamable-HTTP
   transport - and PR4 (`#758`) is the composition root that already mounts it, behind its own
-  optional `agent` feature and a settings switch; nothing this repository publishes turns that
-  feature on.
+  optional `agent` feature and a settings switch - a feature the shipped build
+  (`nix/shipped.nix`) turns on.
 
   **The consequence for what a scope gates here is stated rather than left implicit:** the
   capability set this surface offers is narrowable, and over standard input and output nothing
@@ -145,10 +145,11 @@ names a MODE, and the value itself is read fresh out of the request's own
 - `TheProcessOwner` - The launching identity is the subject, for the whole life of this surface. The pipe's own shape and a decision rather than a gap - see `serve_stdio` and the module documentation's *what is deliberately absent* section.
 - `PerRequest` - Established fresh from each request's own carried `sutura_app::Asked`. An absent value is a refusal, never `TheProcessOwner`'s fallback - see `rmcp::ServerHandler::call_tool`.
 
-  Nothing in this crate produces an `Asked` today: over standard input and output there is no
-  request to read one from. The arm exists so the exhaustive match in `server` is already
-  total the day an HTTP transport starts producing one, rather than growing a second match
-  somebody has to remember to make exhaustive under `-D warnings` later.
+  Nothing over standard input and output produces an `Asked`: there is no request to read one
+  from. Under this crate's default-off `http` feature, `http::service` lets a real request
+  reach this arm; the arm exists so the exhaustive match in `server` is already total then,
+  rather than growing a second match somebody has to remember to make exhaustive under
+  `-D warnings` later.
 
 ### Implements
 
@@ -163,11 +164,12 @@ pub enum NotServed
 Why the agent surface stopped, when it was not the peer going away.
 
 **Both variants re-export a third-party error type as a `#[source]`, and that is a deliberate
-exception worth naming in review.** `AGENTS.md` allows only our own or standard-library errors
-across a crate boundary and records that a variant carrying somebody else's type is a review
-question rather than a gate. It is carried here because the alternative is worse: the handshake
-failure is the SDK's own account of what the peer sent, and flattening it to a sentence would
-throw away the only description of the fault that exists.
+exception worth naming in review.** `.agents/skills/engineering/rust`'s review table records
+that an adapter wrapping a third-party library maps its errors at the boundary, and a variant
+carrying somebody else's type is a review question rather than a gate. It is carried here
+because the alternative is worse: the handshake failure is the SDK's own account of what the
+peer sent, and flattening it to a sentence would throw away the only description of the fault
+that exists.
 
 ### Variants
 
@@ -207,10 +209,11 @@ in-flight answer finish.
 
 **`permitted` is required for the same reason `AgentSurface::new` requires an `Asking`: a pipe
 has no header a token could arrive in, so this transport alone cannot choose who the peer is. The
-composition root decides** - `sutura`'s `mcp` subcommand passes `Permitted::every_capability` and
-prints that at startup - so the value lives next to the notice that states it rather than hidden
-in this function. This function wraps it as `Asking::TheProcessOwner` before handing it to the
-surface; there is no path through `serve_stdio` to `Asking::PerRequest` at all.
+composition root decides** - `sutura`'s `mcp` subcommand derives it from `every_capability()`,
+minus `RunSql` unless `tools.run_sql.enabled`, and prints that at startup - so the value lives
+next to the notice that states it rather than hidden in this function. This function wraps it as
+`Asking::TheProcessOwner` before handing it to the surface; there is no path through
+`serve_stdio` to `Asking::PerRequest` at all.
 
 **`admission` is required for the same reason and answers a different question.** rmcp serves
 requests concurrently - one task per request, and the SDK caps nothing - so without a bound every
@@ -259,7 +262,8 @@ port has to outlive the future that started the call.
 The streamable-HTTP transport, default-off behind this crate's own `http` feature.
 
 `telekom/sutura#378` PR3, `docs/adr/0023`. See its own module documentation for what it does
-and, as importantly, what it does not: nothing served mounts it yet.
+and, as importantly, what it does not. `sutura serve` nests it at `/mcp` behind `sutura-cli`'s
+`agent` feature.
 The streamable-HTTP transport, as a plain `tower_service::Service` a composition root mounts.
 
 **`#[cfg(feature = "http")]` only** - `telekom/sutura#378` PR3, `docs/adr/0023`. Nothing served

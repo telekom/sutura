@@ -31,8 +31,8 @@ description = "The agent-facing surface. Transport only: one tool over MCP, and 
 http = ["rmcp/transport-streamable-http-server"]
 
 [dependencies]
-# The service, behind the driving port. This crate calls `answer` and nothing else; every rule about
-# what may be answered lives on the other side of that call.
+# The service, behind the driving port. This crate calls the port's `definitions`, `answer` and
+# `run_sql` and nothing else; every rule about what may be answered lives on the other side.
 sutura-app = { workspace = true }
 # The two BOUNDS this transport is subject to, as the parsed newtypes an operator's numbers become.
 # A normal dependency since `telekom/sutura#339`, and it was a dev-dependency until then on the

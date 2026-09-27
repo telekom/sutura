@@ -2243,7 +2243,7 @@ pub const fn is_production(self) -> bool
 
 Is this the environment the strict refusals apply to?
 
-A method rather than `== Environment::Production` at each call site: there are five
+A method rather than `== Environment::Production` at each call site: there are four
 refusals keyed off it, and a fourth variant added later has to answer this question once.
 
 ```rust
@@ -3180,8 +3180,8 @@ not as an omission from this one.
 
 `ApiSettings` and `LogFormat` default by
 `Environment` and record whether an operator wrote the value down, so the
-startup log can tell "somebody chose this" from "nobody did". Neither key here does, and the
-reason is that neither decision is a function of the environment.
+startup log can tell "somebody chose this" from "nobody did". No key here does, and the reason
+is that none of these decisions is a function of the environment.
 
 Whether a catalog's authors are trusted enough to quote their prose into an agent's context is a
 fact about who writes the catalog, not about whether the process is on a laptop. A default that
@@ -6107,8 +6107,9 @@ pub fn parse(raw: &str) -> Result<Self, InvalidWorkloadIdentity>
 Parses a scope.
 
 A scope is a URL (`https://www.googleapis.com/auth/bigquery.readonly`), so it allows the `%`
-and letters a URL does rather than the narrower set an audience does. Same bound, same reason:
-it belongs in a request and a refusal should never log it raw.
+and letters a URL does rather than the narrower set an audience does. A longer bound than an
+audience's, and the same reason for having one: it belongs in a request and a refusal should
+never log it raw.
 
 ##### Implements
 

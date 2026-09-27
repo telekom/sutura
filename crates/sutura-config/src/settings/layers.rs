@@ -43,7 +43,8 @@ pub struct ConfigLayers {
     /// Built by [`read`] from the `config` crate's own cache, which is the thing that used to be
     /// thrown away the line after it was built. The map has one entry for every resolved leaf,
     /// because the embedded defaults define them all - a value that is refused is a value someone
-    /// set, so a refusal that does not know who is the refusal this list exists to prevent.
+    /// set, so a refusal that does not know who is the refusal this list exists to prevent. An array
+    /// is one leaf: the walk descends into tables only, so its elements get no entry of their own.
     origins: BTreeMap<String, LayerOrigin>,
 }
 
@@ -184,10 +185,10 @@ type Layered = (RawSettings, ConfigLayers);
 /// Builds the layered configuration and deserializes it into the raw tree.
 ///
 /// **Retains which files were observed, whether the load succeeds or fails.** Both file layers
-/// are `.required(false)`, so a mistyped `--config` directory, a volume that failed to mount, and a
-/// deployment that genuinely has no files are the same silent success - and the process then starts
-/// on embedded defaults with nothing in the log to distinguish the three. What is returned here is
-/// what [`ConfigLayers`] carries into the startup report.
+/// are `.required(false)`, so a mistyped `SUTURA_CONFIG_DIR` directory, a volume that failed to
+/// mount, and a deployment that genuinely has no files are the same silent success - and the
+/// process then starts on embedded defaults with nothing in the log to distinguish the three. What
+/// is returned here is what [`ConfigLayers`] carries into the startup report.
 ///
 /// **Files, and only files.** The overlay layer is supplied as text by a test and has no path, and the
 /// variable layer has no path either - so neither can appear in the list, and a deployment configured
@@ -203,9 +204,10 @@ pub(super) fn read(sources: &Sources) -> Result<Layered, SettingsLoadError> {
             // as found and what is added as a source cannot name different files.
             //
             // **The limit, stated where the claim is:** this records what was on disk at this
-            // instant. A file that appears or disappears between here and the build, or one that
-            // exists and cannot be read, is not covered - the first is a race nothing here closes,
-            // and the second becomes `SettingsError::Source` a few lines below.
+            // instant. A file that appears or disappears between here and the build is a race nothing
+            // here closes. One that exists and cannot be read is still recorded here - `is_file` was
+            // true - and contributes nothing: `optional_file` is `.required(false)`, and the `config`
+            // crate turns any failure to read a non-required file into an empty layer, not an error.
             let path = layer_path(directory, stem);
             if path.is_file() {
                 layers.push(path);
