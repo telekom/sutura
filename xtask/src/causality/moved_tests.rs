@@ -201,3 +201,25 @@ fn a_moved_test_that_gains_doc_hidden_is_refused_beside_a_reflowed_move() {
     ]);
     assert_eq!(plan, Plan::DeletedTests(vec![deleted("crates/x/tests/a.rs", &["foo"])]));
 }
+
+/// `github.com/telekom/sutura#1103`, the shape a split at the line cap takes: the tests move to one
+/// new module and the helpers they share to another that names no test. Reverting that one deletes
+/// a file the kept target still declares, so the base does not build and no moved test is measured.
+#[test]
+fn a_helper_moved_into_a_new_path_module_stays_declared_at_base() {
+    let helper = "fn four() -> i32 {\n    2 + 2\n}\n";
+    let head = "#[path = \"a/harness.rs\"]\nmod harness;\n#[cfg(test)]\n#[path = \"a/moved.rs\"]\nmod moved;\n";
+    let plan = plan_of(&[
+        ["crates/x/tests/a.rs", &format!("{helper}{FOO}{BAR}"), &format!("{head}{BAR}")],
+        ["crates/x/tests/a/harness.rs", "", helper],
+        ["crates/x/tests/a/moved.rs", "", FOO],
+    ]);
+    let Plan::Separable(separable) = plan else {
+        panic!("a pure move must reach the proof, got {plan:?}");
+    };
+    assert_eq!(separable.test_files, ["crates/x/tests/a.rs", "crates/x/tests/a/moved.rs"]);
+    assert!(
+        !separable.revert.contains(&String::from("crates/x/tests/a/harness.rs")),
+        "a declared module must not be deleted from the base tree: {separable:?}"
+    );
+}
