@@ -2931,10 +2931,11 @@ types stop the <em>damage</em>; they cannot stop the loop. A prompt can.</p>
    are actually exposed, so a deployment that does not expose the catalog listing gets a prompt
    that does not tell an agent to call it. A prompt naming an operation that is not there is
    worse than a shorter prompt: the agent spends its turns discovering the absence.</li>
-<li><strong>The pinned bundle</strong> - every metric, its grains, its dimensions and the values a filter may
-   use, read off the same <code>PinnedDefinitions</code> every answer is computed from. It cannot describe
-   a metric this deployment does not serve, because there is nowhere for such a metric to come
-   from.</li>
+<li><strong>The pinned bundle, as one caller's <code>ScopedView</code></strong> - every metric that caller may see, its
+   grains, its dimensions and the values a filter may use, read off the same <code>PinnedDefinitions</code>
+   every answer is computed from. It cannot describe a metric this deployment does not serve,
+   because there is nowhere for such a metric to come from, and it cannot describe one the view
+   withholds, because <code>render</code> takes the view and never the bare bundle.</li>
 <li><strong>The operator's own text</strong> - <code>PromptInputs::instructions</code>, appended as the last section.
    Appended and never substituted: see the note on layering below.</li>
 </ol>
@@ -3084,12 +3085,17 @@ loud failure. A configured-and-missing file silently omitted would be exactly th
 <h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code></p>
 <h3 id="fn-render"><code>fn render</code><a class="headerlink" href="#fn-render" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">render</span><span class="p">(</span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">inputs</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">PromptInputs</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">render</span><span class="p">(</span><span class="n">view</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">view</span><span class="p">::</span><span class="n">ScopedView</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">inputs</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">PromptInputs</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
 </span></code></pre></div>
 <p>The whole prompt, as markdown.</p>
 <p>Deterministic in its inputs: every collection walked here is a <code>BTreeMap</code> or a <code>BTreeSet</code>, and
-the grains are sorted explicitly. Two calls with the same bundle produce the same bytes, which is
+the grains are sorted explicitly. Two calls with the same view produce the same bytes, which is
 what lets the rendering be pinned by a snapshot rather than described.</p>
+<p><strong>Takes a <code>ScopedView</code>, never a bare <code>&amp;PinnedDefinitions</code></strong>, for the reason
+<code>catalog_knowledge</code> states: the metric list and every knowledge section are the view's, so a
+served caller's prompt names only what that caller may see, and the operator-side commands say
+<code>ScopedView::everything</code> out loud. The definitions version and digest stay the bundle's -
+<code>docs/adr/0028</code>'s "the digest is the bundle's, not the view's".</p>
 <h3 id="fn-catalog_knowledge"><code>fn catalog_knowledge</code><a class="headerlink" href="#fn-catalog_knowledge" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">catalog_knowledge</span><span class="p">(</span><span class="n">view</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">view</span><span class="p">::</span><span class="n">ScopedView</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
 </span></code></pre></div>
