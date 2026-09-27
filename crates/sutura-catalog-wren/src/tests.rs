@@ -50,8 +50,8 @@ fn a_manifest_that_is_not_a_wren_mdl_object_is_not_a_manifest() {
 }
 
 /// A destination that exists, is empty and cannot be written into is `Write` naming a path under
-/// it: the manifest parses and the emptiness check passes, so the first document write is what
-/// fails. Unix-only, because the refusal is provoked with a read-only directory mode.
+/// it: the manifest parses and the emptiness check passes, so a write under it is what fails.
+/// Unix-only, because the refusal is provoked with a read-only directory mode.
 #[cfg(unix)]
 #[test]
 fn an_unwritable_destination_is_a_write_error_naming_the_path() {
