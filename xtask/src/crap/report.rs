@@ -85,9 +85,21 @@ pub(crate) fn parse_policy(text: &str) -> Result<Policy, String> {
             fail_above = Some(value == "true");
         } else if let Some(value) = value_of(line, "epsilon") {
             epsilon = value.parse::<f64>().ok();
-        } else if line.starts_with("allow") && line.contains('[') {
-            // `allow = []` on one line is an empty list, not the start of a block.
-            in_allow = !line.contains(']');
+        } else if let Some(value) = line
+            .strip_prefix("allow")
+            .and_then(|rest| rest.trim_start().strip_prefix('='))
+        {
+            let value = value.trim_start();
+            if value == "[" || value.strip_prefix('[').is_some_and(|rest| rest.trim_start().starts_with('#')) {
+                in_allow = true;
+            } else {
+                let (patterns, comment) = inline_patterns(value, index.saturating_add(1))?;
+                allow.extend(patterns.into_iter().map(|pattern| AllowEntry {
+                    pattern,
+                    line: index.saturating_add(1),
+                    annotated: previous_was_comment || comment,
+                }));
+            }
         }
 
         if is_comment {
@@ -114,6 +126,55 @@ pub(crate) fn parse_policy(text: &str) -> Result<Policy, String> {
         epsilon,
         allow,
     })
+}
+
+/// Read TOML's one-line string-array forms while retaining the comment after the closing bracket.
+fn inline_patterns(value: &str, line: usize) -> Result<(Vec<String>, bool), String> {
+    let invalid = || format!("cannot parse inline allow list on line {line}");
+    let mut rest = value.strip_prefix('[').ok_or_else(invalid)?;
+    let mut patterns = Vec::new();
+    loop {
+        rest = rest.trim_start();
+        if let Some(suffix) = rest.strip_prefix(']') {
+            rest = suffix;
+            break;
+        }
+        let quote = rest.chars().next().ok_or_else(invalid)?;
+        if quote != '\'' && quote != '"' {
+            return Err(invalid());
+        }
+        let mut escaped = false;
+        let end = rest[1..]
+            .char_indices()
+            .find_map(|(index, character)| {
+                if quote == '"' && character == '\\' && !escaped {
+                    escaped = true;
+                    return None;
+                }
+                let closing = character == quote && !escaped;
+                escaped = false;
+                closing.then_some(index + 2)
+            })
+            .ok_or_else(invalid)?;
+        let token = &rest[..end];
+        let pattern = if quote == '\'' {
+            String::from(&token[1..token.len() - 1])
+        } else {
+            serde_json::from_str::<String>(token).map_err(|_| invalid())?
+        };
+        patterns.push(pattern);
+        rest = rest[end..].trim_start();
+        if let Some(after_comma) = rest.strip_prefix(',') {
+            rest = after_comma;
+        } else if !rest.starts_with(']') {
+            return Err(invalid());
+        }
+    }
+    let suffix = rest.trim();
+    if !suffix.is_empty() && !suffix.starts_with('#') {
+        return Err(format!("unexpected text after inline allow list on line {line}"));
+    }
+    Ok((patterns, suffix.starts_with('#')))
 }
 
 /// `key = value`, with the value trimmed of quotes, of a trailing comment, and of a Nix
@@ -345,6 +406,30 @@ mod tests {
         let policy = parse_policy("threshold = 30.0\nallow = []\nfail-above = true\n").expect("parses");
         assert!(policy.allow.is_empty(), "the one-line empty allow list is read as empty");
         assert!(policy.fail_above);
+    }
+
+    #[test]
+    fn inline_allow_list_reads_every_entry_and_its_reason() {
+        let committed = committed_policy();
+        assert_eq!(committed.allow.len(), 1, "the committed inline entry must be read");
+        assert_eq!(committed.allow[0].pattern, "RefusalReason::code");
+        assert!(committed.allow[0].annotated);
+
+        let policy =
+            parse_policy("threshold = 30.0\nfail-above = true\nallow = [\"A#B\", \"Other::*\"] # both are intentional\n")
+                .expect("parses");
+        let names: Vec<&str> = policy.allow.iter().map(|entry| entry.pattern.as_str()).collect();
+        assert_eq!(names, ["A#B", "Other::*"]);
+        assert!(policy.allow.iter().all(|entry| entry.annotated && entry.line == 3));
+
+        let unreasoned = parse_policy("threshold = 30.0\nfail-above = true\nallow = [\"A#B\"]\n").expect("parses");
+        assert!(!unreasoned.allow[0].annotated, "a hash inside a pattern is not a reason");
+
+        let literal = parse_policy("threshold = 30.0\nfail-above = true\nallow = ['A#B', 'C\"D',] # documented exceptions\n")
+            .expect("valid TOML literal strings and a trailing comma parse");
+        let names: Vec<&str> = literal.allow.iter().map(|entry| entry.pattern.as_str()).collect();
+        assert_eq!(names, ["A#B", "C\"D"]);
+        assert!(literal.allow.iter().all(|entry| entry.annotated));
     }
 
     #[test]
