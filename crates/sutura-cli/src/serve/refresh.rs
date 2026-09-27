@@ -349,8 +349,8 @@ mod tests {
         let first = CatalogSettings::parse(
             SourceName::parse("first").expect("a test source is a source"),
             ConfiguredKind::Markdown,
-            std::path::PathBuf::from("catalog"),
-            std::path::PathBuf::from("data"),
+            Some(std::path::PathBuf::from("catalog")),
+            Some(std::path::PathBuf::from("data")),
             DefinitionVersion::parse("test-1").expect("a test version is a version"),
         )
         .expect("a complete markdown entry parses")
@@ -359,8 +359,8 @@ mod tests {
         let second = CatalogSettings::parse(
             SourceName::parse("second").expect("a test source is a source"),
             ConfiguredKind::Markdown,
-            std::path::PathBuf::from("catalog"),
-            std::path::PathBuf::from("data"),
+            Some(std::path::PathBuf::from("catalog")),
+            Some(std::path::PathBuf::from("data")),
             DefinitionVersion::parse("test-1").expect("a test version is a version"),
         )
         .expect("a complete markdown entry parses")

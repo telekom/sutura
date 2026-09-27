@@ -220,16 +220,21 @@ fn announce_surface(settings: &Settings) {
     // (a shape the metadata assembler composes above the settings), the banner says how many and
     // points at the composition rather than flattening N dirs into one line.
     match settings.catalogs().each().next() {
-        Some(single) if settings.catalogs().count() == 1 => tracing::info!(
-            catalog_name = %single.name(),
-            catalog_kind = single.kind().as_str(),
-            catalog_dir = %single.dir().display(),
-            data_dir = %single.data_dir().display(),
-            definition_version = %single.version(),
-            log_format = %settings.telemetry().format(),
-            log_format_explicit = settings.telemetry().format_was_explicit(),
-            "catalog and log"
-        ),
+        Some(single) if settings.catalogs().count() == 1 => {
+            // A live catalog can omit both directories.
+            let catalog_dir = single.dir();
+            let data_dir = single.data_dir();
+            tracing::info!(
+                catalog_name = %single.name(),
+                catalog_kind = single.kind().as_str(),
+                catalog_dir = ?catalog_dir,
+                data_dir = ?data_dir,
+                definition_version = %single.version(),
+                log_format = %settings.telemetry().format(),
+                log_format_explicit = settings.telemetry().format_was_explicit(),
+                "catalog and log"
+            );
+        }
         _ => tracing::info!(
             catalogs = settings.catalogs().count(),
             log_format = %settings.telemetry().format(),

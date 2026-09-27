@@ -401,7 +401,7 @@ mod tests {
     #[test]
     fn a_complete_rdbms_entry_reaches_the_catalog_settings() {
         let overlay = "security:\n  identity: single-user\n  single_user_because: a test\nsources:\n  warehouse:\n    kind: files\n    data_dir: /srv/data\n    posture: shared-service-user\n\
-            catalogs:\n  - name: dict\n    kind: rdbms\n    dir: /nowhere\n    data_dir: /nowhere\n    version: dict-1\n    \
+            catalogs:\n  - name: dict\n    kind: rdbms\n    version: dict-1\n    \
             environment: prod\n    source_alias: warehouse\n    max_dictionary_rows: 1000\n    \
             live_row_predicate:\n      column: status\n      operator: equals\n      value: live\n    \
             connection:\n      host: 127.0.0.1\n      port: 5432\n      database: dictionary\n      user: reader\n      \
@@ -410,6 +410,8 @@ mod tests {
             .expect("a complete rdbms catalog loads");
         let catalog = settings.catalogs().each().next().expect("one catalog");
         let rdbms = catalog.rdbms().expect("an rdbms entry carries its rdbms settings");
+        assert!(catalog.dir().is_none());
+        assert!(catalog.data_dir().is_none());
         assert_eq!(rdbms.environment().as_str(), "prod");
         assert_eq!(rdbms.source_alias().as_str(), "warehouse");
         assert_eq!(rdbms.max_dictionary_rows(), NonZeroU64::new(1000));

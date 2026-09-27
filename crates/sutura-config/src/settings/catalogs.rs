@@ -39,8 +39,8 @@ pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Res
         let settings = CatalogSettings::parse(
             name,
             kind,
-            PathBuf::from(&raw_catalog.dir),
-            PathBuf::from(&raw_catalog.data_dir),
+            raw_catalog.dir.as_deref().map(PathBuf::from),
+            raw_catalog.data_dir.as_deref().map(PathBuf::from),
             version,
         )
         .map_err(|cause| SettingsError::Catalog { cause })?;

@@ -588,8 +588,8 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
     let datahub = CatalogSettings::parse(
         name.clone(),
         CatalogKind::Datahub,
-        PathBuf::from("/nowhere/catalog"),
-        PathBuf::from("/nowhere/data"),
+        Some(PathBuf::from("/nowhere/catalog")),
+        Some(PathBuf::from("/nowhere/data")),
         version.clone(),
     )
     .expect("a directory and a version are a settings");
@@ -603,8 +603,8 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
     let markdown = CatalogSettings::parse(
         name,
         CatalogKind::Markdown,
-        PathBuf::from("/nowhere/catalog"),
-        PathBuf::from("/nowhere/data"),
+        Some(PathBuf::from("/nowhere/catalog")),
+        Some(PathBuf::from("/nowhere/data")),
         version,
     )
     .expect("a directory and a version are a settings");
@@ -628,11 +628,11 @@ fn a_declared_catalog_kind_without_a_reader_is_refused_naming_the_follow_up() {
     let catalog = CatalogSettings::parse(
         SourceName::parse("rdbms").expect("a test name is a name"),
         CatalogKind::Rdbms,
-        PathBuf::from("/nowhere/catalog"),
-        PathBuf::from("/nowhere/data"),
+        None,
+        None,
         version,
     )
-    .expect("a directory and a version are a settings");
+    .expect("a directory-free rdbms declaration is valid settings");
     let catalogs = Catalogs::parse(vec![catalog]).expect("one declared catalog is a registry");
     let err = crate::catalog::open_catalog(&catalogs, None).expect_err("a kind with no reader is refused by name");
     assert!(err.contains("catalog.kind: rdbms"), "{err}");
@@ -653,8 +653,8 @@ fn a_declared_openmetadata_catalog_build_without_the_feature_is_refused_naming_i
     let catalog = CatalogSettings::parse(
         SourceName::parse("model").expect("a test name is a name"),
         CatalogKind::Openmetadata,
-        PathBuf::from("/nowhere/catalog"),
-        PathBuf::from("/nowhere/data"),
+        Some(PathBuf::from("/nowhere/catalog")),
+        Some(PathBuf::from("/nowhere/data")),
         version,
     )
     .expect("a directory and a version are a settings");
@@ -690,16 +690,16 @@ fn catalogs_of_more_than_one_kind_in_one_deployment_are_refused() {
     let markdown = CatalogSettings::parse(
         SourceName::parse("prose").expect("a test name is a name"),
         CatalogKind::Markdown,
-        PathBuf::from("/nowhere/catalog"),
-        PathBuf::from("/nowhere/data"),
+        Some(PathBuf::from("/nowhere/catalog")),
+        Some(PathBuf::from("/nowhere/data")),
         version.clone(),
     )
     .expect("a directory and a version are a settings");
     let datahub = CatalogSettings::parse(
         SourceName::parse("metrics").expect("a test name is a name"),
         CatalogKind::Datahub,
-        PathBuf::from("/nowhere/catalog"),
-        PathBuf::from("/nowhere/data"),
+        Some(PathBuf::from("/nowhere/catalog")),
+        Some(PathBuf::from("/nowhere/data")),
         version,
     )
     .expect("a directory and a version are a settings");
@@ -727,8 +727,8 @@ fn a_deployment_with_more_than_one_catalog_opens_one_per_declared_entry() {
         CatalogSettings::parse(
             SourceName::parse(raw).expect("a test name is a name"),
             CatalogKind::Markdown,
-            PathBuf::from("/nowhere/catalog"),
-            PathBuf::from("/nowhere/data"),
+            Some(PathBuf::from("/nowhere/catalog")),
+            Some(PathBuf::from("/nowhere/data")),
             version.clone(),
         )
         .expect("a directory and a version are a settings")
