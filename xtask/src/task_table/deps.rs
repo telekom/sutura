@@ -15,7 +15,13 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-pins",
         description: "no tool is pinned by both nix and pixi",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            seeds: &[
+                ("flake.nix", "apps.zizmor = { type = \"app\"; };\n"),
+                ("pixi.toml", "[dependencies]\nzizmor = \"1.0\"\n"),
+            ],
+            in_scope: Some("pixi.toml"),
+        },
         run: pins::run,
     },
     Task {
@@ -65,7 +71,16 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-arrow",
         description: "one Arrow major in Cargo.lock, or an explained exception",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            seeds: &[
+                (
+                    "Cargo.lock",
+                    "[[package]]\nname = \"arrow\"\nversion = \"59.0.0\"\n\n[[package]]\nname = \"arrow-schema\"\nversion = \"60.0.0\"\n",
+                ),
+                ("devco/arrow-majors-allow", "59 2026-09-27 engine major\n"),
+            ],
+            in_scope: Some("Cargo.lock"),
+        },
         run: arrow_major::run,
     },
     Task {
