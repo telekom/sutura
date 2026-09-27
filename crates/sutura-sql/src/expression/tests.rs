@@ -17,6 +17,10 @@ mod dialect_resolution;
 // a module never compiled against base.
 mod unbounded;
 
+// The falsification sweep for the four wiring-only refusals. Its own file for the same
+// max-lines reason, and declared HERE for the same causality reason as `unbounded`.
+mod wiring_sweep;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::expression::{AuthoredSql, DialectTag, InvalidFragment, SqlFragment};
