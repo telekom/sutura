@@ -19,7 +19,7 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::measure::ZeroDenominator;
-use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
+use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, QualifiedTable, SourceName, TableName};
 use sutura_domain::plan::{
     Executable, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin,
     QueryPlan, ResultLabel, StatementTables,
@@ -907,4 +907,58 @@ mod deadline_tests {
             "the source's own execute must never run once the deadline is already spent"
         );
     }
+}
+
+/// An `orders` table the plans below can answer, so each refusal is the guard's own and not a
+/// missing column's: with the guard gone, the same plan executes.
+fn answerable() -> DataFusionWarehouse {
+    warehouse(batch(
+        vec![
+            Field::new("region", DataType::Utf8, false),
+            Field::new("order_date", DataType::Date32, false),
+            Field::new("amount", DataType::Int64, false),
+        ],
+        vec![region_column(), date_column(), Arc::new(Int64Array::from(vec![1_i64, 2, 3]))],
+    ))
+}
+
+/// [`plan`]'s shape over any tables and bindings.
+fn plan_over(tables: StatementTables, bindings: PlanBindings) -> QueryPlan {
+    QueryPlan::new(
+        SourceName::parse("local").expect("a test source is a source"),
+        MetricName::parse("revenue").expect("a test metric is a metric"),
+        tables,
+        PlanBucket::new(ResultLabel::bucket(), Grain::Month, on("order_date")),
+        region_key(),
+        simple(Aggregate::Sum, "amount"),
+        ResultLabel::measure(&MetricName::parse("revenue").expect("a test measure label is a metric name")),
+        bindings,
+        TimeRange::new(day("2026-06-01"), day("2026-08-01")).expect("a test range is a range"),
+    )
+}
+
+/// A whole answer always carries its range bounds as predicates, so a plan with none is a wiring
+/// defect, and executing it would be an unbounded scan.
+#[test]
+fn a_plan_with_no_predicate_is_refused_as_an_unfiltered_scan() {
+    let unbounded = plan_over(StatementTables::only(orders()), PlanBindings::none());
+    let outcome = answerable().execute(Executable::Query(&unbounded), &crate::test_leg(), crate::test_deadline());
+    assert!(matches!(outcome, Err(DataFusionError::NoPredicate)), "{outcome:?}");
+}
+
+/// This engine registers one table per name with nothing above it, so a qualified name is refused
+/// before the lookup - which would otherwise drop the qualifier and answer from `orders`.
+#[test]
+fn a_qualified_table_name_is_refused_before_any_lookup() {
+    // `plan()`'s own range bounds, so the plan is one the unqualified table would answer.
+    let bounded = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
+    let bounds =
+        PlanBindings::parse(bounded.filters().to_vec(), bounded.params().to_vec()).expect("a plan's own bindings bind again");
+    let qualified = QualifiedTable::parse("dataset.orders").expect("a two-part name parses");
+    let query = plan_over(StatementTables::only(qualified), bounds);
+    let outcome = answerable().execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline());
+    assert!(
+        matches!(outcome, Err(DataFusionError::QualifiedTableUnreachable { .. })),
+        "{outcome:?}"
+    );
 }
