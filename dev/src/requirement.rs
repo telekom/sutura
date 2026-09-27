@@ -37,6 +37,11 @@
 /// differently is a fix that does not work and looks like it should.
 pub const FORCE: &str = "SUTURA_DEV_REQUIRE_TIER";
 
+/// The sentence the [`Requirement::Required`] failure carries, so a reader of a run's output can
+/// tell a cell that never reached its tier from one its own assertion failed - `xtask`'s claim arm
+/// does.
+pub const REQUIRED: &str = "This run requires a provisioned service tier";
+
 /// Whether a missing tier is fatal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Requirement {

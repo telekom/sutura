@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-app/src/surface.rs b/crates/sutura-app/src/surface.rs
+index 8d02b6d9e..c5b4de0a3 100644
+--- a/crates/sutura-app/src/surface.rs
++++ b/crates/sutura-app/src/surface.rs
+@@ -529,7 +529,7 @@ where
+             // Two brokers' worth of failure, kept apart on the way out for the reason the variants
+             // give: an authorization server that is down and a broker that answered about the wrong
+             // sources are not retried the same way.
+-            ServiceError::Broker { cause } => SurfaceFailure::Broker { cause: Box::new(cause) },
++            ServiceError::Broker { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
+             ServiceError::Credentials { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
+             // The same arm, and deliberately: to a transport, "the broker's answer does not fit
+             // the request" and "the leg does not fit the posture the adapter was opened with" are

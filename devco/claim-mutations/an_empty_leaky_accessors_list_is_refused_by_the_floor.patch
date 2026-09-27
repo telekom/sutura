@@ -1,0 +1,23 @@
+diff --git a/xtask/src/newtype_leaks.rs b/xtask/src/newtype_leaks.rs
+index 702bdac73..e8e4c60a3 100644
+--- a/xtask/src/newtype_leaks.rs
++++ b/xtask/src/newtype_leaks.rs
+@@ -343,15 +343,10 @@ fn lists_are_populated<T, U, V, W, X>(
+     leaky: &[T],
+     sealed: &[U],
+     sequence_traits: &[V],
+-    leaky_accessors: &[W],
+-    sequence_returns: &[X],
++    _leaky_accessors: &[W],
++    _sequence_returns: &[X],
+ ) -> Result<(), ()> {
+-    if leaky.is_empty()
+-        || sealed.is_empty()
+-        || sequence_traits.is_empty()
+-        || leaky_accessors.is_empty()
+-        || sequence_returns.is_empty()
+-    {
++    if leaky.is_empty() || sealed.is_empty() || sequence_traits.is_empty() {
+         eprintln!(
+             "xtask check-newtype-leaks: FAILED - a refused list is empty (LEAKY, SEALED, \
+              SEQUENCE_TRAITS, LEAKY_ACCESSORS, SEQUENCE_RETURNS); this gate would guard nothing"

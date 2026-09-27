@@ -408,7 +408,13 @@ fn writes_to(line: &str, target: &str) -> bool {
 /// from - that binding is nix, and this gate evaluates none.
 fn built_at_the_warm_profile(text: &str) -> Result<(), String> {
     let declared = format!("CARGO_PROFILE = \"{WARM_PROFILE}\"");
-    if live_lines(text).any(|line| line.contains(declared.as_str())) {
+    // Read off the code before an inline `#`: `CARGO_PROFILE = "release"; # CARGO_PROFILE = "ci"`
+    // builds at release, and `contains` over the raw line passed it.
+    if live_lines(text).any(|line| {
+        line.split_once('#')
+            .map_or(line, |(code, _)| code)
+            .contains(declared.as_str())
+    }) {
         return Ok(());
     }
     Err(format!(
@@ -736,6 +742,17 @@ mod tests {
         );
         let released = live.replace("\"ci\"", "\"release\"");
         let wrong = super::built_at_the_warm_profile(&released).expect_err("release artifacts are not ci artifacts");
+        assert!(wrong.contains("no longer built at profile ci"), "{wrong}");
+    }
+
+    #[test]
+    fn a_profile_declared_only_in_an_inline_comment_builds_nothing() {
+        // The fail-open `contains` had: a line that builds at `release` but mentions the `ci`
+        // declaration in a trailing `#` comment satisfies `contains` while building at the wrong
+        // profile. `live_lines` filters full-line `#` comments but not inline ones, so the inline
+        // case walked past the gate until the fix stripped comments before matching.
+        let decoy = "        ciArgs = commonArgs // { CARGO_PROFILE = \"release\"; }; # CARGO_PROFILE = \"ci\";\n";
+        let wrong = super::built_at_the_warm_profile(decoy).expect_err("a declaration in a comment builds nothing");
         assert!(wrong.contains("no longer built at profile ci"), "{wrong}");
     }
 
