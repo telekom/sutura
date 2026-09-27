@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/catalog/authored.rs b/crates/sutura-domain/src/catalog/authored.rs
+index 5e2a1d19f..1875d9d11 100644
+--- a/crates/sutura-domain/src/catalog/authored.rs
++++ b/crates/sutura-domain/src/catalog/authored.rs
+@@ -350,7 +350,7 @@ impl ColumnType {
+             });
+         }
+         let len = normalized.chars().count();
+-        if len > MAX_COLUMN_TYPE_CHARS {
++        if len > MAX_COLUMN_TYPE_CHARS.saturating_add(1) {
+             return Err(InvalidColumnType::TooLong {
+                 value: normalized,
+                 len,

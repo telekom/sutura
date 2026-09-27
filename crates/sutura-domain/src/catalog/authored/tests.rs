@@ -8,8 +8,8 @@
 //! cannot have: a typo in a range bound is invisible to a test that only tries `U+200B`.
 
 use super::{
-    AnchorValue, Description, DimensionValue, InvalidDescription, InvalidDimensionValue, MAX_DESCRIPTION_BYTES,
-    MAX_DESCRIPTION_LINES, MAX_DIMENSION_VALUE_CHARS,
+    AnchorValue, ColumnType, Description, DimensionValue, InvalidColumnType, InvalidDescription, InvalidDimensionValue,
+    MAX_COLUMN_TYPE_CHARS, MAX_DESCRIPTION_BYTES, MAX_DESCRIPTION_LINES, MAX_DIMENSION_VALUE_CHARS,
 };
 
 /// Both ends of all seven ranges [`crate::text::is_invisible`] names.
@@ -402,5 +402,55 @@ fn a_descriptions_deserialization_path_is_the_one_constructor() {
     assert_eq!(
         Description::try_from(String::from("Net\u{202E}revenue.")),
         Err(InvalidDescription::InvisibleCharacter { code: 0x202E })
+    );
+}
+
+// -------------------------------------------------------------------- ColumnType ----
+
+#[test]
+fn a_column_type_of_nothing_but_whitespace_is_refused_as_empty() {
+    for raw in ["", "   ", "  \n\t "] {
+        assert_eq!(ColumnType::parse(raw), Err(InvalidColumnType::Empty), "{raw:?}");
+    }
+}
+
+#[test]
+fn a_column_type_carrying_a_control_character_is_refused_naming_its_code() {
+    // BEL is not whitespace, so normalising does not collapse it and it reaches the character check.
+    assert_eq!(
+        ColumnType::parse("STRING\u{7}"),
+        Err(InvalidColumnType::ControlCharacter {
+            value: String::from("STRING\u{7}"),
+            code: 0x07,
+        })
+    );
+}
+
+#[test]
+fn a_column_type_carrying_an_invisible_character_is_refused_naming_its_code() {
+    // U+202E is not a control character, so it passes that check and is refused by the next one.
+    assert_eq!(
+        ColumnType::parse("STRUCT<name\u{202e} STRING>"),
+        Err(InvalidColumnType::InvisibleCharacter {
+            value: String::from("STRUCT<name\u{202e} STRING>"),
+            code: 0x202E,
+        })
+    );
+}
+
+#[test]
+fn a_column_type_one_past_the_character_cap_is_refused_and_the_cap_itself_is_not() {
+    let over = "x".repeat(MAX_COLUMN_TYPE_CHARS.saturating_add(1));
+    assert_eq!(
+        ColumnType::parse(&over),
+        Err(InvalidColumnType::TooLong {
+            len: over.len(),
+            value: over,
+            limit: MAX_COLUMN_TYPE_CHARS,
+        })
+    );
+    assert!(
+        ColumnType::parse("x".repeat(MAX_COLUMN_TYPE_CHARS)).is_ok(),
+        "exactly the cap is a column type"
     );
 }

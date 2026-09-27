@@ -7,6 +7,7 @@ use std::collections::BTreeSet;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{Audience, Definitions, Description, Metric, Model};
+use sutura_domain::identity::PresentedDisagreesWithPosture;
 use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{Aggregate, ColumnName, Grain, ModelName, SourceName, TableName};
@@ -167,6 +168,42 @@ fn credentials_for_the_wrong_source_through_run_sql_are_a_credentials_failure() 
     assert!(
         matches!(failure, RunSqlError::Credentials { .. }),
         "the credential mismatch is typed, not {failure:?}"
+    );
+}
+
+#[test]
+fn run_sql_over_no_adapter_that_accepts_a_raw_statement_is_refused_as_no_accepting_source() {
+    // One warehouse is registered, but `FixedWarehouse` does not accept raw statements.
+    let failure = run_sql(
+        &asked_by_a_person(),
+        &select_one(),
+        &FixedBroker::GrantsShared,
+        &Warehouses::of(FixedWarehouse::new(source(), shared())),
+    )
+    .expect_err("no adapter here accepts a raw statement");
+    assert!(
+        matches!(failure, RunSqlError::NoAcceptingSource),
+        "the missing adapter is typed, not {failure:?}"
+    );
+}
+
+#[test]
+fn run_sql_handed_a_subject_leg_for_a_shared_source_is_a_posture_failure() {
+    let failure = run_sql(
+        &asked_by_a_person(),
+        &select_one(),
+        &FixedBroker::GrantsSubjectMaterial,
+        &raw_capable(),
+    )
+    .expect_err("a subject leg for a shared source is a wiring defect");
+    assert!(
+        matches!(
+            failure,
+            RunSqlError::Posture {
+                cause: PresentedDisagreesWithPosture::ShapeIsNotThePosture { .. }
+            }
+        ),
+        "the posture mismatch is typed, not {failure:?}"
     );
 }
 

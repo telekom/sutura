@@ -381,7 +381,7 @@ pub enum InvalidWorkloadIdentity {
 
 #[cfg(test)]
 mod tests {
-    use super::{WifAudience, WorkloadIdentityConfig, WorkloadIdentitySa};
+    use super::{InvalidWorkloadIdentity, WifAudience, WifScope, WorkloadIdentityConfig, WorkloadIdentitySa};
 
     #[test]
     fn a_declared_workload_identity_parses_both_halves() {
@@ -553,5 +553,34 @@ mod tests {
         )
         .expect_err("a lone expected_issuer without expected_audience is refused");
         assert!(matches!(err, super::InvalidWorkloadIdentity::PartialExpectation));
+    }
+
+    #[test]
+    fn a_blank_audience_is_refused_as_empty_naming_the_audience() {
+        assert_eq!(
+            WifAudience::parse("  "),
+            Err(InvalidWorkloadIdentity::Empty { what: "audience" })
+        );
+    }
+
+    #[test]
+    fn an_audience_one_past_its_bound_is_refused_as_too_long() {
+        let over = "a".repeat(WifAudience::MOST.saturating_add(1));
+        assert_eq!(
+            WifAudience::parse(&over),
+            Err(InvalidWorkloadIdentity::TooLong {
+                what: "audience",
+                found: over.len(),
+                most: WifAudience::MOST,
+            })
+        );
+    }
+
+    #[test]
+    fn a_scope_carrying_a_space_is_refused_at_the_offset_of_the_space() {
+        assert_eq!(
+            WifScope::parse("not a scope"),
+            Err(InvalidWorkloadIdentity::Character { what: "scope", at: 3 })
+        );
     }
 }

@@ -72,6 +72,16 @@ fn a_symmetric_algorithm_is_refused_by_name_and_the_reason_is_in_the_message() {
 }
 
 #[test]
+fn a_name_outside_the_registry_is_refused_as_unknown_naming_what_was_written() {
+    assert_eq!(
+        SigningAlgorithm::parse(" bogus "),
+        Err(InvalidAlgorithms::Unknown {
+            found: String::from("bogus")
+        })
+    );
+}
+
+#[test]
 fn none_is_refused_before_the_unknown_name_refusal_can_see_it() {
     // `none` IS in the JWS registry, so an "unknown algorithm" message would be both wrong and
     // unhelpful. The ordering inside `parse` is what makes the diagnostic the accurate one.
