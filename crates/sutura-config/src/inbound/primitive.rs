@@ -885,6 +885,10 @@ impl ProofLifetime {
     /// The ceiling, in seconds. An hour: past this, the word "short-lived" is not being used.
     pub const MAX_SECONDS: u64 = 3600;
 
+    /// The longest lifetime that starts without `security.inbound.accept_long_transit_lifetime`.
+    /// Five minutes: the default's clock skew and slow hop, with room to spare.
+    pub const SHORT_LIVED_SECONDS: u64 = 300;
+
     /// Reads a configured lifetime.
     pub const fn parse(seconds: u64) -> Result<Self, InvalidInboundValue> {
         if seconds == 0 || seconds > Self::MAX_SECONDS {

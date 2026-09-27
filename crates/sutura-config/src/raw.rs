@@ -440,11 +440,15 @@ pub(crate) struct RawInbound {
     /// `direct`: which class of token, out of the `typ` header. Absent means RFC 9068's `at+jwt`.
     ///
     /// **Absent is the SAFE value here, unlike `mode`**, which is why it has a default at all: the
-    /// unsafe reading is `any`, and that is a word an operator writes and the startup log prints at
-    /// `WARN`. Defaulting the other way would have made the check switchable by silence, which is the
-    /// shape review found.
+    /// unsafe reading is `any`, and that is a word an operator writes, accepts by name with
+    /// `accept_any_token_type`, and the startup log prints at `WARN`. Defaulting the other way would
+    /// have made the check switchable by silence, which is the shape review found.
     #[serde(default)]
     pub(crate) token_type: Option<String>,
+    /// `direct`: the operator's by-name acceptance of `token_type: any`, without which it does not
+    /// start.
+    #[serde(default)]
+    pub(crate) accept_any_token_type: bool,
     /// `behind-gateway`: which class of token the component emits. **Required**, because a component's
     /// `typ` is a fact only the deployment knows - there is no value this crate could guess that does
     /// not either reject every request or check nothing. `any` is how a deployment says its component
@@ -455,6 +459,10 @@ pub(crate) struct RawInbound {
     /// `ProofLifetime::DEFAULT_SECONDS`.
     #[serde(default)]
     pub(crate) transit_max_lifetime_seconds: Option<u64>,
+    /// `behind-gateway`: the operator's by-name acceptance of a lifetime above
+    /// `ProofLifetime::SHORT_LIVED_SECONDS`, without which it does not start.
+    #[serde(default)]
+    pub(crate) accept_long_transit_lifetime: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -478,6 +486,10 @@ pub(crate) struct RawRateLimit {
     /// default posture unspoofable.
     #[serde(default)]
     pub(crate) trusted_proxies: Vec<String>,
+    /// The operator's by-name acceptance of a `trusted_proxies` block with a `/0` prefix, without
+    /// which it does not start.
+    #[serde(default)]
+    pub(crate) accept_every_address_as_proxy: bool,
 }
 
 #[derive(serde::Deserialize)]
