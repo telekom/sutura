@@ -6,6 +6,7 @@ use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, Metada
 use sutura_domain::catalog::{Definitions, Description, Model};
 use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
 use sutura_domain::model::{ColumnName, ModelName, SourceName, TableName};
+use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
 
 use super::{CatalogProse, PromptInputs, Tool, flatten, render};
@@ -44,7 +45,7 @@ fn physical_schema() -> PinnedDefinitions {
 fn physical_structure_without_a_metric_gets_the_semantic_promotion_ramp() {
     let bundle = physical_schema();
     for prose in [CatalogProse::Quoted, CatalogProse::Omitted] {
-        let text = render(&bundle, &PromptInputs::new(Tool::ALL, prose, None));
+        let text = render(&ScopedView::everything(&bundle), &PromptInputs::new(Tool::ALL, prose, None));
         let flat = flatten(&text);
         assert!(text.contains("## Physical structure is not a certified metric"), "{text}");
         assert!(
