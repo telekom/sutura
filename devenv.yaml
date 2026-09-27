@@ -9,9 +9,7 @@ inputs:
       nixpkgs:
         follows: nixpkgs
   # The repository itself, as an input, so the dev shell can reference the flake's OWN `packages`
-  # (the single source of truth) rather than re-resolve a tool. Used for `jscpd`: referencing
-  # `inputs.repo.packages.<system>.jscpd` puts the SAME derivation `checks.hygiene` attests with
-  # onto the dev shell's PATH - CI and the shell scan with one engine, and nothing is recompiled
-  # because the binary is already in the nix store.
+  # (the single source of truth) rather than re-resolve a tool. Used for `jscpd` and `nextest`:
+  # the shell gets the same derivations the flake's checks use.
   repo:
     url: path:.

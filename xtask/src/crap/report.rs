@@ -120,8 +120,8 @@ pub(crate) fn parse_policy(text: &str) -> Result<Policy, String> {
 /// statement terminator.
 ///
 /// The `;` is not incidental. This reads TWO languages: `.cargo-crap.toml`, where a line ends
-/// after the value, and `nix/crap.nix`, where `crapVersion = "0.4.3";` does not. Trimming quotes
-/// without trimming the semicolon first yielded `0.4.3";` and the version assertion reported the
+/// after the value, and `nix/crap.nix`, where `crapVersion = "<version>";` does not. Trimming quotes
+/// without trimming the semicolon first included the closing quote and `;`, so the assertion reported the
 /// pin as absent from a page that named it - a gate failing on its own parser, which is the
 /// failure this repo asks about before believing any verdict.
 ///

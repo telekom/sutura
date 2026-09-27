@@ -235,15 +235,14 @@ permission the next person cannot audit.
 stronger reason: those two files have separate nixpkgs pins, and for a tool whose output is a
 verdict, two versions mean the dev shell reporting a score CI does not.
 
-| Tool             | Version                 | Route                                                  |
-| ---------------- | ----------------------- | ------------------------------------------------------ |
-| `cargo-crap`     | 0.4.3                   | prebuilt release binary, hash-pinned in `nix/crap.nix` |
-| `cargo-llvm-cov` | from the locked nixpkgs | `pkgs.cargo-llvm-cov`                                  |
-| `cargo-nextest`  | from the locked nixpkgs | `pkgs.cargo-nextest`, already pinned for the tests     |
+| Tool             | Version                         | Route                                                  |
+| ---------------- | ------------------------------- | ------------------------------------------------------ |
+| `cargo-crap`     | 0.5.0                           | prebuilt release binary, hash-pinned in `nix/crap.nix` |
+| `cargo-llvm-cov` | pinned in `nix/crap.nix`        | prebuilt release binary, hash-pinned in `nix/crap.nix` |
+| `cargo-nextest`  | from the flake's locked nixpkgs | flake package shared by CI and the dev shell           |
 
-`cargo-llvm-cov` is in nixpkgs, so nothing is hand-rolled for it. `cargo-crap` is not, and it is
-fetched as a prebuilt binary rather than built from the crate because from-source means compiling
-`clap`, `syn`, `rayon`, `comfy-table` and `indicatif` on the first runner that needs it - minutes
+Both CRAP tools are fetched as prebuilt binaries rather than built from crates because from-source
+means compiling `clap`, `syn`, `rayon`, `comfy-table` and `indicatif` on the first runner - minutes
 of build for a tool that reads files. A `fetchurl` hash is the same provenance guarantee a
 `fetchCrate` hash gives; what changes is that nothing is compiled. The derivation runs
 `cargo-crap --version` at build time, so a pin that cannot execute fails where the pin is,

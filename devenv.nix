@@ -67,6 +67,7 @@ let
   # and CI cannot scan with two engines, and the binary is already in the nix store - the shell
   # adds a PATH entry and compiles nothing.
   jscpd = inputs.repo.packages.${pkgs.stdenv.hostPlatform.system}.jscpd;
+  nextest = inputs.repo.packages.${pkgs.stdenv.hostPlatform.system}.nextest;
 
   # A shell body ShellCheck has read, as a store path.
   #
@@ -231,7 +232,7 @@ in
 
     # Gates.
     cargo-deny
-    cargo-nextest
+    nextest
 
     # Task runner. `just` is the one name humans and agents both use, so documentation
     # cites a task rather than a command line that drifts from the one people run.
