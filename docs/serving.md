@@ -271,7 +271,8 @@ security:
     key_set_file: "/etc/sutura/keys/jwks.json"
     algorithms: ["RS256"]
     # token_type defaults to RFC 9068's `at+jwt`. Leave it out unless your issuer uses another
-    # profile - and read the class check below before writing `any`.
+    # profile - and read the class check below before writing `any`, which does not start
+    # without `accept_any_token_type: true` beside it.
 ```
 
 **`behind-gateway` - a fronting component authenticated the caller.** This deployment validates a
