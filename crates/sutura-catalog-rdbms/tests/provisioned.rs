@@ -34,7 +34,7 @@ mod provisioned {
     use sutura_catalog_rdbms::postgres_reader::{PostgresReader, RowPredicate};
     use sutura_catalog_rdbms::{DictionaryReader as _, RdbmsCatalog, RdbmsError};
     use sutura_dev::provisioned::{self, Provisioned};
-    use sutura_domain::model::{ModelName, SourceName};
+    use sutura_domain::model::{ColumnName, ModelName, SourceName};
     use sutura_domain::pinned::{DefinitionVersion, SemanticCatalog as _};
 
     /// The service the provisioner is asked for - the same name `nix/postgres-tier.nix` publishes.
@@ -177,6 +177,16 @@ mod provisioned {
             pinned.definitions().model(&orders).expect("the fixture has orders").source(),
             &source_alias,
             "models bind to the declared source alias, not to the catalog name"
+        );
+        let archived = ColumnName::parse("archived").expect("fixture column name parses");
+        assert!(
+            pinned
+                .definitions()
+                .model(&orders)
+                .expect("the fixture has orders")
+                .column(&archived)
+                .is_none(),
+            "soft-deleted dictionary rows do not become model columns"
         );
         assert!(
             pinned.manifest().get(&catalog_name).is_some(),
