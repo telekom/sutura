@@ -67,7 +67,13 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-ignored-tests",
         description: "every #[ignore]d test is listed in devco/ignored-tests, and every line there is one",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            seeds: &[
+                ("xtask/src/main.rs", "#[test]\n#[ignore]\nfn ignored() {}\n"),
+                ("devco/ignored-tests", "# No ignored tests are baselined.\n"),
+            ],
+            in_scope: Some("xtask/src/main.rs"),
+        },
         run: ignored_tests::run,
     },
     Task {
