@@ -142,8 +142,8 @@ use refusals::{
 };
 use relocation::{Claim, Images, Relocation};
 use remedies::{
-    report_edited, report_moved, report_no_base_behaviour, report_not_separable, report_only_ignored, report_orphaned_modules,
-    report_scope, report_silent, report_unreverted,
+    report_moved, report_no_base_behaviour, report_not_separable, report_only_ignored, report_orphaned_modules, report_scope,
+    report_silent, report_unreverted,
 };
 use reverted::Attempts;
 use runner::{Tree, cargo_test};
@@ -656,7 +656,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         // refuses the macro, so it is the refusal with no waiver applied - fail-closed.
         Plan::DeletedTests(deleted) => report_deleted_tests(&deleted, &weakens::Waived::default()),
         Plan::BaseUnreadable(files) => report_unreadable(&files),
-        Plan::EditedTests(paths) => report_edited(&paths),
+        Plan::EditedTests(edited) => edited::callsite::report(&edited),
         Plan::NotSeparable {
             files: inseparable,
             build_inputs,
@@ -697,99 +697,112 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             )
         }
         Plan::Separable(separable) => {
-            if separable.revert.is_empty() {
-                // Same string check as the arm above: an incomplete claim declaration (trailer
-                // committed, patch not) has an empty `revert` and lands here rather than at
-                // `Plan::NotSeparable` too - `tests_only` reads the same declaration and now
-                // consults it, rather than only mentioning that one exists.
-                return tests_only(&root, &at, &files, &separable, &working_tree);
-            }
-            match Scan::of(&files, &separable.test_files, &working_tree) {
-                Scan::Runnable(scoped) => {
-                    // A COMMIT MAY DECLARE A CLAIM CELL, and the trailer is a CLAIM this CHECKS
-                    // rather than a permission that replaces the check. A claim cell is an added
-                    // test that PINNS behaviour the base tree already provides, so the base run is
-                    // green and the only honest proof is a mutation: break the behaviour, one cell
-                    // at a time, and require the test to redden. The declaration is a bijection
-                    // PER COMMIT (`github.com/telekom/sutura#954`): each declared cell must be a
-                    // test its OWN declaring commit added, each needs a committed killing mutation
-                    // at `devco/claim-mutations/<test-fn-name>.patch`, and `claim::run` proves the
-                    // declared set. `claim` carries the conditions, the patched runs and what an
-                    // accepted arm does and does not prove.
-                    //
-                    // COMPOSITE, the other half of #954: the claim arm is NOT the whole verdict
-                    // any more. A range may land ordinary red-on-base tests beside a claim cell
-                    // (measured on `main`: `f14e8a3a` declared one of three added tests), and
-                    // those are the ordinary base/head proof's to run - the old range-wide
-                    // `Undeclared` refusal reddened them, and that refusal is gone. The verdict
-                    // is the AND: the declared cells' mutations must kill AND the undeclared
-                    // additions must be red against the base behaviour. Nothing, declared or
-                    // not, rides along unproven.
-                    //
-                    // After feature-activation and relocation and nowhere before, for the same
-                    // reason both were: a manifest in the diff or a conflicting trailer is a
-                    // narrower, earlier-established answer and a claim-cell here would shadow it.
-                    // A claim-cell diff is `Relocation::Unclaimed` - the two trailers are mutually
-                    // exclusive, and the range reads one carrier.
-                    // WHAT A GREEN BASE RUN WOULD MEAN, decided from the partition before either
-                    // run rather than read off the run. `reverted` owns the argument; the point of
-                    // asking here is that `separable` is the last place both halves of it exist -
-                    // what is being put back, and which files' tests are being measured.
-                    // THE BASE IMAGE IS A SECOND READER, because a removed line exists only
-                    // there: `reverted` asks whether it sat inside a test region of the tree the
-                    // revert restores, and the post-image cannot answer a question about a line it
-                    // does not contain. Bound once above, where `relocation` needs the same reader.
-                    // Shared by both halves of the composite below - the partition does not change
-                    // when some tests are claimed - so it is bound once.
-                    let reach = Attempts::of(
-                        &separable.revert,
-                        &separable.held(),
-                        &separable.test_files,
-                        &files,
-                        &working_tree,
-                        &base_tree,
-                    );
-                    if let Some(claim) = claim::Claim::of(&worktree::messages(&root, &at)) {
-                        let declared: BTreeSet<String> = claim.cells().iter().cloned().collect();
-                        let claim_verdict =
-                            claim::run(&root, &scoped, &separable.test_files, &claim, claim::Caller::TEST_CAUSALITY);
-                        // The declared cells' mutations must kill AND the undeclared additions
-                        // must be red against the base behaviour. Claim-first, because its
-                        // failures are the louder contract; but the ordinary proof still runs for
-                        // the leftovers, so an `Inconclusive` claim arm cannot mask a real
-                        // `Fail` in the ordinary half.
-                        let Some(remaining) = scoped.minus(&declared) else {
-                            // Every added test is a claim cell: the claim arm is the whole proof.
-                            return claim_verdict;
-                        };
-                        let ordinary = prove(
-                            &root,
-                            &at,
-                            &separable,
-                            &remaining,
-                            &Coverage::of(remaining.tests(), &files, &working_tree),
-                            &reach,
-                            &files,
-                            &working_tree,
-                        );
-                        return match (claim_verdict, ordinary) {
-                            (Verdict::Fail, _) | (_, Verdict::Fail) => Verdict::Fail,
-                            (Verdict::Inconclusive, _) | (_, Verdict::Inconclusive) => Verdict::Inconclusive,
-                            _ => Verdict::Pass,
-                        };
-                    }
-                    let coverage = Coverage::of(scoped.tests(), &files, &working_tree);
-                    prove(&root, &at, &separable, &scoped, &coverage, &reach, &files, &working_tree)
-                }
-                Scan::Unreadable(files) => report_unreadable(&files),
-                Scan::Enabled(refused) => report_enabled_tests(&refused),
-                // The names come from this arm and the RATIO from the whole-diff scan, which is
-                // the half `github.com/telekom/sutura#314` was about: this arm formatted its own
-                // `0 of N` while every other arm printed `0 of 0` and named none of them.
-                Scan::OnlyIgnored(names) => report_only_ignored(&names, &Coverage::of(&[], &files, &working_tree)),
-                Scan::Unnamed => report_unnamed_tests(&separable.test_files),
-            }
+            edited::callsite::name(&separable.edited);
+            let verdict = separable_verdict(&root, &at, &files, &separable, &working_tree, &base_tree);
+            edited::callsite::cap(&separable.edited, verdict)
         }
+    }
+}
+
+/// [`run`]'s verdict over a [`Plan::Separable`], before [`edited::callsite::cap`] bounds it.
+fn separable_verdict(
+    root: &Path,
+    at: &Commit,
+    files: &[diff::ChangedFile],
+    separable: &Separable,
+    working_tree: &regions::PostImage<'_>,
+    base_tree: &regions::PostImage<'_>,
+) -> Verdict {
+    if separable.revert.is_empty() {
+        // Same string check as the arm above: an incomplete claim declaration (trailer
+        // committed, patch not) has an empty `revert` and lands here rather than at
+        // `Plan::NotSeparable` too - `tests_only` reads the same declaration and now
+        // consults it, rather than only mentioning that one exists.
+        return tests_only(root, at, files, separable, working_tree);
+    }
+    match Scan::of(files, &separable.test_files, working_tree) {
+        Scan::Runnable(scoped) => {
+            // A COMMIT MAY DECLARE A CLAIM CELL, and the trailer is a CLAIM this CHECKS
+            // rather than a permission that replaces the check. A claim cell is an added
+            // test that PINNS behaviour the base tree already provides, so the base run is
+            // green and the only honest proof is a mutation: break the behaviour, one cell
+            // at a time, and require the test to redden. The declaration is a bijection
+            // PER COMMIT (`github.com/telekom/sutura#954`): each declared cell must be a
+            // test its OWN declaring commit added, each needs a committed killing mutation
+            // at `devco/claim-mutations/<test-fn-name>.patch`, and `claim::run` proves the
+            // declared set. `claim` carries the conditions, the patched runs and what an
+            // accepted arm does and does not prove.
+            //
+            // COMPOSITE, the other half of #954: the claim arm is NOT the whole verdict
+            // any more. A range may land ordinary red-on-base tests beside a claim cell
+            // (measured on `main`: `f14e8a3a` declared one of three added tests), and
+            // those are the ordinary base/head proof's to run - the old range-wide
+            // `Undeclared` refusal reddened them, and that refusal is gone. The verdict
+            // is the AND: the declared cells' mutations must kill AND the undeclared
+            // additions must be red against the base behaviour. Nothing, declared or
+            // not, rides along unproven.
+            //
+            // After feature-activation and relocation and nowhere before, for the same
+            // reason both were: a manifest in the diff or a conflicting trailer is a
+            // narrower, earlier-established answer and a claim-cell here would shadow it.
+            // A claim-cell diff is `Relocation::Unclaimed` - the two trailers are mutually
+            // exclusive, and the range reads one carrier.
+            // WHAT A GREEN BASE RUN WOULD MEAN, decided from the partition before either
+            // run rather than read off the run. `reverted` owns the argument; the point of
+            // asking here is that `separable` is the last place both halves of it exist -
+            // what is being put back, and which files' tests are being measured.
+            // THE BASE IMAGE IS A SECOND READER, because a removed line exists only
+            // there: `reverted` asks whether it sat inside a test region of the tree the
+            // revert restores, and the post-image cannot answer a question about a line it
+            // does not contain. Bound once above, where `relocation` needs the same reader.
+            // Shared by both halves of the composite below - the partition does not change
+            // when some tests are claimed - so it is bound once.
+            let reach = Attempts::of(
+                &separable.revert,
+                &separable.held(),
+                &separable.test_files,
+                files,
+                working_tree,
+                base_tree,
+            );
+            if let Some(claim) = claim::Claim::of(&worktree::messages(root, at)) {
+                let declared: BTreeSet<String> = claim.cells().iter().cloned().collect();
+                let claim_verdict = claim::run(root, &scoped, &separable.test_files, &claim, claim::Caller::TEST_CAUSALITY);
+                // The declared cells' mutations must kill AND the undeclared additions
+                // must be red against the base behaviour. Claim-first, because its
+                // failures are the louder contract; but the ordinary proof still runs for
+                // the leftovers, so an `Inconclusive` claim arm cannot mask a real
+                // `Fail` in the ordinary half.
+                let Some(remaining) = scoped.minus(&declared) else {
+                    // Every added test is a claim cell: the claim arm is the whole proof.
+                    return claim_verdict;
+                };
+                let ordinary = prove(
+                    root,
+                    at,
+                    separable,
+                    &remaining,
+                    &Coverage::of(remaining.tests(), files, working_tree),
+                    &reach,
+                    files,
+                    working_tree,
+                );
+                return match (claim_verdict, ordinary) {
+                    (Verdict::Fail, _) | (_, Verdict::Fail) => Verdict::Fail,
+                    (Verdict::Inconclusive, _) | (_, Verdict::Inconclusive) => Verdict::Inconclusive,
+                    _ => Verdict::Pass,
+                };
+            }
+            let coverage = Coverage::of(scoped.tests(), files, working_tree);
+            prove(root, at, separable, &scoped, &coverage, &reach, files, working_tree)
+        }
+        Scan::Unreadable(files) => report_unreadable(&files),
+        Scan::Enabled(refused) => report_enabled_tests(&refused),
+        // The names come from this arm and the RATIO from the whole-diff scan, which is
+        // the half `github.com/telekom/sutura#314` was about: this arm formatted its own
+        // `0 of N` while every other arm printed `0 of 0` and named none of them.
+        Scan::OnlyIgnored(names) => report_only_ignored(&names, &Coverage::of(&[], files, working_tree)),
+        Scan::Unnamed => report_unnamed_tests(&separable.test_files),
     }
 }
 

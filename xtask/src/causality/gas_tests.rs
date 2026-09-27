@@ -718,6 +718,7 @@ fn committed_tree(message: &str, base_files: &[(&str, &str)], head_files: &[(&st
     .unwrap();
     std::fs::write(dir.join("flake.nix"), "{ }\n").unwrap();
     for (path, content) in base_files {
+        std::fs::create_dir_all(dir.join(path).parent().expect("a file path")).unwrap();
         std::fs::write(dir.join(path), content).unwrap();
     }
     git(&dir, &["add", "-A"]);
@@ -864,4 +865,30 @@ fn mixed_claim_cell_is_killed(pure_in_same_commit: bool) {
     );
     drop(std::fs::remove_dir_all(&dir));
     assert_eq!(verdict, Verdict::Pass);
+}
+
+/// A test file that only wraps a call-site argument, beside one genuinely added test that is red on
+/// base: the added test's proof runs and passes, and the verdict is still INCONCLUSIVE, because the
+/// edited file was reverted unmeasured and a wrap is not evidence it is an adaptor.
+#[test]
+fn a_wrapped_call_site_beside_an_added_test_caps_the_pass_at_inconclusive() {
+    let old = "use wired::render;\n\n#[test]\nfn renders() {\n    assert_eq!(render(2), 2);\n}\n";
+    let wrapped =
+        "use wired::render;\n\n#[test]\nfn renders() {\n    use wired::View;\n    assert_eq!(render(View::of(2)), 2);\n}\n";
+    let base = [
+        ("src/lib.rs", "pub fn render(d: u8) -> u8 { d }\npub fn g() -> u8 { 1 }\n"),
+        ("tests/old.rs", old),
+    ];
+    let head = [
+        (
+            "src/lib.rs",
+            "pub struct View(pub u8);\nimpl View {\n    pub fn of(d: u8) -> Self { Self(d) }\n}\npub fn render(v: View) -> u8 { v.0 }\npub fn g() -> u8 { 2 }\n",
+        ),
+        ("tests/old.rs", wrapped),
+        (
+            "tests/new.rs",
+            "use wired::g;\n\n#[test]\nfn g_is_two() {\n    assert_eq!(g(), 2);\n}\n",
+        ),
+    ];
+    assert_eq!(changed_tree(&base, &head), Verdict::Inconclusive);
 }

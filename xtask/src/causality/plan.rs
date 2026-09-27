@@ -32,6 +32,8 @@ use super::place;
 use super::provenance::Reach;
 use super::regions::{PostImage, has_non_test_additions, scope};
 
+mod separable;
+
 /// One file whose diff deleted the evidence a pre-existing test carried.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct DeletedFrom {
@@ -64,8 +66,8 @@ pub(crate) enum Plan {
     /// says *this gate did not measure your change* has to be able to name the changed files it
     /// could not revert, and this is one of the three that returns before the proof block.
     NotSeparable { files: Vec<String>, build_inputs: Vec<String> },
-    /// Every test file in scope only wrapped call-site arguments, by path: [`edited::callsite`].
-    EditedTests(Vec<String>),
+    /// Every test file in scope only wrapped call-site arguments: [`edited::callsite`].
+    EditedTests(Vec<edited::callsite::Edited>),
 }
 
 /// The groups the reconstruction sorts a diff's Rust files into.
@@ -93,41 +95,9 @@ pub(crate) struct Separable {
     /// a diff whose only implementation change is a manifest gets no verdict from this gate, and
     /// [`Reach::BuildInput`] is where that argument lives.
     pub(crate) build_inputs: Vec<String>,
-}
-
-impl Separable {
-    /// Every file kept at HEAD on the first attempt whose own tests the proof does not measure.
-    ///
-    /// One list because the second attempt restores them together: that retry exists to put the
-    /// tree coherently at base, and a held test helper calling a reverted neighbour is exactly a
-    /// thing that does not compile until it goes too.
-    pub(super) fn held(&self) -> Vec<String> {
-        self.held_back.iter().chain(self.test_only.iter()).cloned().collect()
-    }
-
-    /// What the first attempt keeps at HEAD: the held files PLUS the test files.
-    ///
-    /// Composition rather than recall: the membership's withdrawal decision (`membership::withdrawn`)
-    /// asks whether an added crate still has ANY file at HEAD, and a crate whose only held file is a
-    /// TEST one counts - so the test files must reach that question or a crate carrying a provable
-    /// test would be withdrawn under a tree that then cannot run it.
-    pub(super) fn at_head_first_attempt(&self) -> Vec<String> {
-        let mut at_head = self.held();
-        at_head.extend(self.test_files.iter().cloned());
-        at_head
-    }
-
-    /// Which build inputs the named attempt does NOT put at base - the held-at-HEAD remainder the
-    /// output must name truthfully. Filtering rather than copying the list: a withdrawn manifest
-    /// goes to base on the first attempt, and printing it as held at HEAD would be this gate
-    /// describing a tree it did not build.
-    pub(super) fn unreverted_from(&self, reverting: &[String]) -> Vec<String> {
-        self.build_inputs
-            .iter()
-            .filter(|path| !reverting.contains(path))
-            .cloned()
-            .collect()
-    }
+    /// Reverted although they are test files, because they only wrapped call-site arguments:
+    /// never proof, and they cap the verdict at INCONCLUSIVE ([`edited::callsite::cap`]).
+    pub(crate) edited: Vec<edited::callsite::Edited>,
 }
 
 /// Split the changed files into "added tests", "the old behaviour", and what may not be touched.
@@ -285,6 +255,7 @@ pub(super) fn partition(files: &[ChangedFile], read: &PostImage<'_>) -> Plan {
         held_back,
         test_only,
         build_inputs,
+        edited: Vec::new(),
     })
 }
 
@@ -318,6 +289,7 @@ mod tests {
             held_back: vec![String::from("crates/x/src/b.rs")],
             test_only: vec![String::from("crates/x/src/helper.rs")],
             build_inputs: vec![String::from("Cargo.toml"), String::from("crates/new/Cargo.toml")],
+            edited: Vec::new(),
         }
     }
 

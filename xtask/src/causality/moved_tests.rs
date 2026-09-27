@@ -314,7 +314,10 @@ fn a_call_site_argument_wrapped_for_a_changed_signature_is_edited_not_added() {
 #[test]
 fn a_range_that_only_wraps_call_sites_is_inconclusive_not_measured() {
     let plan = plan_of(&[RENDER, ["crates/x/tests/a.rs", RENDERS, WRAPPED]]);
-    assert_eq!(format!("{plan:?}"), r#"EditedTests(["crates/x/tests/a.rs"])"#);
+    assert_eq!(
+        format!("{plan:?}"),
+        r#"EditedTests([Edited { path: "crates/x/tests/a.rs", tests: ["renders"] }])"#
+    );
 }
 
 /// The smuggling shape: a real wrap in one file excuses nothing in another test that ALSO changed
@@ -367,4 +370,28 @@ fn each_edit_beyond_a_wrapped_call_argument_is_still_added() {
     assert!(revert.contains(&String::from("crates/x/tests/a.rs")), "{revert:?}");
     let smuggled: Vec<String> = (1..=6).map(|n| format!("crates/x/tests/c{n}.rs")).collect();
     assert_eq!(measured, smuggled);
+}
+
+/// A trait import changes what an unchanged `x.validate()` resolves to without spelling
+/// `validate`, so an import no wrapper in the file names is never part of an edit.
+#[test]
+fn an_added_trait_import_no_wrapper_names_is_still_added() {
+    let validates = "#[test]\nfn checks() {\n    assert!(x().validate());\n}\n";
+    let traited = "#[test]\nfn checks() {\n    use crate::weak::Weak;\n    assert!(x().validate());\n}\n";
+    let plan = plan_of(&[
+        RENDER,
+        ["crates/x/tests/a.rs", RENDERS, WRAPPED],
+        ["crates/x/tests/t.rs", validates, traited],
+    ]);
+    let Separable {
+        revert,
+        test_files: measured,
+        ..
+    } = separable(plan);
+    assert!(revert.contains(&String::from("crates/x/tests/a.rs")), "{revert:?}");
+    assert_eq!(
+        measured,
+        ["crates/x/tests/t.rs"],
+        "an import the wraps do not need is an edit of its own"
+    );
 }
