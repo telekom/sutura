@@ -296,7 +296,19 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-expect-thresholds",
         description: "no #[expect] on a count-threshold lint (too_many_lines / too_many_arguments / cognitive_complexity)",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // The required Rust anchor is present; its attribute is the forbidden finding.
+            seeds: &[(
+                "xtask/src/main.rs",
+                concat!(
+                    "#[",
+                    "expect(",
+                    "clippy::too_many_lines, reason = \"falsifier\")]\n",
+                    "fn oversized() {}\n",
+                ),
+            )],
+            in_scope: Some("xtask/src/main.rs"),
+        },
         run: threshold_expect::run,
     },
 ];

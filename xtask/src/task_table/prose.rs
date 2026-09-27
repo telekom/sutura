@@ -71,7 +71,21 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-examples",
         description: "every directory under examples/ is reached by a test",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // One workspace test reaches a published example, satisfying the corpus and test
+            // floors. The second published directory has no reachable test.
+            seeds: &[
+                ("Cargo.toml", "[workspace]\nmembers = [\"crates/sutura-catalog-datahub\"]\n"),
+                ("xtask/src/main.rs", "fn main() {}\n"),
+                (
+                    "crates/sutura-catalog-datahub/tests/multi_player.rs",
+                    "#[test]\nfn reads_example() { let _ = \"../../examples/reached/data.txt\"; }\n",
+                ),
+                ("examples/reached/data.txt", "fixture\n"),
+                ("examples/orphan/README.md", "No test reaches this example.\n"),
+            ],
+            in_scope: Some("examples/orphan/README.md"),
+        },
         run: examples::run,
     },
     Task {
