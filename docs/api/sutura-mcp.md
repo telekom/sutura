@@ -187,7 +187,7 @@ throw away the only description of the fault that exists.
 ## `fn serve_stdio`
 
 ```rust
-pub async fn serve_stdio<S>(service: std::sync::Arc<S>, permitted: sutura_app::Permitted, prose: sutura_app::prompt::CatalogProse, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, instructions: std::sync::Arc<str>, operator_instructions: Option<std::sync::Arc<str>>) -> Result<(), NotServed>
+pub async fn serve_stdio<S>(service: std::sync::Arc<S>, permitted: sutura_app::Permitted, prose: sutura_app::prompt::CatalogProse, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, tools: std::sync::Arc<[sutura_app::prompt::Tool]>, operator_instructions: Option<std::sync::Arc<str>>) -> Result<(), NotServed>
 ```
 
 Serves the agent surface over standard input and output, until the client disconnects.
@@ -233,11 +233,11 @@ bounds how large one answer may get, the admission bound is how many answers may
 produced, and the reply deadline is how long one peer waits for one of them. None of the three
 cancels a question already inside the pool - see `server` and #160.
 
-**`instructions` is the fourth required value, and it is what a peer's `initialize` result
-carries as `instructions` - `telekom/sutura#776`.** It has to be rendered before this call, by
-`sutura_app::prompt::render` over the settings and the pinned bundle this `service` answers
-from, because this crate performs no catalog I/O of its own; the composition root that already
-read both is `sutura`'s `mcp` subcommand.
+**`tools` is the fourth required value: the operations a peer's `initialize.instructions` prompt
+describes - `telekom/sutura#776`.** The surface renders that prompt itself, with
+`sutura_app::prompt::render` over the bundle this `service` answers from; the composition root
+that read the settings - `sutura`'s `mcp` subcommand - decides which tools this deployment
+mounts.
 
 Returns when the peer closes or is cancelled.
 
@@ -360,7 +360,7 @@ re-resolved per request out of each request's `Asked`, never out of a session.
 ### `fn service`
 
 ```rust
-pub fn service<S>(surface: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, instructions: std::sync::Arc<str>, operator_instructions: Option<std::sync::Arc<str>>) -> rmcp::transport::StreamableHttpService<crate::AgentSurface<S>, rmcp::transport::streamable_http_server::session::local::LocalSessionManager>
+pub fn service<S>(surface: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, tools: std::sync::Arc<[sutura_app::prompt::Tool]>, operator_instructions: Option<std::sync::Arc<str>>) -> rmcp::transport::StreamableHttpService<crate::AgentSurface<S>, rmcp::transport::streamable_http_server::session::local::LocalSessionManager>
 ```
 
 Builds the streamable-HTTP transport over one `Surface`, as a plain `tower_service::Service`
@@ -375,9 +375,9 @@ the two are not interchangeable.
 `service_factory` is called by the SDK ONCE PER REQUEST under `config`'s stateless mode (see
 the module documentation) - never once per process and never once per session - so each call
 clones the shared `service`/`admission` handles rather than allocating a second data-system
-connection or a second permit set. `instructions` is cloned the same way, and for the same
-reason it is an `Arc<str>` rather than a `String`: this factory runs on every request, not only
-on the `initialize` that reads it back.
+connection or a second permit set. `tools` is cloned the same way, and for the same reason it is
+an `Arc<[Tool]>` rather than a `Vec`: this factory runs on every request, not only on the
+`initialize` that renders the prompt from it.
 
 ## Module `server`
 
@@ -406,8 +406,9 @@ no such metric" asks something else.
 # Why a malformed argument is a JSON-RPC error rather than `isError`
 
 Because it is not a tool *execution* failure - the tool never ran. `-32602` is the name JSON-RPC
-already has for it, `MalformedQuestion` names the field, and it is the one channel a caller cannot
-read as either an answer or a refusal.
+already has for it, `MalformedQuestion` names the field (except for an arguments object that did
+not deserialize, whose message never repeats the caller's own keys or values), and it is the one
+channel a caller cannot read as either an answer or a refusal.
 
 **The limit, stated with the claim:** rmcp's own documentation notes that clients typically render
 a protocol error opaquely, so a model may see less than the message carries. `Ok(isError: true)`
@@ -570,7 +571,7 @@ port has to outlive the future that started the call.
 #### Methods
 
 ```rust
-pub const fn new(service: Arc<S>, asking: Asking, prose: sutura_app::prompt::CatalogProse, admission: Admission, reply: RequestTimeout, instructions: Arc<str>, operator_instructions: Option<Arc<str>>) -> Self
+pub const fn new(service: Arc<S>, asking: Asking, prose: sutura_app::prompt::CatalogProse, admission: Admission, reply: RequestTimeout, tools: Arc<[Tool]>, operator_instructions: Option<Arc<str>>) -> Self
 ```
 
 Wraps a service, and states what the peer may do and how catalog prose is treated.
@@ -605,12 +606,8 @@ no counterpart here a peer that got an execution slot waited for as long as the 
 took. The module documentation carries why this key rather than one of this transport's own,
 and what the deadline does not stop.
 
-**`instructions` is required and is the fifth, for the same reason as the rest: only a
-composition root has read the settings and the pinned bundle both** - `sutura`'s `mcp`
-subcommand and `sutura-cli`'s `serve::agent::mount` each render it with
-`sutura_app::prompt::render`, the same call `sutura prompt` makes, over the same bundle
-this `service` answers from. No default here, and deliberately: a sentence this crate hard-
-coded could never have named a tool, a metric or a refusal that this deployment actually has.
+**`tools` is required and is the fifth: only a composition root has read the settings** that
+say which operations this deployment mounts - the same list `sutura prompt` renders.
 
 #### Implements
 

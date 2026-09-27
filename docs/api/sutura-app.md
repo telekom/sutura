@@ -899,10 +899,11 @@ Three inputs, and the first two are not text somebody keeps in step by hand:
    are actually exposed, so a deployment that does not expose the catalog listing gets a prompt
    that does not tell an agent to call it. A prompt naming an operation that is not there is
    worse than a shorter prompt: the agent spends its turns discovering the absence.
-2. **The pinned bundle** - every metric, its grains, its dimensions and the values a filter may
-   use, read off the same `PinnedDefinitions` every answer is computed from. It cannot describe
-   a metric this deployment does not serve, because there is nowhere for such a metric to come
-   from.
+2. **The pinned bundle, as one caller's `ScopedView`** - every metric that caller may see, its
+   grains, its dimensions and the values a filter may use, read off the same `PinnedDefinitions`
+   every answer is computed from. It cannot describe a metric this deployment does not serve,
+   because there is nowhere for such a metric to come from, and it cannot describe one the view
+   withholds, because `render` takes the view and never the bare bundle.
 3. **The operator's own text** - `PromptInputs::instructions`, appended as the last section.
    Appended and never substituted: see the note on layering below.
 
@@ -1113,14 +1114,20 @@ pub const fn tools(&self) -> &'a [Tool]
 ### `fn render`
 
 ```rust
-pub fn render(pinned: &sutura_domain::pinned::PinnedDefinitions, inputs: &PromptInputs<'_>) -> String
+pub fn render(view: &sutura_domain::pinned::view::ScopedView<'_>, inputs: &PromptInputs<'_>) -> String
 ```
 
 The whole prompt, as markdown.
 
 Deterministic in its inputs: every collection walked here is a `BTreeMap` or a `BTreeSet`, and
-the grains are sorted explicitly. Two calls with the same bundle produce the same bytes, which is
+the grains are sorted explicitly. Two calls with the same view produce the same bytes, which is
 what lets the rendering be pinned by a snapshot rather than described.
+
+**Takes a `ScopedView`, never a bare `&PinnedDefinitions`**, for the reason
+`catalog_knowledge` states: the metric list and every knowledge section are the view's, so a
+served caller's prompt names only what that caller may see, and the operator-side commands say
+`ScopedView::everything` out loud. The definitions version and digest stay the bundle's -
+`docs/adr/0028`'s "the digest is the bundle's, not the view's".
 
 ### `fn catalog_knowledge`
 

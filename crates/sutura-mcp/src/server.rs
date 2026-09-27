@@ -361,20 +361,21 @@ where
             .with_server_info(Implementation::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")))
     }
 
-    /// The SDK's own negotiation, plus the prompt. Here and not in `get_info`, which the SDK also
-    /// hands out on paths that carry no caller.
+    /// The SDK's own negotiation, plus the prompt over THIS caller's view (`docs/adr/0028`). Here and
+    /// not in `get_info`, which the SDK also hands out on paths that carry no caller. No established
+    /// caller is refused as `tools/list` refuses it; a process owner's view is the whole bundle.
     fn initialize(
         &self,
         request: InitializeRequestParams,
         context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<InitializeResult, ErrorData>> + Send + '_ {
         context.peer.set_peer_info(request.clone());
-        let view = sutura_domain::pinned::view::ScopedView::everything(self.service.definitions());
         let inputs = PromptInputs::new(&self.tools, self.prose, self.operator_instructions.as_deref());
-        std::future::ready(
+        std::future::ready(self.asked(&context).and_then(|asked| {
+            let view = sutura_app::scoped_for(self.service.definitions(), asked.context());
             self.negotiate_initialize(&request)
-                .map(|negotiated| negotiated.with_instructions(sutura_app::prompt::render(&view, &inputs))),
-        )
+                .map(|negotiated| negotiated.with_instructions(sutura_app::prompt::render(&view, &inputs)))
+        }))
     }
 
     /// The tools this peer may invoke, and no cursor: the set is bounded by
@@ -439,12 +440,10 @@ where
                 // sees exactly what they saw before.
                 //
                 // **The operator's own text rides the same door but is NOT audience-scoped.** The
-                // `initialize.instructions` prompt a gateway surfaces (or does not) is rendered once
-                // over the whole bundle; the CATALOG tool's knowledge sections are audience-scoped
-                // through this caller's own view, while the operator's instructions are
-                // deployment-wide and the same for every caller with `catalog.read` - which is no
-                // wider than `initialize` already is, and an operator who names a restricted metric
-                // in them discloses it to every caller.
+                // catalog tool's knowledge sections, like the `initialize.instructions` prompt, are
+                // audience-scoped through this caller's own view, while the operator's instructions
+                // are deployment-wide and the same for every caller - in both places - and an
+                // operator who names a restricted metric in them discloses it to every caller.
                 describe(
                     &self.service,
                     asked.context(),
@@ -714,15 +713,10 @@ fn invalid(error: &MalformedQuestion) -> ErrorData {
 /// a verified caller sees the bundle cut to their grant. That the renderer CANNOT skip the scope is
 /// the point of taking `&ScopedView` rather than a bare `&PinnedDefinitions`.
 ///
-/// **And the door this does NOT close, named so the claim is not overstated.** The served agent
-/// surface also carries an `initialize.instructions` prompt, rendered once over the WHOLE bundle in
-/// `crates/sutura-cli/src/serve/agent.rs` (`sutura_app::prompt::render`) - its metrics section names
-/// every metric, an audience-restricted one included, to every verified caller, and since #776 the
-/// same prompt also carries every glossary entry, caveat, example and absence over the whole bundle.
-/// So `docs/adr/0028`'s invisible-at-both-doors holds of `describe_catalog` and `answer` here, and
-/// NOT of the served prompt or its knowledge sections; `docs/adr/0028`'s own "the prompt renderer has
-/// no served endpoint" is the sentence this transport makes stale. Scoping that prompt through the
-/// same `ScopedView` is the follow-up.
+/// **The `initialize.instructions` prompt goes through the same view.** `initialize` renders it
+/// per caller with `sutura_app::prompt::render`, which takes a `&ScopedView` too, so its
+/// metric list and knowledge sections withhold what this listing withholds. What neither scopes is
+/// the operator's own text, which is deployment-wide by design.
 ///
 /// **No audit record either, and that is deliberate rather than an omission.**
 /// `sutura_domain::audit::CallRecord` records the outcome of a *question*, and this is not one - there
