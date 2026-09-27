@@ -78,6 +78,8 @@ pub(crate) use two_kind::{PG_SOURCE, settings as two_kind_settings};
 // reader through THIS re-export (`two_source.rs` calls it directly, not through `harness::`), and
 // a default build without that feature never instantiates that module - `-D unused-imports` on a
 // default-features build is what caught the re-export doing nothing there.
+#[cfg(all(feature = "rdbms", feature = "postgres"))]
+pub(crate) use postgres::rdbms_settings;
 #[cfg(feature = "postgres")]
 pub(crate) use two_source::derived_catalog;
 #[cfg(feature = "postgres")]

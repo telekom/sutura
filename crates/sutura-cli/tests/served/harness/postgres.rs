@@ -242,3 +242,95 @@ pub(crate) fn raw_sql_settings(case: &str) -> Option<(String, FixtureLoadGuard)>
     let (base, guard) = settings(case)?;
     Some((format!("{base}tools:\n  run_sql:\n    enabled: true\n"), guard))
 }
+
+/// Owns only the dictionary schema; the load lock outlives its best-effort cleanup.
+#[cfg(all(feature = "rdbms", feature = "postgres"))]
+pub(crate) struct DictionaryGuard {
+    load: FixtureLoadGuard,
+    schema: String,
+}
+
+#[cfg(all(feature = "rdbms", feature = "postgres"))]
+impl Drop for DictionaryGuard {
+    fn drop(&mut self) {
+        drop(
+            self.load.runtime.block_on(
+                self.load
+                    .client
+                    .batch_execute(&format!("DROP SCHEMA IF EXISTS {} CASCADE", self.schema)),
+            ),
+        );
+    }
+}
+
+/// A real dictionary and data source under separate declarations, sharing the provisioned tier.
+#[cfg(all(feature = "rdbms", feature = "postgres"))]
+pub(crate) fn rdbms_settings(case: &str) -> Option<(String, DictionaryGuard)> {
+    let loaded = load_into_tier(case, "warehouse")?;
+    let sources = source_entry("warehouse", &loaded);
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("the clock is after the epoch")
+        .as_nanos();
+    let schema = format!("dictionary_{}_{nonce}", std::process::id());
+    let settings = format!(
+        "server:\n\
+         {LOOPBACK}\
+         security:\n\
+         {SINGLE_USER}  access_token: \"{TOKEN}\"\n\
+         telemetry:\n  \
+           format: \"bunyan\"\n\
+         catalogs:\n  \
+           - name: \"dictionary\"\n    \
+             kind: \"rdbms\"\n    \
+             version: \"{version}\"\n    \
+             environment: \"test\"\n    \
+             source_alias: \"warehouse\"\n    \
+             dictionary_schema: \"{schema}\"\n    \
+             max_dictionary_rows: 1000\n    \
+             max_dictionary_bytes: 1048576\n    \
+             connection:\n      \
+               host: \"127.0.0.1\"\n      \
+               port: {port}\n      \
+               database: \"{database}\"\n      \
+               user: \"{user}\"\n      \
+               password_file: \"{password_file}\"\n      \
+               transport_mode: \"verified\"\n      \
+               transport_anchors: \"{anchor}\"\n\
+         sources:\n\
+         {sources}",
+        version = super::VERSION,
+        port = loaded.port,
+        database = loaded.database,
+        user = loaded.user,
+        password_file = loaded.password_file.display(),
+        anchor = loaded.anchor,
+    );
+    let statement = format!(
+        "CREATE SCHEMA {schema}; \
+         CREATE TABLE {schema}.columns ( \
+           environment text NOT NULL, catalog_name text, schema_name text NOT NULL, \
+           table_name text NOT NULL, model_name text NOT NULL, table_description text, \
+           column_name text NOT NULL, column_ordinal int NOT NULL, column_type text, \
+           column_description text, is_primary_key boolean, is_deleted boolean NOT NULL \
+         ); \
+         INSERT INTO {schema}.columns \
+           (environment, schema_name, table_name, model_name, table_description, \
+            column_name, column_ordinal, column_type, column_description, is_primary_key, is_deleted) \
+         VALUES \
+           ('test', 'public', 'fct_subscription_monthly', 'subscriptions', 'Monthly subscription records.', \
+            'month', 1, 'date', 'The subscription month.', false, false), \
+           ('test', 'public', 'fct_subscription_monthly', 'subscriptions', 'Monthly subscription records.', \
+            'mrr_cents', 2, 'bigint', 'Monthly recurring revenue in cents.', false, false)"
+    );
+    let guard = DictionaryGuard {
+        load: loaded.guard,
+        schema,
+    };
+    guard
+        .load
+        .runtime
+        .block_on(guard.load.client.batch_execute(&statement))
+        .expect("the unique documentation schema installs");
+    Some((settings, guard))
+}

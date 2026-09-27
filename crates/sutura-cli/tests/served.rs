@@ -158,6 +158,12 @@ mod two_kind;
 
 #[cfg(unix)]
 #[cfg(test)]
+#[cfg(all(feature = "rdbms", feature = "postgres"))]
+#[path = "served/rdbms.rs"]
+mod rdbms;
+
+#[cfg(unix)]
+#[cfg(test)]
 mod tests {
     use std::sync::mpsc::channel;
     use std::sync::{Arc, Barrier};
