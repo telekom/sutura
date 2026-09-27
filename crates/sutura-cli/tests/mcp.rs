@@ -950,14 +950,11 @@ mod tests {
         );
     }
 
-    /// A declared catalog kind with no reader on ANY build (`rdbms`) refuses this process the same
-    /// way it refuses `sutura serve` - the operator-facing message issue #970 asks for, since both
-    /// composition roots dispatch the SAME `crate::catalog::open_catalog`. (`openmetadata`, the
-    /// other kind a default build does not link, gets its own not-linked refusal cell beside
-    /// `datahub`'s.) Before #970, this command ignored `catalogs:` entirely and opened only its
-    /// directory arguments, so a settings tree declaring `catalog.kind: rdbms` was never read at all.
+    /// Both composition roots refuse a declared RDBMS catalog when this build lacks its feature.
+    /// The provisioned catalog test exercises the live reader directly, not this MCP composition.
     #[test]
-    fn a_declared_catalog_kind_without_a_reader_refuses_the_process_naming_the_same_follow_up_serve_gives() {
+    #[cfg(not(feature = "rdbms"))]
+    fn a_declared_rdbms_catalog_build_without_the_feature_refuses_naming_it() {
         let example = example_root();
         let dir = settings_tree(
             "mcp-rdbms-refused",
@@ -985,13 +982,13 @@ mod tests {
         // whatever has arrived so far.
         let refusal = agent.expect_log("catalog.kind: rdbms");
         assert!(
-            refusal.contains("#972"),
-            "the refusal did not name the follow-up issue - the same message `sutura serve` gives: {refusal}"
+            refusal.contains("--features rdbms"),
+            "a build without the feature names the remedy - the same message `sutura serve` gives: {refusal}"
         );
         let status = agent.close();
         assert!(
             !status.success(),
-            "a deployment declaring catalog.kind: rdbms must refuse rather than serve; standard error:\n{}",
+            "a deployment declaring catalog.kind: rdbms on a build without the feature must refuse rather than serve; standard error:\n{}",
             agent.drain_log().join("\n")
         );
     }

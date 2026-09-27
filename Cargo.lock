@@ -4351,9 +4351,15 @@ dependencies = [
 name = "sutura-catalog-rdbms"
 version = "0.5.1"
 dependencies = [
+ "futures-util",
+ "rustls",
+ "sutura-dev",
  "sutura-domain",
  "sutura-semantic",
  "thiserror 2.0.20",
+ "tokio",
+ "tokio-postgres",
+ "tokio-postgres-rustls",
 ]
 
 [[package]]
@@ -4385,6 +4391,7 @@ dependencies = [
  "sutura-catalog-local",
  "sutura-catalog-okf",
  "sutura-catalog-openmetadata",
+ "sutura-catalog-rdbms",
  "sutura-catalog-wren",
  "sutura-config",
  "sutura-dev",
