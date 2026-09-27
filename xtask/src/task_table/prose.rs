@@ -38,7 +38,19 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-docs",
         description: "the nav in mkdocs.yml and the pages under docs/ agree",
         kind: Kind::Hygiene(Reads::Prose),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // The site has a nav, a reachable link, and its required font setting. One page is
+            // still outside the nav and the exclusion set.
+            seeds: &[
+                (
+                    "mkdocs.yml",
+                    "nav:\n  - Home: index.md\ntheme:\n  name: material\n  font: false\n",
+                ),
+                ("docs/index.md", "[Home](index.md)\n"),
+                ("docs/orphan.md", "A page with no nav entry.\n"),
+            ],
+            in_scope: Some("docs/orphan.md"),
+        },
         run: docs::run,
     },
     Task {
@@ -49,7 +61,18 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-api-links",
         description: "no page under docs/api links to a Rust path",
         kind: Kind::Hygiene(Reads::Prose),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // The generated-page and scheme-agreement floors hold; the page publishes a dead
+            // Rust-path destination that the link scanner must name.
+            seeds: &[
+                ("docs/.tools/rustdoc_to_markdown.py", "REAL_SCHEMES = (\"http\", \"https\")\n"),
+                (
+                    "docs/api/generated.md",
+                    "<!-- GENERATED FILE - do not edit. -->\n[bad](crate::path::Item)\n",
+                ),
+            ],
+            in_scope: Some("docs/api/generated.md"),
+        },
         run: api_links::run,
     },
     Task {

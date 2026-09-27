@@ -380,6 +380,54 @@ mod tests {
         );
     }
 
+    /// A body that is not UTF-8 is refused as `Unreadable`, naming the `tables` entity.
+    #[test]
+    fn a_body_that_cannot_be_read_is_refused() {
+        let server = FakeServer::start(vec![Scripted::raw(200, vec![0xFF, 0xFE, 0xFD])]);
+        let error = reader(&server, 10, GENEROUS_CAP)
+            .read()
+            .expect_err("an unreadable body is refused");
+        drop(server.finish());
+        let cause = http_cause(&error);
+        assert!(
+            matches!(cause, HttpReaderError::Unreadable { entity: "tables", .. }),
+            "expected Unreadable naming tables, got: {cause}"
+        );
+    }
+
+    /// A 200 whose body is not JSON is refused as `NotADocument`, naming the `tables` entity.
+    #[test]
+    fn a_non_json_response_is_refused() {
+        let server = FakeServer::start(vec![Scripted::raw(200, b"<html>not json</html>".to_vec())]);
+        let error = reader(&server, 10, GENEROUS_CAP)
+            .read()
+            .expect_err("a non-JSON page is refused");
+        drop(server.finish());
+        let cause = http_cause(&error);
+        assert!(
+            matches!(cause, HttpReaderError::NotADocument { entity: "tables", .. }),
+            "expected NotADocument naming tables, got: {cause}"
+        );
+    }
+
+    /// A table constraint whose `relationshipType` is none of the known ones is refused as
+    /// `NotTheCanonicalShape`, naming the `tables` entity.
+    #[test]
+    fn a_relationship_type_that_is_not_a_known_variant_is_refused() {
+        let mut page = tables_page();
+        page["data"][0]["tableConstraints"][0]["relationshipType"] = serde_json::json!("GARBAGE");
+        let server = FakeServer::start(vec![Scripted::ok(&page)]);
+        let error = reader(&server, 10, GENEROUS_CAP)
+            .read()
+            .expect_err("an unknown relationshipType is refused");
+        drop(server.finish());
+        let cause = http_cause(&error);
+        assert!(
+            matches!(cause, HttpReaderError::NotTheCanonicalShape { entity: "tables", .. }),
+            "expected NotTheCanonicalShape naming tables, got: {cause}"
+        );
+    }
+
     /// A userinfo endpoint is refused at PARSE - [`Endpoint::parse`] returns
     /// [`InvalidEndpoint::CredentialsInUrl`] before any `HttpSnapshotReader` can be built, so no
     /// `HttpSnapshotReader` exists to make a call.

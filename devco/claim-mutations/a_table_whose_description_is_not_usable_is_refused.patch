@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-openmetadata/src/lib.rs b/crates/sutura-catalog-openmetadata/src/lib.rs
+index e9d606bc8..5c5d0606d 100644
+--- a/crates/sutura-catalog-openmetadata/src/lib.rs
++++ b/crates/sutura-catalog-openmetadata/src/lib.rs
+@@ -242,7 +242,7 @@ impl<R: SnapshotReader> OpenMetadataCatalog<R> {
+                 on: table.name().to_owned(),
+             })?;
+         let description = Description::parse(description_text).map_err(|cause| OpenMetadataError::Description {
+-            on: table.name().to_owned(),
++            on: String::from("notorders"),
+             cause,
+         })?;
+         let primary_key = table
