@@ -48,3 +48,31 @@ fn a_manifest_that_is_not_a_wren_mdl_object_is_not_a_manifest() {
         "a non-JSON manifest is NotAManifest naming the path, got {err:?}"
     );
 }
+
+/// A destination that exists, is empty and cannot be written into is `Write` naming a path under
+/// it: the manifest parses and the emptiness check passes, so the first document write is what
+/// fails. Unix-only, because the refusal is provoked with a read-only directory mode.
+#[cfg(unix)]
+#[test]
+fn an_unwritable_destination_is_a_write_error_naming_the_path() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let source = scratch("unwritable");
+    let destination = scratch("unwritable-out");
+    std::fs::write(
+        source.join("manifest.json"),
+        r#"{"catalog":"test","schema":"public","models":[{"name":"orders","columns":[{"name":"id","type":"BIGINT"}]}]}"#,
+    )
+    .expect("the scratch source is writable");
+    std::fs::set_permissions(&destination, std::fs::Permissions::from_mode(0o555)).expect("read-only is settable");
+
+    let err = import(source.as_path(), destination.as_path()).expect_err("an unwritable destination is not importable");
+
+    std::fs::set_permissions(&destination, std::fs::Permissions::from_mode(0o755)).expect("writable again for cleanup");
+    drop(std::fs::remove_dir_all(&source));
+    drop(std::fs::remove_dir_all(&destination));
+    assert!(
+        matches!(err, ImportError::Write { ref path, .. } if path.starts_with(&destination)),
+        "an unwritable destination is Write naming the path, got {err:?}"
+    );
+}

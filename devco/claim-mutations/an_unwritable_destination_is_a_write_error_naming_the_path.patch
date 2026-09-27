@@ -1,0 +1,14 @@
+--- a/crates/sutura-catalog-wren/src/lib.rs
++++ b/crates/sutura-catalog-wren/src/lib.rs
+@@ -129,9 +129,9 @@
+ fn write_document(destination: &Path, subdirectory: &str, name: &str, text: &str) -> Result<(), ImportError> {
+     let dir = destination.join(subdirectory);
+-    fs::create_dir_all(&dir).map_err(|source| ImportError::Write {
++    fs::create_dir_all(&dir).map_err(|source| ImportError::Read {
+         path: dir.clone(),
+         source,
+     })?;
+     let path = dir.join(format!("{name}.md"));
+-    fs::write(&path, text).map_err(|source| ImportError::Write { path, source })
++    fs::write(&path, text).map_err(|source| ImportError::Read { path, source })
+ }
