@@ -28,7 +28,7 @@ use crate::governance::SpendBudget;
 use crate::inbound::{InboundIdentity, InvalidAlgorithms, InvalidInboundValue};
 use crate::limits::{InvalidQuota, RateLimitSettings};
 use crate::prompt::{InvalidPromptSettings, PromptSettings, UnknownCatalogProse};
-use crate::proxy::{InvalidTrustedProxy, UnknownClientAddressSource};
+use crate::proxy::{Cidr, InvalidTrustedProxy, UnknownClientAddressSource};
 use crate::raw::RawSettings;
 use crate::runtime::RuntimeSettings;
 use crate::security::{
@@ -271,6 +271,28 @@ pub enum SettingsError {
         #[source]
         cause: InvalidInboundValue,
     },
+    /// `direct` with `token_type: any` and no by-name acceptance of it.
+    #[error(
+        "`security.inbound.token_type` is `any`, so any token the issuer signs for this audience is \
+         accepted as an access token, an OIDC ID token included. Remove it for RFC 9068's `at+jwt`, \
+         write the class the issuer mints, or set `security.inbound.accept_any_token_type: true`"
+    )]
+    InboundAnyTokenTypeNotAccepted,
+    /// A transit lifetime above [`crate::inbound::ProofLifetime::SHORT_LIVED_SECONDS`] with no by-name
+    /// acceptance of it.
+    #[error(
+        "`security.inbound.transit_max_lifetime_seconds` is {found}, above {limit}, and an assertion \
+         replays for as long as it lives. Lower it, or set \
+         `security.inbound.accept_long_transit_lifetime: true`"
+    )]
+    TransitLifetimeNotAccepted { found: u64, limit: u64 },
+    /// A trusted-proxy block covering a whole address family, with no by-name acceptance of it.
+    #[error(
+        "`rate_limit.trusted_proxies` holds `{block}`, which trusts every address, so every caller's \
+         `X-Forwarded-For` is believed. Name the proxy hops, or set \
+         `rate_limit.accept_every_address_as_proxy: true`"
+    )]
+    EveryAddressAsProxyNotAccepted { block: Cidr },
     #[error("`security.inbound.algorithms` does not pin a usable set")]
     InboundAlgorithms {
         #[source]

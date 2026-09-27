@@ -125,6 +125,12 @@ impl Cidr {
             _ => false,
         }
     }
+
+    /// Does this block cover its whole address family? True of any `/0`, whatever address it is written with.
+    #[must_use]
+    pub const fn covers_every_address(&self) -> bool {
+        self.prefix == 0
+    }
 }
 
 impl core::fmt::Display for Cidr {
@@ -160,6 +166,12 @@ impl TrustedProxies {
     #[must_use]
     pub const fn len(&self) -> usize {
         self.0.len()
+    }
+
+    /// The first block that trusts every address of its family, if the operator wrote one.
+    #[must_use]
+    pub fn covering_every_address(&self) -> Option<&Cidr> {
+        self.0.iter().find(|block| block.covers_every_address())
     }
 
     /// Is `address` one of the hops the operator named?
