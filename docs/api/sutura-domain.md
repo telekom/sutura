@@ -1702,8 +1702,8 @@ line and the compared text two different things, with nothing downstream able to
 **Held to `DimensionValue`'s rule by calling it, not by restating it**, and that includes the
 length: the cap is `MAX_DIMENSION_VALUE_CHARS` rather than a number of this type's own, for the
 reason `MAX_DESCRIPTION_BYTES` gives about two constants derived from one measurement. 64
-characters is three times the longest decimal an `i64` can render, so no number a data system can
-return is refused by the length alone. **A long enough STRING scalar would be** - the type does
+characters is more than three times the longest decimal an `i64` can render, so no number a data
+system can return is refused by the length alone. **A long enough STRING scalar would be** - the type does
 not require the text to read as a number, see below - and 64 characters is where an anchor over
 prose stops being certifiable. That bound is the declared value's and is deliberately not
 widened for this caller.
@@ -1846,9 +1846,10 @@ because the rule is this type's rule and every adapter that matches on it alread
 renaming it for the second caller would be churn across the workspace for a word. Whoever names
 the field says which field - the anchor value's own callers carry this as a `source`.
 
-Every variant carries the offending text, unlike `InvalidDescription`, and the asymmetry is the
-one `crate::knowledge::InvalidPhrase` and `crate::knowledge::InvalidNoteBody` already make: a
-value is at most `MAX_DIMENSION_VALUE_CHARS` characters, so naming it is what sends an author to
+Every variant but `Empty` carries the offending text, unlike
+`InvalidDescription`, and the asymmetry is the one `crate::knowledge::InvalidPhrase` and
+`crate::knowledge::InvalidNoteBody` already make: a value is at most
+`MAX_DIMENSION_VALUE_CHARS` characters, so naming it is what sends an author to
 the line in the file, while naming four kilobytes of prose would not.
 
 **Nothing on the request path may render one of these.** `sutura_http::wire` parses a caller's
@@ -3329,13 +3330,14 @@ spelled.
 
 What an adapter presents, for one leg.
 
-**Three shapes, because there are three postures and the third one is not the absence of the
-other two.** The engine that ships cannot impersonate anybody - one process, one
-operating-system identity - so under a two-variant shape it would receive a value it ignores,
+**Three shapes over two postures: impersonation at the source arrives by two mechanisms, and the
+shared shape is not the absence of the other two.** The engine that ships cannot impersonate
+anybody - one process, one operating-system identity - so under a two-variant shape it would
+receive a value it ignores,
 and "the service-identity fallback was removed" would mean the fallback came back as a variant
 nobody looked at. Under three there is nothing to ignore: the shared leg's value holds no
 credential material, so an adapter cannot mistake it for one, and a reader of this enum can see
-that a third posture exists without reading an adapter.
+that a third shape exists without reading an adapter.
 
 An adapter matches exhaustively on what it received and returns its own typed error for a shape
 it is not configured for. `docs/adr/0008` part 4 states both directions and says which is the
@@ -4369,7 +4371,7 @@ pub enum InvalidTerm
 
 Why a term was rejected.
 
-Four variants rather than one message, because each of them is a different mistake and the
+Five variants rather than one message, because each of them is a different mistake and the
 variant is what says which. A single "invalid term" would send an author back to compare their
 line against a grammar.
 
@@ -4408,7 +4410,7 @@ one sentence and neither of them can collide with a scalar YAML resolves itself.
 #### Variants
 
 - `Null` - The measure is null for that row. The generator guards the denominator - a `NULLIF`, or the dialect's own safe-divide.
-- `Fail` - The division is emitted unguarded, and the fault is raised where the value crosses back into the domain. A definition choosing this is saying an empty period is a fault and not a figure.
+- `Fail` - The division is emitted unguarded, and the fault is raised by `crate::warehouse::Real`'s finiteness check when the value crosses back into the domain. A definition choosing this is saying an empty period is a fault and not a figure.
 
   **The word used to be a wish, and this paragraph is the correction.** "Unguarded" is not the
   same as "fails": both generators cast the numerator to a floating type first, because integer
@@ -4506,8 +4508,8 @@ A predicate that is part of what a metric means.
 **Definitional, not a question.** `mrr` means recurring revenue *from active subscriptions*, and
 a statement that omits that predicate returns a different number under the same name - the exact
 failure this repository exists to prevent, arrived at by omission rather than by tampering. So a
-required filter is applied to every question about the metric, and a caller cannot see it, choose
-it or turn it off.
+required filter is applied to every question about the metric at plan time, and a caller cannot
+see it, choose it or turn it off.
 
 Its values come from the catalog rather than from a caller, and they are still bound as
 parameters rather than written into the statement. Not because the catalog is untrusted in the
@@ -6242,8 +6244,8 @@ pub const fn everything(pinned: &'a PinnedDefinitions) -> Self
 ```
 
 Every metric, unfiltered - for the surfaces `docs/adr/0028` names as retaining the whole
-bundle. Public, so not sealed against misuse; what it buys is that nothing downstream
-renders a catalog from a bare `&PinnedDefinitions`.
+bundle. Public, so not sealed against misuse, and only review keeps a renderer from reading a
+bare `&PinnedDefinitions` instead.
 
 ```rust
 pub const fn granted_by(pinned: &'a PinnedDefinitions, granted: GrantedAudiences) -> Self
@@ -7880,8 +7882,8 @@ a number that is too large, a number in the wrong place, and a value nothing rea
 - `OutOfRange` - A predicate binds a parameter the list does not hold.
 - `OutOfPlaceholderOrder` - A predicate binds a parameter out of placeholder order.
 
-  `position` is how many predicates before it bound one, which is the placeholder a positional
-  dialect would give it.
+  `position` is how many parameters were bound before this one, which is the placeholder a
+  positional dialect would give it.
 - `NeverRead` - The set carries a parameter no predicate binds.
 
 ##### Implements
@@ -7969,7 +7971,7 @@ The predicates and the values they bind, or a refusal if the two do not resolve 
 check, because a set with no parameters has no index to resolve.
 
 The three checks are ordered for the DIAGNOSTIC and not for cost - the whole walk is linear
-over a list bounded by `MAX_DIMENSIONS` plus a metric's
+over a list bounded by `MAX_FILTERS` plus a metric's
 required filters plus the two range bounds. An index the set cannot hold is reported as that
 rather than as an ordering fault, because the author who wrote the wrong number needs to read
 the number, and an out-of-range index is out of order as well.
@@ -10382,7 +10384,7 @@ groups it into one bucket is inside it. The span is what rows-read is a function
 where the cap goes.
 
 **3653 days is ten calendar years, counted at its longest.** Ten consecutive Gregorian years hold
-3652 or 3653 days depending on where the leap days fall, so this number is the one that lets
+3651, 3652 or 3653 days depending on where the leap days fall, so this number is the one that lets
 *any* ten-year window through rather than most of them. Ten years is chosen because it covers the
 reporting a person actually does - a decade of annual figures, five years of quarters, three years
 of months - and the longest range anywhere in this repository's example corpus, in its questions
@@ -10980,7 +10982,7 @@ echoed" a property of the type rather than a discipline at every call site.
 pub struct RawStatement
 ```
 
-One statement, as a caller sent it: unparsed text, bounded and non-empty.
+One statement, in the form it is executed: trimmed, bounded, non-empty text.
 
 **This is not a SQL type.** Nothing here reads a keyword out of the text - `docs/adr/0013`'s own
 rule against inspecting a statement to decide read-only applies to every other purpose a parser
@@ -10995,7 +10997,8 @@ pub fn as_str(&self) -> &str
 
 The statement text, for the one adapter that runs it and for an audit record.
 
-**Never handed to a renderer for a caller-facing message.** This is the field `docs/adr/0013`'s
+**Never handed to a renderer for a caller-facing message** - held by review, not by this
+type, since the accessor is public. This is the field `docs/adr/0013`'s
 consequences call "an audit-only field never returned to the caller" - the accessor exists for
 `crate::audit::CallRecord::of_raw` and for the execution port, not for a wire type to echo back.
 
@@ -11111,7 +11114,7 @@ What the raw SQL tool produced.
 it: `RawOutcome` has no field of that type anywhere in this module, so a raw result cannot be
 rendered as certified by filling in a digest - there is nowhere to put one. A `compile_fail`
 doctest on this type, paired with a compiling twin, is what keeps that a property of the type
-rather than a claim in this comment: see `crate::raw` module tests.
+rather than a claim in this comment: see the `compile_fail_has_no_provenance` doctests below.
 
 The two variants deliberately do not mirror `ToolOutcome`'s field names: `Rows` rather than
 `Answer`, so a wire type built by matching on both cannot pattern-match its way to identical
@@ -11140,8 +11143,8 @@ The refusal reason, if this is one. Convenience for tests and for an audit sink,
 pub const fn row_count(&self) -> usize
 ```
 
-How many rows this outcome carries, for an audit record. `0` for a refusal - nothing ran, or
-nothing came back.
+How many rows this outcome carries, for an audit record. `0` for a refusal - a refusal carries
+no rows, regardless of how far execution got.
 
 #### Implements
 
@@ -11272,8 +11275,9 @@ part nobody writes unless the type demands it.** A boolean acknowledgement recor
 clicked past a question; this records what they meant, on the source's own entry, and the startup
 log prints it beside the posture.
 
-Construct it with `parse`. There is no other way in: the field is private, there is
-no `Deserialize`, and `TryFrom<String>` delegates to the same constructor.
+Construct it with `parse`, or with `written_under`, which
+`parse` delegates to. There is no other way in: the field is private, there is no `Deserialize`,
+and `TryFrom<String>` delegates to `parse`.
 
 No `Default`, deliberately. A default reason is a reason nobody gave.
 
@@ -11369,8 +11373,8 @@ pub const fn of(reason: AcknowledgementReason) -> Self
 
 Wraps an operator's reason as the witness.
 
-Takes the parsed reason rather than a string, so the only way to a witness is through
-`AcknowledgementReason::parse` - one canonical constructor, and this is not a second copy of
+Takes the parsed reason rather than a string, so the only way to a witness is through a parsed
+`AcknowledgementReason` - one canonical constructor, and this is not a second copy of
 its checks.
 
 ```rust
@@ -11421,8 +11425,9 @@ pub const fn as_str(&self) -> &'static str
 
 The spelling, for the startup log and for a wire shape.
 
-The one definition of the word, so what a log line says and what an answer carries cannot
-drift apart.
+The one definition a log line and an answer both read, so they cannot drift apart.
+`NAMES` spells the same words a second time, and a test in `source/tests.rs`
+holds the two in step.
 
 ```rust
 pub fn deliverable_by(&self, capability: ImpersonationCapability, source: &SourceName) -> Result<(), PostureNotDeliverable>
@@ -11436,8 +11441,8 @@ a property of the BUILD.** Configuration says which posture the deployment is as
 credential at all. `sutura-config` cannot see the second, so the comparison lives where both
 are in scope - the composition root - and this is the one function that makes it.
 
-Two exhaustive matches with no wildcard arm, so a third posture or a third capability is a
-compile error here rather than a case that quietly falls through to `Ok`.
+One exhaustive match over the pair with no wildcard arm, so a third posture or a third
+capability is a compile error here rather than a case that quietly falls through to `Ok`.
 
 ```rust
 pub const fn what_decides_what_a_caller_sees(&self) -> &'static str

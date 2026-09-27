@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-catalog-local/src/document.rs b/crates/sutura-catalog-local/src/document.rs
+index 4b2aeecc6..8e381db10 100644
+--- a/crates/sutura-catalog-local/src/document.rs
++++ b/crates/sutura-catalog-local/src/document.rs
+@@ -622,10 +622,7 @@ impl MetricDoc {
+                 metric: self.name.clone(),
+                 cause,
+             })?;
+-        let audience = self.audience.into_domain().map_err(|cause| InvalidMetricDocument::Audience {
+-            metric: self.name.clone(),
+-            cause,
+-        })?;
++        let audience = self.audience.into_domain().unwrap_or(sutura_domain::catalog::Audience::Open);
+         let computation = Computation::assemble(self.measure, self.authored_sql).map_err(InvalidMetricDocument::Computation)?;
+         Metric::new(
+             self.name,

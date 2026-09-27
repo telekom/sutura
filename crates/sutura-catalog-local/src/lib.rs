@@ -198,20 +198,22 @@ pub enum LocalCatalogError {
     },
     #[error("the catalog at {path} holds no documents")]
     Empty { path: PathBuf },
-    /// The walk found more documents than `MAX_CATALOG_DOCUMENTS` permits.
+    /// The walk found more documents than `sutura_bounded_read::MAX_CATALOG_DOCUMENTS` permits.
     ///
     /// A startup bound: `path` is the catalog root, `found` is how many document-shaped entries the
     /// walk had counted when it stopped - which may be less than the directory's true total, because
     /// the walk refuses as soon as it crosses `limit` rather than finishing the tree first.
     #[error("the catalog at {path} holds more than {limit} documents ({found} found before the walk stopped)")]
     TooManyDocuments { path: PathBuf, found: usize, limit: usize },
-    /// The walk visited more directory entries than `MAX_CATALOG_ENTRIES` permits.
+    /// The walk visited more directory entries than `sutura_bounded_read::MAX_CATALOG_ENTRIES`
+    /// permits.
     ///
     /// Bounds the tree, not the documents: a wide directory of skipped non-document files, or a
     /// bind-mount cycle that would not terminate, is refused here rather than walked without end.
     #[error("the catalog at {path} holds more than {limit} entries ({found} visited before the walk stopped)")]
     TooManyEntries { path: PathBuf, found: usize, limit: usize },
-    /// The documents read so far sum to more bytes than `MAX_CATALOG_BYTES` permits.
+    /// The documents read so far sum to more bytes than `sutura_bounded_read::MAX_CATALOG_BYTES`
+    /// permits.
     ///
     /// `path` is the catalog root, matching `TooManyDocuments` and `Empty` above - the rendered
     /// text names "the catalog", so the path in it has to be the catalog's, not one file's.

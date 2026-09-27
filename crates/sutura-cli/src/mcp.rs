@@ -12,10 +12,10 @@
 //! gone, because `Settings::load` always yields a declared markdown catalog from `defaults.yaml`,
 //! so there is no settings-less invocation left for them to name - a parallel argument to the
 //! declared catalog is the legacy shim #970 removes, not a path that survives. `catalog.kind: okf`
-//! is an unconditional dependency of this build, so it always opens; `openmetadata` opens behind
-//! this binary's `openmetadata` feature and `rdbms` opens behind its `rdbms` feature - a build
-//! without the feature refuses both by name with the same message `sutura serve` gives, because
-//! both roots dispatch the same `crate::catalog::open_catalog`.
+//! and `catalog.kind: datacontract` are unconditional dependencies of this build, so they always
+//! open; `datahub`, `openmetadata` and `rdbms` each open behind this binary's feature of that
+//! name, and a build without the feature refuses the kind by name with the same message `sutura
+//! serve` gives, because both roots dispatch the same `crate::catalog::open_catalog`.
 //!
 //! Kept in its own module rather than inlined into `commands.rs` because it is a composition of its
 //! own - the driving port over a pipe, with an async runtime the other commands do not want - and
@@ -159,10 +159,10 @@ where
 {
     let (service, prose, admission, reply, instructions, operator_instructions) = mcp_service(catalogs, opened, settings)?;
     // The limit printed beside the mode, the way `banner::announce_token_class` prints the token
-    // class: a pipe has no header a token could arrive in, so this surface grants every
-    // capability to whoever can reach the process. Stated at startup, not left as a default
-    // nobody declared. Standard error, which is the log channel, so the MCP stream on stdout
-    // stays a pure protocol.
+    // class: a pipe has no header a token could arrive in, so this surface grants every capability
+    // to whoever can reach the process - except `RunSql`, which is stripped unless
+    // `tools.run_sql.enabled` is set. Stated at startup, not left as a default nobody declared.
+    // Standard error, which is the log channel, so the MCP stream on stdout stays a pure protocol.
     //
     // Both bounds are printed with it, and for the same reason: they are the numbers an operator
     // configured, and the numbers a shed call and a given-up wait are about, so they belong where
@@ -182,7 +182,8 @@ where
     // documents: the engine's own `Drop` makes releasing it safe anywhere once a question is not
     // in flight, but a peer can disconnect while one IS answering on a pool thread - and
     // releasing the engine then would abort this process. The outer handle below releases it on
-    // the main thread, once `shutdown_timeout` has let that in-flight answer finish.
+    // the main thread, once `shutdown_timeout` has let that in-flight answer finish - up to five
+    // seconds, after which the process exits with the question still running.
     let service = std::sync::Arc::new(service);
     // Every capability EXCEPT the raw SQL tool unless this deployment turned it on - the same
     // narrowing `sutura-http`'s capability layer applies, over the no-authentication case this
@@ -431,7 +432,7 @@ mod tests {
         (catalogs, opened, settings)
     }
 
-    /// THE claim of issue #110, end to end: the `mcp` command's own composition serves the two tools
+    /// THE claim of issue #110, end to end: the `mcp` command's own composition serves every tool
     /// over the protocol. The schema snapshots in `sutura-mcp` already pin the tool inputs; what was
     /// missing is that a composition root links the surface and something answers.
     ///

@@ -59,10 +59,11 @@ use super::flatten;
 /// only thing holding either half.** Two type arguments for the first half have died here. The
 /// first said *this takes an OPEN registry, and only `open_engine` can produce one*, which review
 /// disproved in one line: `Warehouses::of` and `::and` are both `pub`, and this file's own tests
-/// build a registry from a fake two hundred lines below. The second named the `BigQuerySource`
-/// alias's credential-shaped transport parameter, whose one public constructor read a file - and
-/// that died with the HTTP wire: the alias is `BigQueryWarehouse<adbc::AdbcBigQuery>` now and the
-/// driver authenticates itself, so nothing on the BIGQUERY way to this function reads a credential.
+/// build a registry from a fake in this file's own test module. The second named the
+/// `BigQuerySource` alias's credential-shaped transport parameter, whose one public constructor
+/// read a file - and that died with the HTTP wire: the alias is
+/// `BigQueryWarehouse<adbc::AdbcBigQuery>` now and the driver authenticates itself, so nothing on
+/// the BIGQUERY way to this function reads a credential.
 /// What `open_bigquery` still reads at boot is a driver path and the declared scope.
 ///
 /// **That qualifier is `telekom/sutura#929`'s eighth round, and without it the sentence was false.**

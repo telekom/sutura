@@ -1,0 +1,17 @@
+diff --git a/crates/sutura-exec-datafusion/src/attach.rs b/crates/sutura-exec-datafusion/src/attach.rs
+index 381790de0..304bc3ef8 100644
+--- a/crates/sutura-exec-datafusion/src/attach.rs
++++ b/crates/sutura-exec-datafusion/src/attach.rs
+@@ -282,11 +282,7 @@ impl DataFusionWarehouse {
+                 located.as_str(),
+                 ParquetReadOptions::default(),
+             ))
+-            .map_err(|cause| DataFusionError::Attach {
+-                table: String::from(table.as_str()),
+-                path: located,
+-                cause,
+-            })
++            .map_err(|cause| DataFusionError::Build { cause })
+     }
+ }
+ 

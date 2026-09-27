@@ -590,7 +590,9 @@ fn commit_added_tests(wt: &Path, commit: &str) -> Option<Vec<AddedTest>> {
         // `partition` never answers either of these - there is no base reader for it to route a
         // deletion through - but the match stays exhaustive rather than assuming it: the honest
         // answer for a shape this function cannot even ask about is "no names", not a panic.
-        Plan::NotRequired | Plan::DeletedTests(_) | Plan::BaseUnreadable(_) => return Some(Vec::new()),
+        Plan::NotRequired | Plan::DeletedTests(_) | Plan::BaseUnreadable(_) | Plan::EditedTests(_) => {
+            return Some(Vec::new());
+        }
     };
     match Scan::of(&scannable, &test_files, &read) {
         Scan::Runnable(scoped) => Some(scoped.tests().to_vec()),

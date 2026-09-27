@@ -353,9 +353,10 @@ impl DataContractCatalog {
     /// One schema-level `relationships[]` declaration into the raw relationships it records.
     ///
     /// ODCS only supports the `foreignKey` type, and a `from`/`to` endpoint may be a single
-    /// `table.column` reference or an array for a composite key. Only single-column references are
-    /// representable in the domain's [`DomainRelationship`], so a composite key is refused here the
-    /// way `sutura-catalog-rdbms` refuses one from a dictionary.
+    /// `table.column` reference or an array for a composite key. This adapter reads single-column
+    /// references only; [`JoinKeys`] does hold multi-key joins - this is an adapter choice, not a
+    /// domain limit - so a composite key is refused here the way `sutura-catalog-rdbms` refuses one
+    /// from a dictionary.
     fn convert_relationship_ref(path: &Path, declaration: &RelationshipDecl) -> Result<RawRelationship, DataContractError> {
         if let Some(found) = declaration.r#type.as_deref()
             && found != FOREIGN_KEY_TYPE
@@ -460,9 +461,10 @@ struct SingleColumnReference {
 
 impl SingleColumnReference {
     /// Parses a single-column `table.column` reference (the `ShorthandReference` shape); refuses
-    /// a composite (array) endpoint, which the domain's single-key relationship cannot represent,
-    /// and a `FullyQualifiedReference` (no `.`, e.g. `schema/orders/properties/customer_id`) by
-    /// its own name rather than folding it into the composite-key refusal it is not.
+    /// a composite (array) endpoint, which this adapter does not convert although [`JoinKeys`]
+    /// could hold it, and a `FullyQualifiedReference` (no `.`, e.g.
+    /// `schema/orders/properties/customer_id`) by its own name rather than folding it into the
+    /// composite-key refusal it is not.
     fn parse(endpoint: &RelationshipEndpoint) -> Result<Self, ReferenceShapeUnsupported> {
         match endpoint {
             RelationshipEndpoint::Single(reference) => reference
@@ -479,7 +481,7 @@ impl SingleColumnReference {
 
 /// Why a relationship endpoint could not be read as a single-column shorthand reference.
 enum ReferenceShapeUnsupported {
-    /// An array endpoint - a composite key, unrepresentable in the domain's single-key relationship.
+    /// An array endpoint - a composite key, unsupported by this adapter (not a domain limit).
     Composite,
     /// A string endpoint with no `.` - a `FullyQualifiedReference`, a shape this adapter does not
     /// resolve.
@@ -585,8 +587,9 @@ fn map_read_error(cause: sutura_bounded_read::ReadError) -> DataContractError {
 
 /// Why a directory could not be read as a data-contract catalog.
 ///
-/// Every variant carries the path, because a catalog is many files and a message that names no file
-/// sends a reader to read all of them.
+/// Every variant but five (`TargetUniquenessUnknown`, `RelationshipName`, `Inconsistent`,
+/// `UncheckableKnowledge`, `Digest`) carries the path, because a catalog is many files and a
+/// message that names no file sends a reader to read all of them.
 #[derive(Debug, thiserror::Error)]
 pub enum DataContractError {
     #[error("the catalog root {path} is not a directory")]

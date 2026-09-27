@@ -18,7 +18,7 @@ nix build .#checks.x86_64-linux.<name> -L                  # what CI actually ra
 
 If it reproduces only in CI, the difference is the environment, and there are three usual
 ones: **no `.git` in the Nix sandbox**, **no network in a Nix build**, and **`--all-features`
-in the gates but not in your inner loop**.
+in the gates and `just test`, but not in a `cargo` line typed without it**.
 
 ## 1a. A gate that HANGS is a different failure, and it prints nothing
 

@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-okf/src/lib.rs b/crates/sutura-catalog-okf/src/lib.rs
+index ebe03c260..3875ed415 100644
+--- a/crates/sutura-catalog-okf/src/lib.rs
++++ b/crates/sutura-catalog-okf/src/lib.rs
+@@ -260,7 +260,7 @@ fn map_read_error(cause: sutura_bounded_read::ReadError) -> OkfCatalogError {
+             found,
+             limit,
+         },
+-        sutura_bounded_read::ReadError::Io { path, cause } => OkfCatalogError::Io { path, cause },
++        sutura_bounded_read::ReadError::Io { path, .. } => OkfCatalogError::Unnamed { path },
+     }
+ }
+ 

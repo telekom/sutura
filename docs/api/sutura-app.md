@@ -1166,8 +1166,8 @@ it - the same `CatalogProse` and the same `> ` per-line `quote` - so an operator
 catalog prose from the prompt also withholds it from the tool. The byte cap is the bundle's own:
 knowledge is bounded at load by `sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES`. This function
 never sees the operator's own instructions text at all - that text is a separate field the MCP
-catalog reply (`sutura_mcp::wire::CatalogContent`) carries beside this one and states, honestly,
-as unbounded.
+catalog reply (`sutura_mcp::wire::CatalogContent`) carries beside this one, read at startup
+under `prompt.instructions_max_bytes`.
 
 **Section order is `declaration`, `glossary`, `not_defined`, `caveats`, `examples` - fixed, and
 deliberately not the prompt's own order.** The declaration's own sentences ("listed below", "at

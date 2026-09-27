@@ -27,8 +27,8 @@
 //!
 //! # What none of it is
 //!
-//! **This is not leg 2 delivered, and nothing here may be cited as it.** Both tests mint from a fake
-//! broker and every one of them is consumed by a fake adapter - so what is proved is that the
+//! **This is not leg 2 delivered, and nothing here may be cited as it.** Every credential these tests
+//! mint comes from a fake broker and is consumed by a fake adapter - so what is proved is that the
 //! transport carries a per-subject credential from the broker to the port without mixing two callers
 //! up. It says nothing about whether a real authorization server accepts anything, and nothing
 //! whatever about two subjects reading two row sets - that needs a data system with row-level

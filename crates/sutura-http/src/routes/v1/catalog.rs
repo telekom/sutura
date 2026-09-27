@@ -1,9 +1,9 @@
 //! What this catalog defines.
 //!
 //! Descriptive content only, and that is a governance boundary rather than a scoping decision.
-//! `SemanticCatalog::load` takes no request context and cannot be given one, so nothing a caller
-//! sends can select, widen or parameterize what this returns - it is the *pinned* bundle, the same
-//! one every answer is computed from, rendered for a reader.
+//! `SemanticCatalog::load` takes no request context and cannot be given one, so the bundle is the
+//! *pinned* one, the same one every answer is computed from. What this renders of it is the caller's
+//! scoped view - `sutura_app::scoped_for` over `asked.context()` - for a reader.
 //!
 //! It is also the surface a caller needs in order to ask a valid question at all: which metrics
 //! exist, at which grains, with which dimensions, and which values a filter may use. Without it

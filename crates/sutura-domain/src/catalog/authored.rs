@@ -114,9 +114,10 @@ pub struct DimensionValue(String);
 /// renaming it for the second caller would be churn across the workspace for a word. Whoever names
 /// the field says which field - the anchor value's own callers carry this as a `source`.
 ///
-/// Every variant carries the offending text, unlike [`InvalidDescription`], and the asymmetry is the
-/// one [`crate::knowledge::InvalidPhrase`] and [`crate::knowledge::InvalidNoteBody`] already make: a
-/// value is at most [`MAX_DIMENSION_VALUE_CHARS`] characters, so naming it is what sends an author to
+/// Every variant but [`Empty`](InvalidDimensionValue::Empty) carries the offending text, unlike
+/// [`InvalidDescription`], and the asymmetry is the one [`crate::knowledge::InvalidPhrase`] and
+/// [`crate::knowledge::InvalidNoteBody`] already make: a value is at most
+/// [`MAX_DIMENSION_VALUE_CHARS`] characters, so naming it is what sends an author to
 /// the line in the file, while naming four kilobytes of prose would not.
 ///
 /// **Nothing on the request path may render one of these.** `sutura_http::wire` parses a caller's
@@ -171,6 +172,8 @@ impl DimensionValue {
 }
 
 /// The character rule an authored scalar is held to, with nothing about which field holds it.
+/// The messages of the [`InvalidDimensionValue`] it returns still say "a dimension value", so the
+/// rule is field-neutral and its wording is not.
 ///
 /// The order of the checks is the order the messages should arrive in, and it is deliberate rather
 /// than incidental: emptiness first because it is the most accurate thing to say about nothing, then
@@ -227,8 +230,8 @@ fn authored_scalar(raw: &str) -> Result<(), InvalidDimensionValue> {
 /// **Held to [`DimensionValue`]'s rule by calling it, not by restating it**, and that includes the
 /// length: the cap is [`MAX_DIMENSION_VALUE_CHARS`] rather than a number of this type's own, for the
 /// reason [`MAX_DESCRIPTION_BYTES`] gives about two constants derived from one measurement. 64
-/// characters is three times the longest decimal an `i64` can render, so no number a data system can
-/// return is refused by the length alone. **A long enough STRING scalar would be** - the type does
+/// characters is more than three times the longest decimal an `i64` can render, so no number a data
+/// system can return is refused by the length alone. **A long enough STRING scalar would be** - the type does
 /// not require the text to read as a number, see below - and 64 characters is where an anchor over
 /// prose stops being certifiable. That bound is the declared value's and is deliberately not
 /// widened for this caller.

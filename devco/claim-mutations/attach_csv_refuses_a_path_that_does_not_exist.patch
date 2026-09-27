@@ -1,0 +1,17 @@
+diff --git a/crates/sutura-exec-datafusion/src/attach.rs b/crates/sutura-exec-datafusion/src/attach.rs
+index 381790de0..3250a6e0c 100644
+--- a/crates/sutura-exec-datafusion/src/attach.rs
++++ b/crates/sutura-exec-datafusion/src/attach.rs
+@@ -254,10 +254,9 @@ impl DataFusionWarehouse {
+                 self.context
+                     .register_csv(crate::translate::table_reference(table), located.as_str(), options),
+             )
+-            .map_err(|cause| DataFusionError::Attach {
+-                table: String::from(table.as_str()),
++            .map_err(|_cause| DataFusionError::UnknownFormat {
+                 path: located,
+-                cause,
++                extension: String::new(),
+             })
+     }
+ 

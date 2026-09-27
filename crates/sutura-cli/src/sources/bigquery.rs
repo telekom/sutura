@@ -48,7 +48,9 @@ pub(crate) type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<sutura_
 /// constructors** - which is what issue 121 asks for by "one composition per adapter, shared by both
 /// roots". It is a copy rather than a shared function because the two composition roots are separate
 /// binaries and neither may depend on the other; what is genuinely shared is
-/// `sutura-exec-bigquery`'s own constructors, so a fix to the driver path lands once.
+/// `sutura-exec-bigquery`'s own constructors, so a fix to the driver path lands once. The one
+/// difference is the impersonation half: `sutura serve` attaches a broker for an
+/// `impersonation-at-source` entry, and this command refuses one.
 /// `refuse_unattached` was cited here as carrying the same argument and no longer does: it held no
 /// word an operator reads, so it is shared in `sutura-app` now - this paragraph's counter-example
 /// rather than its precedent.
@@ -279,9 +281,10 @@ where
     W: Warehouse,
 {
     // `Warehouses` here always holds exactly ONE engine - `crate::sources::open_engine` refuses a
-    // deployment that declares none and refuses one that declares many - so this loop runs once. It
-    // is a loop anyway because `sutura_app::preflight::ask` answers per data system for both roots,
-    // and a root that indexed `[0]` would be asserting the single-source shape at the wrong layer.
+    // deployment whose models name no data systems and refuses one that names more than one - so
+    // this loop runs once. It is a loop anyway because `sutura_app::preflight::ask` answers per
+    // data system for both roots, and a root that indexed `[0]` would be asserting the
+    // single-source shape at the wrong layer.
     let mut notices: Vec<String> = Vec::new();
     for asked in sutura_app::preflight::ask(pinned, engines) {
         let source = asked.source();

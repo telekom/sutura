@@ -7,8 +7,8 @@
 //!
 //! Three things about this module are load-bearing rather than incidental.
 //!
-//! **No `Debug` derive on a shape holding a secret.** [`RawSource`] holds the access token,
-//! password and key paths as plain `String`s, so a `{:?}` on it would print them; a shape that
+//! **No `Debug` derive on a shape holding a secret.** [`RawSource`] holds the credential, password
+//! and key *file paths* as plain `String`s, so a `{:?}` on it would print them; a shape that
 //! carries none of that - [`RawWorkloadIdentity`], [`RawGovernance`], [`RawSpendCeiling`] - derives
 //! `Debug` deliberately, each saying so beside the derive. The redaction lives in
 //! [`sutura_domain::identity::Secret`], and the raw tree is converted into types that hold one
@@ -22,10 +22,12 @@
 //! also means a stray `SUTURA__*` variable is an error naming the key rather than a value nobody
 //! reads.
 //!
-//! **No `environment` field.** The environment decides *which file* is layered, so a file that
-//! could set it would be self-referential. It comes from one place only - the `SUTURA_ENVIRONMENT`
-//! variable - and because there is no field for it here, `SUTURA__ENVIRONMENT=production` is an
-//! unknown-field error rather than a setting that silently does nothing.
+//! **No `environment` field on the top-level tree.** The environment decides *which file* is
+//! layered, so a file that could set it would be self-referential. It comes from one place only -
+//! the `SUTURA_ENVIRONMENT` variable - and because there is no field for it here,
+//! `SUTURA__ENVIRONMENT=production` is an unknown-field error rather than a setting that silently
+//! does nothing. A `RawCatalog` entry does carry an `environment` field, but that names the
+//! dictionary rows an `rdbms` catalog selects, not the process environment.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -122,7 +124,8 @@ pub(crate) struct RawSource {
     /// The most one query job on a `bigquery` source may be billed for scanning. Required for
     /// `kind: bigquery`.
     ///
-    /// **Required, with no default, because it is the one bound in this tree that spends money.** A
+    /// **Required by the parser for `kind: bigquery` - `Option` here because one flat shape covers all
+    /// kinds - and with no default, because it is the one bound in this tree that spends money.** A
     /// default would be a number nobody chose standing between a mistyped question and an invoice, and
     /// the two safe defaults are both wrong: a small one refuses ordinary questions on a large table,
     /// and a large one is indistinguishable from no bound. The adapter's own newtype owns the range -
@@ -362,7 +365,7 @@ pub(crate) struct RawSecurity {
     pub(crate) audience_mapping: BTreeMap<String, BTreeSet<String>>,
 }
 
-/// `security.outbound` as read - one field today, and a block of its own rather than a flat key on
+/// `security.outbound` as read - a block of its own rather than a flat key on
 /// [`RawSecurity`] because it is a DECLARATION (present-but-empty is a refusal) and not a plain
 /// setting, the same shape [`RawInbound`] already uses for that reason.
 #[derive(serde::Deserialize)]
@@ -625,20 +628,12 @@ pub(crate) struct RawLiveRowPredicate {
 
 /// The default spelling of [`crate::catalog::CatalogKind::Markdown`], for `#[serde(default)]`.
 ///
-/// A `const fn` is not possible because `serde` calls it by pointer; it returns the one spelling
-/// named by the catalog kind's own `NAMES`, so the default cannot drift into a word the parser
-/// refuses.
+/// A `const fn` is not possible because `serde` calls it by pointer. It returns a literal, and
+/// review is what keeps that literal a word `CatalogKind::NAMES` lists.
 fn catalog_kind_markdown() -> String {
     String::from("markdown")
 }
 
-/// What goes into the agent-facing prompt beyond the bundle and the tool list.
-///
-/// Both fields default, and they default to different KINDS of absent. `instructions_file` absent
-/// means there is no operator section at all, which is the shape a deployment that wrote nothing
-/// has. `catalog_prose` absent means `quoted`, which is also what `defaults.yaml` says - written
-/// there rather than only here so the value in effect is readable in one file, the way
-/// `rate_limit.client_address` is.
 /// The tool surface's own settings. Off by default, per tool: an absent `tools:` key is exactly the
 /// deployment `docs/adr/0013` calls the normal case, and there is deliberately no plural default
 /// direction to get wrong - each tool defaults to off, named by its own key.
@@ -660,6 +655,13 @@ pub(crate) struct RawRunSql {
     pub(crate) enabled: bool,
 }
 
+/// What goes into the agent-facing prompt beyond the bundle and the tool list.
+///
+/// Both fields default, and they default to different KINDS of absent. `instructions_file` absent
+/// means there is no operator section at all, which is the shape a deployment that wrote nothing
+/// has. `catalog_prose` absent means `quoted`, which is also what `defaults.yaml` says - written
+/// there rather than only here so the value in effect is readable in one file, the way
+/// `rate_limit.client_address` is.
 #[derive(Default, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawPrompt {
