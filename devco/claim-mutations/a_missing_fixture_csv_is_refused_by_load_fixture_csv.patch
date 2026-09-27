@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-exec-postgres/src/lib.rs b/crates/sutura-exec-postgres/src/lib.rs
+index e98c6fc5d..cfd26e894 100644
+--- a/crates/sutura-exec-postgres/src/lib.rs
++++ b/crates/sutura-exec-postgres/src/lib.rs
+@@ -438,10 +438,7 @@ impl PostgresWarehouse {
+     /// Available only with the default-off `fixtures` feature.
+     #[cfg(feature = "fixtures")]
+     pub fn load_fixture_csv(&self, table: &TableName, path: &Path) -> Result<(), PostgresError> {
+-        let text = std::fs::read_to_string(path).map_err(|cause| PostgresError::FixtureRead {
+-            path: path.display().to_string(),
+-            cause,
+-        })?;
++        let text = std::fs::read_to_string(path).unwrap_or_default();
+         let schema = importer::infer_fixture_schema(&text).map_err(|cause| PostgresError::FixtureSchema { cause })?;
+         self.load_schema(table, path, &schema)
+     }

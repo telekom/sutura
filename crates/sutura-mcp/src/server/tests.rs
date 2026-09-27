@@ -483,7 +483,7 @@ async fn catalog_prose_omitted_omits_it_from_the_tool_answers() {
 /// Without the parse this call deserializes cleanly, `metric` is dropped on the floor, and a model
 /// that asked about one metric is handed every one of them while believing it filtered.
 #[tokio::test]
-async fn an_argument_the_catalog_tool_does_not_declare_is_a_named_parse_error() {
+async fn an_argument_the_catalog_tool_does_not_declare_answers_the_fixed_sentence_without_the_callers_key() {
     let client = connected(certified_service()).await;
     let error = client
         .call_tool(call(
@@ -496,7 +496,8 @@ async fn an_argument_the_catalog_tool_does_not_declare_is_a_named_parse_error() 
         panic!("expected a protocol error, got {error:?}");
     };
     assert_eq!(data.code, ErrorCode::INVALID_PARAMS, "{data:?}");
-    assert!(data.message.contains("metric"), "{}", data.message);
+    // The fixed sentence, never the serde cause that repeats the caller's own key.
+    assert!(!data.message.contains("metric"), "{}", data.message);
     drop(client.cancel().await);
 }
 
@@ -691,7 +692,7 @@ async fn excess_filters_are_a_tool_refusal_before_the_first_filter_is_parsed() {
 }
 
 #[tokio::test]
-async fn a_query_field_the_domain_does_not_declare_is_a_named_parse_error() {
+async fn a_query_field_the_domain_does_not_declare_answers_the_fixed_sentence_without_the_callers_key() {
     // The `deny_unknown_fields` guarantee, asserted THROUGH the transport rather than assumed to
     // survive it. Without it this call deserializes cleanly, `sql` is dropped on the floor, and a
     // model that believes it sent SQL is answered as though it had asked the modelled question.
@@ -709,9 +710,9 @@ async fn a_query_field_the_domain_does_not_declare_is_a_named_parse_error() {
     let ServiceError::McpError(data) = error else {
         panic!("expected a protocol error, got {error:?}");
     };
-    // Named: the JSON-RPC code for bad parameters, and the field in the message.
+    // Named by the JSON-RPC code for bad parameters, and the caller's own key is not repeated.
     assert_eq!(data.code, ErrorCode::INVALID_PARAMS, "{data:?}");
-    assert!(data.message.contains("sql"), "{}", data.message);
+    assert!(!data.message.contains("sql"), "{}", data.message);
     drop(client.cancel().await);
 }
 

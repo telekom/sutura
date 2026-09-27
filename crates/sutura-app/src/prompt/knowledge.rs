@@ -86,8 +86,8 @@ use super::{CatalogProse, quote, wrap};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Audience {
     /// `render`'s own document, in its fixed section order, with a refusal-reason table above the
-    /// knowledge sections.
-    Prompt,
+    /// knowledge sections. `scoped` means what it means for [`Self::Tool`].
+    Prompt { scoped: bool },
     /// `catalog_knowledge`'s reply. `scoped` is `false` for the deployment's own, unscoped read (the
     /// stdio operator and every operator-side command) and `true` for a caller narrowed by
     /// `docs/adr/0028` - an empty collection then cannot be told apart from one merely invisible to
@@ -101,7 +101,7 @@ impl Audience {
     }
 
     const fn is_scoped(self) -> bool {
-        matches!(self, Self::Tool { scoped: true })
+        matches!(self, Self::Tool { scoped: true } | Self::Prompt { scoped: true })
     }
 }
 

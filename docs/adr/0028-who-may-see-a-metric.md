@@ -191,3 +191,15 @@ false: the served agent surface renders `initialize.instructions` once over the 
 audience-restricted metric's name and its knowledge reach every verified caller there.
 `sutura_mcp::server`'s own documentation names this as the follow-up, and the "no renderer that can
 bypass the filtered input" boundary this record asks for does not hold of that renderer yet.
+
+## Second amendment, 2026-09-27: the served prompt renders the caller's view
+
+This closes the open door the first amendment states. `sutura_app::prompt::render` takes a
+`ScopedView` rather than the bundle, and the MCP transport renders `initialize.instructions` at
+`initialize`, over `scoped_for` of the caller that request established - the view `describe_catalog`
+and `ask_metric` already use. Its metric list, glossary, caveats, worked questions and absences are
+therefore the view's, with the scoped "none visible to you" wording where the view withheld
+everything; an `initialize` with no established caller is refused, as `tools/list` is. The operator
+commands and stdio MCP render `ScopedView::everything`, so the table's operator-side and stdio rows
+are unchanged. What remains unscoped, by design, is the operator's own instructions text, which is
+the same for every caller.

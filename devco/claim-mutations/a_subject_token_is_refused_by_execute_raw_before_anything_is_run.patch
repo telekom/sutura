@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-exec-postgres/src/raw.rs b/crates/sutura-exec-postgres/src/raw.rs
+index 9d817bc06..d719ae169 100644
+--- a/crates/sutura-exec-postgres/src/raw.rs
++++ b/crates/sutura-exec-postgres/src/raw.rs
+@@ -55,9 +55,8 @@ impl PostgresWarehouse {
+     pub(crate) fn run_raw(
+         &self,
+         statement: &sutura_domain::raw::RawStatement,
+-        presented: &Presented,
++        _presented: &Presented,
+     ) -> Result<sutura_domain::warehouse::RawRows, PostgresError> {
+-        self.deliverable(presented)?;
+         let sql = statement.as_str();
+         // Held for the whole `BEGIN` / statement / `ROLLBACK` triple: this client pipelines, so
+         // without this a concurrent caller's own exchange interleaves on the wire mid-transaction
