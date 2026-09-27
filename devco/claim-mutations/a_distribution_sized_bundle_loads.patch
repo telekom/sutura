@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-tls/src/lib.rs b/crates/sutura-tls/src/lib.rs
+index f7602450c..0ce725092 100644
+--- a/crates/sutura-tls/src/lib.rs
++++ b/crates/sutura-tls/src/lib.rs
+@@ -72,7 +72,7 @@ const MAX_IDENTITY_BYTES: usize = 64 * 1024;
+ /// full CA bundle measured 491,106 bytes for 129 roots, seven and a half times that cap. Four
+ /// mebibytes is about eight times the measured bundle, which leaves room for one extended with a
+ /// deployment's own roots, and is still a bounded read every poll.
+-const MAX_BUNDLE_BYTES: usize = 4 * 1024 * 1024;
++const MAX_BUNDLE_BYTES: usize = 64 * 1024;
+ 
+ /// Reads one declared file, refused past `cap` bytes with the caller's own variant.
+ ///

@@ -1,3 +1,5 @@
+use std::num::NonZeroU64;
+
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::{DeclarableKind, DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{InconsistentDefinitions, InvalidDescription};
@@ -10,7 +12,8 @@ use sutura_domain::query::{Query, RefusalReason};
 
 use crate::fixture::FixtureReader;
 use crate::{
-    Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, SingleColumnTargetUniqueness, Table, TableAddress,
+    Dictionary, DictionaryBounds, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, SingleColumnTargetUniqueness, Table,
+    TableAddress,
 };
 
 fn name() -> SourceName {
@@ -740,4 +743,31 @@ fn a_relationship_to_an_unknown_physical_table_is_refused() {
         RdbmsCatalog::new(name(), version(), unknown_origin).load(),
         Err(RdbmsError::UnknownRelationshipTable { table }) if table == "public.orders"
     ));
+}
+
+/// The fixture's two tables and one relationship are three entries, one over a cap of two.
+#[test]
+fn a_dictionary_over_the_declared_row_cap_refuses() {
+    let reader = SparseReader(crate::fixture::corpus());
+    let bounds = DictionaryBounds::new(NonZeroU64::new(2).expect("two is non-zero"), NonZeroU64::MAX);
+    let refused = RdbmsCatalog::new(name(), version(), reader)
+        .with_bounds(bounds)
+        .load()
+        .expect_err("three entries over a two-row cap refuse");
+    assert!(
+        matches!(refused, RdbmsError::ExceedsBounds { rows, limit } if rows == 3 && limit.get() == 2),
+        "{refused:?}"
+    );
+}
+
+/// The same three entries under a cap of three load: the cap is a ceiling, not an off-by-one.
+#[test]
+fn a_dictionary_at_the_declared_row_cap_loads() {
+    let reader = SparseReader(crate::fixture::corpus());
+    let bounds = DictionaryBounds::new(NonZeroU64::new(3).expect("three is non-zero"), NonZeroU64::MAX);
+    let pinned = RdbmsCatalog::new(name(), version(), reader)
+        .with_bounds(bounds)
+        .load()
+        .expect("three entries under a three-row cap load");
+    assert_eq!(pinned.definitions().models().len(), 2);
 }

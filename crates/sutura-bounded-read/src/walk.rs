@@ -17,8 +17,8 @@
 //! finds the link again one level down, descends again, and stops only where the kernel refuses to
 //! resolve any more links in one path - 40 of them on Linux. So the failure is not a hang; it is a
 //! document collected once per level. A loop built out of real directories (a bind mount of an
-//! ancestor) has no such kernel limit and would not terminate; only a visited set catches that one,
-//! and nothing hosts a catalog that mounts something into it.
+//! ancestor) has no such kernel limit and would not terminate; the entry cap ([`MAX_CATALOG_ENTRIES`])
+//! stops it instead, refusing once the walk has visited more entries than the bound permits.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -31,6 +31,17 @@ use std::path::{Path, PathBuf};
 /// (subdirectories, non-document files, a skipped symlink) is unaffected - this bounds what becomes
 /// a document, not the size of the tree it lives in.
 pub const MAX_CATALOG_DOCUMENTS: usize = 1_000;
+
+/// The most directory entries a walk may visit before it refuses.
+///
+/// The document cap bounds what becomes a document; this bounds the tree itself. Skipped entries -
+/// subdirectories, non-document files, links - never reach the document count, so without this a
+/// wide tree, or a bind-mount cycle the kernel's link limit does not stop, is walked without end.
+/// Checked on every entry read, so the refusal comes as soon as the bound is crossed. Ten times the
+/// document cap: a catalog root holds its documents plus a README or a few subdirectories, not
+/// nine non-documents for every document, and ten thousand directory reads is still a startup cost
+/// rather than a stall.
+pub const MAX_CATALOG_ENTRIES: usize = 10_000;
 
 /// Why the walk could not produce the sorted document list.
 #[derive(Debug, thiserror::Error)]
@@ -55,6 +66,15 @@ pub enum WalkError {
     /// The root is a directory that holds no documents.
     #[error("the catalog at {path} holds no documents")]
     Empty { path: PathBuf },
+    /// The walk visited more directory entries than [`MAX_CATALOG_ENTRIES`] permits.
+    ///
+    /// `path` is the catalog root, `found` is how many entries the walk had counted when it
+    /// stopped - which may be less than the directory's true total, because the walk refuses as
+    /// soon as it crosses `limit` rather than finishing the tree first. Bounds the tree, not the
+    /// documents: a wide directory of skipped non-document files, or a bind-mount cycle that
+    /// would not terminate, is refused here rather than walked without end.
+    #[error("the catalog at {path} holds more than {limit} entries ({found} visited before the walk stopped)")]
+    TooManyEntries { path: PathBuf, found: usize, limit: usize },
 }
 
 /// Every document under `root`, in sorted order, refused when empty or missing.
@@ -71,7 +91,8 @@ pub enum WalkError {
 ///
 /// [`WalkError::NotADirectory`] when `root` is not a directory; [`WalkError::Io`] for a failure to
 /// read `root` or a directory within it; [`WalkError::TooManyDocuments`] once a directory crosses
-/// `max_documents`; [`WalkError::Empty`] when `root` holds no documents.
+/// `max_documents`; [`WalkError::TooManyEntries`] once the walk visits more than
+/// [`MAX_CATALOG_ENTRIES`] entries; [`WalkError::Empty`] when `root` holds no documents.
 pub fn walk(root: &Path, extensions: &[&str], max_documents: usize) -> Result<Vec<PathBuf>, WalkError> {
     if !root.is_dir() {
         return Err(WalkError::NotADirectory {
@@ -79,6 +100,8 @@ pub fn walk(root: &Path, extensions: &[&str], max_documents: usize) -> Result<Ve
         });
     }
     let mut found = BTreeSet::new();
+    // Every entry, not just documents: a skipped entry never reaches the document cap's check.
+    let mut entries_seen = 0usize;
     let mut pending = vec![root.to_path_buf()];
     while let Some(directory) = pending.pop() {
         let entries = std::fs::read_dir(&directory).map_err(|cause| WalkError::Io {
@@ -91,6 +114,14 @@ pub fn walk(root: &Path, extensions: &[&str], max_documents: usize) -> Result<Ve
                 cause,
             })?;
             let path = entry.path();
+            entries_seen += 1;
+            if entries_seen > MAX_CATALOG_ENTRIES {
+                return Err(WalkError::TooManyEntries {
+                    path: root.to_path_buf(),
+                    found: entries_seen,
+                    limit: MAX_CATALOG_ENTRIES,
+                });
+            }
             // The entry's OWN type, which says nothing about what a link points at. That is the
             // whole fix: `path.is_dir()` follows the link, so a link to an ancestor came back as a
             // directory and the walk descended into itself.
@@ -195,3 +226,6 @@ mod tests {
         assert!(matches!(err, WalkError::NotADirectory { .. }), "{err:?}");
     }
 }
+
+#[cfg(test)]
+mod walk_entry_cap_tests;

@@ -6,6 +6,19 @@ use std::path::{Path, PathBuf};
 use super::{DEFAULTS, SettingsError, Sources, VARIABLE_PREFIX, VARIABLE_SEPARATOR};
 use crate::raw::RawSettings;
 
+/// Each leaf's dotted path, keyed to the layer that won it.
+type Origins = BTreeMap<String, LayerOrigin>;
+
+/// The most levels the origin walk descends into the merged value tree.
+///
+/// The shipped defaults nest three levels; sixty-four is twenty times that. The trust boundary is
+/// the operator who writes the files. **It bounds this walk only**: the `config` crate's
+/// YAML-to-`Value` conversion recurses first with no bound of its own, which is why this bound sits
+/// here rather than at the parse. Measured on a 2 MiB test thread: without the bound, 1,700 levels
+/// overflowed this walk; with it, 1,850 levels are refused as `MergeDepth`, and 2,000 levels still
+/// abort with a stack overflow inside `config`, before this check runs.
+const MERGE_DEPTH_LIMIT: u32 = 64;
+
 /// Which configuration files were observed, in application order.
 ///
 /// **The answer to a question the resolved values cannot be asked.** Every file layer is optional, so
@@ -232,7 +245,15 @@ pub(super) fn read(sources: &Sources) -> Result<Layered, SettingsLoadError> {
             ));
         }
     };
-    let origins = collect_origins(&config.cache);
+    let origins = collect_origins(&config.cache).map_err(|reason| {
+        SettingsLoadError::new(
+            ConfigLayers {
+                files: layers.clone(),
+                origins: BTreeMap::new(),
+            },
+            reason,
+        )
+    })?;
     let layers = ConfigLayers { files: layers, origins };
     match config.try_deserialize() {
         Ok(raw) => Ok((raw, layers)),
@@ -253,8 +274,14 @@ pub(super) fn read(sources: &Sources) -> Result<Layered, SettingsLoadError> {
 /// **Keyed by the dotted path, once, on the winning value.** A key overridden by a later layer
 /// has exactly one leaf here, carrying the origin of the layer that won, which is the layer a
 /// refusal about that key has to name.
-fn collect_origins(cache: &config::Value) -> BTreeMap<String, LayerOrigin> {
-    fn walk(value: &config::Value, path: &mut Vec<String>, origins: &mut BTreeMap<String, LayerOrigin>) {
+fn collect_origins(cache: &config::Value) -> Result<Origins, SettingsError> {
+    fn walk(value: &config::Value, path: &mut Vec<String>, origins: &mut Origins, depth: u32) -> Result<(), SettingsError> {
+        if depth > MERGE_DEPTH_LIMIT {
+            return Err(SettingsError::MergeDepth {
+                found: depth,
+                limit: MERGE_DEPTH_LIMIT,
+            });
+        }
         if let config::ValueKind::Table(table) = &value.kind {
             // The merged tree is a hash map; sort the row so the walk is deterministic - the
             // destination `BTreeMap` is order-independent, but iteration order is not something to
@@ -271,14 +298,15 @@ fn collect_origins(cache: &config::Value) -> BTreeMap<String, LayerOrigin> {
                     };
                     origins.insert(path.join("."), origin);
                 }
-                walk(child, path, origins);
+                walk(child, path, origins, depth + 1)?;
                 path.pop();
             }
         }
+        Ok(())
     }
     let mut origins = BTreeMap::new();
-    walk(cache, &mut Vec::new(), &mut origins);
-    origins
+    walk(cache, &mut Vec::new(), &mut origins, 0)?;
+    Ok(origins)
 }
 
 /// The stem of the layer every environment reads first.
