@@ -1,0 +1,10 @@
+diff --git a/crates/sutura-http/src/inbound/token.rs b/crates/sutura-http/src/inbound/token.rs
+--- a/crates/sutura-http/src/inbound/token.rs
++++ b/crates/sutura-http/src/inbound/token.rs
+@@ -554,5 +554,5 @@
+         // `+ 2` because the total is the immediate actor plus what is already collected plus this one.
+         if outer.len().saturating_add(2) > MAX_ACTORS {
+-            return Err(TokenRejected::TooManyActors { limit: MAX_ACTORS });
++            return Err(TokenRejected::NoKeyId);
+         }
+         outer.push(actor_of(&link.sub)?);
