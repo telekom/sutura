@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-semantic/src/lib.rs b/crates/sutura-semantic/src/lib.rs
+index b5e630ba4..c2eb5c1b6 100644
+--- a/crates/sutura-semantic/src/lib.rs
++++ b/crates/sutura-semantic/src/lib.rs
+@@ -198,7 +198,9 @@ pub fn compile(
+         Ok(plan::Plan::Mono(query)) => Ok(Compiled::Planned { plan: query }),
+         Ok(plan::Plan::Federated(federated)) => Ok(Compiled::Federated { plan: federated }),
+         Err(PlanError::Refused(reason)) => Ok(Compiled::Refused { reason }),
+-        Err(PlanError::AuthoredSqlNotPlanned { metric }) => Err(CompileFailure::AuthoredSqlNotPlanned { metric }),
++        Err(PlanError::AuthoredSqlNotPlanned { metric }) => Ok(Compiled::Refused {
++            reason: sutura_domain::query::RefusalReason::MetricUnknown { metric },
++        }),
+         Err(PlanError::NotAssembled(cause)) => Err(cause.into()),
+         Err(PlanError::NotBound(cause)) => Err(cause.into()),
+         Err(PlanError::NoRemoteJoin) => Err(CompileFailure::NoRemoteJoin),

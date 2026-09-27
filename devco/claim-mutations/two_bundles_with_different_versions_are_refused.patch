@@ -1,0 +1,17 @@
+diff --git a/crates/sutura-app/src/assemble.rs b/crates/sutura-app/src/assemble.rs
+index 04e004c7e..fc654f736 100644
+--- a/crates/sutura-app/src/assemble.rs
++++ b/crates/sutura-app/src/assemble.rs
+@@ -216,12 +216,6 @@ pub fn assemble(bundles: &[PinnedDefinitions]) -> Result<PinnedDefinitions, Comp
+     let mut contributions = Vec::with_capacity(bundles.len());
+ 
+     for bundle in bundles {
+-        if bundle.version() != &version {
+-            return Err(CompositionError::VersionMismatch {
+-                first: version,
+-                second: bundle.version().clone(),
+-            });
+-        }
+         // A contribution is one source: its own manifest named itself, once. Anything else is a
+         // bundle that failed to say who produced it, and there is nothing to merge it under.
+         let mut entries = bundle.manifest().entries().iter();

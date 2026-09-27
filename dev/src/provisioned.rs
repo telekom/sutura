@@ -34,7 +34,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::discovery::{DiscoveryError, Endpoint, Endpoints, path_for};
-use crate::requirement::{FORCE, Requirement};
+use crate::requirement::{FORCE, REQUIRED, Requirement};
 use crate::scope::{Scope, ScopeError};
 
 /// What a harness gets when it asks for a provisioned service.
@@ -434,7 +434,7 @@ fn skipped(absent: &Absent) -> String {
 fn required(absent: &Absent) -> String {
     format!(
         "{absent}\n  \
-         This run requires a provisioned service tier, so an absent one is a failure rather than a\n  \
+         {REQUIRED}, so an absent one is a failure rather than a\n  \
          skip: a green run that connected to nothing certifies an adapter nothing exercised. Set\n  \
          {FORCE}=0 to skip instead, and mean it."
     )

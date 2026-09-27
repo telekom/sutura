@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-config/src/settings/parse.rs b/crates/sutura-config/src/settings/parse.rs
+index f2b9173f1..b1a6d3602 100644
+--- a/crates/sutura-config/src/settings/parse.rs
++++ b/crates/sutura-config/src/settings/parse.rs
+@@ -49,7 +49,7 @@ pub(super) fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, Sett
+     };
+     let termination = match raw.security.tls_termination.as_deref() {
+         None | Some("") => TlsTermination::default(),
+-        Some(value) => TlsTermination::parse(value).map_err(|cause| SettingsError::TlsTermination { cause })?,
++        Some(value) => TlsTermination::parse(value).unwrap_or_default(),
+     };
+     // **Absent is absent, and is not a third mode.** An empty string is the shape an unset variable
+     // takes in a shell, so it reads the same way - and both are then a `NotFitToServe` if any source is

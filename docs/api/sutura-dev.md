@@ -1098,6 +1098,12 @@ The variable that overrides the machine class, in **both** directions.
 Named once, here, because a message that tells somebody to set it and a read that spells it
 differently is a fix that does not work and looks like it should.
 
+### `constant REQUIRED`
+
+The sentence the `Requirement::Required` failure carries, so a reader of a run's output can
+tell a cell that never reached its tier from one its own assertion failed - `xtask`'s claim arm
+does.
+
 ### `constant NOT_REQUIRED`
 
 Every spelling of `FORCE` that means *no*, lowercased and trimmed.

@@ -147,6 +147,7 @@ const MEASURED_STAGES: &[&str] = &[hooks::COMMIT, hooks::PUSH];
 const UNMEASURED_STAGES: &[&str] = &["commit-msg"];
 
 mod surfaces;
+mod tasks;
 
 // `pub(crate)`: `crate::fuzz` reaches the row through this re-export, `surfaces` staying private.
 pub(crate) use surfaces::SURFACES;
@@ -408,6 +409,7 @@ fn decide(root: &std::path::Path, invocation: &Invocation, declared: &[hooks::Ho
     }
 
     failures.extend(unknown_hook_ids(declared));
+    failures.extend(tasks::unknown_reached_by_tasks(root));
     let (reported, gaps) = surface_gaps(changed, &inspected, &invocation.ran);
     failures.extend(gaps);
     verdict(&failures, reported, changed.len())

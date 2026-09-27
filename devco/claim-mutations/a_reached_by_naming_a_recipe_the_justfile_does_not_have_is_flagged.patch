@@ -1,0 +1,13 @@
+diff --git a/xtask/src/hook_coverage/tasks.rs b/xtask/src/hook_coverage/tasks.rs
+index 6263c7217..e0f5123eb 100644
+--- a/xtask/src/hook_coverage/tasks.rs
++++ b/xtask/src/hook_coverage/tasks.rs
+@@ -15,7 +15,7 @@ pub(super) fn unknown_reached_by_tasks(root: &std::path::Path) -> Vec<String> {
+     };
+     SURFACES
+         .iter()
+-        .filter(|surface| !recipes.contains(surface.reached_by))
++        .filter(|surface| recipes.contains(surface.reached_by))
+         .map(|surface| {
+             format!(
+                 "the `{}` surface names `reached_by = {}`, which is not a recipe in the justfile",
