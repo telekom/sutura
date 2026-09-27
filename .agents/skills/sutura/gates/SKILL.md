@@ -963,7 +963,7 @@ Three things worth carrying:
   one per arm, instead: an unreachable subject refuses whether or not anybody reads a number. The
   trap is what came next. Written as a refusal inside the witness's constructor, the anchor made the
   gate's verdict over the falsifier tree - where no anchor can exist - come from a MISSING INPUT
-  rather than from its own rule, measured, and only three of the sweep's gates manage the latter. So
+  rather than from its own rule, measured, and a minority of the sweep's gates manage the latter. So
   a violation is reported AHEAD of a missed anchor, through an exhaustive `Decision` a test can
   read. **A fail-closed precondition placed ahead of the rule turns a rule-refusal into an
   input-refusal, and nothing but reading the verdict will tell you.**

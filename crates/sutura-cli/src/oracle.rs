@@ -65,7 +65,8 @@ pub(crate) fn build(
     working_set: sutura_exec_datafusion::WorkingSet,
 ) -> Result<OracleWarehouse, String> {
     // Matched rather than read off accessors every kind would have to have, for the reason
-    // `crate::clickhouse::build` gives.
+    // `crate::serve::bigquery::build_bigquery` gives: the dispatcher has already decided this is
+    // the Oracle arm, and a second openable kind should arrive as a compile error at this line too.
     let sutura_config::SourcePlacement::Oracle {
         ref host,
         port,

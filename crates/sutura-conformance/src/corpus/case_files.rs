@@ -16,7 +16,7 @@
 //!
 //! # A federated file
 //!
-//! The same header and `rows:`, with `order:` gone (a federated plan claims no order) and four
+//! The same header and `rows:`, with `order:` gone (a federated plan claims no order) and five
 //! fields added. `lookup:` names the lookup leg's table, and the corpus has one. `keys:` are read
 //! off that table, joined to the fact rows on `region`. `lookup_filter: <column> = <value>` is a
 //! filter in the lookup leg, and its presence drops an unmatched fact row, as the planner's
@@ -25,8 +25,8 @@
 //!
 //! # What a malformed file costs
 //!
-//! A parse failure is a typed `CaseError` surfaced through `expect` in [`super::cases`], which
-//! turns it into a panic at the call site the way every other literal in this module does. A
+//! A parse failure is a typed `CaseError` that `load` and `load_federated` turn into a panic before
+//! returning, the way every other literal in this module does. A
 //! silently skipped case is what this loader exists to prevent, so every entry in `FILES` is
 //! parsed or the whole call fails - there is no `continue` past a broken file.
 
@@ -155,10 +155,10 @@ pub(super) enum CaseError {
 
 /// Parses every case file and returns the cases in order.
 ///
-/// Called by [`super::cases`], which panics on any error - the same posture the rest of this
-/// module takes about its literals. The count is the length of `FILES`, so a corpus that lost a
-/// file is a compile error and a corpus that lost an entry is caught by the test that counts the
-/// directory.
+/// Called by [`super::cases`], which cannot intercept the error: `load` panics on the first
+/// broken file, the same posture the rest of this module takes about its literals. The count is the
+/// length of `FILES`, so a corpus that lost a file is a compile error and a corpus that lost an entry
+/// is caught by the test that counts the directory.
 pub(super) fn load() -> Vec<Case> {
     FILES
         .iter()
@@ -638,7 +638,8 @@ mod tests {
         }
     }
 
-    /// A missing `order` field is a parse error, not a default.
+    /// A file whose own `name:` disagrees with its registration in `FILES` is a `NameDisagrees`,
+    /// not a green run under a name no file carries.
     #[test]
     fn a_name_that_disagrees_with_its_registration_is_rejected() {
         // The gap this closes: `FILES` repeats each case's name so a failure report can name the
@@ -664,6 +665,7 @@ mod tests {
         }
     }
 
+    /// A missing `order` field is a parse error, not a default.
     #[test]
     fn a_missing_order_field_is_rejected() {
         let malformed = "name: broken\nmetric: m\naggregate: sum\ncolumn: c\nkeys:\nrows:\ntext:a\tint:1\n";

@@ -184,11 +184,10 @@ type Layered = (RawSettings, ConfigLayers);
 
 /// Builds the layered configuration and deserializes it into the raw tree.
 ///
-/// **Retains which files were observed, whether the load succeeds or fails.** Both file layers
-/// are `.required(false)`, so a mistyped `SUTURA_CONFIG_DIR` directory, a volume that failed to
-/// mount, and a deployment that genuinely has no files are the same silent success - and the
-/// process then starts on embedded defaults with nothing in the log to distinguish the three. What
-/// is returned here is what [`ConfigLayers`] carries into the startup report.
+/// **Retains which files were observed, whether the load succeeds or fails.** The directory file
+/// layers are `.required(false)`, so a mistyped `SUTURA_CONFIG_DIR` directory, a volume that failed
+/// to mount, and a deployment that genuinely has no files are the same silent success - the embedded
+/// defaults layer, added first and always resolvable, is what keeps it a success.
 ///
 /// **Files, and only files.** The overlay layer is supplied as text by a test and has no path, and the
 /// variable layer has no path either - so neither can appear in the list, and a deployment configured
@@ -200,8 +199,9 @@ pub(super) fn read(sources: &Sources) -> Result<Layered, SettingsLoadError> {
 
     if let Some(directory) = sources.directory.as_deref() {
         for stem in [BASE_STEM, sources.environment.as_str()] {
-            // `layer_path` is the only place a layer's filename is constructed, so what is reported
-            // as found and what is added as a source cannot name different files.
+            // For the directory layers, `layer_path` is the one place a layer filename is constructed,
+            // so what is reported as found and what is added as a source cannot name different files;
+            // the embedded defaults travel as text with no filename at all.
             //
             // **The limit, stated where the claim is:** this records what was on disk at this
             // instant. A file that appears or disappears between here and the build is a race nothing

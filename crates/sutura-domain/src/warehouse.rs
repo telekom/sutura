@@ -2,11 +2,10 @@
 //!
 //! `Warehouse` names the port, not whether its implementation is a file or a cluster.
 //!
-//! **No statement appears in this module, and its absence is the decision rather than an omission.**
-//! The port takes a [`crate::plan::QueryPlan`] - [`Warehouse`] says why that is what makes a second
-//! kind of adapter possible - so nothing in the domain constructs or reads a statement, and the type
-//! carrying one lives in `sutura-sql` beside the code that renders it: a domain holding a rendered
-//! statement has acquired a concept no domain operation uses. What stays is [`ParamValue`], because
+//! **The main port works with [`crate::plan::QueryPlan`].** [`Warehouse`] says why that is what makes
+//! a second kind of adapter possible. The `execute_raw` method is an escape hatch for the raw SQL
+//! tool that operates on [`crate::raw::RawStatement`]; see `crate::raw` and `docs/adr/0013`.
+//! What stays is [`ParamValue`], because
 //! a [`crate::plan::QueryPlan`] carries a vector of them and because the rule lives there - a value
 //! is a closed set of typed variants an adapter binds, never text somebody concatenated.
 //! [`crate::query`] is the *tool* surface, where SQL must be unrepresentable because the text comes
@@ -183,10 +182,9 @@ pub enum PreFlight {
 /// # Nothing here executes without saying whose credential it holds
 ///
 /// [`Self::execute`] takes a [`Presented`] and has no default, so there is no code path into a data
-/// system that runs as whatever the process happens to be. **Today's signature IS the fallback:** an
-/// adapter with no credential parameter runs as the process, and nothing anywhere had to decide
-/// that. `docs/adr/0008` part 1 is the decision, and the mechanism is the absence of a signature
-/// rather than a rule somebody follows.
+/// system that runs as whatever the process happens to be. `docs/adr/0008` part 1 is the decision:
+/// the boot path must not use a subject's credential, which is why [`Self::verify_anchor`] takes no
+/// credential.
 ///
 /// The boot path is the other caller of this port and it has no subject, so it gets its own method:
 /// [`Self::verify_anchor`] takes no credential and returns [`AnchorRows`] rather than the

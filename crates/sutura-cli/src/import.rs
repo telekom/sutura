@@ -8,7 +8,7 @@
 //! `<out>` becomes a directory of `kind:`-tagged markdown documents, loadable by
 //! [`sutura_catalog_local::LocalCatalog`] exactly as a hand-written catalog is - this command
 //! writes the same document shape a person would type, not a second format `sutura` reads
-//! differently. **Nothing here is certified by running it.** The output is authored text for a
+//! differently. **No run against a real source system certifies the conversion.** The output is authored text for a
 //! person to read and commit; `sutura catalog <out>` (or a plain read of the files) is how a
 //! reviewer decides whether it says what the source system says.
 

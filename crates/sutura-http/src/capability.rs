@@ -22,7 +22,8 @@
 //! **It decides which OPERATIONS a caller may invoke. It decides nothing about which rows an answer
 //! contains.** The catalog and question routes read the same pinned bundle and every question
 //! executes under the same identity, because no source executes as the asking subject -
-//! `docs/adr/0014`'s leg 1 establishes who is asking and leg 2 does not exist. A caller granted
+//! `docs/adr/0014`'s leg 1 establishes who is asking; leg 2 is built and unproven, and
+//! `docs/where-identity-is-proven.md` decides which venue may be cited. A caller granted
 //! `sutura:metrics.ask` and not `sutura:catalog.read` cannot list the catalog and gets exactly the
 //! same numbers from a question as anybody else would.
 //!

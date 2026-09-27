@@ -2,8 +2,9 @@
 //!
 //! Hand-formatted rather than run through a YAML writer, and deliberately: these are documents for
 //! a human to review before committing, in the byte shape `sutura-catalog-local/src/document.rs`
-//! parses and every example in `examples/` already uses, not a machine's canonical form of a
-//! `serde` value the reader-side types do not even derive `Serialize` to produce.
+//! parses. The format produced differs from the hand-written examples in `examples/` (which use
+//! `source: local`, inline column lists, and free-form descriptions); this converter uses
+//! `source: wren`, multi-line column lists, and a fixed provenance sentence.
 //!
 //! Every `write_*` function returns [`core::fmt::Result`] and propagates with `?`; each public
 //! entry point resolves that Result exactly once, the way `sutura_runtime::metrics::Registry`
@@ -48,10 +49,10 @@ fn write_model(model: &PlannedModel, out: &mut String) -> core::fmt::Result {
     writeln!(out, "Imported from the WrenAI model `{}`.", model.name)
 }
 
-/// `kind: model` document text - frontmatter, then the model's own name as a one-line description.
-///
-/// The prose is intentionally thin: wren's `Model` carries nothing that reads as a description, so
-/// inventing one would be this converter's own words presented as if a person had written them.
+/// `kind: model` document text - frontmatter with the model's name and other fields, followed by a
+/// sentence crediting the `WrenAI` source. The prose is intentionally thin: wren's `Model` carries
+/// nothing that reads as a description, so inventing one would be this converter's own words
+/// presented as if a person had written them.
 pub(crate) fn model_document(model: &PlannedModel) -> String {
     let mut out = String::new();
     #[expect(clippy::expect_used, reason = "writing to a String cannot fail")]

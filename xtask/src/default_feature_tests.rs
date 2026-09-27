@@ -1,4 +1,4 @@
-//! Every package that SHIPS *runs* its tests at the feature set it ships with.
+//! Every package that SHIPS *runs* its tests at cargo's DEFAULT feature set - no `--features`.
 //!
 //! **A whole category of test was compiled by a gate and executed by none, which is the worst of
 //! the two states a `#[test]` can be in.** `check-default-features` next door compiles the shipped
@@ -120,7 +120,7 @@ fn invocation<'a>(package: &'a str, profile: Option<&'a str>) -> Vec<&'a str> {
     words
 }
 
-/// `cargo xtask check-default-feature-tests` - the shipped feature set's tests actually run.
+/// `cargo xtask check-default-feature-tests` - cargo's DEFAULT feature set's tests actually run.
 pub(crate) fn run(args: &[String]) -> Verdict {
     if !args.is_empty() {
         eprintln!("usage: check-default-feature-tests - it takes no arguments");
