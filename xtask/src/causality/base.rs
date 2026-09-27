@@ -327,6 +327,22 @@ fn nextest_failure(trimmed: &str) -> Option<String> {
     (!words.is_empty()).then(|| words.join(" "))
 }
 
+/// Every completed test nextest reports, including passes. The scoped runner requests all
+/// statuses so a summary gap can be attributed to names instead of only counted.
+pub(super) fn results(text: &str) -> Vec<String> {
+    collect(text, nextest_result)
+}
+
+fn nextest_result(trimmed: &str) -> Option<String> {
+    let (status, rest) = strip_retry(trimmed).split_once(" [")?;
+    if !matches!(status, "PASS" | "LEAK" | "XFAIL") && !is_failing(status) {
+        return None;
+    }
+    let (_, named) = rest.split_once(']')?;
+    let words: Vec<&str> = named.split_whitespace().filter(|word| !is_progress(word)).collect();
+    (!words.is_empty()).then(|| words.join(" "))
+}
+
 /// `TRY 2 FAIL [ .. ]` is a retry of one test; the retry count is not part of its name.
 fn strip_retry(trimmed: &str) -> &str {
     trimmed.strip_prefix("TRY ").map_or(trimmed, |rest| {
@@ -755,7 +771,8 @@ mod tests {
                 false,
                 &named(1),
                 &all,
-                &Reverted::Behaviour
+                &Reverted::Behaviour,
+                &[]
             ),
             Verdict::Inconclusive
         );
@@ -772,7 +789,7 @@ mod tests {
         };
         assert_eq!(classify_base(green, true, &two, &mixed, &Reverted::Behaviour), partial);
         assert_eq!(
-            report_base(&partial, green, false, &named(2), &mixed, &Reverted::Behaviour),
+            report_base(&partial, green, false, &named(2), &mixed, &Reverted::Behaviour, &[]),
             Verdict::Fail
         );
     }

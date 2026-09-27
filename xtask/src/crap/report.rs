@@ -128,8 +128,11 @@ pub(crate) fn parse_policy(text: &str) -> Result<Policy, String> {
     })
 }
 
-/// Read TOML's one-line string-array forms while retaining the comment after the closing bracket.
-fn inline_patterns(value: &str, line: usize) -> Result<(Vec<String>, bool), String> {
+/// Read one-line string arrays while retaining the comment after the closing bracket.
+/// Unsupported escapes refuse the policy instead of silently dropping an entry.
+type InlinePatterns = (Vec<String>, bool);
+
+fn inline_patterns(value: &str, line: usize) -> Result<InlinePatterns, String> {
     let invalid = || format!("cannot parse inline allow list on line {line}");
     let mut rest = value.strip_prefix('[').ok_or_else(invalid)?;
     let mut patterns = Vec::new();
@@ -144,7 +147,8 @@ fn inline_patterns(value: &str, line: usize) -> Result<(Vec<String>, bool), Stri
             return Err(invalid());
         }
         let mut escaped = false;
-        let end = rest[1..]
+        let after_open = rest.strip_prefix(quote).ok_or_else(invalid)?;
+        let end = after_open
             .char_indices()
             .find_map(|(index, character)| {
                 if quote == '"' && character == '\\' && !escaped {
@@ -156,14 +160,20 @@ fn inline_patterns(value: &str, line: usize) -> Result<(Vec<String>, bool), Stri
                 closing.then_some(index + 2)
             })
             .ok_or_else(invalid)?;
-        let token = &rest[..end];
+        let token = rest.get(..end).ok_or_else(invalid)?;
         let pattern = if quote == '\'' {
-            String::from(&token[1..token.len() - 1])
+            String::from(
+                token
+                    .strip_prefix('\'')
+                    .and_then(|s| s.strip_suffix('\''))
+                    .ok_or_else(invalid)?,
+            )
         } else {
-            serde_json::from_str::<String>(token).map_err(|_| invalid())?
+            serde_json::from_str::<String>(token)
+                .map_err(|error| format!("cannot parse inline allow list on line {line}: {error}"))?
         };
         patterns.push(pattern);
-        rest = rest[end..].trim_start();
+        rest = rest.get(end..).ok_or_else(invalid)?.trim_start();
         if let Some(after_comma) = rest.strip_prefix(',') {
             rest = after_comma;
         } else if !rest.starts_with(']') {
