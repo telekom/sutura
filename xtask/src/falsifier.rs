@@ -35,6 +35,10 @@
 //! taking. The file is a `.sh` under `nix/` because that is a scope no other gate in the sweep
 //! reads for content, so it falsifies exactly one gate.
 //!
+//! `check-skills` compares a parsed router with the skill tree only after checking three agent
+//! links. The shared tree gives it valid links; otherwise a missing-link refusal would hide the
+//! seeded missing route. Other gates skip these symlinks in the file census.
+//!
 //! **Why this module exists at all, rather than sitting in `main.rs`:** that file hit the
 //! 1000-line cap on the merge of two branches that both grew it, and `sutura/gates` says to move
 //! the HARNESS and keep every `#[test]` where it is. It carries a test of its own for the reason
@@ -65,7 +69,10 @@ pub(crate) fn falsifier_tree() -> PathBuf {
     for link in crate::repo::INDEX_SYMLINKS {
         let path = root.join(link);
         std::fs::create_dir_all(path.parent().expect("a skill link has a parent")).expect("an agent directory");
+        #[cfg(unix)]
         std::os::unix::fs::symlink("../.agents/skills", path).expect("an agent skill link");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir("../.agents/skills", path).expect("an agent skill link");
     }
     // Over the 1000-line cap and clean in every other way, so `max-lines` is the only gate this
     // file is about.
