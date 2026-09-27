@@ -17,11 +17,15 @@
 //! declaration; the file that declares it is at HEAD, or on the retry is reverted to a base that
 //! never declared a file which did not exist. So it is either compiled beside its declarer or not
 //! compiled at all. A kept existing file is only ever reached from a declarer the retry keeps too.
+//! That is BUILD safety only.
 //!
-//! **What this does NOT cover.** The walk evaluates no `cfg` and skips no comment, as
-//! `place::declared_route` does not: a commented-out declaration still keeps its file. A kept file
-//! that is ALSO the implementation a reverted file declares stays at HEAD too, which is the
-//! fail-closed direction - its tests go green on base and the gate refuses.
+//! **What this does NOT cover.** The added-file rule is content-blind: it cannot tell a helper
+//! relocated out of its declarer from new implementation merely declared by a file kept at HEAD,
+//! and keeps both. `keep` does not catch the second; two later mechanisms do. If it empties the
+//! revert, `causality::tests_only` refuses every added test that no `Claim-Cell:` declares. If
+//! not, a scoped test the kept file turns green on base is `base::BaseOutcome::Green`, a refusal.
+//! The walk evaluates no `cfg` and skips no comment, as `place::declared_route` does not: a
+//! commented-out declaration still keeps its file.
 
 use super::diff::ChangedFile;
 use super::is_compiled_rust;
