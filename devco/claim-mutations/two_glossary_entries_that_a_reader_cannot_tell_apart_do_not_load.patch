@@ -1,0 +1,17 @@
+diff --git a/crates/sutura-domain/src/knowledge/bundle.rs b/crates/sutura-domain/src/knowledge/bundle.rs
+index 928b67b25..a6a573082 100644
+--- a/crates/sutura-domain/src/knowledge/bundle.rs
++++ b/crates/sutura-domain/src/knowledge/bundle.rs
+@@ -675,10 +675,9 @@ impl Knowledge {
+                     term: entry.term().clone(),
+                 };
+                 if let Some(Claim::Defined { term: first }) = claims.insert(phrase_identity(phrase), claim) {
+-                    return Err(InconsistentKnowledge::AmbiguousPhrase {
++                    return Err(InconsistentKnowledge::TermIsItsOwnSynonym {
++                        term: first,
+                         phrase: phrase.clone(),
+-                        first,
+-                        second: entry.term().clone(),
+                     });
+                 }
+             }

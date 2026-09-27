@@ -94,6 +94,17 @@ fn every_invisible_range_is_refused_at_both_ends_and_no_neighbour_of_one_is() {
             "{code:#06x} is not one of the invisible ones: {outcome:?}"
         );
     }
+    // Two of those neighbours are refused for a DIFFERENT reason, and the negative assertion above
+    // cannot tell that from acceptance. Pin the reason: both are spacing a reader cannot account for,
+    // not invisible characters and not valid values.
+    for code in [0x2029u32, 0x202Fu32] {
+        let raw = format!("nor{}th", character(code));
+        assert_eq!(
+            DimensionValue::parse(&raw),
+            Err(InvalidDimensionValue::Spacing { value: raw }),
+            "{code:#06x} is a spacing character, not an invisible one"
+        );
+    }
 }
 
 #[test]
