@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-openmetadata/src/lib.rs b/crates/sutura-catalog-openmetadata/src/lib.rs
+index e9d606bc8..4c24d996e 100644
+--- a/crates/sutura-catalog-openmetadata/src/lib.rs
++++ b/crates/sutura-catalog-openmetadata/src/lib.rs
+@@ -213,7 +213,7 @@ impl<R: SnapshotReader> OpenMetadataCatalog<R> {
+                 model: table.name().to_owned(),
+                 platform: table.service().to_owned(),
+             })?;
+-        let name = Self::identifier(table.name(), |raw| ModelName::parse(raw), "model", "a table")?;
++        let name = Self::identifier(table.name(), |raw| ModelName::parse(raw), "notmodel", "a table")?;
+         let table_name = Self::identifier(table.name(), |raw| TableName::parse(raw), "table", table.name())?;
+         let mut columns = Vec::with_capacity(table.columns().len());
+         for column in table.columns() {

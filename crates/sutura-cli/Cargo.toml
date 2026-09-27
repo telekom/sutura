@@ -118,6 +118,26 @@ datahub = ["dep:sutura-catalog-datahub", "sutura-catalog-datahub/http"]
 # crate's feature is what an operator building `sutura` types.
 openmetadata = ["dep:sutura-catalog-openmetadata", "sutura-catalog-openmetadata/http"]
 
+# The live RDBMS metadata adapter (`catalog.kind: rdbms`), issue #972: a reader over a real
+# Postgres documentation schema, and with it the outbound TLS stack that reader needs.
+#
+# **Default-off for the same ARTEFACT reason `postgres` above is.** `sutura-catalog-rdbms/live`
+# pulls `tokio-postgres-rustls`/`ring` into the build, so a release that never declared
+# `catalog.kind: rdbms` links none of it. `nix/shipped.nix` builds cargo's default set, so no
+# published artefact contains the reader; `--features rdbms` is how an operator building `sutura`
+# turns it on, and `deny.toml`'s `all-features = true` keeps it compiled, linted and tested on
+# every gate run.
+#
+# `sutura-catalog-rdbms/live` rather than a bare feature name, mirroring `datahub`/`openmetadata`
+# above: the adapter crate's own `live` feature gates its reader module, and this crate's feature
+# is what an operator building `sutura` types.
+#
+# `dep:sutura-exec-postgres` for the TLS anchor fold and connection-config construction the
+# composition uses to build the reader's verifier and `tokio_postgres::Config` - the same resolver
+# the `postgres` source feature links, shared so the `rdbms` catalog and a declared `postgres`
+# source resolve one driver config.
+rdbms = ["dep:sutura-catalog-rdbms", "sutura-catalog-rdbms/live", "dep:sutura-exec-postgres"]
+
 # The agent surface: `sutura-mcp`'s streamable-HTTP transport, mounted by the composition root at
 # `sutura serve`'s `/mcp`.
 #
@@ -195,6 +215,12 @@ sutura-catalog-datahub = { workspace = true, optional = true }
 # reason `sutura-catalog-datahub` is: absent, not merely unused, from a build that did not ask for
 # it - the outbound HTTP stack that comes with it stays out of the default build.
 sutura-catalog-openmetadata = { workspace = true, optional = true }
+# The RDBMS metadata adapter, behind the `rdbms` feature above. Optional for the same reason
+# `sutura-catalog-datahub` is: absent, not merely unused, from a build that did not ask for it -
+# its `live` feature pulls the reader and its outbound TLS stack, and this root links neither
+# unless `--features rdbms` asks for them. `catalog.kind: rdbms` is therefore openable only by a
+# build that turned the feature on, and refused by name otherwise - see `crate::catalog`.
+sutura-catalog-rdbms = { workspace = true, optional = true }
 # The OKF metadata adapter. **A normal dependency, not an optional one**, for the same reason
 # `sutura-catalog-local` is: it is a pure directory read with no native or outbound-TLS
 # dependency, so it cross-compiles to musl and there is no artefact reason to hold it out of the

@@ -1,0 +1,8 @@
+diff --git a/crates/sutura-http/src/inbound/token.rs b/crates/sutura-http/src/inbound/token.rs
+--- a/crates/sutura-http/src/inbound/token.rs
++++ b/crates/sutura-http/src/inbound/token.rs
+@@ -577,3 +577,3 @@
+ fn actor_of(raw: &str) -> Result<Actor, TokenRejected> {
+-    Actor::parse(raw).map_err(|cause| TokenRejected::UnusableActor { cause })
++    Actor::parse(raw).map_err(|cause| TokenRejected::UnusableSubject { cause })
+ }

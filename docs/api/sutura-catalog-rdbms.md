@@ -17,9 +17,9 @@ semantic layer and does not pretend to be one - which is the whole point of a **
 adapter. It says which kinds it provides and which it does not, and it is measured against that
 declaration rather than against the golden adapters' oracle.
 
-This crate implements the dictionary conversion from `github.com/telekom/sutura#151`. A live
-reader remains outside it; the runtime prompt derives the zero-metric physical-schema guidance
-from the pinned bundle rather than coupling the application to this adapter.
+This crate implements the dictionary conversion from `github.com/telekom/sutura#151`. The
+runtime derives the zero-metric physical-schema guidance from the pinned bundle rather than
+coupling the application to this adapter.
 
 # What a real dictionary yields
 
@@ -67,12 +67,9 @@ cardinality or a measure would: a type is descriptive text
 (`sutura_domain::catalog::ColumnType`) and a primary key is evidence
 (`sutura_domain::catalog::Model::with_primary_key`).
 
-**What this update does NOT do: read any of it from a real database.** The only
-`DictionaryReader` this crate has is `fixture::FixtureReader`, serving a recorded corpus -
-see "What is built here, and what is NOT" below, unchanged by this update. The fixture now
-carries a type, a comment and a key for two columns, so the conversion, the declaration and the
-byte accounting are exercised the same way the rest of this adapter always has been - against a
-recording, not a socket.
+The fixture carries a type, a comment and a key for two columns, so the converter's mapping and
+byte accounting are exercised without a socket. The feature-gated live reader also reads these
+fields from a declared Postgres documentation schema; its provisioned test is the socket venue.
 
 # The declaration, and what it means for the bundle
 
@@ -90,14 +87,16 @@ a deployment whose whole model is a physical schema must not be told it has metr
 
 This crate contains the conversion `RdbmsCatalog` applies to dictionary records, and it is
 tested against a fake reader that serves a recorded dictionary - the port gets a fake,
-not mocked SQL (`github.com/telekom/sutura#151`'s thing 4). What it does not contain is a
-database client in the library closure: `DictionaryReader` is the seam a real reader over a
-Postgres socket will implement, and the only implementor today is the recorded fixture source in
-`fixture`. A production reader is outside this crate's current scope.
+not mocked SQL (`github.com/telekom/sutura#151`'s thing 4). Since #972, it also contains the
+live implementor over a Postgres documentation schema (`postgres_reader`), behind a
+default-off `live` feature so the library closure stays domain + thiserror and no build links
+the reader's `tokio-postgres`/`rustls`/`ring` stack without asking for it.
 
-**And nothing serves it:** no composition root links this crate (its only dependant is
-`sutura-app`, as a dev-dependency), so this is a registered, declaring catalog rather than a
-served one - exactly the state `sutura-catalog-datahub` holds, which is the precedent copied.
+**The fake dominates the suite; the live reader is the production half, feature-gated.**
+`DictionaryReader` is the seam both implement (`fixture::FixtureReader` the recorded corpus,
+`postgres_reader::PostgresReader` a real connection), and the conversion is the same for both.
+A composition root that links the `live` feature serves `catalog.kind: rdbms`; a build without
+it refuses by name. (Its only other dependant is `sutura-app`, as a dev-dependency.)
 
 ## `trait DictionaryReader`
 
@@ -108,11 +107,9 @@ pub trait DictionaryReader
 Where a dictionary's records come from.
 
 **The fake seam.** Everything above this trait is decided and tested against a recorded
-dictionary served by `fixture::FixtureReader`; a real implementor speaks to a Postgres socket,
-reads `information_schema` / `pg_catalog`, decodes into `Dictionary`, and maps its own failures
-into `RdbmsError::Read`. A port rather than a method on `RdbmsCatalog` for the same reason
-the warehouse port exists: a catalog that could be swapped for a live source without the
-conversion changing is the point.
+dictionary served by `fixture::FixtureReader`. The feature-gated
+`postgres_reader::PostgresReader` reads a declared documentation schema over a Postgres
+socket and maps its failures into `RdbmsError::Read`. Both use the same conversion.
 
 A `Relationship` carries exactly one origin column and one target column, so a composite
 (multi-column) foreign key is not representable in it. A real implementor must therefore either
@@ -174,7 +171,7 @@ and version it is recorded under, the same way the other catalog adapters carry 
 ### Methods
 
 ```rust
-pub const fn new(name: SourceName, version: DefinitionVersion, reader: R) -> Self
+pub fn new(name: SourceName, version: DefinitionVersion, reader: R) -> Self
 ```
 
 Opens a catalog over a dictionary reader.
@@ -185,9 +182,20 @@ pub const fn with_bounds(self, bounds: DictionaryBounds) -> Self
 
 Holds the dictionary read to `bounds`; without it the row count is unchecked here.
 
-No composition root calls this yet: startup refuses `kind: rdbms` until a reader over a real
-dictionary exists (#972), and that is where the declared `max_dictionary_rows` and
-`max_dictionary_bytes` arrive.
+The composition root that links the `live` reader passes the declared
+`max_dictionary_rows`/`max_dictionary_bytes` here (see `open_one_rdbms_catalog`); a reader
+over a live socket also enforces them inline, but this stays the conversion's own post-decode
+guard over a `Dictionary` whatever the reader did.
+
+**The reading reader holds the caps inline too** (`postgres_reader` abandons a stream that
+crosses the ceiling); this guard is the second, non-network half that a recorded or fetched
+dictionary gets regardless of the transport.
+
+```rust
+pub fn with_source_alias(self, source_alias: SourceName) -> Self
+```
+
+Binds models from this dictionary to a separately declared data source.
 
 ### Implements
 
@@ -542,10 +550,161 @@ foreign key between them.
 ### `fn over_fixture_source`
 
 ```rust
-pub const fn over_fixture_source(name: sutura_domain::model::SourceName, version: sutura_domain::pinned::DefinitionVersion) -> crate::RdbmsCatalog<FixtureReader>
+pub fn over_fixture_source(name: sutura_domain::model::SourceName, version: sutura_domain::pinned::DefinitionVersion) -> crate::RdbmsCatalog<FixtureReader>
 ```
 
 A `crate::RdbmsCatalog` over the recorded corpus.
 
 The constructor the conformance registry uses to register the adapter; it is `pub` because an
 integration suite is a separate crate and cannot reach a `#[cfg(test)]` item.
+
+## Module `postgres_reader`
+
+The live Postgres documentation-schema reader, behind the default-off `live` feature.
+
+This is the reader the crate's module header has said, since #151, "a real implementor" would
+be: one that speaks to a Postgres socket, reads a documentation schema, decodes into
+`crate::Dictionary`, and maps its own failures into `crate::RdbmsError::Read`. It is the
+companion to `crate::fixture::FixtureReader` - the fake is the recorded corpus this port was
+tested against, and this is the live implementor over a real connection.
+
+# The documentation-schema contract
+
+A **documented fixed schema** - one column per documented dictionary row, so the reader never
+guesses at structure, named `columns` inside the declared documentation schema:
+
+| Column | Meaning |
+| --- | --- |
+| `environment` | The deployment environment key this row's descriptions apply to. |
+| `catalog_name` | The physical catalog above the schema, when generated statements need one. |
+| `schema_name` | The physical schema the described table lives in. |
+| `table_name` | The physical table. |
+| `model_name` | The semantic model name to bind the table to. |
+| `table_description` | Authored table prose; `NULL` for none. |
+| `column_name` | The physical column. |
+| `column_ordinal` | The column's stable order within the table. |
+| `column_type` | The physical data type, as `information_schema` reports it. |
+| `column_description` | Authored column prose; `NULL` for none. |
+| `is_primary_key` | A `boolean`: is this column the sole column of a primary or unique key. |
+| `is_deleted` | A soft-delete marker: `false` selects live rows on every read. |
+
+The reader selects `is_deleted = false` unconditionally and binds the declared `environment` and
+the equals-predicate value as SQL parameters - **never interpolating configuration values into
+the statement**. The schema and predicate column are checked at the reader's constructor,
+then quoted as identifiers, so neither can be the vehicle for SQL. The predicate
+operator comes from a closed set rendered as fixed text.
+
+# Foreign keys are unsupported in this first slice - and the reader does not pretend otherwise
+
+The documented schema carries no foreign-key columns, so this reader emits a
+`crate::Dictionary` with **no `crate::Relationship`s**. That is a real, explicit limit,
+stated here. It is not an invented uniqueness assertion: single-column primary-key evidence is
+read per column (`is_primary_key`) and that alone is ever emitted; nothing in this reader
+fabricates a foreign key or a target-uniqueness claim on the reader's behalf.
+
+# Read-only, streamed, bounded
+
+The read runs inside a single read-only transaction (`read_only`, `RepeatableRead`). Rows are
+streamed with `query_raw` - the driver's extended-protocol portal, which does not materialise
+the result set up front - and the row cap and byte cap are enforced **inline**, abandoning the
+stream the moment the declared ceiling is crossed. This bounds the streamed row payload;
+the converter's separate post-decode guard bounds the assembled dictionary. The driver still
+materialises one row before its size is checked. Neither bound limits elapsed read time.
+
+# Connection and transport policy
+
+The reader uses the catalog's own declared connection and transport policy. Anchor/identity
+material is resolved by a composition root into a `rustls::ClientConfig` for `verified`/`mutual`
+channels, or `None` for `plaintext`. When a `ClientConfig` is supplied the reader forces
+`SslMode::Require` so a server declining TLS cannot silently downgrade the verifier to
+cleartext - the same hardening `sutura-exec-postgres::connect_secured` applies. There is no
+unconditional `NoTls`: plaintext is reached only through the declared `plaintext` mode, which
+the transport layer already refuses for a remote host.
+
+# Feature gating
+
+This module is `#[cfg(feature = "live")]`. A build without the feature links no
+`tokio-postgres`/`tokio-postgres-rustls`/`rustls`/`ring` stack, and the composition root refuses
+the catalog by name.
+
+### `enum InvalidReaderConfig`
+
+```rust
+pub enum InvalidReaderConfig
+```
+
+#### Variants
+
+- `Schema`
+- `PredicateColumn`
+- `DefaultBound`
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `enum RowPredicate`
+
+```rust
+pub enum RowPredicate
+```
+
+A live-row predicate rendered into the dictionary query and bound as parameters.
+
+`PostgresReader::new` validates the column identifier before it can reach SQL text. The
+operator is from a fixed set rendered as fixed text; an `equals` value is bound as a parameter.
+
+#### Variants
+
+- `None` - No live-row filter beyond the soft-delete marker.
+- `IsNull` - `column IS NULL`.
+- `IsNotNull` - `column IS NOT NULL`.
+- `Equals` - `column = $N`, value bound as a parameter.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `struct PostgresReader`
+
+```rust
+pub struct PostgresReader
+```
+
+A live `crate::DictionaryReader` over a Postgres documentation schema.
+
+Owns the driver configuration and the optional TLS verifier, plus the environment key, the
+optional live-row predicate and the read bounds. The TLS `ClientConfig` is supplied by a
+composition root that resolved the declared `transport_mode`; `None` selects the `plaintext`
+channel. The read-only transaction, parameter binding and inline caps are all this reader's own.
+
+#### Methods
+
+```rust
+pub const fn bounds(&self) -> DictionaryBounds
+```
+
+```rust
+pub fn new(config: tokio_postgres::Config, tls: Option<rustls::ClientConfig>, documentation_schema: String, environment: String, predicate: RowPredicate, row_cap: Option<NonZeroU64>, byte_cap: Option<NonZeroU64>) -> Result<Self, InvalidReaderConfig>
+```
+
+Builds the reader. `tls` is `Some(rustls::ClientConfig)` for a `verified`/`mutual` channel
+and `None` for a declared `plaintext` one. `documentation_schema` and `environment` are
+validated identifiers supplied by the composition root. An absent `row_cap`/`byte_cap`
+selects the reader's own documented defaults.
+
+#### Implements
+
+`Clone`, `Debug`, `DictionaryReader`
+
+### `constant DEFAULT_DOCUMENTATION_SCHEMA`
+
+The documented default documentation schema, used when no `dictionary_schema` is configured.
+
+### `constant DEFAULT_MAX_DICTIONARY_ROWS`
+
+The documented default row cap on one dictionary read.
+
+### `constant DEFAULT_MAX_DICTIONARY_BYTES`
+
+The documented default byte cap on one dictionary read.

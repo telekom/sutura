@@ -868,3 +868,7 @@ mod published;
 mod refresh;
 /// Leg 1 through the assembled router, which is what says the layer is installed at all.
 mod router;
+/// Refusal variants that were defined and raised but never provoked: each cell drives one variant
+/// through the gate or through `KeySet::parse` and asserts the specific enum arm.
+#[cfg(test)]
+mod variants;

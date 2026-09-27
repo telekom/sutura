@@ -1,0 +1,10 @@
+diff --git a/crates/sutura-http/src/inbound/token.rs b/crates/sutura-http/src/inbound/token.rs
+--- a/crates/sutura-http/src/inbound/token.rs
++++ b/crates/sutura-http/src/inbound/token.rs
+@@ -407,5 +407,5 @@
+         let scopes = match claims.scope {
+             None => Scopes::none(),
+-            Some(ref written) => Scopes::parse(written).map_err(|cause| TokenRejected::UnusableScope { cause })?,
++            Some(ref written) => Scopes::parse(written).ok().ok_or(TokenRejected::NoKeyId)?,
+         };
+         let groups = match claims.groups {

@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-catalog-datacontract/src/lib.rs b/crates/sutura-catalog-datacontract/src/lib.rs
+index 8a68f9b9b..7b51102b0 100644
+--- a/crates/sutura-catalog-datacontract/src/lib.rs
++++ b/crates/sutura-catalog-datacontract/src/lib.rs
+@@ -562,7 +562,10 @@ fn map_walk_error(cause: sutura_bounded_read::WalkError) -> DataContractError {
+ /// same roles the message text gives them.
+ fn map_read_error(cause: sutura_bounded_read::ReadError) -> DataContractError {
+     match cause {
+-        sutura_bounded_read::ReadError::Open { path, cause } => DataContractError::Open { path, cause },
++        sutura_bounded_read::ReadError::Open { path, .. } => DataContractError::Io {
++            path,
++            cause: std::io::Error::other("open"),
++        },
+         sutura_bounded_read::ReadError::NotARegularFile { path } => DataContractError::NotARegularFile { path },
+         sutura_bounded_read::ReadError::TooLarge {
+             root,

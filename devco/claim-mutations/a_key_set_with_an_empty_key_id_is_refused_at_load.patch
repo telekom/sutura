@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http/src/inbound/keys.rs b/crates/sutura-http/src/inbound/keys.rs
+index 2e038aa3f..3b1e63b72 100644
+--- a/crates/sutura-http/src/inbound/keys.rs
++++ b/crates/sutura-http/src/inbound/keys.rs
+@@ -336,7 +336,7 @@ impl KeySet {
+                 .key_id
+                 .as_deref()
+                 .ok_or(InvalidKeySet::KeyWithoutAnId)
+-                .and_then(|raw| KeyId::parse(raw).map_err(|cause| InvalidKeySet::UnusableKeyId { cause }))?;
++                .and_then(|raw| KeyId::parse(raw).ok().ok_or(InvalidKeySet::KeyWithoutAnId))?;
+             if keys.contains_key(&id) {
+                 return Err(InvalidKeySet::DuplicateKeyId { id });
+             }
