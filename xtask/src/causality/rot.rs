@@ -137,11 +137,19 @@ fn check_apply_at(root: &Path) -> Verdict {
     }
 
     let mut rotted: Vec<String> = Vec::new();
+    let mut cells: Vec<String> = Vec::new();
     for patch in &list {
         let name = cell_name(patch).unwrap_or_else(|| patch.display().to_string());
         if let Err(why) = claim::apply_git(root, patch, true) {
             rotted.push(format!("{name}: {why}"));
         }
+        cells.push(name);
+    }
+    // A patch that applies but names no test is the same silent rot, one step earlier: the kill
+    // half is on demand, so this is the only per-commit gate that sees a renamed cell.
+    match locate(root, &cells) {
+        Ok(located) => rotted.extend(unlocated(&cells, &located).1),
+        Err(why) => rotted.push(why),
     }
 
     if rotted.is_empty() {
@@ -152,7 +160,7 @@ fn check_apply_at(root: &Path) -> Verdict {
         return Verdict::Pass;
     }
 
-    eprintln!("xtask check-claim-mutations: FAILED - a committed claim mutation no longer applies\n");
+    eprintln!("xtask check-claim-mutations: FAILED - a committed claim mutation no longer applies or names no test\n");
     for line in &rotted {
         eprintln!("  {line}");
     }
@@ -223,6 +231,30 @@ fn locate(root: &Path, cells: &[String]) -> Result<Placement, String> {
         .collect())
 }
 
+/// The cells [`locate`] placed on exactly one file, and a refusal line for each one it could not.
+type Split = (Vec<AddedTest>, Vec<String>);
+
+/// Split `cells` into what [`Split`] holds.
+fn unlocated(cells: &[String], located: &Placement) -> Split {
+    let mut tests: Vec<AddedTest> = Vec::new();
+    let mut causes: Vec<String> = Vec::new();
+    for cell in cells {
+        match located.get(cell) {
+            Some(Located::One(test)) => tests.push(test.clone()),
+            Some(Located::Gone) => causes.push(format!(
+                "{cell}: no test fn by this name exists in the tree any more - the cell it names is gone"
+            )),
+            Some(Located::Ambiguous(files)) => causes.push(format!(
+                "{cell}: declared in more than one file ({}) - refusing rather than guessing which one \
+                 the patch means",
+                files.join(", ")
+            )),
+            None => causes.push(format!("{cell}: not scanned - this gate's own bookkeeping lost it")),
+        }
+    }
+    (tests, causes)
+}
+
 /// THE KILL HALF: does every committed mutation patch still kill the cell it names?
 ///
 /// ON-DEMAND, not `hygiene` - see this module's header for the cost and the residual.
@@ -276,22 +308,7 @@ fn run_at(root: &Path) -> Verdict {
         }
     };
 
-    let mut tests: Vec<AddedTest> = Vec::new();
-    let mut causes: Vec<String> = Vec::new();
-    for cell in &cells {
-        match located.get(cell) {
-            Some(Located::One(test)) => tests.push(test.clone()),
-            Some(Located::Gone) => causes.push(format!(
-                "{cell}: no test fn by this name exists in the tree any more - the cell it names is gone"
-            )),
-            Some(Located::Ambiguous(files)) => causes.push(format!(
-                "{cell}: declared in more than one file ({}) - refusing rather than guessing which one \
-                 the patch means",
-                files.join(", ")
-            )),
-            None => causes.push(format!("{cell}: not scanned - this gate's own bookkeeping lost it")),
-        }
-    }
+    let (tests, causes) = unlocated(&cells, &located);
 
     if !causes.is_empty() {
         eprintln!("xtask check-claim-mutation-kills: FAILED - could not locate every committed cell\n");
@@ -502,12 +519,30 @@ mod tests {
     fn a_patch_that_still_applies_is_an_apply_pass() {
         let root = scratch("apply-healthy");
         std::fs::write(root.join("a.txt"), "hello\n").expect("the target file");
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"demo\"\n").expect("a manifest");
+        std::fs::create_dir_all(root.join("src")).expect("src/");
+        std::fs::write(root.join("src/lib.rs"), "#[test]\nfn healthy_cell() {}\n").expect("the cell's file");
         write_patch(
             &root,
             "healthy_cell",
             "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-hello\n+world\n",
         );
         assert_eq!(check_apply_at(&root), Verdict::Pass);
+    }
+
+    #[test]
+    fn a_patch_that_applies_but_names_no_test_fails_the_apply_half() {
+        let root = scratch("apply-renamed-cell");
+        std::fs::write(root.join("a.txt"), "hello\n").expect("the target file");
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"demo\"\n").expect("a manifest");
+        std::fs::create_dir_all(root.join("src")).expect("src/");
+        std::fs::write(root.join("src/lib.rs"), "#[test]\nfn the_cell_after_its_rename() {}\n").expect("the renamed cell");
+        write_patch(
+            &root,
+            "the_cell_before_its_rename",
+            "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-hello\n+world\n",
+        );
+        assert_eq!(check_apply_at(&root), Verdict::Fail);
     }
 
     #[test]
