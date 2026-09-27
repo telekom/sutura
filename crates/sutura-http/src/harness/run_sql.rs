@@ -79,7 +79,7 @@ async fn a_result_over_the_row_cap_is_a_413_through_the_real_router() {
 
 #[tokio::test]
 async fn a_statement_the_data_system_refuses_is_a_403_carrying_the_domain_shape() {
-    // The OTHER `403` on this route - `outcome: raw_refusal`, not `code` with no `outcome` - so a
+    // The OTHER `403` on this route - `outcome: refusal`, not `code` with no `outcome` - so a
     // client cannot confuse the data system's own refusal with the deployment switch or the scope
     // gate above; the body shape is the only thing that tells the three apart at one status.
     let app = over(

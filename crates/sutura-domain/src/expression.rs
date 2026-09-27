@@ -730,7 +730,7 @@ mod tests {
         let deserialized: DialectTag =
             serde_json::from_str("\"portable\"").expect("the reserved word is one a document can write");
         assert_eq!(deserialized, DialectTag::portable());
-        // `Display` is the word and not the derived `Debug`, which is what twelve refusals in
+        // `Display` is the word and not the derived `Debug`, which is what eleven refusals in
         // `sutura_sql::expression` interpolate.
         assert_eq!(DialectTag::portable().to_string(), "portable");
         assert_eq!(tag("clickhouse").to_string(), "clickhouse");
