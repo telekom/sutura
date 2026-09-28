@@ -268,6 +268,7 @@ nav:
           - sutura-exec-postgres: api/sutura-exec-postgres.md
           - sutura-exec-clickhouse: api/sutura-exec-clickhouse.md
           - sutura-exec-oracle: api/sutura-exec-oracle.md
+          - sutura-adbc: api/sutura-adbc.md
           - sutura-tls: api/sutura-tls.md
           - sutura-http-client: api/sutura-http-client.md
           - sutura-bounded-read: api/sutura-bounded-read.md

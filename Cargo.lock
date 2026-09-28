@@ -4246,6 +4246,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
+name = "sutura-adbc"
+version = "0.6.1"
+dependencies = [
+ "adbc_core",
+ "adbc_driver_manager",
+ "adbc_ffi",
+ "arrow-array 59.2.0",
+ "arrow-schema 59.2.0",
+ "sutura-domain",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "sutura-app"
 version = "0.6.1"
 dependencies = [
@@ -4474,11 +4487,11 @@ version = "0.6.1"
 dependencies = [
  "adbc_core",
  "adbc_driver_manager",
- "adbc_ffi",
  "arrow-array 59.2.0",
  "arrow-schema 59.2.0",
  "getrandom 0.3.4",
  "serde_json",
+ "sutura-adbc",
  "sutura-conformance",
  "sutura-domain",
  "sutura-sql",
