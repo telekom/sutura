@@ -1237,7 +1237,7 @@ Why a `run_sql` call's arguments were not a statement.
 
 - `NotAnObject`
 - `Statement`
-- `StatementTooLarge` - `statement` exceeds `sutura_domain::raw::MAX_RAW_STATEMENT_BYTES`, refused before the `String` is allocated by `serde_json::from_value`. The same code `RawStatement::parse`'s own `TooLong` returns, fired earlier; carries only the length and the limit, no caller text.
+- `StatementTooLarge` - `statement` exceeds `sutura_domain::raw::MAX_RAW_STATEMENT_BYTES`, refused before `RawStatement::parse` runs its own check - `serde_json::from_value` allocates nothing for a `String` field either way, it only moves the value `rmcp` already parsed. The same code `RawStatement::parse`'s own `TooLong` returns, fired earlier; carries only the length and the limit, no caller text.
 
 ##### Implements
 
