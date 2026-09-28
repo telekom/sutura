@@ -221,14 +221,14 @@ fn tokens(line: &str) -> Vec<(usize, &str)> {
 /// `Cargo.toml`, `rust-toolchain.toml` and a pinned `uses:` need no exemption.
 ///
 /// **`Dockerfile` has no extension to key on**, which used to mean [`std::path::Path::extension`] returned
-/// `None` and this whole function did too - `demo/Dockerfile` and the root `Dockerfile` were never
+/// `None` and this whole function did too - `examples/demo-chatinterface/Dockerfile` and the root `Dockerfile` were never
 /// scanned at all, comments included. Keyed on the basename instead, for that one name; a
 /// `Dockerfile` comment is `#`, same marker as the shell/YAML/nix group below.
 ///
 /// **This still does not see a version written in an `ARG` default or a `--build-arg` value** -
 /// those are the pin, not a copy of it, exactly like a dependency version in a manifest. Two ARG
-/// defaults that are meant to name the same thing with nothing comparing them (`demo/Dockerfile`'s
-/// `SUTURA_DEMO_BASE_IMAGE` default and `demo/start.sh`'s `--build-arg` for it) is a duplicate-pin
+/// defaults that are meant to name the same thing with nothing comparing them (`examples/demo-chatinterface/Dockerfile`'s
+/// `SUTURA_DEMO_BASE_IMAGE` default and `examples/demo-chatinterface/start.sh`'s `--build-arg` for it) is a duplicate-pin
 /// problem this module's comment scan cannot reach by construction - it would need to parse a
 /// second language's grammar, not widen a comment marker.
 fn comment_start(rel: &str, line: &str) -> Option<usize> {
@@ -684,11 +684,20 @@ mod tests {
         assert_eq!(comment_start("x.lock", "prek 0.4.14"), None);
         // `Dockerfile` has no extension to key on - RED before this basename case existed, because
         // `Path::extension()` returned `None` and the whole function did too, comments included.
-        assert_eq!(comment_start("demo/Dockerfile", "  # prek 0.4.14"), Some(3));
+        assert_eq!(
+            comment_start("examples/demo-chatinterface/Dockerfile", "  # prek 0.4.14"),
+            Some(3)
+        );
         assert_eq!(comment_start("Dockerfile", "# prek 0.4.14"), Some(1));
         // The stated limit: an ARG default or a `--build-arg` value is the pin, not a comment
         // about it, so this reads `None` for it exactly like a manifest's `version = "…"` line.
-        assert_eq!(comment_start("demo/Dockerfile", "ARG SUTURA_DEMO_BASE_IMAGE=x/y:1.2.3"), None);
+        assert_eq!(
+            comment_start(
+                "examples/demo-chatinterface/Dockerfile",
+                "ARG SUTURA_DEMO_BASE_IMAGE=x/y:1.2.3"
+            ),
+            None
+        );
     }
 
     #[test]

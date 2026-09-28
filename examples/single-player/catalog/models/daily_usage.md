@@ -3,7 +3,23 @@ kind: model
 name: daily_usage
 source: local
 table: fct_usage_daily
-columns: [usage_date, subscription_key, data_gb, voice_min]
+columns:
+  - name: usage_date
+    type: DATE
+    description: The day this row of usage was recorded on.
+    nullable: false
+  - name: subscription_key
+    type: BIGINT
+    description: The subscription this usage belongs to, reached through usage_subscription.
+    nullable: false
+  - name: data_gb
+    type: DOUBLE
+    description: Data used that day, in gigabytes.
+    nullable: false
+  - name: voice_min
+    type: DOUBLE
+    description: Voice minutes used that day.
+    nullable: false
 ---
 One row per subscription per day on which it used anything.
 
