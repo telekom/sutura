@@ -10,7 +10,7 @@
 //! **Two routes to that driver and one type deciding between them** - [`DriverLocation`], resolved
 //! once at composition. A release artefact carries the driver in its own link (the `c-archive`
 //! half of one nix derivation), which is the only route a STATIC musl binary has; a source build
-//! opens a `.so` a deployment mounted. `location` carries why that is a parsed value rather than
+//! opens a `.so` a deployment mounted. `DriverLocation` carries why that is a parsed value rather than
 //! the arbitrary path `telekom/sutura#929`'s sixth finding named.
 //!
 //! Behind the crate's default-off `adbc` feature, like the `wire`: the native
@@ -33,7 +33,7 @@
 //!
 //! # The values
 //!
-//! Bound as one Arrow batch of one row, per [`bind`] - which is where the driver's own per-row
+//! Bound as one Arrow batch of one row, per `sutura_adbc::parameter_batch` - which is where the driver's own per-row
 //! execution loop is read off the pinned source and why one row is the only correct count. The
 //! statement carries positional `?` and nothing is ever interpolated into it.
 //!
@@ -42,20 +42,13 @@
 //! owns only a path and a declaration. That, and not a check, is what keeps two concurrent subjects apart
 //! here - stated with its limit in [`AdbcBigQuery`]'s own documentation.
 
-mod bind;
 mod ceiling;
 mod identity;
-// The driver this artefact carries, and the one `unsafe` in this workspace. `cfg`-gated by
-// `../../build.rs`, so a source build does not compile it - `cargo xtask check-unsafe` is what
-// reads it regardless of that, and the module header carries the limit.
-#[cfg(adbc_driver_linked)]
-mod linked;
-mod location;
 mod subject;
 pub use ceiling::{BytesBilledCeiling, UnusableCeiling};
 pub use identity::Impersonation;
-pub use location::{DriverLocation, UnusableDriverPath};
 pub use subject::{UnusablePool, WorkloadPool};
+pub use sutura_adbc::{DriverLocation, UnusableDriverPath, parameter_batch};
 
 // The ADBC traits below are imported anonymously (`as _`) because they exist only
 // to resolve those types' methods and are never named directly - except `Statement`, which
@@ -248,7 +241,7 @@ pub enum AdbcError {
 /// `JobRequest::PARAMETER_MODE` both say: a value's identity in a plan is its position, so there is
 /// no name to send.
 ///
-/// `None` binds nothing at all rather than an empty batch - [`bind`]'s own header has the driver's
+/// `None` binds nothing at all rather than an empty batch - `sutura_adbc::parameter_batch`'s own header has the driver's
 /// two code paths.
 ///
 /// **It also carries the MONEY bound, and this is the one place every statement passes through** -
@@ -309,27 +302,7 @@ fn load(at: &DriverLocation) -> Result<ManagedDriver, AdbcError> {
     if let Some(path) = at.mounted() {
         return ManagedDriver::load_dynamic_from_filename(path, None, AdbcVersion::default()).map_err(AdbcError::Load);
     }
-    carried()
-}
-
-/// The driver this artefact's own link carries - the only route a STATIC musl binary has, because
-/// it has no dynamic loader at all. `linked`'s header carries what makes it sound.
-#[cfg(adbc_driver_linked)]
-fn carried() -> Result<ManagedDriver, AdbcError> {
-    linked::driver().map_err(AdbcError::Load)
-}
-
-/// Unreachable in a build that linked no archive, because [`DriverLocation::linked_in`] is the only
-/// constructor of the location this serves and it answers `None` there.
-///
-/// An `Err` and not an `unreachable!`: a refusal a caller can render beats a panic in a boot path,
-/// and the two `cfg` halves then have one signature, so [`load`] needs no branch of its own.
-#[cfg(not(adbc_driver_linked))]
-fn carried() -> Result<ManagedDriver, AdbcError> {
-    Err(AdbcError::Load(CoreError::with_message_and_status(
-        "this build linked no `BigQuery` driver",
-        adbc_core::error::Status::NotFound,
-    )))
+    sutura_adbc::linked_driver().map_err(AdbcError::Load)
 }
 
 /// A driver handle, a prepared statement, and the loopback source they may still fetch from.
@@ -481,8 +454,8 @@ impl AdbcBigQuery {
         // The values, as the one batch this driver binds from - assembled before the `.so` is
         // loaded for the identity's reason: a request this transport cannot assemble must not open a
         // connection. `None` where a call carries no values, which is every boot-path call and a
-        // different code path inside the driver - see [`bind`].
-        let bound = bind::parameter_batch(request.params())?;
+        // different code path inside the driver - see `sutura_adbc::parameter_batch`.
+        let bound = sutura_adbc::parameter_batch(request.params()).map_err(|cause| AdbcError::Parameters { cause })?;
         let mut driver = load(&self.driver)?;
         let opts = [
             (
