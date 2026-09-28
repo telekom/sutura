@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-domain/src/query/top.rs b/crates/sutura-domain/src/query/top.rs
+index 079a2b1df..5203c8ebe 100644
+--- a/crates/sutura-domain/src/query/top.rs
++++ b/crates/sutura-domain/src/query/top.rs
+@@ -81,9 +81,6 @@ pub enum InvalidTopN {
+ 
+ impl TopN {
+     pub const fn parse(n: u32) -> Result<Self, InvalidTopN> {
+-        if n == 0 {
+-            return Err(InvalidTopN::Zero);
+-        }
+         Ok(Self(n))
+     }
+ 

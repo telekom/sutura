@@ -198,6 +198,7 @@ use crate::Asking;
 use crate::tool;
 use crate::wire::{AskArgs, CatalogContent, DescribeCatalogArgs, MalformedQuestion, MalformedStatement, RunSqlArgs};
 
+mod bounds;
 mod outcome;
 
 /// The agent-facing surface over one [`Surface`].
@@ -581,6 +582,12 @@ fn question(request: CallToolRequestParams) -> Result<QuestionAdmission, ErrorDa
     // `deny_unknown_fields` - and an absent `arguments` is an empty object, so a call with no
     // arguments fails on the missing required fields rather than on a different message.
     let arguments = serde_json::Value::Object(request.arguments.unwrap_or_default());
+    // The pre-allocation bound fires before `from_value` builds the `Vec<String>` - the same
+    // count limits `sutura_domain::question::parse_query` checks downstream, refused here as the
+    // same `RefusalReason` so one count has one limit and one channel.
+    if let Some(reason) = bounds::refused_for_over_cap(&arguments) {
+        return Ok(QuestionAdmission::Refused(reason));
+    }
     let args: AskArgs = serde_json::from_value(arguments).map_err(|cause| invalid(&MalformedQuestion::NotAnObject { cause }))?;
     match Query::try_from(args) {
         Ok(query) => Ok(QuestionAdmission::Query(query)),
@@ -603,6 +610,10 @@ fn question(request: CallToolRequestParams) -> Result<QuestionAdmission, ErrorDa
 /// be tempted for on this path too.
 fn run_sql_statement(request: CallToolRequestParams) -> Result<RawStatement, ErrorData> {
     let arguments = serde_json::Value::Object(request.arguments.unwrap_or_default());
+    // Pre-allocation bound: fires before `from_value` builds the `String`, same `-32602` `RawStatement::parse` returns.
+    if let Some(error) = bounds::oversized_statement(&arguments) {
+        return Err(invalid_statement(&error));
+    }
     let args: RunSqlArgs =
         serde_json::from_value(arguments).map_err(|cause| invalid_statement(&MalformedStatement::NotAnObject { cause }))?;
     RawStatement::try_from(args).map_err(|error| invalid_statement(&error))

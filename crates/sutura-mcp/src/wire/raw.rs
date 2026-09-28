@@ -43,6 +43,11 @@ pub enum MalformedStatement {
         #[source]
         cause: sutura_domain::raw::InvalidRawStatement,
     },
+    /// `statement` exceeds [`sutura_domain::raw::MAX_RAW_STATEMENT_BYTES`], refused before the
+    /// `String` is allocated by `serde_json::from_value`. The same code `RawStatement::parse`'s
+    /// own `TooLong` returns, fired earlier; carries only the length and the limit, no caller text.
+    #[error("`statement` is larger than this deployment will attempt before reading it")]
+    StatementTooLarge { len: usize, limit: usize },
 }
 
 impl TryFrom<RunSqlArgs> for RawStatement {
