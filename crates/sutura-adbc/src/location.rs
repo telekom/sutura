@@ -1,7 +1,7 @@
-//! Where this process reaches the `BigQuery` ADBC driver, parsed once.
+//! Where this process reaches an ADBC driver, parsed once.
 //!
 //! **This replaced a `String` that was an arbitrary filesystem path**, which is
-//! `telekom/sutura#929`'s sixth finding: a release artefact that ships the `BigQuery` adapter and no
+//! `telekom/sutura#929`'s sixth finding: a release artefact that ships an ADBC adapter and no
 //! driver is not an ADBC-enabled product, and a free-form variable naming any file on the host is
 //! not a declaration. The two readings a deployment can now have are the two variants below, and
 //! a build that links the driver in cannot be asked for the other one.
@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 ///
 /// **There is no third state and no `Option`.** A source cannot be opened without one of these,
 /// so a composition root either resolved a driver or refused to serve - the shape
-/// `crate::transport::JobIdentity` uses for the same reason.
+/// `sutura_exec_bigquery::transport::JobIdentity` uses for the same reason.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DriverLocation(Reached);
 
@@ -23,10 +23,10 @@ pub struct DriverLocation(Reached);
 /// the variant, which made every match arm and this enum's own shape depend on the build, but
 /// because [`DriverLocation::linked_in`] is the only constructor and it answers `None` there. So a
 /// source build cannot claim a carried driver and a linked artefact has no path to fall back to,
-/// and the two arms stay readable in both builds. `../../build.rs` owns the `cfg`.
+/// and the two arms stay readable in both builds. `../build.rs` owns the `cfg`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Reached {
-    /// Part of this artefact's own link, through `super::linked`.
+    /// Part of this artefact's own link, through `crate::linked`.
     LinkedIn,
     /// A shared object this deployment mounted, at an absolute path.
     Mounted(PathBuf),
@@ -36,16 +36,14 @@ enum Reached {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum UnusableDriverPath {
     /// There was nothing there.
-    #[error("the BigQuery ADBC driver path is empty")]
+    #[error("the ADBC driver path is empty")]
     Empty,
     /// Relative, so what it names depends on the working directory the process happened to start in.
     ///
     /// **A refusal and not a canonicalisation.** Resolving it here would make the driver a
     /// deployment loads depend on how its supervisor launched it, and the driver is the code that
     /// then executes every question - so the one thing this must not do is guess.
-    #[error(
-        "the BigQuery ADBC driver path `{named}` is relative, and what it names would depend on this process's working directory"
-    )]
+    #[error("the ADBC driver path `{named}` is relative, and what it names would depend on this process's working directory")]
     Relative {
         /// As given, so an operator can see what they set.
         named: String,
@@ -69,7 +67,7 @@ impl DriverLocation {
     ///
     /// [`UnusableDriverPath::Empty`] and [`UnusableDriverPath::Relative`]. Whether the file is
     /// THERE is deliberately not decided here: a path that exists at parse time and not at load
-    /// time is the same outcome, so [`super::AdbcBigQuery::probe`] loading it is the check, and a
+    /// time is the same outcome, so the adapter's own `probe` loading it is the check, and a
     /// second one here would only move the message.
     pub fn parse(named: &str) -> Result<Self, UnusableDriverPath> {
         if named.is_empty() {
@@ -93,7 +91,7 @@ impl DriverLocation {
     }
 
     /// The mounted path, for the one caller that has to hand it to the driver manager.
-    pub(super) fn mounted(&self) -> Option<&Path> {
+    pub fn mounted(&self) -> Option<&Path> {
         match &self.0 {
             Reached::LinkedIn => None,
             Reached::Mounted(path) => Some(path),

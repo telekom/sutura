@@ -102,11 +102,12 @@ vendor/**
 
 [warn]
 
-# ONE hand-written file is listed here, and the claim this section makes is unchanged by it: an
-# entry here is a promise to split a file, not a way to silence the gate, and it keeps printing
-# until somebody keeps that promise. This paragraph is maintained BY HAND - the inert-exemption
-# rule is literal-scoped for the reason argued three sections up, so it cannot see a count in
-# prose going stale. It has already said EMPTY once when it was not.
+# THREE hand-written files are listed here, and the claim this section makes is unchanged by the
+# count: an entry here is a promise to split a file, not a way to silence the gate, and it keeps
+# printing until somebody keeps that promise. This paragraph is maintained BY HAND - the
+# inert-exemption rule is literal-scoped for the reason argued three sections up, so it cannot see
+# a count in prose going stale. It has already said EMPTY once when it was not, and ONE when it
+# was three.
 
 # The required CI workflow. Over the cap because it enumerates the gates one at a time BY DESIGN:
 # every check keeps its own step so a failure names itself, which is the property the parallel

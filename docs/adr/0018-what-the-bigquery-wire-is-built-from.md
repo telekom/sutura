@@ -964,8 +964,9 @@ adoption and this paragraph the transport did not call it: it answered
 surface, not a corner.** `sutura_domain::query::Question` makes its `range` a mandatory field, and
 `sutura_sql::Dialect::BigQuery` renders `PlaceholderStyle::Question`, so every rendered statement
 carries positional `?` and values to go with them - a served `bigquery` deployment booted clean and
-answered nothing. Round-2 review of telekom/sutura#929 found it; `crates/sutura-exec-bigquery/src/adbc/bind.rs`
-is the fix and carries the type map.
+answered nothing. Round-2 review of telekom/sutura#929 found it; `crates/sutura-adbc/src/bind.rs`
+is the fix and carries the type map (moved there from the bigquery adapter by `telekom/sutura#913`,
+which made it the one ADBC crate every adapter shares).
 
 **One row, and the driver is why that is a property rather than a detail.** Inside each bound batch
 the driver loops `for i := range int(rec.NumRows())` and runs the whole query once per row, appending

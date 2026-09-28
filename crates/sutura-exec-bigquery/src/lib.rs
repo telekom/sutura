@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! A [`Warehouse`] adapter over `BigQuery`: render the plan, push it down, map the rows back.
 //!
 //! `BigQuery` is the first source in this repository that is a **network service with its own
