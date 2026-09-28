@@ -758,6 +758,13 @@ mod tests {
     }
 
     #[test]
+    fn a_single_user_reason_carrying_a_control_character_is_refused_as_reason() {
+        let error =
+            DeploymentIdentity::parse("single-user", Some("one\u{7}operator")).expect_err("a control character is not a reason");
+        assert!(matches!(error, InvalidDeploymentIdentity::Reason { .. }), "{error:?}");
+    }
+
+    #[test]
     fn the_multi_user_mode_refuses_the_reason_the_other_one_requires() {
         // Split from the test above by `cognitive_complexity`, and the split is along the seam the two
         // modes already have: one requires the reason and the other refuses it.

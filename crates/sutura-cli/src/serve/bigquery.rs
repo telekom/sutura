@@ -43,10 +43,10 @@ pub(crate) fn open_bigquery(
 
 /// The refusal for a build that did not link the `BigQuery` adapter.
 ///
-/// **Two definitions of one signature rather than a `cfg` inside one body**, so the dispatcher above
-/// has exactly one call and the compiler decides which of these it reaches. The parameters this body
-/// does not read are named for it, which is what lets both signatures stay identical under
-/// `dead_code = "deny"`.
+/// **Two definitions of one signature rather than a `cfg` inside one body**, so every caller -
+/// `open_engine`'s single-kind arm and `kind::bigquery_group` - makes one call and the compiler
+/// decides which of these it reaches. The parameters this body does not read are named for it,
+/// which is what lets both signatures stay identical under `dead_code = "deny"`.
 ///
 /// The message names the FEATURE and not just the kind, because the two things an operator can do are
 /// in two different files: change the `kind:`, or build with `--features bigquery`. A message that

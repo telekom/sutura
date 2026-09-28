@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-runtime/src/relative_range.rs b/crates/sutura-runtime/src/relative_range.rs
+index 861230929..e5cad8be9 100644
+--- a/crates/sutura-runtime/src/relative_range.rs
++++ b/crates/sutura-runtime/src/relative_range.rs
+@@ -149,7 +149,7 @@ fn range_choice(start: Option<String>, end: Option<String>, last: Option<LastWir
+     match (start, end, last) {
+         (Some(start), Some(end), None) => Ok(RangeChoice::Absolute { start, end }),
+         (None, None, Some(last)) => {
+-            let count = NonZeroU32::new(last.count).ok_or(InvalidRangeShape::ZeroCount)?;
++            let count = NonZeroU32::new(last.count).ok_or(InvalidRangeShape::AmbiguousOrMissing)?;
+             let unit = RelativeUnit::parse(&last.unit)?;
+             Ok(RangeChoice::Relative {
+                 count,

@@ -6,6 +6,12 @@
 
 use super::support::bundle_with_an_anchor;
 use super::{bigquery_entry, default_timeout, one_worker, open_engine, opened_bigquery, refusal, registry, wif};
+#[cfg(feature = "bigquery")]
+use sutura_domain::identity::{
+    Agreed, CredentialBroker as _, Presented, PrincipalChain, PrincipalName, RequestContext, Secret, SourceSet, Subject,
+};
+#[cfg(feature = "bigquery")]
+use sutura_domain::model::SourceName;
 
 #[test]
 fn a_bigquery_source_missing_a_key_that_kind_is_opened_with_does_not_load() {
@@ -232,9 +238,8 @@ fn a_declared_two_subject_map_admits_the_source_to_the_broker() {
     // **Named for admission, because admission is all it asserts.** It used to be named for the
     // source being *answerable*, and review broke that name: a broker that admits this registry and
     // then refuses to mint for every subject keeps this cell green, because what is read is
-    // `count()` and not an answer. Nothing in this module mints or asks - the per-subject mint on a
-    // request is held in `sutura_http::identity_e2e` over a fake broker, and no cell anywhere asks a
-    // real BigQuery as a declared subject.
+    // `count()` and not an answer. What a declared subject is minted is the next cell's question, and
+    // no cell anywhere asks a real BigQuery as one.
     let broker = super::super::broker::build_broker(&registry(&bigquery_entry(
         "warehouse",
         "impersonation-at-source",
@@ -242,6 +247,56 @@ fn a_declared_two_subject_map_admits_the_source_to_the_broker() {
     )))
     .expect("a declared two-subject map is a source this deployment can serve");
     assert_eq!(broker.count(), 1);
+}
+
+/// The half [`a_declared_two_subject_map_admits_the_source_to_the_broker`] does not ask: the broker
+/// this root builds mints for a declared subject the account declared beside THAT subject, not
+/// another entry's. Minted here and read back off the presented leg, with no request sent anywhere.
+#[test]
+#[cfg(feature = "bigquery")]
+fn a_declared_subject_is_minted_the_account_declared_beside_it() {
+    let broker = super::super::broker::build_broker(&registry(&bigquery_entry(
+        "warehouse",
+        "impersonation-at-source",
+        &wif_with(two_declared_subjects()),
+    )))
+    .expect("a declared two-subject map is a source this deployment can serve");
+    let warehouse = SourceName::parse("warehouse").expect("a test source is a source");
+    let asked = SourceSet::of(warehouse.clone());
+    for (subject_name, assertion, expected_account) in [
+        (
+            "analyst-a@example.com",
+            "assertion.for.analyst-a",
+            "bq-a@acme-analytics.iam.gserviceaccount.com",
+        ),
+        (
+            "analyst-b@example.com",
+            "assertion.for.analyst-b",
+            "bq-b@acme-analytics.iam.gserviceaccount.com",
+        ),
+    ] {
+        let subject = Subject::verified(subject_name).expect("a test subject is a subject");
+        let minted = broker
+            .mint(
+                &RequestContext::with_assertion(PrincipalChain::of(subject.clone()), Secret::new(assertion), 4_102_444_800),
+                &asked,
+            )
+            .expect("a declared subject is mintable");
+        let Agreed::Granted { credentials } = minted
+            .agreeing_with(&subject, &asked, 4_000_000_000)
+            .expect("the grant agrees with the request")
+        else {
+            panic!("a declared subject is granted");
+        };
+        match credentials.presented_for(&warehouse).expect("the source was asked for") {
+            Presented::SubjectToken { impersonate, .. } => assert_eq!(
+                impersonate.as_ref().map(PrincipalName::to_string).as_deref(),
+                Some(expected_account),
+                "{subject_name} must be minted the account declared beside it, not another entry's",
+            ),
+            other => panic!("an impersonating source presents a subject token, not {other:?}"),
+        }
+    }
 }
 
 #[test]

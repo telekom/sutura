@@ -1,8 +1,9 @@
 //! What a wren item became, once its name and shape are recognised.
 //!
-//! Every field here already parsed - a [`sutura_domain::model::ModelName`], not a `String` a
-//! render function might quote wrong - so [`super::render`] only has to spell YAML, never decide
-//! whether a name is one.
+//! Every name-shaped field here already parsed - a [`sutura_domain::model::ModelName`], not a `String`
+//! a render function might quote wrong - so [`super::render`] only has to spell YAML, never decide
+//! whether a name is one. The raw wren text fields (`table`, `data_type`, `cube`, `measure`) are
+//! written through unquoted as-is.
 
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, MetricName, ModelName, RelationshipName};
 

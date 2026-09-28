@@ -291,7 +291,20 @@ fn a_partial_client_certificate_is_refused_at_load() {
         ..postgres("warehouse")
     };
     let error = SourceRegistry::parse(&[cert_only], Some(&single_user())).expect_err("a certificate alone is refused");
-    assert!(matches!(error, InvalidSourceRegistry::Transport { .. }), "{error}");
+    assert!(
+        matches!(
+            error,
+            InvalidSourceRegistry::Transport {
+                cause: transport::InvalidTransport::MissingHalf {
+                    given: "client_certificate",
+                    missing: "client_key",
+                    ..
+                },
+                ..
+            }
+        ),
+        "a certificate alone is refused for the missing key: {error}"
+    );
 
     let key_only = RawSourceEntry {
         transport_mode: Some("mutual"),
@@ -301,7 +314,20 @@ fn a_partial_client_certificate_is_refused_at_load() {
         ..postgres("warehouse")
     };
     let error = SourceRegistry::parse(&[key_only], Some(&single_user())).expect_err("a key alone is refused");
-    assert!(matches!(error, InvalidSourceRegistry::Transport { .. }), "{error}");
+    assert!(
+        matches!(
+            error,
+            InvalidSourceRegistry::Transport {
+                cause: transport::InvalidTransport::MissingHalf {
+                    given: "client_key",
+                    missing: "client_certificate",
+                    ..
+                },
+                ..
+            }
+        ),
+        "a key alone is refused for the missing certificate: {error}"
+    );
 }
 
 #[test]

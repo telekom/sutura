@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-app/src/spend.rs b/crates/sutura-app/src/spend.rs
+index e288ae687..6b8916501 100644
+--- a/crates/sutura-app/src/spend.rs
++++ b/crates/sutura-app/src/spend.rs
+@@ -154,6 +154,7 @@ impl SpendLedger {
+             window.started_at = now;
+             window.spent_bytes = 0;
+         }
++        self.total_spent_bytes.fetch_add(estimated_bytes, Ordering::Relaxed);
+         let projected = window.spent_bytes.saturating_add(estimated_bytes);
+         if projected > budget.ceiling_bytes {
+             let elapsed = now.saturating_duration_since(window.started_at);

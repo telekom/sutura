@@ -1,0 +1,17 @@
+diff --git a/crates/sutura-domain/src/catalog/authored.rs b/crates/sutura-domain/src/catalog/authored.rs
+index 5e2a1d19f..48a4ece35 100644
+--- a/crates/sutura-domain/src/catalog/authored.rs
++++ b/crates/sutura-domain/src/catalog/authored.rs
+@@ -335,7 +335,11 @@ impl ColumnType {
+     pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidColumnType> {
+         let normalized = normalize_to_one_line(raw.as_ref());
+         if normalized.is_empty() {
+-            return Err(InvalidColumnType::Empty);
++            return Err(InvalidColumnType::TooLong {
++                value: normalized,
++                len: 0,
++                limit: MAX_COLUMN_TYPE_CHARS,
++            });
+         }
+         if let Some(offending) = normalized.chars().find(|character| character.is_control()) {
+             return Err(InvalidColumnType::ControlCharacter {
