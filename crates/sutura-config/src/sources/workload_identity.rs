@@ -575,6 +575,13 @@ mod tests {
                 most: WifAudience::MOST,
             })
         );
+        // The bound itself, not just one past it - the endpoint's own doc says up to
+        // `WifAudience::MOST` characters is accepted, and `>` rather than `>=` is what makes that
+        // true.
+        assert!(
+            WifAudience::parse(&"a".repeat(WifAudience::MOST)).is_ok(),
+            "exactly the bound is an audience this deployment may present"
+        );
     }
 
     #[test]

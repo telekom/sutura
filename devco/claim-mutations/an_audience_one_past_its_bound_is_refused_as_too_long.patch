@@ -7,7 +7,7 @@ index 4a8a612c7..1c0e77f64 100644
              return Err(InvalidWorkloadIdentity::Empty { what: "audience" });
          }
 -        if trimmed.chars().count() > Self::MOST {
-+        if trimmed.chars().count() > Self::MOST.saturating_add(1) {
++        if trimmed.chars().count() >= Self::MOST {
              return Err(InvalidWorkloadIdentity::TooLong {
                  what: "audience",
                  found: trimmed.chars().count(),
