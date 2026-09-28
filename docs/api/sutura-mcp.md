@@ -19,20 +19,20 @@ translation rather than its judgement.
 
 # What this crate is
 
-**One crate, one transport, and the whole tool set** - which is two tools, because
-`sutura_app::surface::Surface` has two operations: list what this deployment measures, and answer
-one governed question about one metric. `sutura_app::Capability` is the one source for which those
-are, so **the two transports cannot disagree about what this deployment offers**; each of them
-renders that source and each has a `both_transports_describe_the_same_tools` test asserting it did
-not deviate.
+**One crate, one transport, and the whole tool set** - which is three tools, one per capability
+in `sutura_app::Capability`: list what this deployment measures, answer one governed question
+about one metric, and run one literal SQL statement. `sutura_app::Capability` is the one source
+for which those are, so **the two transports cannot disagree about what this deployment
+offers**; each of them renders that source and each has a
+`both_transports_describe_the_same_tools` test asserting it did not deviate.
 
 Five properties are load-bearing and each has a test rather than a paragraph:
 
 * **The schema is generated.** `tool::input_schema` is `schemars::schema_for!` over a wire type
   in `wire` - there is no hand-written JSON object in this crate - and every tool's generated
   bytes are committed as a snapshot, so a new or widened tool input lands in a reviewer's diff.
-  That byte-compare is a mechanism `AGENTS.md` describes as owed rather than standing; this crate
-  is what owes it.
+  The compare is `insta`'s, over the committed files in `src/snapshots/`, so a changed schema
+  fails until its snapshot is re-accepted.
 * **A tool a caller may not invoke is neither advertised nor answered.**
   `AgentSurface::new` requires an `Asking`, which resolves to a `sutura_app::Permitted` either
   once at construction (`TheProcessOwner`) or fresh per call (`PerRequest`); `tools/list` filters
@@ -100,8 +100,8 @@ this crate, and the handler is three methods written by hand.
   `Asking::PerRequest` is read but never produced. Behind this crate's own default-off `http`
   feature, `http::service` is what produces one over a real request - the streamable-HTTP
   transport - and PR4 (`#758`) is the composition root that already mounts it, behind its own
-  optional `agent` feature and a settings switch; nothing this repository publishes turns that
-  feature on.
+  optional `agent` feature and a settings switch - a feature the shipped build
+  (`nix/shipped.nix`) turns on.
 
   **The consequence for what a scope gates here is stated rather than left implicit:** the
   capability set this surface offers is narrowable, and over standard input and output nothing
@@ -145,10 +145,11 @@ names a MODE, and the value itself is read fresh out of the request's own
 - `TheProcessOwner` - The launching identity is the subject, for the whole life of this surface. The pipe's own shape and a decision rather than a gap - see `serve_stdio` and the module documentation's *what is deliberately absent* section.
 - `PerRequest` - Established fresh from each request's own carried `sutura_app::Asked`. An absent value is a refusal, never `TheProcessOwner`'s fallback - see `rmcp::ServerHandler::call_tool`.
 
-  Nothing in this crate produces an `Asked` today: over standard input and output there is no
-  request to read one from. The arm exists so the exhaustive match in `server` is already
-  total the day an HTTP transport starts producing one, rather than growing a second match
-  somebody has to remember to make exhaustive under `-D warnings` later.
+  Nothing over standard input and output produces an `Asked`: there is no request to read one
+  from. Under this crate's default-off `http` feature, `http::service` lets a real request
+  reach this arm; the arm exists so the exhaustive match in `server` is already total then,
+  rather than growing a second match somebody has to remember to make exhaustive under
+  `-D warnings` later.
 
 ### Implements
 
@@ -163,11 +164,12 @@ pub enum NotServed
 Why the agent surface stopped, when it was not the peer going away.
 
 **Both variants re-export a third-party error type as a `#[source]`, and that is a deliberate
-exception worth naming in review.** `AGENTS.md` allows only our own or standard-library errors
-across a crate boundary and records that a variant carrying somebody else's type is a review
-question rather than a gate. It is carried here because the alternative is worse: the handshake
-failure is the SDK's own account of what the peer sent, and flattening it to a sentence would
-throw away the only description of the fault that exists.
+exception worth naming in review.** `.agents/skills/engineering/rust`'s review table records
+that an adapter wrapping a third-party library maps its errors at the boundary, and a variant
+carrying somebody else's type is a review question rather than a gate. It is carried here
+because the alternative is worse: the handshake failure is the SDK's own account of what the
+peer sent, and flattening it to a sentence would throw away the only description of the fault
+that exists.
 
 ### Variants
 
@@ -187,7 +189,7 @@ throw away the only description of the fault that exists.
 ## `fn serve_stdio`
 
 ```rust
-pub async fn serve_stdio<S>(service: std::sync::Arc<S>, permitted: sutura_app::Permitted, prose: sutura_app::prompt::CatalogProse, list_physical_schema: bool, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, instructions: std::sync::Arc<str>, operator_instructions: Option<std::sync::Arc<str>>) -> Result<(), NotServed>
+pub async fn serve_stdio<S>(service: std::sync::Arc<S>, permitted: sutura_app::Permitted, prose: sutura_app::prompt::CatalogProse, list_physical_schema: bool, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, tools: std::sync::Arc<[sutura_app::prompt::Tool]>, operator_instructions: Option<std::sync::Arc<str>>) -> Result<(), NotServed>
 ```
 
 Serves the agent surface over standard input and output, until the client disconnects.
@@ -207,10 +209,11 @@ in-flight answer finish.
 
 **`permitted` is required for the same reason `AgentSurface::new` requires an `Asking`: a pipe
 has no header a token could arrive in, so this transport alone cannot choose who the peer is. The
-composition root decides** - `sutura`'s `mcp` subcommand passes `Permitted::every_capability` and
-prints that at startup - so the value lives next to the notice that states it rather than hidden
-in this function. This function wraps it as `Asking::TheProcessOwner` before handing it to the
-surface; there is no path through `serve_stdio` to `Asking::PerRequest` at all.
+composition root decides** - `sutura`'s `mcp` subcommand derives it from `every_capability()`,
+minus `RunSql` unless `tools.run_sql.enabled`, and prints that at startup - so the value lives
+next to the notice that states it rather than hidden in this function. This function wraps it as
+`Asking::TheProcessOwner` before handing it to the surface; there is no path through
+`serve_stdio` to `Asking::PerRequest` at all.
 
 **`admission` is required for the same reason and answers a different question.** rmcp serves
 requests concurrently - one task per request, and the SDK caps nothing - so without a bound every
@@ -233,11 +236,11 @@ bounds how large one answer may get, the admission bound is how many answers may
 produced, and the reply deadline is how long one peer waits for one of them. None of the three
 cancels a question already inside the pool - see `server` and #160.
 
-**`instructions` is the fourth required value, and it is what a peer's `initialize` result
-carries as `instructions` - `telekom/sutura#776`.** It has to be rendered before this call, by
-`sutura_app::prompt::render` over the settings and the pinned bundle this `service` answers
-from, because this crate performs no catalog I/O of its own; the composition root that already
-read both is `sutura`'s `mcp` subcommand.
+**`tools` is the fourth required value: the operations a peer's `initialize.instructions` prompt
+describes - `telekom/sutura#776`.** The surface renders that prompt itself, with
+`sutura_app::prompt::render` over the bundle this `service` answers from; the composition root
+that read the settings - `sutura`'s `mcp` subcommand - decides which tools this deployment
+mounts.
 
 Returns when the peer closes or is cancelled.
 
@@ -259,7 +262,8 @@ port has to outlive the future that started the call.
 The streamable-HTTP transport, default-off behind this crate's own `http` feature.
 
 `telekom/sutura#378` PR3, `docs/adr/0023`. See its own module documentation for what it does
-and, as importantly, what it does not: nothing served mounts it yet.
+and, as importantly, what it does not. `sutura serve` nests it at `/mcp` behind `sutura-cli`'s
+`agent` feature.
 The streamable-HTTP transport, as a plain `tower_service::Service` a composition root mounts.
 
 **`#[cfg(feature = "http")]` only** - `telekom/sutura#378` PR3, `docs/adr/0023`. Nothing served
@@ -360,7 +364,7 @@ re-resolved per request out of each request's `Asked`, never out of a session.
 ### `fn service`
 
 ```rust
-pub fn service<S>(surface: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse, list_physical_schema: bool, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, instructions: std::sync::Arc<str>, operator_instructions: Option<std::sync::Arc<str>>) -> rmcp::transport::StreamableHttpService<crate::AgentSurface<S>, rmcp::transport::streamable_http_server::session::local::LocalSessionManager>
+pub fn service<S>(surface: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse, list_physical_schema: bool, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, tools: std::sync::Arc<[sutura_app::prompt::Tool]>, operator_instructions: Option<std::sync::Arc<str>>) -> rmcp::transport::StreamableHttpService<crate::AgentSurface<S>, rmcp::transport::streamable_http_server::session::local::LocalSessionManager>
 ```
 
 Builds the streamable-HTTP transport over one `Surface`, as a plain `tower_service::Service`
@@ -375,9 +379,9 @@ the two are not interchangeable.
 `service_factory` is called by the SDK ONCE PER REQUEST under `config`'s stateless mode (see
 the module documentation) - never once per process and never once per session - so each call
 clones the shared `service`/`admission` handles rather than allocating a second data-system
-connection or a second permit set. `instructions` is cloned the same way, and for the same
-reason it is an `Arc<str>` rather than a `String`: this factory runs on every request, not only
-on the `initialize` that reads it back.
+connection or a second permit set. `tools` is cloned the same way, and for the same reason it is
+an `Arc<[Tool]>` rather than a `Vec`: this factory runs on every request, not only on the
+`initialize` that renders the prompt from it.
 
 ## Module `server`
 
@@ -406,8 +410,9 @@ no such metric" asks something else.
 # Why a malformed argument is a JSON-RPC error rather than `isError`
 
 Because it is not a tool *execution* failure - the tool never ran. `-32602` is the name JSON-RPC
-already has for it, `MalformedQuestion` names the field, and it is the one channel a caller cannot
-read as either an answer or a refusal.
+already has for it, `MalformedQuestion` names the field (except for an arguments object that did
+not deserialize, whose message never repeats the caller's own keys or values), and it is the one
+channel a caller cannot read as either an answer or a refusal.
 
 **The limit, stated with the claim:** rmcp's own documentation notes that clients typically render
 a protocol error opaquely, so a model may see less than the message carries. `Ok(isError: true)`
@@ -574,7 +579,7 @@ pub const fn listing_physical_schema(self, enabled: bool) -> Self
 ```
 
 ```rust
-pub const fn new(service: Arc<S>, asking: Asking, prose: sutura_app::prompt::CatalogProse, admission: Admission, reply: RequestTimeout, instructions: Arc<str>, operator_instructions: Option<Arc<str>>) -> Self
+pub const fn new(service: Arc<S>, asking: Asking, prose: sutura_app::prompt::CatalogProse, admission: Admission, reply: RequestTimeout, tools: Arc<[Tool]>, operator_instructions: Option<Arc<str>>) -> Self
 ```
 
 Wraps a service, and states what the peer may do and how catalog prose is treated.
@@ -609,12 +614,8 @@ no counterpart here a peer that got an execution slot waited for as long as the 
 took. The module documentation carries why this key rather than one of this transport's own,
 and what the deadline does not stop.
 
-**`instructions` is required and is the fifth, for the same reason as the rest: only a
-composition root has read the settings and the pinned bundle both** - `sutura`'s `mcp`
-subcommand and `sutura-cli`'s `serve::agent::mount` each render it with
-`sutura_app::prompt::render`, the same call `sutura prompt` makes, over the same bundle
-this `service` answers from. No default here, and deliberately: a sentence this crate hard-
-coded could never have named a tool, a metric or a refusal that this deployment actually has.
+**`tools` is required and is the fifth: only a composition root has read the settings** that
+say which operations this deployment mounts - the same list `sutura prompt` renders.
 
 #### Implements
 
@@ -1236,6 +1237,7 @@ Why a `run_sql` call's arguments were not a statement.
 
 - `NotAnObject`
 - `Statement`
+- `StatementTooLarge` - `statement` exceeds `sutura_domain::raw::MAX_RAW_STATEMENT_BYTES`, refused before the `String` is allocated by `serde_json::from_value`. The same code `RawStatement::parse`'s own `TooLong` returns, fired earlier; carries only the length and the limit, no caller text.
 
 ##### Implements
 
