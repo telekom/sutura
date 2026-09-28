@@ -18,8 +18,8 @@ import threading
 import time
 import unittest
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
-HEALTHCHECK_PATH = ROOT / "demo" / "healthcheck.py"
+ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
+HEALTHCHECK_PATH = ROOT / "examples" / "demo-chatinterface" / "healthcheck.py"
 
 
 class _Server(http.server.ThreadingHTTPServer):
@@ -152,7 +152,7 @@ def launcher_fakes(
 def supervised_children(
     root: pathlib.Path, serve_script: str, backend_script: str
 ) -> pathlib.Path:
-    """`demo/run.sh`, with its two hard-coded child paths swapped for scripts this test controls."""
+    """`examples/demo-chatinterface/run.sh`, with its two hard-coded child paths swapped for scripts this test controls."""
     server_path = root / "serve"
     server_path.write_text(serve_script, encoding="utf-8")
     server_path.chmod(0o755)
@@ -160,7 +160,7 @@ def supervised_children(
     backend.mkdir()
     (backend / "start.sh").write_text(backend_script, encoding="utf-8")
     (backend / "start.sh").chmod(0o755)
-    source = (ROOT / "demo/run.sh").read_text(encoding="utf-8")
+    source = (ROOT / "examples/demo-chatinterface/run.sh").read_text(encoding="utf-8")
     instrumented = root / "run.sh"
     instrumented.write_text(
         # The fake ignores its own arguments, so leaving ` serve` in place after the binary path is
@@ -176,7 +176,7 @@ def supervised_children(
 
 
 def supervisor_environment(run_dir: pathlib.Path) -> dict[str, str]:
-    """The minimum env `demo/run.sh` needs to reach its two children, ports it never binds."""
+    """The minimum env `examples/demo-chatinterface/run.sh` needs to reach its two children, ports it never binds."""
     return {
         "SUTURA_DEMO_MODEL_ENDPOINT": "https://host.docker.internal:11434/v1",
         "SUTURA_DEMO_MODEL": "test-model",
@@ -228,7 +228,7 @@ class DemoBehavior(unittest.TestCase):
                 "SUTURA_DEMO_ACKNOWLEDGE": "one local test user",
             }
             result = subprocess.run(
-                ["bash", str(ROOT / "demo/start.sh"), "--check"],
+                ["bash", str(ROOT / "examples/demo-chatinterface/start.sh"), "--check"],
                 cwd=ROOT,
                 env={**os.environ, **environment},
                 capture_output=True,
@@ -256,7 +256,11 @@ class DemoBehavior(unittest.TestCase):
                     "SUTURA_DEMO_ACKNOWLEDGE": "one local test user",
                 }
                 result = subprocess.run(
-                    ["bash", str(ROOT / "demo/start.sh"), "--up-only"],
+                    [
+                        "bash",
+                        str(ROOT / "examples/demo-chatinterface/start.sh"),
+                        "--up-only",
+                    ],
                     cwd=ROOT,
                     env={**os.environ, **environment},
                     capture_output=True,
@@ -277,7 +281,7 @@ class DemoBehavior(unittest.TestCase):
             "SUTURA_DEMO_ACKNOWLEDGE": "one local test user",
         }
         result = subprocess.run(
-            ["bash", str(ROOT / "demo/start.sh"), "--check"],
+            ["bash", str(ROOT / "examples/demo-chatinterface/start.sh"), "--check"],
             cwd=ROOT,
             env={**os.environ, **environment},
             capture_output=True,
@@ -308,7 +312,11 @@ class DemoBehavior(unittest.TestCase):
                 "SUTURA_DEMO_ACKNOWLEDGE": "one local test user",
             }
             result = subprocess.run(
-                ["bash", str(ROOT / "demo/start.sh"), "--up-only"],
+                [
+                    "bash",
+                    str(ROOT / "examples/demo-chatinterface/start.sh"),
+                    "--up-only",
+                ],
                 cwd=ROOT,
                 env={**os.environ, **environment},
                 capture_output=True,
@@ -331,7 +339,11 @@ class DemoBehavior(unittest.TestCase):
                 "SUTURA_DEMO_ACKNOWLEDGE": "one local test user",
             }
             result = subprocess.run(
-                ["bash", str(ROOT / "demo/start.sh"), "--up-only"],
+                [
+                    "bash",
+                    str(ROOT / "examples/demo-chatinterface/start.sh"),
+                    "--up-only",
+                ],
                 cwd=ROOT,
                 env={**os.environ, **environment},
                 capture_output=True,
@@ -599,7 +611,9 @@ class DemoBehavior(unittest.TestCase):
             self.assertEqual(raised.exception.code, 302)
 
     def test_supervisor_passes_exact_model_key_to_webui_child(self) -> None:
-        source = (ROOT / "demo/run.sh").read_text(encoding="utf-8")
+        source = (ROOT / "examples/demo-chatinterface/run.sh").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("/usr/local/bin/sutura serve", source)
         self.assertIn("/app/backend", source)
         with tempfile.TemporaryDirectory() as directory:
@@ -686,7 +700,7 @@ class DemoBehavior(unittest.TestCase):
                     self.assertNotIn(key, result.stderr)
 
     def test_a_normal_double_exit_still_ends_the_container_unhealthy(self) -> None:
-        # "A child that exited 0 is still the demo ending" - `demo/run.sh`'s own comment. The
+        # "A child that exited 0 is still the demo ending" - `examples/demo-chatinterface/run.sh`'s own comment. The
         # server exits first; `wait -n` catches status 0, `terminate` reaches the backend while it
         # is also on its way out, and the forced-to-1 rule is what must survive both exiting clean.
         with tempfile.TemporaryDirectory() as directory:
@@ -849,7 +863,7 @@ class DemoBehavior(unittest.TestCase):
             silent.chmod(0o755)
             run_dir = root / "run"
             result = subprocess.run(
-                ["bash", str(ROOT / "demo/run.sh")],
+                ["bash", str(ROOT / "examples/demo-chatinterface/run.sh")],
                 cwd=ROOT,
                 env={
                     **os.environ,

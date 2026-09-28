@@ -18,6 +18,35 @@ being skipped, and the subcommand list it classifies against is read out of the 
 block nor a provenance stamp - a listing's rows and a compiled statement are pinned by
 `crates/sutura-cli/tests/example.rs`'s snapshots instead.
 
+## Run it over compose
+
+The default way in: the published image, over this catalog, no clone and no toolchain beyond
+`docker compose`.
+
+```bash
+docker compose -f examples/single-player/compose.yaml up
+```
+
+That brings up `sutura serve` on this machine's loopback, reading the catalog and corpus in this
+directory as one read-only volume - `compose.yaml`'s own comments say why each setting is there, and
+mirror the `docker run` recipe [Serving over HTTP](../../docs/serving.md#running-it) documents
+byte for byte. Once it reports healthy:
+
+```bash
+curl http://127.0.0.1:8080/health
+```
+
+answers the fifteen fixed bytes [As a test](#as-a-test) below already holds true, which is enough
+to know the server is up and answering. [Serving over HTTP](../../docs/serving.md) is the
+reference for what else is there - the token, the postures, every refusal's documented status -
+and `crates/sutura-cli/tests/served.rs` is what proves it, both against this same directory.
+`docker compose -f examples/single-player/compose.yaml down` removes it.
+
+## For developers
+
+The same catalog, the same questions, and what a test holds - run directly against the files, no
+server and no container.
+
 ```bash
 cargo run -p sutura-cli -- \
   query examples/single-player/catalog \
@@ -26,7 +55,7 @@ cargo run -p sutura-cli -- \
 ```
 
 ```
--- definitions local-working-tree b0e74ef1b790cff7171094fec4b9389913e7940bf7c9a2abdec2269c3e29e538
+-- definitions local-working-tree fc8d41d77d8e71ae22442a29621015faf94c03ac2628e99c3bc2d8dd06c3da19
 period	recurring_revenue
 2026-01-01	237320
 2026-02-01	232822
@@ -47,7 +76,7 @@ point.
 No feature flag and no database. The engine reads these CSVs directly, so `query` works in a plain
 `cargo run` - and `compile` renders the statement for any dialect without reading data at all.
 
-## What is here
+### What is here
 
 ```
 catalog/models/*.md                 what tables exist and which columns may be read
@@ -92,7 +121,7 @@ cargo run -p sutura-cli -- compile  $E/catalog $E/questions/recurring-revenue-by
 is the useful thing to look at when the question is what sutura decided rather than what
 the answer was.
 
-## The measure vocabulary, in one catalog
+### The measure vocabulary, in one catalog
 
 The vocabulary has two levels, and the second one is the extensible one. A **term** is what
 one number is computed from - an `aggregate` over a column, or a `count_if` over a boolean
@@ -135,7 +164,7 @@ because this snapshot holds one row per subscription per month and the metric de
 month grain. The two would part company the moment either of those changed, which is why they are
 two documents and two anchors rather than one.
 
-## The two dimensions that are not one hop away
+### The two dimensions that are not one hop away
 
 Every other dimension in this catalog is one declared relationship off the fact table. Two are
 not, at opposite ends of the same axis, and both are here because a catalog of single-hop
@@ -167,7 +196,7 @@ which is what makes `questions/recurring-revenue-june.yaml` and
 `questions/recurring-revenue-by-region.yaml` reconcile. Group the June figure by region and the six
 groups still sum to 202121.
 
-## Anchors
+### Anchors
 
 Six metrics declare an `anchor`: a range and the number the metric produced over it when
 it was certified.
@@ -204,7 +233,7 @@ denominator happens not to be zero and making the readiness of the whole bundle 
 staying true. The period that metric exists to demonstrate is the one where it has no figure, and
 an anchor cannot be that period.
 
-## Refusals
+### Refusals
 
 Nine questions in the corpus are named `refused-*` because that is what they are for. A
 refusal is a result rather than an error, decided before anything runs, and it names what
@@ -251,7 +280,7 @@ the string `inf` would come back under a certified metric name, which is exactly
 do. The June question beside it answers a real figure, so this is not a metric that simply never
 works.
 
-## Over HTTP
+### Over HTTP
 
 The same catalog, the same data and the same questions, served. `sutura serve` is a subcommand of
 the same shipped binary rather than a second one: the image's default command is `--version`, and
@@ -281,7 +310,7 @@ and `crates/sutura-cli/tests/documented.rs` exists because of it. A session noth
 promise about a program, and this repository's rule for those is that a test makes them or they are
 not made.
 
-## Over MCP
+### Over MCP
 
 A chat client points at the `sutura` binary's `mcp` command. It launches the process and
 speaks the Model Context Protocol on its pipes - the same two tools the HTTP surface serves
@@ -309,7 +338,7 @@ would. The process prints, on standard error, that it grants every capability to
 it: a pipe has no header a token could arrive in, so the limit is stated beside the mode rather than
 left as a default.
 
-## The data
+### The data
 
 It is synthetic, all of it. A seeded pseudo-random generator produced it, the customer
 numbers look like `C0001` because a generator wrote them, and no row corresponds to a real
@@ -331,7 +360,7 @@ subscription in June names a customer key that `dim_customer.csv` does not have,
 puts a `null` group in every answer grouped by a customer attribute. And January has rows and no
 terminations at all, which is the month `revenue_per_churned_subscription` has no figure for.
 
-## As a test
+### As a test
 
 **The same directory is the corpus of every test that reads a catalog, and there is no second copy
 of it anywhere.** That is a recent thing worth stating plainly: the golden suite under

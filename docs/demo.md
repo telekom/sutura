@@ -26,15 +26,15 @@ The client is registered against the server through Open WebUI's **native OpenAP
 `config.enable` - so there is no plugin to maintain, and the tools it lists are exactly the
 operations the served document already describes.
 
-`demo/run.sh` is the supervisor. It starts both children and, if either exits, stops the other and
-fails the container - so a demo that lost half of itself is never reported healthy. `demo/healthcheck.py`
+`examples/demo-chatinterface/run.sh` is the supervisor. It starts both children and, if either exits, stops the other and
+fails the container - so a demo that lost half of itself is never reported healthy. `examples/demo-chatinterface/healthcheck.py`
 is the probe, and it checks the server, its two operations and the client. The port is published
 ephemerally and bound to loopback, so two worktrees can run the demo at once and nothing off this
 machine can reach it.
 
 ## Configure the model
 
-Three values and one acknowledgement, all from the environment. `demo/start.sh` validates them
+Three values and one acknowledgement, all from the environment. `examples/demo-chatinterface/start.sh` validates them
 before it builds or starts anything, and never prints a value: a missing or malformed setting is
 reported by name.
 
@@ -103,7 +103,7 @@ ungoverned: if it did not call `ask_metric`, no certified number was involved.
 
 ## Stop it
 
-Ctrl-C removes the demo's containers, its network and its named volumes. `demo/start.sh` runs the
+Ctrl-C removes the demo's containers, its network and its named volumes. `examples/demo-chatinterface/start.sh` runs the
 tier's own scoped teardown through `xtask dev-down`, so only this worktree's demo goes - the chat
 client's stored state included. `just dev-down` does the same from another shell.
 
@@ -126,7 +126,7 @@ Stated here rather than left to a reader, because an overstated control is itsel
   that makes loopback binding a boundary of this demo, not a pattern for a shared deployment.
 - **The real walkthrough is not a gate, and this is not a release artifact.** `just validate` runs
   the hermetic fake-child behavior contract, including authenticated registry and operation-set
-  checks, but it does not build the image or call a real model. `demo/Dockerfile` is demo-only
+  checks, but it does not build the image or call a real model. `examples/demo-chatinterface/Dockerfile` is demo-only
   packaging around the shipped server binary. A demo that failed a gate would be disabled, and a
   disabled demo holds nothing.
 
