@@ -5,7 +5,7 @@ use sutura_domain::capabilities::{DeclarableKind, DefinitionCapabilities, Defini
 use sutura_domain::catalog::{InconsistentDefinitions, InvalidDescription};
 use sutura_domain::definitions::{DefinitionDigest, NotDigestible};
 use sutura_domain::knowledge::KnowledgeCapabilities;
-use sutura_domain::model::{Grain, JoinType, MetricName, ModelName, SourceName};
+use sutura_domain::model::{Grain, InvalidIdentifier, JoinType, MetricName, ModelName, SourceName};
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{DefinitionVersion, SemanticCatalog};
 use sutura_domain::query::{Query, RefusalReason};
@@ -641,6 +641,61 @@ fn a_physical_column_identifier_that_would_be_trimmed_is_refused() {
         RdbmsCatalog::new(name(), version(), column_with_space).load(),
         Err(RdbmsError::ColumnName { table, column, .. })
             if table == "public.orders" && column == "order_id "
+    ));
+}
+
+/// A table whose semantic model name does not parse is refused with the model and table named.
+///
+/// The physical address is valid; the failure is the model string the dictionary assigned. A leading
+/// digit is the reachable member - a reader that read a numeric prefix as the model - and the
+/// variant carries the table, the offending model and the typed cause so a reader can go back to
+/// the right row.
+#[test]
+fn a_table_whose_model_name_does_not_parse_is_refused() {
+    let bad_model = SparseReader(Dictionary::new(
+        vec![Table::new(
+            "1orders".to_owned(),
+            public("orders"),
+            vec!["order_id".to_owned()],
+            None,
+        )],
+        Vec::new(),
+    ));
+    assert!(matches!(
+        RdbmsCatalog::new(name(), version(), bad_model).load(),
+        Err(RdbmsError::ModelName { table, model, cause })
+            if table == "public.orders"
+                && model == "1orders"
+                && cause == InvalidIdentifier::BadFirstCharacter { first: '1' }
+    ));
+}
+
+/// A foreign key whose constraint name does not parse is refused with the relationship named.
+///
+/// The endpoints and columns are valid and the target carries uniqueness evidence, so the failure
+/// is the constraint name itself - a space is the reachable member, and the variant carries the
+/// offending name and the typed cause.
+#[test]
+fn a_foreign_key_whose_constraint_name_does_not_parse_is_refused() {
+    let bad_name = SparseReader(Dictionary::new(
+        vec![
+            table("orders", vec!["customer_id".to_owned()], None),
+            table("customers", vec!["customer_id".to_owned()], None),
+        ],
+        vec![foreign_key(
+            Some("orders customer fk"),
+            "orders",
+            "customer_id",
+            "customers",
+            "customer_id",
+            Some(SingleColumnTargetUniqueness::PrimaryKey),
+        )],
+    ));
+    assert!(matches!(
+        RdbmsCatalog::new(name(), version(), bad_name).load(),
+        Err(RdbmsError::RelationshipName { relationship, cause })
+            if relationship == "orders customer fk"
+                && cause == InvalidIdentifier::IllegalCharacter { offending: ' ' }
     ));
 }
 
