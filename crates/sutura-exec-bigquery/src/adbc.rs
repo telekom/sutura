@@ -48,7 +48,7 @@ mod subject;
 pub use ceiling::{BytesBilledCeiling, UnusableCeiling};
 pub use identity::Impersonation;
 pub use subject::{UnusablePool, WorkloadPool};
-pub use sutura_adbc::{DriverLocation, UnusableDriverPath, parameter_batch};
+pub use sutura_adbc::{DriverLocation, UnusableDriverPath};
 
 // The ADBC traits below are imported anonymously (`as _`) because they exist only
 // to resolve those types' methods and are never named directly - except `Statement`, which
