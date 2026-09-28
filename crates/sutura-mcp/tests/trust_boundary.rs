@@ -373,6 +373,11 @@ mod tests {
     }
 
     /// Asserts a tool result is a refusal with the given code, through `Ok` (not a protocol error).
+    ///
+    /// `#[track_caller]` so a failing assertion here reports the CALLING test's own line, not this
+    /// helper's - `just causality`'s claim-mutation check reads that site to tell a cell's own
+    /// assertion from a panic elsewhere, and a shared helper with no `#[track_caller]` reports itself.
+    #[track_caller]
     fn assert_refusal(result: &rmcp::model::CallToolResult, expected_code: &str) {
         assert_ne!(result.is_error, Some(true), "a refusal is not an error: {result:?}");
         let structured = result
