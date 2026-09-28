@@ -141,6 +141,18 @@ pub(crate) enum PlanError {
         dimension: DimensionName,
         hop: usize,
     },
+    /// `federated_plan` carried a cross-model ratio's second-fact leaves but has no second fact
+    /// model, or no calendar model, to build the leg from.
+    ///
+    /// **Unreachable by construction, [`NoRemoteJoin`](Self::NoRemoteJoin)'s reason again.** `plan`
+    /// dispatches a cross-model ratio to `federated_plan` only once `resolution.metric
+    /// .shared_calendar()` is `Some`, and `resolve` sets `second_fact_model` and `calendar_model`
+    /// together from the same catalog lookups whenever the measure names a cross-model term - so a
+    /// federation whose leaves split into a non-empty second-fact set has both fields `Some` too.
+    /// A `PlanError` rather than a `RefusalReason`, for the same reason: a caller cannot narrow
+    /// their way out of our own wiring.
+    #[error("the federated splitter carries a second fact's leaves with no second fact model or calendar model")]
+    NoSecondFactModel,
 }
 
 impl From<RefusalReason> for PlanError {
@@ -190,15 +202,27 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
             metric: resolution.metric.name().clone(),
         });
     };
-    // `telekom/sutura#780`: neither plan shape builds a second FACT leg, so a term naming a model
-    // other than the metric's own is refused here rather than resolved against the metric's own
-    // table under a certified name - the catalog already proved the reference, not the plan shape.
-    if let Some((cross_metric, model)) = cross_model_term(resolution) {
-        return Err(PlanError::Refused(RefusalReason::CrossModelRatioNotExecutable {
+    // `telekom/sutura#780`: a cross-model ratio is executable when the metric declares a shared
+    // calendar - a conformed time dimension both fact models reach through a `via`, so both facts
+    // bucket through the SAME calendar column and the combiner joins them on the link AND the
+    // bucket. Without one, the two facts cannot be bucketed through the same time dimension, so the
+    // ratio is refused under its own name rather than bucketed on the first fact's time column
+    // (which would misalign the two facts). The catalog already proved the term's model reference;
+    // the consistency check proved the shared calendar is reachable from both fact models. What
+    // remains here is the plan-shape decision: a cross-model ratio with a shared calendar dispatches
+    // to `federated_plan` (which builds the second fact leg); one without is refused.
+    if let Some((cross_metric, model)) = cross_model_term(resolution)
+        && resolution.metric.shared_calendar().is_none()
+    {
+        return Err(PlanError::Refused(RefusalReason::CrossModelRatioWithoutSharedCalendar {
             metric: cross_metric.clone(),
             model: model.clone(),
         }));
     }
+    // A cross-model ratio WITH a shared calendar is federated: the second fact leg reads the named
+    // model's table, and both legs bucket through the calendar. `federated_plan` builds it. It
+    // must reach exactly one remote source (the named model's), which the dispatch below checks -
+    // so we fall through to the `remote` computation rather than returning.
     if let Some((dimension, hop)) = chain_leaving_its_source(resolution) {
         return Err(PlanError::ChainLeavesItsSource {
             metric: resolution.metric.name().clone(),
@@ -209,10 +233,20 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
     // Every source besides the metric's own that a chain reaches. The LAST hop decides which source
     // a dimension reads from (`is_remote`'s note), so the filter cannot drop a source here: a remote
     // dimension's last hop sits on that source by construction.
-    let remote: BTreeSet<&SourceName> = every_remote_dimension(resolution)
+    let mut remote: BTreeSet<&SourceName> = every_remote_dimension(resolution)
         .filter_map(|dim| dim.join.as_ref().and_then(|hops| hops.last()).map(|hop| hop.model.source()))
         .collect();
-
+    // `telekom/sutura#780`: a cross-model ratio with a shared calendar has a second fact on a
+    // different source - the named model's. That source is remote even when no dimension chain
+    // reaches it, so it is added here to dispatch to `federated_plan` rather than `mono_plan`.
+    // The second fact's source is the named model's, which may or may not differ from the metric's
+    // own: the consistency check proves only that each fact model reaches the calendar, not that
+    // the two facts sit on different sources. If they share a source, `remote` gains nothing and
+    // the dispatch below falls to `mono_plan`, which builds no second leg; `FederatedPlan::new`'s
+    // `FactsOnSameSource` guard is the wiring defect that catches it, not a refusal.
+    if let Some(second) = resolution.second_fact_model {
+        remote.insert(second.source());
+    }
     // A multi-metric question never federates - `mono_plan`'s own comment argues why the metrics
     // sharing a model puts them on one data system - but `federated_plan` below reads only
     // `resolution.metric` (the first named metric), so without this check a multi-metric question

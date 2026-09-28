@@ -148,6 +148,8 @@ impl Corpus {
             keys,
             filters: Vec::new(),
             top: None,
+            second_fact_model: None,
+            calendar_model: None,
         }
     }
 }
@@ -341,6 +343,8 @@ fn a_compound_crossing_relationship_is_refused_by_its_own_name() {
         }],
         filters: Vec::new(),
         top: None,
+        second_fact_model: None,
+        calendar_model: None,
     };
     let Err(refused) = plan(&resolution) else {
         panic!("a compound crossing relationship must be refused, not planned");
@@ -397,6 +401,8 @@ fn a_ratio_term_naming_another_model_is_refused_before_either_plan_shape_is_trie
         keys: Vec::new(),
         filters: Vec::new(),
         top: None,
+        second_fact_model: None,
+        calendar_model: None,
     };
     let Err(refused) = plan(&resolution) else {
         panic!("a ratio term naming another model must be refused");
@@ -404,7 +410,7 @@ fn a_ratio_term_naming_another_model_is_refused_before_either_plan_shape_is_trie
     assert!(
         matches!(
             refused,
-            PlanError::Refused(sutura_domain::query::RefusalReason::CrossModelRatioNotExecutable {
+            PlanError::Refused(sutura_domain::query::RefusalReason::CrossModelRatioWithoutSharedCalendar {
                 ref metric,
                 ref model,
             }) if *metric == MetricName::parse("revenue_per_customer").expect("a test metric is a metric")
@@ -469,6 +475,8 @@ fn a_ratio_term_naming_another_model_is_refused_with_a_remote_dimension_too() {
         }],
         filters: Vec::new(),
         top: None,
+        second_fact_model: None,
+        calendar_model: None,
     };
     let Err(refused) = plan(&resolution) else {
         panic!("a ratio term naming another model must be refused even with a remote dimension present");
@@ -476,7 +484,7 @@ fn a_ratio_term_naming_another_model_is_refused_with_a_remote_dimension_too() {
     assert!(
         matches!(
             refused,
-            PlanError::Refused(sutura_domain::query::RefusalReason::CrossModelRatioNotExecutable {
+            PlanError::Refused(sutura_domain::query::RefusalReason::CrossModelRatioWithoutSharedCalendar {
                 ref metric,
                 ref model,
             }) if *metric == MetricName::parse("revenue_per_customer").expect("a test metric is a metric")
@@ -526,6 +534,8 @@ fn a_ratio_term_naming_the_metric_s_own_model_plans_like_one_naming_none() {
         keys: Vec::new(),
         filters: Vec::new(),
         top: None,
+        second_fact_model: None,
+        calendar_model: None,
     };
     let planned = mono(&resolution);
     let sutura_domain::plan::PlanMeasure::Ratio {
@@ -629,6 +639,8 @@ fn a_multi_metric_plan_keeps_each_required_filter_on_its_own_measure() {
         keys: Vec::new(),
         filters: Vec::new(),
         top: None,
+        second_fact_model: None,
+        calendar_model: None,
     };
 
     let planned = mono(&resolution);
@@ -739,6 +751,8 @@ fn a_multi_metric_question_reaching_a_remote_dimension_is_refused_by_name() {
         }],
         filters: Vec::new(),
         top: None,
+        second_fact_model: None,
+        calendar_model: None,
     };
 
     let Err(refused) = plan(&resolution) else {
@@ -756,3 +770,102 @@ fn a_multi_metric_question_reaching_a_remote_dimension_is_refused_by_name() {
         "expected MultiMetricFederationNotExecutable naming both metrics, got {refused:?}"
     );
 }
+
+/// `telekom/sutura#780`: a cross-model ratio WITH a shared calendar plans as a federated answer
+/// with a second fact leg. The metric's numerator reads the metric's own model (`facts`); the
+/// denominator reads `customers` on the remote source. Both facts bucket through the shared
+/// calendar model's `time_column`. The second fact leg carries the `Some`-model leaves (the
+/// denominator), and the first fact leg carries the `None`-model leaves (the numerator).
+///
+/// This is the golden plan cell: the question plans rather than refusing, and the second fact
+/// leg is present. The corpus is built by hand because the plan stage reads a `Resolution`, which
+/// only a hand-built corpus can supply with a `second_fact_model` and a `calendar_model`.
+#[test]
+fn a_cross_model_ratio_with_a_shared_calendar_plans_with_a_second_fact_leg() {
+    let facts = model("facts", "local", &["amount_cents", "customer_key", "day"]);
+    let customers = model("customers", "remote", &["customer_key", "day"]);
+    let calendar = model("calendar", "local", &["day"]);
+    let facts_customer = relationship("facts_customer", ("facts", "customer_key"), ("customers", "customer_key"));
+    // No `facts`-`calendar` or `customers`-`calendar` relationship here: this test builds its
+    // `Resolution` by hand rather than through `Definitions::assemble`, which is where such a
+    // relationship would be checked (`InconsistentDefinitions::SharedCalendarNotReachable`) and
+    // where it would matter - `plan()` itself reads only `resolution.calendar_model`, never a
+    // relationship, so this fixture has nothing to gain from declaring one it cannot exercise.
+    let metric = Metric::new(
+        MetricName::parse("revenue_per_customer").expect("a test metric is a metric"),
+        ModelName::parse("facts").expect("a test model is a model"),
+        Measure::Ratio {
+            numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+            denominator: Term::Aggregate(AggregatedColumn::on_model(
+                Aggregate::Count,
+                column("customer_key"),
+                ModelName::parse("customers").expect("a test model is a model"),
+            )),
+            zero_denominator: sutura_domain::measure::ZeroDenominator::Null,
+        },
+        Vec::new(),
+        column("day"),
+        BTreeSet::from([Grain::Month]),
+        vec![declared("region", "region_code", &["facts_customer"])],
+        None,
+        Description::default(),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate")
+    .with_shared_calendar(ModelName::parse("calendar").expect("a test calendar is a model"));
+    let region = metric
+        .dimension(&dimension_name("region"))
+        .expect("the metric declares this dimension");
+    let resolution = Resolution {
+        metric: &metric,
+        metrics: vec![&metric],
+        model: &facts,
+        grain: Grain::Month,
+        range: TimeRange::new(
+            Date::parse("2026-06-01").expect("a test date is a date"),
+            Date::parse("2026-07-01").expect("a test date is a date"),
+        )
+        .expect("June is a range"),
+        keys: vec![ResolvedDimension {
+            dimension: region,
+            join: Some(vec![ResolvedJoin {
+                relationship: &facts_customer,
+                model: &customers,
+            }]),
+        }],
+        filters: Vec::new(),
+        top: None,
+        second_fact_model: Some(&customers),
+        calendar_model: Some(&calendar),
+    };
+    let planned = plan(&resolution).expect("a cross-model ratio with a shared calendar plans");
+    let Plan::Federated(federated) = planned else {
+        panic!("a cross-model ratio with a shared calendar is a federated plan");
+    };
+    assert!(
+        federated.second_fact().is_some(),
+        "the second fact leg must be present for a cross-model ratio with a shared calendar"
+    );
+    let second = federated.second_fact().expect("the second fact leg is present");
+    assert_eq!(
+        second.source(),
+        &SourceName::parse("remote").expect("a test source is a source"),
+        "the second fact leg reads the remote source"
+    );
+    assert!(
+        !second.terms().is_empty(),
+        "the second fact leg carries the Some-model leaves"
+    );
+    assert!(
+        federated.fact().terms().iter().all(|t| t.label().starts_with("0_leaf")),
+        "the first fact leg carries the None-model leaves"
+    );
+}
+
+// No separate "cross-model ratio without a shared calendar" cell here: the sibling above,
+// `a_ratio_term_naming_another_model_is_refused_with_a_remote_dimension_too`, already builds this
+// exact fixture (a metric with no `shared_calendar` and a ratio term naming `customers`) and
+// already asserts `CrossModelRatioWithoutSharedCalendar` - `plan()`'s `shared_calendar().is_none()`
+// check returns before `second_fact_model` is ever read, so a second copy differing only in that
+// field would exercise the identical branch. A `jscpd` clone of that test was here and was cut
+// rather than kept beside a `dup-ignore` exception, per `docs/adr/0002`'s second amendment.

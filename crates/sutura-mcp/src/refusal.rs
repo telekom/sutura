@@ -239,12 +239,12 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              whoever operates this deployment, who can raise this ceiling."
         ),
         // Written for an agent: nothing you asked was wrong, and nothing you can change fixes it -
-        // the metric names a fact model this workspace does not yet know how to join a second one
-        // against. Say so, and name the metric.
-        RefusalReason::CrossModelRatioNotExecutable { ref metric, ref model } => format!(
-            "`{metric}` measures a ratio side on model `{model}`, and this deployment does not yet \
-             build the second fact leg such a term needs. Nothing you can change in the question \
-             helps and this is not an outage to retry; report it to the person you are acting for."
+        // the metric declares no shared calendar for its cross-model ratio. Say so, and name the
+        // metric.
+        RefusalReason::CrossModelRatioWithoutSharedCalendar { ref metric, ref model } => format!(
+            "`{metric}` measures a ratio side on model `{model}`, and the metric declares no shared \
+             calendar, so both facts cannot be bucketed through the same time dimension. Nothing \
+             you can change in the question helps; report it to the person you are acting for."
         ),
     };
     (code, detail)
@@ -339,7 +339,7 @@ mod tests {
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },
             RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
             RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
-            RefusalReason::CrossModelRatioNotExecutable {
+            RefusalReason::CrossModelRatioWithoutSharedCalendar {
                 metric: metric(),
                 model: sutura_domain::model::ModelName::parse("customers").expect("a test model is a model"),
             },

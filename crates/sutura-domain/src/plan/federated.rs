@@ -238,10 +238,10 @@ impl FederatedPlan {
                 source_name: fact.source().clone(),
             });
         }
-        // A second fact leg arrives only for a cross-model ratio (`telekom/sutura#780`). No
-        // question reaches this branch yet: `plan()` refuses a cross-model ratio before
-        // dispatching to `federated_plan`, which passes `None`. The guards hold the type for
-        // `answer_federated` and the combiner, which consume a hand-built two-fact plan in tests.
+        // A second fact leg arrives only for a cross-model ratio (`telekom/sutura#780`): `plan()`
+        // dispatches one WITH a shared calendar to `federated_plan`, which builds the second leg.
+        // The guards hold the type for `answer_federated` and the combiner, which consume a
+        // hand-built two-fact plan in tests.
         // The second fact must be a `Fact` over a different source from the first, and the two
         // must share a key label - the column they join on above. Without one the join is
         // impossible, which is the chasm trap made a type refusal rather than a NULL-padded row.
@@ -527,19 +527,18 @@ pub enum FederatedPlanError {
     ///
     /// `telekom/sutura#780`: a cross-model ratio's two facts must read two sources, because each
     /// source is a separate identity to satisfy and the chasm trap is impossible only when the two
-    /// facts never share a `FROM`. Same reachability limit as
-    /// [`FactsShareNoKey`](Self::FactsShareNoKey): no question reaches this guard yet.
+    /// facts never share a `FROM`. Reachable from a question: a cross-model ratio whose two fact
+    /// models sit on one source dispatches to `federated_plan` with a second leg, and this guard
+    /// catches it. [`FactsShareNoKey`](Self::FactsShareNoKey) carries the same reachability.
     #[error("the second fact leg reads `{source_name}`, the same source as the first")]
     FactsOnSameSource { source_name: SourceName },
     /// Two fact legs share no key label, so the join above them is impossible.
     ///
     /// The chasm-trap guard as a type refusal: without a shared dimension key to join on, a
     /// combined answer is not a certified number but two unrelated row sets, so the plan does not
-    /// exist rather than producing one. **Reachability limit, stated next to the claim:** no
-    /// question reaches this guard yet. `plan()` refuses a cross-model ratio before dispatching to
-    /// `federated_plan`, and `federated_plan` passes `None` for `second_fact`; the guard is
-    /// exercised only by direct construction. A splitter that builds a second fact leg is what
-    /// makes it reachable from a question.
+    /// exist rather than producing one. **Reachable from a question:** a cross-model ratio with a
+    /// shared calendar dispatches to `federated_plan`, which builds a second fact leg; this guard
+    /// catches two such legs that share no key. The guard is also exercised by direct construction.
     #[error("the two fact legs share no key, so no join is possible")]
     FactsShareNoKey,
 }

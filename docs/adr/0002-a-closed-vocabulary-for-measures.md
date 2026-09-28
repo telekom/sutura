@@ -10,12 +10,13 @@ Status: accepted. It widens the measure vocabulary of
 argument. That record is still right that no free-text SQL may reach a statement. This one is a
 correction about which sentence in it was load-bearing.
 
-Amended twice, and each amendment is recorded rather than rewritten away. The first made a
+Amended three times, and each amendment is recorded rather than rewritten away. The first made a
 conditional count a *sibling* of a ratio, which left the seventh of the seven metrics below
 unsayable - [Two levels, not three siblings](#two-levels-not-three-siblings) is the correction. The
 second lets a ratio's term carry a model other than the metric's own - the section below titled
-*Amendment, 2026-09-25* is the record, and `telekom/sutura#780` is why. The rest of this record
-stands.
+*Amendment, 2026-09-25* is the record. The third declares a shared calendar and lifts the refusal
+for the case that one left refused - the section below titled *Second amendment, 2026-09-28* is
+the record, and `telekom/sutura#780` is why for both. The rest of this record stands.
 
 ## Context
 
@@ -177,12 +178,14 @@ shapes today - one statement against the metric's own model, and a fact-plus-loo
 across two data systems - and neither reads a second FACT model's own rows, aggregated on its own
 and joined above on a shared dimension, which is the mechanism the issue's own decision names for
 combining two facts without ever letting them share one `FROM`. So a metric using this vocabulary
-loads, is addressable by name, and a plain question about it is refused with a named, typed reason
-(`RefusalReason::CrossModelRatioNotExecutable`) the moment it is asked - a caller told plainly that
-the definition exists and this deployment cannot answer it yet, never a wrong number resolved
-against the wrong table. The plan's second fact leg, the combiner caller, the anchor at the
-coarsest shared grain and the differential's two-fact axis are the rest of the stack the issue's own
-decision names, and they are not this amendment's claim.
+loads, is addressable by name, and a plain question about it was refused with a named, typed reason
+the moment it was asked - a caller told plainly that the definition exists and this deployment
+cannot answer it yet, never a wrong number resolved against the wrong table. The plan's second fact
+leg, the combiner caller, the anchor at the coarsest shared grain and the differential's two-fact
+axis are the rest of the stack the issue's own decision names, and they are not this amendment's
+claim. **Superseded by the second amendment below**, which is where that refusal stopped firing for
+the case the owner chose to build toward, and the reason string it used
+(`RefusalReason::CrossModelRatioNotExecutable`) was retired rather than kept unreachable.
 
 **The limit "loads, is addressable by name" carries: without an anchor.** An anchor is executed at
 boot, and one on a cross-model ratio reaches this same refusal through
@@ -190,6 +193,50 @@ boot, and one on a cross-model ratio reaches this same refusal through
 metric. That fails closed, so it is not a safety defect, but it is a sharper cost than "refused
 when asked" states on its own: a catalog author who anchors such a metric loses every other metric
 in the deployment at boot, not a question at query time.
+
+## Second amendment, 2026-09-28: a shared calendar lifts the refusal
+
+`telekom/sutura#780`, continued. The second amendment let a ratio's term name a model other than
+the metric's own and refused every such ratio under one name
+(`RefusalReason::CrossModelRatioNotExecutable`). The open question it left was Q2 of the issue:
+*which column buckets the second fact?* Four shapes were on the table; the owner's call is **(B)
+a shared calendar** - a conformed time dimension both fact models reach through a declared `via`,
+so both facts bucket through the SAME calendar column rather than each keeping its own notion of
+"the" time column. Refusing forever was explicitly not the accepted outcome of that question -
+this amendment builds toward the chosen shape rather than leaving it undocumented.
+
+The amendment is one more field, again on the metric rather than on the term: `shared_calendar:
+Option<ModelName>`, `None` for every metric that predates it (so a one-model metric's on-disk shape
+and digest still do not move) and `Some` naming the calendar model a `Metric::with_shared_calendar`
+builder call declares. `Definitions::assemble` checks the name at load
+(`InconsistentDefinitions::SharedCalendarNotReachable`): the calendar model must exist, and BOTH the
+metric's own model and every cross-model ratio term's model must reach it through a declared
+relationship - a calendar one fact cannot reach is a definition whose ratio could never be bucketed
+through it, refused at declaration time rather than surfacing as a query-time failure to plan.
+
+With a shared calendar declared and reachable, `plan()` no longer refuses the ratio: it dispatches
+to the federation splitter, which builds the second fact leg the second amendment's own type already
+had a shape for (`telekom/sutura#780`'s first slice) and buckets BOTH legs by the calendar's time
+column rather than by the metric's own, so the combiner can join the two legs on the link key AND
+the bucket. A cross-model ratio whose metric declares no shared calendar is still refused, but under
+its own new name, `RefusalReason::CrossModelRatioWithoutSharedCalendar` - a caller told the
+declaration is missing, not that the capability is absent. `CrossModelRatioNotExecutable` is
+retired rather than kept as a variant nothing can construct any more: the enrolled refusal count in
+`xtask/src/refusals/registry.rs` is unchanged by the swap, the same straight substitution
+`TopNotFederated` → `TopOverUncertifiedRows` already used this record's mechanism for.
+
+**The limit stated next to the claim.** The plan this amendment ships BUILDS - it type-checks, and a
+cross-model ratio with a declared shared calendar produces a `FederatedPlan` with a second fact leg
+rather than a refusal. What it does not yet do is join the calendar table into either fact leg's own
+statement: each leg's bucket column qualifies a column by the calendar's table name, but neither
+leg's `StatementTables` carries a `JOIN` to it. The mechanism is **wired, with no observed run** -
+the same phrase this repository uses for the identity leg-2 boundary, chosen deliberately, because
+the shape is the same: a plan that type-checks is not a statement that executes, and no golden SQL
+fixture and no differential test exercise this leg shape yet, so nothing here claims the generated
+SQL is valid against a real data system. The join (same-source only, by the mechanism
+`chain_joins` already gives dimension chains - a calendar on neither fact's own source cannot be
+joined this way and is a gap this amendment does not close), a golden per dialect, and the
+differential's two-fact axis are the next PR the issue's own decision already named.
 
 ## What does not change
 

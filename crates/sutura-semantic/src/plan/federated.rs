@@ -9,11 +9,12 @@
 //! Nothing here decides which plan SHAPE a question gets - `super::plan` does that, and calls
 //! [`federated_plan`] only once it has already decided there is exactly one remote source.
 
+use sutura_domain::catalog::{JoinKey, Metric};
 use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::measure::Measure;
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
-    FederatedPlan, InternalLabel, PlanBucket, PlanColumn, PlanKey, PlanTerm, ResultLabel, StatementTables, labels,
+    FederatedPlan, InternalLabel, PlanBindings, PlanBucket, PlanColumn, PlanKey, PlanTerm, ResultLabel, StatementTables, labels,
 };
 use sutura_domain::query::RefusalReason;
 
@@ -141,7 +142,16 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
         .filter(|filter| is_remote(&filter.dimension, model.source()))
         .collect();
 
-    let time_column = PlanColumn::new(own_table.clone(), metric.time_column().clone());
+    // `telekom/sutura#780`: when a shared calendar is declared, both facts bucket through the
+    // calendar's `time_column`, not the metric's own, and groups by it. The calendar table is NOT
+    // joined yet: neither leg's `StatementTables` carries it, so the bucket column references a
+    // table the statement does not name - a known limit of this build, not a finished plan. Without
+    // a shared calendar (every pre-#780 metric), the bucket is the metric's own `time_column` as
+    // before.
+    let time_table = resolution
+        .calendar_model
+        .map_or_else(|| own_table.clone(), |cal| cal.table_name().clone());
+    let time_column = PlanColumn::new(time_table, metric.time_column().clone());
     let fact_bindings = super::predicates_and_params(resolution, &local_filters, own_table, &time_column)?;
     let lookup_bindings = super::requested_for(&remote_filters, remote_table)?;
 
@@ -151,14 +161,25 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
     // system truncates silently.
     let leaf_labels = labels(&federation);
     let mut terms: Vec<LegTerm> = Vec::with_capacity(leaf_labels.len());
+    let mut second_terms: Vec<LegTerm> = Vec::new();
+    // `telekom/sutura#780`: a cross-model ratio's leaves split by the model each reads. The
+    // first fact leg carries the leaves whose model is `None` (the metric's own); the second
+    // fact leg carries the leaves whose model is `Some` (the named model). Both legs' terms are
+    // labelled by position through `labels(&federation)`, so the combiner reads them back by the
+    // same rule - the D9 check in `FederatedPlan::new` verifies each leg's terms match.
+    let second_table = resolution.second_fact_model.map(|m| m.table_name().clone());
     for (leaf, &label) in federation.carried().iter().zip(leaf_labels.iter()) {
+        let owning_table = match leaf.model() {
+            None => own_table.clone(),
+            Some(_) => second_table.clone().unwrap_or_else(|| own_table.clone()),
+        };
         let plan_term = match **leaf {
             Carried::Aggregated { pushed, ref column, .. } => PlanTerm::Aggregate {
                 aggregate: pushed.push(),
-                column: PlanColumn::new(own_table.clone(), column.clone()),
+                column: PlanColumn::new(owning_table, column.clone()),
             },
             Carried::CountIf { ref column, .. } => PlanTerm::CountIf {
-                column: PlanColumn::new(own_table.clone(), column.clone()),
+                column: PlanColumn::new(owning_table, column.clone()),
             },
             // Unreachable: the refusal above returned for any Keys leaf.
             Carried::Keys { .. } => {
@@ -168,7 +189,12 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
                 }));
             }
         };
-        terms.push(LegTerm::new(plan_term, ResultLabel::internal(label)));
+        let leg_term = LegTerm::new(plan_term, ResultLabel::internal(label));
+        if leaf.model().is_some() {
+            second_terms.push(leg_term);
+        } else {
+            terms.push(leg_term);
+        }
     }
 
     // Same-source hops (dimensions on the metric's own system) stay joins on the fact leg. Each
@@ -232,14 +258,13 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
         bindings: lookup_bindings,
     };
 
+    let second_fact = second_fact_leg(resolution, metric, crossing_key, second_terms)?;
     let plan = FederatedPlan::new(
         metric.name().clone(),
         ResultLabel::measure(metric.name()),
         bucket,
         fact,
-        // No second fact leg from a question: `plan` refuses a cross-model ratio before this
-        // splitter runs (`telekom/sutura#780`), because no shape of it renders a second leg yet.
-        None,
+        second_fact,
         lookup,
         include_unmatched,
         federation,
@@ -259,4 +284,48 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
         Some(top) => plan.with_top(top),
         None => plan,
     })
+}
+
+/// The second fact leg, when the ratio's terms name a second fact model and the metric declares a
+/// shared calendar (`telekom/sutura#780`). It reads the named model's table, carries the
+/// `Some`-model leaves, and groups by the link key and the bucket. The bucket is the shared
+/// calendar's time column - both facts join to the calendar and group by its `time_column`, so
+/// the combiner can join them on the link AND the bucket. The second fact's source may equal the
+/// first's - the consistency check proves only that each fact model reaches the calendar, not
+/// that the two sit on different sources - so `FactsOnSameSource` can fire from a question and is
+/// the wiring defect that catches it, not a refusal.
+///
+/// `Ok(None)` when the ratio names no second fact model (`second_terms` empty, the ordinary
+/// one-model metric). [`PlanError::NoSecondFactModel`] is the wiring-defect guard for the case
+/// that cannot arise from a question: `second_terms` non-empty with no `second_fact_model` or no
+/// `calendar_model` resolved for it - see that variant's own doc for why `plan`'s dispatch and
+/// `resolve`'s lookups make it unreachable.
+fn second_fact_leg(
+    resolution: &Resolution<'_>,
+    metric: &Metric,
+    crossing_key: &JoinKey,
+    second_terms: Vec<LegTerm>,
+) -> Result<Option<sutura_domain::plan::LegPlan>, PlanError> {
+    if second_terms.is_empty() {
+        return Ok(None);
+    }
+    let (Some(second_model), Some(calendar)) = (resolution.second_fact_model, resolution.calendar_model) else {
+        return Err(PlanError::NoSecondFactModel);
+    };
+    let cal_time = PlanColumn::new(calendar.table_name().clone(), metric.time_column().clone());
+    let second_bucket = PlanBucket::new(ResultLabel::bucket(), resolution.grain, cal_time);
+    let second_keys = vec![PlanKey::new(
+        ResultLabel::internal(InternalLabel::Link),
+        PlanColumn::new(second_model.table_name().clone(), crossing_key.target().clone()),
+    )];
+    Ok(Some(sutura_domain::plan::LegPlan::Fact {
+        source: second_model.source().clone(),
+        metric: metric.name().clone(),
+        tables: StatementTables::only(second_model.table().clone()),
+        bucket: second_bucket,
+        keys: second_keys,
+        terms: second_terms,
+        bindings: PlanBindings::none(),
+        range: resolution.range,
+    }))
 }

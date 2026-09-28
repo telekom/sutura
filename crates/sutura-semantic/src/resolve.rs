@@ -17,7 +17,7 @@
 use std::collections::BTreeSet;
 
 use sutura_domain::calendar::TimeRange;
-use sutura_domain::catalog::{Dimension, Metric, Model, Relationship};
+use sutura_domain::catalog::{Definitions, Dimension, Metric, Model, Relationship};
 use sutura_domain::model::{DimensionName, Grain, MetricName, ModelName};
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::pinned::view::ScopedView;
@@ -78,6 +78,16 @@ pub(crate) struct Resolution<'a> {
     pub(crate) range: TimeRange,
     pub(crate) keys: Vec<ResolvedDimension<'a>>,
     pub(crate) filters: Vec<ResolvedFilter<'a>>,
+    /// The second fact model, when the metric's measure names a model other than its own
+    /// (`telekom/sutura#780`). `None` for every one-model metric. The plan stage reads this to
+    /// build the second fact leg of a cross-model ratio; the consistency check at load already
+    /// proved the model exists and its columns are declared.
+    pub(crate) second_fact_model: Option<&'a Model>,
+    /// The shared calendar model, when the metric declares one (`telekom/sutura#780`). Both fact
+    /// legs join to this model and group by the metric's `time_column` (the conformed column the
+    /// calendar exposes), so the combiner can join them on the link AND the bucket. `None` for
+    /// every one-model metric.
+    pub(crate) calendar_model: Option<&'a Model>,
     pub(crate) top: Option<Top>,
 }
 
@@ -336,6 +346,7 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
     // grouped statement with one certified column per metric (see
     // [`crate::plan::mono_plan`], `guards_and_shared` for how each metric's own required
     // filters become that metric's guard rather than a leaked `WHERE` term).
+    let cross_model = cross_model_and_calendar(metric, definitions)?;
     Ok(Resolution {
         metric,
         metrics,
@@ -345,6 +356,59 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
         keys,
         filters,
         top: query.top(),
+        second_fact_model: cross_model.second_fact_model,
+        calendar_model: cross_model.calendar_model,
+    })
+}
+
+/// The second fact model and the shared calendar model a metric's cross-model ratio needs, when
+/// it names either (`telekom/sutura#780`). A named pair rather than a tuple - `Resolution`'s own
+/// two fields, matched by name so the caller cannot swap them silently.
+struct CrossModelAndCalendar<'a> {
+    second_fact_model: Option<&'a Model>,
+    calendar_model: Option<&'a Model>,
+}
+
+/// If the metric's measure names a model other than its own, look it up so the plan stage can
+/// build the second fact leg. The consistency check at load already proved the model exists;
+/// `NoSuchModel` is the broken-bundle arm that never fires for a model the catalog declared.
+/// Likewise for the shared calendar model, when the metric declares one - the consistency check
+/// already proved it exists and both fact models reach it.
+fn cross_model_and_calendar<'a>(
+    metric: &'a Metric,
+    definitions: &'a Definitions,
+) -> Result<CrossModelAndCalendar<'a>, BundleInconsistent> {
+    let cross_model = metric
+        .measure()
+        .into_iter()
+        .flat_map(|m| m.models().into_iter().flatten())
+        .find(|m| *m != metric.model());
+    let second_fact_model = match cross_model {
+        None => None,
+        Some(named) => {
+            let model_ref = definitions.model(named).ok_or_else(|| BundleInconsistent::NoSuchModel {
+                metric: metric.name().clone(),
+                model: named.clone(),
+            })?;
+            // A term naming the metric's own model explicitly is the same question as one naming
+            // none - both resolve against the metric's own table.
+            if model_ref.name() == metric.model() {
+                None
+            } else {
+                Some(model_ref)
+            }
+        }
+    };
+    let calendar_model = match metric.shared_calendar() {
+        None => None,
+        Some(cal) => Some(definitions.model(cal).ok_or_else(|| BundleInconsistent::NoSuchModel {
+            metric: metric.name().clone(),
+            model: cal.clone(),
+        })?),
+    };
+    Ok(CrossModelAndCalendar {
+        second_fact_model,
+        calendar_model,
     })
 }
 

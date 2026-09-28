@@ -368,12 +368,12 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // the same reason: the question is well formed and this deployment cannot express it as one
         // statement yet, which is a conflict between what was asked and what the plan stage builds
         // rather than a data system being down. Retrying it unchanged returns this same refusal.
-        RefusalReason::CrossModelRatioNotExecutable { ref metric, ref model } => (
+        RefusalReason::CrossModelRatioWithoutSharedCalendar { ref metric, ref model } => (
             StatusCode::CONFLICT,
             format!(
-                "`{metric}` measures a ratio side on model `{model}`, and this deployment does not \
-                 yet build the second fact leg such a term needs; ask a metric whose measure reads \
-                 one model, or report it to a person"
+                "`{metric}` measures a ratio side on model `{model}`, and the metric declares no \
+                 shared calendar, so both facts cannot be bucketed through the same time dimension; \
+                 ask a metric whose measure reads one model, or report it to a person"
             ),
         ),
     };
@@ -508,7 +508,7 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::SourceRefused { .. }
         | RefusalReason::DeadlineExceeded { .. }
         | RefusalReason::TopOverUncertifiedRows { .. }
-        | RefusalReason::CrossModelRatioNotExecutable { .. } => None,
+        | RefusalReason::CrossModelRatioWithoutSharedCalendar { .. } => None,
     }
 }
 

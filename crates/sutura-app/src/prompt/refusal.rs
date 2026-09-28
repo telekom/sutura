@@ -272,13 +272,13 @@ const TOP_OVER_UNCERTIFIED_ROWS: Guide = Guide {
              this deployment can raise it.",
 };
 
-const CROSS_MODEL_RATIO_NOT_EXECUTABLE: Guide = Guide {
-    reason: "cross_model_ratio_not_executable",
+const CROSS_MODEL_RATIO_WITHOUT_SHARED_CALENDAR: Guide = Guide {
+    reason: "cross_model_ratio_without_shared_calendar",
     meaning: "the metric measures a ratio whose two sides read from two different fact models, and \
-              this deployment does not yet build the second fact leg such a term needs",
+              the metric declares no shared calendar, so both facts cannot be bucketed through the \
+              same time dimension",
     remedy: "Nothing you can change in the question. Report it to the person you are acting for: \
-             it is a fact about how the metric is defined and what this deployment can execute, \
-             not something a narrower question works around.",
+             the metric's definition needs a shared calendar declaration, not a narrower question.",
 };
 
 /// Every refusal a caller can be given, in the order the prompt lists them.
@@ -337,7 +337,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     // With the plan-shape family above it, for the same reason: the move is not to narrow anything,
     // it is to ask a different metric, and an agent reaching it has already read that a refusal
     // about the plan's shape is not one to retry unchanged.
-    &CROSS_MODEL_RATIO_NOT_EXECUTABLE,
+    &CROSS_MODEL_RATIO_WITHOUT_SHARED_CALENDAR,
     &SOURCE_UNAVAILABLE,
     &SOURCE_REFUSED,
     &CREDENTIAL_UNAVAILABLE,
@@ -385,7 +385,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::DeadlineExceeded { .. } => &DEADLINE_EXCEEDED,
         RefusalReason::BudgetExhausted { .. } => &BUDGET_EXHAUSTED,
         RefusalReason::TopOverUncertifiedRows { .. } => &TOP_OVER_UNCERTIFIED_ROWS,
-        RefusalReason::CrossModelRatioNotExecutable { .. } => &CROSS_MODEL_RATIO_NOT_EXECUTABLE,
+        RefusalReason::CrossModelRatioWithoutSharedCalendar { .. } => &CROSS_MODEL_RATIO_WITHOUT_SHARED_CALENDAR,
     }
 }
 

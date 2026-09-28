@@ -104,12 +104,12 @@ pub(super) fn every_reason_the_second_half() -> Vec<Expected> {
             "top_over_uncertified_rows",
         ),
         (
-            RefusalReason::CrossModelRatioNotExecutable {
+            RefusalReason::CrossModelRatioWithoutSharedCalendar {
                 metric: metric(),
                 model: sutura_domain::model::ModelName::parse("customers").expect("a test model is a model"),
             },
             StatusCode::CONFLICT,
-            "cross_model_ratio_not_executable",
+            "cross_model_ratio_without_shared_calendar",
         ),
     ]
 }
