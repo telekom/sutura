@@ -609,7 +609,10 @@ fn every_mapped_type_passes_the_schema_pass_and_float32_does_not() {
     }
     let refused: SchemaRef = Arc::new(Schema::new(vec![Field::new("amount", DataType::Float32, true)]));
     assert!(
-        ResultBatches::none_under(refused).to_rows().is_err(),
+        matches!(
+            ResultBatches::none_under(refused).to_rows(),
+            Err(UnreadableCell::UnsupportedType { .. })
+        ),
         "Float32 is not mapped, so the schema pass must refuse it"
     );
 }

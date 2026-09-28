@@ -19,7 +19,9 @@ use std::collections::BTreeSet;
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::MetadataCapabilities;
-use sutura_domain::catalog::{Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model};
+use sutura_domain::catalog::{
+    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, InvalidDescription, Metric, Model,
+};
 use sutura_domain::knowledge::{
     Absence, Capability, Caveat, Example, GlossaryEntry, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, NoteName,
     Phrase, Referent,
@@ -493,8 +495,11 @@ fn a_carriage_return_in_a_description_never_reaches_this_renderer() {
     // is at the type, so there is no rendered document to inspect: there is no `Description` to
     // render.
     assert!(
-        Description::parse("Revenue.\r\nIn minor units.").is_err(),
-        "a carriage return is not prose, so this renderer is never handed a description holding one"
+        matches!(
+            Description::parse("Revenue.\r\nIn minor units."),
+            Err(InvalidDescription::ControlCharacter { code: 0x0d }),
+        ),
+        "a carriage return is a control character and not prose, so this renderer is never handed a description holding one"
     );
 }
 

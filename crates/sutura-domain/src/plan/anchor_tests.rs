@@ -18,7 +18,7 @@ use super::{
     PlanTerm, PlannedMeasure, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
 };
 use crate::calendar::{Date, TimeRange};
-use crate::catalog::{Anchor, AnchorValue, Audience, Definitions, Description, Metric, Model};
+use crate::catalog::{Anchor, AnchorValue, Audience, Definitions, Description, InconsistentDefinitions, Metric, Model};
 use crate::knowledge::Knowledge;
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
@@ -363,9 +363,9 @@ fn the_grain_comparison_names_the_absence_rather_than_carrying_a_variant_nothing
         Audience::Open,
     )
     .expect("no dimensions to duplicate");
-    assert!(
-        Definitions::assemble(vec![model], vec![], vec![grainless]).is_err(),
-        "a metric declaring no grain never reaches a pinned bundle, so the absence needs no variant"
+    assert_eq!(
+        Definitions::assemble(vec![model], vec![], vec![grainless]),
+        Err(InconsistentDefinitions::NoGrains { metric: metric() })
     );
 
     // And the sentence the `Option` renders still reads, which is the other half of folding it in.

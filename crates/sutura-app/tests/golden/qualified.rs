@@ -480,7 +480,7 @@ fn two_paths_differing_only_in_the_case_of_their_last_part_are_refused_too() {
     let collides = QualifiedTable::new(Some(TableQualifier::in_dataset(dataset("crm"))), table("orders"));
     let join = PlanJoin::new(
         RelationshipName::parse("orders_customer").expect("a fixture relationship is one"),
-        collides,
+        collides.clone(),
         JoinType::ManyToOne,
         sutura_domain::nonempty::NonEmpty::parse(vec![PlanJoinKey::Equal {
             origin: column("Orders", "customer_id"),
@@ -488,8 +488,15 @@ fn two_paths_differing_only_in_the_case_of_their_last_part_are_refused_too() {
         }])
         .expect("a fixture join declares one key"),
     );
-    assert!(
-        StatementTables::parse(fact, vec![join]).is_err(),
+    // `Orders` is the FROM table and `orders` the join, so the collision names the folded alias and
+    // the two dotted paths in the order they were met.
+    assert_eq!(
+        StatementTables::parse(fact.clone(), vec![join]),
+        Err(AmbiguousTables::OneIdentifierTwoTables {
+            alias: table(FACT),
+            first: fact.to_string(),
+            second: collides.to_string(),
+        }),
         "Orders and orders are one identifier on GoogleSQL and on DuckDB"
     );
 }

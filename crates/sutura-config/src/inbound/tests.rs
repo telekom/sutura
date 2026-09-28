@@ -72,6 +72,24 @@ fn a_symmetric_algorithm_is_refused_by_name_and_the_reason_is_in_the_message() {
 }
 
 #[test]
+fn a_name_outside_the_registry_is_refused_as_unknown_naming_what_was_written() {
+    // NAME LEFT AS-IS: this fn was declared by an already-pushed, non-tip commit's `Claim-Cell:`
+    // trailer, and its killing mutation is keyed by this exact name at
+    // `devco/claim-mutations/<fn-name>.patch`. A rename here would orphan that trailer under
+    // `just causality`'s range-wide bijection (every declared name must match an added test, and
+    // that commit cannot be amended without a force-push this repo forbids), so the fn keeps its
+    // name and only the claim below is corrected: `found` is the TRIMMED text, not the literal
+    // characters written - `SigningAlgorithm::parse` trims before comparing against the registry,
+    // so " bogus " and "bogus" are refused identically and both name "bogus".
+    assert_eq!(
+        SigningAlgorithm::parse(" bogus "),
+        Err(InvalidAlgorithms::Unknown {
+            found: String::from("bogus")
+        })
+    );
+}
+
+#[test]
 fn none_is_refused_before_the_unknown_name_refusal_can_see_it() {
     // `none` IS in the JWS registry, so an "unknown algorithm" message would be both wrong and
     // unhelpful. The ordering inside `parse` is what makes the diagnostic the accurate one.

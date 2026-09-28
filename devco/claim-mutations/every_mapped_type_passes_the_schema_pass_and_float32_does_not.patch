@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-domain/src/warehouse/arrow.rs b/crates/sutura-domain/src/warehouse/arrow.rs
+index 8f9a7b5ca..0010a5953 100644
+--- a/crates/sutura-domain/src/warehouse/arrow.rs
++++ b/crates/sutura-domain/src/warehouse/arrow.rs
+@@ -425,9 +425,9 @@ fn mapped(label: &str, kind: &DataType) -> Result<(), UnreadableCell> {
+         | DataType::Boolean
+         | DataType::Decimal128(..)
+         | DataType::Decimal256(..) => Ok(()),
+-        ref other => Err(UnreadableCell::UnsupportedType {
++        _ => Err(UnreadableCell::Downcast {
+             column: String::from(label),
+-            arrow_type: format!("{other:?}"),
++            arrow_type: "unmapped",
+         }),
+     }
+ }
