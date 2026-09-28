@@ -820,6 +820,7 @@ fn a_dimension_naming_a_column_the_joined_model_does_not_have_is_refused() {
 
 mod chain;
 mod column_metadata;
+mod shared_calendar;
 
 #[test]
 fn a_dimension_with_an_allowlist_permits_only_what_it_lists() {

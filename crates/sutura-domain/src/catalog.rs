@@ -742,6 +742,19 @@ pub struct Metric {
     /// Who may see this metric - `docs/adr/0028`. Under the digest, like everything else here: a
     /// classification change moves it exactly as a rename would.
     audience: Audience,
+    /// The conformed time dimension both fact models of a cross-model ratio reach through a
+    /// `via`, so both facts bucket through the SAME calendar column (`telekom/sutura#780`).
+    ///
+    /// `None` for every metric written before #780's second leg - a one-model metric has one fact
+    /// and buckets through its own `time_column`. `Some` names a calendar model that BOTH the
+    /// metric's own model and every cross-model ratio term's model reach through a declared
+    /// relationship; the consistency check at load refuses a name no model reaches. The bucket
+    /// column is the metric's own `time_column` resolved against the calendar model's table, so a
+    /// `month`-grain question over two fact tables joined to one `dim_calendar` groups both legs
+    /// by the calendar's `day` truncated to a month, and the combiner joins them on the link AND
+    /// the bucket.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shared_calendar: Option<ModelName>,
 }
 
 impl Metric {
@@ -846,6 +859,7 @@ impl Metric {
             anchor,
             description,
             audience,
+            shared_calendar: None,
         })
     }
 
@@ -915,6 +929,30 @@ impl Metric {
     #[inline]
     pub fn dimension(&self, name: &DimensionName) -> Option<&Dimension> {
         self.dimensions.get(name)
+    }
+
+    /// Declares the conformed calendar model both fact models of a cross-model ratio reach
+    /// through a `via` (`telekom/sutura#780`). A builder rather than a constructor argument,
+    /// so every existing caller of [`Metric::new`] compiles unchanged - a one-model metric has
+    /// no shared calendar, and its on-disk shape and digest do not move the day this field ships.
+    ///
+    /// The name is checked at load by [`Definitions::assemble`]
+    /// ([`InconsistentDefinitions::SharedCalendarNotReachable`]): the calendar model must exist,
+    /// and both the metric's own model and every cross-model ratio term's model must reach it
+    /// through a declared relationship. The builder does not check, because the relationships
+    /// are cross-references only the assembled [`Definitions`] can see.
+    #[inline]
+    #[must_use]
+    pub fn with_shared_calendar(mut self, calendar: ModelName) -> Self {
+        self.shared_calendar = Some(calendar);
+        self
+    }
+
+    /// The conformed calendar model both fact models of a cross-model ratio reach through a
+    /// `via`, or `None` for a one-model metric that buckets through its own `time_column`.
+    #[inline]
+    pub const fn shared_calendar(&self) -> Option<&ModelName> {
+        self.shared_calendar.as_ref()
     }
 }
 

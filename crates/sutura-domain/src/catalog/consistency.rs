@@ -263,6 +263,18 @@ pub enum InconsistentDefinitions {
     /// notes.
     #[error("this catalog's definitions carry {bytes} authored bytes, and the limit is {limit}")]
     DefinitionsTooLarge { bytes: usize, limit: usize },
+    /// A cross-model ratio's shared calendar is not reachable from one of its fact models
+    /// (`telekom/sutura#780`). The metric declares a `shared_calendar` model, and every model a
+    /// ratio term names - including the metric's own - must reach that calendar through a declared
+    /// relationship. A model that does not is a definition that loads but whose ratio can never be
+    /// bucketed through the shared calendar, so it is refused at declaration time rather than at
+    /// query time.
+    #[error("metric {metric} declares shared calendar {calendar}, which model {model} does not reach through any relationship")]
+    SharedCalendarNotReachable {
+        metric: MetricName,
+        calendar: ModelName,
+        model: ModelName,
+    },
 }
 
 impl Definitions {
@@ -446,6 +458,47 @@ impl Definitions {
         Self::check_labels_against_table(metric, model.table_name())?;
         for dimension in metric.dimensions.values() {
             Self::check_dimension(models, relationships, metric, model, dimension)?;
+        }
+        // `telekom/sutura#780`: a cross-model ratio buckets both facts through a shared calendar
+        // model, reached via a relationship from each fact model. Checked here, at load, because a
+        // calendar one fact cannot reach is a definition whose ratio can never be bucketed - the
+        // refusal is at declaration time, which is where this repo puts them. Only the models a
+        // ratio term actually names are checked: a one-model metric has no cross-model term, so its
+        // `shared_calendar` (if set) is checked against just its own model.
+        if let Some(calendar) = metric.shared_calendar.as_ref() {
+            // The calendar model must exist.
+            if !models.contains_key(calendar) {
+                return Err(InconsistentDefinitions::SharedCalendarNotReachable {
+                    metric: metric.name.clone(),
+                    calendar: calendar.clone(),
+                    model: calendar.clone(),
+                });
+            }
+            // Every model a ratio term names must reach the calendar. The metric's own model is
+            // checked first, then each cross-model term's model. A relationship reaches the
+            // calendar if either its origin or its target is the model being checked and the other
+            // end is the calendar.
+            let mut models_to_check = vec![&metric.model];
+            if let Some(measure) = metric.computation.measure() {
+                for term_model in measure.models().into_iter().flatten() {
+                    if term_model != &metric.model {
+                        models_to_check.push(term_model);
+                    }
+                }
+            }
+            for &named in &models_to_check {
+                let reaches = relationships.values().any(|rel| {
+                    (rel.origin_model() == named && rel.target_model() == calendar)
+                        || (rel.origin_model() == calendar && rel.target_model() == named)
+                });
+                if !reaches {
+                    return Err(InconsistentDefinitions::SharedCalendarNotReachable {
+                        metric: metric.name.clone(),
+                        calendar: calendar.clone(),
+                        model: named.clone(),
+                    });
+                }
+            }
         }
         Ok(())
     }
