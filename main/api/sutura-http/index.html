@@ -2310,60 +2310,64 @@ fn _reachable(</em>: sutura_http::ReplicaSpendGauge) {}
 </span><span id="__span-4-98"><a id="__codelineno-4-98" name="__codelineno-4-98" href="#__codelineno-4-98"></a># What this gates, and what it does not
 </span><span id="__span-4-99"><a id="__codelineno-4-99" name="__codelineno-4-99" href="#__codelineno-4-99"></a>
 </span><span id="__span-4-100"><a id="__codelineno-4-100" name="__codelineno-4-100" href="#__codelineno-4-100"></a>**It decides which OPERATIONS a caller may invoke. It decides nothing about which rows an answer
-</span><span id="__span-4-101"><a id="__codelineno-4-101" name="__codelineno-4-101" href="#__codelineno-4-101"></a>contains.** The catalog and question routes read the same pinned bundle and every question
-</span><span id="__span-4-102"><a id="__codelineno-4-102" name="__codelineno-4-102" href="#__codelineno-4-102"></a>executes under the same identity, because no source executes as the asking subject -
-</span><span id="__span-4-103"><a id="__codelineno-4-103" name="__codelineno-4-103" href="#__codelineno-4-103"></a>`docs/adr/0014`'s leg 1 establishes who is asking and leg 2 does not exist. A caller granted
-</span><span id="__span-4-104"><a id="__codelineno-4-104" name="__codelineno-4-104" href="#__codelineno-4-104"></a>`sutura:metrics.ask` and not `sutura:catalog.read` cannot list the catalog and gets exactly the
-</span><span id="__span-4-105"><a id="__codelineno-4-105" name="__codelineno-4-105" href="#__codelineno-4-105"></a>same numbers from a question as anybody else would.
-</span><span id="__span-4-106"><a id="__codelineno-4-106" name="__codelineno-4-106" href="#__codelineno-4-106"></a>
-</span><span id="__span-4-107"><a id="__codelineno-4-107" name="__codelineno-4-107" href="#__codelineno-4-107"></a># Where the grant comes from, and the two holes a reader should check for
-</span><span id="__span-4-108"><a id="__codelineno-4-108" name="__codelineno-4-108" href="#__codelineno-4-108"></a>
-</span><span id="__span-4-109"><a id="__codelineno-4-109" name="__codelineno-4-109" href="#__codelineno-4-109"></a>`permitted_for` takes the `sutura_app::Asked` `establish_asked` already derived - not the
-</span><span id="__span-4-110"><a id="__codelineno-4-110" name="__codelineno-4-110" href="#__codelineno-4-110"></a>request - so there is no path left in this file where "no `Asked`" reads as "grant everything."
-</span><span id="__span-4-111"><a id="__codelineno-4-111" name="__codelineno-4-111" href="#__codelineno-4-111"></a>What `Asked` itself carries is still two cases, from whatever leg 1 established:
+</span><span id="__span-4-101"><a id="__codelineno-4-101" name="__codelineno-4-101" href="#__codelineno-4-101"></a>contains.** The catalog and question routes read the same pinned bundle, and this scope decides
+</span><span id="__span-4-102"><a id="__codelineno-4-102" name="__codelineno-4-102" href="#__codelineno-4-102"></a>nothing about which rows come back. Which rows come back depends on the identity each leg runs
+</span><span id="__span-4-103"><a id="__codelineno-4-103" name="__codelineno-4-103" href="#__codelineno-4-103"></a>under: the deployment's, for a source that has none declared, or the account the source's
+</span><span id="__span-4-104"><a id="__codelineno-4-104" name="__codelineno-4-104" href="#__codelineno-4-104"></a>per-source map declares for that subject, for an `impersonation-at-source` source.
+</span><span id="__span-4-105"><a id="__codelineno-4-105" name="__codelineno-4-105" href="#__codelineno-4-105"></a>`docs/adr/0014`'s leg 1 establishes who is asking; leg 2 (a source executing AS them) is **built
+</span><span id="__span-4-106"><a id="__codelineno-4-106" name="__codelineno-4-106" href="#__codelineno-4-106"></a>and unproven** - `docs/where-identity-is-proven.md` decides which venue may be cited, and none is
+</span><span id="__span-4-107"><a id="__codelineno-4-107" name="__codelineno-4-107" href="#__codelineno-4-107"></a>cited here. A caller granted `sutura:metrics.ask` and not `sutura:catalog.read` cannot list the
+</span><span id="__span-4-108"><a id="__codelineno-4-108" name="__codelineno-4-108" href="#__codelineno-4-108"></a>catalog, but is not thereby guaranteed the same rows as any other caller: that depends on which
+</span><span id="__span-4-109"><a id="__codelineno-4-109" name="__codelineno-4-109" href="#__codelineno-4-109"></a>source answers and which identity it runs under.
+</span><span id="__span-4-110"><a id="__codelineno-4-110" name="__codelineno-4-110" href="#__codelineno-4-110"></a>
+</span><span id="__span-4-111"><a id="__codelineno-4-111" name="__codelineno-4-111" href="#__codelineno-4-111"></a># Where the grant comes from, and the two holes a reader should check for
 </span><span id="__span-4-112"><a id="__codelineno-4-112" name="__codelineno-4-112" href="#__codelineno-4-112"></a>
-</span><span id="__span-4-113"><a id="__codelineno-4-113" name="__codelineno-4-113" href="#__codelineno-4-113"></a>* A `crate::inbound::VerifiedCaller` in the request extensions - which only
-</span><span id="__span-4-114"><a id="__codelineno-4-114" name="__codelineno-4-114" href="#__codelineno-4-114"></a>  `crate::inbound::gate::require_verified_caller` inserts, after a signature check - means the
-</span><span id="__span-4-115"><a id="__codelineno-4-115" name="__codelineno-4-115" href="#__codelineno-4-115"></a>  token's scopes decide, and **only** they do.
-</span><span id="__span-4-116"><a id="__codelineno-4-116" name="__codelineno-4-116" href="#__codelineno-4-116"></a>* No such extension means no caller identity was established, so there is no verified claim to
-</span><span id="__span-4-117"><a id="__codelineno-4-117" name="__codelineno-4-117" href="#__codelineno-4-117"></a>  narrow by and every capability is permitted. That is the single-player deployment this service
-</span><span id="__span-4-118"><a id="__codelineno-4-118" name="__codelineno-4-118" href="#__codelineno-4-118"></a>  ships as, and it is the correct answer rather than a fallback: a filter over an unverified claim
-</span><span id="__span-4-119"><a id="__codelineno-4-119" name="__codelineno-4-119" href="#__codelineno-4-119"></a>  looks like a control and is not one.
-</span><span id="__span-4-120"><a id="__codelineno-4-120" name="__codelineno-4-120" href="#__codelineno-4-120"></a>
-</span><span id="__span-4-121"><a id="__codelineno-4-121" name="__codelineno-4-121" href="#__codelineno-4-121"></a>Two different things could put a caller in the wrong case, and each is closed by its own
-</span><span id="__span-4-122"><a id="__codelineno-4-122" name="__codelineno-4-122" href="#__codelineno-4-122"></a>mechanism:
-</span><span id="__span-4-123"><a id="__codelineno-4-123" name="__codelineno-4-123" href="#__codelineno-4-123"></a>
-</span><span id="__span-4-124"><a id="__codelineno-4-124" name="__codelineno-4-124" href="#__codelineno-4-124"></a>* **A deployment that *meant* to establish an identity reaches the single-player answer above
-</span><span id="__span-4-125"><a id="__codelineno-4-125" name="__codelineno-4-125" href="#__codelineno-4-125"></a>  anyway.** Closed at ASSEMBLY: `crate::router::assemble` returns
-</span><span id="__span-4-126"><a id="__codelineno-4-126" name="__codelineno-4-126" href="#__codelineno-4-126"></a>  `RouterNotBuilt::InboundIdentityNotAttached` when the settings declare a mode and no gate was
-</span><span id="__span-4-127"><a id="__codelineno-4-127" name="__codelineno-4-127" href="#__codelineno-4-127"></a>  attached, so on a deployment that declares `security.inbound`, a request reaching a handler has
-</span><span id="__span-4-128"><a id="__codelineno-4-128" name="__codelineno-4-128" href="#__codelineno-4-128"></a>  been through the gate. `crate::inbound::tests::router` asserts the assembly half and the `401`.
-</span><span id="__span-4-129"><a id="__codelineno-4-129" name="__codelineno-4-129" href="#__codelineno-4-129"></a>* **`establish_asked` itself is skipped or reordered, so no `Asked` reaches this layer at
-</span><span id="__span-4-130"><a id="__codelineno-4-130" name="__codelineno-4-130" href="#__codelineno-4-130"></a>  all.** Nothing at assembly time proves a middleware stack's order, so this is closed by
-</span><span id="__span-4-131"><a id="__codelineno-4-131" name="__codelineno-4-131" href="#__codelineno-4-131"></a>  REFUSAL instead: `require_capability` answers `Failure::Internal` rather than falling back to
-</span><span id="__span-4-132"><a id="__codelineno-4-132" name="__codelineno-4-132" href="#__codelineno-4-132"></a>  `Permitted::every_capability`, and the handler's own `axum::Extension&lt;sutura_app::Asked&gt;`
-</span><span id="__span-4-133"><a id="__codelineno-4-133" name="__codelineno-4-133" href="#__codelineno-4-133"></a>  parameter - a REQUIRED extractor, never `Option` - answers `500` on its own account if a request
-</span><span id="__span-4-134"><a id="__codelineno-4-134" name="__codelineno-4-134" href="#__codelineno-4-134"></a>  ever reached a handler without one. `crate::inbound::tests::router`'s
-</span><span id="__span-4-135"><a id="__codelineno-4-135" name="__codelineno-4-135" href="#__codelineno-4-135"></a>  `a_verified_caller_reaches_only_the_routes_its_scopes_name` and
-</span><span id="__span-4-136"><a id="__codelineno-4-136" name="__codelineno-4-136" href="#__codelineno-4-136"></a>  `a_verified_caller_whose_token_names_no_capability_scope_reaches_nothing` are the mechanism that
-</span><span id="__span-4-137"><a id="__codelineno-4-137" name="__codelineno-4-137" href="#__codelineno-4-137"></a>  proves the ORDER: a mutation moving `establish_asked` after this layer turns both red. Neither
-</span><span id="__span-4-138"><a id="__codelineno-4-138" name="__codelineno-4-138" href="#__codelineno-4-138"></a>  holds the ARM inside this function on its own, since both go through a route whose handler ALSO
-</span><span id="__span-4-139"><a id="__codelineno-4-139" name="__codelineno-4-139" href="#__codelineno-4-139"></a>  requires `Extension&lt;sutura_app::Asked&gt;` - `tests::a_skipped_establish_asked_is_refused_rather_than_answered_as_every_capability`
-</span><span id="__span-4-140"><a id="__codelineno-4-140" name="__codelineno-4-140" href="#__codelineno-4-140"></a>  is the cell that holds the ARM: it builds `require_capability` over a route with no
-</span><span id="__span-4-141"><a id="__codelineno-4-141" name="__codelineno-4-141" href="#__codelineno-4-141"></a>  `establish_asked` ahead of it at all, so the `500` it asserts can only be this function's own
-</span><span id="__span-4-142"><a id="__codelineno-4-142" name="__codelineno-4-142" href="#__codelineno-4-142"></a>  refusal.
-</span><span id="__span-4-143"><a id="__codelineno-4-143" name="__codelineno-4-143" href="#__codelineno-4-143"></a>
-</span><span id="__span-4-144"><a id="__codelineno-4-144" name="__codelineno-4-144" href="#__codelineno-4-144"></a># It fails closed, and the refusal is what makes that survivable
-</span><span id="__span-4-145"><a id="__codelineno-4-145" name="__codelineno-4-145" href="#__codelineno-4-145"></a>
-</span><span id="__span-4-146"><a id="__codelineno-4-146" name="__codelineno-4-146" href="#__codelineno-4-146"></a>A verified caller whose token names no capability scope may do nothing - `sutura_app::Permitted`
-</span><span id="__span-4-147"><a id="__codelineno-4-147" name="__codelineno-4-147" href="#__codelineno-4-147"></a>carries that decision and its consequence. What keeps a deployment that forgot to author scopes
-</span><span id="__span-4-148"><a id="__codelineno-4-148" name="__codelineno-4-148" href="#__codelineno-4-148"></a>from being a mystery is the response: `403` with `code: insufficient_scope` and a sentence naming
-</span><span id="__span-4-149"><a id="__codelineno-4-149" name="__codelineno-4-149" href="#__codelineno-4-149"></a>the exact scope string, which is RFC 6750's own answer to this and is diagnosable without a log.
-</span><span id="__span-4-150"><a id="__codelineno-4-150" name="__codelineno-4-150" href="#__codelineno-4-150"></a>
-</span><span id="__span-4-151"><a id="__codelineno-4-151" name="__codelineno-4-151" href="#__codelineno-4-151"></a>### `struct GovernedRoute`
-</span><span id="__span-4-152"><a id="__codelineno-4-152" name="__codelineno-4-152" href="#__codelineno-4-152"></a>
-</span><span id="__span-4-153"><a id="__codelineno-4-153" name="__codelineno-4-153" href="#__codelineno-4-153"></a>```rust
-</span><span id="__span-4-154"><a id="__codelineno-4-154" name="__codelineno-4-154" href="#__codelineno-4-154"></a>pub struct GovernedRoute
+</span><span id="__span-4-113"><a id="__codelineno-4-113" name="__codelineno-4-113" href="#__codelineno-4-113"></a>`permitted_for` takes the `sutura_app::Asked` `establish_asked` already derived - not the
+</span><span id="__span-4-114"><a id="__codelineno-4-114" name="__codelineno-4-114" href="#__codelineno-4-114"></a>request - so there is no path left in this file where "no `Asked`" reads as "grant everything."
+</span><span id="__span-4-115"><a id="__codelineno-4-115" name="__codelineno-4-115" href="#__codelineno-4-115"></a>What `Asked` itself carries is still two cases, from whatever leg 1 established:
+</span><span id="__span-4-116"><a id="__codelineno-4-116" name="__codelineno-4-116" href="#__codelineno-4-116"></a>
+</span><span id="__span-4-117"><a id="__codelineno-4-117" name="__codelineno-4-117" href="#__codelineno-4-117"></a>* A `crate::inbound::VerifiedCaller` in the request extensions - which only
+</span><span id="__span-4-118"><a id="__codelineno-4-118" name="__codelineno-4-118" href="#__codelineno-4-118"></a>  `crate::inbound::gate::require_verified_caller` inserts, after a signature check - means the
+</span><span id="__span-4-119"><a id="__codelineno-4-119" name="__codelineno-4-119" href="#__codelineno-4-119"></a>  token's scopes decide, and **only** they do.
+</span><span id="__span-4-120"><a id="__codelineno-4-120" name="__codelineno-4-120" href="#__codelineno-4-120"></a>* No such extension means no caller identity was established, so there is no verified claim to
+</span><span id="__span-4-121"><a id="__codelineno-4-121" name="__codelineno-4-121" href="#__codelineno-4-121"></a>  narrow by and every capability is permitted. That is the single-player deployment this service
+</span><span id="__span-4-122"><a id="__codelineno-4-122" name="__codelineno-4-122" href="#__codelineno-4-122"></a>  ships as, and it is the correct answer rather than a fallback: a filter over an unverified claim
+</span><span id="__span-4-123"><a id="__codelineno-4-123" name="__codelineno-4-123" href="#__codelineno-4-123"></a>  looks like a control and is not one.
+</span><span id="__span-4-124"><a id="__codelineno-4-124" name="__codelineno-4-124" href="#__codelineno-4-124"></a>
+</span><span id="__span-4-125"><a id="__codelineno-4-125" name="__codelineno-4-125" href="#__codelineno-4-125"></a>Two different things could put a caller in the wrong case, and each is closed by its own
+</span><span id="__span-4-126"><a id="__codelineno-4-126" name="__codelineno-4-126" href="#__codelineno-4-126"></a>mechanism:
+</span><span id="__span-4-127"><a id="__codelineno-4-127" name="__codelineno-4-127" href="#__codelineno-4-127"></a>
+</span><span id="__span-4-128"><a id="__codelineno-4-128" name="__codelineno-4-128" href="#__codelineno-4-128"></a>* **A deployment that *meant* to establish an identity reaches the single-player answer above
+</span><span id="__span-4-129"><a id="__codelineno-4-129" name="__codelineno-4-129" href="#__codelineno-4-129"></a>  anyway.** Closed at ASSEMBLY: `crate::router::assemble` returns
+</span><span id="__span-4-130"><a id="__codelineno-4-130" name="__codelineno-4-130" href="#__codelineno-4-130"></a>  `RouterNotBuilt::InboundIdentityNotAttached` when the settings declare a mode and no gate was
+</span><span id="__span-4-131"><a id="__codelineno-4-131" name="__codelineno-4-131" href="#__codelineno-4-131"></a>  attached, so on a deployment that declares `security.inbound`, a request reaching a handler has
+</span><span id="__span-4-132"><a id="__codelineno-4-132" name="__codelineno-4-132" href="#__codelineno-4-132"></a>  been through the gate. `crate::inbound::tests::router` asserts the assembly half and the `401`.
+</span><span id="__span-4-133"><a id="__codelineno-4-133" name="__codelineno-4-133" href="#__codelineno-4-133"></a>* **`establish_asked` itself is skipped or reordered, so no `Asked` reaches this layer at
+</span><span id="__span-4-134"><a id="__codelineno-4-134" name="__codelineno-4-134" href="#__codelineno-4-134"></a>  all.** Nothing at assembly time proves a middleware stack's order, so this is closed by
+</span><span id="__span-4-135"><a id="__codelineno-4-135" name="__codelineno-4-135" href="#__codelineno-4-135"></a>  REFUSAL instead: `require_capability` answers `Failure::Internal` rather than falling back to
+</span><span id="__span-4-136"><a id="__codelineno-4-136" name="__codelineno-4-136" href="#__codelineno-4-136"></a>  `Permitted::every_capability`, and the handler's own `axum::Extension&lt;sutura_app::Asked&gt;`
+</span><span id="__span-4-137"><a id="__codelineno-4-137" name="__codelineno-4-137" href="#__codelineno-4-137"></a>  parameter - a REQUIRED extractor, never `Option` - answers `500` on its own account if a request
+</span><span id="__span-4-138"><a id="__codelineno-4-138" name="__codelineno-4-138" href="#__codelineno-4-138"></a>  ever reached a handler without one. `crate::inbound::tests::router`'s
+</span><span id="__span-4-139"><a id="__codelineno-4-139" name="__codelineno-4-139" href="#__codelineno-4-139"></a>  `a_verified_caller_reaches_only_the_routes_its_scopes_name` and
+</span><span id="__span-4-140"><a id="__codelineno-4-140" name="__codelineno-4-140" href="#__codelineno-4-140"></a>  `a_verified_caller_whose_token_names_no_capability_scope_reaches_nothing` are the mechanism that
+</span><span id="__span-4-141"><a id="__codelineno-4-141" name="__codelineno-4-141" href="#__codelineno-4-141"></a>  proves the ORDER: a mutation moving `establish_asked` after this layer turns both red. Neither
+</span><span id="__span-4-142"><a id="__codelineno-4-142" name="__codelineno-4-142" href="#__codelineno-4-142"></a>  holds the ARM inside this function on its own, since both go through a route whose handler ALSO
+</span><span id="__span-4-143"><a id="__codelineno-4-143" name="__codelineno-4-143" href="#__codelineno-4-143"></a>  requires `Extension&lt;sutura_app::Asked&gt;` - `tests::a_skipped_establish_asked_is_refused_rather_than_answered_as_every_capability`
+</span><span id="__span-4-144"><a id="__codelineno-4-144" name="__codelineno-4-144" href="#__codelineno-4-144"></a>  is the cell that holds the ARM: it builds `require_capability` over a route with no
+</span><span id="__span-4-145"><a id="__codelineno-4-145" name="__codelineno-4-145" href="#__codelineno-4-145"></a>  `establish_asked` ahead of it at all, so the `500` it asserts can only be this function's own
+</span><span id="__span-4-146"><a id="__codelineno-4-146" name="__codelineno-4-146" href="#__codelineno-4-146"></a>  refusal.
+</span><span id="__span-4-147"><a id="__codelineno-4-147" name="__codelineno-4-147" href="#__codelineno-4-147"></a>
+</span><span id="__span-4-148"><a id="__codelineno-4-148" name="__codelineno-4-148" href="#__codelineno-4-148"></a># It fails closed, and the refusal is what makes that survivable
+</span><span id="__span-4-149"><a id="__codelineno-4-149" name="__codelineno-4-149" href="#__codelineno-4-149"></a>
+</span><span id="__span-4-150"><a id="__codelineno-4-150" name="__codelineno-4-150" href="#__codelineno-4-150"></a>A verified caller whose token names no capability scope may do nothing - `sutura_app::Permitted`
+</span><span id="__span-4-151"><a id="__codelineno-4-151" name="__codelineno-4-151" href="#__codelineno-4-151"></a>carries that decision and its consequence. What keeps a deployment that forgot to author scopes
+</span><span id="__span-4-152"><a id="__codelineno-4-152" name="__codelineno-4-152" href="#__codelineno-4-152"></a>from being a mystery is the response: `403` with `code: insufficient_scope` and a sentence naming
+</span><span id="__span-4-153"><a id="__codelineno-4-153" name="__codelineno-4-153" href="#__codelineno-4-153"></a>the exact scope string, which is RFC 6750's own answer to this and is diagnosable without a log.
+</span><span id="__span-4-154"><a id="__codelineno-4-154" name="__codelineno-4-154" href="#__codelineno-4-154"></a>
+</span><span id="__span-4-155"><a id="__codelineno-4-155" name="__codelineno-4-155" href="#__codelineno-4-155"></a>### `struct GovernedRoute`
+</span><span id="__span-4-156"><a id="__codelineno-4-156" name="__codelineno-4-156" href="#__codelineno-4-156"></a>
+</span><span id="__span-4-157"><a id="__codelineno-4-157" name="__codelineno-4-157" href="#__codelineno-4-157"></a>```rust
+</span><span id="__span-4-158"><a id="__codelineno-4-158" name="__codelineno-4-158" href="#__codelineno-4-158"></a>pub struct GovernedRoute
 </span></code></pre></div></p>
 <p>One row of the table: a method, the route template as <code>axum</code> matched it, and what it is.</p>
 <p><strong>The route template and not the request's path</strong>, which matters: <code>MatchedPath</code> is a value from

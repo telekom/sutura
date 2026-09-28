@@ -2016,10 +2016,10 @@ questions with a committed <code>@duckdb</code> row golden disagreed without it,
 non-<code>Nullable</code> schema; under <code>Nullable</code> columns the setting changes nothing, so a fixture
 importer's type choice decides whether the defect shows - <code>fixture</code> declares no column
 <code>Nullable</code> for that reason. <code>output_format_json_quote_denormals=1</code>: under the default <code>0</code> an
-infinite float answers the JSON <code>null</code>. <code>timeout_overflow_mode=throw</code>: <code>break</code> answers a spent
-<code>max_execution_time</code> with HTTP 200 and the rows read so far. A unit cell holds what is sent; the
-executed goldens hold what the first two settings make the server answer, and nothing executed
-holds the third.</p>
+infinite float answers the JSON <code>null</code>. <code>timeout_overflow_mode=throw</code>: <code>throw</code> answers a spent
+<code>max_execution_time</code> with Code 159; <code>break</code> answers HTTP 200 with the rows read so far. A unit
+cell holds what is sent; the executed goldens hold what the first two settings make the server
+answer, and nothing executed holds the third.</p>
 <h1 id="what-is-not-here">What is NOT here<a class="headerlink" href="#what-is-not-here" title="Permanent link">&para;</a></h1>
 <p><strong>No release links this crate.</strong> <code>sutura-cli</code> opens a <code>kind: clickhouse</code> source behind its
 default-off <code>clickhouse</code> feature, which <code>nix/shipped.nix</code> does not enable - see that feature's

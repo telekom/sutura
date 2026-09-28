@@ -9838,7 +9838,8 @@ parser never carried.</p>
 <p><strong>This is the whole translation a transport is allowed to do</strong>: extract each field from its own
 wire shape as a plain string, hand them here, get back a certified <code>Query</code>, a malformed
 input error, or an early count refusal. Catalog-dependent decisions stay in
-<code>sutura_app::compile</code>, against the pinned catalog this function never sees.</p>
+<code>sutura_semantic::compile</code>, called by <code>sutura_app::answer</code>, against the pinned catalog this
+function never sees.</p>
 <h2 id="module-raw">Module <code>raw</code><a class="headerlink" href="#module-raw" title="Permanent link">&para;</a></h2>
 <p>The raw SQL tool's own outcome, refusal vocabulary and statement newtype.</p>
 <h1 id="why-this-is-a-separate-module-and-not-a-widening-of-cratequery">Why this is a separate module, and not a widening of <code>crate::query</code><a class="headerlink" href="#why-this-is-a-separate-module-and-not-a-widening-of-cratequery" title="Permanent link">&para;</a></h1>
@@ -10386,11 +10387,10 @@ address and a wildcard is reachable from everywhere - the opposite claim.</p>
 <h2 id="module-warehouse">Module <code>warehouse</code><a class="headerlink" href="#module-warehouse" title="Permanent link">&para;</a></h2>
 <p>The execution port: the plan that goes out, and the rows that come back.</p>
 <p><code>Warehouse</code> names the port, not whether its implementation is a file or a cluster.</p>
-<p><strong>No statement appears in this module, and its absence is the decision rather than an omission.</strong>
-The port takes a <code>crate::plan::QueryPlan</code> - <code>Warehouse</code> says why that is what makes a second
-kind of adapter possible - so nothing in the domain constructs or reads a statement, and the type
-carrying one lives in <code>sutura-sql</code> beside the code that renders it: a domain holding a rendered
-statement has acquired a concept no domain operation uses. What stays is <code>ParamValue</code>, because
+<p><strong>The main port works with <code>crate::plan::QueryPlan</code>.</strong> <code>Warehouse</code> says why that is what makes
+a second kind of adapter possible. The <code>execute_raw</code> method is an escape hatch for the raw SQL
+tool that operates on <code>crate::raw::RawStatement</code>; see <code>crate::raw</code> and <code>docs/adr/0013</code>.
+What stays is <code>ParamValue</code>, because
 a <code>crate::plan::QueryPlan</code> carries a vector of them and because the rule lives there - a value
 is a closed set of typed variants an adapter binds, never text somebody concatenated.
 <code>crate::query</code> is the <em>tool</em> surface, where SQL must be unrepresentable because the text comes
@@ -10484,10 +10484,9 @@ cheaper has no way to say so if the port demands an implementation, and the hone
 do is nothing.</p>
 <h1 id="nothing-here-executes-without-saying-whose-credential-it-holds">Nothing here executes without saying whose credential it holds<a class="headerlink" href="#nothing-here-executes-without-saying-whose-credential-it-holds" title="Permanent link">&para;</a></h1>
 <p><code>Self::execute</code> takes a <code>Presented</code> and has no default, so there is no code path into a data
-system that runs as whatever the process happens to be. <strong>Today's signature IS the fallback:</strong> an
-adapter with no credential parameter runs as the process, and nothing anywhere had to decide
-that. <code>docs/adr/0008</code> part 1 is the decision, and the mechanism is the absence of a signature
-rather than a rule somebody follows.</p>
+system that runs as whatever the process happens to be. <code>docs/adr/0008</code> part 1 is the decision -
+no service-identity fallback - and the mechanism is that <code>Self::execute</code> cannot be called
+without a <code>Presented</code>.</p>
 <p>The boot path is the other caller of this port and it has no subject, so it gets its own method:
 <code>Self::verify_anchor</code> takes no credential and returns <code>AnchorRows</code> rather than the
 <code>ResultBatches</code> a question comes back as.

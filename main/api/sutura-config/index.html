@@ -2103,9 +2103,8 @@ what a reviewer reads and manifest determinism does not depend on it surviving a
 <p>A typed PostgreSQL schema name holding the documentation rows.</p>
 <p>Binding a schema name as a quoted, validated identifier - never interpolating it into a SQL
 statement as raw text. The accepted set is <code>[A-Za-z0-9_]</code>, the same leaves every Postgres
-identifier is built from, and case is preserved. It also doubles as the physical schema the
-described objects are documented against when the dictionary rows' own schema differs from a
-separate <code>catalog</code> part - see the dictionary contract.</p>
+identifier is built from, and case is preserved. The reader selects the view <code>columns</code> in this
+schema; the schema of each described object is the row's own <code>schema_name</code> and <code>catalog_name</code>.</p>
 <h2 id="use-invalidcatalogsettings"><code>use InvalidCatalogSettings</code><a class="headerlink" href="#use-invalidcatalogsettings" title="Permanent link">&para;</a></h2>
 <p>Why a catalog configuration is not usable.</p>
 <h2 id="use-invalidconnection"><code>use InvalidConnection</code><a class="headerlink" href="#use-invalidconnection" title="Permanent link">&para;</a></h2>
@@ -3188,9 +3187,8 @@ and the same fail-closed channel rules, through the one function both call:
 <p>A typed PostgreSQL schema name holding the documentation rows.</p>
 <p>Binding a schema name as a quoted, validated identifier - never interpolating it into a SQL
 statement as raw text. The accepted set is <code>[A-Za-z0-9_]</code>, the same leaves every Postgres
-identifier is built from, and case is preserved. It also doubles as the physical schema the
-described objects are documented against when the dictionary rows' own schema differs from a
-separate <code>catalog</code> part - see the dictionary contract.</p>
+identifier is built from, and case is preserved. The reader selects the view <code>columns</code> in this
+schema; the schema of each described object is the row's own <code>schema_name</code> and <code>catalog_name</code>.</p>
 <h3 id="use-invalidconnection_1"><code>use InvalidConnection</code><a class="headerlink" href="#use-invalidconnection_1" title="Permanent link">&para;</a></h3>
 <p>Why an rdbms catalog's <code>connection:</code> block is not usable.</p>
 <p><strong>Limit:</strong> an <code>InvalidConnection::Transport</code> cause is the <code>sources:</code> transport reader's own, so
@@ -3215,7 +3213,7 @@ as one <code>Option</code>, so no state with half of it set is representable.</p
 <p>The <code>catalog.kind: rdbms</code> entry's own settings.</p>
 <p>A read-only Postgres connection, a closed-form live-row predicate, the environment key that
 selects dictionary rows, the source the described objects are served from, and two read bounds.</p>
-<p>Split out of <code>catalog.rs</code> at the crate's 1000-line cap. The parent re-exports every type, so
+<p>Authored as its own module, not a split. The parent re-exports every type, so
 <code>crate::catalog::&lt;Name&gt;</code> and the crate root's <code>pub use</code> both still resolve.</p>
 <p><strong>Parsed here, read by a composition root that links the <code>live</code> reader.</strong> This crate's own job
 ends at a checked declaration; a build with <code>sutura-catalog-rdbms</code>'s <code>live</code> feature consumes
@@ -3295,9 +3293,8 @@ reader arm, which is the review it deserves.</p>
 <p>A typed PostgreSQL schema name holding the documentation rows.</p>
 <p>Binding a schema name as a quoted, validated identifier - never interpolating it into a SQL
 statement as raw text. The accepted set is <code>[A-Za-z0-9_]</code>, the same leaves every Postgres
-identifier is built from, and case is preserved. It also doubles as the physical schema the
-described objects are documented against when the dictionary rows' own schema differs from a
-separate <code>catalog</code> part - see the dictionary contract.</p>
+identifier is built from, and case is preserved. The reader selects the view <code>columns</code> in this
+schema; the schema of each described object is the row's own <code>schema_name</code> and <code>catalog_name</code>.</p>
 <h5 id="methods_9">Methods<a class="headerlink" href="#methods_9" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
@@ -4135,8 +4132,9 @@ and the crate that acts on it owns the type that acts.</p>
 </ul>
 <p><strong>A description is untrusted content and this is not a claim that it is safe.</strong> A per-line
   prefix stops catalog text from reaching column zero, so it cannot emit a heading or close a
-  block; it does nothing about prose that persuades without escaping. <code>SECURITY.md</code> treats
-  catalog content as untrusted, and <code>sutura_app::prompt</code> states the residual gap.
+  block; it does nothing about prose that persuades without escaping. The repository's threat
+  model treats a catalog document as untrusted input, and <code>sutura_app::prompt</code> states the
+  residual gap.
 - <code>Omitted</code> - Left out. For a deployment whose catalog authors are not the people who decide what its agents are told.</p>
 <p>The prompt then says the descriptions exist and were not included, rather than rendering a
   list of metric names with no meaning attached: silence is what makes an agent infer a
