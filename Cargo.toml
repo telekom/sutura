@@ -241,7 +241,7 @@ arrow-schema = "59"
 # `sutura-domain` only: `arrow-array` re-exports the type privately, so a test constructing a
 # `Decimal256Array` has to name the crate that owns it. Already in the graph as `arrow-array`'s own
 # dependency, so this is a new edge and not a new crate.
-arrow-buffer = "59"
+arrow-buffer = "60"
 # TLS for a Postgres SOURCE connection: `MakeRustlsConnect`, which turns a `rustls::ClientConfig`
 # into the connector `tokio-postgres::Config::connect` wants. This is the first thing in the
 # workspace that must VERIFY a peer's chain - see `docs/adr/0010` - so the trust store is declared
