@@ -263,29 +263,39 @@ fn a_declared_subject_is_minted_the_account_declared_beside_it() {
     .expect("a declared two-subject map is a source this deployment can serve");
     let warehouse = SourceName::parse("warehouse").expect("a test source is a source");
     let asked = SourceSet::of(warehouse.clone());
-    let analyst = Subject::verified("analyst-a@example.com").expect("a test subject is a subject");
-    let minted = broker
-        .mint(
-            &RequestContext::with_assertion(
-                PrincipalChain::of(analyst.clone()),
-                Secret::new("assertion.for.analyst-a"),
-                4_102_444_800,
-            ),
-            &asked,
-        )
-        .expect("a declared subject is mintable");
-    let Agreed::Granted { credentials } = minted
-        .agreeing_with(&analyst, &asked, 4_000_000_000)
-        .expect("the grant agrees with the request")
-    else {
-        panic!("a declared subject is granted");
-    };
-    match credentials.presented_for(&warehouse).expect("the source was asked for") {
-        Presented::SubjectToken { impersonate, .. } => assert_eq!(
-            impersonate.as_ref().map(PrincipalName::to_string).as_deref(),
-            Some("bq-a@acme-analytics.iam.gserviceaccount.com"),
+    for (subject_name, assertion, expected_account) in [
+        (
+            "analyst-a@example.com",
+            "assertion.for.analyst-a",
+            "bq-a@acme-analytics.iam.gserviceaccount.com",
         ),
-        other => panic!("an impersonating source presents a subject token, not {other:?}"),
+        (
+            "analyst-b@example.com",
+            "assertion.for.analyst-b",
+            "bq-b@acme-analytics.iam.gserviceaccount.com",
+        ),
+    ] {
+        let subject = Subject::verified(subject_name).expect("a test subject is a subject");
+        let minted = broker
+            .mint(
+                &RequestContext::with_assertion(PrincipalChain::of(subject.clone()), Secret::new(assertion), 4_102_444_800),
+                &asked,
+            )
+            .expect("a declared subject is mintable");
+        let Agreed::Granted { credentials } = minted
+            .agreeing_with(&subject, &asked, 4_000_000_000)
+            .expect("the grant agrees with the request")
+        else {
+            panic!("a declared subject is granted");
+        };
+        match credentials.presented_for(&warehouse).expect("the source was asked for") {
+            Presented::SubjectToken { impersonate, .. } => assert_eq!(
+                impersonate.as_ref().map(PrincipalName::to_string).as_deref(),
+                Some(expected_account),
+                "{subject_name} must be minted the account declared beside it, not another entry's",
+            ),
+            other => panic!("an impersonating source presents a subject token, not {other:?}"),
+        }
     }
 }
 
