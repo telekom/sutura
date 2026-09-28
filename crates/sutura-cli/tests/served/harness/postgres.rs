@@ -105,14 +105,26 @@ pub(crate) struct LoadedTier {
     pub(crate) anchor: String,
 }
 
-/// Loads the single-player example's CSVs into the provisioned Postgres tier under `loader_source`
-/// and returns what a caller needs to declare a `kind: "postgres"` source that reaches them.
+/// What discovering the provisioned Postgres tier and reading its four published credentials
+/// returns: everything a fixture-install connection (a direct `tokio_postgres::Config`, whatever it
+/// installs) and a `sources:`/`connection:` entry both need. `None` is the ordinary no-tier outcome
+/// every adapter fixture uses. Once discovery finds the endpoint, every credential and TLS value is
+/// required: a half-provisioned tier is a failing test, not an absent one.
 ///
-/// `None` is the ordinary no-tier outcome that every adapter fixture uses. Once discovery finds the
-/// endpoint, every credential and TLS value is required: a half-provisioned tier is a failing test,
-/// not an absent one. The password is copied to this case's own scratch directory because a real
-/// source declaration names a file rather than carrying secret text in the settings tree.
-pub(crate) fn load_into_tier(case: &str, loader_source: &str) -> Option<LoadedTier> {
+/// Split out of [`load_into_tier`] so [`crate::rdbms`]'s served boot-and-list cell - which installs
+/// its own documentation-schema fixture directly rather than loading CSVs through a `postgres`
+/// source - reaches the tier the same way this file's own fixtures do, instead of a second copy of
+/// this same discovery.
+pub(crate) struct DiscoveredTier {
+    pub(crate) config: tokio_postgres::Config,
+    pub(crate) port: u16,
+    pub(crate) user: String,
+    pub(crate) password: String,
+    pub(crate) database: String,
+    pub(crate) anchor: String,
+}
+
+pub(crate) fn discover_tier() -> Option<DiscoveredTier> {
     let found = sutura_dev::provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "postgres");
     let endpoint = found.endpoint()?;
     let required =
@@ -122,17 +134,35 @@ pub(crate) fn load_into_tier(case: &str, loader_source: &str) -> Option<LoadedTi
     let database = required("SUTURA_POSTGRES_TIER_DB");
     let anchor = required("SUTURA_POSTGRES_TIER_CA");
 
-    let mut loader_config = tokio_postgres::Config::new();
-    loader_config
+    let mut config = tokio_postgres::Config::new();
+    config
         .host(endpoint.host())
         .port(endpoint.port())
         .user(&user)
         .password(&password)
         .dbname(&database);
+    Some(DiscoveredTier {
+        config,
+        port: endpoint.port(),
+        user,
+        password,
+        database,
+        anchor,
+    })
+}
+
+/// Loads the single-player example's CSVs into the provisioned Postgres tier under `loader_source`
+/// and returns what a caller needs to declare a `kind: "postgres"` source that reaches them.
+///
+/// `None` is the ordinary no-tier outcome [`discover_tier`] returns it for. The password is copied
+/// to this case's own scratch directory because a real source declaration names a file rather than
+/// carrying secret text in the settings tree.
+pub(crate) fn load_into_tier(case: &str, loader_source: &str) -> Option<LoadedTier> {
+    let discovered = discover_tier()?;
     let data = example_root().join("data");
     // Acquired BEFORE the load and returned to the caller still held - see `FixtureLoadGuard`'s own
     // documentation for why releasing it here, once the load loop returns, is not enough.
-    let guard = lock_fixture_load(&loader_config);
+    let guard = lock_fixture_load(&discovered.config);
     {
         let source = SourceName::parse(loader_source).expect("the fixture's own loader source name parses");
         let reason = AcknowledgementReason::parse("the served Postgres example uses one fixture role")
@@ -140,7 +170,7 @@ pub(crate) fn load_into_tier(case: &str, loader_source: &str) -> Option<LoadedTi
         let posture = SourcePosture::SharedServiceUser {
             declared: SharedIdentityDeclared::of(reason),
         };
-        let loader = PostgresWarehouse::connect(source, posture, &loader_config)
+        let loader = PostgresWarehouse::connect(source, posture, &discovered.config)
             .expect("the provisioned Postgres tier accepts its published fixture credential");
         for entry in std::fs::read_dir(&data).expect("the single-player data directory is readable") {
             let path = entry.expect("a fixture directory entry is readable").path();
@@ -169,37 +199,35 @@ pub(crate) fn load_into_tier(case: &str, loader_source: &str) -> Option<LoadedTi
         .open(&password_file)
         .expect("the Postgres case's password file is creatable");
     secret
-        .write_all(password.as_bytes())
+        .write_all(discovered.password.as_bytes())
         .expect("the Postgres case's password file is writable");
 
     Some(LoadedTier {
         guard,
-        port: endpoint.port(),
-        user,
+        port: discovered.port,
+        user: discovered.user,
         password_file,
-        database,
-        anchor,
+        database: discovered.database,
+        anchor: discovered.anchor,
     })
 }
 
-/// One `sources:` entry declaring `loaded` as `name`, over verified TLS.
-pub(crate) fn source_entry(name: &str, loaded: &LoadedTier) -> String {
+/// One `sources:`/`connection:`-shaped entry declaring `name` over verified TLS at `port`, reaching
+/// `database` as `user` through `password_file`, anchored by `anchor` - the shape a `postgres`
+/// source and a `catalog.kind: rdbms` connection block share.
+pub(crate) fn source_entry(name: &str, port: u16, database: &str, user: &str, password_file: &Path, anchor: &str) -> String {
     format!(
         "  {name}:\n    \
            kind: \"postgres\"\n    \
            host: \"127.0.0.1\"\n    \
-           port: {}\n    \
-           database: \"{}\"\n    \
-           user: \"{}\"\n    \
+           port: {port}\n    \
+           database: \"{database}\"\n    \
+           user: \"{user}\"\n    \
            password_file: \"{}\"\n    \
            transport_mode: \"verified\"\n    \
-           transport_anchors: \"{}\"\n    \
+           transport_anchors: \"{anchor}\"\n    \
            posture: \"shared-service-user\"\n",
-        loaded.port,
-        loaded.database,
-        loaded.user,
-        loaded.password_file.display(),
-        loaded.anchor,
+        password_file.display(),
     )
 }
 
@@ -211,7 +239,14 @@ pub(crate) fn source_entry(name: &str, loaded: &LoadedTier) -> String {
 /// `None` is the ordinary no-tier outcome [`load_into_tier`] returns it for.
 pub(crate) fn settings(case: &str) -> Option<(String, FixtureLoadGuard)> {
     let loaded = load_into_tier(case, LOCAL_SOURCE)?;
-    let sources = source_entry(LOCAL_SOURCE, &loaded);
+    let sources = source_entry(
+        LOCAL_SOURCE,
+        loaded.port,
+        &loaded.database,
+        &loaded.user,
+        &loaded.password_file,
+        &loaded.anchor,
+    );
     let settings = settings_over(
         &example_root().join("catalog"),
         &example_root().join("data"),

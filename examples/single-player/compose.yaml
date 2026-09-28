@@ -1,0 +1,32 @@
+# A USER-FACING compose file for this one example: the published `sutura` image, serving THIS
+# catalog and corpus over HTTP, with no Rust toolchain and no clone beyond what already put this
+# directory on disk. NOT `compose.dev.yaml` / `compose.services.yaml` at the repository root -
+# those provision this repository's own Postgres, ClickHouse and identity-provider tiers for its
+# own test suites, and neither is meant to run against a real dataset.
+#
+# Mirrors `docs/serving.md`'s `docker run` recipe for this exact catalog, byte for byte on the
+# env vars: `security.identity: single-user` (one operator, acknowledged), a `local` source over
+# this directory's `data/`, and `posture: shared-service-user` because a directory of files has
+# no login to present. That page is the reference for what this surface does and does not
+# authenticate, and for every other posture and adapter kind.
+#
+# `network_mode: host` rather than a published port, for the reason `docs/serving.md` gives in
+# full: the default bind is loopback, and inside a container loopback is the container - a
+# published port would reach nothing, and binding `0.0.0.0` instead needs `security.access_token`
+# and a declared `security.tls_termination`, which this example does not add. Linux-only in the
+# strict sense; Docker Desktop's host networking covers macOS and Windows on a recent-enough
+# release.
+services:
+  sutura:
+    image: ghcr.io/telekom/sutura:latest
+    command: serve
+    network_mode: host
+    working_dir: /examples
+    volumes:
+      - .:/examples:ro
+    environment:
+      SUTURA__SECURITY__IDENTITY: single-user
+      SUTURA__SECURITY__SINGLE_USER_BECAUSE: "one operator reading the shipped example"
+      SUTURA__SOURCES__LOCAL__KIND: files
+      SUTURA__SOURCES__LOCAL__DATA_DIR: /examples/data
+      SUTURA__SOURCES__LOCAL__POSTURE: shared-service-user

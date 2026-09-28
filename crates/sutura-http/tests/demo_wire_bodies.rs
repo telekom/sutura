@@ -33,7 +33,7 @@ mod tests {
 
     /// The `{...}` starting right after `marker`, taken by brace counting rather than a fixed
     /// length - so a body that grows a field is still captured whole. Both the Python dict
-    /// literals in `demo/healthcheck.py` and the JSON in `.github/serve-smoke.sh`'s `-d '...'`
+    /// literals in `examples/demo-chatinterface/healthcheck.py` and the JSON in `.github/serve-smoke.sh`'s `-d '...'`
     /// are plain double-quoted JSON already, with no Python-only syntax, so this is a JSON
     /// extraction and not a Python one.
     fn json_object_after<'a>(source: &'a str, marker: &str) -> &'a str {
@@ -63,7 +63,7 @@ mod tests {
     }
 
     /// Python allows a trailing comma before a closing `}`/`]`; strict JSON, and `serde_json`,
-    /// does not. The dict literals this file reads out of `demo/healthcheck.py` are otherwise
+    /// does not. The dict literals this file reads out of `examples/demo-chatinterface/healthcheck.py` are otherwise
     /// exactly JSON, so this is the one Python-ism to undo before parsing.
     fn drop_trailing_commas(json: &str) -> String {
         let mut out = String::with_capacity(json.len());
@@ -113,12 +113,12 @@ mod tests {
 
     #[test]
     fn the_healthcheck_s_two_questions_parse_as_the_current_wire_shape() {
-        let source = read("demo/healthcheck.py");
+        let source = read("examples/demo-chatinterface/healthcheck.py");
         if let Some(e) = question_error(json_object_after(&source, "_A_REAL_QUESTION = ")) {
-            panic!("demo/healthcheck.py _A_REAL_QUESTION does not parse as QuestionBody: {e}");
+            panic!("examples/demo-chatinterface/healthcheck.py _A_REAL_QUESTION does not parse as QuestionBody: {e}");
         }
         if let Some(e) = question_error(json_object_after(&source, "_AN_UNANSWERABLE_QUESTION = ")) {
-            panic!("demo/healthcheck.py _AN_UNANSWERABLE_QUESTION does not parse as QuestionBody: {e}");
+            panic!("examples/demo-chatinterface/healthcheck.py _AN_UNANSWERABLE_QUESTION does not parse as QuestionBody: {e}");
         }
     }
 

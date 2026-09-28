@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The demo's readiness probe: registration, an answer, a refusal, and the tool surface they exist for.
 
-Compose runs this from `demo/Dockerfile`'s `HEALTHCHECK`. It is the demo's answer to the fact that
+Compose runs this from `examples/demo-chatinterface/Dockerfile`'s `HEALTHCHECK`. It is the demo's answer to the fact that
 the shipped `sutura` image has no probe of its own: "the container is healthy" has to mean the
 server answered, the chat client answered, the served document still exposes the two operations the
 demo is about, AND the demo can actually answer a real question and refuse one it cannot - not just
@@ -35,7 +35,7 @@ NO_REDIRECT = urllib.request.build_opener(_RefuseRedirects())
 # alive its sockets look.
 OPERATIONS = (("/v1/catalog", "get"), ("/v1/query", "post"))
 
-# Both drawn from the shipped corpus (`examples/single-player`, `demo/Dockerfile` copies it in), so
+# Both drawn from the shipped corpus (`examples/single-player`, `examples/demo-chatinterface/Dockerfile` copies it in), so
 # neither question is invented for this file: an answer and a refusal the demo already claims to
 # produce. Deterministic and local - no model, no network beyond the server this container runs.
 _A_REAL_QUESTION = {
@@ -187,7 +187,7 @@ def main() -> None:
     except OSError as problem:
         fail(f"the deployment token was not readable: {problem}")
     # An EMPTY token file is not a readable credential, and a probe that reports healthy over one is
-    # the defect this guard exists for: `demo/run.sh` writes this file, a generator that produced
+    # the defect this guard exists for: `examples/demo-chatinterface/run.sh` writes this file, a generator that produced
     # nothing leaves it zero bytes, and the server then reads `access_token: ""` as ABSENT - which
     # `sutura-config` permits on a loopback, non-production bind by design. The request below would
     # otherwise succeed carrying `Bearer ` and nothing would have been authenticated.

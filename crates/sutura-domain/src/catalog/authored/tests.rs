@@ -8,8 +8,8 @@
 //! cannot have: a typo in a range bound is invisible to a test that only tries `U+200B`.
 
 use super::{
-    AnchorValue, Description, DimensionValue, InvalidDescription, InvalidDimensionValue, MAX_DESCRIPTION_BYTES,
-    MAX_DESCRIPTION_LINES, MAX_DIMENSION_VALUE_CHARS,
+    AnchorValue, ColumnType, Description, DimensionValue, InvalidColumnType, InvalidDescription, InvalidDimensionValue,
+    MAX_COLUMN_TYPE_CHARS, MAX_DESCRIPTION_BYTES, MAX_DESCRIPTION_LINES, MAX_DIMENSION_VALUE_CHARS,
 };
 
 /// Both ends of all seven ranges [`crate::text::is_invisible`] names.
@@ -68,6 +68,11 @@ fn a_value_is_one_line_and_carries_no_control_character() {
     }
 }
 
+/// Of the twelve [`NEIGHBOURS`], the four that `char::is_whitespace` marks `White_Space` and are
+/// therefore refused as [`InvalidDimensionValue::Spacing`] rather than accepted: hair space, the
+/// paragraph separator, narrow no-break space and medium mathematical space.
+const SPACING_NEIGHBOURS: &[u32] = &[0x200A, 0x2029, 0x202F, 0x205F];
+
 #[test]
 fn every_invisible_range_is_refused_at_both_ends_and_no_neighbour_of_one_is() {
     for &code in INVISIBLE {
@@ -85,14 +90,26 @@ fn every_invisible_range_is_refused_at_both_ends_and_no_neighbour_of_one_is() {
     for &code in NEIGHBOURS {
         let benign = character(code);
         let raw = format!("nor{benign}th");
-        // `U+2029` is a paragraph separator and `U+202F` a narrow no-break space, so two of the
-        // neighbours are refused for a DIFFERENT reason - which is the point: none of them is
-        // refused as invisible.
+        // Four of the neighbours are refused for a DIFFERENT reason (see `SPACING_NEIGHBOURS`
+        // below), so this only pins that none of the twelve is refused as invisible.
         let outcome = DimensionValue::parse(&raw);
         assert!(
             !matches!(outcome, Err(InvalidDimensionValue::InvisibleCharacter { .. })),
             "{code:#06x} is not one of the invisible ones: {outcome:?}"
         );
+        if SPACING_NEIGHBOURS.contains(&code) {
+            assert_eq!(
+                outcome,
+                Err(InvalidDimensionValue::Spacing { value: raw }),
+                "{code:#06x} is a spacing character, not an invisible one"
+            );
+        } else {
+            assert_eq!(
+                outcome.map(|value| value.as_str().to_owned()),
+                Ok(raw),
+                "{code:#06x} is neither invisible nor unreadable spacing"
+            );
+        }
     }
 }
 
@@ -391,5 +408,64 @@ fn a_descriptions_deserialization_path_is_the_one_constructor() {
     assert_eq!(
         Description::try_from(String::from("Net\u{202E}revenue.")),
         Err(InvalidDescription::InvisibleCharacter { code: 0x202E })
+    );
+}
+
+// -------------------------------------------------------------------- ColumnType ----
+
+#[test]
+fn a_column_type_of_nothing_but_whitespace_is_refused_as_empty() {
+    for raw in ["", "   ", "  \n\t "] {
+        assert_eq!(ColumnType::parse(raw), Err(InvalidColumnType::Empty), "{raw:?}");
+    }
+}
+
+#[test]
+fn a_column_type_carrying_a_control_character_is_refused_naming_its_code() {
+    // BEL is not whitespace, so normalising does not collapse it and it reaches the character check.
+    assert_eq!(
+        ColumnType::parse("STRING\u{7}"),
+        Err(InvalidColumnType::ControlCharacter {
+            value: String::from("STRING\u{7}"),
+            code: 0x07,
+        })
+    );
+}
+
+#[test]
+fn a_column_type_carrying_an_invisible_character_is_refused_naming_its_code() {
+    // U+202E is not a control character, so it passes that check and is refused by the next one.
+    assert_eq!(
+        ColumnType::parse("STRUCT<name\u{202e} STRING>"),
+        Err(InvalidColumnType::InvisibleCharacter {
+            value: String::from("STRUCT<name\u{202e} STRING>"),
+            code: 0x202E,
+        })
+    );
+}
+
+#[test]
+fn a_column_type_one_past_the_character_cap_is_refused_and_the_cap_itself_is_not() {
+    let over = "x".repeat(MAX_COLUMN_TYPE_CHARS.saturating_add(1));
+    assert_eq!(
+        ColumnType::parse(&over),
+        Err(InvalidColumnType::TooLong {
+            len: over.len(),
+            value: over,
+            limit: MAX_COLUMN_TYPE_CHARS,
+        })
+    );
+    assert!(
+        ColumnType::parse("x".repeat(MAX_COLUMN_TYPE_CHARS)).is_ok(),
+        "exactly the cap is a column type"
+    );
+    // Characters and not bytes decide the bound - an ASCII-only cap at the same count as its own
+    // byte length cannot tell `chars().count()` from `.len()` apart. A two-byte character at
+    // exactly the cap is 512 characters but 1024 bytes, so a byte-counting cap would refuse it.
+    let multibyte_at_cap = "\u{e4}".repeat(MAX_COLUMN_TYPE_CHARS);
+    assert_eq!(multibyte_at_cap.chars().count(), MAX_COLUMN_TYPE_CHARS);
+    assert!(
+        ColumnType::parse(&multibyte_at_cap).is_ok(),
+        "exactly the cap in two-byte characters is still a column type"
     );
 }

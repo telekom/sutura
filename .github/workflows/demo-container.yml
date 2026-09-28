@@ -3,11 +3,11 @@
 # `publish`'s `needs:` and so is required at the release boundary. Owner decision, 2026-09-19:
 # `github.com/telekom/sutura#639`.
 #
-# WHAT THIS PROVES THAT NOTHING ELSE DOES. `demo/test_behavior.py`, run inside `checks.nextest`
-# (`preCheck` in `flake.nix`), already proves `demo/run.sh`'s supervision with stub child
-# processes and `demo/healthcheck.py`'s answer/refusal logic against fake HTTP servers - both
+# WHAT THIS PROVES THAT NOTHING ELSE DOES. `examples/demo-chatinterface/test_behavior.py`, run inside `checks.nextest`
+# (`preCheck` in `flake.nix`), already proves `examples/demo-chatinterface/run.sh`'s supervision with stub child
+# processes and `examples/demo-chatinterface/healthcheck.py`'s answer/refusal logic against fake HTTP servers - both
 # hermetic, no docker. Neither exercises the ASSEMBLED artefact: the real `sutura` binary
-# `demo/start.sh` builds with nix, inside the real Compose service `compose.services.yaml`
+# `examples/demo-chatinterface/start.sh` builds with nix, inside the real Compose service `compose.services.yaml`
 # declares, behind the real `HEALTHCHECK` a released image ships with. This job is that proof.
 #
 # A REUSABLE WORKFLOW rather than a job written twice, because the body is identical in both
@@ -19,10 +19,10 @@
 # that cannot be hermetic, declared as such with its reason. The BINARY inside the image is
 # nix-built; the image ASSEMBLY is docker, which is the one part that needs the daemon.
 #
-# NO PAID OR EXTERNAL MODEL. `demo/start.sh`'s own transport policy refuses an `http://` endpoint
+# NO PAID OR EXTERNAL MODEL. `examples/demo-chatinterface/start.sh`'s own transport policy refuses an `http://` endpoint
 # that is not on this machine, so the stub model server below - deterministic, local, answers only
 # `GET /models` - is what that policy already accepts, not a hole punched in it. The demo's real
-# answer/refusal smoke test still runs: it is `demo/healthcheck.py`'s `HEALTHCHECK`, asking the
+# answer/refusal smoke test still runs: it is `examples/demo-chatinterface/healthcheck.py`'s `HEALTHCHECK`, asking the
 # `sutura` server directly, and `xtask dev-up --only demo` blocks on it turning healthy.
 #
 # NOT REQUIRED ON A PULL REQUEST, and `devco/required-contexts` records why: the context this job
@@ -30,7 +30,7 @@
 # report, which the classification rule there cannot resolve as a required context either.
 #
 # THE LIMIT, next to the claim. This proves the image answers and refuses ONCE, on first probe,
-# behind the readiness latch `demo/healthcheck.py` already uses for its external checks - it is a
+# behind the readiness latch `examples/demo-chatinterface/healthcheck.py` already uses for its external checks - it is a
 # smoke test, not a repeated run of the full demo. A lightweight neighbour and its named volume
 # are created in the same project before the demo starts; their marker must survive both startup
 # and scoped teardown. The neighbour is absent from the demo's Compose file, so this also catches
@@ -66,7 +66,7 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      # `demo/start.sh` calls `just dev-endpoint demo` directly, and this runner has nix but no
+      # `examples/demo-chatinterface/start.sh` calls `just dev-endpoint demo` directly, and this runner has nix but no
       # host-installed `just` guaranteed - so a wrapper goes on `PATH` before the script needs it.
       # `nix run .#just`, never `nix build`: a literal package build is a release output in
       # ordinary CI's own refusal (`xtask/src/workflows/reach.rs`), and an app is not one.
@@ -82,7 +82,7 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       # A local, deterministic stand-in for the demo's model endpoint - never a paid or hosted one.
-      # It answers exactly what `demo/start.sh`'s own transport policy already accepts: a local,
+      # It answers exactly what `examples/demo-chatinterface/start.sh`'s own transport policy already accepts: a local,
       # keyless `http://` endpoint. Bound to every interface so the container can reach it over
       # `host.docker.internal`, which `compose.services.yaml`'s `extra_hosts` maps on native Linux.
       - name: Start a local stub model endpoint
@@ -152,8 +152,8 @@ jobs:
           echo "project=$project" >> "$GITHUB_OUTPUT"
           echo "container=$container" >> "$GITHUB_OUTPUT"
 
-      # THE REAL PATH: nix builds the binary, `demo/Dockerfile` assembles the image around it, and
-      # `xtask dev-up --only demo` (through `demo/start.sh --up-only`) blocks on the same
+      # THE REAL PATH: nix builds the binary, `examples/demo-chatinterface/Dockerfile` assembles the image around it, and
+      # `xtask dev-up --only demo` (through `examples/demo-chatinterface/start.sh --up-only`) blocks on the same
       # `HEALTHCHECK` a released image ships with - registration, an answer and a refusal, all
       # inside the container. `--up-only`, never the full lifecycle: nothing here should block on
       # a terminal loop.
@@ -164,7 +164,7 @@ jobs:
           SUTURA_DEMO_ACKNOWLEDGE: this is a disposable single-user CI run, never a shared deployment
         run: |
           set -eu
-          bash demo/start.sh --up-only
+          bash examples/demo-chatinterface/start.sh --up-only
 
       # THE EVIDENCE, AND IT HAS TO BE READ BEFORE THE NEXT STEP DELETES IT. `xtask dev-up`'s
       # refusal names `docker compose ... logs` as where the detail is, which is the right sentence

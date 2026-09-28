@@ -5,7 +5,8 @@
 //! dispatcher stays in the composition root and each kind's open-and-refuse pair lives in a file of
 //! its own, under the unexemptable 1000-line cap. Both `open_clickhouse` definitions are here - the
 //! one that opens the adapter and the refusal for a build that linked none - because the compiler
-//! picks between them at the one call site.
+//! picks between them, and both callers compile against whichever exists: `open_engine`'s
+//! single-kind arm and the mixed path's `kind::clickhouse_group`.
 //!
 //! **What is NOT here is the per-source BUILD**, and that is the difference from its two siblings:
 //! it lives once in `crate::clickhouse`, shared with `crate::sources`' own root, so the posture
@@ -46,8 +47,9 @@ pub(crate) fn open_clickhouse(
 /// The refusal for a build that did not link the `ClickHouse` adapter.
 ///
 /// **Two definitions of one signature rather than a `cfg` inside one body**, for the reason
-/// `open_bigquery` gives at the same shape: the dispatcher has exactly one call and the compiler
-/// decides which of these it reaches, keeping both signatures identical under `dead_code = "deny"`.
+/// `open_bigquery` gives at the same shape: every caller - `open_engine`'s single-kind arm and
+/// `kind::clickhouse_group` - makes one call, and the compiler decides which of these it reaches,
+/// keeping both signatures identical under `dead_code = "deny"`.
 #[cfg(not(feature = "clickhouse"))]
 pub(crate) fn open_clickhouse(
     declared: &[&sutura_domain::model::SourceName],

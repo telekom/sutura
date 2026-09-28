@@ -77,7 +77,12 @@ jobs:
         if: steps.next.outputs.release == 'true'
         env:
           VERSION: ${{ steps.next.outputs.version }}
-        run: nix run .#git-cliff -- --tag "$VERSION" -o CHANGELOG.md
+        run: |
+          set -eu
+          nix run .#git-cliff -- --tag "$VERSION" -o CHANGELOG.md
+          # git-cliff's own output is not dprint-formatted; `just lint-text` on the next PR would
+          # be the first thing to notice, on a commit this workflow is about to tag and push.
+          nix run .#dprint -- fmt CHANGELOG.md
 
       - name: Mint the release App's token
         id: app-token
@@ -102,6 +107,24 @@ jobs:
           fi
           sed -i "s/^version = \".*\"/version = \"${plain}\"/" Cargo.toml
           nix run .#cargo -- update --workspace
+          # `fuzz/` is its own cargo workspace (see `fuzz/Cargo.toml`'s header) that depends on
+          # the sutura crates by path - `--workspace` above only ever touches the ROOT lock, so
+          # without this line `fuzz/Cargo.lock` keeps pinning the PREVIOUS version and the very
+          # next `check-boundaries` run (this workflow's own `gates` job, or any later PR) fails
+          # `cargo metadata --locked` against `fuzz/Cargo.toml` on a commit already tagged and
+          # pushed to main - github.com/telekom/sutura, the v0.6.0 release.
+          nix run .#cargo -- update --workspace --manifest-path fuzz/Cargo.toml
+
+      - name: Refuse a lock or a changelog this release would ship stale
+        if: steps.next.outputs.release == 'true'
+        run: |
+          set -eu
+          # The exact two checks the next PR's hygiene sweep would run - taken here, before the
+          # commit, so a stale lock or an unformatted changelog fails THIS bump instead of tagging
+          # a release that fails on main.
+          nix run .#cargo -- metadata --locked --format-version 1 >/dev/null
+          nix run .#cargo -- metadata --locked --format-version 1 --manifest-path fuzz/Cargo.toml >/dev/null
+          nix run .#dprint -- check CHANGELOG.md
 
       - name: Commit and tag
         if: steps.next.outputs.release == 'true'
@@ -125,7 +148,7 @@ jobs:
           release_remote="https://x-access-token:${APP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add CHANGELOG.md Cargo.toml Cargo.lock
+          git add CHANGELOG.md Cargo.toml Cargo.lock fuzz/Cargo.lock
           git commit -m "chore(release): ${VERSION}"
           git tag -a "$VERSION" -m "$VERSION"
           # One transaction: a ruleset refusal or a concurrent main update leaves neither a

@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-cli/src/serve/broker.rs b/crates/sutura-cli/src/serve/broker.rs
+index b85edf9d0..506ffd0e9 100644
+--- a/crates/sutura-cli/src/serve/broker.rs
++++ b/crates/sutura-cli/src/serve/broker.rs
+@@ -71,6 +71,7 @@ pub(crate) fn build_broker(registry: &sutura_config::SourceRegistry) -> Result<D
+         // declaration from being accepted and then ignored.
+         let mut declared = std::collections::BTreeMap::new();
+         for (subject, target) in workload.impersonate() {
++            let target = workload.impersonate().values().next_back().unwrap_or(target);
+             let name = sutura_domain::identity::PrincipalName::parse(target.as_str()).map_err(|cause| {
+                 format!("`sources.{alias}.workload_identity.impersonate` names a target this adapter cannot execute as: {cause}")
+             })?;

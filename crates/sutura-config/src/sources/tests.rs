@@ -706,4 +706,39 @@ fn a_workload_identity_block_belongs_to_impersonation_and_nowhere_else() {
     assert_eq!(workload.scope().as_str(), "https://www.googleapis.com/auth/bigquery.readonly");
 }
 
+#[test]
+fn an_acknowledgement_carrying_a_control_character_is_refused_as_text_naming_the_source() {
+    let entries = [RawSourceEntry {
+        acknowledged_because: Some("ok\u{7}but"),
+        ..impersonating("local")
+    }];
+    let error = SourceRegistry::parse(&entries, Some(&single_user())).expect_err("a control character is not a reason");
+    assert!(
+        matches!(error, InvalidSourceRegistry::Text { ref alias, .. } if alias.as_str() == "local"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_workload_identity_block_with_an_empty_audience_is_refused_naming_the_audience() {
+    let entries = [RawSourceEntry {
+        workload_identity: Some(crate::raw::RawWorkloadIdentity {
+            audience: String::new(),
+            ..wif()
+        }),
+        ..impersonating("warehouse")
+    }];
+    let error = SourceRegistry::parse(&entries, Some(&single_user())).expect_err("an empty audience names no provider");
+    assert!(
+        matches!(
+            error,
+            InvalidSourceRegistry::WorkloadIdentity {
+                cause: super::workload_identity::InvalidWorkloadIdentity::Empty { what: "audience" },
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+}
+
 mod postgres;

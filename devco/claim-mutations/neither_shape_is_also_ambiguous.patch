@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-runtime/src/relative_range.rs b/crates/sutura-runtime/src/relative_range.rs
+index 861230929..3171ab17f 100644
+--- a/crates/sutura-runtime/src/relative_range.rs
++++ b/crates/sutura-runtime/src/relative_range.rs
+@@ -157,7 +157,7 @@ fn range_choice(start: Option<String>, end: Option<String>, last: Option<LastWir
+                 include_current: last.include_current,
+             })
+         }
+-        _ => Err(InvalidRangeShape::AmbiguousOrMissing),
++        _ => Err(InvalidRangeShape::ZeroCount),
+     }
+ }
+ 

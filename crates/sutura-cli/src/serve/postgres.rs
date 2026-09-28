@@ -3,7 +3,8 @@
 //! **Split out of `main.rs` when this adapter's composition pushed that file past the unexemptable
 //! 1000-line cap**, beside `bigquery`'s half and for the same reason. Both `open_postgres`
 //! definitions are here - the one that opens the connection and the refusal for a build that linked
-//! no adapter - because the compiler picks between them at the one call site.
+//! no adapter - because the compiler picks between them, and both callers compile against whichever
+//! exists: `open_engine`'s single-kind arm and the mixed path's `kind::postgres_group`.
 //!
 //! **Opening is where a misdeclared channel fails, and it fails before the listener binds**: the
 //! posture cross-check, the password file, the TLS material and the connection itself are all read
@@ -45,8 +46,9 @@ pub(crate) fn open_postgres(
 /// The refusal for a build that did not link the `Postgres` adapter.
 ///
 /// **Two definitions of one signature rather than a `cfg` inside one body**, for the reason
-/// `open_bigquery` gives at the same shape: the dispatcher has exactly one call and the compiler
-/// decides which of these it reaches, keeping both signatures identical under `dead_code = "deny"`.
+/// `open_bigquery` gives at the same shape: every caller - `open_engine`'s single-kind arm and
+/// `kind::postgres_group` - makes one call, and the compiler decides which of these it reaches,
+/// keeping both signatures identical under `dead_code = "deny"`.
 #[cfg(not(feature = "postgres"))]
 pub(crate) fn open_postgres(
     declared: &[&sutura_domain::model::SourceName],
