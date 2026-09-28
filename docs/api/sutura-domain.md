@@ -10945,6 +10945,7 @@ Parses a caller's raw question fields into a `Query`.
 
 **This is the whole translation a transport is allowed to do**: extract each field from its own
 wire shape as a plain string, hand them here, get back a certified `Query`, a malformed
+input error, or an early count refusal. Catalog-dependent decisions stay in
 `sutura_semantic::compile`, called by `sutura_app::answer`, against the pinned catalog this
 function never sees.
 
@@ -11871,9 +11872,9 @@ do is nothing.
 # Nothing here executes without saying whose credential it holds
 
 `Self::execute` takes a `Presented` and has no default, so there is no code path into a data
-system that runs as whatever the process happens to be. `docs/adr/0008` part 1 is the decision:
-the boot path must not use a subject's credential, which is why `Self::verify_anchor` takes no
-credential.
+system that runs as whatever the process happens to be. `docs/adr/0008` part 1 is the decision -
+no service-identity fallback - and the mechanism is that `Self::execute` cannot be called
+without a `Presented`.
 
 The boot path is the other caller of this port and it has no subject, so it gets its own method:
 `Self::verify_anchor` takes no credential and returns `AnchorRows` rather than the
