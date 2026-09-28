@@ -1,22 +1,12 @@
-diff --git a/crates/sutura-cli/src/catalog.rs b/crates/sutura-cli/src/catalog.rs
-index 079d84cb4..e79ab6607 100644
---- a/crates/sutura-cli/src/catalog.rs
-+++ b/crates/sutura-cli/src/catalog.rs
-@@ -462,11 +462,13 @@ fn open_one_rdbms_catalog(
-     // The contribution manifest stays under the catalog NAME while the semantic models bind to the
-     // declared `source_alias` - see `RdbmsCatalog::with_source_alias`.
-     let bounds = reader.bounds();
--    Ok(
--        sutura_catalog_rdbms::RdbmsCatalog::new(settings.name().clone(), settings.version().clone(), reader)
--            .with_source_alias(rdbms.source_alias().clone())
--            .with_bounds(bounds),
-+    Ok(sutura_catalog_rdbms::RdbmsCatalog::new(
-+        settings.name().clone(),
-+        sutura_domain::pinned::DefinitionVersion::parse("mutated-version").map_err(|cause| format!("{cause}"))?,
-+        reader,
-     )
-+    .with_source_alias(rdbms.source_alias().clone())
-+    .with_bounds(bounds))
- }
- 
- /// The refusal for a build that did not link the `rdbms` adapter - the message names the feature.
+diff --git a/crates/sutura-catalog-rdbms/src/postgres_reader.rs b/crates/sutura-catalog-rdbms/src/postgres_reader.rs
+--- a/crates/sutura-catalog-rdbms/src/postgres_reader.rs
++++ b/crates/sutura-catalog-rdbms/src/postgres_reader.rs
+@@ -329,7 +329,7 @@
+         Ok(DecodedColumn {
+             address,
+             model,
+-            description: table_description,
++            description: table_description.filter(|_| false),
+             column,
+             metadata,
+             is_primary_key: is_primary_key

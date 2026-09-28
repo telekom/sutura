@@ -34,21 +34,30 @@
 //!
 //! # RED/GREEN
 //!
-//! The mutation this cell is meant to catch: corrupt the version `open_one_rdbms_catalog` stamps
-//! into the catalog (the killing patch at
-//! `devco/claim-mutations/an_rdbms_catalog_boots_and_lists_from_the_served_binary.patch` replaces
-//! `settings.version().clone()` with a wrong `DefinitionVersion`), so the deployment boots and
-//! `/catalog` responds but its `provenance.definition_version` no longer matches the declared
-//! `VERSION` - the cell's own `assert_eq!` fires, RED. GREEN is this file as written. The
-//! implementation is already on main (#1105), so this is a claim cell: the commit carries a
-//! `Claim-Cell:` trailer and the patch above is the mechanism that holds it.
+//! The mutation this cell is meant to catch: drop every table description the reader decodes
+//! (the killing patch at
+//! `devco/claim-mutations/an_rdbms_catalog_boots_and_lists_from_the_served_binary.patch` filters
+//! `table_description` to `None` in `PostgresReader::decode_row`), so the deployment boots and
+//! `/catalog` responds but the served digest no longer matches the digest [`expected`] builds
+//! independently from the same fixture rows - the cell's own `assert_eq!` fires, RED. GREEN is
+//! this file as written. The implementation is already on main (#1105), so this is a claim cell:
+//! the commit carries a `Claim-Cell:` trailer and the patch above is the mechanism that holds it.
 
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use crate::harness::{LOOPBACK, SINGLE_USER, TOKEN, VERSION, config_path, derived_beside, start_configured, v1};
+    use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
+    use sutura_domain::catalog::{Column, Definitions, Description, Model};
+    use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
+    use sutura_domain::model::{ColumnName, ModelName, QualifiedTable, SourceName};
+    use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
+
+    use crate::harness::{
+        DiscoveredTier, LOOPBACK, SINGLE_USER, TOKEN, VERSION, config_path, derived_beside, discover_tier, source_entry,
+        start_configured, v1,
+    };
 
     /// The catalog's declared name.
     const CATALOG: &str = "dictionary";
@@ -58,15 +67,6 @@ mod tests {
 
     /// The declared environment key the fixture rows carry.
     const ENVIRONMENT: &str = "test";
-
-    /// The service the provisioner is asked for - the same name `nix/postgres-tier.nix` publishes.
-    const SERVICE: &str = "postgres";
-
-    /// The tier's three credential exports.
-    const USER: &str = "SUTURA_POSTGRES_TIER_USER";
-    const PASSWORD: &str = "SUTURA_POSTGRES_TIER_PASSWORD";
-    const DATABASE: &str = "SUTURA_POSTGRES_TIER_DB";
-    const ANCHOR: &str = "SUTURA_POSTGRES_TIER_CA";
 
     /// A directory this test owns and removes on every path out - see `served/okf.rs`'s `CatalogDir`
     /// for why it is a sibling of the settings directory (`written()` clears the settings directory).
@@ -85,50 +85,6 @@ mod tests {
         fn drop(&mut self) {
             drop(std::fs::remove_dir_all(&self.0));
         }
-    }
-
-    /// What the fixture and the deployment need from the provisioned tier: a unix-socket config
-    /// for the fixture install (`local all all trust`, no TLS), and the TCP port plus credentials
-    /// for the served binary's own `verified` connections. `None` where nothing is provisioned
-    /// (the `SKIPPED` notice is already on stderr).
-    fn tier() -> Option<Tier> {
-        let endpoint = sutura_dev::provisioned::here(std::path::Path::new(env!("CARGO_MANIFEST_DIR")), SERVICE);
-        let endpoint = endpoint.endpoint()?;
-        let required = |name: &str| {
-            std::env::var(name).unwrap_or_else(|_| panic!("the postgres tier is present but {name} is not published"))
-        };
-        let user = required(USER);
-        let password = required(PASSWORD);
-        let database = required(DATABASE);
-        let anchor = required(ANCHOR);
-        // The fixture installs over the unix socket the nix tier publishes as its host, which the
-        // driver treats a `/`-prefixed string as. `local all all trust` authenticates it, so no TLS
-        // and no password read - the same connection `provisioned.rs` opens.
-        let mut fixture_config = tokio_postgres::Config::new();
-        fixture_config
-            .host(endpoint.host())
-            .port(endpoint.port())
-            .user(&user)
-            .password(&password)
-            .dbname(&database);
-        Some(Tier {
-            fixture_config,
-            port: endpoint.port(),
-            user,
-            password,
-            database,
-            anchor,
-        })
-    }
-
-    /// Everything the test reads off the provisioned tier.
-    struct Tier {
-        fixture_config: tokio_postgres::Config,
-        port: u16,
-        user: String,
-        password: String,
-        database: String,
-        anchor: String,
     }
 
     /// Installs the documentation-schema fixture: a per-run schema with a `columns` table whose
@@ -192,18 +148,12 @@ mod tests {
 
     /// The settings an `rdbms`-kind deployment needs: one `catalog.kind: rdbms` entry reading the
     /// documentation schema over the tier's loopback TLS connection, and one `kind: postgres`
-    /// source named for the catalog's `source_alias` reaching the same tier.
-    fn settings(
-        data: &DataDir,
-        port: u16,
-        user: &str,
-        password: &str,
-        database: &str,
-        anchor: &str,
-        documentation_schema: &str,
-    ) -> String {
+    /// source named for the catalog's `source_alias` reaching the same tier - the `sources:` half
+    /// built by [`source_entry`], the same helper `harness/postgres.rs`'s own fixtures use, so this
+    /// cell cannot drift from how a served cell reaches the tier.
+    fn settings(data: &DataDir, tier: &DiscoveredTier, documentation_schema: &str) -> String {
         let password_file = data.0.join("password");
-        std::fs::write(&password_file, format!("{password}\n")).expect("the password file is writable");
+        std::fs::write(&password_file, format!("{}\n", tier.password)).expect("the password file is writable");
         format!(
             "server:\n\
              {LOOPBACK}\
@@ -226,44 +176,78 @@ mod tests {
                    password_file: \"{password_file}\"\n      \
                    transport_mode: \"verified\"\n      \
                    transport_anchors: \"{anchor}\"\n\
-             sources:\n  \
-               {SOURCE}:\n    \
-                 kind: \"postgres\"\n    \
-                 host: \"127.0.0.1\"\n    \
-                 port: {port}\n    \
-                 database: \"{database}\"\n    \
-                 user: \"{user}\"\n    \
-                 password_file: \"{password_file}\"\n    \
-                 transport_mode: \"verified\"\n    \
-                 transport_anchors: \"{anchor}\"\n    \
-                 posture: \"shared-service-user\"\n",
+             sources:\n{source_entry}",
+            port = tier.port,
+            database = tier.database,
+            user = tier.user,
             password_file = password_file.display(),
+            anchor = tier.anchor,
+            source_entry = source_entry(SOURCE, tier.port, &tier.database, &tier.user, &password_file, &tier.anchor),
         )
+    }
+
+    /// The bundle this cell expects, built independently of the served binary from the same
+    /// documentation-schema fixture [`install_documentation_schema`] writes - never from the served
+    /// reply itself, so a reader that silently drops or corrupts what it measures (a description, a
+    /// column, a type, the primary key) reddens this comparison, not only the "the field is present"
+    /// checks a lone non-empty-digest assertion left standing.
+    fn expected() -> PinnedDefinitions {
+        let columns = [
+            ("order_id", "bigint", "The order key."),
+            ("amount", "numeric", "The order total."),
+        ]
+        .into_iter()
+        .map(|(name, data_type, description)| {
+            Column::from_metadata(
+                ColumnName::parse(name).expect("a fixture column name parses"),
+                Some(data_type),
+                Some(description),
+                None,
+            )
+            .expect("a fixture column description parses")
+        });
+        let model = Model::new(
+            ModelName::parse("orders").expect("the fixture model name parses"),
+            SourceName::parse(SOURCE).expect("the fixture source alias parses"),
+            QualifiedTable::parse("public.orders").expect("the fixture table parses"),
+            columns,
+            Description::parse("Customer orders.").expect("the fixture description parses"),
+        )
+        .with_primary_key([ColumnName::parse("order_id").expect("the fixture primary-key column name parses")])
+        .expect("the fixture primary key names one of the model's own columns");
+        let declared = MetadataCapabilities::of(
+            DefinitionCapabilities::of([DefinitionKind::Structure]).and_may_provide([
+                DefinitionKind::Descriptions,
+                DefinitionKind::Relationships,
+                DefinitionKind::ColumnTypes,
+                DefinitionKind::ColumnDescriptions,
+            ]),
+            KnowledgeCapabilities::none(),
+        );
+        PinnedDefinitions::pin(
+            DefinitionVersion::parse(VERSION).expect("the served version parses"),
+            Definitions::assemble(vec![model], vec![], vec![]).expect("the fixture definitions assemble"),
+            Knowledge::none(),
+            ContributionManifest::single(
+                SourceName::parse(CATALOG).expect("the catalog name parses"),
+                Contribution::of(declared),
+            ),
+        )
+        .expect("the expected bundle hashes")
     }
 
     /// An `rdbms`-kind deployment boots from the served binary and lists the bundle it measures:
     /// zero certified metrics (the dictionary carries no measure), the declared version, and a
-    /// digest.
+    /// digest that matches [`expected`]'s independently built one.
     #[test]
     fn an_rdbms_catalog_boots_and_lists_from_the_served_binary() {
         let case = "rdbms-boot-and-list";
-        let Some(tier) = tier() else {
+        let Some(tier) = discover_tier() else {
             return;
         };
         let data = DataDir::prepared(case);
-        let documentation_schema = install_documentation_schema(&tier.fixture_config);
-        let deployment = start_configured(
-            case,
-            &settings(
-                &data,
-                tier.port,
-                &tier.user,
-                &tier.password,
-                &tier.database,
-                &tier.anchor,
-                &documentation_schema,
-            ),
-        );
+        let documentation_schema = install_documentation_schema(&tier.config);
+        let deployment = start_configured(case, &settings(&data, &tier, &documentation_schema));
 
         let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
         assert_eq!(reply.status, 200, "{}", reply.body);
@@ -279,11 +263,10 @@ mod tests {
             "the served bundle must be stamped with the declared version: {}",
             reply.body
         );
-        assert!(
-            body["provenance"]["definition_digest"]
-                .as_str()
-                .is_some_and(|digest| !digest.is_empty()),
-            "the served listing carries no definition digest: {}",
+        assert_eq!(
+            body["provenance"]["definition_digest"],
+            expected().digest().as_str(),
+            "the served RDBMS bundle differs from the independently built fixture digest: {}",
             reply.body
         );
     }
