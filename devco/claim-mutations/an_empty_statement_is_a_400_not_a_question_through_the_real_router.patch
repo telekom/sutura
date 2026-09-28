@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-http/src/routes/v1/run_sql.rs b/crates/sutura-http/src/routes/v1/run_sql.rs
+index c15923f45..85b085a90 100644
+--- a/crates/sutura-http/src/routes/v1/run_sql.rs
++++ b/crates/sutura-http/src/routes/v1/run_sql.rs
+@@ -87,8 +87,9 @@ pub(crate) async fn run_sql(
+ ) -> Result<RunSqlOutcome, Failure> {
+     let Json(body) = body.map_err(|rejection| crate::problem::rejected(&rejection))?;
+     // `harness/run_sql.rs` pins this path's status and code, not its detail's bytes.
+-    let statement = RawStatement::try_from(body).map_err(|RawMalformedStatement::Statement { cause }| Failure::NotAQuestion {
+-        detail: crate::problem::Detail::of(&cause),
++    let statement = RawStatement::try_from(body).map_err(|RawMalformedStatement::Statement { cause }| {
++        tracing::debug!(error = %cause, "a raw statement did not parse");
++        Failure::Internal
+     })?;
+ 
+     let admission_wait = state.metrics().admission_started();

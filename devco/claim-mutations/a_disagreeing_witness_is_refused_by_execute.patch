@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-exec-postgres/src/lib.rs b/crates/sutura-exec-postgres/src/lib.rs
+index e98c6fc5d..2fde1a246 100644
+--- a/crates/sutura-exec-postgres/src/lib.rs
++++ b/crates/sutura-exec-postgres/src/lib.rs
+@@ -499,9 +499,7 @@ impl PostgresWarehouse {
+                 });
+             }
+         }
+-        presented
+-            .agrees_with(&self.posture, &self.source)
+-            .map_err(|cause| PostgresError::PresentedDisagreesWithPosture { cause })
++        Ok(())
+     }
+ 
+     fn render(executable: Executable<'_>) -> Result<GeneratedQuery, PostgresError> {

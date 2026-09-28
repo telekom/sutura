@@ -309,6 +309,46 @@ async fn an_execute_failure_that_is_not_a_size_bound_is_503_not_413() {
     assert!(body.contains(r#""code":"unavailable""#), "{body}");
 }
 
+/// A broker that cannot be reached: the port's error, not its refusal.
+struct CannotBeReached;
+
+/// What [`CannotBeReached`] fails with.
+#[derive(Debug, thiserror::Error)]
+#[error("the fixture broker could not be reached")]
+struct Unreachable;
+
+impl sutura_domain::identity::CredentialBroker for CannotBeReached {
+    type Error = Unreachable;
+
+    fn mint(
+        &self,
+        _context: &sutura_domain::identity::RequestContext,
+        _sources: &sutura_domain::identity::SourceSet,
+    ) -> Result<sutura_domain::identity::Minted, Self::Error> {
+        Err(Unreachable)
+    }
+}
+
+#[tokio::test]
+async fn a_broker_that_cannot_be_reached_is_a_503_identity_unavailable() {
+    // The sibling of the outage above: the same retryable `503`, and its own code, because an
+    // operator diagnoses an identity provider that did not answer differently from a data system.
+    let app = crate::testing::serving(
+        bundle(),
+        fake_warehouse(),
+        CannotBeReached,
+        settings(Environment::Development, ""),
+        None,
+    );
+    let (status, body) = call(
+        &app,
+        request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert!(body.contains(r#""code":"identity_unavailable""#), "{body}");
+}
+
 #[tokio::test]
 async fn a_data_system_the_plan_names_and_this_process_did_not_open_is_a_503() {
     // The one refusal where retrying is reasonable, sharing `503` with two failures that are not

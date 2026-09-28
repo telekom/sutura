@@ -350,7 +350,7 @@ the OpenAPI document is generated off that wire type rather than off the domain.
 stated because one of them is a cost:
 
 - **The equality is a test, not a type.** Nothing in the compiler makes a wire type stay equal to
-  `Query`, so the guard is `a_query_field_the_domain_does_not_declare_is_a_named_parse_error` below
+  `Query`, so the guard is `a_query_field_the_domain_does_not_declare_answers_the_fixed_sentence_without_the_callers_key` below
   plus slice two's `both_transports_describe_the_same_tools`. That is weaker than a single source and
   it is the trade the *no serde on a domain type for a transport's convenience* principle asks for.
 - **An adapter does not reach into another adapter**, so the agent-surface crate gets its own wire type
@@ -399,7 +399,7 @@ whoever builds slice one, with a measurement rather than a guess.
 
 - `a_certified_question_is_answered_over_the_agent_surface`.
 - `an_uncertified_question_is_refused_as_a_RESULT_rather_than_an_error`.
-- `a_query_field_the_domain_does_not_declare_is_a_named_parse_error` - the `deny_unknown_fields`
+- `a_query_field_the_domain_does_not_declare_answers_the_fixed_sentence_without_the_callers_key` - the `deny_unknown_fields`
   guarantee, asserted through the new transport rather than assumed to survive it.
 
 **Done when** an agent client can ask a certified question and be REFUSED an uncertified one over the

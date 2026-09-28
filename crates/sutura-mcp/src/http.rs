@@ -76,7 +76,7 @@ use std::sync::Arc;
 
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
-use sutura_app::prompt::CatalogProse;
+use sutura_app::prompt::{CatalogProse, Tool};
 use sutura_app::surface::Surface;
 use sutura_config::RequestTimeout;
 use sutura_runtime::Admission;
@@ -118,16 +118,16 @@ pub fn config() -> StreamableHttpServerConfig {
 /// `service_factory` is called by the SDK ONCE PER REQUEST under [`config`]'s stateless mode (see
 /// the module documentation) - never once per process and never once per session - so each call
 /// clones the shared `service`/`admission` handles rather than allocating a second data-system
-/// connection or a second permit set. `instructions` is cloned the same way, and for the same
-/// reason it is an `Arc<str>` rather than a `String`: this factory runs on every request, not only
-/// on the `initialize` that reads it back.
+/// connection or a second permit set. `tools` is cloned the same way, and for the same reason it is
+/// an `Arc<[Tool]>` rather than a `Vec`: this factory runs on every request, not only on the
+/// `initialize` that renders the prompt from it.
 #[must_use]
 pub fn service<S>(
     surface: Arc<S>,
     prose: CatalogProse,
     admission: Admission,
     reply: RequestTimeout,
-    instructions: Arc<str>,
+    tools: Arc<[Tool]>,
     operator_instructions: Option<Arc<str>>,
 ) -> StreamableHttpService<AgentSurface<S>, LocalSessionManager>
 where
@@ -141,7 +141,7 @@ where
                 prose,
                 admission.clone(),
                 reply,
-                Arc::clone(&instructions),
+                Arc::clone(&tools),
                 operator_instructions.clone(),
             ))
         },
@@ -446,5 +446,87 @@ mod tests {
         let config = super::config();
         assert!(!config.legacy_session_mode, "{config:?}");
         assert!(config.json_response, "{config:?}");
+    }
+
+    /// The `instructions` an `initialize` result carries.
+    fn told(response: &Value) -> String {
+        response
+            .get("result")
+            .and_then(|result| result.get("instructions"))
+            .and_then(Value::as_str)
+            .unwrap_or_else(|| panic!("an initialize result carries `instructions`: {response}"))
+            .to_owned()
+    }
+
+    /// `docs/adr/0028` at `initialize`, over real HTTP bytes: a verified caller outside a metric's
+    /// audience is not told of that metric, nor of the glossary entry, caveat and worked question
+    /// that stay with it - the same things `describe_catalog` withholds from it - and a caller inside
+    /// the audience is told all of them.
+    #[tokio::test]
+    async fn initialize_tells_a_caller_only_what_its_audiences_may_see() {
+        let transport = super::service(
+            Arc::new(testing::RestrictedKnowledgeSurface::new()),
+            CatalogProse::Quoted,
+            admission(),
+            reply(),
+            testing::instructions(),
+            None,
+        );
+        let outsider = subject_asked("outsider@example.com", Permitted::every_capability());
+        let finance = sutura_domain::model::AudienceId::parse("finance").expect("a test audience id is one");
+        let finance_caller = Asked::established(
+            RequestContext::of(PrincipalChain::of(
+                Subject::verified("finance-caller@example.com").expect("a test subject id is a subject id"),
+            ))
+            .granting(sutura_domain::catalog::GrantedAudiences::of(
+                std::collections::BTreeSet::from([finance]),
+            )),
+            Permitted::every_capability(),
+        );
+
+        let outsider_told = told(&post(router(transport.clone(), outsider), initialize(1)).await);
+        let finance_told = told(&post(router(transport, finance_caller), initialize(1)).await);
+
+        for withheld in [
+            "finance_only",
+            "Only a finance-granted caller may see this.",
+            "capital expense",
+            "only a finance-granted caller should trust this number",
+            "ask exactly this",
+        ] {
+            assert!(
+                !outsider_told.contains(withheld),
+                "an outsider must not be told `{withheld}` at initialize: {outsider_told}"
+            );
+            assert!(
+                finance_told.contains(withheld),
+                "a finance-granted caller must be told `{withheld}` at initialize: {finance_told}"
+            );
+        }
+        assert!(
+            outsider_told.contains("### revenue"),
+            "the open metric is every caller's: {outsider_told}"
+        );
+    }
+
+    /// `initialize` with nothing ahead of the mount establishing who is asking is refused as
+    /// `tools/list` is, rather than answered with a prompt rendered for nobody in particular.
+    #[tokio::test]
+    async fn initialize_with_no_established_caller_is_refused_over_http() {
+        let transport = super::service(
+            Arc::new(testing::RestrictedKnowledgeSurface::new()),
+            CatalogProse::Quoted,
+            admission(),
+            reply(),
+            testing::instructions(),
+            None,
+        );
+        let refused = post(router_with_no_established_caller(transport), initialize(1)).await;
+        let code = refused
+            .get("error")
+            .and_then(|error| error.get("code"))
+            .and_then(Value::as_i64)
+            .unwrap_or_else(|| panic!("no established caller must answer a JSON-RPC error: {refused}"));
+        assert_eq!(code, -32600, "`no_established_caller` is `INVALID_REQUEST`: {refused}");
     }
 }

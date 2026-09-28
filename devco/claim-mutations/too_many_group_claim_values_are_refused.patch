@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http/src/inbound/caller.rs b/crates/sutura-http/src/inbound/caller.rs
+index 672ed7ae2..7f56fb4f5 100644
+--- a/crates/sutura-http/src/inbound/caller.rs
++++ b/crates/sutura-http/src/inbound/caller.rs
+@@ -214,7 +214,7 @@ impl Groups {
+     /// Parses a token's `groups` claim: a JSON array of strings, per every mainstream issuer's
+     /// convention (unlike `scope`, which RFC 6749 fixes as a single space-delimited string).
+     pub fn parse(claimed: Vec<String>) -> Result<Self, InvalidGroup> {
+-        if claimed.len() > MAX_GROUPS {
++        if claimed.len() > MAX_GROUPS.saturating_add(1) {
+             return Err(InvalidGroup::TooMany { limit: MAX_GROUPS });
+         }
+         let mut set = BTreeSet::new();

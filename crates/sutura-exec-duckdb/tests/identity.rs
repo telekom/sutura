@@ -9,6 +9,7 @@ mod identity {
     use sutura_conformance::corpus;
     use sutura_domain::identity::{Presented, PrincipalName, Secret};
     use sutura_domain::plan::Executable;
+    use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared};
     use sutura_domain::warehouse::{ResultBudget, Warehouse as _};
     use sutura_exec_duckdb::{DuckDbError, DuckDbWarehouse};
 
@@ -55,5 +56,22 @@ mod identity {
                 "a subject credential has nowhere to arrive on this adapter: {outcome:?}"
             );
         }
+    }
+
+    /// A shared leg - the shape this adapter carries - whose acknowledgement is not this source's.
+    #[test]
+    fn a_shared_leg_with_another_acknowledgement_is_refused_by_execute() {
+        let warehouse = warehouse();
+        let case = corpus::cases().into_iter().next().expect("the corpus has a case");
+        let fabricated = Presented::SharedServiceUser {
+            declared: SharedIdentityDeclared::of(
+                AcknowledgementReason::parse("a witness no operator wrote for this source").expect("a test reason is a reason"),
+            ),
+        };
+        let outcome = warehouse.execute(Executable::Query(case.plan()), &fabricated, corpus::deadline());
+        assert!(
+            matches!(outcome, Err(DuckDbError::PresentedDisagreesWithPosture { .. })),
+            "a shared leg carrying another source's witness is refused: {outcome:?}"
+        );
     }
 }

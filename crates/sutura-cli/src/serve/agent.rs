@@ -93,19 +93,18 @@ impl Serving {
 /// **Fallible since `telekom/sutura#776`**, for the reason [`crate::commands::agent_instructions`]
 /// already states: an operator-configured `prompt.instructions_file` that cannot be read is a
 /// startup refusal naming the path, not a served surface that silently omitted the operator's own
-/// section. Reads the bundle off `service` before erasing it, so what this renders the prompt over
-/// is the exact bundle `Surface::answer` computes against - never a second catalog load that could
-/// drift from it.
+/// section. The surface renders its `initialize` prompt per request, over the caller's view of the
+/// exact bundle `Surface::answer` computes against - never a second catalog load that could drift
+/// from it.
 pub(crate) fn mount(
     service: Arc<dyn Surface>,
     settings: &sutura_config::Settings,
     admission: sutura_runtime::Admission,
     spend_headroom: SpendHeadroomPush,
 ) -> Result<sutura_http::AgentMount, String> {
-    // One read, two uses: `agent_instructions` returns the operator's raw text beside the rendered
-    // prompt it read it from, so the mounted surface carries the SAME text - never a second read of
-    // the same path that could disagree.
-    let (instructions, operator_instructions) = crate::commands::agent_instructions(service.definitions(), settings)?;
+    // One read, two uses: the surface folds the operator's raw text into the prompt it renders AND
+    // carries it through the catalog tool - never a second read of the same path that could disagree.
+    let (tools, operator_instructions) = crate::commands::served_prompt(settings)?;
     let operator_instructions = operator_instructions.map(std::sync::Arc::from);
     let serving = Arc::new(Serving {
         surface: service,
@@ -117,7 +116,7 @@ pub(crate) fn mount(
             crate::commands::catalog_prose(settings.prompt().catalog_prose()),
             admission,
             settings.server().request_timeout(),
-            Arc::from(instructions),
+            tools,
             operator_instructions,
         ),
         spend_headroom,

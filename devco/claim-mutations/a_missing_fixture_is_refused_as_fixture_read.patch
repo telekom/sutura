@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-exec-duckdb/src/lib.rs b/crates/sutura-exec-duckdb/src/lib.rs
+index 9143c7c64..69f1f36e9 100644
+--- a/crates/sutura-exec-duckdb/src/lib.rs
++++ b/crates/sutura-exec-duckdb/src/lib.rs
+@@ -665,10 +665,7 @@ impl Warehouse for DuckDbWarehouse {
+ /// the other fixture adapters instead of inheriting `read_csv_auto`'s separate inference rules.
+ #[cfg(feature = "fixtures")]
+ fn duck_types(path: &Path) -> Result<String, DuckDbError> {
+-    let text = std::fs::read_to_string(path).map_err(|cause| DuckDbError::FixtureRead {
+-        path: path.display().to_string(),
+-        cause,
+-    })?;
++    let text = std::fs::read_to_string(path).unwrap_or_default();
+     let columns = sutura_domain::warehouse::csv::infer(&text).map_err(|cause| DuckDbError::FixtureSchema {
+         path: path.display().to_string(),
+         cause,
