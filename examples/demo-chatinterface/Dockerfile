@@ -1,7 +1,7 @@
 # The local chat demo, as demo-only packaging.
 #
 # The shipped Linux-musl `sutura` package holds ONE executable, so it cannot supervise the
-# chat client or answer a shell probe. `demo/start.sh` passes that Nix store path as the read-only
+# chat client or answer a shell probe. `examples/demo-chatinterface/start.sh` passes that Nix store path as the read-only
 # `sutura-server` build context; no global intermediate image tag exists for another worktree to
 # replace. The chat client's image supplies the shell and Python around that release binary, and
 # what runs it is `sutura serve` - `github.com/telekom/sutura#685` step 2 folded the standalone
@@ -10,11 +10,11 @@
 # NOT a release artifact. `just demo` builds this locally from the Open WebUI base image and the
 # named Nix server package context; a release publishes the server image on its own. A compose
 # service may not build here (see
-# `no_service_in_the_tier_is_built_here`), so `demo/start.sh` still owns this derived build.
+# `no_service_in_the_tier_is_built_here`), so `examples/demo-chatinterface/start.sh` still owns this derived build.
 #
-# No default: `demo/start.sh` is the only caller (it also supplies `--build-context
+# No default: `examples/demo-chatinterface/start.sh` is the only caller (it also supplies `--build-context
 # sutura-server=...`, absent from every other invocation), and a default here would be a second
-# copy of the pinned tag with nothing comparing it to the one `demo/start.sh` passes.
+# copy of the pinned tag with nothing comparing it to the one `examples/demo-chatinterface/start.sh` passes.
 ARG SUTURA_DEMO_BASE_IMAGE
 
 FROM ${SUTURA_DEMO_BASE_IMAGE}
@@ -27,7 +27,7 @@ COPY --from=sutura-server /bin/sutura /usr/local/bin/sutura
 # The demo's own code, and the read-only corpus it serves. COPIED rather than bind-mounted: a host
 # bind mount belongs to the machine and every worktree would share it, which the compose tier
 # refuses (`no_service_in_the_tier_mounts_a_host_directory`). A copied tree cannot be written back.
-COPY demo/run.sh demo/healthcheck.py /usr/local/bin/
+COPY examples/demo-chatinterface/run.sh examples/demo-chatinterface/healthcheck.py /usr/local/bin/
 COPY examples/single-player /opt/sutura-demo/corpus
 RUN chmod 0755 /usr/local/bin/run.sh /usr/local/bin/healthcheck.py
 

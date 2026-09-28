@@ -10,24 +10,24 @@ models:
     columns:
       customer_id:
         name: customer_id
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: VARCHAR
+        description: "The business key a person would quote, for example C0001."
+        nullable: false
       customer_key:
         name: customer_key
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: BIGINT
+        description: The surrogate key every fact table joins on.
+        nullable: false
       region:
         name: region
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: VARCHAR
+        description: Which of the five regions this customer is in.
+        nullable: false
       segment:
         name: segment
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: VARCHAR
+        description: "The commercial segment of the customer - business, consumer or wholesale."
+        nullable: false
     primary_key: []
     description: "One row per customer, holding the attributes an answer may be grouped by and nothing\nelse. Nothing here is additive, so a join to it cannot change a measure.\n\n`customer_key` is what every fact carries and `customer_id` is the number a person\nwould quote. No metric groups by the business key: a result with one row per customer\nis a list of customers rather than a measure of anything, and `segment` and `region`\nare the two attributes that put a number in context instead of replacing it."
   daily_usage:
@@ -37,24 +37,24 @@ models:
     columns:
       data_gb:
         name: data_gb
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: DOUBLE
+        description: "Data used that day, in gigabytes."
+        nullable: false
       subscription_key:
         name: subscription_key
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: BIGINT
+        description: "The subscription this usage belongs to, reached through usage_subscription."
+        nullable: false
       usage_date:
         name: usage_date
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: DATE
+        description: The day this row of usage was recorded on.
+        nullable: false
       voice_min:
         name: voice_min
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: DOUBLE
+        description: Voice minutes used that day.
+        nullable: false
     primary_key: []
     description: "One row per subscription per day on which it used anything.\n\nIt carries `subscription_key` and, since the compound join landed, a relationship\n`usage_subscription` reaches from here to the subscription snapshot. The snapshot has one\nrow per subscription per MONTH, so a join on `subscription_key` alone would match every\nmonth that subscription existed and multiply each day of usage by that count - a wrong\nnumber that raises no error anywhere.\n\n`usage_subscription` is the fix: it pairs `subscription_key` with a key that truncates\neach usage day to its month and compares it against the snapshot's `month`, so a day\njoins only the snapshot row of the month it falls in. A compound key is the shape that\nsays this - a relationship with one column on each side cannot, and this is the case\nthat gap-in-the-catalog documents once existed to describe. `voice_minutes` reaches the\nproduct family through it, and the golden suite pins that grouping does not multiply the\nmeasure."
   products:
@@ -64,19 +64,19 @@ models:
     columns:
       product_family:
         name: product_family
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: VARCHAR
+        description: "Which of the four product families this tariff belongs to - mobile, fixed_internet, tv or convergent."
+        nullable: false
       product_key:
         name: product_key
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: BIGINT
+        description: The surrogate key subscriptions join on.
+        nullable: false
       product_name:
         name: product_name
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: VARCHAR
+        description: "The tariff's own name, for example \"Mobile L Unlimited\"."
+        nullable: false
     primary_key: []
     description: "The tariff catalog: one row per sellable product.\n\nThere is no price column, and the absence is the point. A list price is not what a\nsubscription was billed, so a revenue metric that summed it would answer a question\nabout the price list under the name of a question about revenue. The billed figure sits\non the monthly snapshot, where whatever made it differ from the list price has already\nbeen applied."
   regions:
@@ -86,14 +86,14 @@ models:
     columns:
       region:
         name: region
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: VARCHAR
+        description: "The join key, the same text customers.region holds."
+        nullable: false
       sales_area:
         name: sales_area
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: VARCHAR
+        description: The sales area this region rolls up into.
+        nullable: false
     primary_key: []
     description: "One row per region, holding the one attribute a region rolls up into. Nothing here is\nadditive, so a join to it cannot change a measure.\n\nThis model exists for the shape rather than for the attribute. It is the only model in\nthis catalog that a fact table does not carry a key for: `fct_subscription_monthly` has\nno region column at all, so `sales_area` is reachable only by joining `dim_customer`\nfirst and `dim_region` after it. That is a TWO-hop chain, and it is the case a catalog\nof single-hop dimensions never renders - hop 2's `ON` clause has to name `dim_customer`,\nthe table hop 1 arrived at, and a planner that qualified every hop by the fact table\ninstead produced `fct_subscription_monthly.region`, a column that does not exist. It\nfailed as a binder error here and would have been a silently different grouping on a\nfact table that happened to carry a column of that name.\n\n`region` is the join key and is the same text `dim_customer.region` holds. Five regions,\neach in exactly one sales area, so the rollup is a partition: a total by `sales_area`\nreconciles with the same total by `region` and with the ungrouped one."
   subscriptions:
@@ -103,24 +103,24 @@ models:
     columns:
       churned_in_month:
         name: churned_in_month
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: BOOLEAN
+        description: "Whether this subscription churned during the month, independent of its end-of-month status."
+        nullable: false
       contract_term:
         name: contract_term
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: VARCHAR
+        description: "The subscription's own contract length - annual or monthly."
+        nullable: false
       customer_key:
         name: customer_key
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: BIGINT
+        description: "The customer this subscription belongs to, reached through subscription_customer."
+        nullable: false
       month:
         name: month
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: DATE
+        description: The first day of the month this snapshot row describes.
+        nullable: false
       mrr_cents:
         name: mrr_cents
         data_type: NUMERIC
@@ -128,19 +128,19 @@ models:
         nullable: false
       product_key:
         name: product_key
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: BIGINT
+        description: "The product this subscription was on this month, reached through subscription_product."
+        nullable: false
       status:
         name: status
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: VARCHAR
+        description: "The subscription's state at the end of the month - active or terminated."
+        nullable: false
       subscription_key:
         name: subscription_key
-        data_type: ~
-        description: ""
-        nullable: ~
+        data_type: BIGINT
+        description: "The surrogate key daily_usage joins on, through usage_subscription."
+        nullable: false
     primary_key:
       - month
       - subscription_key
