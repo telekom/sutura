@@ -1,7 +1,8 @@
-//! Parsing the `catalogs:` list into typed `CatalogSettings`, split out of `settings.rs` at the
-//! unexemptable 1000-line cap once the `catalog.kind: datahub` fields landed (origin/main sits at
-//! 986 lines without them; with them it is 1005). The function it holds is the only catalog logic
-//! the settings module owns - the types it builds live in `crate::catalog`.
+//! Parsing the `catalogs:` list into typed `CatalogSettings`. It is a separate file from
+//! `settings.rs` under the unexemptable 1000-line cap that cargo xtask max-lines enforces
+//! (`xtask/src/max_lines.rs`), so neither file can grow back over it by adding catalog logic.
+//! The function it holds is the only catalog logic the settings module owns - the types it builds
+//! live in `crate::catalog`.
 
 use std::path::PathBuf;
 

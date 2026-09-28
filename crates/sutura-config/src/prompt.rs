@@ -61,8 +61,9 @@ pub enum CatalogProse {
     ///
     /// **A description is untrusted content and this is not a claim that it is safe.** A per-line
     /// prefix stops catalog text from reaching column zero, so it cannot emit a heading or close a
-    /// block; it does nothing about prose that persuades without escaping. `SECURITY.md` treats
-    /// catalog content as untrusted, and `sutura_app::prompt` states the residual gap.
+    /// block; it does nothing about prose that persuades without escaping. The repository's threat
+    /// model treats a catalog document as untrusted input, and `sutura_app::prompt` states the
+    /// residual gap.
     Quoted,
     /// Left out. For a deployment whose catalog authors are not the people who decide what its
     /// agents are told.

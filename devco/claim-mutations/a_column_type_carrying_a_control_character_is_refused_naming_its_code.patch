@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/catalog/authored.rs b/crates/sutura-domain/src/catalog/authored.rs
+index 5e2a1d19f..b73e470b6 100644
+--- a/crates/sutura-domain/src/catalog/authored.rs
++++ b/crates/sutura-domain/src/catalog/authored.rs
+@@ -338,7 +338,7 @@ impl ColumnType {
+             return Err(InvalidColumnType::Empty);
+         }
+         if let Some(offending) = normalized.chars().find(|character| character.is_control()) {
+-            return Err(InvalidColumnType::ControlCharacter {
++            return Err(InvalidColumnType::InvisibleCharacter {
+                 value: normalized,
+                 code: u32::from(offending),
+             });

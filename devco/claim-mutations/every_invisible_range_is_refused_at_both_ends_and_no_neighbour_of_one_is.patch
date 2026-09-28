@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-domain/src/catalog/authored.rs b/crates/sutura-domain/src/catalog/authored.rs
+index 5e2a1d19f..8b0b0f223 100644
+--- a/crates/sutura-domain/src/catalog/authored.rs
++++ b/crates/sutura-domain/src/catalog/authored.rs
+@@ -396,7 +396,10 @@ fn has_unreadable_spacing(raw: &str) -> bool {
+     }
+     // Only `U+0020` is a space a reader can account for. A no-break space, a narrow no-break space
+     // and an ideographic space all draw as one and are not one.
+-    if raw.chars().any(|character| character.is_whitespace() && character != ' ') {
++    if raw
++        .chars()
++        .any(|character| character.is_ascii_whitespace() && character != ' ')
++    {
+         return true;
+     }
+     raw.contains("  ")

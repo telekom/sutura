@@ -72,6 +72,12 @@ pub(crate) use keycloak::subject_of as keycloak_subject_of;
 pub(crate) use postgres::raw_sql_settings as postgres_raw_sql_settings;
 #[cfg(feature = "postgres")]
 pub(crate) use postgres::settings as postgres_settings;
+// `crate::rdbms`'s served boot-and-list cell installs its own documentation-schema fixture rather
+// than loading CSVs through a `postgres` source, so it reaches the tier through `discover_tier`
+// directly and builds its own `sources:` entry through `source_entry` - the same two calls
+// `load_into_tier` above makes, rather than a second discovery.
+#[cfg(feature = "postgres")]
+pub(crate) use postgres::{DiscoveredTier, discover_tier, source_entry};
 #[cfg(feature = "postgres")]
 pub(crate) use two_kind::{PG_SOURCE, settings as two_kind_settings};
 // `derived_catalog` is its own line, `#[cfg(feature = "postgres")]`: `two_kind` above is its only

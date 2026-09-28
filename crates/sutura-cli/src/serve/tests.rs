@@ -714,6 +714,13 @@ fn catalogs_of_more_than_one_kind_in_one_deployment_are_refused() {
 #[cfg(feature = "datahub")]
 mod datahub_served;
 
+// `catalog.kind: rdbms`, with the `rdbms` feature ON: the composition-root refusals this build
+// REACHES rather than the "not linked" one - see `tests/rdbms_served.rs`'s module header.
+// `cfg(feature = "rdbms")` on the DECLARATION so a build without the feature does not parse a
+// file that names a crate it did not link, the same shape `datahub_served` above carries.
+#[cfg(feature = "rdbms")]
+mod rdbms_served;
+
 #[test]
 fn a_deployment_with_more_than_one_catalog_opens_one_per_declared_entry() {
     // Step 4 of the issue: the settings DECLARE several metadata sources and the composition root
