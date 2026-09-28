@@ -1911,7 +1911,7 @@ jobs:
 
   # THE BODY IS `.github/workflows/demo-container.yml`, the same split `cross-link.yml` uses and
   # for the same reason: what moves is the body, and the gating - `needs: [ci]` and the event test
-  # - stays where the decision is reviewed. Event-gated rather than category-gated: `demo/**`
+  # - stays where the decision is reviewed. Event-gated rather than category-gated: `examples/demo-chatinterface/**`
   # carries no `xtask::affected` category of its own, and adding one would be a second axis kept
   # for a single advisory leg. Runs on every ordinary-CI event, never required -
   # `devco/required-contexts` records why - and becomes required only at the release boundary,
