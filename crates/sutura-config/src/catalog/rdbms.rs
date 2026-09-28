@@ -557,4 +557,22 @@ mod tests {
         }
         assert!(found, "the error chain never reached InvalidRdbmsCatalog::DictionarySchema");
     }
+
+    /// A valid `dictionary_schema` containing an underscore is accepted through `Settings::load`,
+    /// pinning the accept side of the same `[A-Za-z0-9_]` rule the two refusal cells above pin the
+    /// refusal side of.
+    #[test]
+    fn a_valid_dictionary_schema_with_an_underscore_is_accepted() {
+        let overlay = "security:\n  identity: single-user\n  single_user_because: a test\nsources:\n  warehouse:\n    kind: files\n    data_dir: /srv/data\n    posture: shared-service-user\n\
+            catalogs:\n  - name: dict\n    kind: rdbms\n    dir: /nowhere\n    data_dir: /nowhere\n    version: dict-1\n    \
+            environment: prod\n    source_alias: warehouse\n    dictionary_schema: docs_v1\n    \
+            connection:\n      host: 127.0.0.1\n      port: 5432\n      database: dictionary\n      user: reader\n      \
+            password_file: /run/secrets/dictionary\n      transport_mode: plaintext\n";
+        let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay))
+            .expect("a dictionary_schema with an underscore is accepted");
+        let catalog = settings.catalogs().each().next().expect("one catalog");
+        let rdbms = catalog.rdbms().expect("an rdbms entry carries its rdbms settings");
+        let schema = rdbms.dictionary_schema().expect("dictionary_schema was declared");
+        assert_eq!(schema.as_str(), "docs_v1");
+    }
 }
