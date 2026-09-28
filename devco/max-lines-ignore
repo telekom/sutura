@@ -97,11 +97,12 @@ vendor/**
 
 [warn]
 
-# ONE hand-written file is listed here, and the claim this section makes is unchanged by it: an
-# entry here is a promise to split a file, not a way to silence the gate, and it keeps printing
-# until somebody keeps that promise. This paragraph is maintained BY HAND - the inert-exemption
-# rule is literal-scoped for the reason argued three sections up, so it cannot see a count in
-# prose going stale. It has already said EMPTY once when it was not.
+# THREE hand-written files are listed here, and the claim this section makes is unchanged by the
+# count: an entry here is a promise to split a file, not a way to silence the gate, and it keeps
+# printing until somebody keeps that promise. This paragraph is maintained BY HAND - the
+# inert-exemption rule is literal-scoped for the reason argued three sections up, so it cannot see
+# a count in prose going stale. It has already said EMPTY once when it was not, and ONE when it
+# was three.
 
 # The required CI workflow. Over the cap because it enumerates the gates one at a time BY DESIGN:
 # every check keeps its own step so a failure names itself, which is the property the parallel
@@ -155,13 +156,3 @@ flake.nix
 # crossed by have no honest deletion to offset them - the alternative was a decision written
 # nowhere near its site, the same argument the `flake.nix` entry above makes for itself.
 .github/workflows/release.yml
-
-# The workspace manifest, at 1005 lines - it sat exactly at the cap before `telekom/sutura#913`
-# added one workspace member and one workspace dependency for the shared ADBC crate. Unlike a
-# workflow, a manifest has no seam a check body could move behind: Cargo has no
-# `[workspace.members]`/`[workspace.dependencies]` include mechanism, so there is no further
-# extraction available here at all, split-agreed or otherwise. `[warn]` rather than `[silent]`:
-# this is hand-written and judged in review, and the five lines it crossed by have no honest
-# deletion to offset them - the two new entries carry only the comment this crate's `unsafe`
-# exception needs, already trimmed to what the `unsafe_code` lint entry below does not repeat.
-Cargo.toml
