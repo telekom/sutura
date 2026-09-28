@@ -236,7 +236,7 @@ bzip2 = "0.6"
 # is where the surviving 58 major (the `duckdb` crate's) is explained; `cargo xtask check-arrow` is
 # what fails when a row there stops matching the lock.
 arrow-array = "59"
-arrow-schema = "59"
+arrow-schema = "60"
 # `i256`, for the wide-decimal rows of the interior's value-mapping table. A DEV-dependency of
 # `sutura-domain` only: `arrow-array` re-exports the type privately, so a test constructing a
 # `Decimal256Array` has to name the crate that owns it. Already in the graph as `arrow-array`'s own

@@ -99,7 +99,7 @@ getrandom = { version = "0.3", optional = true }
 # reads the typed arrays directly. `cargo check` names an unused optional dependency, so
 # the manifest is what caught the leftover.
 arrow-array = { version = "59", optional = true }
-arrow-schema = { version = "59", optional = true }
+arrow-schema = { version = "60", optional = true }
 
 [dev-dependencies]
 # Already a normal dependency; this entry asks for one FEATURE. `warehouse::agreement` is the typed
