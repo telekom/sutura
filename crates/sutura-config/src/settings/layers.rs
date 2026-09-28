@@ -187,7 +187,8 @@ type Layered = (RawSettings, ConfigLayers);
 /// **Retains which files were observed, whether the load succeeds or fails.** The directory file
 /// layers are `.required(false)`, so a mistyped `SUTURA_CONFIG_DIR` directory, a volume that failed
 /// to mount, and a deployment that genuinely has no files are the same silent success - the embedded
-/// defaults layer, added first and always resolvable, is what keeps it a success.
+/// defaults layer, added first and always resolvable, is what keeps it a success. What is returned
+/// here is what [`ConfigLayers`] carries into the startup report.
 ///
 /// **Files, and only files.** The overlay layer is supplied as text by a test and has no path, and the
 /// variable layer has no path either - so neither can appear in the list, and a deployment configured

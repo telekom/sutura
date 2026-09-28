@@ -32,15 +32,18 @@
 //! fails rather than silently dropping out. FAIL CLOSED on parsing none, for that gate's reason: a
 //! parser that silently sees half a file is worse than no parser.
 //!
-//! **ONE INVOCATION PER PACKAGE, and that is the shipped configuration rather than a style.**
-//! `nix/shipped.nix` builds each binary with `--package <p>` alone, so features unify across that
-//! package's graph and no other. A single `nextest run` naming both packages resolves them together,
-//! which can enable a feature neither ships with - a different configuration, checked instead of the
-//! one that is published. **The limit of that claim**: the package's own feature SELECTION is the
-//! release's, which is what both refusal tests turn on, but a test run also resolves
-//! DEV-dependencies (`sutura-serve`'s pull `sutura-dev` with `mock-issuer`) and a release derivation
-//! has no dev-dependency graph at all, so unification over a shared dependency can differ from what
-//! is published. What this runs is the shipped SELECTION, not a byte-identical build of the artefact.
+//! **ONE INVOCATION PER PACKAGE, at CARGO'S DEFAULT feature set - not the shipped one.**
+//! [`invocation`] passes no `--features` at all, so this runs cargo's default set for that package,
+//! while `nix/shipped.nix` builds each binary with `--package <p>` AND an explicit feature list -
+//! six for `sutura` (`bigquery`, `postgres`, `tls`, `datahub`, `openmetadata`, `agent`). A single
+//! `nextest run` naming both packages would also resolve them together, which can enable a feature
+//! neither ships with - a third, different configuration this gate does not run either. **The limit
+//! of that claim**: this proves the default-set cells run, not the release's own feature SELECTION -
+//! a test gated on a feature the default set omits but the release ships (or the reverse) is outside
+//! what this gate covers. A test run also resolves DEV-dependencies (`sutura-serve`'s pull
+//! `sutura-dev` with `mock-issuer`) and a release derivation has no dev-dependency graph at all, so
+//! unification over a shared dependency can differ from what is published either way. What this runs
+//! is the DEFAULT selection, not the shipped one and not a byte-identical build of the artefact.
 //!
 //! **AN EMPTY RUN IS RED**, because a lane that selects nothing and reports success is the defect
 //! this gate exists to end, one level up. `--no-tests fail` is passed rather than inherited, and the

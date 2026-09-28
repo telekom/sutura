@@ -638,7 +638,7 @@ mod tests {
         }
     }
 
-    /// A file whose own `name:` disagrees with its registration in `FILES` is a `NameDisagrees`,
+    /// A file whose own `name:` disagrees with its registration in `FILES` is refused naming both,
     /// not a green run under a name no file carries.
     #[test]
     fn a_name_that_disagrees_with_its_registration_is_rejected() {

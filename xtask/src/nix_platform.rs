@@ -146,7 +146,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // walk that judged every other one and not that one is a broken scan wearing a plausible file
     // count. It exists in `crate::falsifier`'s tree as well, which is what keeps the refusal there
     // coming from THIS GATE'S OWN RULE rather than from a missing input - the distinction
-    // `telekom/sutura#371` measures, and one only three of the registered gates managed.
+    // `telekom/sutura#371`'s per-gate seed programme measures, gate by gate, rather than as a
+    // fixed count read off the sweep.
     let counted = census.inspect(&["flake.nix"], scope, |rel, bytes| {
         // Lossy rather than a UTF-8 read: a file the census opened is a file this gate judges, and
         // turning a decode failure into an unread file is the silent drop `telekom/sutura#412` is

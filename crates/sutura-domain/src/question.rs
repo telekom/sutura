@@ -204,6 +204,7 @@ pub enum MalformedQuestion {
 ///
 /// **This is the whole translation a transport is allowed to do**: extract each field from its own
 /// wire shape as a plain string, hand them here, get back a certified [`Query`], a malformed
+/// input error, or an early count refusal. Catalog-dependent decisions stay in
 /// `sutura_semantic::compile`, called by `sutura_app::answer`, against the pinned catalog this
 /// function never sees.
 pub fn parse_query(
