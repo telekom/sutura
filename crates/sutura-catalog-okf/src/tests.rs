@@ -63,7 +63,7 @@ const ORDERS: &str =
 const CUSTOMERS: &str = "title: Customers\ndescription: The people who place orders.\nfields:\n  - name: id\n    type: integer\n  - name: region\n    type: string\n";
 
 #[test]
-fn a_bundle_from_this_vocabulary_loads_pins_and_validates() {
+fn a_bundle_from_this_vocabulary_loads_and_pins() {
     let pinned = outcome_of("loads", &[("orders.yaml", ORDERS), ("customers.yaml", CUSTOMERS)])
         .expect("a directory of Table Schema descriptors loads");
     let models = pinned.definitions().models();
