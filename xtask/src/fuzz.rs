@@ -99,6 +99,29 @@ const FUZZ_INVOCATIONS: [&str; 3] = ["run-fuzz.sh", "nix run .#fuzz", "cargo fuz
 /// looking for the guarantee will be.
 const LOCK: &str = "fuzz/Cargo.lock";
 
+/// The root workspace manifest, whose single `version = "..."` line `nix/version-bump.yml`'s
+/// "Set the workspace version" step writes.
+///
+/// **`github.com/telekom/sutura#issue-fuzz-lock-drift`**: that step ran `cargo update --workspace`
+/// against the ROOT manifest only, so a release left [`LOCK`] pinning every `sutura-*` crate at the
+/// PREVIOUS version while `ROOT_MANIFEST` already declared the new one - green until the next PR's
+/// `check-boundaries` ran `cargo metadata --locked` against `fuzz/Cargo.toml` and refused the drift.
+/// This is the PR-time half: it catches the same drift on every pull request, not only at a version
+/// bump, so a stale [`LOCK`] fails here before it ever reaches a release.
+const ROOT_MANIFEST: &str = "Cargo.toml";
+
+/// The prefix that marks a `[[package]]` in [`LOCK`] as a first-party crate rather than a
+/// crates.io dependency - a path dependency's stanza carries no `source = ` line, but the name
+/// prefix is cheaper to check and does not depend on stanza order.
+const FIRST_PARTY_PREFIX: &str = "sutura";
+
+/// The fuzz crate's OWN package - [`MANIFEST`]'s `[package]` name, versioned `0.0.0` on purpose
+/// (the manifest's header) and never bumped alongside [`ROOT_MANIFEST`]. Excluded from
+/// [`first_party_pins`] by name rather than by "is this the crate under test", because it is the
+/// one `sutura`-prefixed stanza [`LOCK`] carries that this gate must NOT compare to the workspace
+/// version.
+const FUZZ_CRATE: &str = "sutura-fuzz";
+
 /// The macro that makes a file a libFuzzer target.
 ///
 /// It is also, separately, the exact string OSS Scorecard's Rust fuzzing detector looks for in a
@@ -213,6 +236,41 @@ fn release_invocations(workflow: &str) -> Vec<(usize, &'static str)> {
                 .map(move |needle| (index.saturating_add(1), *needle))
         })
         .collect()
+}
+
+/// Every first-party package [`LOCK`] pins, as `(name, version)`.
+///
+/// Same parse `shared_client::versions_of` uses: within a `[[package]]` stanza, `name` precedes
+/// `version`, both `key = "value"` on their own line. Not shared with it - that scan matches one
+/// exact name, this one matches a prefix over the whole file.
+fn first_party_pins(lock: &str) -> Vec<(String, String)> {
+    let mut found = Vec::new();
+    let mut current: Option<&str> = None;
+    for line in lock.lines() {
+        if let Some(value) = line.strip_prefix("name = ") {
+            current = unquote(value);
+        } else if let Some(value) = line.strip_prefix("version = ")
+            && let Some(seen) = current.take()
+            && seen.starts_with(FIRST_PARTY_PREFIX)
+            && seen != FUZZ_CRATE
+            && let Some(version) = unquote(value)
+        {
+            found.push((String::from(seen), String::from(version)));
+        }
+    }
+    found
+}
+
+/// Strip the surrounding quotes from a lock-file value, or `None` if it is not quoted.
+fn unquote(value: &str) -> Option<&str> {
+    value.strip_prefix('"')?.strip_suffix('"')
+}
+
+/// [`ROOT_MANIFEST`]'s single `version = "..."` line, unquoted.
+fn workspace_version(root_manifest: &str) -> Option<&str> {
+    root_manifest
+        .lines()
+        .find_map(|line| line.strip_prefix("version = ").and_then(unquote))
 }
 
 /// Does the manifest compile the harness with the shipped panic strategy?
@@ -502,13 +560,38 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let locked = root.join(LOCK).is_file();
     let aborts = aborts_on_panic(&manifest);
     let in_release = release_invocations(&release);
-    let hook_gaps = match hook_crate_gaps(&root, &sources) {
+    let mut hook_gaps = match hook_crate_gaps(&root, &sources) {
         Ok(gaps) => gaps,
         Err(message) => {
             eprintln!("xtask check-fuzz: {message}");
             return Verdict::Fail;
         }
     };
+    let Ok(root_manifest) = std::fs::read_to_string(root.join(ROOT_MANIFEST)) else {
+        eprintln!("xtask check-fuzz: {ROOT_MANIFEST} is unreadable - the workspace version could not be checked");
+        return Verdict::Fail;
+    };
+    // Merged into `hook_gaps` rather than given `report` an 11th parameter: `clippy.toml` caps
+    // `too-many-arguments-threshold` at 10, already the shape's own limit.
+    //
+    // No version line is not itself a defect this gate owns - `xtask/tests/hook_paths.rs`'s
+    // fixture tree is a bare `[workspace]\n` with no shared version at all, and a workspace that
+    // declares none has nothing for a `fuzz/Cargo.lock` pin to drift FROM. `Vec::new()` on that
+    // branch, not a failure.
+    hook_gaps.extend(workspace_version(&root_manifest).map_or_else(Vec::new, |workspace| {
+        let lock_text = std::fs::read_to_string(root.join(LOCK)).unwrap_or_default();
+        first_party_pins(&lock_text)
+            .into_iter()
+            .filter(|(_, pinned)| pinned != workspace)
+            .map(|(name, pinned)| {
+                format!(
+                    "{LOCK} pins {name} at \"{pinned}\", but {ROOT_MANIFEST} declares the \
+                         workspace version \"{workspace}\" - run `cargo update --workspace \
+                         --offline --manifest-path fuzz/Cargo.toml` after bumping the version"
+                )
+            })
+            .collect::<Vec<_>>()
+    }));
     match matrix_targets(&workflow) {
         Ok(matrix) => report(
             &sources,
@@ -650,6 +733,58 @@ mod tests {
     #[test]
     fn a_target_is_read_off_its_suffix() {
         assert_eq!("sql_expression.rs".strip_suffix(".rs"), Some("sql_expression"));
+    }
+
+    #[test]
+    fn first_party_pins_are_read_and_third_party_ones_are_not() {
+        let lock = "[[package]]\nname = \"arraydeque\"\nversion = \"0.5.1\"\nsource = \"registry+x\"\n\n\
+                    [[package]]\nname = \"sutura-domain\"\nversion = \"0.5.1\"\ndependencies = []\n";
+        assert_eq!(
+            first_party_pins(lock),
+            vec![(String::from("sutura-domain"), String::from("0.5.1"))]
+        );
+    }
+
+    /// The fuzz crate pins itself in its own lock, at its own independent `0.0.0` scheme - a
+    /// real shape in `fuzz/Cargo.lock` today, and the one this gate must not flag.
+    #[test]
+    fn the_fuzz_crates_own_stanza_is_excluded() {
+        let lock = "[[package]]\nname = \"sutura-fuzz\"\nversion = \"0.0.0\"\ndependencies = []\n";
+        assert_eq!(first_party_pins(lock), Vec::<(String, String)>::new());
+    }
+
+    #[test]
+    fn workspace_version_is_the_manifests_own_version_line() {
+        assert_eq!(
+            workspace_version("[workspace.package]\nversion = \"0.6.0\"\nedition = \"2024\"\n"),
+            Some("0.6.0")
+        );
+        assert_eq!(workspace_version("[workspace.package]\nedition = \"2024\"\n"), None);
+    }
+
+    /// `github.com/telekom/sutura#issue-fuzz-lock-drift`: a `fuzz/Cargo.lock` a release left behind
+    /// at the previous version, with the root manifest already bumped, is exactly this shape - and
+    /// this shape is red on base, because base's `report` has no `version_gaps` parameter to fail on.
+    #[test]
+    fn a_stale_first_party_pin_fails() {
+        let verdict = report(
+            &set(&["sql_expression"]),
+            &bins(&[("sql_expression", "fuzz_targets/sql_expression.rs")]),
+            &set(&["sql_expression"]),
+            &set(&["sql_expression"]),
+            &set(&["sql_expression"]),
+            &[],
+            &[],
+            true,
+            true,
+            &[format!(
+                "{LOCK} pins sutura-domain at \"0.5.1\", but {ROOT_MANIFEST} declares the workspace version \"0.6.0\""
+            )],
+        );
+        assert!(
+            verdict == Verdict::Fail,
+            "a fuzz lock stale against the workspace version must fail"
+        );
     }
 
     #[test]
