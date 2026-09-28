@@ -1123,6 +1123,8 @@
       
         
       
+        
+      
     
     
     
@@ -1619,6 +1621,34 @@
     
   
     sutura-exec-oracle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-adbc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-adbc
   
 
     
@@ -2304,7 +2334,7 @@ hands its Arrow result sets on unconverted.</p>
 <p><strong>Two routes to that driver and one type deciding between them</strong> - <code>DriverLocation</code>, resolved
 once at composition. A release artefact carries the driver in its own link (the <code>c-archive</code>
 half of one nix derivation), which is the only route a STATIC musl binary has; a source build
-opens a <code>.so</code> a deployment mounted. <code>location</code> carries why that is a parsed value rather than
+opens a <code>.so</code> a deployment mounted. <code>DriverLocation</code> carries why that is a parsed value rather than
 the arbitrary path <code>telekom/sutura#929</code>'s sixth finding named.</p>
 <p>Behind the crate's default-off <code>adbc</code> feature, like the <code>wire</code>: the native
 driver and its Arrow graph are a per-triple addition a lean build should not
@@ -2321,7 +2351,7 @@ this replaced - an impersonation target minted from the deployment's own credent
 spelling in <code>crate::transport::JobIdentity</code> any more, so it is unrepresentable rather than
 refused.</p>
 <h1 id="the-values">The values<a class="headerlink" href="#the-values" title="Permanent link">&para;</a></h1>
-<p>Bound as one Arrow batch of one row, per <code>bind</code> - which is where the driver's own per-row
+<p>Bound as one Arrow batch of one row, per <code>sutura_adbc::parameter_batch</code> - which is where the driver's own per-row
 execution loop is read off the pinned source and why one row is the only correct count. The
 statement carries positional <code>?</code> and nothing is ever interpolated into it.</p>
 <p><strong>Nothing is shared between two jobs.</strong> The driver handle, the database and the connection are
@@ -2458,13 +2488,6 @@ bounds the scan without bounding the bill. And it is per JOB, so N questions cos
 DECLARATION.</strong> A source is opened shared or impersonating - <code>sutura_config</code> refuses a
 <code>workload_identity</code> block on a shared entry and refuses its absence on an impersonating one - so
 which of these a transport holds is decided once, at composition, from a value an operator wrote.</p>
-<h3 id="use-driverlocation"><code>use DriverLocation</code><a class="headerlink" href="#use-driverlocation" title="Permanent link">&para;</a></h3>
-<p>Where the driver is, once something has decided that it is reachable at all.</p>
-<p><strong>There is no third state and no <code>Option</code>.</strong> A source cannot be opened without one of these,
-so a composition root either resolved a driver or refused to serve - the shape
-<code>crate::transport::JobIdentity</code> uses for the same reason.</p>
-<h3 id="use-unusabledriverpath"><code>use UnusableDriverPath</code><a class="headerlink" href="#use-unusabledriverpath" title="Permanent link">&para;</a></h3>
-<p>Why a named driver path is not one this process will open.</p>
 <h3 id="use-unusablepool"><code>use UnusablePool</code><a class="headerlink" href="#use-unusablepool" title="Permanent link">&para;</a></h3>
 <p>Why a declared pool is not one this transport can exchange against.</p>
 <h3 id="use-workloadpool"><code>use WorkloadPool</code><a class="headerlink" href="#use-workloadpool" title="Permanent link">&para;</a></h3>
@@ -2482,6 +2505,8 @@ request for the DELETED mechanism - it then demands a target principal and repla
 federated credential with an impersonated token source. A screened value this transport cannot
 send would read as a control that is in place, so it is not held here at all and the operator is
 told where they declare it.</p>
+<h3 id="use-driverlocation"><code>use DriverLocation</code><a class="headerlink" href="#use-driverlocation" title="Permanent link">&para;</a></h3>
+<h3 id="use-unusabledriverpath"><code>use UnusableDriverPath</code><a class="headerlink" href="#use-unusabledriverpath" title="Permanent link">&para;</a></h3>
 <h3 id="constant-most_result_rows"><code>constant MOST_RESULT_ROWS</code><a class="headerlink" href="#constant-most_result_rows" title="Permanent link">&para;</a></h3>
 <p>How many rows this transport will materialise from one result stream before refusing.</p>
 <p><strong>A ceiling on ROWS and not on BYTES, which is the limit this sentence used to overstate.</strong> It
