@@ -4247,7 +4247,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "sutura-app"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "divan",
  "insta",
@@ -4277,7 +4277,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-bounded-read"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "rustix 0.38.44",
  "thiserror 2.0.20",
@@ -4285,7 +4285,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-datacontract"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "rustix 0.38.44",
  "serde",
@@ -4297,7 +4297,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-datahub"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4312,7 +4312,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-local"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "rustix 0.38.44",
  "serde",
@@ -4324,7 +4324,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-okf"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "rustix 0.38.44",
  "serde",
@@ -4336,7 +4336,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-openmetadata"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4349,7 +4349,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-rdbms"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "futures-util",
  "rustls",
@@ -4364,7 +4364,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-wren"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4374,7 +4374,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-cli"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -4417,7 +4417,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-config"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "config",
  "serde",
@@ -4430,7 +4430,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-conformance"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "arrow-array 59.2.0",
  "arrow-schema 59.2.0",
@@ -4445,7 +4445,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-dev"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "base64 0.23.1",
  "jsonwebtoken",
@@ -4456,7 +4456,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-domain"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "arrow-array 59.2.0",
  "arrow-buffer 59.2.0",
@@ -4470,7 +4470,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-exec-bigquery"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "adbc_core",
  "adbc_driver_manager",
@@ -4487,7 +4487,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-exec-clickhouse"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "base64 0.23.1",
  "parking_lot",
@@ -4507,7 +4507,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-exec-datafusion"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bzip2",
  "datafusion",
@@ -4522,7 +4522,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-exec-duckdb"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "duckdb",
  "sutura-conformance",
@@ -4533,7 +4533,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-exec-oracle"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "oracledb",
  "parking_lot",
@@ -4545,7 +4545,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-exec-postgres"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bytes",
  "divan",
@@ -4566,7 +4566,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-http"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -4594,7 +4594,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-http-client"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "base64 0.23.1",
  "rcgen",
@@ -4608,7 +4608,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-mcp"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "axum",
  "http",
@@ -4630,7 +4630,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-runtime"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "serde_json",
  "sutura-config",
@@ -4645,7 +4645,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-semantic"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "sutura-domain",
  "thiserror 2.0.20",
@@ -4653,7 +4653,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-sql"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "polyglot-sql",
  "serde",
@@ -4664,7 +4664,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-tls"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "rcgen",
  "rustls-native-certs",
@@ -5818,7 +5818,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "proc-macro2",
  "serde",

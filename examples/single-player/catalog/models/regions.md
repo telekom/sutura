@@ -3,7 +3,15 @@ kind: model
 name: regions
 source: local
 table: dim_region
-columns: [region, sales_area]
+columns:
+  - name: region
+    type: VARCHAR
+    description: The join key, the same text customers.region holds.
+    nullable: false
+  - name: sales_area
+    type: VARCHAR
+    description: The sales area this region rolls up into.
+    nullable: false
 ---
 One row per region, holding the one attribute a region rolls up into. Nothing here is
 additive, so a join to it cannot change a measure.

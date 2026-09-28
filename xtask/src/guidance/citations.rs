@@ -13,7 +13,7 @@ use std::path::Path;
 /// A path in SOMEONE ELSE'S repository is indistinguishable from a stale one by any local check -
 /// upstream source files, a cloud role name and an org/repo slug are all path-shaped and all
 /// correct - so the scope is first-party or nothing.
-const FIRST_PARTY: &[&str] = &["crates/", "xtask/", "docs/", ".github/", "nix/", "demo/"];
+const FIRST_PARTY: &[&str] = &["crates/", "xtask/", "docs/", ".github/", "nix/"];
 
 /// The path a backticked token CITES, if it cites one at all.
 ///

@@ -21,6 +21,16 @@ below goes through it: it is how the release assets and the corpus tarball are f
     today, and **this note is what to delete when the repository becomes public**, because the
     commands themselves do not change.
 
+## Rather run it as a service?
+
+Everything below is the one-shot CLI path: install once, ask a question from the command line, be
+refused. If you would rather bring the published image up over HTTP and ask the same questions
+against a running server, `examples/single-player/compose.yaml` does that with the corpus mapped
+read-only and no install step of its own - `examples/single-player/README.md`'s "Run it over
+compose" section is the quickstart, and [Serving over HTTP](serving.md) is the full reference:
+the token, the postures, and every refusal's documented status. The `ghcr.io` tag it pulls needs
+the same repository read access the note above states, until the repository is public.
+
 ## What a release publishes, and for which platforms
 
 **Four triples, and all four are Linux.** There is no macOS binary and no Windows binary - that is
@@ -128,7 +138,7 @@ Eleven metrics; five of them below, and the elision is this page's rather than t
 
 ```text
 version local-working-tree
-digest  b0e74ef1b790cff7171094fec4b9389913e7940bf7c9a2abdec2269c3e29e538
+digest  fc8d41d77d8e71ae22442a29621015faf94c03ac2628e99c3bc2d8dd06c3da19
 
 active_subscriptions
   measure    count_distinct(subscription_key)
@@ -246,7 +256,7 @@ sutura query examples/single-player/catalog \
 ```
 
 ```text
--- definitions local-working-tree b0e74ef1b790cff7171094fec4b9389913e7940bf7c9a2abdec2269c3e29e538
+-- definitions local-working-tree fc8d41d77d8e71ae22442a29621015faf94c03ac2628e99c3bc2d8dd06c3da19
 region	period	recurring_revenue
 central	2026-06-01	51739
 east	2026-06-01	32598
