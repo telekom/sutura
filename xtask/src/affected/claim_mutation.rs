@@ -6,8 +6,11 @@ use std::io::Write as _;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
+/// Expanded artifact paths, and a reason recorded for each one that could not be classified.
+type Expansion = (Vec<String>, Vec<String>);
+
 /// Expand once: a patch targeting another artifact remains an unclassified path.
-pub(super) fn expand(paths: &[String], root: &Path, base: Option<&str>) -> (Vec<String>, Vec<String>) {
+pub(super) fn expand(paths: &[String], root: &Path, base: Option<&str>) -> Expansion {
     let mut expanded = Vec::new();
     let mut reasons = Vec::new();
     for path in paths {
@@ -50,6 +53,11 @@ fn checked(output: std::io::Result<Output>, operation: &str) -> Result<Vec<u8>, 
 fn targets(root: &Path, base: Option<&str>, path: &str) -> Result<BTreeSet<String>, String> {
     let base = base.ok_or("no base revision for the mutation artifact")?;
     let metadata = std::fs::symlink_metadata(root.join(path)).map_err(|error| format!("read head metadata: {error}"))?;
+    #[expect(
+        clippy::filetype_is_file,
+        reason = "symlink_metadata does not follow links, so this correctly refuses a symlink \
+                  too - the lint's is_dir() substitute would accept one, which is not a regular file"
+    )]
     if !metadata.file_type().is_file() {
         return Err(String::from("head mutation artifact is not a regular file"));
     }
@@ -61,8 +69,11 @@ fn targets(root: &Path, base: Option<&str>, path: &str) -> Result<BTreeSet<Strin
     Ok(paths)
 }
 
+/// The base revision's own copy of the artifact, or `None` when it did not yet exist there.
+type BasePatch = Result<Option<Vec<u8>>, String>;
+
 /// Only a successful exact tree lookup can establish that an artifact is new.
-fn base_patch(root: &Path, base: &str, path: &str) -> Result<Option<Vec<u8>>, String> {
+fn base_patch(root: &Path, base: &str, path: &str) -> BasePatch {
     let tree = checked(
         git(root)
             .args(["rev-parse", "--verify", "--end-of-options", &format!("{base}^{{tree}}")])
@@ -114,14 +125,14 @@ fn patch_targets(root: &Path, patch: &[u8]) -> Result<BTreeSet<String>, String> 
         let mut columns = row.splitn(3, '\t');
         let added = columns.next().ok_or("mutation numstat has no added count")?;
         let removed = columns.next().ok_or("mutation numstat has no removed count")?;
-        let path = columns.next().ok_or("mutation numstat has no path")?;
-        if added.parse::<u64>().is_err() || removed.parse::<u64>().is_err() || !canonical(path) {
+        let target = columns.next().ok_or("mutation numstat has no path")?;
+        if added.parse::<u64>().is_err() || removed.parse::<u64>().is_err() || !canonical(target) {
             return Err(String::from("mutation numstat is not a canonical text-file path"));
         }
-        if path == "Cargo.lock" {
+        if target == "Cargo.lock" {
             return Err(String::from("a mutation's lockfile targets are not the real lockfile diff"));
         }
-        paths.insert(path.to_owned());
+        paths.insert(target.to_owned());
     }
     if paths.is_empty() {
         return Err(String::from("mutation patch names no targets"));

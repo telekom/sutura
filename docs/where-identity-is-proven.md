@@ -430,8 +430,8 @@ masked-comparison cell; the narrowed wording below was held by PR #755's own hos
 unmasked cell, `keycloak-served-test` `success` (run
 https://github.com/telekom/sutura/actions/runs/34928050323/job/104251967900).
 
-**Observed again on 2026-09-27:** `keycloak-served-test` succeeded on main `c721454e`, using
-Keycloak **26.7.2** (run
+**Observed again on 2026-09-27:** `keycloak-served-test` succeeded on main `c721454e`, using the
+`nixpkgs`-pinned Keycloak build (run
 https://github.com/telekom/sutura/actions/runs/36315904920/job/108610582610). The log records both
 `a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused`
 and `a_real_idp_mints_an_id_token_whose_aud_is_a_third_partys` passing. This is the same password-grant

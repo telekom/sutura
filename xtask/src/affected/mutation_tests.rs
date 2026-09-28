@@ -25,6 +25,12 @@ impl Repo {
                 std::process::id(),
                 SEQUENCE.fetch_add(1, Ordering::Relaxed)
             ));
+            #[expect(
+                clippy::create_dir,
+                reason = "create_dir_all would succeed on a NAME COLLISION too, defeating the \
+                          retry below that keeps advancing SEQUENCE past one; temp_dir() itself \
+                          already exists"
+            )]
             match std::fs::create_dir(&path) {
                 Ok(()) => break path,
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
