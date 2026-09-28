@@ -730,8 +730,9 @@ mod tests {
     fn the_falsifier_tree_violates_this_gate_s_own_rule() {
         // PROPERTY 4 OF `telekom/sutura#405`, AND THE HALF THE FALSIFIER TEST CANNOT SEE. That test
         // reads an EXIT CODE, so it cannot tell a gate refusing because it found a violation from
-        // one refusing because its input was missing - and over that tree only three of the
-        // thirty-three manage the first. Delete `nix/shared-scratch.sh` from
+        // one refusing because its input was missing - the distinction `telekom/sutura#371`'s
+        // per-gate seed programme now exists to establish, gate by gate, rather than a fixed count
+        // read off the sweep. Delete `nix/shared-scratch.sh` from
         // `crate::falsifier::falsifier_tree` and this gate still exits 1, on the empty-scope arm,
         // with the falsifier test green: measured, and that is the mutation this cell reddens.
         //

@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/catalog/authored.rs b/crates/sutura-domain/src/catalog/authored.rs
+index 5e2a1d19f..6bfecdeb7 100644
+--- a/crates/sutura-domain/src/catalog/authored.rs
++++ b/crates/sutura-domain/src/catalog/authored.rs
+@@ -546,7 +546,7 @@ impl Description {
+         // because they are content in a markdown block and are the two the renderer keeps - the set
+         // refused here is exactly the set `sutura_app::prompt::quote` would otherwise remove.
+         if let Some(offending) = first_altered_control(trimmed) {
+-            return Err(InvalidDescription::ControlCharacter {
++            return Err(InvalidDescription::InvisibleCharacter {
+                 code: u32::from(offending),
+             });
+         }

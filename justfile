@@ -456,6 +456,9 @@ changelog tag="":
     else
       nix run .#git-cliff -- -o CHANGELOG.md
     fi
+    # git-cliff's own output is not dprint-formatted - `.github/workflows/version-bump.yml` runs
+    # the same line right after the same command, for the same reason.
+    nix run .#dprint -- fmt CHANGELOG.md
     git --no-pager diff --stat -- CHANGELOG.md
 
 # --------------------------------------------------------------------- docs ---
