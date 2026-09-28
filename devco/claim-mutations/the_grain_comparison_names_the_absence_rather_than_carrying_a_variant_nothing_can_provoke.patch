@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-domain/src/catalog/consistency.rs b/crates/sutura-domain/src/catalog/consistency.rs
+index 57b5263f9..9ac728167 100644
+--- a/crates/sutura-domain/src/catalog/consistency.rs
++++ b/crates/sutura-domain/src/catalog/consistency.rs
+@@ -437,8 +437,10 @@ impl Definitions {
+             });
+         }
+         if metric.grains.is_empty() {
+-            return Err(InconsistentDefinitions::NoGrains {
++            return Err(InconsistentDefinitions::UnknownTimeColumn {
+                 metric: metric.name.clone(),
++                model: model.name.clone(),
++                column: metric.time_column.clone(),
+             });
+         }
+         // The metric's own model, which every statement about it reads. Each dimension's owning model

@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-app/src/raw.rs b/crates/sutura-app/src/raw.rs
+index 4583aefae..9206a8cbd 100644
+--- a/crates/sutura-app/src/raw.rs
++++ b/crates/sutura-app/src/raw.rs
+@@ -135,7 +135,9 @@ where
+     use sutura_domain::raw::{RawOutcome, RawRefusalReason};
+ 
+     let Some((source, warehouse)) = single_raw_capable_warehouse(warehouses) else {
+-        return Err(RunSqlError::NoAcceptingSource);
++        return Ok(AnsweredRaw::declined_before_minting(RawOutcome::Refusal {
++            reason: RawRefusalReason::SourceRefused,
++        }));
+     };
+     let requested = SourceSet::of(source.clone());
+     let minted = broker

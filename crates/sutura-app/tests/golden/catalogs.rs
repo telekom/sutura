@@ -634,5 +634,11 @@ fn a_declared_kind_with_no_content_is_not_the_same_as_an_undeclared_kind() {
         <crate::support::HandWrittenCatalog as SemanticCatalog>::capabilities().checked_against(&produced),
         Ok(())
     );
-    assert!(MetadataCapabilities::everything().checked_against(&produced).is_err());
+    assert_eq!(
+        MetadataCapabilities::everything().checked_against(&produced),
+        Err(UnfaithfulDeclaration::Unprovided {
+            kind: DeclarableKind::Definition(DefinitionKind::Descriptions),
+        }),
+        "declaring every kind over a bundle that carries no descriptions over-claims exactly that"
+    );
 }

@@ -1,8 +1,10 @@
 //! The recorded dictionary corpus and the fake reader that serves it.
 //!
-//! This is the only [`crate::DictionaryReader`] implementor today, and it is the **fake** the port is
-//! tested against - a recorded dictionary, not mocked SQL (`github.com/telekom/sutura#151`'s thing 4).
-//! Until a real reader exists this is what a [`crate::RdbmsCatalog`] reads.
+//! This is the recorded-corpus implementor of [`crate::DictionaryReader`], and it is the **fake** the
+//! port is tested against - a recorded dictionary, not mocked SQL (`github.com/telekom/sutura#151`'s
+//! thing 4).
+//! The feature-gated [`crate::postgres_reader::PostgresReader`] is the live implementor the
+//! composition root serves; this fixture is what the test suite and the conformance registry read.
 //!
 //! The corpus mirrors exactly what a throwaway reader measured once against a two-table Postgres
 //! 18 schema: two tables (one fact, one lookup), a column set per table, table comments, and one

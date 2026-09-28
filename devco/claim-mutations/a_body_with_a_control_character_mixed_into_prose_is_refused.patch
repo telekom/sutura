@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/knowledge.rs b/crates/sutura-domain/src/knowledge.rs
+index bcafc7b3b..faea37ab4 100644
+--- a/crates/sutura-domain/src/knowledge.rs
++++ b/crates/sutura-domain/src/knowledge.rs
+@@ -407,7 +407,7 @@ impl NoteBody {
+         // their editor. `\n` and `\t` are exempt because they are content in a markdown block and are
+         // the two the renderer keeps.
+         if let Some(offending) = first_altered_control(trimmed) {
+-            return Err(InvalidNoteBody::ControlCharacter {
++            return Err(InvalidNoteBody::InvisibleCharacter {
+                 code: u32::from(offending),
+             });
+         }

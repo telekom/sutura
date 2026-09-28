@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/knowledge/bundle.rs b/crates/sutura-domain/src/knowledge/bundle.rs
+index 928b67b25..95693ea85 100644
+--- a/crates/sutura-domain/src/knowledge/bundle.rs
++++ b/crates/sutura-domain/src/knowledge/bundle.rs
+@@ -806,7 +806,7 @@ impl Knowledge {
+         if days > MAX_RANGE_DAYS {
+             return Err(InconsistentKnowledge::ExampleRangeTooLong {
+                 name,
+-                days,
++                days: MAX_RANGE_DAYS,
+                 limit: MAX_RANGE_DAYS,
+             });
+         }

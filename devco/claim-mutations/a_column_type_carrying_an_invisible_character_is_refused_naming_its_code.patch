@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/catalog/authored.rs b/crates/sutura-domain/src/catalog/authored.rs
+index 5e2a1d19f..e4918b481 100644
+--- a/crates/sutura-domain/src/catalog/authored.rs
++++ b/crates/sutura-domain/src/catalog/authored.rs
+@@ -344,7 +344,7 @@ impl ColumnType {
+             });
+         }
+         if let Some(offending) = first_invisible(&normalized) {
+-            return Err(InvalidColumnType::InvisibleCharacter {
++            return Err(InvalidColumnType::ControlCharacter {
+                 value: normalized,
+                 code: u32::from(offending),
+             });

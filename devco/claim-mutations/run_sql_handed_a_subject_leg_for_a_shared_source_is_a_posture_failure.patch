@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-app/src/raw.rs b/crates/sutura-app/src/raw.rs
+index 4583aefae..1c19a0e26 100644
+--- a/crates/sutura-app/src/raw.rs
++++ b/crates/sutura-app/src/raw.rs
+@@ -160,9 +160,7 @@ where
+     let presented = credentials
+         .presented_for(source)
+         .map_err(|cause| RunSqlError::Credentials { cause })?;
+-    presented
+-        .agrees_with(warehouse.posture(), source)
+-        .map_err(|cause| RunSqlError::Posture { cause })?;
++    drop(presented.agrees_with(warehouse.posture(), source));
+     let Some(executed) = warehouse.execute_raw(statement, presented) else {
+         return Err(RunSqlError::NoAcceptingSource);
+     };

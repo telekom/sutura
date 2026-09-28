@@ -18,8 +18,8 @@ use super::tests::{
     only_absences, only_caveats, only_examples, only_glossary, phrase, question, refuses, revenue,
 };
 use super::{
-    Capability, Caveat, InconsistentKnowledge, KnowledgeCapabilities, KnowledgeInput, MAX_KNOWLEDGE_BYTES, MAX_NOTE_BODY_BYTES,
-    NoteBody, Referent,
+    Capability, Caveat, InconsistentKnowledge, InvalidNoteBody, KnowledgeCapabilities, KnowledgeInput, MAX_KNOWLEDGE_BYTES,
+    MAX_NOTE_BODY_BYTES, NoteBody, Referent,
 };
 use crate::model::Grain;
 use crate::query::{Filter, Query};
@@ -502,9 +502,14 @@ fn a_worked_example_asking_for_more_history_than_a_request_may_does_not_load() {
     )
     .expect("twenty-six years is a range");
     let asking = Query::single(metric_name("recurring_revenue"), Grain::Month, span, Vec::new(), Vec::new());
-    assert!(
-        Knowledge::assemble(&definitions(), only_examples(vec![example("everything_ever", asking)])).is_err(),
-        "an example over the {MAX_RANGE_DAYS}-day cap is a shape an agent is told to copy and the surface declines"
+    let days = span.days();
+    assert_eq!(
+        refuses(only_examples(vec![example("everything_ever", asking)])),
+        InconsistentKnowledge::ExampleRangeTooLong {
+            name: note_name("everything_ever"),
+            days,
+            limit: MAX_RANGE_DAYS,
+        }
     );
 }
 
@@ -587,7 +592,10 @@ fn two_glossary_entries_that_a_reader_cannot_tell_apart_do_not_load() {
             Vec::new(),
         );
         assert!(
-            Knowledge::assemble(&definitions(), input).is_err(),
+            matches!(
+                Knowledge::assemble(&definitions(), input),
+                Err(InconsistentKnowledge::AmbiguousPhrase { .. })
+            ),
             "{first:?} and {second:?} are one phrase to whoever reads the prompt"
         );
     }
@@ -599,12 +607,23 @@ fn two_glossary_entries_that_a_reader_cannot_tell_apart_do_not_load() {
 /// answers - which is the rot the metric-name check exists to prevent.
 #[test]
 fn an_absence_naming_a_declared_dimension_or_value_does_not_load() {
-    for undefined in ["segment", "business"] {
-        assert!(
-            Knowledge::assemble(&definitions(), only_absences(vec![absence(undefined, &[])])).is_err(),
-            "{undefined:?} is something this bundle declares, so it is not undefined here"
-        );
-    }
+    assert_eq!(
+        refuses(only_absences(vec![absence("segment", &[])])),
+        InconsistentKnowledge::AbsenceNamesADeclaredDimension {
+            phrase: phrase("segment"),
+            metric: metric_name("recurring_revenue"),
+            dimension: dimension_name("segment"),
+        }
+    );
+    assert_eq!(
+        refuses(only_absences(vec![absence("business", &[])])),
+        InconsistentKnowledge::AbsenceNamesADeclaredValue {
+            phrase: phrase("business"),
+            metric: metric_name("recurring_revenue"),
+            dimension: dimension_name("segment"),
+            value: declared_value("business"),
+        }
+    );
 }
 
 /// FINDING. `NoteBody::parse` refuses an empty body so the prompt cannot render a heading over empty
@@ -614,8 +633,9 @@ fn an_absence_naming_a_declared_dimension_or_value_does_not_load() {
 #[test]
 fn a_body_that_renders_as_nothing_is_not_a_body() {
     for raw in ["\u{7}\u{7}\u{7}", "\u{200b}\u{200b}", "\u{feff}"] {
-        assert!(
-            NoteBody::parse(raw).is_err(),
+        assert_eq!(
+            NoteBody::parse(raw),
+            Err(InvalidNoteBody::Empty),
             "{raw:?} carries no prose, so it is not a note body"
         );
     }
@@ -624,9 +644,9 @@ fn a_body_that_renders_as_nothing_is_not_a_body() {
     // renders as a paragraph that reads correctly and is not what it says, and that is the one an
     // agent acts on. `a_note_body_with_an_invisible_character_mixed_into_prose_is_refused` walks
     // every range; this is the case that names why the file has the test.
-    assert!(
-        NoteBody::parse("Counts rows where status = '\u{202e}evitca'.").is_err(),
-        "a body whose rendered text is not its own text is not a note body"
+    assert_eq!(
+        NoteBody::parse("Counts rows where status = '\u{202e}evitca'."),
+        Err(InvalidNoteBody::InvisibleCharacter { code: 0x202E })
     );
 }
 
@@ -639,9 +659,9 @@ fn a_body_that_renders_as_nothing_is_not_a_body() {
 /// [`InvisibleCharacter`]: super::InvalidNoteBody::InvisibleCharacter
 #[test]
 fn a_body_with_a_control_character_mixed_into_prose_is_refused() {
-    assert!(
-        NoteBody::parse("Excludes cancelled\u{7} subscriptions from the count.").is_err(),
-        "a body whose rendered text drops a character is not the text its digest certifies"
+    assert_eq!(
+        NoteBody::parse("Excludes cancelled\u{7} subscriptions from the count."),
+        Err(InvalidNoteBody::ControlCharacter { code: 0x7 })
     );
 }
 

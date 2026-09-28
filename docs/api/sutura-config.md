@@ -178,9 +178,8 @@ A typed PostgreSQL schema name holding the documentation rows.
 
 Binding a schema name as a quoted, validated identifier - never interpolating it into a SQL
 statement as raw text. The accepted set is `[A-Za-z0-9_]`, the same leaves every Postgres
-identifier is built from, and case is preserved. It also doubles as the physical schema the
-described objects are documented against when the dictionary rows' own schema differs from a
-separate `catalog` part - see the dictionary contract.
+identifier is built from, and case is preserved. The reader selects the view `columns` in this
+schema; the schema of each described object is the row's own `schema_name` and `catalog_name`.
 
 ## `use InvalidCatalogSettings`
 
@@ -1766,9 +1765,8 @@ A typed PostgreSQL schema name holding the documentation rows.
 
 Binding a schema name as a quoted, validated identifier - never interpolating it into a SQL
 statement as raw text. The accepted set is `[A-Za-z0-9_]`, the same leaves every Postgres
-identifier is built from, and case is preserved. It also doubles as the physical schema the
-described objects are documented against when the dictionary rows' own schema differs from a
-separate `catalog` part - see the dictionary contract.
+identifier is built from, and case is preserved. The reader selects the view `columns` in this
+schema; the schema of each described object is the row's own `schema_name` and `catalog_name`.
 
 ### `use InvalidConnection`
 
@@ -1812,7 +1810,7 @@ The `catalog.kind: rdbms` entry's own settings.
 A read-only Postgres connection, a closed-form live-row predicate, the environment key that
 selects dictionary rows, the source the described objects are served from, and two read bounds.
 
-Split out of `catalog.rs` at the crate's 1000-line cap. The parent re-exports every type, so
+Authored as its own module, not a split. The parent re-exports every type, so
 `crate::catalog::<Name>` and the crate root's `pub use` both still resolve.
 
 **Parsed here, read by a composition root that links the `live` reader.** This crate's own job
@@ -1956,9 +1954,8 @@ A typed PostgreSQL schema name holding the documentation rows.
 
 Binding a schema name as a quoted, validated identifier - never interpolating it into a SQL
 statement as raw text. The accepted set is `[A-Za-z0-9_]`, the same leaves every Postgres
-identifier is built from, and case is preserved. It also doubles as the physical schema the
-described objects are documented against when the dictionary rows' own schema differs from a
-separate `catalog` part - see the dictionary contract.
+identifier is built from, and case is preserved. The reader selects the view `columns` in this
+schema; the schema of each described object is the row's own `schema_name` and `catalog_name`.
 
 ##### Methods
 
@@ -3221,8 +3218,9 @@ and the crate that acts on it owns the type that acts.
 
   **A description is untrusted content and this is not a claim that it is safe.** A per-line
   prefix stops catalog text from reaching column zero, so it cannot emit a heading or close a
-  block; it does nothing about prose that persuades without escaping. `SECURITY.md` treats
-  catalog content as untrusted, and `sutura_app::prompt` states the residual gap.
+  block; it does nothing about prose that persuades without escaping. The repository's threat
+  model treats a catalog document as untrusted input, and `sutura_app::prompt` states the
+  residual gap.
 - `Omitted` - Left out. For a deployment whose catalog authors are not the people who decide what its agents are told.
 
   The prompt then says the descriptions exist and were not included, rather than rendering a

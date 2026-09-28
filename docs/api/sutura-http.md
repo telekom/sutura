@@ -438,11 +438,15 @@ forget. A layer over the whole subtree cannot, and the only place left to forget
 # What this gates, and what it does not
 
 **It decides which OPERATIONS a caller may invoke. It decides nothing about which rows an answer
-contains.** The catalog and question routes read the same pinned bundle and every question
-executes under the same identity, because no source executes as the asking subject -
-`docs/adr/0014`'s leg 1 establishes who is asking and leg 2 does not exist. A caller granted
-`sutura:metrics.ask` and not `sutura:catalog.read` cannot list the catalog and gets exactly the
-same numbers from a question as anybody else would.
+contains.** The catalog and question routes read the same pinned bundle, and this scope decides
+nothing about which rows come back. Which rows come back depends on the identity each leg runs
+under: the deployment's, for a source that has none declared, or the account the source's
+per-source map declares for that subject, for an `impersonation-at-source` source.
+`docs/adr/0014`'s leg 1 establishes who is asking; leg 2 (a source executing AS them) is **built
+and unproven** - `docs/where-identity-is-proven.md` decides which venue may be cited, and none is
+cited here. A caller granted `sutura:metrics.ask` and not `sutura:catalog.read` cannot list the
+catalog, but is not thereby guaranteed the same rows as any other caller: that depends on which
+source answers and which identity it runs under.
 
 # Where the grant comes from, and the two holes a reader should check for
 

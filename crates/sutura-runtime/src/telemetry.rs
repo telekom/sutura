@@ -113,7 +113,17 @@ pub fn install(telemetry: &TelemetrySettings) -> Result<(), TelemetryNotInstalle
 
 /// The filter: `RUST_LOG` if it is set and parses, otherwise the configured directive.
 fn filter(telemetry: &TelemetrySettings) -> Result<EnvFilter, TelemetryNotInstalled> {
-    match std::env::var(FILTER_VARIABLE) {
+    resolve_filter(std::env::var(FILTER_VARIABLE), telemetry)
+}
+
+/// The decision extracted from [`filter`] so the `NotUnicode` arm - which needs non-UTF8 bytes in
+/// `RUST_LOG` and so cannot be set through `std::env::set_var` in a `#![forbid(unsafe_code)]`
+/// crate - is testable without touching the real environment.
+fn resolve_filter(
+    env: Result<String, std::env::VarError>,
+    telemetry: &TelemetrySettings,
+) -> Result<EnvFilter, TelemetryNotInstalled> {
+    match env {
         Ok(directive) if !directive.trim().is_empty() => {
             EnvFilter::try_new(&directive).map_err(|cause| TelemetryNotInstalled::Filter {
                 source_name: FILTER_VARIABLE,
@@ -143,7 +153,7 @@ fn configured(telemetry: &TelemetrySettings) -> Result<EnvFilter, TelemetryNotIn
 mod tests {
     use sutura_config::LogFormat;
 
-    use super::{TelemetryNotInstalled, subscriber};
+    use super::{TelemetryNotInstalled, resolve_filter, subscriber};
     use crate::testing::{capture_with, settings};
 
     /// Emits one event inside a span through a subscriber built for `format`.
@@ -208,5 +218,35 @@ mod tests {
         };
         assert_eq!(source_name, "telemetry.filter");
         assert_eq!(directive, "==");
+    }
+
+    #[test]
+    fn a_non_unicode_rust_log_is_refused_as_filter_not_unicode() {
+        // `std::env::set_var` is `pub unsafe fn set_var<K: AsRef<OsStr>, V: AsRef<OsStr>>`, so it
+        // does not reject non-UTF-8 bytes by its own type - `unsafe` is the obstacle, and this
+        // crate's lib AND its own integration test binaries `#![forbid(unsafe_code)]`, with no
+        // local `#[allow]` able to override a `forbid`. A spawned process CAN receive a non-UTF-8
+        // `RUST_LOG` without `unsafe` (`std::process::Command::env` takes an `OsStr`), so this is
+        // not the only way such bytes reach a real `RUST_LOG`, only the only way this crate's own
+        // test process can reach `TelemetryNotInstalled::FilterNotUnicode`.
+        //
+        // LIMIT: this cell holds `resolve_filter`'s mapping from a `VarError` to that error, not
+        // that `filter`'s own `std::env::var(FILTER_VARIABLE)` read actually surfaces one for a
+        // real non-Unicode `RUST_LOG` - no cell here sets the real environment, so a mutation
+        // that swallows `VarError::NotUnicode` inside `filter` itself (mapping it to `NotPresent`,
+        // say) is invisible to every cell in this module. Proving that would need a served-harness
+        // cell spawning a child process with a non-UTF-8 `RUST_LOG` via `Command::env`, which does
+        // not exist; declined here rather than added, to keep this crate's `forbid(unsafe_code)`
+        // and to not invent a new harness for one arm.
+        //
+        // The `OsString` below is UTF-8 by construction (there is no safe way to build a
+        // non-UTF-8 one without OS-specific `OsStringExt`, which would only prove the same point
+        // less directly): `resolve_filter` branches on the `VarError` variant alone, never the
+        // bytes it carries, so its content is irrelevant to what this cell pins.
+        let non_unicode = std::env::VarError::NotUnicode(std::ffi::OsString::from("non-utf8"));
+        let Err(error) = resolve_filter(Err(non_unicode), &settings(LogFormat::Pretty, "trace")) else {
+            panic!("non-Unicode `RUST_LOG` must not build a subscriber");
+        };
+        assert!(matches!(error, TelemetryNotInstalled::FilterNotUnicode), "{error:?}");
     }
 }
