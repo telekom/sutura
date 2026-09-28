@@ -435,6 +435,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#rather-run-it-as-a-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rather run it as a service?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-a-release-publishes-and-for-which-platforms" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2077,6 +2088,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#rather-run-it-as-a-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rather run it as a service?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-a-release-publishes-and-for-which-platforms" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2199,6 +2221,14 @@ below for macOS and Windows included. <code>gh auth login</code> under an accoun
 today, and <strong>this note is what to delete when the repository becomes public</strong>, because the
 commands themselves do not change.</p>
 </div>
+<h2 id="rather-run-it-as-a-service">Rather run it as a service?<a class="headerlink" href="#rather-run-it-as-a-service" title="Permanent link">&para;</a></h2>
+<p>Everything below is the one-shot CLI path: install once, ask a question from the command line, be
+refused. If you would rather bring the published image up over HTTP and ask the same questions
+against a running server, <code>examples/single-player/compose.yaml</code> does that with the corpus mapped
+read-only and no install step of its own - <code>examples/single-player/README.md</code>'s "Run it over
+compose" section is the quickstart, and <a href="../serving/">Serving over HTTP</a> is the full reference:
+the token, the postures, and every refusal's documented status. The <code>ghcr.io</code> tag it pulls needs
+the same repository read access the note above states, until the repository is public.</p>
 <h2 id="what-a-release-publishes-and-for-which-platforms">What a release publishes, and for which platforms<a class="headerlink" href="#what-a-release-publishes-and-for-which-platforms" title="Permanent link">&para;</a></h2>
 <p><strong>Four triples, and all four are Linux.</strong> There is no macOS binary and no Windows binary - that is
 what a release builds rather than a note about what has not been tried yet, and <code>nix/shipped.nix</code>
@@ -2299,7 +2329,7 @@ in CI.</p>
 </span></code></pre></div>
 <p>Eleven metrics; five of them below, and the elision is this page's rather than the command's:</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>version local-working-tree
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>digest  b0e74ef1b790cff7171094fec4b9389913e7940bf7c9a2abdec2269c3e29e538
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>digest  fc8d41d77d8e71ae22442a29621015faf94c03ac2628e99c3bc2d8dd06c3da19
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
 </span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>active_subscriptions
 </span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>  measure    count_distinct(subscription_key)
@@ -2396,7 +2426,7 @@ did not all match:</p>
 </span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">             </span>examples/single-player/questions/recurring-revenue-by-region.yaml<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">             </span>examples/single-player/data
 </span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>-- definitions local-working-tree b0e74ef1b790cff7171094fec4b9389913e7940bf7c9a2abdec2269c3e29e538
+<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>-- definitions local-working-tree fc8d41d77d8e71ae22442a29621015faf94c03ac2628e99c3bc2d8dd06c3da19
 </span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>region  period  recurring_revenue
 </span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>central 2026-06-01  51739
 </span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>east    2026-06-01  32598

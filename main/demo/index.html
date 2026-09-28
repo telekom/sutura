@@ -2153,13 +2153,13 @@ authority on what may be cited where.</p>
 <code>type: openapi</code>, the server's loopback URL, <code>path: openapi.json</code>, a bearer <code>auth_type</code>, and
 <code>config.enable</code> - so there is no plugin to maintain, and the tools it lists are exactly the
 operations the served document already describes.</p>
-<p><code>demo/run.sh</code> is the supervisor. It starts both children and, if either exits, stops the other and
-fails the container - so a demo that lost half of itself is never reported healthy. <code>demo/healthcheck.py</code>
+<p><code>examples/demo-chatinterface/run.sh</code> is the supervisor. It starts both children and, if either exits, stops the other and
+fails the container - so a demo that lost half of itself is never reported healthy. <code>examples/demo-chatinterface/healthcheck.py</code>
 is the probe, and it checks the server, its two operations and the client. The port is published
 ephemerally and bound to loopback, so two worktrees can run the demo at once and nothing off this
 machine can reach it.</p>
 <h2 id="configure-the-model">Configure the model<a class="headerlink" href="#configure-the-model" title="Permanent link">&para;</a></h2>
-<p>Three values and one acknowledgement, all from the environment. <code>demo/start.sh</code> validates them
+<p>Three values and one acknowledgement, all from the environment. <code>examples/demo-chatinterface/start.sh</code> validates them
 before it builds or starts anything, and never prints a value: a missing or malformed setting is
 reported by name.</p>
 <table>
@@ -2235,7 +2235,7 @@ only render it. Repeating the question does not change the answer.</p>
 <p>Some models answer from their own knowledge instead of calling a tool. That is the client being
 ungoverned: if it did not call <code>ask_metric</code>, no certified number was involved.</p>
 <h2 id="stop-it">Stop it<a class="headerlink" href="#stop-it" title="Permanent link">&para;</a></h2>
-<p>Ctrl-C removes the demo's containers, its network and its named volumes. <code>demo/start.sh</code> runs the
+<p>Ctrl-C removes the demo's containers, its network and its named volumes. <code>examples/demo-chatinterface/start.sh</code> runs the
 tier's own scoped teardown through <code>xtask dev-down</code>, so only this worktree's demo goes - the chat
 client's stored state included. <code>just dev-down</code> does the same from another shell.</p>
 <h2 id="what-the-demo-does-not-prove">What the demo does not prove<a class="headerlink" href="#what-the-demo-does-not-prove" title="Permanent link">&para;</a></h2>
@@ -2256,7 +2256,7 @@ client's stored state included. <code>just dev-down</code> does the same from an
   that makes loopback binding a boundary of this demo, not a pattern for a shared deployment.</li>
 <li><strong>The real walkthrough is not a gate, and this is not a release artifact.</strong> <code>just validate</code> runs
   the hermetic fake-child behavior contract, including authenticated registry and operation-set
-  checks, but it does not build the image or call a real model. <code>demo/Dockerfile</code> is demo-only
+  checks, but it does not build the image or call a real model. <code>examples/demo-chatinterface/Dockerfile</code> is demo-only
   packaging around the shipped server binary. A demo that failed a gate would be disabled, and a
   disabled demo holds nothing.</li>
 </ul>
