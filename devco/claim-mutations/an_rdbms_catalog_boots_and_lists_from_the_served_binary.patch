@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-rdbms/src/postgres_reader.rs b/crates/sutura-catalog-rdbms/src/postgres_reader.rs
+--- a/crates/sutura-catalog-rdbms/src/postgres_reader.rs
++++ b/crates/sutura-catalog-rdbms/src/postgres_reader.rs
+@@ -329,7 +329,7 @@
+         Ok(DecodedColumn {
+             address,
+             model,
+-            description: table_description,
++            description: table_description.filter(|_| false),
+             column,
+             metadata,
+             is_primary_key: is_primary_key

@@ -20,7 +20,7 @@
 # allocated rather than derived.
 set -euo pipefail
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 cd "$root"
 
 fail() {
@@ -145,11 +145,11 @@ fi
 # ------------------------------------------------------------------ build ---
 #
 # The shipped server image is one executable with no shell, so it can neither supervise the chat
-# client nor answer a probe. `demo/Dockerfile` adds both around the release binary; the tier may not
+# client nor answer a probe. `examples/demo-chatinterface/Dockerfile` adds both around the release binary; the tier may not
 # build here, so this script passes the Nix package as a read-only build context and builds the
 # derived image BEFORE Compose asks for it. The final tag is keyed by the canonical worktree path,
 # so concurrent worktrees cannot replace one another's image between build and startup.
-# The chat client base image and tag. The ONLY place this is written - `demo/Dockerfile`'s
+# The chat client base image and tag. The ONLY place this is written - `examples/demo-chatinterface/Dockerfile`'s
 # matching ARG has no default, because this script is its only caller.
 base_image="openwebui/open-webui:0.11.3"
 registry="${SUTURA_IMAGE_REGISTRY:-docker.io}"
@@ -170,7 +170,7 @@ docker build \
     --build-context "sutura-server=${serve_package}" \
     --build-arg "SUTURA_DEMO_BASE_IMAGE=${registry}/${base_image}" \
     -t "$demo_image" \
-    -f demo/Dockerfile \
+    -f examples/demo-chatinterface/Dockerfile \
     . >&2
 
 # --------------------------------------------------------------- provision ---

@@ -38,6 +38,11 @@ devenv.lock
 flake.lock
 pixi.lock
 
+# The changelog. git-cliff writes it from the commit history at every version bump, one section
+# per release, so its length is a function of the release history rather than of how it is
+# written; v0.6.0 alone added 378 lines.
+CHANGELOG.md
+
 # Dumped contracts: the MCP tool schemas and the OpenAPI spec, once they exist. Their length
 # will be a function of the wire types they are derived from.
 #
