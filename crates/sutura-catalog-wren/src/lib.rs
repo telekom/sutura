@@ -70,7 +70,8 @@ pub enum ImportError {
 /// # Errors
 ///
 /// If `<source>/manifest.json` cannot be read or is not a wren MDL manifest this converter's [`wire`]
-/// module can parse, if `destination` already holds a file, or if it cannot be written to.
+/// module can parse, if `destination` already holds a file, if it cannot be read, or if writing
+/// into it fails.
 pub fn import(source: &Path, destination: &Path) -> Result<Summary, ImportError> {
     let manifest_path = source.join("manifest.json");
     let text = fs::read_to_string(&manifest_path).map_err(|source| ImportError::Read {

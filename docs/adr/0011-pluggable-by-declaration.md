@@ -810,3 +810,18 @@ stands and its corrections arrive as amendments.
   argument this section makes for metadata evidence is unaffected - a unique constraint proves the
   referenced side is unique, its absence proves nothing - and it now sits beside a data check that
   covers both directions, but only where the adapter can count.
+
+## Fifth amendment, 2026-09-27: the RDBMS catalog is declarable
+
+The metadata table's RDBMS row said *"A custom data catalog over an RDBMS ... NOT declarable:
+`sutura_config::CatalogKind` names no variant for it, so nothing can configure one yet."* That was
+true when the base record was written and is not now, and the row is left as written and corrected
+here rather than edited in place, because this record's own convention is that the base text stands
+and its corrections arrive as amendments.
+
+`sutura_config::CatalogKind::Rdbms` (`crates/sutura-config/src/catalog.rs:77`) names the variant
+and `CatalogKind::NAMES` lists it as `rdbms`, so a `catalog.kind: rdbms` entry is declarable. The
+variant is gated: it opens only on a build that links the `rdbms` feature (which turns on
+`sutura-catalog-rdbms`'s `live` reader), and a build without it refuses the kind by name naming the
+feature - the same stand `CatalogKind::Openmetadata` makes. The composition root decides which,
+never the settings parse.

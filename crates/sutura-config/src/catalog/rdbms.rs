@@ -3,7 +3,7 @@
 //! A read-only Postgres connection, a closed-form live-row predicate, the environment key that
 //! selects dictionary rows, the source the described objects are served from, and two read bounds.
 //!
-//! Split out of `catalog.rs` at the crate's 1000-line cap. The parent re-exports every type, so
+//! Authored as its own module, not a split. The parent re-exports every type, so
 //! `crate::catalog::<Name>` and the crate root's `pub use` both still resolve.
 //!
 //! **Parsed here, read by a composition root that links the `live` reader.** This crate's own job
@@ -244,9 +244,8 @@ impl CatalogEnvironment {
 ///
 /// Binding a schema name as a quoted, validated identifier - never interpolating it into a SQL
 /// statement as raw text. The accepted set is `[A-Za-z0-9_]`, the same leaves every Postgres
-/// identifier is built from, and case is preserved. It also doubles as the physical schema the
-/// described objects are documented against when the dictionary rows' own schema differs from a
-/// separate `catalog` part - see the dictionary contract.
+/// identifier is built from, and case is preserved. The reader selects the view `columns` in this
+/// schema; the schema of each described object is the row's own `schema_name` and `catalog_name`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentationSchema(String);
 
@@ -454,7 +453,7 @@ mod tests {
     use std::num::NonZeroU64;
     use std::path::Path;
 
-    use super::{CatalogConnection, InvalidConnection, PredicateOperator};
+    use super::{CatalogConnection, InvalidConnection, InvalidDocumentationSchema, InvalidRdbmsCatalog, PredicateOperator};
     use crate::environment::Environment;
     use crate::raw::RawCatalogConnection;
     use crate::settings::{Settings, Sources};
@@ -503,5 +502,77 @@ mod tests {
         assert_eq!(rdbms.connection().user(), "reader");
         assert_eq!(rdbms.connection().password_file(), Path::new("/run/secrets/dictionary"));
         assert_eq!(rdbms.connection().transport().describe(), "plaintext");
+    }
+
+    /// An empty `dictionary_schema` is refused as `InvalidDocumentationSchema::Empty` through
+    /// `Settings::load` - the public path a declaration takes.
+    #[test]
+    fn an_empty_dictionary_schema_is_refused() {
+        let overlay = "security:\n  identity: single-user\n  single_user_because: a test\nsources:\n  warehouse:\n    kind: files\n    data_dir: /srv/data\n    posture: shared-service-user\n\
+            catalogs:\n  - name: dict\n    kind: rdbms\n    dir: /nowhere\n    data_dir: /nowhere\n    version: dict-1\n    \
+            environment: prod\n    source_alias: warehouse\n    dictionary_schema: \"\"\n    \
+            connection:\n      host: 127.0.0.1\n      port: 5432\n      database: dictionary\n      user: reader\n      \
+            password_file: /run/secrets/dictionary\n      transport_mode: plaintext\n";
+        let result = Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay));
+        assert!(result.is_err(), "an empty dictionary schema is refused");
+        let error = result.unwrap_err();
+        let mut source: Option<&dyn std::error::Error> = Some(error.reason());
+        let mut found = false;
+        while let Some(cause) = source {
+            if let Some(schema) = cause.downcast_ref::<InvalidRdbmsCatalog>() {
+                let InvalidRdbmsCatalog::DictionarySchema { cause } = schema else {
+                    panic!("expected DictionarySchema, got {schema:?}");
+                };
+                assert!(matches!(cause, InvalidDocumentationSchema::Empty), "{cause:?}");
+                found = true;
+            }
+            source = cause.source();
+        }
+        assert!(found, "the error chain never reached InvalidRdbmsCatalog::DictionarySchema");
+    }
+
+    /// A `dictionary_schema` that is not an identifier is refused as
+    /// `InvalidDocumentationSchema::NotIdentifier` through `Settings::load`.
+    #[test]
+    fn a_non_identifier_dictionary_schema_is_refused() {
+        let overlay = "security:\n  identity: single-user\n  single_user_because: a test\nsources:\n  warehouse:\n    kind: files\n    data_dir: /srv/data\n    posture: shared-service-user\n\
+            catalogs:\n  - name: dict\n    kind: rdbms\n    dir: /nowhere\n    data_dir: /nowhere\n    version: dict-1\n    \
+            environment: prod\n    source_alias: warehouse\n    dictionary_schema: bad-name\n    \
+            connection:\n      host: 127.0.0.1\n      port: 5432\n      database: dictionary\n      user: reader\n      \
+            password_file: /run/secrets/dictionary\n      transport_mode: plaintext\n";
+        let result = Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay));
+        assert!(result.is_err(), "a non-identifier dictionary schema is refused");
+        let error = result.unwrap_err();
+        let mut source: Option<&dyn std::error::Error> = Some(error.reason());
+        let mut found = false;
+        while let Some(cause) = source {
+            if let Some(schema) = cause.downcast_ref::<InvalidRdbmsCatalog>() {
+                let InvalidRdbmsCatalog::DictionarySchema { cause } = schema else {
+                    panic!("expected DictionarySchema, got {schema:?}");
+                };
+                assert!(matches!(cause, InvalidDocumentationSchema::NotIdentifier), "{cause:?}");
+                found = true;
+            }
+            source = cause.source();
+        }
+        assert!(found, "the error chain never reached InvalidRdbmsCatalog::DictionarySchema");
+    }
+
+    /// A valid `dictionary_schema` containing an underscore is accepted through `Settings::load`,
+    /// pinning the accept side of the same `[A-Za-z0-9_]` rule the two refusal cells above pin the
+    /// refusal side of.
+    #[test]
+    fn a_valid_dictionary_schema_with_an_underscore_is_accepted() {
+        let overlay = "security:\n  identity: single-user\n  single_user_because: a test\nsources:\n  warehouse:\n    kind: files\n    data_dir: /srv/data\n    posture: shared-service-user\n\
+            catalogs:\n  - name: dict\n    kind: rdbms\n    dir: /nowhere\n    data_dir: /nowhere\n    version: dict-1\n    \
+            environment: prod\n    source_alias: warehouse\n    dictionary_schema: docs_v1\n    \
+            connection:\n      host: 127.0.0.1\n      port: 5432\n      database: dictionary\n      user: reader\n      \
+            password_file: /run/secrets/dictionary\n      transport_mode: plaintext\n";
+        let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay))
+            .expect("a dictionary_schema with an underscore is accepted");
+        let catalog = settings.catalogs().each().next().expect("one catalog");
+        let rdbms = catalog.rdbms().expect("an rdbms entry carries its rdbms settings");
+        let schema = rdbms.dictionary_schema().expect("dictionary_schema was declared");
+        assert_eq!(schema.as_str(), "docs_v1");
     }
 }
