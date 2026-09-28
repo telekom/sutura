@@ -38,7 +38,7 @@ mod location;
 pub use bind::parameter_batch;
 pub use location::{DriverLocation, UnusableDriverPath};
 
-use adbc_core::error::{Error as CoreError, Status};
+use adbc_core::error::Error as CoreError;
 use adbc_driver_manager::ManagedDriver;
 
 /// The driver this artefact's own link carries, or an error where it carries none.
@@ -62,7 +62,7 @@ pub fn linked_driver() -> Result<ManagedDriver, CoreError> {
     {
         Err(CoreError::with_message_and_status(
             "this build linked no ADBC driver",
-            Status::NotFound,
+            adbc_core::error::Status::NotFound,
         ))
     }
 }
