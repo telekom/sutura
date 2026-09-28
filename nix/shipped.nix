@@ -58,7 +58,6 @@ let
     let drv = adbcDrivers."adbc-driver-bigquery-${target}" or null;
     in pkgs.lib.optionalAttrs (drv != null) {
       SUTURA_ADBC_ARCHIVE_DIR = "${drv}/lib";
-      SUTURA_ADBC_ARCHIVE_NAME = "adbc_driver_bigquery";
     };
 
   # Targets we CROSS-build. Deliberately excludes the host architecture: on an x86_64 builder
