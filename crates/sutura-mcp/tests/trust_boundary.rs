@@ -1,6 +1,6 @@
-//! Trust-boundary tests for `sutura-mcp`'s request entry point: the pre-allocation bounds on
-//! `ask_metric`/`run_sql` array counts and statement size, and the parse-error refusals the audit
-//! named UNTESTED through the MCP handler.
+//! Trust-boundary tests for `sutura-mcp`'s request entry point: the wire-level refusal codes for
+//! `ask_metric`'s over-cap counts and `run_sql`'s oversized statement, and parse-error refusals
+//! that were reachable through the MCP handler but untested there.
 //!
 //! Every test drives `AgentSurface` through `rmcp`'s OWN client over an in-memory pipe (the
 //! `connected` harness), or - for the `Asking::PerRequest` no-caller case - through a hand-built
@@ -10,13 +10,16 @@
 //!
 //! # Conformance pins, not red-on-base
 //!
-//! Every test here pins behaviour the base tree (post-#1089) already provides: the count refusals
-//! (`too_many_metrics`/`too_many_dimensions`/`too_many_filters`) are #1089's `RefusalReason`s
-//! returned by `parse_query` after `from_value` allocates; the pre-allocation bound in
-//! `server::bounds` fires the same `RefusalReason` before the allocation, so the observable output
-//! through `call_tool` is identical. The statement-size bound returns the same `-32602`
-//! `RawStatement::parse`'s `TooLong` does, just earlier. The remaining tests pin existing parse-error
-//! refusals (`-32602`/`-32600`) the audit listed as UNTESTED through the handler.
+//! Every test here pins behaviour the base tree (post-#1089) already provides, now proven through
+//! the real handler rather than only at a lower layer: the count refusals
+//! (`too_many_metrics`/`too_many_dimensions`/`too_many_filters`) are #1089's `RefusalReason`s,
+//! returned with the same code whether `sutura_domain::question::parse_query` refuses them after
+//! `from_value` or `server::bounds::refused_for_over_cap` refuses them first - nothing here measures
+//! which of the two actually fired, only that the caller sees the right code. The statement-size
+//! bound DOES distinguish the two paths, by message: `server::bounds::oversized_statement` renders
+//! "larger than", `RawStatement::parse`'s own `TooLong` renders "not a statement", so that one test
+//! also pins which check fires first. The remaining tests pin existing parse-error refusals
+//! (`-32602`/`-32600`) that were reachable through the handler but untested there.
 //!
 //! Each cell is declared with `Claim-Cell` and a killing mutation under `devco/claim-mutations/`:
 //! the mutation breaks the production behaviour the cell pins, and the cell's assertion fails.
@@ -399,13 +402,17 @@ mod tests {
 
     // ------------------------------------------------------- UNBOUNDED: over-cap ---
 
-    /// Over-cap `metrics` is refused as `too_many_metrics` before the `Vec<String>` is allocated.
+    /// Over-cap `metrics` is refused as `too_many_metrics` over the wire.
     ///
-    /// Conformance pin: the base tree's `parse_query` returns the same `RefusalReason` after
-    /// `from_value` allocates; the pre-allocation bound in `server::bounds` fires it before. Both
-    /// produce `outcome: "refusal"` with `code: "too_many_metrics"`. The killing mutation changes
-    /// `RefusalReason::code()` for `TooManyMetrics` to a wrong string, so the assertion on the code
-    /// fails.
+    /// **Not renamed** despite the name: it claims "before allocation", but this pins only that the
+    /// caller sees the right code, not the ordering. Whichever of
+    /// `server::bounds::refused_for_over_cap` or the downstream `parse_query` actually fires,
+    /// `outcome: "refusal"` and `code: "too_many_metrics"` are the same either way (confirmed by
+    /// review 5335886314: deleting the bound, and moving `from_value` ahead of it, both leave this
+    /// green). This fn's `Claim-Cell:` trailer is on an already-pushed, non-tip commit and the
+    /// bijection is range-wide, so renaming would orphan it; the corrected claim lives here instead.
+    /// The killing mutation still holds this narrower claim: it changes `RefusalReason::code()` for
+    /// `TooManyMetrics` to a wrong string, so the assertion on the code fails.
     #[tokio::test]
     async fn too_many_metrics_is_refused_before_allocation() {
         let client = connected(certified_service().0).await;
@@ -425,9 +432,9 @@ mod tests {
         drop(client.cancel().await);
     }
 
-    /// Over-cap `dimensions` is refused as `too_many_dimensions` before the `Vec<String>` is allocated.
-    /// Conformance pin, same reasoning as the metrics bound; the killing mutation changes
-    /// `RefusalReason::code()` for `TooManyDimensions`.
+    /// Over-cap `dimensions` is refused as `too_many_dimensions` over the wire. Not renamed, same
+    /// reason and correction as `too_many_metrics_is_refused_before_allocation` above; the killing
+    /// mutation changes `RefusalReason::code()` for `TooManyDimensions`.
     #[tokio::test]
     async fn too_many_dimensions_is_refused_before_allocation() {
         let client = connected(certified_service().0).await;
@@ -448,9 +455,9 @@ mod tests {
         drop(client.cancel().await);
     }
 
-    /// Over-cap `filters` is refused as `too_many_filters` before the `Vec` is allocated. The filter
-    /// count bound is the one #1089 added to the domain (`MAX_FILTERS = 16`); the pre-allocation bound
-    /// fires it before `from_value` builds the `Vec<FilterArgs>`. Conformance pin; the killing mutation
+    /// Over-cap `filters` is refused as `too_many_filters` over the wire. The filter count bound is
+    /// the one #1089 added to the domain (`MAX_FILTERS = 16`). Not renamed, same reason and
+    /// correction as `too_many_metrics_is_refused_before_allocation` above; the killing mutation
     /// changes `RefusalReason::code()` for `TooManyFilters`.
     #[tokio::test]
     async fn too_many_filters_is_refused_before_allocation() {

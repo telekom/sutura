@@ -23,12 +23,14 @@ opens a model. An operator-side whole-bundle view can list every model after the
 a physical-only authored catalog declare an audience without inventing a metric.
 
 The served MCP `initialize` prompt renders through the same caller-scoped `ScopedView` ADR 0028's
-amendment gives it (`docs/adr`'s own initialize fix), so an enabled deployment's `instructions`
-already carries this caller's own physical listing at `initialize`, cut to their audience -
-`served_initialize_does_not_publish_the_whole_physical_schema` is the cell that pins it never
-carries another caller's models. `describe_catalog` renders the same listing through the same
-per-request view, so the two tools agree. The stdio MCP and `sutura prompt` use an operator-side
-whole-bundle view, so an operator sees every declared model regardless of audience.
+second amendment gives it, so an enabled deployment's `instructions` already carries this caller's
+own physical listing at `initialize`, cut to their audience. The audience cut itself is held by
+`sutura-domain`'s `pinned::tests::model_listing_requires_its_own_explicit_audience`, over
+`ScopedView::models`, which both tools read; `served_initialize_does_not_publish_the_whole_physical_schema`
+pins only the narrower case that an audience-less model is not listed to a verified caller at
+`initialize`. `describe_catalog` renders the same listing through the same per-request view, so the
+two tools agree. The stdio MCP and `sutura prompt` use an operator-side whole-bundle view, so an
+operator sees every declared model regardless of audience.
 
 ## Limits
 
@@ -36,5 +38,7 @@ Source adapters that infer models from a data dictionary do not declare model au
 models stay absent from caller-scoped listings until an explicit audience channel is added for
 those sources. `audience: open` exposes the whole model's metadata, including every column; this
 decision adds no column-level visibility. Authored prose can still mention hidden metadata, and
-quoting does not prevent persuasive prompt injection. The existing whole-bundle served prompt's
-metric and knowledge content remains an independent limit of ADR 0028.
+quoting does not prevent persuasive prompt injection. `prompt.list_physical_schema` is a product
+switch, not the security boundary: the audience cut applies whether or not it is enabled, but on
+the stdio and CLI transports - which have no caller and no `ScopedView` to cut by - enabling it
+lists every declared model to whoever holds that process.

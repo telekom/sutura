@@ -37,7 +37,7 @@ const EXAMPLE_PROSE: &str = "Where the customer is.";
 fn a_deployments_prose_setting_reaches_both_halves_of_the_agent_surface() {
     // **`#266`'s `H1`, at the only layer that can prove it: a settings FILE this process read.**
     // The chain under test is `base.yaml` -> `Settings::load` -> `crate::mcp::serve` ->
-    // `mcp_service` -> `serve_stdio` -> `CatalogContent::of`, and nothing in it is supplied by
+    // `mcp_service` -> `serve_stdio` -> `CatalogContent::of_with_physical_schema`, and nothing in it is supplied by
     // this test except the file. The review that blocked the first attempt is why: a test that
     // hands `mcp_service` the value it wants to see stays green with the read back to a
     // constant, which is the defect one frame out.
@@ -78,6 +78,70 @@ fn a_deployments_prose_setting_reaches_both_halves_of_the_agent_surface() {
     // too would trade a prose channel for refusals.
     assert!(flat.contains("recurring_revenue"), "{flat}");
     assert!(flat.contains("central"), "{flat}");
+}
+
+/// `prompt.list_physical_schema` is default-off, and stdio has no caller to cut a physical
+/// listing by - so the settings-file chain `a_deployments_prose_setting_reaches_both_halves_of_the_agent_surface`
+/// already exercises for `catalog_prose` is the only place this side of the flag can be pinned.
+/// Absent, not empty, in the default: `CatalogContent::models` is `skip_serializing_if = "is_none"`.
+/// Its own test rather than folded into that one, so a diff to this file never reads as a
+/// MODIFICATION of a test the base tree already had - `just causality` classifies an unmodified
+/// pre-existing test as out of scope entirely, and a genuinely new fn as a claim cell it can hold.
+#[test]
+fn a_deployments_physical_schema_setting_reaches_describe_catalog() {
+    let off = example_settings("mcp-catalog-physical-schema-off", "");
+    let (structured, _text) = described_catalog(&off);
+    assert!(
+        structured.get("models").is_none(),
+        "the default listed models the setting never enabled: {structured}"
+    );
+
+    let on = example_settings("mcp-catalog-physical-schema-on", "prompt:\n  list_physical_schema: true\n");
+    let (structured, _text) = described_catalog(&on);
+    let models = structured["models"]
+        .as_array()
+        .unwrap_or_else(|| panic!("list_physical_schema: true carried no models array: {structured}"));
+    assert!(
+        models
+            .iter()
+            .any(|model| model["name"] == "customers" && model["table"] == "dim_customer"),
+        "the enabled listing did not carry the example catalog's customers model: {structured}"
+    );
+}
+
+/// `prompt.list_physical_schema` gates `initialize.instructions`, not only `describe_catalog`.
+///
+/// `docs/agent-prompt.md` and this PR's own ADR once claimed the served `initialize` prompt
+/// omits the physical listing outright - false, and review 5335886314's finding 3 caught it.
+/// `server.rs:382-383` threads `list_physical_schema` into the same `PromptInputs` both the stdio
+/// and streamable-HTTP transports render `initialize.instructions` from, so the stdio whole-bundle
+/// path below exercises the identical switch: this cell goes red if the setting stopped reaching
+/// `initialize`, or if the default started listing it unasked.
+#[test]
+fn a_deployments_physical_schema_setting_reaches_the_stdio_initialize_prompt() {
+    let off = example_settings("mcp-physical-schema-initialize-off", "");
+    let mut agent = spawn_configured(&off);
+    let instructions = agent.initialize()["instructions"]
+        .as_str()
+        .expect("initialize carries an instructions string")
+        .to_owned();
+    assert!(agent.close().success(), "the process did not exit cleanly");
+    assert!(
+        !instructions.contains("Physical schema"),
+        "the default listed physical schema at initialize: {instructions}"
+    );
+
+    let on = example_settings("mcp-physical-schema-initialize-on", "prompt:\n  list_physical_schema: true\n");
+    let mut agent = spawn_configured(&on);
+    let instructions = agent.initialize()["instructions"]
+        .as_str()
+        .expect("initialize carries an instructions string")
+        .to_owned();
+    assert!(agent.close().success(), "the process did not exit cleanly");
+    assert!(
+        instructions.contains("Physical schema") && instructions.contains("customers"),
+        "the enabled setting did not reach initialize.instructions: {instructions}"
+    );
 }
 
 #[test]

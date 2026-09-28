@@ -1,16 +1,30 @@
-//! Pre-allocation bounds on request values, read off the raw `serde_json` map before
-//! `serde_json::from_value` allocates the typed collection.
+//! Bounds checked on the raw `serde_json::Value` request arguments, before `serde_json::from_value`
+//! builds the typed shape.
+//!
+//! **Not an allocation bound, whatever the name once claimed** (review 5335886314, finding 2): by
+//! the point either function here runs, `rmcp`'s own deserialization has already parsed the whole
+//! request into an owned `Value` tree - every element of an over-cap array and every byte of an
+//! oversized statement is already allocated. What this module actually saves is narrower: the count
+//! check below skips building the final `Vec<String>`/`Vec<FilterArgs>` `from_value` would have
+//! cloned out of that `Value` (the `Vec`'s own spine, not its elements' bytes); for a `String` field
+//! `from_value` only moves the existing `String`, so the statement check saves no allocation at all -
+//! it is purely an earlier refusal.
 //!
 //! #1089 bounds the same counts downstream: `sutura_domain::question::parse_query` checks
 //! `metrics.len() > MAX_METRICS` etc. *after* `from_value` has built the `Vec<String>`. The bound
-//! there is the semantic one and stays; the bound here is the earlier, allocation-preventing one.
-//! It fires through the same channel: a count over the wire limit returns the same
-//! [`RefusalReason`] `parse_query` would, so a caller sees one refusal code from one limit, never
-//! two controls reporting a bound the other can exceed.
+//! there is the semantic one and stays; the bound here fires earlier, through the same channel: a
+//! count over the wire limit returns the same [`RefusalReason`] `parse_query` would, so a caller
+//! sees one refusal code from one limit, never two controls reporting a bound the other can exceed.
+//! No test distinguishes "fires here" from "fires downstream" for the count bound - both produce
+//! the identical `RefusalReason`, so nothing in this crate's suite depends on this file existing for
+//! the count case; `sutura-mcp/tests/trust_boundary.rs`'s three `*_is_refused_before_allocation`
+//! cells pin only that the caller sees the right code, over either path.
 //!
 //! The statement-size bound has no downstream twin to conflict with: `RawStatement::parse` checks
 //! `> MAX_RAW_STATEMENT_BYTES` on the deserialized `String`, and this fires the same
-//! [`MalformedStatement`] code earlier, before the `String` is allocated.
+//! [`MalformedStatement`] code earlier, before `RawStatement::parse`'s own validation runs -
+//! distinguishable by message, and pinned by
+//! `trust_boundary::tests::an_oversized_statement_is_a_named_parse_error`.
 
 use sutura_domain::query::{MAX_DIMENSIONS, MAX_FILTERS, MAX_METRICS, RefusalReason};
 use sutura_domain::raw::MAX_RAW_STATEMENT_BYTES;
@@ -18,7 +32,8 @@ use sutura_domain::raw::MAX_RAW_STATEMENT_BYTES;
 use crate::wire::MalformedStatement;
 
 /// Reads the raw arguments and returns a [`RefusalReason`] if a question count exceeds its limit,
-/// before `from_value` allocates the `Vec<String>`.
+/// before `from_value` builds the typed `Vec<String>`/`Vec<FilterArgs>` - the module doc states
+/// what that actually saves (the `Vec`'s spine, not its already-parsed elements).
 ///
 /// Returns `None` when the arguments are not an object or the field is absent or not an array, so a
 /// missing field is left to `from_value`'s existing typed error (the `NotAnObject` path) rather than
@@ -47,7 +62,8 @@ pub(crate) fn refused_for_over_cap(arguments: &serde_json::Value) -> Option<Refu
 }
 
 /// Reads the raw arguments and returns a [`MalformedStatement`] if the `statement` string exceeds
-/// [`MAX_RAW_STATEMENT_BYTES`], before `from_value` allocates the `String`.
+/// [`MAX_RAW_STATEMENT_BYTES`], before `RawStatement::parse` runs its own check - `from_value`
+/// itself allocates nothing here, it only moves the already-parsed `String` out of the `Value`.
 ///
 /// Returns `None` when the arguments are not an object or the field is absent or not a string, so a
 /// missing field is left to `from_value`'s existing typed error rather than to this bound. The error

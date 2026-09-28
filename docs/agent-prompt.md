@@ -112,8 +112,9 @@ SUTURA__PROMPT__INSTRUCTIONS_FILE=prompts/house-rules.md \
 
 `sutura prompt` takes the deployment's configuration directory as its optional second argument, so
 the text it renders is the operator-side whole-bundle preview. The served MCP `initialize` prompt
-omits the optional physical listing because it has no caller-specific view; a verified caller gets
-the listing through `describe_catalog` under its own audience grants. The command loads settings the way the
+renders the same optional physical listing, cut to the verified caller's own `ScopedView` (ADR
+0028's second amendment); `describe_catalog` renders the same per-request view, so the two agree.
+The command loads settings the way the
 service does, refusals included: a production configuration with no access token will not render a
 prompt either, and the refusal names the key to fix. That is deliberate - a second, weaker door into
 the settings is a door that can disagree with the first.

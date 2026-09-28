@@ -582,9 +582,9 @@ fn question(request: CallToolRequestParams) -> Result<QuestionAdmission, ErrorDa
     // `deny_unknown_fields` - and an absent `arguments` is an empty object, so a call with no
     // arguments fails on the missing required fields rather than on a different message.
     let arguments = serde_json::Value::Object(request.arguments.unwrap_or_default());
-    // The pre-allocation bound fires before `from_value` builds the `Vec<String>` - the same
-    // count limits `sutura_domain::question::parse_query` checks downstream, refused here as the
-    // same `RefusalReason` so one count has one limit and one channel.
+    // An earlier check on the same count limits `sutura_domain::question::parse_query` checks
+    // downstream, refused here as the same `RefusalReason` so one count has one limit and one
+    // channel - see `server::bounds`'s module doc for what firing here actually saves.
     if let Some(reason) = bounds::refused_for_over_cap(&arguments) {
         return Ok(QuestionAdmission::Refused(reason));
     }
@@ -610,7 +610,7 @@ fn question(request: CallToolRequestParams) -> Result<QuestionAdmission, ErrorDa
 /// be tempted for on this path too.
 fn run_sql_statement(request: CallToolRequestParams) -> Result<RawStatement, ErrorData> {
     let arguments = serde_json::Value::Object(request.arguments.unwrap_or_default());
-    // Pre-allocation bound: fires before `from_value` builds the `String`, same `-32602` `RawStatement::parse` returns.
+    // An earlier check than `RawStatement::parse`'s own, same `-32602` it returns for the same reason.
     if let Some(error) = bounds::oversized_statement(&arguments) {
         return Err(invalid_statement(&error));
     }
@@ -759,7 +759,8 @@ where
     // The setting reaches the CONTENT and not only the rendering, which is the whole of `H1` in
     // `#266`: the text block honoured it while `structured_content` beside it carried every
     // description, so a deployment that had withheld its catalog prose shipped it anyway to any
-    // client reading the structured half. `CatalogContent::of` cannot be called without the answer.
+    // client reading the structured half. `CatalogContent::of_with_physical_schema` cannot be
+    // called without the answer.
     //
     // And the view is built here, from the caller this request's own verification resolved - see the
     // doc above for why `scoped_for` maps an absent or process-owner caller to the whole bundle.
