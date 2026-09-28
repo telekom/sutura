@@ -149,9 +149,9 @@ fn the_declared_exception_may_omit_the_reassertion_and_must_use_it() {
     put(
         &root,
         "Cargo.toml",
-        "[workspace]\nmembers = [\n  \"crates/sutura-exec-bigquery\",\n]\n",
+        "[workspace]\nmembers = [\n  \"crates/sutura-adbc\",\n]\n",
     );
-    put(&root, "crates/sutura-exec-bigquery/Cargo.toml", "[package]\nname = \"b\"\n");
+    put(&root, "crates/sutura-adbc/Cargo.toml", "[package]\nname = \"b\"\n");
     put(&root, EXCEPTED_ROOT, "pub mod adbc;\n");
     let why = check(&root).expect_err("an exception that lowers nothing is stale");
     assert!(matches!(why, Why::ExceptionEmpty), "{why:?}");
@@ -168,9 +168,9 @@ fn an_exception_the_tree_no_longer_needs_is_refused_rather_than_left_standing() 
     put(
         &root,
         "Cargo.toml",
-        "[workspace]\nmembers = [\n  \"crates/sutura-exec-bigquery\",\n]\n",
+        "[workspace]\nmembers = [\n  \"crates/sutura-adbc\",\n]\n",
     );
-    put(&root, "crates/sutura-exec-bigquery/Cargo.toml", "[package]\nname = \"b\"\n");
+    put(&root, "crates/sutura-adbc/Cargo.toml", "[package]\nname = \"b\"\n");
     put(&root, EXCEPTED_ROOT, &format!("{}\npub fn f() {{}}\n", reassertion()));
     let why = check(&root).expect_err("a root that re-asserts the forbid needs no exception");
     drop(std::fs::remove_dir_all(&root));

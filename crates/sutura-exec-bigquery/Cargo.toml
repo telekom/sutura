@@ -24,10 +24,10 @@ description = "A Warehouse adapter over BigQuery: renders the plan into GoogleSQ
 adbc = [
   "dep:adbc_core",
   "dep:adbc_driver_manager",
-  "dep:adbc_ffi",
   "dep:arrow-array",
   "dep:arrow-schema",
   "dep:getrandom",
+  "dep:sutura-adbc",
 ]
 
 # The FIXTURE LOADER: `src/importer.rs`, `BigQueryWarehouse::load_fixture`, and the third
@@ -67,12 +67,12 @@ serde_json = { workspace = true }
 
 adbc_core = { version = "0.24", optional = true }
 adbc_driver_manager = { version = "0.24", optional = true }
-# The C ABI types, named directly for ONE declaration: `ManagedDriver::load_static` takes
-# `&adbc_ffi::FFI_AdbcDriverInitFunc`, and `adbc_driver_manager` re-exports neither that type nor
-# the crate - so the artefact that carries its own driver (`src/adbc/linked.rs`) cannot spell its
-# entrypoint without this edge. Already in `Cargo.lock` transitively through the line above, so it
-# adds an edge and no package.
-adbc_ffi = { version = "0.24", optional = true }
+# The shared ADBC FFI and helpers (telekom/sutura#913 PR 2): the linked-driver
+# `unsafe`, the parameter-batch builder and the driver-location type live in
+# `sutura-adbc`, so this adapter carries no `unsafe` of its own and
+# `cargo xtask check-unsafe` keeps one excepted root. Behind `adbc`, because the
+# transport that needs it is.
+sutura-adbc = { workspace = true, optional = true }
 # The ADBC driver manager (telekom/sutura#913): loads the self-built
 # `libadbc_driver_bigquery.so` by path (`ManagedDriver::load_dynamic_from_filename`)
 # and runs a statement, returning Arrow record batches. The driver owns its own

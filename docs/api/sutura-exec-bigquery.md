@@ -434,7 +434,7 @@ adbc_core + adbc_driver_manager → C ABI → the `BigQuery` ADBC driver
 **Two routes to that driver and one type deciding between them** - `DriverLocation`, resolved
 once at composition. A release artefact carries the driver in its own link (the `c-archive`
 half of one nix derivation), which is the only route a STATIC musl binary has; a source build
-opens a `.so` a deployment mounted. `location` carries why that is a parsed value rather than
+opens a `.so` a deployment mounted. `DriverLocation` carries why that is a parsed value rather than
 the arbitrary path `telekom/sutura#929`'s sixth finding named.
 
 Behind the crate's default-off `adbc` feature, like the `wire`: the native
@@ -457,7 +457,7 @@ refused.
 
 # The values
 
-Bound as one Arrow batch of one row, per `bind` - which is where the driver's own per-row
+Bound as one Arrow batch of one row, per `sutura_adbc::parameter_batch` - which is where the driver's own per-row
 execution loop is read off the pinned source and why one row is the only correct count. The
 statement carries positional `?` and nothing is ever interpolated into it.
 
@@ -641,18 +641,6 @@ DECLARATION.** A source is opened shared or impersonating - `sutura_config` refu
 `workload_identity` block on a shared entry and refuses its absence on an impersonating one - so
 which of these a transport holds is decided once, at composition, from a value an operator wrote.
 
-### `use DriverLocation`
-
-Where the driver is, once something has decided that it is reachable at all.
-
-**There is no third state and no `Option`.** A source cannot be opened without one of these,
-so a composition root either resolved a driver or refused to serve - the shape
-`crate::transport::JobIdentity` uses for the same reason.
-
-### `use UnusableDriverPath`
-
-Why a named driver path is not one this process will open.
-
 ### `use UnusablePool`
 
 Why a declared pool is not one this transport can exchange against.
@@ -675,6 +663,10 @@ request for the DELETED mechanism - it then demands a target principal and repla
 federated credential with an impersonated token source. A screened value this transport cannot
 send would read as a control that is in place, so it is not held here at all and the operator is
 told where they declare it.
+
+### `use DriverLocation`
+
+### `use UnusableDriverPath`
 
 ### `constant MOST_RESULT_ROWS`
 
