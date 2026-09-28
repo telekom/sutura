@@ -4,17 +4,38 @@ name: subscriptions
 source: local
 table: fct_subscription_monthly
 columns:
-  - month
-  - subscription_key
-  - customer_key
-  - product_key
-  - status
+  - name: month
+    type: DATE
+    description: The first day of the month this snapshot row describes.
+    nullable: false
+  - name: subscription_key
+    type: BIGINT
+    description: The surrogate key daily_usage joins on, through usage_subscription.
+    nullable: false
+  - name: customer_key
+    type: BIGINT
+    description: The customer this subscription belongs to, reached through subscription_customer.
+    nullable: false
+  - name: product_key
+    type: BIGINT
+    description: The product this subscription was on this month, reached through subscription_product.
+    nullable: false
+  - name: status
+    type: VARCHAR
+    description: The subscription's state at the end of the month - active or terminated.
+    nullable: false
   - name: mrr_cents
     type: NUMERIC
     description: Recurring revenue for the month, in minor units.
     nullable: false
-  - churned_in_month
-  - contract_term
+  - name: churned_in_month
+    type: BOOLEAN
+    description: Whether this subscription churned during the month, independent of its end-of-month status.
+    nullable: false
+  - name: contract_term
+    type: VARCHAR
+    description: The subscription's own contract length - annual or monthly.
+    nullable: false
 primary_key: [subscription_key, month]
 ---
 One row per subscription per month: what that subscription was worth in the month, and
