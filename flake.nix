@@ -560,7 +560,7 @@
           # triple builds a `.so` for a mounted driver AND a `.a` the published
           # artefact links in, and a gate asserting one of two would leave the
           # release half unmeasured - the archive is the ONLY route the two static
-          # musl artefacts have. `crates/sutura-exec-bigquery/build.rs` refuses an
+          # musl artefacts have. `crates/sutura-adbc/build.rs` refuses an
           # archive-less directory, so an absent `.a` would fail a release build
           # rather than ship a mounted fallback; this is the cheaper place to find
           # out, on every pull request and on every system.
