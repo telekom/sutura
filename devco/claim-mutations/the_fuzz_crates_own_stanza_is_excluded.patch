@@ -1,0 +1,13 @@
+diff --git a/xtask/src/fuzz.rs b/xtask/src/fuzz.rs
+index 07a60054c..068740bcd 100644
+--- a/xtask/src/fuzz.rs
++++ b/xtask/src/fuzz.rs
+@@ -256,7 +256,7 @@ fn first_party_pins(lock: &str) -> Vec<(String, String)> {
+         } else if let Some(value) = line.strip_prefix("version = ")
+             && let Some(seen) = current.take()
+             && seen.starts_with(FIRST_PARTY_PREFIX)
+-            && seen != FUZZ_CRATE
++            && (seen != FUZZ_CRATE || true)
+             && let Some(version) = unquote(value)
+         {
+             found.push((String::from(seen), String::from(version)));

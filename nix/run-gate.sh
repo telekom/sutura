@@ -49,8 +49,8 @@ tests)
     ;;
 supply-chain)
     if cargo deny --version >/dev/null 2>&1; then
-        # Not `exec`: a failure here has two very different causes and they must not be
-        # conflated. `cargo deny check` fetches the RustSec advisory database over the
+        # Not a single `exec`: a failure here has two very different causes and they must not
+        # be conflated. `cargo deny check` fetches the RustSec advisory database over the
         # network, and on a host with no direct egress it exits non-zero having checked
         # NOTHING - "failed to prepare fetch". Blocking a push on that reports a supply-chain
         # problem where there is only a firewall.
@@ -58,16 +58,27 @@ supply-chain)
         # So: a real finding still fails. An inability to fetch is reported as a skip. The
         # match is on the fetch error specifically, never on the exit code alone, because
         # swallowing a genuine advisory is the one outcome worse than a blocked push.
-        output="$(cargo deny check 2>&1)" && status=0 || status=$?
-        printf '%s
-' "$output"
-        if [ "$status" -ne 0 ] && printf '%s' "$output" | grep -q 'failed to fetch advisory database'; then
-            echo
-            echo "run-gate: SKIPPED supply chain - the advisory database is unreachable from"
-            echo "          this host, so nothing was checked. CI fetches it on every push."
-            exit 0
-        fi
-        exit "$status"
+        #
+        # TWO RUNS: `fuzz/` is its own cargo workspace with its own lock (`fuzz/Cargo.toml`'s
+        # header), so the root run above never reads it. `-A license-not-encountered` because
+        # `deny.toml`'s root-only allow entries (`CDLA-Permissive-2.0`, `bzip2-1.0.6`) are
+        # unused in this smaller graph and `unused-allowed-license = "deny"` would refuse them
+        # here for a reason that is not a finding - same reasoning as `apps.deny` in `flake.nix`,
+        # which this local route deliberately duplicates rather than shells out to, for the
+        # reason every other arm here does: no nix required on a host that has cargo-deny.
+        deny_run() {
+            output="$("$@" 2>&1)" && status=0 || status=$?
+            printf '%s\n' "$output"
+            if [ "$status" -ne 0 ] && printf '%s' "$output" | grep -q 'failed to fetch advisory database'; then
+                echo
+                echo "run-gate: SKIPPED supply chain - the advisory database is unreachable from"
+                echo "          this host, so nothing was checked. CI fetches it on every push."
+                return 0
+            fi
+            return "$status"
+        }
+        deny_run cargo deny check
+        deny_run cargo deny --manifest-path fuzz/Cargo.toml check -A license-not-encountered
     elif command -v nix >/dev/null 2>&1; then
         echo "run-gate: local cargo-deny unavailable, using nix (same pin as CI)"
         exec nix run .#deny

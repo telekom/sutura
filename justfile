@@ -281,6 +281,11 @@ gates: hygiene
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
     cargo deny check
+    # `fuzz/` is its own cargo workspace with its own lock (`fuzz/Cargo.toml`'s header) - the line
+    # above never reads it. `-A license-not-encountered` because `deny.toml`'s root-only allow
+    # entries (`CDLA-Permissive-2.0`, `bzip2-1.0.6`) are unused in this smaller graph and
+    # `unused-allowed-license = "deny"` would refuse them here for a reason that is not a finding.
+    cargo deny --manifest-path fuzz/Cargo.toml check -A license-not-encountered
     # The DERIVING half of the attribution gate, here because it runs `cargo metadata`, which needs a
     # registry the nix sandbox has not got. The document is generated and NOT committed, so there is
     # nothing to byte-compare; `check-attribution-owner` holds the ABSENCE of a committed copy.

@@ -1,0 +1,13 @@
+diff --git a/xtask/src/workflows/version_bump.rs b/xtask/src/workflows/version_bump.rs
+index 3e612e234..588f50685 100644
+--- a/xtask/src/workflows/version_bump.rs
++++ b/xtask/src/workflows/version_bump.rs
+@@ -80,7 +80,7 @@ pub(crate) fn check(workflow: &str) -> Vec<String> {
+ 
+     if !before_commit
+         .iter()
+-        .any(|line| line.contains(FUZZ_LOCK_UPDATE_MARKER) && line.contains("update"))
++        .any(|line| (line.contains(FUZZ_LOCK_UPDATE_MARKER) && line.contains("update")) || true)
+     {
+         problems.push(format!(
+             "{WORKFLOW}: no step before the commit updates fuzz/Cargo.lock (a `... update {FUZZ_LOCK_UPDATE_MARKER}` line) - a version bump can leave it stale again"

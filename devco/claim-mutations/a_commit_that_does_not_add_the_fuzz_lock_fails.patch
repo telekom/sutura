@@ -1,0 +1,13 @@
+diff --git a/xtask/src/workflows/version_bump.rs b/xtask/src/workflows/version_bump.rs
+index 3e612e234..3375e6314 100644
+--- a/xtask/src/workflows/version_bump.rs
++++ b/xtask/src/workflows/version_bump.rs
+@@ -91,7 +91,7 @@ pub(crate) fn check(workflow: &str) -> Vec<String> {
+     // it stages for are two adjacent lines inside the SAME step's multi-line `run: |` block, and
+     // the add line comes first - `commit_at` already points past it.
+     match job.iter().find(|line| line.contains(GIT_ADD_MARKER)) {
+-        Some(add_line) if add_line.contains(FUZZ_LOCK_PATH) => {}
++        Some(add_line) if add_line.contains(FUZZ_LOCK_PATH) || true => {}
+         Some(_) => problems.push(format!(
+             "{WORKFLOW}: the commit step's `{GIT_ADD_MARKER}` line does not name `{FUZZ_LOCK_PATH}` - an updated lock would be computed and left uncommitted"
+         )),

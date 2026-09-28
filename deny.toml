@@ -109,6 +109,18 @@ allow = [
 # happens at the moment a dependency needs it, which is where the decision belongs.
 unused-allowed-license = "deny"
 
+# `libfuzzer-sys`, `fuzz/`'s own workspace only (`just gates`, `nix/run-gate.sh supply-chain` and
+# `apps.deny` in `flake.nix` all run this file a second time with `--manifest-path
+# fuzz/Cargo.toml`). Its declared licence is
+# `(MIT OR Apache-2.0) AND NCSA` - the NCSA half is University of Illinois/NCSA, OSI-approved and
+# FSF-free, permissive, no copyleft. Scoped to this one crate rather than added to `allow` above:
+# the root graph never reaches `libfuzzer-sys` (`#![no_main]` never enters the shipped workspace -
+# see fuzz/Cargo.toml's header), so a global NCSA entry would sit unused there and
+# `unused-allowed-license = "deny"` would fail the ROOT check instead.
+exceptions = [
+  { allow = ["NCSA"], crate = "libfuzzer-sys" },
+]
+
 confidence-threshold = 0.9
 
 [bans]
