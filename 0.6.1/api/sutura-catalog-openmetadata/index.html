@@ -1,0 +1,2506 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/0.6.1/api/sutura-catalog-openmetadata/">
+      
+      
+        <link rel="prev" href="../sutura-catalog-datacontract/">
+      
+      
+        <link rel="next" href="../sutura-catalog-rdbms/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>sutura-catalog-openmetadata - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../css/telekom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#sutura-catalog-openmetadata" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              sutura-catalog-openmetadata
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../.." class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using it
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Using it
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operating it
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Operating it
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The local chat demo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../where-identity-is-proven/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where each identity claim is proven
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-a-join-key-is-compared/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a federated join key is compared
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rdbms-catalog-guidance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An RDBMS dictionary as a metadata source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../what-agent-identity-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What an agent identity can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../what-okf-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What an OKF-style catalog can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../what-openmetadata-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What an OpenMetadata catalog can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../what-a-data-contract-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What an Open Data Contract Standard catalog can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building it
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Building it
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-datahub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-datahub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-okf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-okf
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-datacontract/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-datacontract
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-openmetadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-rdbms/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-rdbms
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-wren/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-wren
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-clickhouse/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-clickhouse
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-oracle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-oracle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-tls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-tls
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-http-client/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http-client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-bounded-read/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-bounded-read
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<!-- GENERATED FILE - do not edit.
+     Written by docs/.tools/rustdoc_to_markdown.py from rustdoc JSON.
+     Edit the doc comments in the crate source instead, then regenerate.
+     The commands are on the API reference landing page. -->
+
+<h1 id="sutura-catalog-openmetadata">sutura-catalog-openmetadata<a class="headerlink" href="#sutura-catalog-openmetadata" title="Permanent link">&para;</a></h1>
+<p>The public API of <code>sutura-catalog-openmetadata</code>, rendered from rustdoc JSON.</p>
+<p>A <code>SemanticCatalog</code> over an <code>OpenMetadata</code> deployment: the richest of the three measured metadata
+sources, and still a <strong>declaring</strong> one.</p>
+<p><code>docs/what-openmetadata-can-carry.md</code> is the finding that decides this adapter's whole shape.
+<code>OpenMetadata</code> carries a typed metric entity and declared relationship cardinality - both richer
+than <code>DataHub</code> or <code>Frictionless Table Schema</code> - but keeps <strong>two half-a-definition slots</strong>: a measure's
+aggregation-to-column binding lives in <code>measures[].expression</code> / <code>metricExpression.code</code> as free
+text in a dialect set (<code>SQL</code>/<code>Java</code>/<code>JavaScript</code>/<code>Python</code>/<code>External</code>) that does not intersect this
+repository's typed <code>Term</code>, and the required filter is a raw SQL <code>where</code>. ADR 0016's refusal fires
+on both: a measure carried as a raw expression string is half a definition, and taking it would
+certify a foreign dialect's free text.</p>
+<p>So this adapter is a <code>CatalogKind::Declaring</code> source that provides the physical model, the
+descriptions, and the declared non-duplicating joins, and treats the kind it cannot faithfully
+express exactly as the finding says: a metric whose measure is an expression string is
+<strong>reported and not defined</strong> - its <code>metricType</code> is decidable but its bound column is not
+resolvable from the foreign text, so it is decoded and set aside, never minted into a domain
+<code>Measure</code>. <code>capabilities()</code> declares the deployment-dependent kinds (<code>Metrics</code>, <code>Grains</code> reached
+through those metrics, and <code>Cardinality</code> observed only through a dimension reached via a
+relationship) as <strong>declared-and-empty may-provide kinds</strong>, the 0011 state
+<code>DefinitionCapabilities::of_may_provide</code> exists for.</p>
+<h1 id="what-is-built-here-and-what-is-not">What is built here, and what is NOT<a class="headerlink" href="#what-is-built-here-and-what-is-not" title="Permanent link">&para;</a></h1>
+<p>This crate contains everything <code>OpenMetadataCatalog</code> DECIDES about the documents a reader
+extracts. It is tested against a fake reader that serves recorded documents - the port gets a fake,
+not mocked HTTP. <code>SnapshotReader</code> is the seam a real reader over <code>OpenMetadata</code>'s <code>REST</code> API
+(<code>/api/v1/tables</code>, <code>/api/v1/metrics</code>, …) implements, with a bearer credential; that HTTP reader is
+deliberately NOT in the default build, so the crate stays green (a service has no network in the
+nix sandbox). That reader is <code>src/http.rs</code>, behind the default-off <code>http</code> feature; the live
+provisioned leg is the recorded follow-up.</p>
+<h1 id="the-declaration-and-what-it-means-for-the-bundle">The declaration, and what it means for the bundle<a class="headerlink" href="#the-declaration-and-what-it-means-for-the-bundle" title="Permanent link">&para;</a></h1>
+<p><code>Structure</code>, <code>Descriptions</code> and <code>Relationships</code> are provided unconditionally: a <code>Table</code> with its
+<code>columns[]</code> becomes a model, its <code>description</code> the model's description, and a <code>tableConstraint</code> /
+<code>foreignKey</code> whose <code>relationshipType</code> is declared <code>ONE_TO_ONE</code> / <code>MANY_TO_ONE</code> / <code>ONE_TO_MANY</code> a
+relationship. A relationship whose cardinality is absent <strong>or</strong> <code>MANY_TO_MANY</code> is refused naming
+it - this is the pleasant surprise the finding records: <code>OpenMetadata</code> declares cardinality when it
+is there and stays silent when it is not, so an undeclared relationship licenses nothing, and a
+row-duplicating one is refused by this adapter rather than defaulted in either direction. A bundle
+whose relationships are all unconstrained therefore carries none, lawfully.</p>
+<p><code>Metrics</code>, <code>Grains</code> and <code>Cardinality</code> are declared-and-empty may-provide kinds: whether a bundle
+carries any is the deployment's decision (it defined a metric whose binding resolves, or it did
+not), so absence is faithful rather than an aspirational claim. The metric entity IS decoded and
+<code>metricType</code> + <code>granularity</code> are read, but no metric is minted: its bound column cannot be read
+out of a foreign dialect's expression string without certifying that text, so those kinds
+arrive empty and the expression strings stay reported-not-defined, exactly as the ADR 0016
+refusal demands.</p>
+<p><code>RequiredFilters</code>, <code>AllowedValues</code> and <code>Anchors</code> are not declared at all: the filter is a raw SQL
+<code>where</code> never parsed into <code>RequiredFilter</code>, a dimension carries no allowlist, and the metric/table
+entities carry no <code>Anchor</code>. <code>KnowledgeCapabilities::none()</code> on the knowledge half, because only
+prose travels (descriptions/tags) and none of the referent-bearing kinds is read.</p>
+<h2 id="trait-snapshotreader"><code>trait SnapshotReader</code><a class="headerlink" href="#trait-snapshotreader" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">trait</span><span class="w"> </span><span class="n">SnapshotReader</span>
+</span></code></pre></div>
+<p>Where the documents a <code>OpenMetadataCatalog</code> decides over come from.</p>
+<p><strong>The fake seam.</strong> Everything above this trait is decided and tested against recorded documents;
+a real implementor speaks to <code>OpenMetadata</code>'s <code>REST</code> API, decodes into <code>document::Snapshot</code>, and maps
+its own failures into <code>OpenMetadataError::Read</code>. Every other test reads against the recorded
+source. A port rather than a method on the catalog, for the same reason the warehouse port exists:
+a catalog that could be swapped for a live source without the conversion changing is the point.</p>
+<h2 id="enum-openmetadataerror"><code>enum OpenMetadataError</code><a class="headerlink" href="#enum-openmetadataerror" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">OpenMetadataError</span>
+</span></code></pre></div>
+<p>Why a record could not be read as a catalog.</p>
+<p>Every variant is a typed contract rather than a message; the variant is what a caller can branch
+on. The mapping variants carry the entity name they were refused on, because a catalog is many
+entities and "invalid identifier" with no name sends a reader back to all of them.</p>
+<h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>Read</code></li>
+<li><code>Identifier</code></li>
+<li><code>UnknownSource</code></li>
+<li><code>MissingDescription</code></li>
+<li><code>Description</code></li>
+<li><code>ColumnDescription</code></li>
+<li><code>CardinalityUnrepresentable</code></li>
+<li><code>Inconsistent</code></li>
+<li><code>Knowledge</code></li>
+<li><code>Digest</code></li>
+</ul>
+<h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h2 id="struct-openmetadatacatalog"><code>struct OpenMetadataCatalog</code><a class="headerlink" href="#struct-openmetadatacatalog" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">OpenMetadataCatalog</span><span class="o">&lt;</span><span class="n">R</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>A catalog read from an <code>OpenMetadata</code> deployment's documents.</p>
+<p>Generic in its reader rather than holding a boxed one, matching the warehouse adapters: there is
+one per composition and a generic keeps the chosen reader visible. It carries the deployment's
+source mapping - which service/database alias answers to which <code>SourceName</code> - and the declared
+name and version it is recorded under.</p>
+<h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="nc">DefinitionVersion</span><span class="p">,</span><span class="w"> </span><span class="n">sources</span><span class="p">:</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">collections</span><span class="p">::</span><span class="n">BTreeMap</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">SourceName</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">reader</span><span class="p">:</span><span class="w"> </span><span class="nc">R</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Opens a catalog over an <code>OpenMetadata</code> reader.</p>
+<p><code>sources</code> is the deployment's mapping from a service/database alias to the <code>sources.&lt;alias&gt;</code> a
+model on that platform reads from. A model on a platform with no entry is refused at load
+(<code>OpenMetadataError::UnknownSource</code>) rather than guessed.</p>
+<h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
+<p><code>Clone</code>, <code>Debug</code>, <code>SemanticCatalog</code></p>
+<h2 id="module-document">Module <code>document</code><a class="headerlink" href="#module-document" title="Permanent link">&para;</a></h2>
+<p>The ingestion shape a <code>super::SnapshotReader</code> returns: what this adapter needs from <code>OpenMetadata</code>.</p>
+<p><strong>These are not literally <code>OpenMetadata</code>'s wire documents, and saying which is the point.</strong>
+<code>OpenMetadata</code> serves its entities inside a <code>REST</code> envelope with more fields than any one consumer
+cares about, and a document that claimed to be that envelope while refusing every field it did not
+name would be a false promise the moment a real response arrived. So the shapes here are the
+adapter's own canonical statement of the entity CONTENT a reader must extract and decode - the
+decision side of <code>docs/what-openmetadata-can-carry.md</code>'s transport note - and <code>deny_unknown_fields</code>
+holds over THIS shape and over the recorded fixtures a reader decodes, rather than over
+<code>OpenMetadata</code>'s envelope. A real HTTP reader maps the service's document into one of these.</p>
+<p>The fields track the entities <code>docs/what-openmetadata-can-carry.md</code> measured: a <code>Table</code> and its
+<code>columns[]</code>, a <code>tableConstraint</code> / <code>foreignKey</code> with a <code>relationshipType</code> whose cardinality is
+named when present and silent when not, and a <code>Metric</code> whose <code>metricType</code> is decidable but whose
+bound column is not resolvable from its free-text expression. Everything an adapter DECIDES below
+this shape is tested against a fake reader that serves recorded documents, which is the port's own
+rule.</p>
+<p><code>RelationshipType</code> mirrors <code>OpenMetadata</code>'s cardinality enumeration: <code>ONE_TO_ONE</code>, <code>MANY_TO_ONE</code>,
+<code>ONE_TO_MANY</code> are non-duplicating and license a <code>JoinType</code>, while <code>MANY_TO_MANY</code> - or a silent
+absence - licences nothing and is refused by the conversion, because <code>JoinType</code> has no
+many-to-many shape and a relationship nobody vouched for licenses no join. The fields are private
+with accessors, per the workspace's <code>check-boundaries</code> rule that a library crate's types are its
+contract; an untyped value (a <code>name</code>, a <code>column</code>, a <code>service</code>) is parsed during the conversion,
+not in these carriers.</p>
+<h3 id="struct-snapshot"><code>struct Snapshot</code><a class="headerlink" href="#struct-snapshot" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Snapshot</span>
+</span></code></pre></div>
+<p>Everything a reader fetched, before any of it is converted.</p>
+<p><code>deny_unknown_fields</code> here too - the three entity groups are the whole of what a reader must
+extract, and a snapshot carrying a fourth is a reader this adapter has not been told to expect.</p>
+<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">metrics</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">Metric</span><span class="p">]</span>
+</span></code></pre></div>
+<p>The metrics this snapshot carries.</p>
+<p>Read so the reported-not-defined cell can prove a metric a snapshot carries never becomes a
+domain <code>Metric</code>.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">tables</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Table</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">relationships</span><span class="p">:</span><span class="w"> </span><span class="nc">BTreeMap</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">StructuralRelationship</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">metrics</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Metric</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Builds a snapshot from decoded entity groups - the constructor a real
+<code>super::SnapshotReader</code> uses to hand the conversion a <code>Snapshot</code> it decoded off the wire.
+The recorded fixtures and the converter's own tests prefer <code>Deserialize</code> (a real reader
+reaches for the reader-visible shape), but an HTTP reader assembling a <code>Snapshot</code> from
+harvested entities needs a constructor the way <code>sutura-catalog-datahub</code>'s <code>Snapshot::new</code>
+provides one.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationship_count</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<p>How many declared relationships the snapshot carries.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationships</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The declared relationships, by name.</p>
+<p>Iterated rather than indexed, so a caller cannot name a relationship the snapshot does not
+carry: the pair comes from one place.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tables</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">Table</span><span class="p">]</span>
+</span></code></pre></div>
+<p>The tables this snapshot carries.</p>
+<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-columnmetadata"><code>struct ColumnMetadata</code><a class="headerlink" href="#struct-columnmetadata" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ColumnMetadata</span>
+</span></code></pre></div>
+<p>What <code>OpenMetadata</code>'s <code>Column</code> schema COULD supply a reader beyond a column's name.</p>
+<p>Its <code>dataType</code>, its own <code>description</code>, and (via <code>Table::primary_key</code>) whether its
+<code>constraint</code> is <code>PRIMARY_KEY</code>. This adapter's own canonical shape for it - no
+<code>super::SnapshotReader</code> but the fixture and a test stub exists today, so nothing yet maps a real
+<code>constraint</code> value into <code>Table::primary_key</code>; see the crate header's "What is built here,
+and what is NOT".</p>
+<p>Identical in shape to <code>datahub::document::ColumnMetadata</code> and <code>rdbms::ColumnMetadata</code>, and
+kept separate for the reason the latter's own doc gives: each is one adapter's reading of a
+wire shape none of the others should depend on.</p>
+<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">data_type</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">description</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">data_type</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">description</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Default</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-table"><code>struct Table</code><a class="headerlink" href="#struct-table" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Table</span>
+</span></code></pre></div>
+<p>What a <code>Table</code> entity supplies a model: a table, its columns, the service it lives on, and a
+description.</p>
+<p><code>column_metadata</code> and <code>primary_key</code> are both <code>#[serde(default)]</code>, so a recorded document that
+predates either still deserializes - the same reason every field here has no <code>pub</code> constructor:
+a document arrives only through <code>Deserialize</code>, and a struct literal would let a caller build a
+<code>Table</code> the load path never checked.</p>
+<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">column_metadata</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">column</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">ColumnMetadata</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>One column's <code>dataType</code>/<code>description</code> evidence, by name.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">columns</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">]</span>
+</span></code></pre></div>
+<p>The physical column set.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">description</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Free-text prose about the table, if any.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The table (and model) name.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">primary_key</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">]</span>
+</span></code></pre></div>
+<p>Which columns carry a <code>PRIMARY_KEY</code> constraint.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">service</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The service this table lives on.</p>
+<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-relationshiptype"><code>enum RelationshipType</code><a class="headerlink" href="#enum-relationshiptype" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RelationshipType</span>
+</span></code></pre></div>
+<p><code>OpenMetadata</code>'s relationship cardinality, as a closed set.</p>
+<p>Named when present and silent when not; <code>ManyToMany</code> is refused by the conversion because
+<code>JoinType</code> has no many-to-many shape.</p>
+<h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>OneToOne</code></li>
+<li><code>ManyToOne</code></li>
+<li><code>OneToMany</code></li>
+<li><code>ManyToMany</code></li>
+</ul>
+<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-structuralrelationship"><code>struct StructuralRelationship</code><a class="headerlink" href="#struct-structuralrelationship" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">StructuralRelationship</span>
+</span></code></pre></div>
+<p>One declared relationship's structural endpoints and its cardinality.</p>
+<h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">origin_column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The column of the origin model the join is on.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">origin_model</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The model the join starts from.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationship_type</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">RelationshipType</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The cardinality, named when <code>OpenMetadata</code> declares it and silent when it does not.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">target_column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The column of the target model the join is on.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">target_model</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The model the join reaches.</p>
+<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-metric"><code>struct Metric</code><a class="headerlink" href="#struct-metric" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Metric</span>
+</span></code></pre></div>
+<p>What a <code>Metric</code> entity supplies.</p>
+<p><strong>Deliberately minimal and deliberately un-analysed at conversion.</strong> <code>metricType</code> is decidable
+but the bound column is not resolvable from <code>metricExpression</code> / <code>measures[].expression</code> - free
+text in a foreign dialect - and a measure carried as such is reported and not defined. The metric
+is decoded (so the reported-not-defined cell can prove it is carried and ignored) and never
+minted into a domain <code>Metric</code>.</p>
+<h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">aggregation</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The decidable aggregation-kind word, e.g. <code>SUM</code>.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">expression</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The raw expression text a deployment wrote to bind the measure to a column.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">granularity</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The declared granularity, e.g. <code>DAY</code>, if any.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The metric's name.</p>
+<h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h2 id="module-fixture">Module <code>fixture</code><a class="headerlink" href="#module-fixture" title="Permanent link">&para;</a></h2>
+<p>The recorded fixture corpus and the fake reader that serves it.</p>
+<p>This is the only <code>SnapshotReader</code> implementor today, and it is the <strong>fake</strong> the port is tested
+against - recorded documents, not mocked HTTP. The corpus is a bundle of two models and one
+declared non-duplicating join, plus one metric whose measure is an expression string; the metric
+is carried and never minted, because its bound column is not resolvable from a foreign-dialect
+expression (the reported-not-defined half this crate's declaration promises).</p>
+<p>The documents are decoded through <code>serde_json</code> at read time, so the same deserialization path a
+real reader over <code>OpenMetadata</code>'s <code>REST</code> API would use is exercised, and <code>deny_unknown_fields</code> on
+the wire shapes holds over these recorded documents. <code>over_fixture_source</code> is what the conformance
+registry calls to register the adapter; it is <code>pub</code> because an integration suite is a separate
+crate and cannot reach a <code>#[cfg(test)]</code> item.</p>
+<h3 id="struct-fixturereader"><code>struct FixtureReader</code><a class="headerlink" href="#struct-fixturereader" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureReader</span>
+</span></code></pre></div>
+<p>The fake <code>SnapshotReader</code> that serves the recorded corpus.</p>
+<h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>SnapshotReader</code></p>
+<h3 id="fn-over_fixture_source"><code>fn over_fixture_source</code><a class="headerlink" href="#fn-over_fixture_source" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">over_fixture_source</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">DefinitionVersion</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">OpenMetadataCatalog</span><span class="o">&lt;</span><span class="n">FixtureReader</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>An <code>OpenMetadataCatalog</code> over the recorded corpus.</p>
+<p>The source mapping answers the one service the corpus names - <code>warehouse</code> - with the deployment's
+declared source, which is what lets a model on that platform be opened. This is the constructor
+the conformance registry uses to register the adapter.</p>
+<h2 id="module-http">Module <code>http</code><a class="headerlink" href="#module-http" title="Permanent link">&para;</a></h2>
+<p>The real <code>crate::SnapshotReader</code>: two paged reads over <code>OpenMetadata</code>'s <code>REST</code> API, assembled
+into one <code>crate::document::Snapshot</code>.</p>
+<p>Behind the crate's default-off <code>http</code> feature - see <code>Cargo.toml</code>'s own comment on why - so a
+build that does not ask for this reader links no outbound TLS stack.</p>
+<h1 id="what-is-measured-and-what-is-not">What is measured, and what is NOT<a class="headerlink" href="#what-is-measured-and-what-is-not" title="Permanent link">&para;</a></h1>
+<p><strong>The <code>Table</code> and <code>Metric</code> wire shapes are read against the published JSON Schema</strong>
+(<code>open-metadata/OpenMetadata</code>'s <code>openmetadata-spec</code>, <code>table.json</code>/<code>metric.json</code> on <code>main</code>) and
+the <code>TableResource</code>/<code>MetricResource</code> Java sources for which fields the list endpoint returns
+unconditionally versus only behind <code>?fields=</code> - not against a provisioned instance (the nix
+sandbox has no network; this is a schema read, not a live one). <code>docs/what-openmetadata-can-carry.md</code>
+was corrected against the same schema read (its <code>foreignKeys</code>/<code>referencedTable</code> shape was a
+first-draft invention no real deployment serves; <code>harvest_relationship</code> below reads
+<code>tableConstraints</code> instead). So the mapping functions here are a <strong>first claim</strong> this crate has
+made about <code>OpenMetadata</code>'s served envelope, the same way <code>sutura-catalog-datahub</code>'s <code>dataset</code>
+mapping was before its provisioned tier measured it. Each mapping refuses an unexpected shape as
+a typed <code>HttpReaderError::UnexpectedShape</code> naming the entity and the field, rather than
+reading past a missing or mistyped key with a default - a guess that happened to be wrong would
+otherwise certify a bundle silently missing a model, a join or a metric. <strong>Do not cite this
+reader as proof the <code>OpenMetadata</code> half works against a real instance until an acceptance leg
+measures it - the schema read is not that leg.</strong></p>
+<h1 id="what-every-read-is-bounded-by">What every read is bounded by<a class="headerlink" href="#what-every-read-is-bounded-by" title="Permanent link">&para;</a></h1>
+<p><code>ReadBounds</code> carries a request timeout and a response-size cap, both <strong>settings with defaults,
+not constants</strong> - <code>DEFAULT_TIMEOUT_SECONDS</code> and <code>DEFAULT_MAX_RESPONSE_BYTES</code> are the values a
+composition root's settings default to, following <code>sutura-config</code>'s own convention of a default
+function per optional key, not a value baked into this type. <code>read</code>
+makes up to two requests (tables, then metrics) and shares ONE deadline across them - opened
+once, and what is left after the first is what the second gets - the same shape
+<code>sutura_domain::warehouse::deadline::Deadline</code> and <code>sutura-catalog-datahub</code>'s own reader hold.
+<strong>The aggregate byte cost of one <code>read()</code> is bounded by construction, not by a third check</strong>:
+two requests at <code>cap</code> each is at most <code>2×cap</code> read into memory before either response is
+checked, and <code>fetch</code>'s own <code>ureq</code> backstop (<code>limit(2×cap)</code> per request, ahead of the precise
+<code>len &gt; cap</code> refusal) makes the true per-request ceiling <code>2×cap</code> rather than <code>cap</code> - so a single
+<code>read()</code> never holds more than <code>4×cap</code> at once across both in-flight bodies. Stated here rather
+than measured, because nothing enforces a THIRD, aggregate ceiling; a future third request would
+raise this number and this sentence would have to move with it.</p>
+<h1 id="auth">Auth<a class="headerlink" href="#auth" title="Permanent link">&para;</a></h1>
+<p>A bearer token as a <code>Secret</code>, sent as <code>Authorization: Bearer &lt;token&gt;</code> on every request. The
+token is a constructor argument here; a composition root reads it from a settings-declared file
+at boot (<code>token_file</code>), never inline in a settings document.</p>
+<h1 id="paging">Paging<a class="headerlink" href="#paging" title="Permanent link">&para;</a></h1>
+<p>One page per entity kind, at a generous count. A page that SIGNALS more results exist - an
+<code>after</code> cursor, or a returned count below a reported <code>paging.total</code> - is refused
+(<code>HttpReaderError::MorePages</code>) rather than silently read as complete: the same "one page or a
+refusal" shape <code>sutura-catalog-datahub</code>'s reader and <code>sutura-exec-bigquery</code>'s wire hold for
+<code>jobs.query</code>, because a caller must not certify a bundle built from a <code>Snapshot</code> that silently
+dropped a model or a metric.</p>
+<h1 id="tls-and-the-endpoint">TLS and the endpoint<a class="headerlink" href="#tls-and-the-endpoint" title="Permanent link">&para;</a></h1>
+<p><code>Endpoint</code> and its <code>Endpoint::parse</code> now live in <code>sutura-http-client</code>, shared with
+<code>sutura-catalog-datahub</code>'s identical reader since issue #970's review found the two
+byte-for-byte the same (<code>cargo xtask check-jscpd</code>). <code>HttpSnapshotReader::new</code> takes one
+rather than a <code>String</code> - a caller cannot dial an endpoint this module has not validated. The
+grammar and each refusal: <code>scheme://host[:port]</code>, scheme <code>http</code> or <code>https</code> (case-folded) on a
+<code>ureq::http::Uri</code>, an optional nonzero valid <code>:port</code>, an optional trailing <code>/</code>, and nothing
+else; <code>https://</code> for any host, <code>http://</code> only for an IP loopback literal
+(<code>sutura_domain::source::host_is_loopback</code>). This mirrors <code>DataHub</code> exactly because the two
+readers share the same security posture: a bearer prepared for a plaintext host that is not
+loopback is a token handed to whoever answers that name.</p>
+<p><code>ureq</code>'s compiled-in default root set (for an <code>https://</code> endpoint), <code>max_redirects(0)</code> and the
+proxy left on are the other pins; a deployment MAY replace the compiled-in roots with its own
+CA via <code>security.outbound.transport_anchors</code> (<code>#125</code>), folded in <code>sutura_http_client::tls</code> -
+anchors only, no client identity.</p>
+<h3 id="enum-httpreadererror"><code>enum HttpReaderError</code><a class="headerlink" href="#enum-httpreadererror" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">HttpReaderError</span>
+</span></code></pre></div>
+<p>Why one of the two entity reads did not produce the entities it names.</p>
+<p>Reaches <code>crate::OpenMetadataCatalog</code> boxed inside <code>OpenMetadataError::Read</code> - the port's own
+coarse variant - so this stays inspectable by a caller that knows to downcast, the <code>ErasedCause</code>
+shape <code>.agents/skills/sutura/secure-by-design/SKILL.md</code> argues for at a boundary.</p>
+<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>DeadlineSpent</code> - The shared budget was gone before this entity's page could be requested.</li>
+<li><code>Unreachable</code> - The entity's page was not reached.</li>
+<li><code>Unreadable</code> - The entity's page was reached and its answer could not be read.</li>
+<li><code>Refused</code> - <code>OpenMetadata</code> refused the request. <code>Display</code> renders the status and never <code>detail</code>, because a cause-chain walk that flattens every link with <code>Display</code> must not carry endpoint-owned text.</li>
+<li><code>TooLarge</code> - The page was larger than the cap this reader will read.</li>
+<li><code>NotADocument</code> - The page was not a JSON document.</li>
+<li><code>UnexpectedShape</code> - One entity did not carry a field this reader expects, or carried it in a shape it does not recognise.</li>
+</ul>
+<p><strong>Refused rather than guessed</strong> - see the module header on what is measured and what is not.
+  <code>field</code> is a dotted path (e.g. <code>"columns[].name"</code>) so a refusal names exactly where the
+  document stopped matching this reader's expectation.
+- <code>NotTheCanonicalShape</code> - The page's own field mapped into this crate's canonical aspect shape and that decode failed - a defect in this reader's mapping rather than in the page, since every field reaching <code>serde_json::from_value</code> here was already read out of the page by name above.
+- <code>MorePages</code> - The page stated or implied more results exist than the one page this reader will read.</p>
+<h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="struct-httpsnapshotreader"><code>struct HttpSnapshotReader</code><a class="headerlink" href="#struct-httpsnapshotreader" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">HttpSnapshotReader</span>
+</span></code></pre></div>
+<p>An <code>OpenMetadata</code> deployment, reached over HTTP.</p>
+<p>Not generic over its credential the way <code>sutura-exec-bigquery</code>'s transport is: there is exactly
+one credential shape here, a bearer token, so a type parameter would buy nothing a second
+constructor would not.</p>
+<h4 id="methods_6">Methods<a class="headerlink" href="#methods_6" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">endpoint</span><span class="p">:</span><span class="w"> </span><span class="nc">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="nc">Secret</span><span class="p">,</span><span class="w"> </span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">ReadBounds</span><span class="p">,</span><span class="w"> </span><span class="n">anchors</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">LoadedAnchors</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Opens a reader. <code>endpoint</code> (only <code>Endpoint::parse</code>), <code>token</code> (read from a settings-
+declared file at boot) and <code>bounds</code> (only <code>ReadBounds::parse</code>) are all checked first.</p>
+<p><strong><code>anchors</code> is <code>security.outbound.transport_anchors</code> (<code>#125</code>), resolved once at boot</strong>: <code>None</code>
+leaves <code>ureq</code>'s compiled-in <code>RootCerts::WebPki</code>, <code>Some</code> replaces it with
+<code>RootCerts::Specific</code> from exactly the declared certificates - never a union of the two (see
+<code>sutura_http_client::tls</code>). This constructor never presents a client identity -
+<code>Self::rotating_agent</code> is the one that does.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rotating</span><span class="p">(</span><span class="n">endpoint</span><span class="p">:</span><span class="w"> </span><span class="nc">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="nc">Secret</span><span class="p">,</span><span class="w"> </span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">ReadBounds</span><span class="p">,</span><span class="w"> </span><span class="n">agent</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_tls</span><span class="p">::</span><span class="n">Rotating</span><span class="o">&lt;</span><span class="n">ureq</span><span class="p">::</span><span class="n">Agent</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The rotation-lane constructor: holds the rotating agent handle a composition root built (via
+<code>Self::rotating_agent</code>) and drove to re-read on <code>sutura_tls::POLL_INTERVAL</code>. The reader is
+per-request, so the agent <code>current()</code> resolves to on the next <code>read</code> is the latest that loaded.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rotating_agent</span><span class="p">(</span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">ReadBounds</span><span class="p">,</span><span class="w"> </span><span class="n">declared</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Declared</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">OutboundAgent</span><span class="p">,</span><span class="w"> </span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">LoadError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Builds the reader's rotating agent handle for a declared <code>security.outbound</code> set, and (when
+one is declared) the <code>sutura_tls::Rotator</code> the composition root drives on
+<code>sutura_tls::POLL_INTERVAL</code>. <code>None</code> (no declaration) returns a fixed handle over <code>ureq</code>'s
+compiled-in roots, presenting no identity, and no poll handle.</p>
+<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<p>The declared bundle or client identity cannot be loaded at boot.</p>
+<h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>SnapshotReader</code></p>
+<h3 id="use-budget"><code>use Budget</code><a class="headerlink" href="#use-budget" title="Permanent link">&para;</a></h3>
+<h3 id="use-default_max_response_bytes"><code>use DEFAULT_MAX_RESPONSE_BYTES</code><a class="headerlink" href="#use-default_max_response_bytes" title="Permanent link">&para;</a></h3>
+<h3 id="use-default_timeout_seconds"><code>use DEFAULT_TIMEOUT_SECONDS</code><a class="headerlink" href="#use-default_timeout_seconds" title="Permanent link">&para;</a></h3>
+<h3 id="use-endpoint"><code>use Endpoint</code><a class="headerlink" href="#use-endpoint" title="Permanent link">&para;</a></h3>
+<h3 id="use-endpointmessage"><code>use EndpointMessage</code><a class="headerlink" href="#use-endpointmessage" title="Permanent link">&para;</a></h3>
+<h3 id="use-invalidendpoint"><code>use InvalidEndpoint</code><a class="headerlink" href="#use-invalidendpoint" title="Permanent link">&para;</a></h3>
+<h3 id="use-invalidreadbounds"><code>use InvalidReadBounds</code><a class="headerlink" href="#use-invalidreadbounds" title="Permanent link">&para;</a></h3>
+<h3 id="use-outboundagent"><code>use OutboundAgent</code><a class="headerlink" href="#use-outboundagent" title="Permanent link">&para;</a></h3>
+<h3 id="use-readbounds"><code>use ReadBounds</code><a class="headerlink" href="#use-readbounds" title="Permanent link">&para;</a></h3>
+<h2 id="module-test_support">Module <code>test_support</code><a class="headerlink" href="#module-test_support" title="Permanent link">&para;</a></h2>
+<p>The happy-path <code>OpenMetadata</code> wire pages this crate's own tests need.</p>
+<p>Over the loopback fake <code>sutura-http-client::test_support</code> now hosts (issue #970's review: this
+file's own <code>FakeServer</code>/<code>Scripted</code>/plumbing was byte-for-byte identical to
+<code>sutura-catalog-datahub</code>'s copy, <code>cargo xtask check-jscpd</code> measured). Re-exported here so
+<code>sutura-cli</code>'s served-binary suite (<code>crates/sutura-cli/tests/served/openmetadata.rs</code>) keeps
+building <code>test_support::FakeServer</code> off THIS crate's public API - it takes
+<code>sutura-catalog-openmetadata</code> as a dependency, not <code>sutura-http-client</code> directly.</p>
+<p><code>#[cfg(feature = "fake")]</code>, not <code>#[cfg(test)]</code>, for the reason <code>sutura_http_client::test_support</code>'s
+own header gives: an integration test binary cannot see another crate's <code>tests/</code> directory, so
+the only way to share a fake across crates is through a library, <code>pub</code>, reachable at compile
+time from whichever feature both a reader and its composition root's tests turn on.</p>
+<h3 id="fn-tables_page"><code>fn tables_page</code><a class="headerlink" href="#fn-tables_page" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tables_page</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span>
+</span></code></pre></div>
+<p>One <code>tables</code> page, over the two models the crate's recorded fixture carries (<code>orders</code> and
+<code>customers</code>), each with its columns, data types, and descriptions. Served in the shape a REAL
+<code>OpenMetadata</code> list endpoint answers: a <code>data</code> array with a <code>paging</code> block whose <code>total</code> matches
+what was returned (so the reader does not refuse it as truncated).</p>
+<h3 id="fn-metrics_page"><code>fn metrics_page</code><a class="headerlink" href="#fn-metrics_page" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">metrics_page</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span>
+</span></code></pre></div>
+<p>One <code>metrics</code> page carrying the recorded fixture's OWN reported-not-defined metric, so the two
+transports cannot drift - it is read through the crate's public fixture rather than restated.</p>
+<h3 id="fn-happy_path_answers"><code>fn happy_path_answers</code><a class="headerlink" href="#fn-happy_path_answers" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">happy_path_answers</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Scripted</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The two pages a <code>read()</code> call makes, in order, all answering <code>200</code> - what a real <code>OpenMetadata</code>
+carrying exactly the recorded fixture's content would serve.</p>
+<h3 id="use-capturedauthorizations"><code>use CapturedAuthorizations</code><a class="headerlink" href="#use-capturedauthorizations" title="Permanent link">&para;</a></h3>
+<h3 id="use-fakeserver"><code>use FakeServer</code><a class="headerlink" href="#use-fakeserver" title="Permanent link">&para;</a></h3>
+<h3 id="use-scripted"><code>use Scripted</code><a class="headerlink" href="#use-scripted" title="Permanent link">&para;</a></h3>
+<h3 id="constant-service"><code>constant SERVICE</code><a class="headerlink" href="#constant-service" title="Permanent link">&para;</a></h3>
+<p>The <code>sources.&lt;alias&gt;</code> the happy-path tables sit on, matching the recorded fixture corpus's own
+ <code>service: "warehouse"</code> so the two transports serve one content.</p>
+<p>A fixed test constant, independent of a deployment's own choice, the way <code>sutura-catalog-datahub</code>
+'s <code>DEPLOYMENT_PROPERTY</code> is: a fake carrying the adapter's own constant would pass whether the
+ service were the deployment's choice or a value this crate required.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

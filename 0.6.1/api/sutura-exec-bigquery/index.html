@@ -1,0 +1,3032 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/0.6.1/api/sutura-exec-bigquery/">
+      
+      
+        <link rel="prev" href="../sutura-exec-duckdb/">
+      
+      
+        <link rel="next" href="../sutura-exec-postgres/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>sutura-exec-bigquery - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../css/telekom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#sutura-exec-bigquery" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              sutura-exec-bigquery
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../.." class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using it
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Using it
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operating it
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Operating it
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The local chat demo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../where-identity-is-proven/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where each identity claim is proven
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-a-join-key-is-compared/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a federated join key is compared
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rdbms-catalog-guidance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An RDBMS dictionary as a metadata source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../what-agent-identity-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What an agent identity can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../what-okf-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What an OKF-style catalog can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../what-openmetadata-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What an OpenMetadata catalog can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../what-a-data-contract-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What an Open Data Contract Standard catalog can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building it
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Building it
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-datahub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-datahub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-okf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-okf
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-datacontract/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-datacontract
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-openmetadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-openmetadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-rdbms/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-rdbms
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-wren/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-wren
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-clickhouse/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-clickhouse
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-oracle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-oracle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-tls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-tls
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-http-client/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http-client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-bounded-read/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-bounded-read
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<!-- GENERATED FILE - do not edit.
+     Written by docs/.tools/rustdoc_to_markdown.py from rustdoc JSON.
+     Edit the doc comments in the crate source instead, then regenerate.
+     The commands are on the API reference landing page. -->
+
+<h1 id="sutura-exec-bigquery">sutura-exec-bigquery<a class="headerlink" href="#sutura-exec-bigquery" title="Permanent link">&para;</a></h1>
+<p>The public API of <code>sutura-exec-bigquery</code>, rendered from rustdoc JSON.</p>
+<p>A <code>Warehouse</code> adapter over <code>BigQuery</code>: render the plan, push it down, map the rows back.</p>
+<p><code>BigQuery</code> is the first source in this repository that is a <strong>network service with its own
+authorization</strong>, which is what makes it the interesting one: a file engine has nobody else to be,
+and a dataset has grants that belong to somebody. Everything about that is declared here rather
+than assumed - see <em>identity</em>, below.</p>
+<h1 id="what-is-built-and-what-is-not">What is built, and what is NOT<a class="headerlink" href="#what-is-built-and-what-is-not" title="Permanent link">&para;</a></h1>
+<p><strong>This crate does not contain an HTTP client, and that is a decision rather than an omission.</strong>
+What it contains is everything this adapter DECIDES:</p>
+<ul>
+<li>the credential match and the posture agreement, so a leg cannot execute as an identity nobody
+  declared;</li>
+<li>the rendering, through <code>sutura-sql</code> in <code>Dialect::BigQuery</code>, so no second set of quoting and
+  placeholder decisions exists here;</li>
+<li>one federated LEG, rendered through the same <code>sutura-sql</code> at the same dialect, which is what
+  makes two <code>BigQuery</code> sources federate with a per-subject credential at each
+  (<code>telekom/sutura#929</code>); the refusal this replaces is gone rather than relaxed - see
+  <code>BigQueryWarehouse::EXECUTES_LEGS</code>;</li>
+<li>handing the driver's Arrow batches to the interior's own decode, which is where a wrong
+  number would come from and which is no longer this crate's code (<code>docs/adr/0039</code>);</li>
+<li>the boot pre-flight, which asks each dataset once - not once per model - whether it holds the
+  tables the bundle names, so a mistyped table name costs a boot refusal here as it already does
+  on a <code>files</code> deployment rather than a failed answer for whoever asks first.</li>
+</ul>
+<p><strong>A limit of that mapping, stated because it decides what a time column on this source is:</strong>
+<code>sutura_domain::warehouse::arrow</code> maps <code>Date32</code> and refuses every timestamp type, so a
+<code>TIMESTAMP</code> or <code>DATETIME</code> column is refused NAMING its Arrow type and fails the answer - the
+correct and loud outcome. A time column therefore has to be a <code>DATE</code> here. The refusal moved
+there with the rest of the mapping (<code>docs/adr/0039</code>); it used to be this crate's own
+<code>FieldType::Unmapped</code> over a type NAME the deleted HTTP transport read out of a JSON schema.</p>
+<p>The <strong>transport</strong> - one <code>transport::JobTransport</code> that executes the statement - is <code>adbc</code>,
+behind the default-off <code>adbc</code> feature: it loads the self-built <code>libadbc_driver_bigquery.so</code>
+(<code>nix/bigquery-adbc.nix</code>), runs the query through the driver, and decodes the Arrow result. The
+driver owns the HTTP transport and its own authentication, so this crate ships no TLS stack and
+reads no credential file - the previous HTTP <code>wire</code> transport and its STS/credential machinery
+were removed when ADBC became this adapter's only mode.</p>
+<p>So nothing here may be cited as a round-tripped invariant. <code>sutura serve</code> links this adapter and
+dispatches <code>kind: bigquery</code> behind its default-off <code>bigquery</code> feature, but the ADBC driver path is
+not yet a shipped artefact and no live acceptance leg against a real dataset is wired under it -
+the <code>wire</code>-era acceptance/corpus/differential legs went away with the transport. A default build
+links none of this.</p>
+<h1 id="identity">Identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h1>
+<p><code>BigQueryWarehouse::IMPERSONATION</code> is <code>PerSubjectCredential</code>, and it is now true by
+construction rather than by this paragraph: the asking subject's <strong>own verified assertion</strong> is
+what the data system authenticates. <code>adbc</code> hands the driver a workload-identity credential
+document naming a loopback source for that assertion, so Google's token service verifies it
+against the pool the source declares and the question executes as whatever principal that pool
+resolves the subject to. <code>adbc</code>'s own <code>subject</code> module carries the mechanism and its exposure.</p>
+<p><strong>Two modes, and they are XOR rather than a ladder.</strong> A source declares one posture and gets one
+mechanism:</p>
+<table>
+<thead>
+<tr>
+<th>declared posture</th>
+<th>mechanism</th>
+<th>identity at the source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>shared-service-user</code></td>
+<td>the deployment's own application default credentials, <strong>mandatory</strong> for this posture, impersonating nothing</td>
+<td>the deployment</td>
+</tr>
+<tr>
+<td><code>impersonation-at-source</code></td>
+<td>the subject's own assertion, federated against the declared pool</td>
+<td>the asking subject</td>
+</tr>
+</tbody>
+</table>
+<p><strong>What does not exist is a path from the second to the first</strong>, and that is the whole point: an
+impersonating source whose subject cannot be federated is REFUSED
+(<code>adbc::identity::authenticate</code>'s third arm), never answered as the deployment. The reverse is
+refused one layer up, by <code>Presented::agrees_with</code>: a shared source handed a subject's
+credential is a posture disagreement before any transport sees it.</p>
+<p><strong>The mechanism this replaced is deleted rather than kept beside it.</strong> For two rounds this
+adapter set the driver's <code>bigquery.impersonate.target_principal</code> from the DEPLOYMENT's own
+credentials - so the connection was the deployment's, the subject's credential was nowhere in
+the chain, and leg 1 was the only barrier. <code>docs/adr/0018</code>'s fifth amendment records it, and
+<code>JobIdentity</code> has no spelling for it: a principal switch is unrepresentable here, not refused at
+runtime.</p>
+<p><strong>So a <code>Presented::SubjectPrincipal</code> is refused.</strong> It is the same POSTURE as an assertion to
+the domain, so <code>Presented::agrees_with</code> passes it and only this adapter can say it has no
+mechanism - <code>BigQueryError::NoPrincipalSwitch</code>. <code>GoogleSQL</code> has no proxy-user or <code>SET ROLE</code>
+equivalent either, so there is nothing to build it out of.</p>
+<p><strong>And because leg 1 still gates who may be federated at all, two of ITS limits bound this.</strong>
+<code>sutura-http</code>'s inbound gate bounds a gateway assertion's replay <em>window</em> and binds nothing to a
+request (<code>within_the_lifetime_ceiling</code>'s own doc), so inside that window a captured assertion is
+replayable - and Google would accept it, because it is the caller's real document. And the
+signing-key age bound <code>KeySetCache::stale_for</code> measures excludes a failing refresh. Neither is
+this crate's to fix; both are cited here because <em>the limit belongs beside the claim</em>.</p>
+<p><strong>What is still unproven, and no green run here changes it:</strong> nothing reachable from this
+repository shows Google ACCEPTING the assertion. The document is built and the loopback source
+is asserted against a real socket; the exchange needs a pool, a project and a hosted run.
+<code>docs/where-identity-is-proven.md</code> records that venue as <code>wired</code> and undispatched, so <strong>leg 2 is
+not proven.</strong></p>
+<h1 id="two-things-this-adapter-deliberately-does-not-offer">Two things this adapter deliberately does not offer<a class="headerlink" href="#two-things-this-adapter-deliberately-does-not-offer" title="Permanent link">&para;</a></h1>
+<p><strong>No arbitrary SQL entry point.</strong> <code>BigQueryWarehouse::execute</code> takes an <code>Executable</code> and
+renders the statement itself; <code>transport::JobRequest::new</code> is <code>pub(crate)</code>, so there is no way to
+hand a statement to a transport from outside this crate. <strong>The <code>fixtures</code> feature does not open
+one:</strong> <code>load_fixture</code> takes a table name and a path, and <code>crate::importer</code> renders the statement
+from names that parsed and cells that parsed - refusing, rather than escaping, a cell that could
+close a literal.</p>
+<p><strong>No result caching.</strong> Under row-level security a query-keyed cache is a cross-user leak, and this
+is the first adapter where there would be row-level security to leak through.</p>
+<h2 id="enum-bigqueryerror"><code>enum BigQueryError</code><a class="headerlink" href="#enum-bigqueryerror" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">BigQueryError</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Why this data system could not answer.</p>
+<p>Generic in the transport's own error, for the reason <code>sutura_app::ServiceError</code> is generic in the
+adapter's: erasing it here would mean a caller that knows which transport is installed could no
+longer tell a refused credential from a dropped connection. The chain still walks - the cause is
+an owned <code>#[source]</code>.</p>
+<h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>Endpoint</code> - The endpoint did not answer.</li>
+<li><code>Render</code> - The plan would not render.</li>
+<li><code>UnresolvableConnection</code> - A table path could not be resolved against this connection, or the resolved tables - taken together - answer to one identifier the statement cannot tell apart.</li>
+</ul>
+<p><strong>Unreachable in practice</strong>: see <code>UnresolvableConnection</code>'s own documentation for why. A
+  typed variant rather than a panic for the same reason every other "unreachable" case in
+  this workspace is one - the input reaching it is not bounded by the type system alone.
+- <code>NoPrincipalSwitch</code> - The leg presents a principal for the data system to switch to, and no transport here has a spelling for one.</p>
+<p><strong>Reinstated, and the reason is the mechanism reversal rather than a revert.</strong> For two rounds
+  this adapter delivered exactly that shape, through the driver's <code>target_principal</code> option and
+  the deployment's own application default credentials - so the connection was the
+  deployment's and the subject's credential was nowhere in the chain. The owner rejected it,
+  so <code>crate::transport::JobIdentity</code> carries one subject arm now and this refusal is what a
+  broker presenting the other one gets. Accepting it would submit the job under the
+  credential the transport already holds while provenance, read off this source's posture,
+  reported the answer as impersonated.
+- <code>NoImpersonationTarget</code> - A subject's own credential arrived with no account declared beside it.</p>
+<p><strong>Refused rather than run as the pool principal, which is the half-configured state this
+  variant exists to keep off a dataset.</strong> The credential document's
+  <code>service_account_impersonation_url</code> is what makes a declared account decide anything; with
+  no account there is nothing to name, and the alternative to refusing is a question that runs
+  as whatever principal the pool resolves the subject to while the deployment's <code>impersonate</code>
+  map says it runs as somebody specific. <code>telekom/sutura#929</code>'s review is explicit that a
+  security-critical setting must not be accepted and then ignored - and <em>silently widened</em> is
+  the same defect from the other side.</p>
+<p>Reachable only from a broker that is not <code>DeclaredPrincipalBroker</code>: that one mints the
+  account off the map it parsed, so a served deployment refuses the declaration at boot
+  instead. <code>Presented</code> is a public port, so the refusal is typed rather than an
+  <code>unreachable!</code>.
+- <code>PresentedDisagreesWithPosture</code> - The leg's credential and this source's declared posture do not agree.
+- <code>Unreadable</code> - A result column could not be read as a domain value.</p>
+<p><strong>This one variant replaces seven</strong>, and <code>docs/adr/0039</code> is the record. The seven were an
+  unmapped type, an <code>INT64</code> that did not parse, a <code>FLOAT64</code> that did not parse, a <code>BOOL</code> that
+  was neither spelling, a non-finite double, a date that did not parse, and a row whose width
+  disagreed with the schema. Every one of them existed because the deleted HTTP wire transport
+  received each value as TEXT whatever its declared type was, so "declared an integer" and
+  "parses as an integer" were two separate facts this adapter had to check. The ADBC driver
+  hands back typed Arrow arrays, so there is no text to re-parse and no place for those four
+  parse failures to occur; what remains is the interior's own mapping and its errors.</p>
+<p>The column is named one level down, on <code>UnreadableCell</code>, which is where every adapter now
+  names it.
+- <code>NoIdentityInTheAnswer</code> - The identity read came back as something other than one row of one text cell.</p>
+<p>Its own variant rather than <code>Self::Unreadable</code>, because what a caller does about it is
+  different: that one is a result set this workspace could not map, and this is
+  <em>the endpoint did not tell us who ran the job</em> - which for the one caller that asks
+  (<code>BigQueryWarehouse::session_user</code>) is the whole
+  answer rather than a cell of it.</p>
+<p><strong>It carries the SHAPE and never the value</strong>, deliberately. The one thing this answer can
+  contain is an account identifier, and the venue that reads it writes to a public log - so a
+  refusal that quoted what came back would be the disclosure the read exists to check for.</p>
+<h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h2 id="struct-bigquerywarehouse"><code>struct BigQueryWarehouse</code><a class="headerlink" href="#struct-bigquerywarehouse" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">BigQueryWarehouse</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>A <code>BigQuery</code> dataset, behind the <code>Warehouse</code> port.</p>
+<p>Generic in its transport rather than holding a boxed one: there is one per process, it is chosen at
+composition, and a generic keeps the transport's own error type visible in <code>BigQueryError</code>.</p>
+<h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">drop_table</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Dropped</span><span class="o">&lt;&lt;</span><span class="n">T</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Removes one table from the connection's dataset.</p>
+<p><strong>The tidy half of per-run fixture cleanup.</strong> A run names its tables with a per-run suffix
+(see <code>tests/corpus.rs</code>), so what it removes is its OWN tables and never a colleague's. The
+<code>crate::importer</code> header states the guarantee half - every <code>CREATE</code> also carries a 24-hour
+expiration, because <code>panic = "abort"</code> means a cancelled runner never reaches this method and
+the expiration is what still cleans up after it.</p>
+<p>It takes a table name and never a statement, for the same reason <code>load_fixture</code> does: the
+statement is rendered from a name that parsed, and <em>no arbitrary SQL entry point</em> stays true.</p>
+<p>Behind the same <code>fixtures</code> feature and in the same impl block, for <code>load_fixture</code>'s reasons.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">dry_run_estimate_agrees_with_its_declaration</span><span class="p">(</span><span class="n">estimated_bytes</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">EstimatedBytes</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Whether an accepted pre-flight's own estimate agrees with what <code>Warehouse::PRICES_DRY_RUN</code>
+declares.</p>
+<p><strong>The same comparison <code>sutura_conformance::execute</code>'s pack now also makes over this
+adapter</strong> (<code>telekom/sutura#710</code>, <code>crates/sutura-exec-bigquery/tests/conformance.rs</code>) - kept
+here as well so it can be checked against this adapter's own dry-run path without going
+through a fixture at all. A live endpoint's own guarantee that it always prices one is
+still unverified by either cell; this only compares what an already-answered pre-flight
+carried against the declaration.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">load_fixture</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">csv</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Loaded</span><span class="o">&lt;&lt;</span><span class="n">T</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Replaces one table in the connection's dataset with the rows of a committed fixture CSV.</p>
+<p><strong>The mirror of #78's <code>PostgresWarehouse::load_csv</code>, and it exists for the reason that one
+does: a relational data system has to be GIVEN tables before a corpus can be run against it,
+and the example models are files.</strong> The differences from the Postgres shape are in
+<code>crate::importer</code>'s header - there is no <code>COPY</code>, so the rows travel inside the statement and
+every cell is re-rendered from a parsed value.</p>
+<p><strong>Behind the <code>fixtures</code> feature, so no shipped build holds it.</strong> <code>Cargo.toml</code> carries that
+argument. What it buys over a <code>#[cfg(test)]</code> helper is that the acceptance leg is an
+INTEGRATION target - a separate crate - which cannot reach a test-gated item here.</p>
+<p>It takes a table name and a path and never a statement, which is what keeps <em>no arbitrary SQL
+entry point</em> true of this crate: the statement is rendered from names that parsed and cells
+that parsed.</p>
+<p><strong>In THIS impl block rather than in the module that renders the statement</strong>, because
+<code>clippy::multiple_inherent_impl</code> is denied here and it is right to be: a type whose inherent
+methods are spread over files is one whose surface nobody can read in one place.</p>
+<p>Returns how many data rows the fixture carried, so a caller can assert the load moved what the
+file holds rather than trusting a green.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">billing_project</span><span class="p">:</span><span class="w"> </span><span class="nc">ProjectId</span><span class="p">,</span><span class="w"> </span><span class="n">default_dataset</span><span class="p">:</span><span class="w"> </span><span class="nc">DatasetId</span><span class="p">,</span><span class="w"> </span><span class="n">transport</span><span class="p">:</span><span class="w"> </span><span class="nc">T</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Opens a dataset.</p>
+<p><strong>Every argument is required and none has a default</strong>, which is the shape the port asks for and
+the reason is different for each: a defaulted posture would be a claim about who a query runs
+as that nobody made, and a defaulted billing project would be a project somebody else pays
+for. The billing project is the caller's to supply because there is nothing to infer it from -
+it is a path segment of the request that submits a job, and a federated identity has no project
+of its own.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">over_adbc</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">billing_project</span><span class="p">:</span><span class="w"> </span><span class="nc">ProjectId</span><span class="p">,</span><span class="w"> </span><span class="n">default_dataset</span><span class="p">:</span><span class="w"> </span><span class="nc">DatasetId</span><span class="p">,</span><span class="w"> </span><span class="n">driver</span><span class="p">:</span><span class="w"> </span><span class="nc">adbc</span><span class="p">::</span><span class="n">DriverLocation</span><span class="p">,</span><span class="w"> </span><span class="n">impersonation</span><span class="p">:</span><span class="w"> </span><span class="nc">adbc</span><span class="p">::</span><span class="n">Impersonation</span><span class="p">,</span><span class="w"> </span><span class="n">max_bytes_billed</span><span class="p">:</span><span class="w"> </span><span class="nc">adbc</span><span class="p">::</span><span class="n">BytesBilledCeiling</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Opens a dataset over the ADBC transport.</p>
+<p><code>driver</code> is where this process reaches the self-built driver: linked into a release
+artefact's own binary, or a <code>.so</code> a deployment mounted. <code>adbc::DriverLocation</code> carries why
+that is a parsed value and not a path, and <code>nix/bigquery-adbc.nix</code> builds both shapes from
+one pinned source.</p>
+<p><code>impersonation</code> is whether this source impersonates and at what scope - the source's declared
+<code>workload_identity.scope</code>, or <code>adbc::Impersonation::Disabled</code> for a shared one. Taken here
+rather than read per request because it is a property of the source, and a declared scope the
+driver would refuse then fails before a listener is bound.</p>
+<p><code>max_bytes_billed</code> is the source's own <code>sources.&lt;alias&gt;.max_bytes_billed</code>, already parsed:
+every job this transport submits carries it as <code>BigQuery</code>'s <code>maximumBytesBilled</code>, so the bound
+on bytes scanned is enforced by the service. <code>adbc::BytesBilledCeiling</code> states what it does
+NOT bound - it is per JOB, and <code>governance.per_replica_spend_ceiling</code> is a different key that
+this adapter still does not reach.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">session_user</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">presented</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Presented</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">SessionUser</span><span class="p">,</span><span class="w"> </span><span class="n">BigQueryError</span><span class="o">&lt;&lt;</span><span class="n">T</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;&gt;</span>
+</span></code></pre></div>
+<p>Who this data system says the leg presenting <code>presented</code> is executing AS.</p>
+<p><strong>The observable for the claim this adapter's <code>IMPERSONATION</code> constant makes.</strong> A
+<code>Presented::SubjectToken</code> becomes this job's own credential - the subject's assertion
+federated, then impersonating the account declared beside that subject - so what the
+endpoint resolves it to IS the identity the source executed under, and asking the source
+rather than asserting it is the difference between evidence and a comment. <code>docs/adr/0008</code> names
+<code>SESSION_USER()</code> as the primitive; <code>SESSION_USER</code> is the only statement this can issue.</p>
+<p>It goes through <code>Self::deliverable</code> like every other credential-taking method, so a leg
+whose credential disagrees with the source's posture is refused here too rather than being
+answered by a read that looks harmless. The <code>SessionUser</code> answer redacts under <code>Debug</code>;
+explicit access and <code>Display</code> still reveal it. Neither this read nor its return type
+establishes how the bearer was obtained.</p>
+<p><strong>Not part of the <code>Warehouse</code> port, and that is a decision rather than an omission.</strong> No
+other adapter can answer it - <code>sutura-exec-datafusion</code> and <code>sutura-exec-duckdb</code> execute in
+process under one identity, so a defaulted method would answer <em>the process</em> and read as
+though it had asked. An inherent method is reachable by the one venue that needs it and by
+nothing that federates.</p>
+<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<p><code>BigQueryError::Endpoint</code> where the endpoint did not answer,
+<code>BigQueryError::Unreadable</code> where the one cell is not a text this workspace maps, and
+<code>BigQueryError::NoIdentityInTheAnswer</code> where the answer is not one row of one text cell.
+Nothing here quotes what came back: see that variant.</p>
+<h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
+<p><code>Debug</code>, <code>Warehouse</code></p>
+<h2 id="use-unresolvableconnection"><code>use UnresolvableConnection</code><a class="headerlink" href="#use-unresolvableconnection" title="Permanent link">&para;</a></h2>
+<p>Why this connection's own billing project could not be read as the domain's project vocabulary.</p>
+<p><strong>Unreachable in practice, and a typed branch rather than an <code>.expect()</code> because a panic here
+would be reachable from a live query, not just a catalog file.</strong>
+<code>sutura_config::sources::placement::BillingProject::parse</code> accepts 6 to 30 characters of
+<code>[a-z0-9-]</code>, starting with a letter and never ending in a hyphen - a strict subset of what
+<code>ProjectName::parse</code> accepts, so a billing project that reached this adapter at all already
+satisfies it.</p>
+<h2 id="use-sessionuser"><code>use SessionUser</code><a class="headerlink" href="#use-sessionuser" title="Permanent link">&para;</a></h2>
+<p>An endpoint identity answer whose <code>Debug</code> never renders its contents.</p>
+<p><code>Self::as_str</code> and <code>Display</code> expose the unchanged answer. This is a <code>Debug</code> boundary,
+not a restriction on intentional logging, nor validation or authentication of the identity.</p>
+<h2 id="use-dropped"><code>use Dropped</code><a class="headerlink" href="#use-dropped" title="Permanent link">&para;</a></h2>
+<p>What a DROP answers with: nothing, or why it did not happen.</p>
+<p>Named for the same reason <code>Loaded</code> is - <code>Result&lt;(), FixtureNotLoaded&lt;T::Error&gt;&gt;</code> is over the
+<code>type_complexity</code> threshold this workspace tightened, and the generic error is the point.</p>
+<h2 id="use-fixturenotloaded"><code>use FixtureNotLoaded</code><a class="headerlink" href="#use-fixturenotloaded" title="Permanent link">&para;</a></h2>
+<p>Why a fixture did not reach the dataset.</p>
+<p>Two shapes rather than one, because a defect in a file in this repository and a refusal from the
+endpoint are different problems for whoever reads the failure: the first is fixed in a diff and
+the second is a grant, a quota or a dataset that is not there.</p>
+<h2 id="use-fixturenotusable"><code>use FixtureNotUsable</code><a class="headerlink" href="#use-fixturenotusable" title="Permanent link">&para;</a></h2>
+<p>Why a committed fixture cannot become a table.</p>
+<p>Every variant is a defect in a file in this repository rather than an input to handle, which is
+why none of them carries the offending text: whoever sees one has the file.</p>
+<h2 id="use-loaded"><code>use Loaded</code><a class="headerlink" href="#use-loaded" title="Permanent link">&para;</a></h2>
+<p>What one load answers with: the row count, or why it did not happen.</p>
+<p>Named because <code>Result&lt;usize, FixtureNotLoaded&lt;T::Error&gt;&gt;</code> is over the <code>type_complexity</code> threshold
+this workspace tightened, and for the reason <code>crate::Mapped</code> is named: the generic error is the
+point, and erasing it would lose which transport failed.</p>
+<h2 id="use-declaredprincipalbroker"><code>use DeclaredPrincipalBroker</code><a class="headerlink" href="#use-declaredprincipalbroker" title="Permanent link">&para;</a></h2>
+<p>Presents the asking subject's own verified assertion at a source that declares it, beside the
+account declared for that subject - and the operator's witness for a shared one.</p>
+<p><strong>The assertion AND the account, because either alone loses the property.</strong> The assertion is
+what the caller possesses and what the pool verifies; the account is what a deployment declared
+this caller's questions should run as, and a broker that presented only the assertion ran every
+declared caller as one pool principal whatever the map said.</p>
+<p><strong>Both maps, because one plan may read one of each and a broker is per answer rather than per
+source</strong> - the reason <code>docs/adr/0008</code> part 4 gives for a broker being per answer at all.</p>
+<h2 id="use-declaredprincipals"><code>use DeclaredPrincipals</code><a class="headerlink" href="#use-declaredprincipals" title="Permanent link">&para;</a></h2>
+<p>The subjects one source may be asked as, and the account each of them resolves to.</p>
+<p><strong>A parsed type and not a bare map, because the empty map is the interesting value.</strong> An
+impersonating source with no declared subject can serve nobody: every request would be refused,
+while the boot log said the source opened. That is the exact defect this whole change exists to
+remove, so the emptiness is refused at the boundary that can turn it into a startup failure
+rather than documented at the one that cannot.</p>
+<h2 id="use-declaredprincipalsunusable"><code>use DeclaredPrincipalsUnusable</code><a class="headerlink" href="#use-declaredprincipalsunusable" title="Permanent link">&para;</a></h2>
+<p>A defect in this broker itself, which no configuration reaches.</p>
+<p>Stated rather than unwrapped for <code>sutura_config::StaticCredentialsUnusable</code>'s reason: the one
+thing minting can fail on is a credential set that does not cover the sources it was asked
+about, and this broker builds its map from that same set. <code>unwrap_used</code> is denied and a panic
+here would be process death under <code>panic = "abort"</code> for a case a type already describes.</p>
+<h2 id="use-nodeclaredprincipals"><code>use NoDeclaredPrincipals</code><a class="headerlink" href="#use-nodeclaredprincipals" title="Permanent link">&para;</a></h2>
+<p>Why a declared impersonation map is not one a source can be served under.</p>
+<p>Two variants, and the second one is the reason the enum was one from the start: an empty
+declaration can serve nobody, and a declared ACCOUNT this transport cannot name in a request is
+the same class of defect one level down.</p>
+<h2 id="module-adbc">Module <code>adbc</code><a class="headerlink" href="#module-adbc" title="Permanent link">&para;</a></h2>
+<p>The ADBC transport: opens the self-built <code>BigQuery</code> driver
+(<code>nix/bigquery-adbc.nix</code>) through <code>adbc_core</code> + <code>adbc_driver_manager</code> and
+hands its Arrow result sets on unconverted.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>adbc_core + adbc_driver_manager → C ABI → the `BigQuery` ADBC driver
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>  → `BigQuery` → Arrow RecordBatchReader → ResultBatches
+</span></code></pre></div>
+<p><strong>Two routes to that driver and one type deciding between them</strong> - <code>DriverLocation</code>, resolved
+once at composition. A release artefact carries the driver in its own link (the <code>c-archive</code>
+half of one nix derivation), which is the only route a STATIC musl binary has; a source build
+opens a <code>.so</code> a deployment mounted. <code>location</code> carries why that is a parsed value rather than
+the arbitrary path <code>telekom/sutura#929</code>'s sixth finding named.</p>
+<p>Behind the crate's default-off <code>adbc</code> feature, like the <code>wire</code>: the native
+driver and its Arrow graph are a per-triple addition a lean build should not
+link. Off is not hidden - every gate passes <code>--all-features</code>.</p>
+<h1 id="who-a-job-runs-as">Who a job runs as<a class="headerlink" href="#who-a-job-runs-as" title="Permanent link">&para;</a></h1>
+<p>Two declared postures, XOR, decided at composition and never per request: a <code>shared-service-user</code>
+source runs on the deployment's own application default credentials and impersonates nothing, and
+an <code>impersonation-at-source</code> source federates the asking subject's own assertion against the pool
+it declares. <code>identity</code> is where that decision lives and is asserted, and <code>subject</code> is where the
+federation's mechanism and its exposure are written down.</p>
+<p><strong>A subject at a source with no pool is REFUSED</strong> rather than answered as the deployment - the
+one thing this transport must never do, and the reason there is no third state. The mechanism
+this replaced - an impersonation target minted from the deployment's own credentials - has no
+spelling in <code>crate::transport::JobIdentity</code> any more, so it is unrepresentable rather than
+refused.</p>
+<h1 id="the-values">The values<a class="headerlink" href="#the-values" title="Permanent link">&para;</a></h1>
+<p>Bound as one Arrow batch of one row, per <code>bind</code> - which is where the driver's own per-row
+execution loop is read off the pinned source and why one row is the only correct count. The
+statement carries positional <code>?</code> and nothing is ever interpolated into it.</p>
+<p><strong>Nothing is shared between two jobs.</strong> The driver handle, the database and the connection are
+locals of <code>AdbcBigQuery::connect</code>, built from one request's own options; the endpoint itself
+owns only a path and a declaration. That, and not a check, is what keeps two concurrent subjects apart
+here - stated with its limit in <code>AdbcBigQuery</code>'s own documentation.</p>
+<h3 id="enum-adbcerror"><code>enum AdbcError</code><a class="headerlink" href="#enum-adbcerror" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">AdbcError</span>
+</span></code></pre></div>
+<p>Why the ADBC transport could not answer.</p>
+<h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Load</code> - The driver <code>.so</code> could not be loaded.</li>
+<li><code>Adbc</code> - An ADBC call (connect, prepare, execute) failed.</li>
+<li><code>Batch</code> - A result batch could not be read from the stream.</li>
+<li><code>Unannounced</code> - A batch did not carry the fields the driver's own announced schema said it would.</li>
+</ul>
+<p><strong>The check is <code>sutura_domain::warehouse::Accumulating</code>'s and not this crate's</strong>, which is
+  <code>docs/adr/0039</code>'s point: a foreign driver streaming over a C ABI is exactly the case to
+  refuse rather than trust, and the obligation is the same for every adapter that has one.
+  This variant also carries the row ceiling being reached - see <code>MOST_RESULT_ROWS</code>.
+- <code>Uncovered</code> - ADBC does not yet cover a port method this transport was asked for.
+- <code>NoDryRun</code> - There is no ADBC call that prices a statement without running it.</p>
+<p><strong>Its own variant rather than an <code>Self::Uncovered</code>, because one caller has to be able to
+  tell it apart and a <code>&amp;'static str</code> is not something to match on.</strong>
+  <code>JobTransport::declined_to_dry_run</code> reads this variant and nothing else, which is what
+  lets the adapter answer <code>PreFlight::NotAsked</code> for a dry run nobody made while a dry run that
+  was made and failed stays a failure.
+- <code>DeadlineSpent</code> - The port's own deadline was already spent when the statement was prepared, so nothing was sent: a <code>jobTimeoutMs</code> of what is left would be <code>0</code>, which the driver reads as unbounded.
+- <code>DeadlineElapsed</code> - The port's own deadline elapsed while the statement was executing or its result was being drained - after the statement was sent, which is what tells this apart from <code>Self::DeadlineSpent</code>. <code>run_to_deadline</code> is what reaches it, and it is the client-side bound <code>telekom/sutura#929</code>'s first finding asked for: a stuck driver call or a slow stream can no longer outlive the caller.</p>
+<p><strong>What this does and does not mean has happened by the time a caller sees it.</strong> The call this
+  process was waiting on was asked to <code>adbc_core::Statement::cancel</code> - see <code>run_to_deadline</code>
+  for what that ask can and cannot pre-empt.
+- <code>Parameters</code> - The plan's values could not be assembled as the batch this driver binds them from.</p>
+<p>Its own variant rather than an <code>Self::Adbc</code>, because the failure is on THIS side of the C
+  ABI: nothing has been sent, and what went wrong is an Arrow batch this transport built. The
+  cause is Arrow's own, kept as a <code>#[source]</code> so the chain still walks.
+- <code>SubjectSource</code> - The loopback source a subject's assertion is served over could not be opened.</p>
+<p>Its own variant rather than an <code>Self::Adbc</code>, because nothing has been sent and the failure
+  is this process's own: a host with no usable loopback interface cannot serve an impersonated
+  question, and saying that is better than a driver failing to fetch a token for reasons of
+  its own.
+- <code>UnusableTarget</code> - A declared impersonation target is not one this transport will name in a request.</p>
+<p><strong>Its own variant rather than an <code>Self::Uncovered</code>, because it is a refusal about a
+  VALUE and the string in that one is a missing capability.</strong> The account rides into one path
+  segment of <code>service_account_impersonation_url</code>, which decides which account the question
+  runs as, and <code>cloud.google.com/go/auth</code>'s impersonation provider POSTs that URL verbatim
+  with no shape check at all. <code>sutura_domain::identity::PrincipalName</code>'s parser is the
+  domain's shared one and accepts <code>/</code>, so the narrowing is this crate's.</p>
+<p><strong>It carries nothing</strong>, deliberately: the shipped broker parses the same rule at boot and
+  names the value there, where an operator can act on it, and this arm is reachable only from
+  a broker that built a <code>Presented</code> by hand. A refusal at the send boundary that echoed the
+  value would put a caller-influenced string into an error that reaches a log.
+- <code>NoRandomness</code> - The operating system would not supply the randomness this request's two secrets need.</p>
+<p><strong>A refusal and not a fallback</strong>, and <code>subject::unguessable</code>'s own doc carries why: every
+  constant available here would be written into the same document the driver reads, so the
+  fetch would authenticate against a value any local process could guess.</p>
+<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="struct-adbcbigquery"><code>struct AdbcBigQuery</code><a class="headerlink" href="#struct-adbcbigquery" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AdbcBigQuery</span>
+</span></code></pre></div>
+<p>A <code>BigQuery</code> endpoint over ADBC.</p>
+<p><strong>Three owned values and nothing else, which is load-bearing rather than tidy.</strong> There is no
+connection here, no database handle and no token: <code>Self::connect</code> builds all three per job from
+that job's own request and drops them with it. That is what keeps one subject's principal off
+another subject's query - not a check, but the absence of anything two jobs could share.</p>
+<p><strong>The limit beside it:</strong> nothing in the type system forbids a future field from holding a
+connection, and a pool keyed on anything but the identity would be exactly the cross-user leak
+this shape avoids. <code>identity::tests::one_subjects_principal_never_appears_in_the_next_subjects_options</code>
+is the cell that dies if the option list starts being memoised; a <em>connection</em> cache would need
+its own.</p>
+<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">driver</span><span class="p">:</span><span class="w"> </span><span class="nc">DriverLocation</span><span class="p">,</span><span class="w"> </span><span class="n">impersonation</span><span class="p">:</span><span class="w"> </span><span class="nc">Impersonation</span><span class="p">,</span><span class="w"> </span><span class="n">max_bytes_billed</span><span class="p">:</span><span class="w"> </span><span class="nc">BytesBilledCeiling</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Takes the driver a composition root resolved, whether this source impersonates, and the
+money bound every job it submits is capped at.</p>
+<p><strong>A <code>DriverLocation</code> and not a path</strong>, which is <code>telekom/sutura#929</code>'s sixth finding: the
+driver a release artefact carries has no path, and a mounted one has been parsed before it
+gets here.</p>
+<p><strong><code>max_bytes_billed</code> has no default, and that is the same argument
+<code>crate::BigQueryWarehouse::new</code> makes about its own arguments</strong>: a defaulted ceiling is
+money somebody else pays. It is also why the type is <code>BytesBilledCeiling</code> and not a
+number - <code>sources.&lt;alias&gt;.max_bytes_billed</code> is required at boot, and for the length of one
+review round it was required, unparsed and sent nowhere, so a declared <code>0</code> and a declared
+<code>u64::MAX</code> both booted green over a source with no bound on bytes scanned at all.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">probe</span><span class="p">(</span><span class="n">driver</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">DriverLocation</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">AdbcError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Does this artefact's driver load and initialise at all?</p>
+<p><strong>The one thing a boot path or a diagnostic can find out about the driver without a
+project</strong>, and it is worth more than reading a manifest or an environment variable:
+initialising this driver runs the GO RUNTIME inside this process, beside tokio and beside
+the allocator a release build links. That is the coexistence nobody could assert while the
+only caller was a question - so a link-success check would have passed and been wrong, and
+this executes instead. <code>nix/bigquery-driver-check.sh</code> is the venue that runs it against the
+release artefacts, and it is the whole of what makes the driver <em>carried</em> rather than
+<em>built</em>.</p>
+<p>It opens a DATABASE and stops there, deliberately. <code>new_database_with_opts</code> is option-setting
+on the Go side and reaches no network; <code>new_connection</code> is where the driver builds its client
+and looks for application default credentials, which on a host with none is a metadata-server
+probe this has no business making. So what a success means is exactly <em>this driver is this ABI
+and its runtime started</em>, and nothing about whether a question could be answered.</p>
+<h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
+<p><code>AdbcError::Load</code> where a mounted <code>.so</code> is absent, is not this ABI, or cannot be loaded at
+all, and where a linked-in driver's own initialisation refused.
+<code>AdbcError::Adbc</code> where the driver loaded and refused the database.</p>
+<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
+<p><code>JobTransport</code></p>
+<h3 id="use-bytesbilledceiling"><code>use BytesBilledCeiling</code><a class="headerlink" href="#use-bytesbilledceiling" title="Permanent link">&para;</a></h3>
+<p>The most a single job this transport submits may be billed for scanning.</p>
+<p><strong>Sent as the pinned driver's <code>bigquery.query.max_bytes_billed</code> statement option, which that
+driver maps onto <code>BigQuery</code>'s own <code>maximumBytesBilled</code> job configuration - so the bound is
+enforced at the service and not by a check here.</strong> A job that would exceed it fails and is not
+charged. That is what makes it worth more than a client-side estimate: nothing on this side has
+to be consulted, kept accurate, or trusted.</p>
+<p><strong>A newtype and not the <code>u64</code> the settings tree holds, because two values in that range are not
+ceilings.</strong> Zero is <code>BigQuery</code>'s own spelling of <em>no ceiling</em> - the field is read as unset below
+one - so a deployment that wrote <code>0</code> asked for a bound and would have been given none; and a
+value above <code>Self::MAX_BYTES</code> is indistinguishable from no ceiling in practice. Both are
+refused by <code>Self::parse</code>, which is the only constructor, at the composition root, before a
+listener is bound.</p>
+<p><strong>The limit, and it is the whole of what this bound is not.</strong> <code>maximumBytesBilled</code> bounds BYTES
+BILLED for one job. It is not a bound on a deployment's total spend, on one subject's spend, or
+on a window - <code>governance.per_replica_spend_ceiling</code> is that key and it charges only priced
+estimates, which this transport does not produce (see <code>super::AdbcError::NoDryRun</code>). It is
+also not a bound on a job billed for SLOT TIME rather than bytes scanned: on a
+capacity-priced reservation the bytes a job scans are not what it costs, and this ceiling then
+bounds the scan without bounding the bill. And it is per JOB, so N questions cost N times it.</p>
+<h3 id="use-unusableceiling"><code>use UnusableCeiling</code><a class="headerlink" href="#use-unusableceiling" title="Permanent link">&para;</a></h3>
+<p>Why a configured bytes-billed ceiling is not one this transport will send.</p>
+<h3 id="use-impersonation"><code>use Impersonation</code><a class="headerlink" href="#use-impersonation" title="Permanent link">&para;</a></h3>
+<p>Whether this source impersonates at all, and against which pool when it does.</p>
+<p><strong>A two-variant type rather than an <code>Option&lt;WorkloadPool&gt;</code>, because the absence is a
+DECLARATION.</strong> A source is opened shared or impersonating - <code>sutura_config</code> refuses a
+<code>workload_identity</code> block on a shared entry and refuses its absence on an impersonating one - so
+which of these a transport holds is decided once, at composition, from a value an operator wrote.</p>
+<h3 id="use-driverlocation"><code>use DriverLocation</code><a class="headerlink" href="#use-driverlocation" title="Permanent link">&para;</a></h3>
+<p>Where the driver is, once something has decided that it is reachable at all.</p>
+<p><strong>There is no third state and no <code>Option</code>.</strong> A source cannot be opened without one of these,
+so a composition root either resolved a driver or refused to serve - the shape
+<code>crate::transport::JobIdentity</code> uses for the same reason.</p>
+<h3 id="use-unusabledriverpath"><code>use UnusableDriverPath</code><a class="headerlink" href="#use-unusabledriverpath" title="Permanent link">&para;</a></h3>
+<p>Why a named driver path is not one this process will open.</p>
+<h3 id="use-unusablepool"><code>use UnusablePool</code><a class="headerlink" href="#use-unusablepool" title="Permanent link">&para;</a></h3>
+<p>Why a declared pool is not one this transport can exchange against.</p>
+<h3 id="use-workloadpool"><code>use WorkloadPool</code><a class="headerlink" href="#use-workloadpool" title="Permanent link">&para;</a></h3>
+<p>Everything about a source that does not change per request: the pool it exchanges against.</p>
+<p><strong>Parsed at composition, so an unusable declaration fails to start.</strong> The audience is the pool
+provider resource the subject token is exchanged for - <code>externalaccount::Options::validate</code>
+refuses an empty one outright, so a deployment that declared nothing would fail on its first
+question instead of at boot.</p>
+<p><strong>One field, and the declared SCOPE is not it.</strong> <code>sources.&lt;alias&gt;.workload_identity.scope</code> is
+parsed by <code>sutura_config</code> and reaches nothing here, because the pinned driver has nowhere to put
+it: <code>credsfile::ExternalAccountFile</code> (<code>cloud.google.com/go/auth@v0.23.2</code>) has no <code>scopes</code> member,
+so the document cannot carry one, and the driver's only scope option is
+<code>bigquery.impersonate.scopes</code>, which <code>connection.go</code>'s <code>hasImpersonationOptions</code> treats as a
+request for the DELETED mechanism - it then demands a target principal and replaces the
+federated credential with an impersonated token source. A screened value this transport cannot
+send would read as a control that is in place, so it is not held here at all and the operator is
+told where they declare it.</p>
+<h3 id="constant-most_result_rows"><code>constant MOST_RESULT_ROWS</code><a class="headerlink" href="#constant-most_result_rows" title="Permanent link">&para;</a></h3>
+<p>How many rows this transport will materialise from one result stream before refusing.</p>
+<p><strong>A ceiling on ROWS and not on BYTES, which is the limit this sentence used to overstate.</strong> It
+was called a ceiling on this process's memory; a row count times an unbounded row width is not a
+memory bound, and what decides the width is the plan's projection - a property of the plans a
+deployment can ask, not of this constant. So what it holds is that a stream is FINITE: an
+unending driver is refused, a million very wide rows are not.</p>
+<p>It is not a cap on an answer either, and that distinction decides the value.
+<code>sutura_domain::plan::MAX_ROWS</code> caps an answer and travels in the statement's own <code>LIMIT</code>; a
+federation LEG carries no <code>LIMIT</code> at all - <code>sutura_domain::plan::leg</code>'s header says so, because a
+leg is not an answer - so for a leg there is nothing in the statement bounding what the source
+may stream back, and the only thing between a driver that streams without end and this process is
+a number here. The refusal fires WHILE reading, in <code>Accumulating::push</code>, so it cannot be reached
+by first materialising the whole stream.</p>
+<p>Two orders of magnitude above <code>MAX_ROWS</code>, because it has to refuse only a stream no plan could
+have asked for: a leg legitimately returns more rows than the one answer re-aggregated above it
+keeps. <strong>The VALUE is held rather than commented</strong> - review measured that raising it to
+<code>usize::MAX</code> left the whole suite green, because <code>delivered + n &gt; usize::MAX</code> is never true and
+the refusal test passes its own ceiling in. Both bounds of that sentence are asserted by
+<code>tests::both_of_the_transports_own_result_ceilings_are_pinned_to_what_they_were_derived_from</code> -
+which is where that sentence became true: it named a cell called
+<code>the_transports_own_ceiling_is_two_orders_of_magnitude_above_the_answer_cap</code> that no file in this
+tree ever defined, so for as long as the sentence stood the value was held by the sentence.</p>
+<p><strong>The engine passes <code>usize::MAX</code> deliberately</strong>, and the contrast is the reason this is the
+caller's argument rather than the guard's default: <code>sutura-exec-datafusion</code> produces its own
+batches from its own plan and is bounded by its memory pool, which is where <code>docs/adr/0009</code>
+puts it. A foreign driver is what a row ceiling exists for.</p>
+<h3 id="constant-most_result_bytes"><code>constant MOST_RESULT_BYTES</code><a class="headerlink" href="#constant-most_result_bytes" title="Permanent link">&para;</a></h3>
+<p>How many bytes this transport will spend holding and converting one result stream before
+refusing.</p>
+<p><strong>The bound <code>MOST_RESULT_ROWS</code> is not</strong>, and round 7 of <code>telekom/sutura#929</code>'s review is the
+report: a row count cannot be a memory bound when the caller controls row WIDTH, so a million
+narrow rows and a few thousand very wide ones are the same number there and orders of magnitude
+apart here. Both apply - whichever is crossed first refuses - and the byte one is the one that
+protects the process.</p>
+<p><strong>A constant here and not a configured key, and the difference from the engine's own budget is
+worth stating.</strong> <code>sutura-exec-datafusion</code> derives its budget from
+<code>runtime.working_set_max_bytes</code>, which the composition root has already checked at boot against
+the memory this process can reach. This crate depends on no settings crate - an adapter does not
+call another adapter, and nothing hands a transport that number - so the value is written here
+instead, and it is therefore <strong>not checked against the memory available</strong>: a container smaller
+than this ceiling can still be ended by a result under it.</p>
+<p><strong>The value, and why this one.</strong> A quarter of <code>docs/adr/0009</code>'s provisional 1 GiB working set,
+so two federated legs plus the combine above them cannot each spend the whole of a query's
+provisional byte budget. It is provisional for exactly the reason that number is - 0009's
+amendment says the corpus it was measured on is too small to justify moving it, and it names
+driver buffering and row conversion as the paths its harness never observed. This is one of
+them.</p>
+<p><strong>The VALUE is held rather than commented</strong>, because a ceiling nothing asserts can be raised to
+<code>usize::MAX</code> with a green suite - review measured exactly that happening to <code>MOST_RESULT_ROWS</code>.
+<code>tests::the_transports_byte_ceiling_is_a_quarter_of_the_provisional_working_set</code> is the cell.</p>
+<h2 id="module-transport">Module <code>transport</code><a class="headerlink" href="#module-transport" title="Permanent link">&para;</a></h2>
+<p>The one thing this adapter needs from a <code>BigQuery</code> endpoint, as a port.</p>
+<p><strong>Why there is a port here at all, when the adapter is already behind one.</strong> <code>Warehouse</code> is the
+domain's port and this crate implements it; this is a second, much narrower one <em>inside</em> the
+adapter, and it buys two things that matter more than the indirection costs:</p>
+<ul>
+<li><strong>Everything this adapter decides becomes testable without a network.</strong> The credential match,
+  the posture agreement, the leg refusal, the rendering and the whole value mapping are exercised
+  against a fake that returns rows, which is what <em>ports get fakes, not mocked HTTP</em> asks for.</li>
+<li><strong>The dependency decision is isolated to one implementor.</strong> An outbound HTTP stack plus a
+  credential source is a real addition to a workspace that cross-compiles to musl and gates
+  licences exactly, and it arrives in exactly one place: <code>crate::adbc</code>, behind the crate's
+  default-off <code>adbc</code> feature. The HTTP <code>wire</code> it replaced was removed with this adoption. The sentence that kept this seam empty for
+  a release - <em>nothing in this repository can verify a network client</em> - is now half spent: nothing
+  in CI can, and a developer's own project has. Three tests passed against a real dataset on
+  2026-08-30, over one hand-built <code>SUM</code> rather than the corpus.</li>
+</ul>
+<p><strong>What is deliberately NOT here: a method that takes a string.</strong> The request carries a statement
+this crate rendered from a plan, and there is no entry point a caller could hand SQL to.</p>
+<h3 id="enum-parametermode"><code>enum ParameterMode</code><a class="headerlink" href="#enum-parametermode" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ParameterMode</span>
+</span></code></pre></div>
+<p>How a request writes its bind parameters.</p>
+<p>One variant, and it is a variant rather than an absence because the endpoint's own request body
+carries this as a field with two values: a query may use positional parameters or named ones and
+<strong>not both</strong>, so a transport has to state which it is sending rather than infer it from the text.</p>
+<p>Positional is the one this adapter uses, and the decision is recorded on
+<code>sutura_sql::Dialect::placeholder_style</code>: a rendered statement carries <code>?</code> and a
+<code>sutura_sql::GeneratedQuery</code> carries an ORDERED list of values with no names, because a
+parameter's identity in a plan IS its position. Named parameters would need a name invented per
+parameter, with nothing in the domain to invent it from.</p>
+<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Positional</code> - <code>?</code> in the statement, an ordered array of values carrying no names beside it.</li>
+</ul>
+<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-jobdeadline"><code>enum JobDeadline</code><a class="headerlink" href="#enum-jobdeadline" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">JobDeadline</span>
+</span></code></pre></div>
+<p>Which clock one job answers to: the port's own <code>Deadline</code>, or the boot path's fresh window.</p>
+<p><strong>A two-variant type rather than <code>Option&lt;Deadline&gt;</code>, so the boot arm cannot be spelled by
+accident.</strong> <code>None</code> reads the same whether it means <em>forgot to pass the deadline</em> or <em>this is
+deliberately the boot path</em> - indistinguishable at a call site and in review. <code>Boot</code> is a name a
+reader has to notice, and an <code>execute</code> or <code>dry_run</code> call site that wrote it instead of <code>Port(..)</code>
+reads as exactly the regression it would be.</p>
+<h4 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Port</code> - A request-time call's own <code>Deadline</code>. <code>Warehouse::dry_run</code>/<code>execute</code> build this arm, and only this arm - see <code>JobRequest::new</code>'s own doc, which carries the limit: the ADBC transport sends what is left of it as the job's <code>jobTimeoutMs</code>, a server-side stop.</li>
+<li><code>Boot</code> - The boot path: no caller, no request timeout. <code>verify_anchor</code>, a fixture load or drop, and the identity read build this arm. This used to add <em>the ADBC driver opens a fresh window under its own configured bounds instead</em>, and this process configures no TIME bound at all: the database options it sets are <code>bigquery.project_id</code> and <code>bigquery.dataset_id</code>, plus the three an impersonating leg chains for the credential document (<code>adbc::identity</code>'s <code>credential_options</code>), and none of them is a window - so whatever window exists is the driver's own default and is not ours to state. <strong>It is not the only bound, and the earlier <em>no bound at all</em> overstated that:</strong> <code>bigquery.query.max_bytes_billed</code> is set on every statement this transport submits, which bounds what a job may SPEND and says nothing about how long it may take. It is an <code>OptionStatement</code> rather than an <code>OptionDatabase</code>, which is why it is not in the list above.</li>
+</ul>
+<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-jobidentity"><code>enum JobIdentity</code><a class="headerlink" href="#enum-jobidentity" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">JobIdentity</span><span class="o">&lt;'</span><span class="na">job</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Which identity one job is to be executed as.</p>
+<p><strong>TWO variants, and the second one is the whole of leg 2.</strong> A round of this type carried three -
+a bearer, and a PRINCIPAL the data system was asked to become on a connection the DEPLOYMENT
+authenticated. The owner rejected that mechanism, so the arm is gone rather than deprecated: a
+question answered under the deployment's identity while provenance reported it as the asker's has
+no spelling here, which is what makes <code>Warehouse::IMPERSONATION</code> a fact about the code.</p>
+<p><strong>The domain still presents three shapes</strong> (<code>sutura_domain::identity::Presented</code>), so the
+mapping is 3 -&gt; 2 and not one to one: <code>BigQueryWarehouse::job_identity</code> is where the third becomes
+a refusal (<code>BigQueryError::NoPrincipalSwitch</code>), because <em>can this be delivered</em> is a transport's
+fact and <code>Presented::agrees_with</code> passes both subject shapes - they are one POSTURE.</p>
+<p><code>Copy</code>, because every arm is a borrow: it is read out of a request and matched on, never stored.</p>
+<h4 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Transport</code> - Whatever identity the transport itself already holds.</li>
+</ul>
+<p>The shared posture, and the boot path - see <code>JobDeadline::Boot</code> for the other half of what
+  "no caller" means to a request.
+- <code>AsSubject</code> - The asking subject's own verified assertion, and the account this deployment declared that subject's questions should execute as.</p>
+<p><strong>The subject's own credential and not a stand-in for it</strong>, which is the whole of leg 2:
+  <code>crate::adbc</code> puts the assertion behind a workload-identity credential document, so
+  Google's own token service verifies it and resolves the subject to the declared pool's
+  principal. Nothing on that path runs the question under the deployment's identity.</p>
+<p><strong><code>target</code> is the SECOND hop and is a field rather than a third arm</strong>, because it is not a
+  second mechanism: the credential the driver ends up holding is still derived from the
+  caller's own assertion, and the pool principal impersonating a declared account is one chain
+  with two links. It is not the deleted principal switch, which ran from the deployment's own
+  application default credentials with the caller's credential nowhere in the chain - that has
+  no spelling here and a broker presenting it is refused by
+  <code>BigQueryError::NoPrincipalSwitch</code>.</p>
+<p><strong>Both fields are read by <code>crate::adbc</code></strong>, and a transport that read only <code>assertion</code> would
+  run every declared caller as one pool principal while a deployment's <code>impersonate</code> map said
+  otherwise.</p>
+<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code></p>
+<h3 id="struct-jobrequest"><code>struct JobRequest</code><a class="headerlink" href="#struct-jobrequest" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">JobRequest</span><span class="o">&lt;'</span><span class="na">job</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>One query job, as this adapter asks for it.</p>
+<p>Borrowed rather than owned throughout: it is built per call, handed to one transport, and dropped.
+A clone here would copy the statement for no reason.</p>
+<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">billing_project</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ProjectId</span>
+</span></code></pre></div>
+<p>The project this job is billed to.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">deadline</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">JobDeadline</span>
+</span></code></pre></div>
+<p>Which clock this call answers to. See <code>JobDeadline</code> and the constructor's own doc for what
+each arm means to the transport's own submit.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">default_dataset</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">DatasetId</span>
+</span></code></pre></div>
+<p>The dataset the statement's unqualified table names resolve in.</p>
+<p><strong>This is why the generated statement needs no qualifying</strong>, and it is the reason the fourth
+dialect changed nothing about how a table is rendered: the endpoint's request carries a default
+dataset beside the SQL, so a bare backticked table name resolves there. The generator emits the
+same shape it emits for every other dialect.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">identity</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">JobIdentity</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Who this job is to be executed as.</p>
+<p><strong>This is the half that decides who a <code>BigQuery</code> job is executed as</strong>, and which of
+<code>JobIdentity</code>'s arms a leg carries is decided once, above, from what the broker presented -
+never re-derived here. A transport that cannot serve the arm it is handed refuses; one that
+ignored it would answer as itself while provenance reported the asker. It does not make the
+source execute as the asker on its own: <code>JobIdentity::AsSubject</code> carries the subject's
+assertion and the account declared for that subject, and the declared pool is what resolves
+the assertion to a principal able to impersonate it - unproven against a live pool, per
+<code>docs/where-identity-is-proven.md</code>.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">params</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">ParamValue</span><span class="p">]</span>
+</span></code></pre></div>
+<p>The values, in the order the statement's placeholders take them.</p>
+<p><strong>The order is the contract</strong>, because <code>ParameterMode::Positional</code> means the endpoint pairs
+the nth value with the nth <code>?</code>. A transport that reordered this would send a different query.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">statement</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The statement, with its values still absent from it.</p>
+<h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code></p>
+<h3 id="struct-projectid"><code>struct ProjectId</code><a class="headerlink" href="#struct-projectid" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ProjectId</span>
+</span></code></pre></div>
+<p>The project a job is billed to, as this adapter holds it.</p>
+<p><strong>A wrapper for the reason <code>sutura_exec_datafusion::WorkingSet</code> is one:</strong> a project id and a
+dataset id are both text, and a call taking two <code>&amp;str</code> in the wrong order compiles and is wrong.</p>
+<p><strong>Where the format is checked, and why it is checked twice.</strong> <code>sutura_config::BillingProject</code>
+refuses an unusable value when the settings tree is READ, so a deployment fails at startup rather
+than on its first question - that is a diagnostic job. This type refuses it again because THIS is
+the crate whose transport interpolates it into a request path, and a check belongs where the risk
+is. The two are not one copy of one rule: an adapter may not depend on the settings tree, so
+sharing the type would be an adapter reaching into another adapter.</p>
+<p><strong><code>Ord</code> is derived so the pre-flight can group by it</strong>, and the ordering it derives is the inner
+string's: <code>parse</code> neither trims into a different value nor folds case, so the wrapper compares
+exactly as the text it holds does and there is no invariant for the derive to disagree with.</p>
+<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The id, for building a request.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnusableResourceName</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Parses a project id.</p>
+<p>The accepted set is <code>[a-z0-9-]</code>, which is what keeps the value inside one URL path segment: no
+<code>/</code>, no <code>?</code>, no <code>#</code>, no <code>%</code>, no whitespace, nothing non-ASCII. Length is NOT bounded here and is
+bounded where the value is declared - this crate's job is that the value cannot escape a
+request, and a too-short id is a diagnostic the settings tree already gives.</p>
+<h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code></p>
+<h3 id="struct-datasetid"><code>struct DatasetId</code><a class="headerlink" href="#struct-datasetid" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DatasetId</span>
+</span></code></pre></div>
+<p>The dataset unqualified table names resolve in, as this adapter holds it.</p>
+<p><code>Ord</code> for the reason <code>ProjectId</code>'s is derived, plus one of its own: this type PRESERVES case, so
+the derived ordering and the derived equality are the case-sensitive comparison a dataset id
+really wants.</p>
+<h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The id, for building a request.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnusableResourceName</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Parses a dataset id.</p>
+<p><code>[A-Za-z0-9_]</code>, case PRESERVED - a dataset id is case-sensitive, so folding it here would turn
+a working declaration into a dataset that does not exist.</p>
+<h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code></p>
+<h3 id="struct-datasetaddress"><code>struct DatasetAddress</code><a class="headerlink" href="#struct-datasetaddress" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DatasetAddress</span>
+</span></code></pre></div>
+<p>One dataset, addressed the way a metadata read needs it: who pays, where it lives, and its id.</p>
+<p><strong>A named struct rather than loose arguments</strong>, for the reason <code>ProjectId</code> is a wrapper at all:
+a call taking ids of the same shape in the wrong order compiles and is wrong. It is also the
+grouping key the pre-flight uses, which is what the derived <code>Ord</code> is for.</p>
+<p><strong>THREE fields and not two, and the third one is a review finding rather than symmetry.</strong> The
+first shape of this type carried the dataset's project only, and the listing then sent that as
+the quota project - so a source declared <code>billing_project: acme-analytics</code> reading a model at
+<code>partner-data.shared.dim_region</code> attributed the listing to <code>partner-data</code>, which the caller holds
+no <code>serviceusage.services.use</code> on. It would have 403'd and become a permanent warning, while a
+QUERY against the same table attributed to <code>acme-analytics</code> and worked. <code>docs/adr/0018</code> states
+the rule as <em>carrying the source's declared billing project</em>.</p>
+<p><strong>What that says about the newtype, written down because it is the interesting half:</strong> a wrapper
+per id prevents an argument-ORDER mistake and permits a ROLE mistake - <em>where the dataset lives</em>
+against <em>who pays</em> - and the role mistake is the one that happened. Two accessors named for their
+roles is the fix that a single <code>project</code> field could not be.</p>
+<h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">billed_to</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ProjectId</span>
+</span></code></pre></div>
+<p>The project whose quota and billing this read is attributed to: the SOURCE's, always.</p>
+<p>Read into <code>x-goog-user-project</code> where the credential requires that header, which is the one
+place the distinction from <code>Self::project</code> bites - see this type's own documentation.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">dataset</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">DatasetId</span>
+</span></code></pre></div>
+<p>The dataset's own id.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">billed_to</span><span class="p">:</span><span class="w"> </span><span class="nc">ProjectId</span><span class="p">,</span><span class="w"> </span><span class="n">project</span><span class="p">:</span><span class="w"> </span><span class="nc">ProjectId</span><span class="p">,</span><span class="w"> </span><span class="n">dataset</span><span class="p">:</span><span class="w"> </span><span class="nc">DatasetId</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Addresses a dataset: the source's billing project, the dataset's own project, and its id.</p>
+<p>The first two are equal for an unqualified model and differ for a cross-project one, which is
+exactly the case the role distinction exists for.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">project</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ProjectId</span>
+</span></code></pre></div>
+<p>The project the dataset LIVES in, which is the one written into the request path.</p>
+<p>Not the one the read is attributed to - <code>Self::billed_to</code> is.</p>
+<h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code></p>
+<h3 id="struct-heldtables"><code>struct HeldTables</code><a class="headerlink" href="#struct-heldtables" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">HeldTables</span>
+</span></code></pre></div>
+<p>Every table one dataset holds, by the id it knows each under - and what the listing said about
+how many there were supposed to be.</p>
+<p><strong>A struct rather than the <code>BTreeSet&lt;String&gt;</code> alias it was, and the second field is the whole
+reason.</strong> The set alone cannot tell an EMPTY dataset from a document whose shape the service
+changed: both arrive as no ids at all, and the pre-flight reads no ids as <em>every table is
+absent</em>. <code>ListingTotal</code> is what the two can be told apart by.</p>
+<p>A readable total can expose a shortfall. An unreadable total beside zero readable IDs exposes
+an inventory this adapter could not read, without supplying a count. <code>ListingTotal::Unreported</code>
+still cannot distinguish an empty dataset from a changed document. Readable IDs dropped by name
+filtering remain identified, so an ordinary dataset of unsupported names is not that finding.</p>
+<p><strong>Why it travels on the answer rather than being decided here, now that it IS decided on:</strong> the
+decision needs the tables the BUNDLE names, and this port has never seen them - it answers about
+a dataset. <code>BigQueryWarehouse::preflight</code> is where the two meet, and that is the layer that reads
+this field. <code>JobTransport::listing_was_refused</code> shows the port CAN hold a decision on the layer
+above's behalf, so the layer is a choice rather than a constraint; the reason it is this one is
+that a verdict minted here would be one taken without half its input.</p>
+<p>The set is still what the pre-flight asks with, and <code>Self::holds</code> is its only question;
+<code>Self::named</code> is for a diagnostic and for a test, not for a count anything concludes from.</p>
+<h4 id="methods_6">Methods<a class="headerlink" href="#methods_6" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">holds</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Whether the dataset holds a table under exactly this id.</p>
+<p>Case-SENSITIVE, because <code>GoogleSQL</code> does not fold a table name - <code>BigQueryWarehouse::preflight</code>
+carries the argument, and this is the call it makes.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">named</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">BTreeSet</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Every id the listing named.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">named</span><span class="p">:</span><span class="w"> </span><span class="nc">BTreeSet</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">total</span><span class="p">:</span><span class="w"> </span><span class="nc">ListingTotal</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The ids a listing named, and what its own total said about them.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">total</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">ListingTotal</span>
+</span></code></pre></div>
+<p>What the listing's own reported total said about the ids the same document carried.</p>
+<h4 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-listingtotal"><code>enum ListingTotal</code><a class="headerlink" href="#enum-listingtotal" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ListingTotal</span>
+</span></code></pre></div>
+<p>What a listing's own reported total said, against the entries of the same document whose table
+id it could read.</p>
+<p><strong>Four variants rather than an <code>Option&lt;u64&gt;</code>, because each says something different about what a
+caller may conclude</strong> - a missing total and an unreadable one cannot carry the same decision.
+A reader has to name the case, for the reason
+<code>sutura_domain::source::AnchorIdentity</code> names <code>NoneDeclared</code> rather than answering <code>None</code>.</p>
+<p><strong>The comparison is against the entries that carried a table id this crate could READ - neither
+the ids the listing NAMED nor the entries it merely counted</strong>, and each half of that is a wrong
+claim avoided. An id outside <code>usable_table_id</code>'s accepted set is DROPPED from the named set, and
+<code>BigQuery</code> permits such an id, so comparing against the named set would report an ordinary
+dataset as short of its own total. The entry count is the mistake the other way, and it was this
+type's first shape: a document whose <code>tableReference</code> the service renamed or nested carries
+entries and no readable id, which read <code>Self::Accounted</code> over no ids at all - the pre-flight
+reporting every table absent while the cross-check read clean. An entry with no readable id is
+the shape signal; an id <code>usable_table_id</code> rejected is the legitimate drop, and it still counts.</p>
+<p><strong>This is the only reported-total cross-check left in this crate.</strong> There used to be a second,
+<code>BigQueryError::Incomplete</code>, comparing a query answer's delivered count against the endpoint's
+own <code>totalRows</code>; <code>docs/adr/0039</code> records why an ADBC read's completeness is the full drain
+instead, and it went with the paging it described. A LISTING still carries a total, because a
+dataset listing is a metadata document and not a result stream. This type carries the inventory
+evidence; preflight decides whether it leaves a requested table unaccounted for and refuses
+through a value.</p>
+<h4 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Unreported</code> - The document carried no total at all, so an empty listing and an empty dataset are one value.</li>
+</ul>
+<p><strong>Where every boot stood before the field was decoded</strong>, and where one stands again the day
+  the service stops sending it - which is why this is a variant rather than a zero.
+- <code>Unreadable</code> - It carried a total this crate could not read as a count.</p>
+<p>Distinct from <code>Self::Unreported</code> on purpose: <em>the service said nothing</em> and <em>the service
+  said something this crate did not understand</em> are different findings, and the second is
+  itself a shape change worth being able to see. Nothing of the value is kept - a foreign
+  scalar is not something this crate carries around to print.</p>
+<p>Beside zero readable IDs, preflight returns a count-free unreadable-inventory refusal.
+  A readable ID rejected by <code>usable_table_id</code> still counts, so a legitimately dropped name
+  cannot be mistaken for an inventory from which no ID was readable.
+- <code>Accounted</code> - It reported a total, and carried a readable table id for every table the total claims.</p>
+<p><em>At least</em> every one: <code>reported</code> may be below the number of ids the document carried without
+  anything being wrong, because a total read off a dataset being written to is a moving number.
+- <code>Short</code> - It reported MORE tables than the same document carried readable table ids for.</p>
+<p><strong>On a document that carried no readable id at all this is the shape change</strong> - a dataset
+  that answered with tables the listing did not name, or with entries this crate could read no
+  id out of - which is exactly what an empty <code>tables</code> array cannot be told from an empty
+  dataset without. Where <code>Shortfall::identified</code> is non-zero it is weaker: a table created
+  between the total and the array, or a page contract this transport read differently than the
+  service meant it.</p>
+<p><strong>What it does not separate, so a decision does not read it as more:</strong> an identified count
+  of zero merges <em>the array was empty</em> with <em>no entry carried a readable id</em>, because the raw
+  entry count is not kept. Both are the same finding for the caller that has one - no ids
+  beside a non-zero total - so nothing needs the third number today, and a decision that wants
+  to tell those two apart has to add it rather than read this one harder.</p>
+<p>What a pre-flight produces from this reading is
+  <code>TablesPresent::Unaccounted</code> rather than an absence: a table the bundle names that this
+  listing did not name may be sitting in the gap, so a boot refuses without saying the catalog
+  is wrong. A VALUE and not an <code>Err</code>, because <code>preflight_was_refused</code> puts everything that is
+  not a <code>401</code>/<code>403</code> in the warning half. <code>docs/adr/0018</code> carries the argument and
+  <code>telekom/sutura#275</code> is where it was taken. <code>Self::Unreadable</code> can also refuse, but has no
+  shortfall and does so only beside zero readable IDs. The other readings retain ordinary absence.</p>
+<h4 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-shortfall"><code>struct Shortfall</code><a class="headerlink" href="#struct-shortfall" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Shortfall</span>
+</span></code></pre></div>
+<p>How far a listing fell short of its own reported total.</p>
+<p><strong>A parsed type and not two <code>u64</code> fields on the variant, because the variant's fields were
+PUBLIC and the invariant lived in an <code>if</code> one module away.</strong> Review reproduced
+<code>telekom/sutura#275</code> through that door on an unmutated tree: <code>ListingTotal::Short { reported: 1,
+identified: 5 }</code> is constructible, <code>HeldTables::of</code> is a <code>pub const fn</code>, and the pre-flight's
+subtraction then saturated to a shortfall of zero and fell back to reporting the bundle's tables
+ABSENT - the exact defect being fixed, reachable through the public API. A type that forecloses a
+zero shortfall is worth nothing while a constructor can route around it, so the door is closed
+rather than documented.</p>
+<p>Stored as <code>identified</code> plus a <code>NonZeroU64</code> gap rather than the two totals, so
+<code>Self::unaccounted</code> is a field read: the <em>count that decides</em> cannot be derived wrongly, and
+<code>Self::reported</code> reconstructs exactly because the sum is the number <code>Self::parse</code> was given.</p>
+<h4 id="methods_7">Methods<a class="headerlink" href="#methods_7" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">identified</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u64</span>
+</span></code></pre></div>
+<p>How many entries of the same document carried a table id this crate could read.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">reported</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">,</span><span class="w"> </span><span class="n">identified</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">NotShort</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Parses a reported total against the ids of the same document this crate could read.</p>
+<h1 id="errors_2">Errors<a class="headerlink" href="#errors_2" title="Permanent link">&para;</a></h1>
+<p><code>NotShort::Accounted</code> where the total is not ABOVE the identified count - which is
+<code>ListingTotal::Accounted</code>'s case and belongs in that variant, not this one.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">reported</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u64</span>
+</span></code></pre></div>
+<p>The total the document reported.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">unaccounted</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">NonZeroU64</span>
+</span></code></pre></div>
+<p>How many tables the total claims that no readable id accounted for. Never zero.</p>
+<h4 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-notshort"><code>enum NotShort</code><a class="headerlink" href="#enum-notshort" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">NotShort</span>
+</span></code></pre></div>
+<p>Why a pair of counts is not a shortfall.</p>
+<p>One variant, an enum for the reason every other error in this crate is one: a second reason has
+somewhere to go.</p>
+<h4 id="variants_6">Variants<a class="headerlink" href="#variants_6" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Accounted</code> - The total is not above the ids the same document accounted for, so nothing is missing.</li>
+</ul>
+<h4 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="enum-namedresource"><code>enum NamedResource</code><a class="headerlink" href="#enum-namedresource" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">NamedResource</span>
+</span></code></pre></div>
+<p>Which of this adapter's two resource names a refusal is about.</p>
+<p><strong>A variant rather than the <code>&amp;'static str</code> this field used to be</strong>, because <em>Structured Errors</em>
+says the variant is the contract and the message is not: a test can assert <code>Self::Project</code>
+and a rename is then a compile error at the assertion, where a string compare kept passing while
+asserting the old spelling. The <code>core::fmt::Display</code> impl is the one place the operator-facing
+wording lives, so <code>UnusableResourceName</code>'s sentences read exactly as they did.</p>
+<h4 id="variants_7">Variants<a class="headerlink" href="#variants_7" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Project</code> - The project a job is billed to - <code>ProjectId</code>.</li>
+<li><code>Dataset</code> - The dataset unqualified table names resolve in - <code>DatasetId</code>.</li>
+</ul>
+<h4 id="implements_15">Implements<a class="headerlink" href="#implements_15" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-unusableresourcename"><code>enum UnusableResourceName</code><a class="headerlink" href="#enum-unusableresourcename" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">UnusableResourceName</span>
+</span></code></pre></div>
+<p>Why a resource name this adapter was handed is not usable.</p>
+<h4 id="variants_8">Variants<a class="headerlink" href="#variants_8" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Empty</code> - Nothing was written, or only whitespace was.</li>
+<li><code>Character</code> - A character that could leave the part of a request this value is written into.</li>
+</ul>
+<p><strong>The position is carried and the value is not.</strong> A project id is one of the things this
+  repository does not print, so a refusal says where the problem is rather than quoting it.</p>
+<h4 id="implements_16">Implements<a class="headerlink" href="#implements_16" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="trait-jobtransport"><code>trait JobTransport</code><a class="headerlink" href="#trait-jobtransport" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">trait</span><span class="w"> </span><span class="n">JobTransport</span>
+</span></code></pre></div>
+<p>A <code>BigQuery</code> endpoint, as narrow as this adapter's needs.</p>
+<p>Two methods PUT A QUESTION TO THE ENDPOINT, because the port above it has two questions with
+different costs: running a job reads data and is billed, and validating one does neither. The
+endpoint really does distinguish them - its request body carries a dry-run flag, and a dry run
+uses no slots and is not charged - which is what makes <code>Warehouse::dry_run</code> able to answer
+<code>PreFlight::Accepted</code> honestly here rather than inheriting the port's <code>NotAsked</code> default.</p>
+<p><strong>The rest send nothing, and they are listed BY KIND rather than counted.</strong> The count was wrong
+twice, and then a third time: the sentence said <em>three more members</em> while five predicates had
+been added under it, because a number in prose is a second thing to keep true and no gate reads
+this one. So: <code>list_tables</code> sends a metadata read rather than a statement, which is what makes
+it cheap enough for a boot check; <code>apply</code>, behind the <code>fixtures</code> feature, is the second
+statement-issuing method - present only in a build that loads fixtures, so no deployment can
+reach it; and every remaining member is a PREDICATE that sends nothing and asks the implementor
+about a failure it already holds, because <code>Self::Error</code> is the implementor's own type and the
+adapter above it cannot read one.</p>
+<h3 id="type_alias-dryrunestimate"><code>type_alias DryRunEstimate</code><a class="headerlink" href="#type_alias-dryrunestimate" title="Permanent link">&para;</a></h3>
+<p>A dry run's own byte estimate, when it priced one - <code>None</code> is <code>docs/adr/0030</code>'s honest absence,
+never a defaulted zero.</p>
+<p><strong>A named alias rather than <code>Option&lt;EstimatedBytes&gt;</code> written out at every return type</strong>, because
+this exact shape - wrapped in a <code>Result</code> - is the return type of <code>JobTransport::validate</code> and
+every one of its implementors, fake and real; a name spares each of those sites the <code>Option</code> and
+says what the value MEANS at the read site, which the bare composed type would not. It does not
+cross this workspace's <code>clippy::type-complexity</code> threshold - it is well under it - so the alias
+earns its place on readability alone, not on a lint that does not fire either way.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

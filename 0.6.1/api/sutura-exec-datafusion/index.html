@@ -1,0 +1,2900 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/0.6.1/api/sutura-exec-datafusion/">
+      
+      
+        <link rel="prev" href="../sutura-sql/">
+      
+      
+        <link rel="next" href="../sutura-exec-duckdb/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>sutura-exec-datafusion - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../css/telekom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#sutura-exec-datafusion" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              sutura-exec-datafusion
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../.." class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using it
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Using it
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operating it
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Operating it
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The local chat demo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../where-identity-is-proven/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where each identity claim is proven
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-a-join-key-is-compared/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a federated join key is compared
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rdbms-catalog-guidance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An RDBMS dictionary as a metadata source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../what-agent-identity-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What an agent identity can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../what-okf-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What an OKF-style catalog can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../what-openmetadata-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What an OpenMetadata catalog can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../what-a-data-contract-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What an Open Data Contract Standard catalog can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building it
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Building it
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-datahub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-datahub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-okf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-okf
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-datacontract/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-datacontract
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-openmetadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-openmetadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-rdbms/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-rdbms
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-wren/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-wren
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#enum-datafusionerror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        enum DataFusionError
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="enum DataFusionError">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#struct-datafusionwarehouse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        struct DataFusionWarehouse
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="struct DataFusionWarehouse">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-codec" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use Codec
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-candidates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use candidates
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-workingset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use WorkingSet
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-combineerror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use CombineError
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-datafusioncombiner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use DataFusionCombiner
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#module-measurement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module measurement
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Module measurement">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#struct-measuredwarehouse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        struct MeasuredWarehouse
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="struct MeasuredWarehouse">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#methods_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#module-pool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module pool
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-clickhouse/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-clickhouse
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-oracle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-oracle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-tls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-tls
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-http-client/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http-client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-bounded-read/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-bounded-read
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#enum-datafusionerror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        enum DataFusionError
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="enum DataFusionError">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#struct-datafusionwarehouse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        struct DataFusionWarehouse
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="struct DataFusionWarehouse">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-codec" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use Codec
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-candidates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use candidates
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-workingset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use WorkingSet
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-combineerror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use CombineError
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-datafusioncombiner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use DataFusionCombiner
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#module-measurement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module measurement
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Module measurement">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#struct-measuredwarehouse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        struct MeasuredWarehouse
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="struct MeasuredWarehouse">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#methods_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#module-pool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module pool
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<!-- GENERATED FILE - do not edit.
+     Written by docs/.tools/rustdoc_to_markdown.py from rustdoc JSON.
+     Edit the doc comments in the crate source instead, then regenerate.
+     The commands are on the API reference landing page. -->
+
+<h1 id="sutura-exec-datafusion">sutura-exec-datafusion<a class="headerlink" href="#sutura-exec-datafusion" title="Permanent link">&para;</a></h1>
+<p>The public API of <code>sutura-exec-datafusion</code>, rendered from rustdoc JSON.</p>
+<p>A <code>Warehouse</code> adapter that executes a plan in process, generating no SQL at all.</p>
+<p><code>DataFusion</code> is the reason the port takes a <code>QueryPlan</code> rather than a rendered statement. It
+has no dialect: a plan becomes a <code>LogicalPlan</code> over Arrow, the engine type-checks it against the
+registered tables and runs it in this process. Every bug class that lived in rendering is
+therefore absent here rather than fixed - there is no identifier to quote, no alias to emit, no
+<code>GROUP BY</code> to hand the wrong expression to, and no placeholder whose position could disagree
+with the parameter list.</p>
+<p>Values are handed over as typed literals, which is the strongest form of parameterisation
+available and not a weakening of one. See the <code>literal</code> function below.</p>
+<p>Three things this adapter deliberately does not offer:</p>
+<p><strong>No arbitrary SQL entry point.</strong> Not merely absent: the <code>sql</code> feature is off, so this engine's
+parser is not compiled into the binary. There is nothing here that turns text into a plan, which
+is a stronger statement than not calling it.</p>
+<p><strong>No entry point that takes a statement.</strong> The only way in is a <code>QueryPlan</code>, which carries its
+parameters as a typed list. A development affordance that ran something somebody typed would be
+the shortest path around every check upstream of here.</p>
+<p><strong>No result caching.</strong> Under row-level security a query-keyed cache is a cross-user leak, and
+although an in-process engine over a local file has no row-level security to leak through,
+adding a cache here would be the place the habit started.</p>
+<p><strong>The engine's memory is bounded, and the bound is not this process's memory.</strong> Every session here
+is built with a <code>RuntimeEnv</code> carrying a fixed-size pool, because the alternative is the engine's
+unbounded one - and under <code>panic = "abort"</code> a large enough hash join is then process death for
+every concurrent caller rather than an error for the one who asked. A refused reservation leaves as
+<code>RefusalReason::ResourcesExhausted</code>. What the pool counts is operator reservations and <strong>nothing
+else</strong>: not what a driver buffers, not <code>collect()</code> materialising every batch, not the row set built
+in the conversion loop below. See <code>pool</code>, which states the gap rather than implying it is closed.</p>
+<p><code>translate</code>, <code>collect</code>, <code>fixture</code> and <code>pool</code> own narrow seams; this owns session and execution.</p>
+<p><strong>No production gauge reads the <code>DataFusion</code> pool.</strong> Measurement-only children can opt into a
+separate recorder; ordinary adapter construction exports no live reservation reading. The
+<code>check-guidance</code> absence rule rejects a production <code>.memory_pool()</code> call.</p>
+<h2 id="enum-datafusionerror"><code>enum DataFusionError</code><a class="headerlink" href="#enum-datafusionerror" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DataFusionError</span>
+</span></code></pre></div>
+<p>Why this data system could not answer.</p>
+<p>One variant per failure mode rather than one wrapper around the engine's error, because "the
+plan would not build", "the plan would not resolve" and "a column came back as a type we do not
+map" send a reader to three different places.</p>
+<h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>Runtime</code> - The runtime this adapter executes on could not be built.</li>
+</ul>
+<p>One runtime is built per adapter and kept, so this happens once at construction or not at
+  all. The engine is async all the way down and <code>futures::executor::block_on</code> panics at
+  collect time with "no reactor running", so there is no runtime-free path to fall back to.
+- <code>Environment</code> - The execution environment - the bounded memory pool, and nowhere to spill - could not be built.</p>
+<p>Separate from <code>Self::Runtime</code>, which is the <em>tokio</em> runtime: one is a thread pool and one is
+  the memory bound, and a deployment that cannot start needs to know which. Like <code>Runtime</code> it
+  happens once at construction or not at all.
+- <code>UnknownCodec</code> - A path's outermost extension spells a compression codec this build cannot read.</p>
+<p><strong>A parse rather than a fallback, and the failure it replaces is silent.</strong> Handing a
+  compressed file to the engine as plain text does not fail: the schema is inferred from the
+  codec's own header bytes, and the table resolves to columns nobody declared. So an extension
+  that certainly names a codec and is not one this build compiled is refused by name.</p>
+<p><code>crate::attach</code>'s <code>NEAR_MISSES</code> carries why this is a closed list rather than "anything
+  unrecognised": <code>orders.txt</code> is a CSV and must keep reading.
+- <code>UnknownFormat</code> - A path's extension names no format this engine reads.</p>
+<p>Raised by <code>attach_file</code>'s dispatch and by nothing else, so a composition root that offered a
+  candidate name outside <code>crate::attach::candidates</code> gets a refusal rather than a CSV read of
+  a file that is not one.
+- <code>Attach</code>
+- <code>QualifiedTableUnreachable</code> - A model names a table this engine has nowhere to look for.</p>
+<p><strong>This engine registers one file per model in its own table registry - there is no catalog and
+  no schema above it - so a <code>dataset.table</code> or a <code>project.dataset.table</code> path names nothing it
+  holds.</strong> Refused by name rather than by dropping the qualifier and reading the table of that
+  name from the registry, which is the wrong-number failure issue #83 reports: a plausible answer
+  under a certified metric, off a table nobody asked for.</p>
+<p>A typed error and not a <code>RefusalReason</code>, because no question a caller could ask produces one:
+  a table path comes from a catalog document. <code>sutura serve</code> refuses the same thing at BOOT, so a
+  deployment reaches this only if a model arrived after the engine was opened.</p>
+<p><code>sutura_sql::Dialect::qualification</code> declares the same limit for the rendering side, where
+  <code>DuckDb</code> is <code>TableOnly</code> for exactly this reason.
+- <code>Build</code> - A logical plan could not be assembled from the query plan.</p>
+<p>A bug here or upstream rather than a refusal: a caller cannot ask anything that causes one.
+- <code>Analyze</code> - The engine refused the plan: an unknown table, an unknown column, a type mismatch.
+- <code>Execute</code>
+- <code>Unreadable</code> - A result column could not be read as a domain value.</p>
+<p><strong>Wrapped rather than restated, and that is <code>docs/adr/0039</code>'s point.</strong> The mapping from an
+  Arrow array to a <code>Value</code> is <code>sutura_domain::warehouse::arrow</code>'s, shared with every adapter
+  whose driver speaks Arrow, so the five variants this replaces - an unmapped type, a failed
+  downcast, a non-finite double, a day count that is not a date, a result that is not
+  rectangular - are one cause with one set of messages instead of one copy per adapter.</p>
+<p>The <code>#[source]</code> chain is what keeps the detail reachable: <code>sutura-app</code>'s bounds suite matches
+  <code>UnreadableCell::NotFinite</code>'s own column through it, which is what
+  <code>zero_denominator: fails</code> actually produces.
+- <code>Unannounced</code> - A result batch did not carry the fields the schema it arrived under announced.</p>
+<p>Unreachable through this engine - it produces its own batches from its own plan - and kept
+  because the check is the shared one: <code>Accumulating</code> is the same guard a foreign ADBC driver's
+  stream goes through, and one path through it is what stops the engine's own collection being
+  the lenient copy.
+- <code>SchemaMismatch</code> - The result schema is not the one the plan's labels describe.</p>
+<p>Checked rather than papered over. <code>QueryPlan::result_labels</code> is the one definition both
+  adapters build from, so a disagreement here means the projection is not what we think it is,
+  and answering from it would return a number from a column nobody chose.
+- <code>KeyCounts</code> - A key probe's result was not the pair of counts its aggregate projects.</p>
+<p>A defect in this crate's aliasing or in its value mapping rather than anything about the
+  data - two aggregates over no group produce one row of two integers - and it travels as an
+  <code>Err</code> from the port, which the boot path reads as <em>this declaration went unchecked</em>.
+- <code>MissingParam</code> - A predicate named a parameter index the plan does not have.</p>
+<p>Predicates are resolved by their recorded index rather than by position, so this is what a
+  plan built with a stale index looks like instead of a silently wrong comparison.
+- <code>NoPredicate</code> - A plan with no predicate at all.</p>
+<p>Unreachable: a plan always carries the two bounds of its <code>TimeRange</code>, which cannot be
+  unbounded. Written as a branch rather than an assertion because the SQL path refuses the
+  same shape, and an adapter that quietly ran it unfiltered would disagree with the other one
+  about an unbounded scan.
+- <code>NoPlaceForASubject</code> - The credential broker handed this adapter subject material it has nowhere to put.</p>
+<p><strong>An <code>Err</code> and never a refusal, and the direction is the point.</strong> Nothing about the question
+  was wrong: it is a wiring defect between the broker and the source declaration, and offering
+  it as a refusal would invite a client to retry a deployment bug until something works.
+  <code>docs/adr/0008</code> part 4 states both directions and says which one is silent - an adapter that
+  quietly <em>accepted</em> material it cannot use would report a leg as impersonated that ran shared.</p>
+<p>This adapter is one process reading local files under one operating-system identity, which is
+  what <code>Warehouse::IMPERSONATION</code> declares, so the only shape it can be handed is the
+  deployment's own identity for that source. A configuration that asked for anything else does
+  not boot - <code>SourcePosture::deliverable_by</code> refuses it in the composition root - so reaching
+  this arm in production means the broker ignored the declaration it reads.
+- <code>PresentedDisagreesWithPosture</code> - The broker presented a leg that does not agree with how this source was DECLARED.</p>
+<p><strong>The check above answers a different question, and a review found the gap.</strong>
+  <code>NoPlaceForASubject</code> compares what arrived against what this CODE can carry - the
+  <code>Warehouse::IMPERSONATION</code> constant - and says nothing about the posture the composition
+  root handed this adapter. So a shared leg carrying a <em>different</em> operator acknowledgement
+  matched the variant and was accepted, and provenance - which is read off <code>posture</code> - then
+  reported this adapter's own declaration rather than the acknowledgement the broker actually
+  presented.</p>
+<p>The comparison is a real one rather than a value against itself: the broker reads the settings
+  tree and this adapter holds what the root handed it. An <code>Err</code> for the reason the variant above
+  is one - a wiring defect between the broker and the source declaration, which no caller may
+  retry into an answer. The typed cause carries which disagreement it was.
+- <code>DeadlineExceeded</code> - The deadline ran out before a call or around the whole <code>rows</code> future. Dropping that future requests abort of spawned asynchronous tasks; <code>DataFusion</code> wraps non-cooperative plan leaves so they yield. Already-running blocking work cannot be aborted and may outlive this error.</p>
+<h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h2 id="struct-datafusionwarehouse"><code>struct DataFusionWarehouse</code><a class="headerlink" href="#struct-datafusionwarehouse" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DataFusionWarehouse</span>
+</span></code></pre></div>
+<p>An in-process engine, behind the <code>Warehouse</code> port.</p>
+<h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_csv</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Exposes a CSV file as a table, compressed or not. <code>DataFusion</code> handles inference.</p>
+<p>The codec comes from the path - see <code>Codec::of_path</code> - so <code>orders.csv</code> and <code>orders.csv.gz</code>
+are one call.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_file</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Exposes whichever format a path's extensions name, compressed or not.</p>
+<p>The one entry point a composition root needs: it pairs with <code>candidates</code>, so the set of
+names a deployment looks for and the set this dispatch accepts are the same list. An
+extension naming no format this engine reads is <code>DataFusionError::UnknownFormat</code> rather
+than a guess at CSV - inferring a schema from a file of the wrong shape is how a table
+resolves to columns nobody declared.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_fixture_csv</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Exposes a deliberately simple conformance fixture CSV with exact shared types.</p>
+<p>Available only with the default-off <code>fixtures</code> feature.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_json</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Exposes a newline-delimited JSON file as a table, compressed or not.</p>
+<p>The CSV affordance's twin for the other plain-text format, and the second half of what
+<code>datafusion/compression</code> buys. NDJSON rather than a JSON array: the engine reads one record
+per line, which is what streams and what a schema can be inferred from without holding the
+document.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_parquet</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Exposes a Parquet file as a table.</p>
+<p><strong>No codec argument, and that is the point rather than an omission.</strong> A Parquet file records
+its own compression per column chunk and the <code>parquet</code> feature's codecs read it, so there is
+nothing for <code>Codec</code> to decide - and an outer <code>.gz</code> around a Parquet file is
+<code>DataFusionError::UnknownCodec</code> through <code>Codec::of_path</code>, which is the honest answer to a
+file that should not have been written that way. The module header carries the distinction.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Builds an adapter with nothing registered.</p>
+<p>There is no file to open, which is the difference from the <code>DuckDB</code> adapter: the engine is
+this process, and a table exists once it has been attached.</p>
+<p><strong>It takes a ceiling, and that is not optional.</strong> <code>SessionContext::new()</code> installs the
+engine's unbounded pool, which under <code>panic = "abort"</code> makes a large enough join process death
+rather than a refusal - so a constructor that let a caller skip the bound would be the one
+place the whole control could be forgotten. <code>sutura_config::WorkingSetCeiling::DEFAULT_BYTES</code>
+is what a caller with no settings to read uses.
+<strong>It also takes the posture, and that is not optional either</strong>, for the reason the ceiling is
+not: a defaulted posture would be a claim about who a query runs as that nobody made.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_worker_threads</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">workers</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The same adapter, <code>workers</code> threads wide.</p>
+<p><strong>What <code>Self::new</code> costs when several threads call it at once, measured rather than
+assumed.</strong> Twenty questions per caller over a million rows, in the <code>dev</code> profile - where
+every dependency is already at <code>opt-level = 3</code>, so the aggregation kernels are the shipped
+ones - on a sixteen-way host. Throughput, normalised to one caller on the current-thread
+runtime:</p>
+<table>
+<thead>
+<tr>
+<th>callers</th>
+<th><code>new</code></th>
+<th><code>with_worker_threads(callers)</code></th>
+<th>one <code>new</code> per caller</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>1.00x</td>
+<td>1.07x</td>
+<td>0.98x</td>
+</tr>
+<tr>
+<td>2</td>
+<td>1.02x</td>
+<td>2.08x</td>
+<td>1.82x</td>
+</tr>
+<tr>
+<td>4</td>
+<td>1.03x</td>
+<td>3.94x</td>
+<td>3.14x</td>
+</tr>
+<tr>
+<td>8</td>
+<td>1.01x</td>
+<td>6.06x</td>
+<td>4.87x</td>
+</tr>
+</tbody>
+</table>
+<p>The first column is the finding: it is <em>flat</em>. A shared current-thread runtime does not scale
+with callers at all on this workload, because every <code>block_on</code> drives the same single-threaded
+core and the work is inside it. The third column is the other candidate - a runtime per
+calling thread - and it is consistently worse than one wide runtime while also needing
+per-thread state, so it was not taken.</p>
+<p><strong>The partition count follows the width</strong>, which a bare <code>worker_threads</code> call would not do.
+<code>DataFusion</code> defaults <code>target_partitions</code> to <code>available_parallelism</code> - the number this key
+exists to override, since a CPU quota does not change it - so a two-worker runtime would
+otherwise build sixteen-way plans and execute them two at a time. Pinning it is why the small
+widths above are <em>ahead</em> of the baseline rather than level with it.</p>
+<p><code>Self::new</code> is deliberately left alone: the command-line tool answers one question and
+exits, and it is also the caller with no settings to read a width from.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">working_set</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">WorkingSet</span>
+</span></code></pre></div>
+<p>The configured pool ceiling; <code>MemoryPool::memory_limit</code> can report <code>Unknown</code> instead.</p>
+<h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
+<p><code>Debug</code>, <code>Drop</code>, <code>Warehouse</code></p>
+<h2 id="use-codec"><code>use Codec</code><a class="headerlink" href="#use-codec" title="Permanent link">&para;</a></h2>
+<p>The outer codec a text file is wrapped in.</p>
+<p>A closed enum over what <code>datafusion/compression</code> compiles rather than a re-export of
+<code>FileCompressionType</code>: that type also has variants for codecs this build does not have, so
+matching on it would mean an arm nothing can produce. Converted at the one call site.</p>
+<h2 id="use-candidates"><code>use candidates</code><a class="headerlink" href="#use-candidates" title="Permanent link">&para;</a></h2>
+<p>Every file name one model's table could arrive under, in the order to prefer them.</p>
+<p><strong>The engine owns this list, not a composition root</strong>, and that is what stops a deployment
+offering a candidate <code>DataFusionWarehouse::attach_file</code> then refuses - or missing one it
+reads. Parquet first, because it carries its own schema and its own codecs; then the two
+plain-text formats, each uncompressed and then once per codec.</p>
+<p>The names are relative: a caller joins each onto its data directory and takes the first that is
+a file. <code>sutura_cli</code>'s two file-source searches are the callers.</p>
+<h2 id="use-workingset"><code>use WorkingSet</code><a class="headerlink" href="#use-workingset" title="Permanent link">&para;</a></h2>
+<p>How many bytes the engine's operators may reserve at once.</p>
+<p><strong>A newtype for the unit rather than for a range</strong>, and that is the whole of its job:
+<code>DataFusionWarehouse::with_worker_threads</code>
+already takes a <code>NonZeroUsize</code> for a thread count, so a second bare <code>NonZeroUsize</code> beside it would
+be two arguments of one type whose meanings are a width and a quantity of memory. Swapping them
+compiles and installs a three-byte pool. Wrapped, the swap does not build.</p>
+<p>It parses nothing beyond non-zero, which the inner type already carries - the range that matters is
+parsed once, in <code>sutura_config::WorkingSetCeiling</code>, against the memory the process can actually
+reach. This crate does not depend on that one and must not: an adapter does not call another
+adapter, so the composition root converts.</p>
+<h2 id="use-combineerror"><code>use CombineError</code><a class="headerlink" href="#use-combineerror" title="Permanent link">&para;</a></h2>
+<p>Why a combine could not be assembled.</p>
+<p>Split the way the port's two predicates read it: the four caller-facing arms are deterministic
+refusals about the DATA the legs returned, and the rest are this workspace's own wiring or the
+engine's. Every arm carries an Arrow type or a label where it carries anything at all - a
+driver's metadata and a label the splitter assigned - and never a cell.</p>
+<h2 id="use-datafusioncombiner"><code>use DataFusionCombiner</code><a class="headerlink" href="#use-datafusioncombiner" title="Permanent link">&para;</a></h2>
+<p>The combiner: a tokio runtime, and a bounded session built per combine.</p>
+<p><strong>It holds no session, and that is the whole reason the ceiling is a real bound.</strong> A
+<code>GreedyMemoryPool</code> is installed on a <code>RuntimeEnv</code> and a <code>RuntimeEnv</code> is installed on a
+<code>SessionContext</code>, so a combiner that kept one session would have to fix the ceiling at
+construction - and the ceiling is what a deployment configures per question. One session per
+combine also means a combine's registered tables cannot outlive it, which is what keeps one
+caller's leg results out of another's session.</p>
+<p><strong>What it does NOT hold is an identity, and that is not an omission.</strong> <code>crate::pool</code>'s process
+is one operating-system identity, so a combine runs as the deployment. What the combiner carries
+per subject instead is a <code>ComputeContext</code> - see
+<code>Self::for_subject</code>.</p>
+<h2 id="module-measurement">Module <code>measurement</code><a class="headerlink" href="#module-measurement" title="Permanent link">&para;</a></h2>
+<p>Opt-in peak recording for measurement-only children, excluded from default builds.
+Opt-in measurement construction for bounded DataFusion execution.</p>
+<p><code>MeasuredWarehouse</code> changes no ordinary construction
+path. It keeps a bounded recording pool beside a fresh adapter so a child can read only the engine
+operators' reservation peak. It does not measure driver buffering, collected batches, domain-row
+conversion, or the process resident set.</p>
+<h3 id="struct-measuredwarehouse"><code>struct MeasuredWarehouse</code><a class="headerlink" href="#struct-measuredwarehouse" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MeasuredWarehouse</span>
+</span></code></pre></div>
+<p>A measured warehouse and its persistent operator-reservation observer.</p>
+<p>It delegates the execution port unchanged. Ordinary <code>DataFusionWarehouse</code> construction retains
+its direct <code>GreedyMemoryPool</code>, so recording
+costs nothing outside an explicit measurement child.</p>
+<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_csv</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Attaches one CSV table to the measured child.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">pool_peak</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<p>The persistent operator reservation peak in bytes.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">pool_reserved</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<p>The reservation at the end of the observation window.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">reset_peak</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Starts a new pool observation window.</p>
+<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<p><code>Warehouse</code></p>
+<h2 id="module-pool">Module <code>pool</code><a class="headerlink" href="#module-pool" title="Permanent link">&para;</a></h2>
+<p>The working-set ceiling.</p>
+<p>The pool, the never-spill policy, and how a refused reservation is recognised. Its own file
+because it is a third seam, and because <code>lib.rs</code> is at the length gate.
+The working-set ceiling.</p>
+<p>The pool the engine's operators reserve against, and how a refused reservation is recognised on
+the way back out.</p>
+<h1 id="why-this-file-exists-at-all">Why this file exists at all<a class="headerlink" href="#why-this-file-exists-at-all" title="Permanent link">&para;</a></h1>
+<p><strong>There was no memory pool.</strong> Nothing in the workspace constructed a <code>RuntimeEnv</code>, so
+<code>DataFusion</code> installed its <code>UnboundedMemoryPool</code> at both <code>SessionContext</code> construction sites -
+and shipped profiles compile <code>panic = "abort"</code>, so a hash join or an aggregate wide enough to
+outgrow the machine was not an error for the caller who asked. It was the process ending for every
+caller in flight. A bounded pool turns that into a reservation that fails, which
+<code>sutura_app::answer</code> turns into <code>RefusalReason::ResourcesExhausted</code>.</p>
+<h1 id="what-the-pool-counts-and-what-it-does-not">What the pool counts, and what it does not<a class="headerlink" href="#what-the-pool-counts-and-what-it-does-not" title="Permanent link">&para;</a></h1>
+<p>It counts what the engine's own operators reserve: a hash-join build side, aggregate state, a
+sort. <strong>It counts nothing else.</strong> Not what a driver buffers, not the batches a result is held as,
+not the <code>Vec&lt;Vec&lt;Value&gt;&gt;</code> built while a result is converted into domain rows.</p>
+<p><strong>Two of those three are now bounded, by a different mechanism, and this is where the boundary
+between them is stated.</strong> <code>docs/adr/0009</code> puts a byte budget at the execution boundary rather
+than here, and it is built: <code>WorkingSet::result_budget</code> converts this ceiling into a
+<code>ResultBudget</code> that
+<code>sutura_domain::warehouse::Accumulating::push</code> spends as each batch arrives, charging both the
+batches held and the row conversion to come. So a result wide enough to end the process is
+refused rather than materialised, and <code>collect()</code> is gone from this crate - the engine's own
+output is streamed into that guard.</p>
+<p><strong>What is still not bounded, so this pool is still not a bound on the process's memory:</strong> a
+driver's own buffering, which is a foreign adapter's business rather than this engine's, and the
+per-batch peak - one batch arrives whole before it can be charged, so the budget is exceeded
+transiently by whatever the engine's largest single batch costs. And the two are separate
+budgets sized from one number, so the two together reach twice the configured ceiling rather
+than once. Neither is alertable as process memory.</p>
+<h1 id="greedy-and-never-spilling">Greedy, and never spilling<a class="headerlink" href="#greedy-and-never-spilling" title="Permanent link">&para;</a></h1>
+<p><code>GreedyMemoryPool</code> rather than
+<code>FairSpillPool</code>: first come, first served, and a reservation over the ceiling fails immediately.
+<code>docs/adr/0009</code> Decision 3 decides the policy and the second of its two reasons is what settles
+it - spilling writes the <strong>asking subject's rows</strong> to the pod's local disk, a data-at-rest
+surface nothing in this design governs, on the one path whose whole purpose is that a query
+executes as the person who asked. A bound that protects memory by making an ungoverned copy of
+the data has not protected anything.</p>
+<p>So temporary files are <strong>disabled</strong> rather than left at the engine's default of an OS temporary
+directory. That is belt and braces on purpose: the pool alone would still let a spilling operator
+react to a refused reservation by writing, and <code>DiskManagerMode::Disabled</code> is what makes there be
+nowhere to write to. No spill directory, no disk sizing, and a refusal that does not depend on
+disk state.</p>
+<p>Not wrapped in <code>TrackConsumersPool</code> either, though it would improve the engine's own message: what
+reaches a caller is <code>sutura_domain::query::RefusalReason::ResourcesExhausted</code>,
+which carries the configured ceiling and deliberately nothing about what the question demanded.</p>
+<p><strong>No production gauge reads the <code>DataFusion</code> pool.</strong> ADR 0015 specifies that absence because an
+operator-reservation reading is narrower than process memory. The opt-in measurement feature is
+a gauge whose absence it currently specifies for production: it observes a separate recording
+pool in fresh test children and exposes no accessor on the ordinary adapter.</p>
+<h3 id="struct-workingset"><code>struct WorkingSet</code><a class="headerlink" href="#struct-workingset" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WorkingSet</span>
+</span></code></pre></div>
+<p>How many bytes the engine's operators may reserve at once.</p>
+<p><strong>A newtype for the unit rather than for a range</strong>, and that is the whole of its job:
+<code>DataFusionWarehouse::with_worker_threads</code>
+already takes a <code>NonZeroUsize</code> for a thread count, so a second bare <code>NonZeroUsize</code> beside it would
+be two arguments of one type whose meanings are a width and a quantity of memory. Swapping them
+compiles and installs a three-byte pool. Wrapped, the swap does not build.</p>
+<p>It parses nothing beyond non-zero, which the inner type already carries - the range that matters is
+parsed once, in <code>sutura_config::WorkingSetCeiling</code>, against the memory the process can actually
+reach. This crate does not depend on that one and must not: an adapter does not call another
+adapter, so the composition root converts.</p>
+<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<p>The ceiling, for whatever sizes the pool.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_bytes</span><span class="p">(</span><span class="n">bytes</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The ceiling, in bytes.</p>
+<p>The one constructor, named for the unit so a call site reads as bytes at the point of the call
+rather than at the declaration it came from.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">result_budget</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">ResultBudget</span>
+</span></code></pre></div>
+<p>The same number, as the budget one result's materialisation is charged against.</p>
+<p><strong>The configured ceiling and not a second key</strong>, which is the decision and it is sized by
+what a wrong value costs. <code>runtime.working_set_max_bytes</code> is already mandatory and already
+checked at boot against the memory this process can reach, so deriving from it cannot be
+unset, cannot default to unlimited, and cannot disagree with the number an operator tuned. A
+second key could be all three.</p>
+<p><strong>The limit, next to the claim:</strong> two budgets sized from one number are still two budgets.
+The operators may reserve up to the ceiling and one result may cost up to the ceiling, so a
+query's worst case is twice it - not once, which is what a reader of one number would assume.
+<code>docs/adr/0009</code>'s amendment carries the arithmetic.</p>
+<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

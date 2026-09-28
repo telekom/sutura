@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" color="#E20074" fill="currentColor">
+  <title>sutura</title>
+  <!--
+    The reduced mark, drawn for 16 pixels rather than scaled down to them. The primary is
+    layered; a tab is not, and every layer in `docs/assets/sutura.svg` measures under a pixel
+    here. So this is the primary's silhouette and nothing else: the hexagon and the seam.
+
+    Three deliberate differences from docs/assets/sutura.svg:
+      * The hexagon is 28 wide in a 32 box rather than 520 in 600, so it fills a tab's square
+        without being stretched into a diamond: 28/32 sits within a hair of the regular 0.866,
+        and a full 32 wide version lost the hexagon read at 16px.
+      * The seam is 4 units of 32 rather than 50 of 600, so it survives 16px as a real
+        two-pixel channel instead of a pale tint.
+      * Every coordinate is even, so at 16px every edge lands on a whole pixel and the
+        silhouette stays hard. An odd bound straddles two pixels and turns the seam grey.
+
+    One flat magenta and a transparent seam, so the icon reads on a light and on a dark tab
+    strip without a second file.
+  -->
+  <polygon points="16,0 30,8 30,14 2,14 2,8"/>
+  <polygon points="2,18 30,18 30,24 16,32 2,24"/>
+</svg>

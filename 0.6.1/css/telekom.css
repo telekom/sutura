@@ -1,0 +1,46 @@
+/* Telekom magenta for Material for MkDocs.
+ *
+ * #E20074 is not one of Material's named palette colours, so `mkdocs.yml` asks for
+ * `primary: custom` / `accent: custom` and the values are defined here.
+ *
+ * Two colour jobs with different rules, which is why the same magenta is not used for both:
+ *
+ *   - The HEADER is magenta with white text on it. White on #E20074 is 4.68:1, which clears
+ *     WCAG AA, so the header carries the brand colour unmodified in BOTH schemes.
+ *   - LINK TEXT sits on the page background, and there the two schemes diverge. #E20074 is
+ *     4.68:1 on Material's white `default` background and only 2.73:1 on the `slate`
+ *     background (#2E323E) - well under AA. So `slate` gets the brand colour lifted rather
+ *     than a different hue: #FF7AC0 is 5.36:1 there. Every value below carries its ratio.
+ *
+ * Header colour is deliberately NOT lifted in slate: white on #FF7AC0 is 2.39:1, so a lifted
+ * header would trade a readable link for an unreadable title.
+ */
+
+:root {
+  /* The header, the active nav marker and the search bar. Same in both schemes. */
+  --md-primary-fg-color: #e20074; /* white on it: 4.68:1 */
+  --md-primary-fg-color--light: #ff5fb0;
+  --md-primary-fg-color--dark: #a80054;
+  /* Text and icons ON the primary colour. */
+  --md-primary-bg-color: #ffffff;
+  --md-primary-bg-color--light: #ffffffb3;
+}
+
+[data-md-color-scheme="default"] {
+  --md-typeset-a-color: #e20074; /* 4.68:1 on #ffffff */
+  --md-accent-fg-color: #a80054; /* 7.52:1 - hover, and the focused search result */
+  --md-accent-fg-color--transparent: #e2007414;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-typeset-a-color: #ff7ac0; /* 5.36:1 on slate's #2E323E, where #E20074 is 2.73:1 */
+  --md-accent-fg-color: #ffa3d5; /* 6.97:1 - one step further from the page than a link */
+  --md-accent-fg-color--transparent: #ff7ac01f;
+}
+
+/* The header carries the brand magenta, so a magenta mark on it is invisible. The header's own
+ * text is white and the mark joins it: `brightness(0)` flattens the artwork to black, keeping
+ * its alpha, and `invert(1)` turns that white - one filter instead of a second white-only file. */
+.md-header__button.md-logo img {
+  filter: brightness(0) invert(1);
+}
