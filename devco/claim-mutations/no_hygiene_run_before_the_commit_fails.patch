@@ -2,12 +2,13 @@ diff --git a/xtask/src/workflows/version_bump.rs b/xtask/src/workflows/version_b
 index 3e612e234..4ceaf6063 100644
 --- a/xtask/src/workflows/version_bump.rs
 +++ b/xtask/src/workflows/version_bump.rs
-@@ -102,7 +102,7 @@ pub(crate) fn check(workflow: &str) -> Vec<String> {
- 
+@@ -110,7 +110,8 @@ pub(crate) fn check(workflow: &str) -> Vec<String> {
+
      if !before_commit
          .iter()
--        .any(|line| HYGIENE_MARKERS.iter().any(|marker| line.contains(marker)))
-+        .any(|line| HYGIENE_MARKERS.iter().any(|marker| line.contains(marker)) || true)
+         .filter(|line| !line.trim_start().starts_with('#'))
++        .filter(|line| false)
+         .any(|line| HYGIENE_MARKERS.iter().any(|marker| line.contains(marker)))
      {
          problems.push(format!(
              "{WORKFLOW}: no step before the commit runs the structural sweep ({HYGIENE_MARKERS:?}) - a bump that would redden main is only found there, afterwards"

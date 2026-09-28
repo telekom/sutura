@@ -2,21 +2,16 @@ diff --git a/xtask/src/workflows/version_bump.rs b/xtask/src/workflows/version_b
 index 50446ebc6..0afa01929 100644
 --- a/xtask/src/workflows/version_bump.rs
 +++ b/xtask/src/workflows/version_bump.rs
-@@ -69,11 +69,12 @@ pub(crate) fn check(workflow: &str) -> Vec<String> {
- 
+@@ -70,12 +70,13 @@ pub(crate) fn check(workflow: &str) -> Vec<String> {
      match before_commit.iter().position(|line| line.contains(CHANGELOG_WRITE_MARKER)) {
          Some(write_at) => {
--            if !before_commit
--                .get(write_at..)
--                .unwrap_or(&[])
--                .iter()
--                .any(|line| line.contains(DPRINT_MARKER))
-+            if false
-+                && !before_commit
-+                    .get(write_at..)
-+                    .unwrap_or(&[])
-+                    .iter()
-+                    .any(|line| line.contains(DPRINT_MARKER))
+             if !before_commit
+                 .get(write_at..)
+                 .unwrap_or(&[])
+                 .iter()
++                .filter(|line| false)
+                 .filter(|line| !line.trim_start().starts_with('#'))
+                 .any(|line| line.contains(DPRINT_MARKER))
              {
                  problems.push(format!(
                      "{WORKFLOW}: the step that writes CHANGELOG.md (`{CHANGELOG_WRITE_MARKER}`) is not followed by a `{DPRINT_MARKER}` line before the commit - a release can tag an unformatted changelog again"

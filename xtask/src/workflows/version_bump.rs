@@ -15,8 +15,8 @@
 //!   3. the commit step's own `git add` line names `fuzz/Cargo.lock`, so the update in (2) is
 //!      not computed and then silently left uncommitted;
 //!   4. some step before the commit runs the SAME structural sweep `ci.yml` runs over every pull
-//!      request (`xtask -- hygiene` or `cargo xtask hygiene`) - so a bump that WOULD redden main
-//!      fails in the bump instead (`MAIN 17:10`'s "never again" order, general form).
+//!      request (`xtask -- hygiene` or `cargo xtask hygiene`) - so a bump that would redden main
+//!      fails in the bump instead (preventing releases that break at tag-time).
 //!
 //! Reads the job's raw lines through [`super::step::job`] rather than a YAML parser, for the
 //! reason every other `xtask` workflow gate does: no dependency, and the shapes this one
@@ -38,9 +38,9 @@ use super::step;
 const WORKFLOW: &str = ".github/workflows/version-bump.yml";
 const JOB: &str = "bump";
 
-/// The commit step's own marker - unique in this workflow, unlike `git commit` alone, which the
-/// stale-dispatch check's own `git -c credential.helper=...` step also contains as a substring
-/// of neither.
+/// The commit step's own marker - unique in this workflow. The substring `git commit` alone
+/// would appear in other steps (e.g., the stale-dispatch check's credential helper step), so we
+/// use the full form with the commit message prefix.
 const COMMIT_MARKER: &str = "git commit -m \"chore(release):";
 const CHANGELOG_WRITE_MARKER: &str = "-o CHANGELOG.md";
 const DPRINT_MARKER: &str = "dprint";
@@ -73,6 +73,7 @@ pub(crate) fn check(workflow: &str) -> Vec<String> {
                 .get(write_at..)
                 .unwrap_or(&[])
                 .iter()
+                .filter(|line| !line.trim_start().starts_with('#'))
                 .any(|line| line.contains(DPRINT_MARKER))
             {
                 problems.push(format!(
@@ -109,6 +110,7 @@ pub(crate) fn check(workflow: &str) -> Vec<String> {
 
     if !before_commit
         .iter()
+        .filter(|line| !line.trim_start().starts_with('#'))
         .any(|line| HYGIENE_MARKERS.iter().any(|marker| line.contains(marker)))
     {
         problems.push(format!(

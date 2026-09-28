@@ -1,0 +1,26 @@
+diff --git a/flake.nix b/flake.nix
+index 1234567..abcdefg 100644
+--- a/flake.nix
++++ b/flake.nix
+@@ -1,2 +1,2 @@
+         program = builtins.toString (pkgs.writeShellScript "sutura-deny" ''
+           set -eu
+           export PATH="${toolchain}/bin:${pkgs.cargo-deny}/bin:$PATH"
+           cargo deny check "$@"
+-          cargo deny --manifest-path fuzz/Cargo.toml check -A license-not-encountered "$@"
+         '');
+diff --git a/justfile b/justfile
+index 1234567..abcdefg 100644
+--- a/justfile
++++ b/justfile
+@@ -1,3 +1,2 @@
+     @just lint
+     cargo deny check || true
+-    cargo deny --manifest-path fuzz/Cargo.toml check -A license-not-encountered || true
+diff --git a/nix/run-gate.sh b/nix/run-gate.sh
+index 1234567..abcdefg 100644
+--- a/nix/run-gate.sh
++++ b/nix/run-gate.sh
+@@ -1,3 +1,2 @@
+       deny_run cargo deny check
+-      deny_run cargo deny --manifest-path fuzz/Cargo.toml check -A license-not-encountered

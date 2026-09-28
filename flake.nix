@@ -1276,7 +1276,7 @@
         apps.xtask = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-xtask" ''
-            export PATH="${toolchain}/bin:$PATH"
+            export PATH="${toolchain}/bin:${jscpd}/bin:$PATH"
             exec ${self.packages.${system}.xtask}/bin/xtask "$@"
           '');
         };
