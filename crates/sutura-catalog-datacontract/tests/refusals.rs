@@ -205,4 +205,33 @@ mod tests {
             "a directory past the document cap is refused: {outcome:?}"
         );
     }
+
+    /// The entry cap bounds the tree, not the documents: a wide directory of skipped non-document
+    /// files is refused here rather than walked without end. Ten thousand and one `.txt` files -
+    /// none a document the walk collects - plus one valid `.yaml` (so the refusal is the entry cap,
+    /// not `Empty`) trips `MAX_CATALOG_ENTRIES` before the document cap `TooManyDocuments` ever
+    /// could, because the entry count is checked on every entry and the document count only on
+    /// each document inserted.
+    #[test]
+    fn a_directory_with_more_than_ten_thousand_entries_is_refused() {
+        let root = scratch("too-many-entries");
+        for i in 0..=10_000 {
+            std::fs::write(root.join(format!("skip-{i}.txt")), "not a document").expect("a scratch file is writable");
+        }
+        let document = contract("x", "  - name: m\n    properties:\n      - name: id\n");
+        std::fs::write(root.join("contract.yaml"), document).expect("a contract is writable");
+        let outcome = catalog(root.clone()).load();
+        drop(std::fs::remove_dir_all(&root));
+        assert!(
+            matches!(
+                outcome,
+                Err(DataContractError::TooManyEntries {
+                    found: 10_001,
+                    limit: 10_000,
+                    ..
+                })
+            ),
+            "a directory past the entry cap is refused: {outcome:?}"
+        );
+    }
 }
