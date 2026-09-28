@@ -68,6 +68,11 @@ fn a_value_is_one_line_and_carries_no_control_character() {
     }
 }
 
+/// Of the twelve [`NEIGHBOURS`], the four that `char::is_whitespace` marks `White_Space` and are
+/// therefore refused as [`InvalidDimensionValue::Spacing`] rather than accepted: hair space, the
+/// paragraph separator, narrow no-break space and medium mathematical space.
+const SPACING_NEIGHBOURS: &[u32] = &[0x200A, 0x2029, 0x202F, 0x205F];
+
 #[test]
 fn every_invisible_range_is_refused_at_both_ends_and_no_neighbour_of_one_is() {
     for &code in INVISIBLE {
@@ -85,25 +90,26 @@ fn every_invisible_range_is_refused_at_both_ends_and_no_neighbour_of_one_is() {
     for &code in NEIGHBOURS {
         let benign = character(code);
         let raw = format!("nor{benign}th");
-        // `U+2029` is a paragraph separator and `U+202F` a narrow no-break space, so two of the
-        // neighbours are refused for a DIFFERENT reason - which is the point: none of them is
-        // refused as invisible.
+        // Four of the neighbours are refused for a DIFFERENT reason (see `SPACING_NEIGHBOURS`
+        // below), so this only pins that none of the twelve is refused as invisible.
         let outcome = DimensionValue::parse(&raw);
         assert!(
             !matches!(outcome, Err(InvalidDimensionValue::InvisibleCharacter { .. })),
             "{code:#06x} is not one of the invisible ones: {outcome:?}"
         );
-    }
-    // Two of those neighbours are refused for a DIFFERENT reason, and the negative assertion above
-    // cannot tell that from acceptance. Pin the reason: both are spacing a reader cannot account for,
-    // not invisible characters and not valid values.
-    for code in [0x2029u32, 0x202Fu32] {
-        let raw = format!("nor{}th", character(code));
-        assert_eq!(
-            DimensionValue::parse(&raw),
-            Err(InvalidDimensionValue::Spacing { value: raw }),
-            "{code:#06x} is a spacing character, not an invisible one"
-        );
+        if SPACING_NEIGHBOURS.contains(&code) {
+            assert_eq!(
+                outcome,
+                Err(InvalidDimensionValue::Spacing { value: raw }),
+                "{code:#06x} is a spacing character, not an invisible one"
+            );
+        } else {
+            assert_eq!(
+                outcome.map(|value| value.as_str().to_owned()),
+                Ok(raw),
+                "{code:#06x} is neither invisible nor unreadable spacing"
+            );
+        }
     }
 }
 
