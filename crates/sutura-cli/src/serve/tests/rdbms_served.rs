@@ -1,6 +1,6 @@
 //! `catalog.kind: rdbms`, with the `rdbms` feature ON: the refusals this build now REACHES
 //! rather than the "not linked" one above. No real endpoint here - each cell is asserting which
-//! typed refusal a boot-time misconfiguration earns, not a read.
+//! refusal string a boot-time misconfiguration earns, not a read.
 //!
 //! The `rdbms` catalog's own connection block is parsed by `sutura-config` (which checks the
 //! shape: a host or a unix socket, a port, a database, a user, an absolute `password_file`, and a
@@ -8,8 +8,13 @@
 //! cannot check is whether the FILE it names is readable, or whether the TLS MATERIAL it points
 //! at parses - those are composition-root refusals, because `sutura-config` does not depend on
 //! the adapter that reads the file and loads the material. These cells reach past the settings
-//! parser and into `open_one_rdbms_catalog`'s own typed errors, the same stand
-//! `datahub_served`'s endpoint cells make for that kind.
+//! parser and into `open_one_rdbms_catalog`, the same stand `datahub_served`'s endpoint cells
+//! make for that kind.
+//!
+//! **`open_catalog` returns `Result<OpenedCatalogs, String>`** (`crate::catalog::open_catalog`) -
+//! there is no typed refusal here to match, and no variant a caller or a later change could be
+//! held to. That limit is main's, not this file's: these cells substring-match the refusal
+//! STRING, asserting it names the catalog and the field that failed.
 //!
 //! Built through `Settings::load` rather than `CatalogSettings::parse` + `with_rdbms`, because
 //! `RdbmsSettings::parse` is `pub(crate)` to `sutura-config` on purpose - the raw shapes are
@@ -49,16 +54,45 @@ fn catalogs(connection: &str) -> sutura_config::Catalogs {
 /// A real, readable password file in a per-run scratch directory, so a cell that is about the TLS
 /// material rather than the credential reaches the TLS load: `open_one_rdbms_catalog` reads
 /// `password_file` BEFORE it builds the TLS client config, so a missing file there masks the
-/// anchor refusal this cell is proving. The directory is a sibling of this binary's own target
-/// temp dir; it leaks across runs rather than being cleaned up, the same way the harness's own
-/// `config_path` does, and for the same reason - a `Drop` guard would outlive the test's own
-/// assertion and a panic during unwinding would abort.
-fn readable_password_file() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("sutura-rdbms-served-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("the scratch directory is creatable");
-    let path = dir.join("password");
-    std::fs::write(&path, "a-test-password\n").expect("the password file is writable");
+/// anchor refusal this cell is proving. The directory is under the OS temp dir
+/// (`std::env::temp_dir()`), cleared on the way in and removed by [`ScratchDir`]'s `Drop` on the
+/// way out - no leak across runs. Mode `0o600`, the same as `harness/postgres.rs::load_into_tier`
+/// writes its own password file, for the same reason: a credential file readable by anyone else
+/// on the host is not one this test should model as normal.
+fn readable_password_file(scratch: &ScratchDir) -> PathBuf {
+    use std::io::Write as _;
+    use std::os::unix::fs::OpenOptionsExt as _;
+
+    let path = scratch.0.join("password");
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&path)
+        .expect("the password file is writable");
+    file.write_all(b"a-test-password\n").expect("the password file is writable");
     path
+}
+
+/// A directory this file owns and removes when dropped - see `tests/served/rdbms.rs`'s `DataDir`
+/// for the same shape. A panic during the owning test's assertions runs this `Drop` during
+/// unwinding rather than skipping it; the removal itself is best-effort and does not panic.
+struct ScratchDir(PathBuf);
+
+impl ScratchDir {
+    fn prepared() -> Self {
+        let dir = std::env::temp_dir().join(format!("sutura-rdbms-served-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        std::fs::create_dir_all(&dir).expect("the scratch directory is creatable");
+        Self(dir)
+    }
+}
+
+impl Drop for ScratchDir {
+    fn drop(&mut self) {
+        drop(std::fs::remove_dir_all(&self.0));
+    }
 }
 
 /// The `password_file` a `kind: rdbms` catalog's own connection block names is read at boot
@@ -80,6 +114,10 @@ fn a_rdbms_catalog_with_an_unreadable_password_file_is_refused_naming_it() {
     );
     assert!(err.contains("could not be read"), "the refusal says what failed: {err}");
     assert!(
+        err.contains("/definitely/not/a/real/secret"),
+        "the refusal names the file that failed: {err}"
+    );
+    assert!(
         !err.contains("--features rdbms"),
         "this build DOES link the feature - the refusal must not send an operator chasing one: {err}"
     );
@@ -96,7 +134,8 @@ fn a_rdbms_catalog_with_an_unreadable_password_file_is_refused_naming_it() {
 /// the cell above already owns.
 #[test]
 fn a_rdbms_catalog_with_a_missing_tls_anchor_bundle_is_refused_naming_it() {
-    let password_file = readable_password_file();
+    let scratch = ScratchDir::prepared();
+    let password_file = readable_password_file(&scratch);
     let connection = format!(
         "      host: \"127.0.0.1\"\n      port: 5432\n      database: \"dictionary\"\n      \
          user: \"reader\"\n      password_file: \"{password_file}\"\n      \
