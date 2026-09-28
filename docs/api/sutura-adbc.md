@@ -82,7 +82,7 @@ Where the driver is, once something has decided that it is reachable at all.
 
 **There is no third state and no `Option`.** A source cannot be opened without one of these,
 so a composition root either resolved a driver or refused to serve - the shape
-`crate::transport::JobIdentity` uses for the same reason.
+`sutura_exec_bigquery::transport::JobIdentity` uses for the same reason.
 
 ## `use UnusableDriverPath`
 

@@ -668,8 +668,6 @@ told where they declare it.
 
 ### `use UnusableDriverPath`
 
-### `use parameter_batch`
-
 ### `constant MOST_RESULT_ROWS`
 
 How many rows this transport will materialise from one result stream before refusing.
