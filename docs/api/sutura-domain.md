@@ -1656,12 +1656,34 @@ pub fn required_filters(&self) -> &[RequiredFilter]
 The predicates every question about this metric carries, whether the caller asked or not.
 
 ```rust
+pub const fn shared_calendar(&self) -> Option<&ModelName>
+```
+
+The conformed calendar model both fact models of a cross-model ratio reach through a
+`via`, or `None` for a one-model metric that buckets through its own `time_column`.
+
+```rust
 pub fn supports_grain(&self, grain: Grain) -> bool
 ```
 
 ```rust
 pub const fn time_column(&self) -> &ColumnName
 ```
+
+```rust
+pub fn with_shared_calendar(self, calendar: ModelName) -> Self
+```
+
+Declares the conformed calendar model both fact models of a cross-model ratio reach
+through a `via` (`telekom/sutura#780`). A builder rather than a constructor argument,
+so every existing caller of `Metric::new` compiles unchanged - a one-model metric has
+no shared calendar, and its on-disk shape and digest do not move the day this field ships.
+
+The name is checked at load by `Definitions::assemble`
+(`InconsistentDefinitions::SharedCalendarNotReachable`): the calendar model must exist,
+and both the metric's own model and every cross-model ratio term's model must reach it
+through a declared relationship. The builder does not check, because the relationships
+are cross-references only the assembled `Definitions` can see.
 
 #### Implements
 
@@ -8281,17 +8303,16 @@ Why a federated plan could not be built.
 
   `telekom/sutura#780`: a cross-model ratio's two facts must read two sources, because each
   source is a separate identity to satisfy and the chasm trap is impossible only when the two
-  facts never share a `FROM`. Same reachability limit as
-  `FactsShareNoKey`: no question reaches this guard yet.
+  facts never share a `FROM`. Reachable from a question: a cross-model ratio whose two fact
+  models sit on one source dispatches to `federated_plan` with a second leg, and this guard
+  catches it. `FactsShareNoKey` carries the same reachability.
 - `FactsShareNoKey` - Two fact legs share no key label, so the join above them is impossible.
 
   The chasm-trap guard as a type refusal: without a shared dimension key to join on, a
   combined answer is not a certified number but two unrelated row sets, so the plan does not
-  exist rather than producing one. **Reachability limit, stated next to the claim:** no
-  question reaches this guard yet. `plan()` refuses a cross-model ratio before dispatching to
-  `federated_plan`, and `federated_plan` passes `None` for `second_fact`; the guard is
-  exercised only by direct construction. A splitter that builds a second fact leg is what
-  makes it reachable from a question.
+  exist rather than producing one. **Reachable from a question:** a cross-model ratio with a
+  shared calendar dispatches to `federated_plan`, which builds a second fact leg; this guard
+  catches two such legs that share no key. The guard is also exercised by direct construction.
 
 ##### Implements
 
@@ -9486,6 +9507,16 @@ pub const fn table_name(&self) -> &TableName
 
 The table's own name, which is what this leg's columns are qualified by.
 
+```rust
+pub fn terms(&self) -> &[LegTerm]
+```
+
+The aggregated terms this fact leg computes, in projection order.
+
+Empty for a `Lookup` leg (no aggregation) and for the distinct-key fact leg
+(no measure), which is the whole of that shape. At most four entries on a fact leg, because a
+`Measure` is one term or a ratio of two and `Avg` expands one.
+
 ##### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
@@ -10174,35 +10205,19 @@ somebody else's input.
   operator - the one who can raise `crate::plan::RowCeiling`, which is a configured value and
   not `crate::plan::MAX_ROWS` the compiled constant. Naming a compiled constant here would be
   advice nobody addressed could act on.**
-- `CrossModelRatioNotExecutable` - A ratio term names a model other than the metric's own, and this workspace does not yet build the second fact leg such a term needs.
+- `CrossModelRatioWithoutSharedCalendar` - A cross-model ratio whose two fact models share no conformed calendar (`telekom/sutura#780`). The metric's terms name two fact models, and the metric declares no `shared_calendar` - so both facts cannot be bucketed through the same time dimension, and the combiner cannot join them on the link AND the bucket. The ratio is refused rather than bucketed on the first fact's time column, which would misalign the two facts.
 
-  **`telekom/sutura#780`'s vocabulary, and the plan half of its first slice.** The catalog
-  admits the definition - `Definitions::assemble` proves the named model is declared and the
-  term's column exists on it - so a metric with a cross-model ratio loads and is addressable
-  by name, PROVIDED it declares no anchor: an anchor is executed at boot, and one on such a
-  metric reaches this refusal through `NotValidated::AnchorNotExecuted` instead, which takes
-  the whole bundle down rather than only that metric - fails closed, and stated here rather
-  than left for a reviewer to find by asking. Asking a plain question about it is refused
-  rather than mis-planned against the metric's own table: the splitter has one plan shape per
-  data system today, `QueryPlan` and
-  `FederatedPlan`, and neither reads a second FACT model's rows,
-  aggregated on its own and joined above - which is what a certified answer over two facts
-  needs, per the issue's own decision record.
+  **Retires, and replaces, `CrossModelRatioNotExecutable`** - the reason a cross-model ratio
+  used before this variant existed, which refused EVERY such ratio under one name regardless
+  of what a catalog author could do about it. This one names the missing declaration
+  specifically: a metric that DOES declare a reachable `shared_calendar` no longer reaches
+  this variant at all (`docs/adr/0002`'s second amendment). The retired variant is not kept
+  unreachable - `xtask/src/refusals/registry.rs` records the straight substitution, the same
+  mechanism `TopNotFederated` → `TopOverUncertifiedRows` already used.
 
-  **Distinct from `MeasureDoesNotFederate` and
-  `FederationNotExecutable` on purpose.** Neither reason
-  applies here: the aggregate is additive (a `sum` or a `count_distinct` federates fine when
-  the second leg is a lookup), and a build's adapter capability is not what is missing - the
-  plan SHAPE for two aggregated fact legs does not exist yet, on any adapter. Reusing either
-  variant would misreport why the question is refused.
-
-  A `RefusalReason` rather than a wiring defect, for
-  `FederationNotExecutable`'s own reason: this variant
-  means the capability and nothing else. It is NOT narrowable the way
-  most of this enum's questions are - the cross-model term is part of the metric's
-  definition, `Query` has no field that reaches it, and every caller-facing text this
-  variant produces says so ("nothing you can change in the question"). What changes the
-  answer is this workspace building the second fact leg, not a different question.
+  Narrowable in principle: a catalog author who declares the shared calendar makes the ratio
+  executable. Not narrowable by the caller: the `shared_calendar` is part of the metric's
+  definition, not of the question.
 
 #### Methods
 
