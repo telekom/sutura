@@ -459,4 +459,13 @@ fn a_column_type_one_past_the_character_cap_is_refused_and_the_cap_itself_is_not
         ColumnType::parse("x".repeat(MAX_COLUMN_TYPE_CHARS)).is_ok(),
         "exactly the cap is a column type"
     );
+    // Characters and not bytes decide the bound - an ASCII-only cap at the same count as its own
+    // byte length cannot tell `chars().count()` from `.len()` apart. A two-byte character at
+    // exactly the cap is 512 characters but 1024 bytes, so a byte-counting cap would refuse it.
+    let multibyte_at_cap = "\u{e4}".repeat(MAX_COLUMN_TYPE_CHARS);
+    assert_eq!(multibyte_at_cap.chars().count(), MAX_COLUMN_TYPE_CHARS);
+    assert!(
+        ColumnType::parse(&multibyte_at_cap).is_ok(),
+        "exactly the cap in two-byte characters is still a column type"
+    );
 }
