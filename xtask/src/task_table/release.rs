@@ -5,9 +5,32 @@
 //! the history itself, rather than the working tree.
 
 use crate::registry::{Falsifier, Kind, Reads, Task};
+use crate::workflows::version_bump;
 use crate::{attribution, branches, commit_msg, release_provenance};
 
 pub(crate) const TASKS: &[Task] = &[
+    Task {
+        // `telekom/sutura#1150` review, finding 1a: the previous release-fix PR wired the dprint
+        // step, the fuzz lock update and the pre-commit hygiene run into this workflow, but
+        // nothing held them there - a later PR could delete any of the four and every hygiene
+        // member still exited 0. `Kind::Hygiene(Reads::Code)`, same shape as `check-fuzz` and
+        // `check-attribution-owner`: it reads one workflow file, no compiler, no registry.
+        name: "check-version-bump",
+        description: "version-bump.yml's release commit still formats, locks and hygiene-checks before it commits",
+        kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier {
+            // A real violation of all four rules at once - the exact review mutation - rather
+            // than one seed per rule: `in_scope` only needs the scan to have reached this path,
+            // and `xtask/src/workflows/version_bump.rs`'s own unit tests hold each rule
+            // separately, with a fixture per rule, which this shared tree does not replace.
+            seeds: &[(
+                ".github/workflows/version-bump.yml",
+                "jobs:\n  bump:\n    steps:\n      - name: Write the release changelog\n        run: |\n          nix run .#git-cliff -- -o CHANGELOG.md\n      - name: Set the workspace version\n        run: |\n          nix run .#cargo -- update --workspace\n      - name: Commit and tag\n        run: |\n          git add CHANGELOG.md Cargo.toml Cargo.lock\n          git commit -m \"chore(release): $VERSION\"\n",
+            )],
+            in_scope: Some(".github/workflows/version-bump.yml"),
+        },
+        run: version_bump::run,
+    },
     Task {
         name: "collect-provenance",
         description: "export five release attestation bundles after exact subject-set checks",

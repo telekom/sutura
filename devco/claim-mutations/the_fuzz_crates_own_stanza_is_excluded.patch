@@ -1,0 +1,13 @@
+diff --git a/xtask/src/fuzz.rs b/xtask/src/fuzz.rs
+index 17857fe43..d9d777557 100644
+--- a/xtask/src/fuzz.rs
++++ b/xtask/src/fuzz.rs
+@@ -125,7 +125,7 @@ const FIRST_PARTY_PREFIX: &str = "sutura";
+ /// [`first_party_pins`] by name rather than by "is this the crate under test", because it is the
+ /// one `sutura`-prefixed stanza [`LOCK`] carries that this gate must NOT compare to the workspace
+ /// version.
+-const FUZZ_CRATE: &str = "sutura-fuzz";
++const FUZZ_CRATE: &str = "";
+ 
+ /// The macro that makes a file a libFuzzer target.
+ ///
