@@ -14,7 +14,8 @@ updates:
       prefix: "ci"
 
   - package-ecosystem: cargo
-    directory: "/"
+    # Both locks, so a bump reaches the fuzz workspace too.
+    directories: ["/", "/fuzz"]
     schedule:
       interval: weekly
       day: monday
@@ -23,7 +24,29 @@ updates:
       prefix: "build"
     groups:
       # One PR for a patch sweep rather than five. A minor or major bump stays separate,
-      # because that is the one worth reading.
+      # because that is the one worth reading. Groups are first-match ("If a dependency matches
+      # more than one rule, it's included in the first group that it matches"), so the Arrow
+      # family is excluded to reach its own group. oracledb, the one pre-release pinned today, is
+      # excluded by NAME: Dependabot classed its beta.3 -> beta.4 API break as a patch, and
+      # `update-types` has no pre-release class, so a second pre-release rides here unless named.
       patch-level:
         patterns: ["*"]
+        exclude-patterns: ["arrow*", "parquet", "datafusion*", "adbc*", "oracledb"]
         update-types: ["patch"]
+      # Arrow is a type vocabulary: DataFusion, ADBC and arrow-* must land one major together or
+      # `check-arrow` goes red on the half that merged. No `group-by` here, because
+      # `group-by: dependency-name` makes one PR per dependency and would split this group again.
+      # duckdb is left out on purpose: it resolves its own Arrow major, a duplicate tolerated in
+      # `devco/arrow-majors-allow`, so it does not have to move with this group.
+      arrow:
+        patterns: ["arrow*", "parquet", "datafusion*", "adbc*"]
+      # Everything left - a minor, a major, oracledb - in one PR per dependency across both
+      # directories, so the fuzz lock moves with the root one. From the options reference
+      # (https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference):
+      # "When set to `dependency-name`, Dependabot will create a single pull request for each
+      # dependency update across all specified directories, rather than separate pull requests per
+      # directory." Without this group, "Any outdated dependencies that do not match a rule are
+      # updated in individual pull requests", and nothing documented puts those across directories.
+      each-across-directories:
+        patterns: ["*"]
+        group-by: dependency-name
