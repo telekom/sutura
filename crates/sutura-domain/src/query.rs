@@ -609,8 +609,9 @@ pub enum RefusalReason {
     /// mechanism `TopNotFederated` → `TopOverUncertifiedRows` already used.
     ///
     /// Narrowable in principle: a catalog author who declares the shared calendar makes the ratio
-    /// executable. Not narrowable by the caller: the `shared_calendar` is part of the metric's
-    /// definition, not of the question.
+    /// executable. Only a local catalog can declare one (its `shared_calendar:` key); no other
+    /// catalog adapter reads the field yet. Not narrowable by the caller: the `shared_calendar` is
+    /// part of the metric's definition, not of the question.
     CrossModelRatioWithoutSharedCalendar { metric: MetricName, model: ModelName },
 }
 
