@@ -3,6 +3,9 @@
 //! Its own module for the reason `wire/refusal.rs` has one: a seam the thousand-line limit on
 //! `wire.rs` does not have room for.
 //!
+//! ## Status mapping
+//! `DeadlineExceeded` shares `UNPROCESSABLE_ENTITY` with `StatementFailed` because both indicate
+//! the caller should modify the request rather than retry it as-is.
 //! It shares the discriminator's NAME (`outcome`), the `columns`/`rows` keys a row-carrying body
 //! needs whichever tool produced it, and the same content-negotiation `axum::Json` gives every
 //! response here - never the discriminator's VALUE, and never a provenance-shaped key. See below.
