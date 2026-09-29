@@ -866,6 +866,8 @@ where
 
 /// One raw statement, under both bounds, as a tool result - [`answer`]'s shape, over
 /// [`Surface::run_sql`] instead of [`Surface::answer`].
+///
+/// Opens a [`Deadline`] the same instant [`answer`]'s own is.
 async fn run_sql<S>(
     service: &Arc<S>,
     admission: &Admission,
@@ -876,7 +878,9 @@ async fn run_sql<S>(
 where
     S: Surface,
 {
-    match tokio::time::timeout(reply.duration(), admitted_raw(service, admission, asked_as, statement)).await {
+    let deadline = Deadline::opened_at(Instant::now(), reply.budget());
+    let working = admitted_raw(service, admission, asked_as, statement, deadline);
+    match tokio::time::timeout(reply.duration(), working).await {
         Ok(result) => result,
         Err(_elapsed) => outcome::outran_its_deadline(reply),
     }
@@ -891,6 +895,7 @@ async fn admitted_raw<S>(
     admission: &Admission,
     asked_as: sutura_domain::identity::RequestContext,
     statement: RawStatement,
+    deadline: Deadline,
 ) -> CallToolResult
 where
     S: Surface,
@@ -901,7 +906,7 @@ where
     };
     let service = Arc::clone(service);
     let working = sutura_runtime::spawn_carrying_span(move || {
-        let answered = service.run_sql(&asked_as, &statement);
+        let answered = service.run_sql(&asked_as, &statement, deadline);
         drop(slot);
         answered
     });

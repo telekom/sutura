@@ -142,9 +142,13 @@ const fn refused_status(reason: &RawRefusalReason) -> StatusCode {
         // 413: too much data, the same status a certified answer's row cap or volume bound uses.
         RawRefusalReason::TooManyRows { .. } | RawRefusalReason::ResultTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
         // 422: the statement is well formed as far as this deployment can tell without parsing it,
-        // and it did not complete - a syntax error, a constraint, or a timeout. `docs/adr/0022`'s
+        // and it did not complete - a syntax error or a constraint. `docs/adr/0022`'s
         // Decision 3 governs what the DETAIL may say once it is built; this is only the status.
-        RawRefusalReason::StatementFailed => StatusCode::UNPROCESSABLE_ENTITY,
+        // `DeadlineExceeded` shares it, the same status the certified path's own
+        // `RefusalReason::DeadlineExceeded` gets (`sutura_http::wire::refusal`): a statement this
+        // deployment stopped, not a data system that failed to answer, so a caller must narrow the
+        // statement rather than retry it as is.
+        RawRefusalReason::StatementFailed | RawRefusalReason::DeadlineExceeded { .. } => StatusCode::UNPROCESSABLE_ENTITY,
         // 403: the data system refused it at the identity/authorization level - the same status a
         // capability this caller lacks gets, because both say "you may not do this," never "retry".
         RawRefusalReason::SourceRefused => StatusCode::FORBIDDEN,
@@ -177,13 +181,13 @@ mod tests {
         assert!(!rendered.contains("definition_digest"), "{rendered}");
     }
 
-    /// Three of the four; `TooManyRows`'s own status is pinned through the real router in
-    /// `crate::harness::run_sql`, so this file does not name all four variants of
-    /// `RawRefusalReason` and read as a census over the enum `cargo xtask check-refusal-coverage`
-    /// enrols it under - see that gate's own module documentation for why a file naming every
-    /// variant supplies no evidence for any of them.
+    /// Four of the five; `TooManyRows`'s own status is pinned through the real router in
+    /// `crate::harness::run_sql`, so this file tests four variants of
+    /// `RawRefusalReason` (`ResultTooLarge`, `StatementFailed`, `SourceRefused`, `DeadlineExceeded`) but
+    /// not all five. A file naming EVERY variant of an enum is a census and supplies no evidence for
+    /// that enum, so a file naming fewer than all supplies evidence for those named.
     #[test]
-    fn three_of_the_four_refusal_reasons_have_a_status() {
+    fn four_of_the_five_refusal_reasons_have_a_status() {
         for (reason, status) in [
             (RawRefusalReason::ResultTooLarge, axum::http::StatusCode::PAYLOAD_TOO_LARGE),
             (
@@ -191,6 +195,10 @@ mod tests {
                 axum::http::StatusCode::UNPROCESSABLE_ENTITY,
             ),
             (RawRefusalReason::SourceRefused, axum::http::StatusCode::FORBIDDEN),
+            (
+                RawRefusalReason::DeadlineExceeded { budget_seconds: 29 },
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            ),
         ] {
             let outcome = RunSqlOutcome::from(&RawOutcome::Refusal { reason });
             assert_eq!(outcome.status(), status, "{outcome:?}");
