@@ -1,17 +1,16 @@
 //! `catalog.kind: rdbms` over the stdio agent surface: a composed `sutura mcp` process boots over
-//! a live Postgres documentation schema and lists the bundle it measures - issue #970 box A7, the
-//! positive RDBMS run over the MCP transport the served-HTTP cell (`served/rdbms.rs`, PR #1147)
-//! does not cover.
+//! a live Postgres documentation schema and lists the bundle it measures - #970's acceptance for
+//! the MCP transport, which the served-HTTP cell (`served/rdbms.rs`, PR #1147) does not cover.
 //!
 //! # What this reuses, and what it does NOT prove
 //!
-//! The fixture is the SAME documentation schema `served/rdbms.rs` installs (PR #1147) and
+//! The fixture is the documentation schema `served/rdbms.rs` installs, the same shape
 //! `crates/sutura-catalog-rdbms/tests/provisioned.rs` reads: a per-run schema with a `columns`
-//! table whose rows describe `public.orders`. The settings shape is the same `catalog.kind: rdbms`
-//! + `kind: postgres` source pair, over the provisioned tier's verified TLS connection. The spawn
-//!   harness is this suite's own (`spawn_configured`/`Agent`), not the served harness. The fixture
-//!   install and its constants live in `tests/common/`, which both test binaries mount as
-//!   `crate::common`, so the two cells cannot drift onto different rows.
+//! table whose rows describe `public.orders`. The settings are the same `catalog.kind: rdbms` and
+//! `kind: postgres` source pair, over the provisioned tier's verified TLS connection. The spawn
+//! harness is this suite's own (`spawn_configured`/`Agent`). The fixture install, its constants
+//! and the independently built bundle live in `tests/common/`, which both test binaries mount as
+//! `crate::common`, so the two cells cannot drift onto different rows.
 //!
 //! This cell proves the stdio transport specifically: the composed binary opens the rdbms catalog
 //! through the ONE opener `sutura serve` uses, loads it (reading the dictionary from Postgres),
@@ -22,34 +21,30 @@
 //!
 //! # Why the assertions are what they are
 //!
-//! An rdbms dictionary yields structure and prose and no measure, so a bundle it produces has zero
-//! certified metrics - the honest coverage is that the process boots and the surface describes the
-//! bundle. `initialize.instructions` carries `physical_schema_guidance`'s fixed sentence exactly
-//! when the bundle has models and zero metrics, so asserting that sentence is present proves the
-//! dictionary's models loaded and pinned over THIS process's stdio transport - a fixed string a
-//! stub could never produce, because the guidance is gated on a non-empty `models()` and an empty
-//! `metrics()`. `describe_catalog` then returns the structured listing: zero metrics, the declared
-//! version, and a non-empty digest.
+//! The first standard-error line is the serving notice, which `sutura mcp` prints only once the
+//! catalog loaded and the `postgres` arm reached `serve` - a refusal is a `sutura: <why>` line in
+//! its place. An rdbms dictionary yields structure and prose and no measure, so
+//! `initialize.instructions` carries `physical_schema_guidance`'s fixed sentence, which is gated on
+//! a non-empty `models()` and an empty `metrics()`. `describe_catalog` then returns the structured
+//! listing, held to the same three assertions as the served cell: zero metrics, the declared
+//! version, and the digest `common::expected` builds from the fixture rows.
 //!
 //! # RED/GREEN
 //!
-//! The mutation this cell is meant to catch: corrupt the version `open_one_rdbms_catalog` stamps
-//! into the catalog (the killing patch at
-//! `devco/claim-mutations/an_rdbms_catalog_boots_and_lists_over_stdio.patch` replaces
-//! `settings.version().clone()` with a wrong `DefinitionVersion`), so the process boots and
-//! `describe_catalog` responds but its `provenance.definition_version` no longer matches the
-//! declared `VERSION` - the cell's own `assert_eq!` fires, RED. GREEN is this file as written.
+//! The killing patch at `devco/claim-mutations/an_rdbms_catalog_boots_and_lists_over_stdio.patch`
+//! makes `sutura mcp`'s `Opened::Postgres` arm refuse instead of serving - the one seam no other
+//! cell holds, since no other stdio cell declares a `postgres` source and the served cell never
+//! reaches `src/mcp.rs`. The boot assertion fires, RED. GREEN is this file as written.
 
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use sutura_app::Capability;
 
-    use crate::common::{CATALOG, ENVIRONMENT, SOURCE, install_documentation_schema};
-    use crate::harness::{VERSION, spawn_configured};
+    use crate::common::{CATALOG, ENVIRONMENT, SOURCE, expected, install_documentation_schema};
+    use crate::harness::{VERSION, settings_tree, spawn_configured};
 
     /// The service the provisioner is asked for - the same name `nix/postgres-tier.nix` publishes.
     const SERVICE: &str = "postgres";
@@ -127,16 +122,6 @@ mod tests {
         anchor: String,
     }
 
-    /// Writes settings to a directory and returns the path.
-    fn settings_tree(case: &str, base_yaml: &str) -> PathBuf {
-        static CALLS: AtomicU32 = AtomicU32::new(0);
-        let call = CALLS.fetch_add(1, Ordering::Relaxed);
-        let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{case}-{}-{call}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("a directory under the target dir is creatable");
-        std::fs::write(dir.join("base.yaml"), base_yaml).expect("the settings file is writable");
-        dir
-    }
-
     /// Creates settings for the rdbms catalog test.
     fn settings(data_dir: &Path, tier: &Tier, documentation_schema: &str) -> PathBuf {
         let Tier {
@@ -200,6 +185,11 @@ mod tests {
         let dir = settings(&data.0, &tier, &documentation_schema);
 
         let mut agent = spawn_configured(&dir);
+        let boot = agent.expect_log("sutura: ");
+        assert!(
+            boot.contains("grants every capability"),
+            "the stdio root did not serve an rdbms catalog over a postgres source: {boot}"
+        );
         let result = agent.initialize();
 
         // The physical-schema guidance is rendered into `initialize.instructions` exactly when the
@@ -228,8 +218,8 @@ mod tests {
         );
 
         // The catalog listing: zero certified metrics (the dictionary carries no measure), the
-        // declared version, and a non-empty digest - the same three assertions the served-HTTP
-        // cell makes, over the stdio transport.
+        // declared version, and the independently built digest - the same three assertions the
+        // served-HTTP cell makes, over the stdio transport.
         let reply = agent.call(Capability::DescribeCatalog, &serde_json::json!({}));
         let content = &reply["structuredContent"];
         assert_eq!(
@@ -241,11 +231,10 @@ mod tests {
             content["provenance"]["definition_version"], VERSION,
             "the stdio listing must be stamped with the declared version: {reply}"
         );
-        assert!(
-            content["provenance"]["definition_digest"]
-                .as_str()
-                .is_some_and(|digest| !digest.is_empty()),
-            "the stdio listing carries no definition digest: {reply}"
+        assert_eq!(
+            content["provenance"]["definition_digest"],
+            expected(VERSION).digest().as_str(),
+            "the stdio RDBMS bundle differs from the independently built fixture digest: {reply}"
         );
 
         assert!(agent.close().success(), "the process did not exit cleanly");

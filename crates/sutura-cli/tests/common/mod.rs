@@ -2,4 +2,4 @@
 
 mod fixtures;
 
-pub(crate) use fixtures::{CATALOG, ENVIRONMENT, SOURCE, install_documentation_schema};
+pub(crate) use fixtures::{CATALOG, ENVIRONMENT, SOURCE, expected, install_documentation_schema};

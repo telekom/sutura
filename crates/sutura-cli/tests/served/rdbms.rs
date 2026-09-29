@@ -47,11 +47,7 @@
 mod tests {
     use std::path::PathBuf;
 
-    use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-    use sutura_domain::catalog::{Column, Definitions, Description, Model};
-    use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
-    use sutura_domain::model::{ColumnName, ModelName, QualifiedTable, SourceName};
-    use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
+    use sutura_domain::pinned::PinnedDefinitions;
 
     use crate::common::{CATALOG, ENVIRONMENT, SOURCE, install_documentation_schema};
     use crate::harness::{
@@ -118,54 +114,9 @@ mod tests {
         )
     }
 
-    /// The bundle this cell expects, built independently of the served binary from the same
-    /// documentation-schema fixture [`install_documentation_schema`] writes - never from the served
-    /// reply itself, so a reader that silently drops or corrupts what it measures (a description, a
-    /// column, a type, the primary key) reddens this comparison, not only the "the field is present"
-    /// checks a lone non-empty-digest assertion left standing.
+    /// The bundle this cell expects - see [`crate::common::expected`].
     fn expected() -> PinnedDefinitions {
-        let columns = [
-            ("order_id", "bigint", "The order key."),
-            ("amount", "numeric", "The order total."),
-        ]
-        .into_iter()
-        .map(|(name, data_type, description)| {
-            Column::from_metadata(
-                ColumnName::parse(name).expect("a fixture column name parses"),
-                Some(data_type),
-                Some(description),
-                None,
-            )
-            .expect("a fixture column description parses")
-        });
-        let model = Model::new(
-            ModelName::parse("orders").expect("the fixture model name parses"),
-            SourceName::parse(SOURCE).expect("the fixture source alias parses"),
-            QualifiedTable::parse("public.orders").expect("the fixture table parses"),
-            columns,
-            Description::parse("Customer orders.").expect("the fixture description parses"),
-        )
-        .with_primary_key([ColumnName::parse("order_id").expect("the fixture primary-key column name parses")])
-        .expect("the fixture primary key names one of the model's own columns");
-        let declared = MetadataCapabilities::of(
-            DefinitionCapabilities::of([DefinitionKind::Structure]).and_may_provide([
-                DefinitionKind::Descriptions,
-                DefinitionKind::Relationships,
-                DefinitionKind::ColumnTypes,
-                DefinitionKind::ColumnDescriptions,
-            ]),
-            KnowledgeCapabilities::none(),
-        );
-        PinnedDefinitions::pin(
-            DefinitionVersion::parse(VERSION).expect("the served version parses"),
-            Definitions::assemble(vec![model], vec![], vec![]).expect("the fixture definitions assemble"),
-            Knowledge::none(),
-            ContributionManifest::single(
-                SourceName::parse(CATALOG).expect("the catalog name parses"),
-                Contribution::of(declared),
-            ),
-        )
-        .expect("the expected bundle hashes")
+        crate::common::expected(VERSION)
     }
 
     /// An `rdbms`-kind deployment boots from the served binary and lists the bundle it measures:
