@@ -372,11 +372,18 @@ fn open_one_rdbms_catalog(
         sutura_config::CatalogConnection::Oracle(_) => {
             return Err(format!(
                 "`catalogs.{}` declares `connection.dialect: oracle`, but the Oracle dictionary reader is not yet wired - \
-                 it lands in PR 2 of github.com/telekom/sutura#972",
+                 not supported by this build",
                 settings.name()
             ));
         }
     };
+    if rdbms.dictionary_source() == sutura_config::DictionarySource::NativeDictionary {
+        return Err(format!(
+            "`catalogs.{}` declares `dictionary_source: native_dictionary`, but the native dictionary reader is not yet wired - \
+             not supported by this build",
+            settings.name()
+        ));
+    }
     // The driver config, from the catalog's OWN read-only Postgres connection - a catalog read has
     // no caller to run as, so it is never borrowed from a `sources:` entry.
     let (target, port) = match connection.dial() {

@@ -329,3 +329,51 @@ fn an_unknown_dictionary_source_is_refused() {
     let chain = rdbms_refusal(&["dictionary_source: wikipedia"], &[]);
     assert_names(&chain, "`dictionary_source` is `wikipedia`");
 }
+
+#[test]
+fn an_oracle_connection_with_database_is_refused() {
+    let chain = oracle_refusal(&["database: dictionary"]);
+    assert_names(&chain, "`connection.database` is read only when `dialect` is `oracle`");
+}
+
+#[test]
+fn an_oracle_connection_with_unix_socket_is_refused() {
+    let chain = oracle_refusal(&["unix_socket: /run/postgresql"]);
+    assert_names(&chain, "`connection.unix_socket` is read only when `dialect` is `oracle`");
+}
+
+#[test]
+fn a_postgres_connection_with_service_name_is_refused() {
+    let chain = rdbms_refusal(&[], &["service_name: FREEPDB1"]);
+    assert_names(&chain, "`connection.service_name` is read only when `dialect` is `postgres`");
+}
+
+#[test]
+fn an_oracle_connection_with_relative_password_file_is_refused() {
+    let chain = oracle_refusal(&["password_file: secrets/dictionary"]);
+    assert_names(&chain, "`connection.password_file` is relative");
+}
+
+#[test]
+fn an_oracle_connection_with_plaintext_and_transport_anchors_is_refused() {
+    let chain = oracle_refusal(&["transport_anchors: system"]);
+    assert_names(
+        &chain,
+        "`transport_mode: plaintext` does not read it - a control nothing honours is worse than one nobody wrote",
+    );
+}
+
+#[test]
+fn an_oracle_catalog_asserts_the_parsed_values() {
+    let settings = load(&overlay("rdbms", ENTRY, Some(ORACLE_CONNECTION))).expect("a complete dialect: oracle connection loads");
+    let catalog = settings.catalogs().each().next().expect("one catalog");
+    let rdbms = catalog.rdbms().expect("an rdbms entry carries its rdbms settings");
+    let crate::catalog::CatalogConnection::Oracle(connection) = rdbms.connection() else {
+        panic!("expected Oracle connection")
+    };
+    assert_eq!(connection.host().as_str(), "127.0.0.1");
+    assert_eq!(connection.port(), 1521);
+    assert_eq!(connection.service_name().as_str(), "FREEPDB1");
+    assert_eq!(connection.user(), "reader");
+    assert_eq!(connection.password_file().to_string_lossy(), "/run/secrets/dictionary");
+}

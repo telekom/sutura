@@ -8,16 +8,14 @@
 //!
 //! **Parsed here, read by a composition root that links the `live` reader.** This crate's own job
 //! ends at a checked declaration; a build with `sutura-catalog-rdbms`'s `live` feature consumes
-//! these values into a reader over a Postgres documentation schema or an Oracle dictionary, and
-//! a build without it refuses `kind: rdbms` by name. Every value below is a checked declaration
-//! either way.
+//! these values into a reader over a Postgres documentation schema, and a build without it refuses
+//! `kind: rdbms` by name. Every value below is a checked declaration either way.
 //!
 //! The `connection:` block selects its dialect through a `dialect` key (default `postgres`):
 //! `postgres` dials a Postgres documentation schema, `oracle` dials an Oracle dictionary over a
 //! plaintext, loopback-confined EZCONNECT connection - the same constraint the `oracle` source
-//! kind holds. An Oracle connection is parsed and refused at the composition root until the
-//! Oracle reader lands (PR 2 of `github.com/telekom/sutura#972`), so the declaration is checked
-//! but not yet opened.
+//! kind holds. An Oracle connection is parsed and refused at the composition root as not supported
+//! by this build, so the declaration is checked but not yet opened.
 
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
@@ -299,12 +297,9 @@ pub enum InvalidDocumentationSchema {
 
 /// Which dictionary an `rdbms` catalog reads.
 ///
-/// `documentation_schema` (the default) reads a `columns` view installed in the database, the same
-/// contract the Postgres reader reads - the parity slice. `native_dictionary` reads the database's
-/// own dictionary views (`ALL_TAB_COLUMNS` etc.), the richer reading `github.com/telekom/sutura#972`
-/// names. A closed set: a new one is a visible diff plus a parse arm and a reader arm, which is the
-/// review it deserves. Default `documentation_schema` so the Oracle reader ships in the same shape
-/// as the Postgres one, and `native_dictionary` is opt-in.
+/// A setting parsed but read by no composition root in this build. `documentation_schema` (the default) is the supported shape;
+/// `native_dictionary` is parsed as an opt-in declaration but not opened. A closed set: a new one is a visible diff plus a
+/// parse arm and a reader arm, which is the review it deserves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DictionarySource {
     /// A `columns` documentation-schema view installed in the database (the default).
@@ -436,6 +431,12 @@ impl PostgresCatalogConnection {
     fn parse<'raw>(name: &SourceName, raw: &'raw RawCatalogConnection) -> Result<Self, InvalidConnection> {
         let required =
             |key: &'static str, value: &'raw Option<String>| written(value.as_deref()).ok_or(InvalidConnection::Missing { key });
+        if written(raw.service_name.as_deref()).is_some() {
+            return Err(InvalidConnection::ForeignKey {
+                key: "service_name",
+                dialect: "postgres",
+            });
+        }
         let port = raw.port.ok_or(InvalidConnection::Missing { key: "port" })?;
         let dial = match (written(raw.host.as_deref()), written(raw.unix_socket.as_deref())) {
             (Some(_), Some(_)) => return Err(InvalidConnection::HostAndUnixSocket),
@@ -508,7 +509,7 @@ impl PostgresCatalogConnection {
 
 /// An Oracle dictionary connection: plaintext EZCONNECT, loopback-confined.
 ///
-/// **The same stand the `oracle` source kind makes** ([`crate::sources::oracle`]): the pinned
+/// **The same stand the `oracle` source kind makes** (`crate::sources::oracle`): the pinned
 /// driver builds its own TLS configuration and takes no caller-built one, so `verified` and
 /// `mutual` transport modes are refused (not wired) and the declared `host` is confined to a
 /// loopback literal through [`crate::sources::transport::refuse_remote_plaintext`]. The driver
@@ -532,6 +533,18 @@ impl OracleCatalogConnection {
     fn parse<'raw>(name: &SourceName, raw: &'raw RawCatalogConnection) -> Result<Self, InvalidConnection> {
         let required =
             |key: &'static str, value: &'raw Option<String>| written(value.as_deref()).ok_or(InvalidConnection::Missing { key });
+        if written(raw.database.as_deref()).is_some() {
+            return Err(InvalidConnection::ForeignKey {
+                key: "database",
+                dialect: "oracle",
+            });
+        }
+        if written(raw.unix_socket.as_deref()).is_some() {
+            return Err(InvalidConnection::ForeignKey {
+                key: "unix_socket",
+                dialect: "oracle",
+            });
+        }
         let host = HostName::parse(required("host", &raw.host)?).map_err(|cause| InvalidConnection::Host { cause })?;
         let port = raw.port.ok_or(InvalidConnection::Missing { key: "port" })?;
         let service_name = OracleServiceName::parse(required("service_name", &raw.service_name)?)
@@ -548,7 +561,7 @@ impl OracleCatalogConnection {
         .map_err(|cause| InvalidConnection::Transport { cause })?;
         if transport != SourceTransport::Plaintext {
             return Err(InvalidConnection::TlsNotDeliverable {
-                mode: transport.describe().to_owned(),
+                mode: transport.describe(),
             });
         }
         crate::sources::transport::refuse_remote_plaintext(&host, &transport)
@@ -681,10 +694,12 @@ pub enum InvalidConnection {
         #[source]
         cause: InvalidOracleServiceName,
     },
+    #[error("`connection.{key}` is read only when `dialect` is `{dialect}` - remove it")]
+    ForeignKey { key: &'static str, dialect: &'static str },
     #[error(
         "`connection` is `dialect: oracle` and declares transport mode `{mode}`, but the Oracle driver builds its own TLS - only `plaintext` is accepted"
     )]
-    TlsNotDeliverable { mode: String },
+    TlsNotDeliverable { mode: &'static str },
 }
 
 #[cfg(test)]
