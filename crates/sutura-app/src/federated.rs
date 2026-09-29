@@ -143,7 +143,8 @@ where
         return Ok(Answered::declined_before_minting(source_unavailable(plan.lookup().source())));
     };
     // A two-fact plan's third leg (`telekom/sutura#780`), paired with its adapter so nothing below
-    // can hold one without the other. It may share a source with the lookup, never with the fact.
+    // can hold one without the other. The splitter builds it on the fact's own source; the type
+    // lets it share a source with either leg.
     let second_fact = match plan
         .second_fact()
         .map(|leg| warehouses.get(leg.source()).map(|w| (leg, w)).ok_or(leg))
@@ -309,7 +310,7 @@ where
         }
         Err(LegError::Failure(error)) => return Err(error),
     };
-    // The second fact leg runs after both, sequentially: it is reached by no question yet.
+    // The second fact leg runs after both, sequentially.
     let second_fact_result = match second_fact
         .map(|(leg, warehouse)| run_leg::<_, B, C>(warehouse, &credentials, leg, deadline).map(|rows| LegResult::of(leg, rows)))
         .transpose()
@@ -481,8 +482,8 @@ where
 ///
 /// `FederatedPlan::new` refuses same-source legs, so the fact and lookup records belong to distinct
 /// sources and `and` cannot collide; the Err arm is kept (rather than an expect) because the compile
-/// cannot know that. A second fact on the lookup's source is already recorded, under the one adapter
-/// both legs run on, so it is skipped rather than recorded twice.
+/// cannot know that. A second fact on the fact's or the lookup's source is already recorded, under
+/// the one adapter both legs run on, so it is skipped rather than recorded twice.
 fn executed_as_of<W, B, C>(plan: &FederatedPlan, fact: &W, lookup: &W, second_fact: Option<(&LegPlan, &W)>) -> Recorded<W, B, C>
 where
     W: Warehouse,

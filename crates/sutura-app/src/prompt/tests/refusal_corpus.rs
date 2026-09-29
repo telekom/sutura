@@ -114,7 +114,15 @@ pub(super) fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::DeadlineExceeded { budget_seconds: 29 },
         RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
         RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
-        RefusalReason::CrossModelRatioNotExecutable {
+        RefusalReason::CrossModelRatioWithoutSharedCalendar {
+            metric: metric_name("revenue_per_customer"),
+            model: ModelName::parse("customers").expect("a test model is a model"),
+        },
+        RefusalReason::CrossModelRatioSpansSources {
+            metric: metric_name("revenue_per_customer"),
+            model: ModelName::parse("customers").expect("a test model is a model"),
+        },
+        RefusalReason::CrossModelRatioWithoutSharedDimension {
             metric: metric_name("revenue_per_customer"),
             model: ModelName::parse("customers").expect("a test model is a model"),
         },
@@ -178,7 +186,9 @@ fn guide_key_carries_every_variant() {
             | RefusalReason::DeadlineExceeded { .. }
             | RefusalReason::BudgetExhausted { .. }
             | RefusalReason::TopOverUncertifiedRows { .. }
-            | RefusalReason::CrossModelRatioNotExecutable { .. } => {}
+            | RefusalReason::CrossModelRatioWithoutSharedCalendar { .. }
+            | RefusalReason::CrossModelRatioSpansSources { .. }
+            | RefusalReason::CrossModelRatioWithoutSharedDimension { .. } => {}
         }
         assert_eq!(
             key,

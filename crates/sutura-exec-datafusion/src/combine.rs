@@ -68,9 +68,9 @@ use datafusion::arrow::array::{Array as _, Float64Array};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::common::{Column, JoinType, TableReference};
 use datafusion::datasource::MemTable;
-use datafusion::functions::expr_fn::nullif;
+use datafusion::functions::expr_fn::{coalesce, nullif};
 use datafusion::functions_aggregate::expr_fn::{count, max, min, sum};
-use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, cast, lit};
+use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, cast, lit, when};
 use datafusion::prelude::{SessionConfig, SessionContext};
 // `StreamExt::next`, so the combined answer is charged batch by batch instead of collected first.
 use futures_util::StreamExt as _;
@@ -554,12 +554,19 @@ async fn combine_plan(
 ) -> Result<LogicalPlan, CombineError> {
     let fact = scan(context, FACT_TABLE).await?;
     let lookup = scan(context, LOOKUP_TABLE).await?;
-    // A second fact leg (`telekom/sutura#780`) is joined INNER on the link AND the bucket: both
-    // legs are grouped by both, so each first-fact row meets at most the one second-fact row of its
-    // own period. On the link alone a second fact with two periods fans every first-fact row out
-    // across both and multiplies the numerator. A row present in one fact and absent in the other is
-    // dropped rather than null-padded; the lookup join below is the splitter's decision, apart.
+    // A second fact leg (`telekom/sutura#780`) is joined on the link AND the bucket: both legs are
+    // grouped by both, so each first-fact row meets at most the one second-fact row of its own
+    // period. On the link alone a second fact with two periods fans every first-fact row out across
+    // both and multiplies the numerator. FULL, not INNER - drill-across: a (link, period) only one
+    // fact carried still counts on its own side. The owner's empty-set rule decides the other side:
+    // a fact that has no row there reads each leaf as its value over NO rows, which is 0 for the
+    // sum and the count every leaf re-aggregates by - never a null pad. So revenue with no visits
+    // divides by 0 and `zero_denominator` answers as declared, and visits with no revenue is 0/x.
+    // A side is absent exactly when its bucket is null: every leg row carries one, because the leg
+    // bounds the range on that same column. The join columns are coalesced and the result re-named
+    // as the fact leg, so everything below reads one relation.
     let mut builder = LogicalPlanBuilder::from(fact);
+    let mut leaves = leaves.to_vec();
     if let Some(table) = second_table {
         let second = scan(context, table).await?;
         let bucket = plan.bucket_label();
@@ -567,9 +574,50 @@ async fn combine_plan(
             qualified(FACT_TABLE, link).eq(qualified(table, link)),
             qualified(FACT_TABLE, bucket).eq(qualified(table, bucket)),
         ];
-        builder = builder
-            .join_on(second, JoinType::Inner, on)
+        if let Some(aggregate) = plan
+            .federation()
+            .carried()
+            .iter()
+            .map(|leaf| leaf.combine())
+            .find(|a| *a != Aggregate::Sum)
+        {
+            // A minimum or a maximum has no value over no rows; `Definitions::assemble` refuses the
+            // definition, and this is the combine refusing to invent one if a plan ever carries it.
+            // An average cannot be seen here - it arrives as a sum leaf and a count leaf - so the
+            // load check is its only refusal.
+            return Err(CombineError::UnsupportedAggregate { aggregate });
+        }
+        let joined = builder
+            .join_on(second, JoinType::Full, on)
             .map_err(|cause| CombineError::Build { cause })?;
+        let leaf_labels: Vec<&str> = leaves.iter().map(|leaf| leaf.0.as_str()).collect();
+        let mut columns = vec![
+            coalesce(vec![qualified(FACT_TABLE, link), qualified(table, link)]).alias(link),
+            coalesce(vec![qualified(FACT_TABLE, bucket), qualified(table, bucket)]).alias(bucket),
+        ];
+        for (qualifier, field) in joined.schema().iter() {
+            if field.name() == link || field.name() == bucket {
+                continue;
+            }
+            let column = Expr::Column(Column::new(qualifier.cloned(), field.name()));
+            match qualifier.filter(|_| leaf_labels.contains(&field.name().as_str())) {
+                Some(side) => {
+                    let absent = Expr::Column(Column::new(Some(side.clone()), bucket)).is_null();
+                    let leaf = when(absent, cast(lit(0_i64), field.data_type().clone()))
+                        .otherwise(column)
+                        .map_err(|cause| CombineError::Build { cause })?;
+                    columns.push(leaf.alias(field.name()));
+                }
+                None => columns.push(column),
+            }
+        }
+        builder = joined
+            .project(columns)
+            .and_then(|merged| merged.alias(FACT_TABLE))
+            .map_err(|cause| CombineError::Build { cause })?;
+        for leaf in &mut leaves {
+            leaf.2 = FACT_TABLE;
+        }
     }
     // **The join kind is the splitter's decision, carried on the plan rather than guessed.** LEFT
     // keeps a fact row whose link value found no lookup row, with null remote keys; INNER drops it.
@@ -591,7 +639,7 @@ async fn combine_plan(
     grouping.push(qualified(FACT_TABLE, plan.bucket_label()));
     let group_count = grouping.len();
 
-    let measure = above_expression(plan.federation().above(), leaves, &mut 0)?;
+    let measure = above_expression(plan.federation().above(), &leaves, &mut 0)?;
     builder = builder
         .aggregate(grouping, vec![measure])
         .map_err(|cause| CombineError::Build { cause })?;

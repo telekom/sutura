@@ -5,11 +5,14 @@
 //! handling exactly and differs only on the way out, where every execution failure becomes a
 //! refusal rather than a [`RunSqlError`] - see that function's own documentation for why.
 
+use std::time::Instant;
+
 use sutura_domain::identity::{
     Agreed, BoundToTheRequest, CredentialBroker, Expiry, PresentedDisagreesWithPosture, RequestContext, SourceSet,
 };
 use sutura_domain::model::SourceName;
 use sutura_domain::warehouse::Warehouse;
+use sutura_domain::warehouse::deadline::Deadline;
 
 use crate::warehouses::Warehouses;
 use crate::{exceeds_row_cap, now_in_unix_seconds};
@@ -122,11 +125,19 @@ impl AnsweredRaw {
 /// that statement* - not an infrastructure outage this deployment must page for. What remains an
 /// `Err` is only what happens before the statement ever reaches the data system: the broker not
 /// answering, or credentials that do not fit.
+///
+/// # The deadline is opened by the transport, before this call - `crate::answer`'s own shape
+///
+/// `deadline` is checked once here, before the port is ever called (`telekom/sutura#1144`): a
+/// budget already spent refuses the statement before it reaches the data system at all, the same
+/// pre-call check `crate::answer` makes before `Warehouse::execute`. What an adapter does with the
+/// deadline once it is handed to [`Warehouse::execute_raw`] is the adapter's own business.
 pub fn run_sql<W, B>(
     context: &RequestContext,
     statement: &sutura_domain::raw::RawStatement,
     broker: &B,
     warehouses: &Warehouses<W>,
+    deadline: Deadline,
 ) -> RunningRaw<B>
 where
     W: Warehouse,
@@ -163,7 +174,20 @@ where
     presented
         .agrees_with(warehouse.posture(), source)
         .map_err(|cause| RunSqlError::Posture { cause })?;
-    let Some(executed) = warehouse.execute_raw(statement, presented) else {
+    // Checked before the call is made and never re-derived - the same shape `crate::answer`'s own
+    // pre-`execute` check takes (`docs/adr/0029`): a budget already spent here means the statement
+    // is refused before the data system is asked at all.
+    if deadline.remaining_at(Instant::now()).is_none() {
+        return Ok(AnsweredRaw::under(
+            &credentials,
+            RawOutcome::Refusal {
+                reason: RawRefusalReason::DeadlineExceeded {
+                    budget_seconds: deadline.budget().seconds(),
+                },
+            },
+        ));
+    }
+    let Some(executed) = warehouse.execute_raw(statement, presented, deadline) else {
         return Err(RunSqlError::NoAcceptingSource);
     };
     let raw_rows = match executed {
@@ -171,6 +195,10 @@ where
         Err(cause) => {
             let reason = if warehouse.result_did_not_fit(&cause) {
                 RawRefusalReason::ResultTooLarge
+            } else if warehouse.deadline_exceeded(&cause) {
+                RawRefusalReason::DeadlineExceeded {
+                    budget_seconds: deadline.budget().seconds(),
+                }
             } else if warehouse.source_refused(&cause) {
                 RawRefusalReason::SourceRefused
             } else {
@@ -219,7 +247,7 @@ mod tests {
 
     use super::run_sql;
     use crate::Warehouses;
-    use crate::tests::{asked_by_a_person, shared, source};
+    use crate::tests::{asked_by_a_person, shared, source, test_deadline};
     use crate::tests_support::{FixedBroker, RawCapableWarehouse};
 
     fn statement(sql: &str) -> RawStatement {
@@ -242,6 +270,7 @@ mod tests {
             &statement("select * from a_wide_table"),
             &FixedBroker::GrantsShared,
             &warehouses,
+            test_deadline(),
         )
         .expect("crediting succeeds; only the row count refuses this call");
         assert!(
@@ -268,11 +297,74 @@ mod tests {
             &statement("select * from a_table"),
             &FixedBroker::GrantsShared,
             &warehouses,
+            test_deadline(),
         )
         .expect("crediting succeeds and the row count is exactly the cap");
         let RawOutcome::Rows { ref rows, .. } = *answered.outcome() else {
             panic!("a result at the cap must be an answer: {:?}", answered.outcome());
         };
         assert_eq!(rows.len(), at_cap);
+    }
+
+    /// `telekom/sutura#1144`: a budget already spent refuses `run_sql` before the port is ever
+    /// called - the raw path's own version of `crate::tests::deadline`'s
+    /// `a_budget_spent_before_the_leg_starts_is_refused_and_the_data_system_is_never_asked`. The
+    /// fake would answer with rows if reached, so a check that quietly disappeared would flip this
+    /// outcome to `RawOutcome::Rows` rather than merely fail to assert.
+    #[test]
+    fn a_budget_already_spent_refuses_run_sql_before_the_port_is_ever_called() {
+        use sutura_domain::warehouse::deadline::{Budget, Deadline};
+
+        let warehouse = RawCapableWarehouse::answering_rows(source(), shared(), 1);
+        let warehouses = Warehouses::of(warehouse);
+        let spent = Deadline::opened_at(
+            std::time::Instant::now()
+                .checked_sub(std::time::Duration::from_secs(10))
+                .expect("ten seconds before now does not underflow the monotonic clock"),
+            Budget::parse(std::time::Duration::from_secs(1)).expect("one second is a budget"),
+        );
+        let answered = run_sql(
+            &asked_by_a_person(),
+            &statement("select 1"),
+            &FixedBroker::GrantsShared,
+            &warehouses,
+            spent,
+        )
+        .expect("a refusal is an Ok, so a client cannot retry it into an answer");
+        let RawOutcome::Refusal {
+            reason: RawRefusalReason::DeadlineExceeded { budget_seconds },
+        } = *answered.outcome()
+        else {
+            panic!("a budget spent before the call must refuse, not {:?}", answered.outcome());
+        };
+        assert_eq!(budget_seconds, spent.budget().seconds());
+    }
+
+    /// `telekom/sutura#1144`: an adapter reporting `Warehouse::deadline_exceeded` for its own
+    /// `execute_raw` failure maps to `RawRefusalReason::DeadlineExceeded`, never to
+    /// `StatementFailed` - the raw path's own version of
+    /// `crate::tests::deadline::running_out_of_time_is_a_refusal_and_not_a_503`.
+    #[test]
+    fn an_adapters_own_deadline_exceeded_maps_to_a_deadline_refusal_not_a_statement_failure() {
+        let warehouse = RawCapableWarehouse::answering_rows(source(), shared(), 1);
+        let warehouses = Warehouses::of(warehouse);
+        let answered = run_sql(
+            &asked_by_a_person(),
+            &statement("time me out"),
+            &FixedBroker::GrantsShared,
+            &warehouses,
+            test_deadline(),
+        )
+        .expect("crediting succeeds; only the statement's own execution refuses this call");
+        let RawOutcome::Refusal {
+            reason: RawRefusalReason::DeadlineExceeded { budget_seconds },
+        } = *answered.outcome()
+        else {
+            panic!(
+                "an adapter's own deadline_exceeded must map to DeadlineExceeded, not {:?}",
+                answered.outcome()
+            );
+        };
+        assert_eq!(budget_seconds, test_deadline().budget().seconds());
     }
 }

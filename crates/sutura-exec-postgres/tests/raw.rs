@@ -85,7 +85,11 @@ mod raw {
     #[test]
     fn a_write_inside_the_call_is_refused_by_the_server_as_read_only() {
         let Some(warehouse) = open("write") else { return };
-        let outcome = warehouse.execute_raw(&statement("create table raw_write_attempt (x int)"), &corpus::presented());
+        let outcome = warehouse.execute_raw(
+            &statement("create table raw_write_attempt (x int)"),
+            &corpus::presented(),
+            corpus::deadline(),
+        );
         let error = outcome
             .expect("this adapter accepts a raw statement")
             .expect_err("a write inside a read-only transaction does not succeed");
@@ -110,7 +114,7 @@ mod raw {
     #[test]
     fn a_multi_statement_string_is_refused_before_either_half_runs() {
         let Some(warehouse) = open("multi") else { return };
-        let outcome = warehouse.execute_raw(&statement("select 1; select 2"), &corpus::presented());
+        let outcome = warehouse.execute_raw(&statement("select 1; select 2"), &corpus::presented(), corpus::deadline());
         let error = outcome
             .expect("this adapter accepts a raw statement")
             .expect_err("a multi-statement string is refused");
@@ -130,7 +134,11 @@ mod raw {
     fn an_ordinary_select_runs_and_returns_its_rows() {
         let Some(warehouse) = open("select") else { return };
         let rows = warehouse
-            .execute_raw(&statement("select 1 as n, 'hi' as label"), &corpus::presented())
+            .execute_raw(
+                &statement("select 1 as n, 'hi' as label"),
+                &corpus::presented(),
+                corpus::deadline(),
+            )
             .expect("this adapter accepts a raw statement")
             .expect("an ordinary select succeeds");
         assert_eq!(rows.columns(), ["n", "label"]);
@@ -143,10 +151,14 @@ mod raw {
     #[test]
     fn the_same_connection_answers_a_second_raw_call_after_a_refused_one() {
         let Some(warehouse) = open("sequence") else { return };
-        let refused = warehouse.execute_raw(&statement("create table raw_sequence_attempt (x int)"), &corpus::presented());
+        let refused = warehouse.execute_raw(
+            &statement("create table raw_sequence_attempt (x int)"),
+            &corpus::presented(),
+            corpus::deadline(),
+        );
         drop(refused.expect("accepts raw").unwrap_err());
         let rows = warehouse
-            .execute_raw(&statement("select 2 as n"), &corpus::presented())
+            .execute_raw(&statement("select 2 as n"), &corpus::presented(), corpus::deadline())
             .expect("this adapter accepts a raw statement")
             .expect("the connection still answers after a refused call");
         assert_eq!(rows.rows().len(), 1);
@@ -193,7 +205,7 @@ mod raw {
             let selects = scope.spawn(|| {
                 let mut failures = 0usize;
                 for _ in 0..400 {
-                    match warehouse.execute_raw(&statement("select 1"), &corpus::presented()) {
+                    match warehouse.execute_raw(&statement("select 1"), &corpus::presented(), corpus::deadline()) {
                         Some(Ok(_)) => {}
                         _ => failures += 1,
                     }
@@ -204,7 +216,11 @@ mod raw {
                 let mut accepted = 0usize;
                 for _ in 0..400 {
                     if matches!(
-                        warehouse.execute_raw(&statement("insert into race_t values (2)"), &corpus::presented()),
+                        warehouse.execute_raw(
+                            &statement("insert into race_t values (2)"),
+                            &corpus::presented(),
+                            corpus::deadline()
+                        ),
                         Some(Ok(_))
                     ) {
                         accepted += 1;
@@ -281,7 +297,11 @@ mod raw {
                 let mut accepted = 0usize;
                 for _ in 0..400 {
                     if matches!(
-                        warehouse.execute_raw(&statement("insert into race_t values (2)"), &corpus::presented()),
+                        warehouse.execute_raw(
+                            &statement("insert into race_t values (2)"),
+                            &corpus::presented(),
+                            corpus::deadline()
+                        ),
                         Some(Ok(_))
                     ) {
                         accepted += 1;
@@ -326,6 +346,7 @@ mod raw {
             .execute_raw(
                 &statement(&format!("select generate_series(1, {over_cap})")),
                 &corpus::presented(),
+                corpus::deadline(),
             )
             .expect("this adapter accepts a raw statement")
             .expect("a statement over the cap is not itself a server-side error");

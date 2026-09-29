@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-semantic/src/plan/federated.rs b/crates/sutura-semantic/src/plan/federated.rs
+--- a/crates/sutura-semantic/src/plan/federated.rs
++++ b/crates/sutura-semantic/src/plan/federated.rs
+@@ -180,7 +180,7 @@
+             }
+         };
+         let leg_term = LegTerm::new(plan_term, ResultLabel::internal(label));
+-        if leaf.model().is_some() {
++        if leaf.model().is_some() && false {
+             second_terms.push(leg_term);
+         } else {
+             terms.push(leg_term);
