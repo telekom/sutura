@@ -5,10 +5,10 @@ description: What a database dictionary can contribute as metadata, what it cann
 
 # An RDBMS dictionary as a metadata source
 
-> **Implementation status:** the crate currently converts dictionary records and is tested only
-> through the fake `FixtureReader`. There is no production dictionary reader or database client,
-> and no composition root links or serves this catalog. Operators cannot configure or use it in a
-> shipped binary yet.
+> **Implementation status:** the crate converts dictionary records and is tested through the fake
+> `FixtureReader`, and a production dictionary reader (`postgres_reader.rs`) exists behind the
+> crate's `live` feature. A composition root links and serves this catalog behind the `rdbms` feature.
+> Operators can configure and use it in a shipped binary.
 
 The crate implements the conversion half of issue #151 and
 `docs/adr/0011-pluggable-by-declaration.md`'s RDBMS row. It is intended for a metadata source that
@@ -45,7 +45,7 @@ therefore loads, pins and validates with **zero metrics**, and answers no certif
 own. That is not a limitation the deployment is missing; it is the honest statement about what a
 physical schema, by itself, knows.
 
-A future production reader will see only the objects the database exposes to its configured
+The reader the `live` feature provides sees only the objects the database exposes to its configured
 identity. `load()` has no request identity, and this converter does not build impersonation at the
 source.
 
@@ -95,7 +95,7 @@ this page follows the same boundary by keeping two claims out of the adapter con
 - It does not prescribe a database configuration. A database's DDL, constraints and comments are
   whatever they already are, and nothing here turns a particular configuration into a precondition.
   Every choice named on this page is an option with a payoff.
-- It does not make metrics, comments or a raw tool prerequisites for conversion. A dictionary
+- It does not make metrics or comments prerequisites for conversion. A dictionary
   without them converts to a bundle whose declaration is exactly the empty-of-metric truth.
 
 Options name their payoff without becoming preconditions.

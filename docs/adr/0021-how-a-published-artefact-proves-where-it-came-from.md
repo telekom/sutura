@@ -57,6 +57,11 @@ nothing:
 | every asset including the sidecars                  | `actions/attest-build-provenance`, one call via `subject-checksums`   |
 | the two manifest lists                              | `actions/attest-build-provenance`, one call each via `subject-digest` |
 
+**Corrected: the first table row is stale.** The `.sha256` sidecars ARE `cosign sign-blob`-signed -
+`.github/actions/attest-and-sign`'s signing step excludes only `*.sigstore.json` bundles, not
+sidecars, and that is a REVERSAL of `github.com/telekom/sutura#459`. The row's "except the `.sha256`
+sidecars" no longer holds; the provenance row below it already covered them and still does.
+
 The tools come from the locked nixpkgs as `apps.cosign` and `apps.syft`, for the reason `apps.deny`
 states at length: `nix run nixpkgs#cosign` resolves through the flake registry to whatever
 nixpkgs-unstable points at when the job runs, and this is the one job in the repository holding a
@@ -123,6 +128,14 @@ file whose entire content **is** that digest proves nothing new and costs a cert
 transparency-log entry per release. They keep provenance, which is free, and they stay published
 because a consumer's script may read them. `docs/verifying-a-release.md` says which of the two to
 take and why.
+
+**Corrected: this section is stale - the reversal of `github.com/telekom/sutura#459`.** The sidecars
+ARE cosign-signed now, for the ergonomic reason the action's own header records: on a release page
+holding many bundles the files without one were indistinguishable from an oversight, and a reader who
+checked a sidecar and stopped had verified integrity against a file an attacker who could replace the
+tarball could replace too. The cost argument above still holds per certificate; the decision reversed
+on it. The *Wall clock* section's "Excluding the `.sha256` sidecars roughly halves it" is stale the
+same way.
 
 ### The sequence is a local composite action
 

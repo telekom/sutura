@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 # Not published to a registry: sutura ships as an OCI image, not as crates.
 publish = false
-description = "The agent-facing surface. Transport only: one tool over MCP, and it decides nothing a question depends on."
+description = "The agent-facing surface. Transport only: three tools over MCP, and it decides nothing a question depends on."
 
 [features]
 # The streamable-HTTP server transport, default-off - `telekom/sutura#378` PR3, `docs/adr/0023`.

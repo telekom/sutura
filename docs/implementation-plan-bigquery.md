@@ -49,7 +49,7 @@ own configuration directory for exactly this class of value, and [building witho
 the value belongs on the machine and only the hook belongs here.
 
 **This is tooling availability and not the adapter.** No Rust dependency, nothing in
-`sutura-config`, no `Dialect::BigQuery`. Everything below is still to do.
+`sutura-config`, and at the time of writing no `Dialect::BigQuery`. Everything below has since landed.
 
 ### Which identity this login serves, and which it does not
 
@@ -99,13 +99,13 @@ if it did.** An ordering that puts the cheap step first delivers the cheap step 
 paid for by the expensive one.
 
 **This step is NOT nearly free, and the difference from Postgres is one line of manifest with a
-measurable blast radius.** There is no `Dialect::BigQuery`: the enum is `DuckDb`, `Postgres`,
-`ClickHouse`, and `dialect::ALL` is a `const` with an exhaustiveness test, so a fourth variant is a
-generator arm and a full dialect of goldens rather than a registration. `polyglot-sql` does carry a
-`dialect-bigquery` feature - checked in the pinned 0.9.2's own manifest, alongside 32 others - so
+measurable blast radius.** At the time of writing there was no `Dialect::BigQuery`: the enum was
+`DuckDb`, `Postgres`, `ClickHouse`, and `dialect::ALL` was a `const` with an exhaustiveness test, so a fourth variant was a
+generator arm and a full dialect of goldens rather than a registration. `polyglot-sql` did carry a
+`dialect-bigquery` feature - checked in the then-pinned version's own manifest - so
 nothing has to be written from scratch, and the cost is the corpus:
 
-- **63 snapshots become 84**, being 21 questions times four dialects. **Landed, and the prediction
+- **The prediction was 63 snapshots become 84**, being 21 questions times four dialects. **Landed, and the prediction
   held exactly:** 84 files under `crates/sutura-app/tests/snapshots/` now contain `LIMIT 10001`, and
   52 snapshot files were added in total - 42 for the question corpus and 10 for the five leg fixtures,
   which carry no row cap and so do not move the counted number. No EXISTING snapshot changed, which is
@@ -118,18 +118,19 @@ nothing has to be written from scratch, and the cost is the corpus:
   the number written before the marker `SQL goldens read` and compares it to what it counts, which is
   the mechanism that caught `39` after the corpus had grown. So the invariant row is part of the
   change, and the gate puts it in the diff rather than trusting anyone to remember.
-- **The placeholder style is a third variant or it is a bug.** `PlaceholderStyle` is `Question` and
-  `Numbered`, and BigQuery's job API takes either positional parameters or `@name` named ones. Decide
-  it against the client's actual request shape, not against the dialect layer's rendering, because the
+- **The placeholder style is a third variant or it is a bug.** At the time of writing `PlaceholderStyle` was `Question` and
+  `Numbered`, and BigQuery's job API takes either positional parameters or `@name` named ones. The
+  decision was taken against the client's actual request shape, not against the dialect layer's rendering, because the
   two are separately capable of being right.
 
-  **Decided: `Question`, and no third variant.** Verified against the REST reference rather than
+  **Decided: `Question`.** Verified against the REST reference rather than
   inferred - the request body carries `parameterMode`, positional parameters are written `?` and
   supplied as an ORDERED array whose entries omit `name`, and a query may use one form or the other
   and not both. A `GeneratedQuery` already carries an ordered list of values and no names, because a
   parameter's identity in a plan IS its position, so positional matches end to end. Named would need
   a name invented per parameter, a third `PlaceholderStyle` and a map on `GeneratedQuery` - three new
-  things with nothing in the domain to fill them. `transport::JobRequest::PARAMETER_MODE` is where
+  things with nothing in the domain to fill them. (A third variant, `Colon`, was later added for
+  Oracle's `:1` bind form, but not for BigQuery.) `transport::JobRequest::PARAMETER_MODE` is where
   the adapter states it.
 
 - **The generated statement needs no dataset qualifying, and that was the other thing to check.** The
@@ -180,41 +181,40 @@ acceptance leg runs in CI is the decision above.
 reviewed as a diff rather than typed, and the fixture decision is recorded rather than implied by
 whatever the first test happened to do.
 
-**Where this stands.** All three are done: the corpus is green over four dialects, the goldens were
+**Where this stands.** All three are done: the corpus is green over five dialects, the goldens were
 regenerated and reviewed as a diff, and the decision is
 [0017](adr/0017-what-a-bigquery-test-runs-against.md). The adapter, the source declaration and the
 registry entry landed with them.
 
 **What did NOT land with the adapter, deliberately: the wire.** `sutura-exec-bigquery` implemented
-`Warehouse` and was tested against a fake transport; `transport::JobTransport` had no implementor that
-spoke to the endpoint. 0017 decided that the change adding one is the change that can first verify it
+`Warehouse` and was tested against a fake transport; `transport::JobTransport` then had no implementor that
+spoke to the endpoint. (It now does: `AdbcBigQuery` implements `JobTransport` over the ADBC driver.) 0017 decided that the change adding one is the change that can first verify it
 against a real project - which is also where the dependency decision belongs, because an outbound HTTP
 stack and a credential source reach the musl release builds and the licence gate.
 
-**The wire landed next, and the dependency decision is
-[0018](adr/0018-what-the-bigquery-wire-is-built-from.md).** `jobs.query` called directly over `ureq`,
+**The wire landed next, and the dependency decision was
+[0018](adr/0018-what-the-bigquery-wire-is-built-from.md).** At the time, `jobs.query` was called directly over `ureq`,
 behind a default-off `wire` feature, plus a second narrow port - `wire::credential::AccessTokens` -
-whose one implementor reads the file `just gcloud-login` writes. What decided it was not API surface:
-every wrapper crate, the official preview one included, pulls **`anyhow`** transitively through
-`prost`, which is a claim this workspace makes in writing and enforces with a gate. Two of them pull
-an Arrow major that is not the engine's and one pulls `openssl`. The chosen client costs **zero new
-packages in `Cargo.lock`** - measured, 446 before and 446 after - because `libduckdb-sys` already
-resolves exactly that version and feature set, and it therefore costs the licence allowlist nothing
-either.
+whose one implementor read the file `just gcloud-login` writes. What decided it then was not API surface:
+every wrapper crate, the official preview one included, pulled **`anyhow`** transitively through
+`prost`, which is a claim this workspace makes in writing and enforces with a gate. Two of them pulled
+an Arrow major that was not the engine's and one pulled `openssl`. The chosen client then cost **zero new
+packages in `Cargo.lock`** - measured at the time - because `libduckdb-sys` already
+resolved exactly that version and feature set, and it therefore cost the licence allowlist nothing
+either. **The wire transport has since been replaced by ADBC** (`docs/adr/0018`'s later amendments record it).
 
 **And 0017's prediction about itself did not come true, which is the part to read before believing
 any of this.** The change that wrote the wire could NOT run it: the machine had no `gcloud`, no
 application-default credential and no project. So a leg exists at
-`acceptance.rs`, three `#[ignore]`d tests behind
-`bigquery-acceptance`, and **it is unexecuted**. **It is also narrower than what 0017 specifies**
+`tests/declared_principal.rs`, two `#[ignore]`d tests behind
+`bigquery-acceptance`. **It is also narrower than what 0017 specifies**
 
 - one hand-built `SUM` over a two-column table, exercising none of the constructs the parse check was
   measured to be blind about, so a green run of it would close a smaller gap than the records first
   claimed; the wider leg is #78's importer shape pointed at a dataset. **Two of the three clauses
-  that used to end this paragraph are spent**: a composition root DOES link the crate and
-  `sutura-serve` DOES dispatch `kind: bigquery`, both behind its default-off `bigquery` feature, which
-  `docs/adr/0017`'s second amendment recorded. What survives is the third - the `data_systems:` axis
-  still gains no entry. The honest summary is 0017's sentence with one word moved: **the statement is right as far as
+  `sutura-cli`'s `serve` subcommand DOES dispatch `kind: bigquery`, both behind its default-off `bigquery` feature, which
+  `docs/adr/0017`'s second amendment recorded. What was the third - the `data_systems:` axis - has
+  since gained an entry too: the golden matrix's `data_systems` arm registers `bigquery`. The honest summary is 0017's sentence with one word moved: **the statement is right as far as
   five mechanisms can tell, and ONE has now been run.** On 2026-08-30 the leg passed against a real
   dataset under a service-account key - a statement generated here accepted by `BigQuery`, answered as one
   complete page, with the fixture's own numbers - and `docs/adr/0017`'s amendment puts the repeat of it in

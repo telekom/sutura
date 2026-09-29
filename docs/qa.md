@@ -36,7 +36,7 @@ predicate a question asked for. Every one of those facts is read off the bundle,
 catches a boot path that compiled the wrong question. It does **not** stop code that wants to
 reach the method: the constructor is public, every value it reads is publicly constructible, and
 Rust has no cross-crate friend visibility. So the mechanism that makes the credential-free path
-boot-only is a lint - `clippy.toml` bans the method and the boot path holds the single
+boot-only is a lint - `clippy.toml` bans the two credential-free methods and the boot path holds the single
 expectation, so a second call site is a build error until somebody writes a second one a reviewer
 sees. A lint reaches this workspace and not a crate outside it; that is the limit, and it is
 stated on the type as well.
@@ -136,7 +136,7 @@ as the caller. There **is** a request context, a credential broker port, an audi
 surface, and - where a deployment declares `security.inbound` - a verified caller identity from a
 signature, with OAuth scopes deciding which operations that caller may invoke. Other sources use an
 acknowledged shared identity, so a deployment can know who is asking and still read rows under its
-own source identity. The Arrow result envelope is not built. The published build opens the
+own source identity. The published build opens the
 in-process engine, Postgres and BigQuery;
 other adapters require their own features. The pinned bundle and source grants govern which rows
 can be read.

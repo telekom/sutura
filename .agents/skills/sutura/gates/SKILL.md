@@ -816,8 +816,8 @@ panic-free.
   `prek run --dry-run` printed `pre-commit - 8 of 10 declared hook(s) ran`, `pre-push - 4 of 4`,
   every surface covered and `ok`, exit 0 - **character for character** the lines the real run
   printed, with nothing having executed. And the only end-to-end fixture for the counting rule was
-  itself a `--dry-run` capture under a doc comment calling it a real run. (3) **Eight of the fifteen
-  declared hooks print `Passed` after deciding not to run** - both of the two on push - because a
+  itself a `--dry-run` capture under a doc comment calling it a real run. (3) **Several declared
+  hooks print `Passed` after deciding not to run** - both of the two on push - because a
   self-skip on a missing tool exits 0. Measured with the `shellcheck` entry verbatim and `nix` off
   `PATH`: notice printed, exit 0. So on any host without nix the verdict was a green run over hooks
   that announced their own abstention.
@@ -1068,7 +1068,9 @@ added - which is `the base tree does not build`, loud, and still not a pass.
 commit that changes a public signature a kept-at-HEAD test file calls.* The gate holds test files at
 HEAD and reverts implementation files to base, so if the change altered an item's ARITY or TYPE the
 held tests cannot compile against the base implementation, the retry puts everything at base, and the
-answer is `the base tree does not build` for a reason that has nothing to do with the tests being
+answer is `the base tree does not build` - and since the retry leaves nothing held at HEAD, that
+`DidNotCompile` is now `Verdict::Fail` (exit 1), not the exit-3 `Inconclusive` the held-back arms
+below still take - for a reason that has nothing to do with the tests being
 non-causal. Hit twice in one day - #331 changed `FederatedPlan::new`'s arity; #286 hit it earlier and
 supplied a restatement instead of a mutation, which its review correctly refused. **The verdict is
 indistinguishable from the harness move, so an author who reads only the paragraph above does not
@@ -1403,7 +1405,9 @@ helper was held at HEAD while its only caller was removed at base), while the sa
 locally. So the branch had red-before-green evidence in neither venue and its author had a green
 check.
 
-**They exit 3 now (#307), and the shape of the fix is the transferable part.** Failing was rejected on
+**They exit 3 now (#307), and the shape of the fix is the transferable part** - except the
+nothing-held `DidNotCompile` arm, which the retry leaves with no file at HEAD: that one is
+`Verdict::Fail` (exit 1), not `Inconclusive`. **Failing was rejected on
 measured cost - the harness move lands on `DidNotCompile` every time, so does a changed signature on
 the retry, and a gate that reddens correct work gets disabled - so the decision moved to the venue
 with the **default closed**: 3 is neither 0 nor 1, so a consumer that has not been taught the code
@@ -1717,3 +1721,23 @@ it once BALANCES - so the comment half of that claim was asserted and the attrib
 why it earned the same treatment: a regression cell, measured to fail under exactly that mutation
 and under no other. The cell asserts the multiset is NOT doing the work, so it cannot be satisfied
 for the wrong reason.
+
+## The Claim-Cell trailer
+
+A `Claim-Cell: <test-name>` trailer on a commit pins new test behaviour to its range (declared base
+→ tip) under `just causality`. **It applies ONLY to tests that the range ADDS** - a test the base
+already carries cannot be claimed, and a MODIFIED test (including a renamed one) cannot carry the
+trailer. `causality` reads the trailer per commit (`xtask/src/causality/claim.rs:479-485`), so it
+must sit on the commit that adds or *changes* the test.
+
+**When causality exits 3 (`INCONCLUSIVE`),** a signature change to the test itself blocks measurement
+(the mutation harness cannot replicate it), and you proceed with a hand mutation table in the commit
+body naming which mutations you tested and which ones killed the cell. This is the normal path, not
+a failure case - `INCONCLUSIVE` on a signature change is a **pass that needs a hand table**, and a
+table accepted by review carries proof just as a green exit 0 does.
+
+**Never revert a changed test to make causality green.** If a dependency bump breaks the test's code,
+the fix is either to adapt the test or to pin the dependency - not to hide the change. An untrailered
+claim patch in `devco/claim-mutations/` makes causality measure 0 (`exit 0` with `NO BASE BEHAVIOUR
+... 0 of N added tests measured`) - a hollow green that hides the whole cell. If you encounter this,
+add the missing trailer to the commit that adds the test, or refuse the change.

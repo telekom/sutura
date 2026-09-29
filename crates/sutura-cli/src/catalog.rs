@@ -313,6 +313,7 @@ fn open_one_okf_catalog(settings: &sutura_config::CatalogSettings) -> Result<sut
         settings.version().clone(),
     ))
 }
+/// Opens every declared `openmetadata` catalog, behind this crate's `openmetadata` feature.
 #[cfg(feature = "openmetadata")]
 fn open_openmetadata_catalogs(
     catalogs: &sutura_config::Catalogs,

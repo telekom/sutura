@@ -10,13 +10,13 @@
 #     harness measures under is the one declared below rather than one inherited by accident.
 #   * a second `Cargo.lock`. `cargo xtask check-fuzz` fails if it is missing, because a fuzz run
 #     against an unlocked graph is not reproducible - but `cargo deny` reads the ROOT lock only, so
-#     NOTHING HERE IS ADVISORY-CHECKED. Stated as the limit it is; of the eight direct
-#     dependencies below, six are first-party path dependencies and the two third-party ones are
+#     NOTHING HERE IS ADVISORY-CHECKED. Stated as the limit it is; of the seven direct
+#     dependencies below, five are first-party path dependencies and the two third-party ones are
 #     `libfuzzer-sys` and `serde_json`. The BigQuery adapter's Arrow/ADBC graph - excluded
 #     transitively - `ureq`, `ring` and `base64` - is advisory-unchecked here for the same reason,
 #     the cost of fuzzing the real reply decode that ships behind that feature.
 #
-# WHY SIX TARGETS, AND WHY THESE SIX. The issue #146 sweep measured that nothing generates input
+# WHY THESE TARGETS. The issue #146 sweep measured that nothing generates input
 # against the parsers a caller, a catalog author or an operator's key-set file reaches. `panic =
 # "abort"` is on every shipped profile, so a panic inside a third-party parser is the process dying
 # rather than an error a caller sees - and clippy at `-D warnings` (which denies `unwrap_used`,
@@ -42,21 +42,18 @@
 #   * `key_set_document`   - `sutura_http::inbound::keys::KeySet::parse`, the JWK-set document an
 #     operator's key-set file or authorization server supplies. Runs `serde_json`, then
 #     `jsonwebtoken`'s JWK decode, base64 and `KeyId::parse`; asserts a parsed set is never empty.
-#   * (removed with the wire transport)`,
-#     exactly what the adapter's transport feeds a `jobs.query` answer through once the HTTP round
-#     trip is done. Runs `serde_json` over the reply (no `deny_unknown_fields`, because the
-#     endpoint's document is the service's own and will grow fields) and then the shape checks that
-#     refuse an incomplete job, a page of a larger result, a bad total, an out-of-vocabulary column
-#     type and a non-scalar cell. Each target header states its own limit.
+#
+#   A sixth target, over the wire transport's `jobs.query` reply decode, was removed with the
+#   wire transport (`AdbcBigQuery` replaced it; ADBC has its own decode path).
 #
 # NOT A COMPILE GATE ON `pull_request`, and that is a limit stated rather than a gap closed by
 # this file. `cargo xtask check-fuzz` (the hygiene-sweep gate, on every pull request) verifies this
 # manifest's WIRING - a `[[bin]]` entry, a seed directory, a matrix line - and compiles nothing; the
-# only things that ever compile these six targets are a release-tag or manual-dispatch run of
+# only things that ever compile these five targets are a release-tag or manual-dispatch run of
 # `.github/workflows/fuzz.yml`, and a contributor's local `fuzz` pre-commit hook (path-scoped, not
 # CI). So a change to first-party API surface these targets bind to - `LocalCatalog::new`/`root`/
-# `load`, `PinnedDefinitions::digest`, `KeySet::parse`/`count`/`ids`, `decode_answer`, and the four
-# sibling targets' own signatures - that breaks a target merges green on `ci` and is found at the
+# `load`, `PinnedDefinitions::digest`, `KeySet::parse`/`count`/`ids`, and the sibling targets' own
+# signatures - that breaks a target merges green on `ci` and is found at the
 # next tag, or by whoever's local hook happens to touch this tree first.
 
 # An empty table, which is what makes this directory a workspace root of its own. Without it cargo

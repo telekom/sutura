@@ -30,7 +30,8 @@ docker compose -f examples/single-player/compose.yaml up
 That brings up `sutura serve` on this machine's loopback, reading the catalog and corpus in this
 directory as one read-only volume - `compose.yaml`'s own comments say why each setting is there, and
 mirror the `docker run` recipe [Serving over HTTP](../../docs/serving.md#running-it) documents
-byte for byte. Once it reports healthy:
+byte for byte. There is no `HEALTHCHECK` on this image - the image runs no shell, so a probe with
+one would need its own process - so wait for the server to answer instead:
 
 ```bash
 curl http://127.0.0.1:8080/health

@@ -37,7 +37,7 @@ const EXAMPLE_PROSE: &str = "Where the customer is.";
 fn a_deployments_prose_setting_reaches_both_halves_of_the_agent_surface() {
     // **`#266`'s `H1`, at the only layer that can prove it: a settings FILE this process read.**
     // The chain under test is `base.yaml` -> `Settings::load` -> `crate::mcp::serve` ->
-    // `mcp_service` -> `serve_stdio` -> `CatalogContent::of`, and nothing in it is supplied by
+    // `mcp_service` -> `serve_stdio` -> `CatalogContent::of_with_physical_schema`, and nothing in it is supplied by
     // this test except the file. The review that blocked the first attempt is why: a test that
     // hands `mcp_service` the value it wants to see stays green with the read back to a
     // constant, which is the defect one frame out.

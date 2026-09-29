@@ -690,6 +690,11 @@ now and impossible to retrofit, and they are marked.
 - **Arrow in, per source, and where an Arrow-typed boundary lives.** `check-boundaries` forbids Arrow
   in the domain, AGENTS.md lists `sutura-arrow` as planned, and the pinned `duckdb` and `datafusion`
   disagree on the Arrow major. This wants its own record.
+
+**Corrected:** `check-boundaries` no longer forbids Arrow in the domain - `arrow-*` is now in `ALLOWED_IN_DOMAIN` per `docs/adr/0039`.
+
+**Corrected:** AGENTS.md does not list `sutura-arrow` (or any `arrow` crate) as planned - there are zero mentions of 'arrow' in AGENTS.md.
+
 - **Whether a custom DataFusion planner or extension carries the semantic extras.** It keeps the
   pushdown unit as sutura's own plan, so bind parameters and the dialect goldens stay on this side of
   the boundary. It is the most promising shape and it is unprototyped.

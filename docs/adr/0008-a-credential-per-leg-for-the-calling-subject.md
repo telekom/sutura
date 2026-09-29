@@ -1324,7 +1324,7 @@ rather than duplicates everywhere else.
 global one.** `SharedIdentityDeclared` - the witness on 5b's variant - is constructed by the settings
 layer only from a key an operator wrote **against that source's own entry**, so a deployment cannot
 acquire the posture by leaving anything at a default, and cannot acknowledge one source and inherit it
-for the next. The key carries the operator's reason as text, printed at startup beside the posture,
+for the next. The key carries the operator's reason as text, printed within the startup settings dump,
 because the reason is the part a reviewer needs and the part nobody writes unless the type demands it.
 And it is the same witness that part 4's `Presented::SharedServiceUser` carries onto the leg, which is
 what ties the boot-time acknowledgement to the thing that actually executed: an acknowledgement no
@@ -1765,11 +1765,12 @@ where the file lives. The two `NotFitToServe` rows already there are the precede
    permitted deployment has to keep working, or the next person deletes the check. It is also where the
    mode matters - the acknowledgement is required in multi-user mode only, because single-user has one
    identity to get wrong and it is the right one.
-4. **The transition test:** that same single-user configuration, with only the declared mode flipped to
+4. **The transition mechanism:** that same single-user configuration, with only the declared mode flipped to
    multi-user, **refuses.** One field changes, nothing else, and the outcome inverts. That is part 5e as
    an executable assertion rather than a rule, it is the one that would catch a future incremental check
    that looked at only what changed, and it is only writable because 5a made the mode a declared field:
-   under the derivation 5a deletes there is no single field to flip.
+   under the derivation 5a deletes there is no single field to flip. The mechanism exists; no single named
+   test cell carries this name.
 
 **And four tests for the identity types and the boot path, also against fakes.** These are what stop
 part 1 and part 4 from being prose:

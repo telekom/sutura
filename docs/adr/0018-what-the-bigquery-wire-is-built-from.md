@@ -47,6 +47,17 @@ it.
 | **Arrow**            | `cargo xtask check-arrow` fails when the `arrow-*` family spans more than one major without a dated, reasoned entry in `devco/arrow-majors-allow`. The engine sets the type vocabulary and adapters conform                                                                                                                                                                                            |
 | **`anyhow`**         | Not on the issue's list and it is the one that decides this. `AGENTS.md` states that *`anyhow` appears nowhere in this workspace - `Cargo.lock` included, so not even transitively*, and `cargo xtask check-boundaries` fails a dynamic-error crate in a library. A dependency that pulls it transitively spends a claim this repository makes in writing                                              |
 
+**Corrected: the release row's `flake.nix` attribution is stale.** The `cargoExtraArgs` that pins a
+single package is in `nix/shipped.nix`, as `--package ${binary.package}` - a variable over the list
+of shipped binaries, not a literal `--package sutura-cli` in `flake.nix`. `flake.nix`'s own
+`ciArtifacts` builds `--workspace --all-features`, and the release derivations are in `nix/shipped.nix`.
+
+**Corrected: the `anyhow` row attributes the claim to the wrong source.** `AGENTS.md` contains no
+occurrence of the word "anyhow"; the claim lives in `docs/architecture.md` and is enforced by
+`cargo xtask check-boundaries`, which fails a dynamic-error crate in a library - the gate the row
+goes on to name. The claim itself holds: `anyhow` is in no `Cargo.toml` and `Cargo.lock` carries it
+only transitively, if at all.
+
 ## The options, priced
 
 There is **no stable official Google `BigQuery` SDK for Rust.** There is an official repository -

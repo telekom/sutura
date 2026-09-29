@@ -188,7 +188,7 @@ The two rows are that split and not a duplication.
 | The composition root arms leg 1 over the governed routes, or does not start | - | **yes**, on the spawned binary | - | - | redundant | - | - |
 | The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | - | redundant | - | - |
 | An unverified caller on the agent surface (`/mcp`) is refused with the same `401` every forgery gets | - | **unrun** - the standing test is `sutura_http::inbound::tests::router::the_agent_route_refuses_an_unverified_caller_with_the_same_challenge_every_forgery_gets`, run under `just test` | - | - | - | - | - |
-| Two verified callers see two different tool lists on the agent surface | - | **unrun** - the standing test is `served.rs::two_verified_callers_over_the_composed_binary_see_two_different_tool_lists`, run under `just test` | - | - | - | - | - |
+| Two verified callers see two different tool lists on the agent surface | - | **unrun** - the standing test is `served::agent::two_verified_callers_over_the_composed_binary_see_two_different_tool_lists`, run under `just test` | - | - | - | - | - |
 | **A real IdP's own signature and JWKS verify through the composed binary - not #105's third-party-audience question** | - | no - it cannot generate an RSA key, so it is not a real provider for this claim either | - | **yes** | **yes** - the same run and the same tier, because the tier IS a real enterprise provider: this is the OIDC contract, and the five provider-specific deviations this venue's own section lists are what it does NOT reach | - | - |
 | **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | **yes - a password grant with `scope=openid` mints an ID token whose `aud` carries a third-party audience (`nix/keycloak-tier.nix`'s `id-token-audience` mapper), read off the realm file the tier wrote; password grant, RFC-2606 placeholder audience, not browser-delegated** | **yes** - the same cell, restated here because *only here* was this column's answer while the tier beside it already said `yes`: a contradiction inside one row, corrected rather than left to a reader to spot. What a hosted tenant would add is a browser-delegated grant and a vendor's own `aud`/`azp` shape, not this claim | - | - |
 | Whether a statement we generate is accepted by a real data system | - | - | **yes** | - | - | - | - |
@@ -436,7 +436,8 @@ asks the same tier for a token with `scope=openid` and asserts the ID token's `a
 not a literal the cell restated. That is row 191's `yes` half: a real IdP does mint an ID token with
 a third party's audience. The limit beside that `yes`, stated in the row and in item 1 of "What it
 cannot answer" below: it is a password grant against a hardcoded audience mapper, not a
-browser-delegated flow, and the audience is an RFC-2606 placeholder.
+browser-delegated flow, and the audience is an RFC-2606 placeholder. This cell is green on `main` today
+(run https://github.com/telekom/sutura/actions/runs/36143472617).
 
 **What "a different subject" means, exactly.** The audit record masks every `sub` to its first
 character plus `***`, and Keycloak subjects are UUIDs, so two different `sub`s' masked forms

@@ -9,7 +9,7 @@
       "repo": "https://microsoft.github.io/rust-guidelines",
       "ref": "agents/all.txt",
       "upstream_path": "-",
-      "sha256": "91f49f9eac3295c0d58c20076aa41f583334645bbb6e49e72d36e4da144e5fbd"
+      "sha256": "4ecfbdbc8c52500dabba8f64bacabfaf3ec604c37a99354b30246a8d6b76234b"
     },
     {
       "name": "oauth",
@@ -19,7 +19,7 @@
       "repo": "https://github.com/curityio/oauth-developer-skills",
       "ref": "d411f195ab0d03bc68de6b16504036b6f7533244",
       "upstream_path": "skills/oauth-api-developer",
-      "sha256": "ca7f4c4d6c0be5654ab2f80dbff15262102852a5e6a37611059c489a85726773"
+      "sha256": "9ca59102063f87ccd3019865251d63d9344644ef0be38ff5f075d3ade25702fa"
     },
     {
       "name": "ponytail",
@@ -29,7 +29,7 @@
       "repo": "https://github.com/DietrichGebert/ponytail",
       "ref": "2ed6c52c9d7e5e56942508591085fd45dea277d3",
       "upstream_path": ".openclaw/skills/ponytail",
-      "sha256": "f23a8ccbab0820d4a7b44b8e274b4fbdaea032242818cb491b1d5762f850ffd2"
+      "sha256": "b2347c74009a000cc714f63d0a6f3ac1829cdbc2b502d46b4cbb397994dd7365"
     },
     {
       "name": "api-and-interface-design",

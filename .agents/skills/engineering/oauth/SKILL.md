@@ -67,11 +67,15 @@ the raw token deep in a call stack is authorization nobody can audit.
 
 The intent is that every query runs as the calling principal. Concretely:
 
-**The port is built and the downstream leg is not.** `sutura_domain::identity::CredentialBroker` is
+**The port and the downstream leg are built and unproven.** `sutura_domain::identity::CredentialBroker` is
 the credential port, with production implementors in `sutura-config` and in `sutura-exec-bigquery`'s
-token exchange - the sentence that used to stand here said the workspace had no such port. What is
-still absent is the leg it is for: no shipped adapter has anywhere for a per-subject credential to
-arrive, so no query runs AS the calling principal. The bullets below are the design of that half.
+`DeclaredPrincipalBroker` - the sentence that used to stand here said the workspace had no such port.
+On BigQuery the caller's own verified assertion is federated through the declared pool, and the
+account the source's per-source map declares for that subject becomes the credential's
+`service_account_impersonation_url` - not RFC 8693 token exchange but Google's workload identity
+federation. An undeclared subject is refused, never run as the deployment. The hosted venue that
+would show it is `wired` with no observed run; the bullets below are the design of the halves not yet
+built - the served binary and the row grants it would show.
 
 - A broker mints a credential per request, from the request's own context. There is no service
   account fallback: a leg that cannot run as the subject is refused instead.
@@ -88,8 +92,9 @@ arrive, so no query runs AS the calling principal. The bullets below are the des
 ## Reviewing a change here
 
 The table applies to the change that *introduces* any of the above, and the first two rows are
-already enforced: `sutura-http`'s token validator pins the algorithm list and sets the audience. The
-rest are still claims about code that does not exist, which is where a "no" is the honest answer.
+already enforced: `sutura-http`'s token validator pins the algorithm list and sets the audience.
+Rows 3 (every leg as subject) and 5 (refusals as typed results) are built but unproven; the
+remaining rows are still design, which is where a "no" is the honest answer.
 
 | Question | If the answer is no |
 | --- | --- |

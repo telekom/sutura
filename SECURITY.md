@@ -106,9 +106,9 @@ Each of these is held by a type, a lint or a gate today, and
 - a bundle serving answers when a declared anchor was not checked, or did not reproduce its number
 - a credential appearing in a log, an error, or a serialised value
 - a result cache keyed by anything other than the subject first
-- a second call site for `Warehouse::verify_anchor`, the one port method that reaches a data system
-  with no credential. It belongs to the boot path alone; `clippy.toml` bans it and the boot path holds
-  the single `#[expect]`. **Its input type is a self-check and not a barrier** - see *Not yet
+- a second call site for `Warehouse::verify_anchor` or `Warehouse::declared_key`, the two port methods that reach a data system
+  with no credential. They belong to the boot path alone; `clippy.toml` bans both and the boot path holds
+  the single `#[expect]` per method. **Their input types are self-checks and not barriers** - see *Not yet
   guarantees* below
 
 ## Not yet guarantees

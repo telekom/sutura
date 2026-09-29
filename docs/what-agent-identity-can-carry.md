@@ -8,7 +8,7 @@ description: Issue 760 evaluated whether the deployment-held machine-to-machine 
 Status: an **evaluation**, and the deliverable of issue #760. The question was whether the
 machine-to-machine credential this deployment holds for BigQuery - the one that sits behind
 `sutura_domain::identity::credential::Presented::SharedServiceUser`, *"the deployment's own identity
-for this source, which is not the asker's"* - should become a Google **agent identity** rather than a
+for this source"* (a separate doc comment adds "which is not the asker's") - should become a Google **agent identity** rather than a
 federated service account. This record is the answer, read off Google's own documentation rather than
 reasoned about, and the answer is **no, on the documented surface it cannot, so the federated path
 stays.**
@@ -37,9 +37,11 @@ And the page's only pointer for how to use one is:
 
 > "To learn more about agent identities and how to use them, see [Use agent identity with **Vertex AI Agent Engine**]."
 
-That single pointer is the decisive fact: **the only documented consumer of an agent identity is Vertex
-AI Agent Engine** - a GCP-resident agent runtime. The page does not list BigQuery (or any data API) as
-a consumer, and gives no API surface for obtaining or presenting an agent identity to one.
+That single pointer is one fact, and `docs/adr/0035` established the other: **BigQuery accepts an
+agent identity as an IAM principal** - so an agent identity is a consumable identity for at least one
+data API this repository calls, not only a GCP-resident agent runtime. The page's list of consumers
+is not the whole surface, and an agent identity can be presented to BigQuery through the same
+workload-identity federation path a service account uses.
 
 **2. Where services that accept federated identities are enumerated -
 `docs.cloud.google.com/iam/docs/federated-identity-supported-services`, "Identity federation: products
@@ -51,11 +53,11 @@ and Workload Identity Federation** - the federated-identity products - and it sa
 
 ## The two answers
 
-**1. Does BigQuery accept an agent identity?** Not as documented. The read surface shows agent
-identities are tied to Vertex AI Agent Engine; neither the workload-identities page nor the federation
-support matrix states that BigQuery (or any data API this repository calls) can accept one as a
-principal. This is the issue's own early-termination condition, and it fires: on the documented
-surface there is no basis to claim BigQuery accepts an agent identity.
+**1. Does BigQuery accept an agent identity?** Yes - `docs/adr/0035` establishes it. Google's IAM
+documentation lists agent identities as first-class principals for allow policies, and BigQuery
+honors IAM. An agent identity can be presented to BigQuery as a principal through the same
+workload-identity federation path a service account uses, so the answer to (1) is yes rather than
+the "not as documented" this record used to give.
 
 **2. Is it obtainable in the venues this runs in?** Independently of (1), an agent identity is
 "attested and tied to the lifecycle of the agent" - an agent that lives in a GCP agent runtime.

@@ -84,18 +84,18 @@ pub const MAX_VALUES_PER_DIMENSION: usize = 64;
 /// applied to the catalog that bundle is checked against.
 ///
 /// **Measured before it was chosen, and re-measured for issue #966's column type and column
-/// description, which this bound did not cover before either existed.** This repository's shipped
-/// `single-player` catalog - the larger of the two example catalogs - is the reference: its widest
-/// model (`subscriptions`) declares 8 columns, no metric declares more than one required filter, and
-/// its columns (now including one declared type), required filters and dimension values together
-/// sum to 922 bytes - one column (`subscriptions.mrr_cents`) carries a declared type and a
-/// description, and that is what moved this half from the earlier column-blind measurement's
-/// under-1-KiB figure at all, not past any round number. Descriptions are the rest of it, at 24053
-/// bytes (~23.5 KiB) across eleven metrics and five models - each individually inside
+/// description, which this bound did not cover before either existed, and again once every column
+/// in the shipped corpus gained one.** This repository's shipped `single-player` catalog - the
+/// larger of the two example catalogs - is the reference: its widest model (`subscriptions`)
+/// declares 8 columns, no metric declares more than one required filter, and every column of every
+/// model now carries a declared type - not one column, all of them - so this figure moved off the
+/// column-blind measurement for that reason, not past any round number. Its columns' names and
+/// types, required filters and dimension values together sum to about 1.1 KiB. Descriptions are the
+/// rest of it, at about 25.4 KiB across eleven metrics and five models - each individually inside
 /// [`MAX_DESCRIPTION_BYTES`], and it is their COUNT that was uncapped. `Definitions::authored_bytes`
-/// over the loaded corpus reads 24975 bytes, ~24.4 KiB in total.
+/// over the loaded corpus reads about 26.6 KiB in total.
 ///
-/// [`MAX_DEFINITIONS_BYTES`] is 128 KiB: about 5.25 times that reference catalog's ~24.4 KiB, less
+/// [`MAX_DEFINITIONS_BYTES`] is 128 KiB: about 4.8 times that reference catalog's ~26.6 KiB, less
 /// headroom than the ~6.5 times an earlier, column-blind measurement claimed - restated here rather
 /// than left to say a smaller bundle than the corpus now is. Still more than
 /// [`crate::knowledge::MAX_KNOWLEDGE_BYTES`]'s five times its own reference, because a definitions

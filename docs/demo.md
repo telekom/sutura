@@ -103,9 +103,9 @@ ungoverned: if it did not call `ask_metric`, no certified number was involved.
 
 ## Stop it
 
-Ctrl-C removes the demo's containers, its network and its named volumes. `examples/demo-chatinterface/start.sh` runs the
+Ctrl-C removes the demo's container, its network and its named volume. `examples/demo-chatinterface/start.sh` runs the
 tier's own scoped teardown through `xtask dev-down`, so only this worktree's demo goes - the chat
-client's stored state included. `just dev-down` does the same from another shell.
+client's stored state included. `just dev-down-demo` does the same from another shell.
 
 ## What the demo does not prove
 

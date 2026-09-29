@@ -67,8 +67,7 @@ composition root with the reason that no build delivers it.
 which is default-off and in no published binary. The golden and differential suites run the example
 corpus against a real ClickHouse - the server `nix/clickhouse-tier.nix` starts beside the Postgres
 tier - and pin its rows, refusals, error and anchor report. Two things the `Executes` column does
-NOT say about it: the conformance packs are not bound, because that corpus measured two wrong
-answers a fix has to land for first (an `Int64` sum that wraps, a decimal that loses its trailing
+NOT say about it: the conformance packs are now bound (via `execute_packs!` in `crates/sutura-exec-clickhouse/tests/conformance.rs`), after that corpus measured two wrong
 zero - `check-conformance-bindings` carries the declaration), and `Warehouse::EXECUTES_LEGS` is
 absent on the adapter - so a federated question involving a ClickHouse source is still refused by
 the capability gate. Its identity column is the static half and stays there until an adapter change:
