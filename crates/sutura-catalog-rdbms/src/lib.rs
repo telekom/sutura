@@ -90,6 +90,8 @@
 //! A composition root that links the `live` feature serves `catalog.kind: rdbms`; a build without
 //! it refuses by name. (Its only other dependant is `sutura-app`, as a dev-dependency.)
 
+#[cfg(feature = "live")]
+mod documentation;
 pub mod fixture;
 #[cfg(feature = "live")]
 pub mod postgres_reader;
