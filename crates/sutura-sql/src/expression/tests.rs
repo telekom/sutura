@@ -560,7 +560,7 @@ fn a_column_the_qualification_rewrite_did_not_reach_is_refused() {
     // `traversal::transform_map` dispatches on a hardcoded list of node kinds and returns a kind it
     // has no arm for untouched, children and all; the unknown-column check is a `dfs` walk, which
     // has the WIDER coverage. So the check saw columns the rewrite never touched, and each of these
-    // eight compiled with a bare column in the output.
+    // compiled with a bare column in the output.
     //
     // Measured in the pinned DuckDB for the COLLATE case, against a joined dimension carrying the same
     // column name: `Binder Error: Ambiguous reference to column name "region"` - at query time, for
@@ -571,7 +571,6 @@ fn a_column_the_qualification_rewrite_did_not_reach_is_refused() {
         "SUM(mrr_eur) SIMILAR TO 'x'",
         "SUM(mrr_eur) WITHIN GROUP (ORDER BY region)",
         "ARRAY_AGG(mrr_eur ORDER BY region)",
-        "LIST(mrr_eur ORDER BY region)",
         "GROUP_CONCAT(status ORDER BY region)",
         "FIRST_VALUE(mrr_eur IGNORE NULLS) OVER (PARTITION BY region)",
         "LAST_VALUE(mrr_eur) IGNORE NULLS OVER (PARTITION BY region)",
@@ -596,6 +595,10 @@ fn a_column_the_qualification_rewrite_did_not_reach_is_refused() {
         "SUM(mrr_eur) OVER (PARTITION BY region)",
         "SUM(CASE WHEN status = 'active' THEN mrr_eur END)",
         "ARRAY_AGG(DISTINCT mrr_eur)",
+        // Refused above until the pinned polyglot-sql's rewrite reached `LIST`'s `ORDER BY`. Not
+        // bisected; the changelog entry that fits is the traversal work of tobilg/polyglot#475:
+        // "AST column renaming and replacement reach arguments of typed functions".
+        "LIST(mrr_eur ORDER BY region)",
     ] {
         let compiled = portable(raw).unwrap_or_else(|err| panic!("{raw:?} should still compile: {err}"));
         for dialect in ALL.iter().copied() {

@@ -523,6 +523,9 @@ fn ordered(expr: Expr, desc: bool) -> Expr {
         nulls_first: Some(false),
         explicit_asc: false,
         with_fill: None,
+        // Vertica's `NULLS AUTO`. `true` would hand null placement back to the target, and no
+        // dialect here renders it.
+        nulls_auto: false,
     })))
 }
 
