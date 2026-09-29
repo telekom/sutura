@@ -990,10 +990,6 @@ mod tests {
             missing.push("nix/run-gate.sh (unreadable)");
         }
 
-        assert!(
-            missing.is_empty(),
-            "fuzz Cargo.lock is unchecked in: {}",
-            missing.join(", ")
-        );
+        assert!(missing.is_empty(), "fuzz Cargo.lock is unchecked in: {}", missing.join(", "));
     }
 }
