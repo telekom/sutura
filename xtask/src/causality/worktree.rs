@@ -55,8 +55,7 @@ pub(super) fn merge_base(root: &Path, earlier: &str, later: &str) -> String {
     git(root)
         .args(["merge-base", earlier, later])
         .output()
-        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
-        .unwrap_or_default()
+        .map_or_default(|out| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// The branch HEAD is on, or `None` when HEAD is detached.
@@ -82,8 +81,7 @@ pub(super) fn head_commit(root: &Path) -> String {
     git(root)
         .args(["rev-parse", "HEAD"])
         .output()
-        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
-        .unwrap_or_default()
+        .map_or_default(|out| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// The commit messages in `base..HEAD`, as git printed them: `<hash>\0<body>\0` per commit.
@@ -104,8 +102,7 @@ pub(super) fn messages(root: &Path, base: &Commit) -> String {
     git(root)
         .args(["log", "-z", "--format=%H%x00%B", &format!("{}..HEAD", base.as_str())])
         .output()
-        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
-        .unwrap_or_default()
+        .map_or_default(|out| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// Splits [`messages`]' NUL-delimited per-commit stream into `(hash, body)` pairs.
@@ -133,8 +130,7 @@ pub(super) fn branch_metadata(root: &Path, branch: &BranchRef) -> String {
         .args(["cat-file", "-p", &format!("refs/branch-metadata/{}", branch.as_str())])
         .stderr(std::process::Stdio::null())
         .output()
-        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
-        .unwrap_or_default()
+        .map_or_default(|out| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// Every path the diff touched, one per line - **deletions included**.
@@ -147,14 +143,13 @@ pub(super) fn touched(root: &Path, base: &Commit) -> Vec<String> {
     git(root)
         .args(["diff", "--name-only", base.as_str(), "--"])
         .output()
-        .map(|out| {
+        .map_or_default(|out| {
             String::from_utf8_lossy(&out.stdout)
                 .lines()
                 .filter(|line| !line.trim().is_empty())
                 .map(String::from)
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// Lines matching any of `needles` in `base`, under `paths`.
@@ -180,8 +175,7 @@ pub(super) fn search(root: &Path, base: &Commit, needles: &[String], paths: &[St
     }
     command
         .output()
-        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
-        .unwrap_or_default()
+        .map_or_default(|out| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// Does `path` exist at `base`?

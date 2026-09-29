@@ -429,7 +429,7 @@ fn literal_release_builds(text: &str, deps_exempt: bool) -> Vec<(usize, String)>
 /// runs only on lines the pass examined, so the block-scalar boundary is held constant between the
 /// two rather than being a floor a shell body can raise.
 fn plainly_a_call(trimmed: &str) -> bool {
-    trimmed.contains("uses:") && trimmed.contains("./")
+    trimmed.contains("uses:") && (trimmed.contains("./") || trimmed.contains("$/"))
 }
 
 /// Every `uses:` edge one file declares, and every examined line that plainly named a call.
@@ -512,7 +512,7 @@ fn scan(file: &Reached) -> Scan {
 /// Which kind of edge a `uses:` value is, or `None` for a step's remote action - which has no body
 /// in this repository and is not a call this walk is about.
 fn classify(value: &str, job_level: bool) -> Option<Edge> {
-    if let Some(path) = value.strip_prefix("./") {
+    if let Some(path) = local_path(value) {
         return Some(if path.starts_with(WORKFLOWS) {
             Edge::Workflow
         } else {
@@ -520,6 +520,10 @@ fn classify(value: &str, job_level: bool) -> Option<Edge> {
         });
     }
     job_level.then_some(Edge::Elsewhere)
+}
+
+fn local_path(value: &str) -> Option<&str> {
+    value.strip_prefix("./").or_else(|| value.strip_prefix("$/"))
 }
 
 /// Does this value open a block scalar? `|`, `>` and every indicator YAML allows after them.
@@ -535,7 +539,7 @@ fn open(root: &Path, call: &Call) -> Result<Reached, String> {
             "it is a call outside this repository, and its steps are in no tree this gate reads",
         )),
         Edge::Workflow => {
-            let path = call.target.trim_start_matches("./");
+            let path = local_path(&call.target).unwrap_or(&call.target);
             let file = path.trim_start_matches(WORKFLOWS);
             read(root, path).map(|text| Reached {
                 label: String::from(file),
@@ -546,7 +550,7 @@ fn open(root: &Path, call: &Call) -> Result<Reached, String> {
             })
         }
         Edge::Action => {
-            let dir = call.target.trim_start_matches("./").trim_end_matches('/');
+            let dir = local_path(&call.target).unwrap_or(&call.target).trim_end_matches('/');
             let named = dir.rsplit('/').next().unwrap_or(dir);
             let mut refusals = Vec::new();
             for manifest in MANIFESTS {
@@ -612,6 +616,44 @@ mod tests {
     fn walk(at: &std::path::Path, caller: &str) -> Closure {
         std::fs::write(at.join(".github/workflows/ci.yml"), caller).expect("the caller");
         Closure::from_roots(at, vec![Reached::workflow("ci.yml", String::from(caller))])
+    }
+
+    #[test]
+    fn self_repository_calls_reach_workflows_and_nested_actions() {
+        let at = scratch("self-repository");
+        std::fs::write(
+            at.join(".github/workflows/leg.yml"),
+            "on:\n  workflow_call:\njobs:\n  build:\n    steps:\n      - uses: $/.github/actions/tidy\n",
+        )
+        .expect("the leg");
+        std::fs::create_dir_all(at.join(".github/actions/leaf")).expect("the nested action directory");
+        std::fs::write(at.join(".github/actions/leaf/action.yaml"), "runs:\n  using: composite\n").expect("the nested action");
+        std::fs::write(
+            at.join(".github/actions/tidy/action.yml"),
+            "runs:\n  using: composite\n  steps:\n    - uses: $/.github/actions/leaf\n",
+        )
+        .expect("the composite caller");
+        let caller = "on: push\njobs:\n  called:\n    uses: $/.github/workflows/leg.yml\n";
+        let closure = walk(&at, caller);
+        let mut labels: Vec<&str> = closure.inspected().iter().map(Reached::label).collect();
+        labels.sort_unstable();
+        assert_eq!(labels, vec!["actions/leaf", "actions/tidy", "ci.yml", "leg.yml"]);
+        assert!(closure.drift().is_empty(), "{:?}", closure.drift());
+        std::fs::remove_dir_all(&at).expect("the scratch tree");
+    }
+
+    #[test]
+    fn self_repository_flow_calls_the_key_reader_misses_are_refused() {
+        let at = scratch("self-repository-flow");
+        let caller = "on: push\njobs:\n  called: { uses: $/.github/workflows/leg.yml }\n";
+        let closure = walk(&at, caller);
+        let drift = closure.drift();
+        assert_eq!(drift.len(), 1, "{drift:?}");
+        assert!(
+            drift.first().is_some_and(|line| line.starts_with("UNSIGHTED SHAPE:")),
+            "{drift:?}"
+        );
+        std::fs::remove_dir_all(&at).expect("the scratch tree");
     }
 
     #[test]

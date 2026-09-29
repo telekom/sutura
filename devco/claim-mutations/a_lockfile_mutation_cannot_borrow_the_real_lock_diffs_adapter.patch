@@ -1,0 +1,12 @@
+--- a/xtask/src/affected/claim_mutation.rs
++++ b/xtask/src/affected/claim_mutation.rs
+@@ -129,9 +129,6 @@
+         if added.parse::<u64>().is_err() || removed.parse::<u64>().is_err() || !canonical(target) {
+             return Err(String::from("mutation numstat is not a canonical text-file path"));
+         }
+-        if target == "Cargo.lock" {
+-            return Err(String::from("a mutation's lockfile targets are not the real lockfile diff"));
+-        }
+         paths.insert(target.to_owned());
+     }
+     if paths.is_empty() {

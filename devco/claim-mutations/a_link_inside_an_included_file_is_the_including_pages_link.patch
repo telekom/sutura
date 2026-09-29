@@ -1,0 +1,12 @@
+diff --git a/xtask/src/docs/links.rs b/xtask/src/docs/links.rs
+--- a/xtask/src/docs/links.rs
++++ b/xtask/src/docs/links.rs
+@@ -315,7 +315,7 @@
+                 break;
+             }
+             if let Ok(body) = std::fs::read_to_string(root.join(&named)) {
+-                pending.push((named, body));
++                let _ = (named, body);
+             } else {
+                 out.problems.push(format!(
+                     "`{file}` includes `{named}` with `{INCLUDE_MARKER}`, and it is not readable from the repo root - the published page carries whatever that file links and this scan cannot see it"

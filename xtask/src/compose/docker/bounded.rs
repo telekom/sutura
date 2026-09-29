@@ -521,11 +521,7 @@ impl Captured {
     /// thing a caller acts on, and failing a provision because a temporary file went missing would
     /// replace a diagnostic with a second failure.
     fn read(&self) -> (String, String) {
-        let text = |path: &PathBuf| {
-            std::fs::read(path)
-                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-                .unwrap_or_default()
-        };
+        let text = |path: &PathBuf| std::fs::read(path).map_or_default(|bytes| String::from_utf8_lossy(&bytes).into_owned());
         (text(&self.stdout), text(&self.stderr))
     }
 }

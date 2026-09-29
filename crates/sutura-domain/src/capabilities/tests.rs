@@ -489,7 +489,7 @@ fn the_undeclared_direction_is_reported_before_the_unprovided_one() {
 }
 
 #[test]
-fn a_declared_kind_with_no_content_is_not_the_same_as_an_undeclared_kind() {
+fn a_declared_kind_with_no_content_is_not_the_same_as_an_undeclared_kind_over_a_built_bundle() {
     // **The whole reason the declaration exists.** One bundle, whose metric carries no anchor; two
     // declarations that an empty collection could not tell apart. The one that declares anchors is
     // aspirational and is reported; the one that does not is faithful, and a caller reading it knows
