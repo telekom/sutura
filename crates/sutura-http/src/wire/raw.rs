@@ -181,11 +181,13 @@ mod tests {
         assert!(!rendered.contains("definition_digest"), "{rendered}");
     }
 
-    /// Three of the four; `TooManyRows`'s own status is pinned through the real router in
-    /// `crate::harness::run_sql`, so this file does not name all four variants of
-    /// `RawRefusalReason` and read as a census over the enum `cargo xtask check-refusal-coverage`
-    /// enrols it under - see that gate's own module documentation for why a file naming every
-    /// variant supplies no evidence for any of them.
+    /// Four of the five; `TooManyRows`'s own status is pinned through the real router in
+    /// `crate::harness::run_sql`, so this file tests four variants of
+    /// `RawRefusalReason` (`ResultTooLarge`, `StatementFailed`, `SourceRefused`, `DeadlineExceeded`) but
+    /// not all five - the `cargo xtask check-refusal-coverage` enrolment holds that a census over
+    /// the enum requires naming every variant, so a file naming fewer than all supplies no evidence
+    /// for any. `telekom/sutura#1144` added `DeadlineExceeded` to the test (`#1144` threads per-request
+    /// deadlines through `execute_raw`).
     #[test]
     fn four_of_the_five_refusal_reasons_have_a_status() {
         for (reason, status) in [
