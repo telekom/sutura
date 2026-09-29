@@ -8326,6 +8326,11 @@ Why a federated plan could not be built.
   combined answer is not a certified number but two unrelated row sets, so the plan does not
   exist rather than producing one. **Reached only by direct construction:** the one
   production splitter projects `InternalLabel::Link` on both fact legs unconditionally.
+- `FactKeyNotShared` - A two-fact plan whose fact legs group by a key besides the link (`telekom/sutura#780`).
+
+  Reached only by direct construction: `plan()` refuses a question grouped by a dimension
+  only one fact reaches as `CrossModelRatioWithoutSharedDimension`, and this holds the same
+  shape as a type.
 
 ##### Implements
 
