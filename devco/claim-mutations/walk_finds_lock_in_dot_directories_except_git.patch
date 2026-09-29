@@ -1,0 +1,11 @@
+--- a/xtask/src/check_lock_coverage.rs
++++ b/xtask/src/check_lock_coverage.rs
+@@ -63,7 +63,7 @@ fn scan_dir(dir: &str, locks: &mut Vec<String>) -> Result<(), String> {
+ fn is_ignored_dir(path: &std::path::Path) -> bool {
+     path.file_name().is_some_and(|n| {
+         let name = n.to_str().unwrap_or("");
+-        name == "target" || name == "node_modules" || name == ".git"
++        name == "target" || name == "node_modules" || name == ".git" || name.starts_with('.')
+     })
+ }
+ 

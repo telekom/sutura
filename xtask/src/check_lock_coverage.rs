@@ -12,24 +12,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 }
 
 fn gather_locks() -> Result<Vec<String>, String> {
-    // Try git first (works in normal checkout)
-    let out = std::process::Command::new("git").args(["ls-files", "*Cargo.lock"]).output();
-
-    let locks: Vec<String> = match out {
-        Ok(output) if output.status.success() => String::from_utf8(output.stdout)
-            .map_err(|e| format!("UTF-8: {e}"))?
-            .lines()
-            .map(std::borrow::ToOwned::to_owned)
-            .collect(),
-        Ok(output) => {
-            // Git failed but was available - this is a real error
-            return Err(String::from_utf8_lossy(&output.stderr).to_string());
-        }
-        Err(_) => {
-            // Git not available (e.g., in nix sandbox) - fall back to filesystem scan
-            scan_locks()?
-        }
-    };
+    let locks = scan_locks()?;
 
     Ok(locks
         .iter()
@@ -70,7 +53,7 @@ fn scan_dir(dir: &str, locks: &mut Vec<String>) -> Result<(), String> {
         let path_str = path.to_string_lossy().to_string();
         if path.file_name().is_some_and(|n| n == "Cargo.lock") {
             locks.push(path_str);
-        } else if path.is_dir() && !is_ignored_dir(&path) {
+        } else if path.is_dir() && !is_ignored_dir(&path) && !is_symlink(&path)? {
             scan_dir(&path_str, locks)?;
         }
     }
@@ -80,8 +63,14 @@ fn scan_dir(dir: &str, locks: &mut Vec<String>) -> Result<(), String> {
 fn is_ignored_dir(path: &std::path::Path) -> bool {
     path.file_name().is_some_and(|n| {
         let name = n.to_str().unwrap_or("");
-        name == "target" || name == "node_modules" || name.starts_with('.')
+        name == "target" || name == "node_modules" || name == ".git"
     })
+}
+
+fn is_symlink(path: &std::path::Path) -> Result<bool, String> {
+    path.symlink_metadata()
+        .map(|m| m.file_type().is_symlink())
+        .map_err(|e| e.to_string())
 }
 
 fn check_coverage(locks: &[String]) -> Verdict {
@@ -230,5 +219,85 @@ mod tests {
         // Should only find the root Cargo.lock
         assert_eq!(result.len(), 1);
         assert!(result[0].ends_with("Cargo.lock"));
+    }
+
+    #[test]
+    fn walk_finds_lock_in_dot_directories_except_git() {
+        let td = std::env::temp_dir().join(format!(
+            "sutura-test-dotdir-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _: () = std::fs::remove_dir_all(&td).ok().unwrap_or(());
+        std::fs::create_dir_all(&td).unwrap();
+        std::fs::write(td.join("Cargo.lock"), "").unwrap();
+
+        // .git should be ignored
+        std::fs::create_dir_all(td.join(".git")).unwrap();
+        std::fs::write(td.join(".git/Cargo.lock"), "").unwrap();
+
+        // But other dot-dirs should be included
+        std::fs::create_dir_all(td.join(".config")).unwrap();
+        std::fs::write(td.join(".config/Cargo.lock"), "").unwrap();
+
+        let orig_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&td).unwrap();
+        let result = scan_locks().unwrap();
+        std::env::set_current_dir(orig_dir).unwrap();
+        let _: () = std::fs::remove_dir_all(&td).ok().unwrap_or(());
+
+        // Should find root and .config locks, but not .git
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn walk_does_not_follow_symlinks() {
+        let td = std::env::temp_dir().join(format!(
+            "sutura-test-symlink-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _: () = std::fs::remove_dir_all(&td).ok().unwrap_or(());
+        std::fs::create_dir_all(&td).unwrap();
+        std::fs::write(td.join("Cargo.lock"), "").unwrap();
+
+        // Create a real directory with a lock
+        std::fs::create_dir_all(td.join("real")).unwrap();
+        std::fs::write(td.join("real/Cargo.lock"), "").unwrap();
+
+        // Create a symlink to a directory that has a lock
+        // We use a temporary directory to be the target
+        let target_dir = std::env::temp_dir().join(format!(
+            "sutura-symlink-target-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _: () = std::fs::remove_dir_all(&target_dir).ok().unwrap_or(());
+        std::fs::create_dir_all(&target_dir).unwrap();
+        std::fs::write(target_dir.join("Cargo.lock"), "").unwrap();
+
+        // Create the symlink
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target_dir, td.join("symlinked")).unwrap();
+
+        let orig_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&td).unwrap();
+        let result = scan_locks().unwrap();
+        std::env::set_current_dir(orig_dir).unwrap();
+
+        let _: () = std::fs::remove_dir_all(&td).ok().unwrap_or(());
+        let _: () = std::fs::remove_dir_all(&target_dir).ok().unwrap_or(());
+
+        // Should find root and real locks, but not the symlinked lock
+        assert_eq!(result.len(), 2);
     }
 }
