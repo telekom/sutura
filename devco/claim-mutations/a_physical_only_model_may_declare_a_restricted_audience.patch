@@ -1,0 +1,10 @@
+diff --git a/crates/sutura-domain/src/catalog.rs b/crates/sutura-domain/src/catalog.rs
+index 61d21ac7..9a0856ff 100644
+--- a/crates/sutura-domain/src/catalog.rs
++++ b/crates/sutura-domain/src/catalog.rs
+@@ -265,3 +265,4 @@ impl Model {
+     pub fn with_audience(mut self, audience: Audience) -> Self {
+-        self.audience = Some(audience);
++        let _ = audience;
++        self.audience = None;
+         self

@@ -29,6 +29,9 @@ const UNLISTED_CRATE: &str = "sutura_unlisted_by_either_hook_surface";
 const FUZZ_YAML: &str =
     "on:\n  workflow_dispatch: {}\njobs:\n  fuzz:\n    strategy:\n      matrix:\n        target:\n          - probe\n";
 
+/// Every site `check-fuzz` requires to run the fuzz-scoped `cargo deny` (`fuzz/deny_wiring.rs`).
+const DENY: &[u8] = b"cargo deny --manifest-path fuzz/Cargo.toml check\n";
+
 const RELEASE_YAML: &str = "on:\n  push:\n    tags: [v*]\njobs:\n  build:\n    steps:\n      - run: echo nothing\n";
 
 fn precommit(files_pattern: &str) -> String {
@@ -48,7 +51,9 @@ fn observe(case: &str, target_crate: &str) -> std::process::Output {
         &format!("hook-paths-{case}"),
         &[
             ("Cargo.toml", b"[workspace]\n" as &[u8]),
-            ("flake.nix", b"{}\n"),
+            ("flake.nix", DENY),
+            ("justfile", DENY),
+            ("nix/run-gate.sh", DENY),
             (".pre-commit-config.yaml", precommit("^(fuzz/)").as_bytes()),
             (
                 "fuzz/Cargo.toml",

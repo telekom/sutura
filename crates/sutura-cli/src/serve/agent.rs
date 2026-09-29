@@ -115,6 +115,7 @@ pub(crate) fn mount(
         sutura_mcp::http::service(
             serving,
             crate::commands::catalog_prose(settings.prompt().catalog_prose()),
+            settings.prompt().list_physical_schema(),
             admission,
             settings.server().request_timeout(),
             tools,

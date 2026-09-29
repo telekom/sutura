@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-domain/src/raw.rs b/crates/sutura-domain/src/raw.rs
+index fadc7c397..b25b646b3 100644
+--- a/crates/sutura-domain/src/raw.rs
++++ b/crates/sutura-domain/src/raw.rs
+@@ -70,9 +70,6 @@ impl RawStatement {
+     /// empty statement look non-empty.
+     pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidRawStatement> {
+         let trimmed = raw.as_ref().trim();
+-        if trimmed.is_empty() {
+-            return Err(InvalidRawStatement::Empty);
+-        }
+         if trimmed.len() > MAX_RAW_STATEMENT_BYTES {
+             return Err(InvalidRawStatement::TooLong {
+                 len: trimmed.len(),

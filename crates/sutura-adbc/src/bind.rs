@@ -45,10 +45,8 @@
 use std::sync::Arc;
 
 use arrow_array::{ArrayRef, Date32Array, RecordBatch, StringArray};
-use arrow_schema::{DataType, Field, Schema};
+use arrow_schema::{ArrowError, DataType, Field, Schema};
 use sutura_domain::warehouse::ParamValue;
-
-use super::AdbcError;
 
 /// How many rows one question's parameters occupy.
 ///
@@ -62,7 +60,7 @@ const ONE_QUESTION: usize = 1;
 /// Positional parameters have no names - the driver reads the column name only in `named` mode - so
 /// this exists for Arrow's own requirement and for whoever reads a captured batch. The ordinal is
 /// the only honest thing to put in it, because a parameter's identity in a plan IS its position
-/// (`crate::transport::ParameterMode`).
+/// (each adapter's own `ParameterMode`).
 fn field_name(position: usize) -> String {
     format!("p{position}")
 }
@@ -77,11 +75,12 @@ fn field_name(position: usize) -> String {
 ///
 /// # Errors
 ///
-/// [`AdbcError::Parameters`] where Arrow refuses the batch. Unreachable as written - the schema and
+/// [`ArrowError`] where Arrow refuses the batch. Unreachable as written - the schema and
 /// the columns are built from one walk of one slice, so their lengths and types agree by
 /// construction - and answered for rather than unwrapped, because `unwrap_used` is denied and a
-/// panic here would be process death under `panic = "abort"`.
-pub(super) fn parameter_batch(params: &[ParamValue]) -> Result<Option<RecordBatch>, AdbcError> {
+/// panic here would be process death under `panic = "abort"`. Each adapter wraps this into its
+/// own error type; the failure is on THIS side of the C ABI and the vocabulary is the adapter's.
+pub fn parameter_batch(params: &[ParamValue]) -> Result<Option<RecordBatch>, ArrowError> {
     if params.is_empty() {
         return Ok(None);
     }
@@ -102,9 +101,7 @@ pub(super) fn parameter_batch(params: &[ParamValue]) -> Result<Option<RecordBatc
         fields.push(Field::new(field_name(position), kind, false));
         columns.push(column);
     }
-    RecordBatch::try_new(Arc::new(Schema::new(fields)), columns)
-        .map(Some)
-        .map_err(|cause| AdbcError::Parameters { cause })
+    RecordBatch::try_new(Arc::new(Schema::new(fields)), columns).map(Some)
 }
 
 #[cfg(test)]

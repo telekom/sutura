@@ -1028,6 +1028,7 @@ economise.
    | `check-hook-tiers` | `.pre-commit-config.yaml` |
    | `check-devenv-shell` | `devenv.nix` and every module its `imports` reach - which attributes assign a shell body, and whether the value goes through the wrapper ShellCheck reads |
    | `check-workflows` | `.github/**`, against the outputs `flake.nix` declares - plus `devco/required-contexts` for which jobs gate, and `README.md`, `REUSE.toml` and `devco/scorecard-publication` for whether a badge's claim has a mechanism behind it |
+   | `check-version-bump` | `.github/workflows/version-bump.yml` - whether its release commit still formats the changelog, updates and stages `fuzz/Cargo.lock`, and runs the structural sweep before it commits (#1150) |
 
    **Reads prose.** Each of these reads at least one file such a diff CAN change, so skipping one
    defers a verdict rather than costing nothing - and only part of one is replaced:

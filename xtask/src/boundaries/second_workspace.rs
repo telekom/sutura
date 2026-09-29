@@ -55,6 +55,35 @@ pub(super) const DECLARED: &[Satellite] = &[Satellite {
           `[profile.*]` tables - fuzz/Cargo.toml's own header",
 }];
 
+/// `cargo metadata --locked` against a satellite's own manifest fails with cargo's own generic
+/// message - "cannot update the lock file ... because --locked was passed" - for many possible
+/// causes. The one this repository actually hits is a satellite lock a release-version bump
+/// left stale against the root workspace version (`telekom/sutura#1150` review, finding 3a):
+/// `check-boundaries` is the FIRST member of the `hygiene` sweep and `check-fuzz` is near the
+/// last, and the sweep stops at the first failure - so `check-fuzz`'s own readable message for
+/// this exact drift is never reached there, only by running `cargo xtask check-fuzz` directly.
+///
+/// So this reads the same comparison and appends its hint to whichever failure a developer
+/// actually sees, rather than leaving it unreachable behind a cargo error naming neither the
+/// crate nor the two versions. Empty and unchanged when the root manifest or the satellite's
+/// own lock cannot be read, or when nothing there disagrees - a metadata failure with an
+/// unrelated cause (a new or removed dependency, a source it cannot resolve) gets no hint,
+/// because [`crate::fuzz::version_gaps`] found nothing to report.
+fn with_version_hint(root: &std::path::Path, manifest: &str, message: String) -> String {
+    let Ok(root_manifest) = std::fs::read_to_string(root.join(crate::fuzz::ROOT_MANIFEST)) else {
+        return message;
+    };
+    let lock_path = root.join(manifest).with_file_name("Cargo.lock");
+    let Ok(lock) = std::fs::read_to_string(lock_path) else {
+        return message;
+    };
+    let gaps = crate::fuzz::version_gaps(&root_manifest, &lock);
+    if gaps.is_empty() {
+        return message;
+    }
+    format!("{message}\n{}", gaps.join("\n"))
+}
+
 /// What the check looked at, and what it found.
 pub(super) struct Report {
     /// One line per satellite actually walked, printed on success.
@@ -71,7 +100,10 @@ pub(super) fn check() -> Result<Report, String> {
     let root = crate::repo::root().ok_or_else(|| String::from("could not find the repo root"))?;
 
     for satellite in DECLARED {
-        let meta = crate::cargo_metadata_at(&root.join(satellite.manifest), &["--all-features"])?;
+        let meta = match crate::cargo_metadata_at(&root.join(satellite.manifest), &["--all-features"]) {
+            Ok(meta) => meta,
+            Err(message) => return Err(with_version_hint(&root, satellite.manifest, message)),
+        };
         let evaluation = evaluate(satellite.manifest, &meta)?;
         problems.extend(evaluation.problems);
         walked.push(format!(
@@ -217,7 +249,7 @@ pub(super) fn explain() {
 
 #[cfg(test)]
 mod tests {
-    use super::{compare, declares_its_own_workspace, evaluate, is_cargo_manifest};
+    use super::{compare, declares_its_own_workspace, evaluate, is_cargo_manifest, with_version_hint};
     use std::collections::BTreeSet;
 
     fn set(names: &[&str]) -> BTreeSet<String> {
@@ -360,5 +392,49 @@ mod tests {
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].contains("fuzz/Cargo.toml"), "{problems:?}");
         assert!(problems[0].contains("stale"), "{problems:?}");
+    }
+
+    /// A scratch tree, not the real repo: `with_version_hint` reads `Cargo.toml` and a
+    /// satellite's own `Cargo.lock` off the `root` it is handed, so a real stale-pin case is
+    /// reproduced without touching this checkout.
+    fn scratch_root(root_manifest: &str, satellite_lock: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "sutura-second-workspace-hint-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("fuzz")).expect("scratch fuzz dir");
+        std::fs::write(dir.join("Cargo.toml"), root_manifest).expect("scratch root manifest");
+        std::fs::write(dir.join("fuzz/Cargo.lock"), satellite_lock).expect("scratch satellite lock");
+        dir
+    }
+
+    #[test]
+    fn a_metadata_failure_gains_the_fuzz_version_hint() {
+        let root = scratch_root(
+            "[workspace.package]\nversion = \"0.6.0\"\n",
+            "[[package]]\nname = \"sutura-domain\"\nversion = \"0.5.1\"\ndependencies = []\n",
+        );
+        let hinted = with_version_hint(&root, "fuzz/Cargo.toml", String::from("cannot update the lock file"));
+        let _swept = std::fs::remove_dir_all(&root);
+        assert!(hinted.starts_with("cannot update the lock file"), "{hinted}");
+        assert!(hinted.contains("sutura-domain"), "{hinted}");
+        assert!(hinted.contains("\"0.5.1\""), "{hinted}");
+        assert!(hinted.contains("\"0.6.0\""), "{hinted}");
+    }
+
+    #[test]
+    fn a_metadata_failure_with_no_version_gap_is_unchanged() {
+        let root = scratch_root(
+            "[workspace.package]\nversion = \"0.6.0\"\n",
+            "[[package]]\nname = \"sutura-domain\"\nversion = \"0.6.0\"\ndependencies = []\n",
+        );
+        let message = String::from("cannot update the lock file");
+        let hinted = with_version_hint(&root, "fuzz/Cargo.toml", message.clone());
+        let _swept = std::fs::remove_dir_all(&root);
+        assert_eq!(hinted, message);
     }
 }
