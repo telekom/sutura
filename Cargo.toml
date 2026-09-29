@@ -287,7 +287,7 @@ rustls-native-certs = "0.8.4"
 # whole resolve graph - so depending on this crate at all is what brings `aws-lc-rs`/`aws-lc-sys`
 # into any build that also links this adapter; both are already in `Cargo.lock` via other paths, so
 # this adds no new package, only a new feature activation on the one already there.
-oracledb = "26.0.0-beta.3"
+oracledb = "26.0.0-beta.4"
 
 # YAML, for the frontmatter of a catalog document. A maintained fork of `serde_yaml`, which
 # was archived by its author: the original still resolves and still parses, and it is exactly
