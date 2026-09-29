@@ -4551,6 +4551,7 @@ dependencies = [
  "oracledb",
  "parking_lot",
  "sutura-conformance",
+ "sutura-dev",
  "sutura-domain",
  "sutura-sql",
  "thiserror 2.0.20",

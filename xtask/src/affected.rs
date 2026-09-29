@@ -833,7 +833,10 @@ macro_rules! registered {
             let script = aggregator_shell();
             let mut cmd = std::process::Command::new("bash");
             cmd.arg("-c").arg(&script);
-            cmd.env("E2E_RESULT", "skipped").env("E2E_REQUIRED", "false");
+            cmd.env("E2E_RESULT", "skipped")
+                .env("E2E_REQUIRED", "false")
+                .env("ORACLE_RESULT", "skipped")
+                .env("ORACLE_SELECTED", "false");
             for (k, v) in envs {
                 cmd.env(k, v);
             }

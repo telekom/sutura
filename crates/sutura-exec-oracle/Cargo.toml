@@ -32,6 +32,7 @@ parking_lot = { workspace = true }
 # this edge, so no new package enters the dev graph - and it is a DEV edge, so the harness rule
 # `xtask check-boundaries` holds (the harness reaches no adapter) is untouched.
 sutura-conformance = { workspace = true }
+sutura-dev = { workspace = true }
 
 [features]
 # THE FIXTURE-TIER CREDENTIAL AND THE CONNECTION CONFIG OVER IT - `sutura-exec-postgres`'s own
