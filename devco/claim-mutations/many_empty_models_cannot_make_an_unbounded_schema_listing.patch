@@ -1,0 +1,9 @@
+diff --git a/crates/sutura-domain/src/catalog/consistency.rs b/crates/sutura-domain/src/catalog/consistency.rs
+index 08892bbe..ccefd2ef 100644
+--- a/crates/sutura-domain/src/catalog/consistency.rs
++++ b/crates/sutura-domain/src/catalog/consistency.rs
+@@ -323,3 +323,3 @@ impl Definitions {
+     fn authored_bytes(&self) -> usize {
+-        let models = sum_bytes(self.models.values().map(model_bytes));
++        let models = sum_bytes(self.models.values().map(model_bytes)).saturating_mul(0);
+         let relationships = sum_bytes(self.relationships.values().map(relationship_bytes));

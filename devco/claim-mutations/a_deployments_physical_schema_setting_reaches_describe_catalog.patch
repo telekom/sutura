@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-mcp/src/wire/catalog.rs b/crates/sutura-mcp/src/wire/catalog.rs
+index 5c5964179..68a74963f 100644
+--- a/crates/sutura-mcp/src/wire/catalog.rs
++++ b/crates/sutura-mcp/src/wire/catalog.rs
+@@ -216,7 +216,7 @@ impl CatalogContent {
+         // `catalog_knowledge` quotes note bodies under the same `prose` the descriptions follow, so
+         // a deployment that withholds catalog prose withholds it from the knowledge tool too.
+         let knowledge = sutura_app::prompt::catalog_knowledge(view, prose);
+-        let models = list_physical_schema.then(|| {
++        let models = (list_physical_schema || true).then(|| {
+             view.models()
+                 .map(|model| ModelContent {
+                     name: String::from(model.name().as_str()),

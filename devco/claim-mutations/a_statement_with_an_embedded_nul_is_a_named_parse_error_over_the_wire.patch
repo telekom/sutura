@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-domain/src/raw.rs b/crates/sutura-domain/src/raw.rs
+index fadc7c397..0da9b44c2 100644
+--- a/crates/sutura-domain/src/raw.rs
++++ b/crates/sutura-domain/src/raw.rs
+@@ -79,9 +79,6 @@ impl RawStatement {
+                 limit: MAX_RAW_STATEMENT_BYTES,
+             });
+         }
+-        if trimmed.contains('\0') {
+-            return Err(InvalidRawStatement::EmbeddedNul);
+-        }
+         Ok(Self(String::from(trimmed)))
+     }
+ 
