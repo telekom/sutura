@@ -905,3 +905,64 @@ fn a_term_naming_the_metric_s_own_model_federates_on_the_first_fact_leg() {
     );
     assert_eq!(federated.fact().terms().len(), 2, "both leaves stay on the first fact leg");
 }
+
+/// Two metrics: `revenue`, a plain sum that declares a calendar, and `revenue_per_customer`, a
+/// cross-model ratio that declares none. The calendar that decides the refusal is the ratio's own;
+/// reading the FIRST metric's planned the ratio as one statement over `facts` (review probe P2).
+fn revenue_beside_a_ratio(ratio_calendar: bool) -> (Metric, Metric) {
+    let calendar = || ModelName::parse("calendar").expect("a test model is a model");
+    let revenue = TwoSources::metric(
+        "revenue",
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+    );
+    let ratio = TwoSources::metric(
+        "revenue_per_customer",
+        Measure::Ratio {
+            numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+            denominator: Term::Aggregate(AggregatedColumn::on_model(
+                Aggregate::Count,
+                column("customer_key"),
+                ModelName::parse("customers").expect("a test model is a model"),
+            )),
+            zero_denominator: sutura_domain::measure::ZeroDenominator::Null,
+        },
+    );
+    if ratio_calendar {
+        (revenue, ratio.with_shared_calendar(calendar()))
+    } else {
+        (revenue.with_shared_calendar(calendar()), ratio)
+    }
+}
+
+#[test]
+fn the_no_calendar_refusal_reads_the_calendar_of_the_ratio_it_found() {
+    let corpus = TwoSources::new();
+    let (revenue, ratio) = revenue_beside_a_ratio(false);
+    let refused = plan(&corpus.asking(vec![&revenue, &ratio], false)).err();
+    assert!(
+        matches!(
+            refused,
+            Some(PlanError::Refused(RefusalReason::CrossModelRatioWithoutSharedCalendar { ref metric, .. }))
+                if metric.as_str() == "revenue_per_customer"
+        ),
+        "the ratio without a calendar is refused by name, got {refused:?}"
+    );
+}
+
+/// The ratio declares a calendar this time, but `resolve` reads the second fact off the FIRST
+/// metric only and a multi-metric question never federates - so it is refused, never planned as
+/// one statement over the ratio's own table.
+#[test]
+fn a_cross_model_ratio_beside_another_metric_is_refused_by_name() {
+    let corpus = TwoSources::new();
+    let (revenue, ratio) = revenue_beside_a_ratio(true);
+    let refused = plan(&corpus.asking(vec![&revenue, &ratio], false)).err();
+    assert!(
+        matches!(
+            refused,
+            Some(PlanError::Refused(RefusalReason::MultiMetricFederationNotExecutable { ref metrics }))
+                if metrics.len() == 2
+        ),
+        "a cross-model ratio beside another metric is refused, got {refused:?}"
+    );
+}

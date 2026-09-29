@@ -28,6 +28,7 @@
 
 use std::collections::BTreeSet;
 
+use sutura_domain::catalog::Metric;
 use sutura_domain::measure::Measure;
 use sutura_domain::model::{DimensionName, MetricName, ModelName, SourceName, TableName};
 use sutura_domain::nonempty::NonEmpty;
@@ -211,13 +212,23 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
     // the consistency check proved the shared calendar is reachable from both fact models. What
     // remains here is the plan-shape decision: a cross-model ratio with a shared calendar dispatches
     // to `federated_plan` (which builds the second fact leg); one without is refused.
-    if let Some((cross_metric, model)) = cross_model_term(resolution)
-        && resolution.metric.shared_calendar().is_none()
-    {
-        return Err(PlanError::Refused(RefusalReason::CrossModelRatioWithoutSharedCalendar {
-            metric: cross_metric.clone(),
-            model: model.clone(),
-        }));
+    // The calendar read is the metric `cross_model_term` found, never `resolution.metric`'s: in a
+    // multi-metric question they differ, and the first metric's calendar says nothing about another's.
+    if let Some((cross_metric, model)) = cross_model_term(resolution) {
+        if cross_metric.shared_calendar().is_none() {
+            return Err(PlanError::Refused(RefusalReason::CrossModelRatioWithoutSharedCalendar {
+                metric: cross_metric.name().clone(),
+                model: model.clone(),
+            }));
+        }
+        // `resolve` reads the second fact and the calendar off the first metric only, and a
+        // multi-metric question never federates - so a cross-model ratio asked beside another metric
+        // would otherwise plan as one statement over the metric's own table.
+        if resolution.metrics.len() > 1 {
+            return Err(PlanError::Refused(RefusalReason::MultiMetricFederationNotExecutable {
+                metrics: resolution.metrics.iter().map(|m| m.name().clone()).collect(),
+            }));
+        }
     }
     // A cross-model ratio WITH a shared calendar is federated: the second fact leg reads the named
     // model's table, and both legs bucket through the calendar. `federated_plan` builds it. It
@@ -277,8 +288,8 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
 /// because both resolve their column against the metric's own table. Scans every named metric,
 /// because a multi-metric question can name one metric with a cross-model ratio beside others
 /// without one.
-fn cross_model_term<'a>(resolution: &Resolution<'a>) -> Option<(&'a MetricName, &'a ModelName)> {
-    resolution.metrics.iter().find_map(|metric| {
+fn cross_model_term<'a>(resolution: &Resolution<'a>) -> Option<(&'a Metric, &'a ModelName)> {
+    resolution.metrics.iter().copied().find_map(|metric| {
         let own = metric.model();
         metric
             .measure()?
@@ -286,7 +297,7 @@ fn cross_model_term<'a>(resolution: &Resolution<'a>) -> Option<(&'a MetricName, 
             .into_iter()
             .flatten()
             .find(|model| *model != own)
-            .map(|model| (metric.name(), model))
+            .map(|model| (metric, model))
     })
 }
 
