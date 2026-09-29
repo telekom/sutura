@@ -2254,12 +2254,14 @@ in either direction. "What this surface has no field for" gains one sentence poi
 exception rather than staying silent about it, because a document that both said "there is no way in"
 and separately advertised <code>run_sql</code> would be internally inconsistent - worse than either sentence
 alone.</p>
-<p><strong>No column, table, model or measure expression.</strong> Of what a metric <em>is</em>, the prompt renders what
+<p><strong>No measure expression.</strong> Of what a metric <em>is</em>, the prompt renders what
 <code>GET /v1/catalog</code> renders and no further field: a caller needs a metric's name, prose, grains,
 dimensions and permitted values to ask a valid question; it needs no column name to do it, and a
 column name in an agent's context is a name it will eventually try to use. This is asserted rather
 than intended: a test renders a bundle whose model, table and column names appear in no prose and
-checks that none of them reaches the output.</p>
+checks that none of them reaches the output by default. An operator can enable
+<code>prompt.list_physical_schema</code> to list descriptive model, table and column metadata. That listing
+does not make a physical name queryable or certify a metric.</p>
 <p>That is a claim about <em>fields of a metric</em>, and not about the document being a rendering of the
 endpoint - the two are worth keeping apart. The prompt carries four sections the catalog body has no
 field for at all, listed in the table above: the glossary, the terms recorded as not defined, what
@@ -2270,7 +2272,7 @@ of them names a column, a table or a model either.</p>
 caller - see <a href="../serving/">Serving over HTTP</a> - and a prompt that described per-caller scoping would
 describe a control that does not exist.</p>
 <h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
-<p>Two keys, in the same layered tree as everything else: embedded defaults, then <code>base.yaml</code>, then
+<p>Four keys, in the same layered tree as everything else: embedded defaults, then <code>base.yaml</code>, then
 <code>&lt;environment&gt;.yaml</code>, then one environment variable per key.</p>
 <table>
 <thead>
@@ -2291,6 +2293,16 @@ describe a control that does not exist.</p>
 <td>absent</td>
 <td>A path to markdown that is appended as the document's LAST section. Absent means no operator section at all</td>
 </tr>
+<tr>
+<td><code>prompt.instructions_max_bytes</code></td>
+<td><code>32768</code></td>
+<td>Maximum operator instruction bytes read at startup, configurable up to 1 MiB</td>
+</tr>
+<tr>
+<td><code>prompt.list_physical_schema</code></td>
+<td><code>false</code></td>
+<td>List models, tables and columns on operator-side prompts and caller-scoped catalog tool replies</td>
+</tr>
 </tbody>
 </table>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nv">SUTURA__PROMPT__CATALOG_PROSE</span><span class="o">=</span>omitted<span class="w"> </span><span class="se">\</span>
@@ -2298,7 +2310,10 @@ describe a control that does not exist.</p>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span>sutura<span class="w"> </span>prompt<span class="w"> </span>./catalog<span class="w"> </span>./config
 </span></code></pre></div>
 <p><code>sutura prompt</code> takes the deployment's configuration directory as its optional second argument, so
-the text it renders is the text that deployment would hand out. It loads the settings the way the
+the text it renders is the operator-side whole-bundle preview. The served MCP <code>initialize</code> prompt
+renders the same optional physical listing, cut to the verified caller's own <code>ScopedView</code> (ADR
+0028's second amendment); <code>describe_catalog</code> renders the same per-request view, so the two agree.
+The command loads settings the way the
 service does, refusals included: a production configuration with no access token will not render a
 prompt either, and the refusal names the key to fix. That is deliberate - a second, weaker door into
 the settings is a door that can disagree with the first.</p>
@@ -2314,7 +2329,7 @@ reference implementation reads <code>&lt;project&gt;/instructions.md</code> when
 silently when it is not, which is right for a <em>convention</em>: no file means nobody wrote one. Here the
 path was written down, so absence means the operator's rules are missing from a document that claims
 to carry them.</p>
-<p><strong>Neither key defaults by environment.</strong> <code>telemetry.format</code> and <code>api.docs</code> do, and record whether
+<p><strong>Catalog prose and the instruction path do not default by environment.</strong> <code>telemetry.format</code> and <code>api.docs</code> do, and record whether
 somebody wrote the value down so the startup log can tell a decision from a default. Neither
 decision here is a function of the environment: whether a catalog's authors are trusted enough to
 quote their prose into an agent's context is a fact about who writes the catalog, not about whether
