@@ -200,6 +200,7 @@ where
             std::sync::Arc::clone(&service),
             permitted,
             prose,
+            settings.prompt().list_physical_schema(),
             admission,
             reply,
             instructions,

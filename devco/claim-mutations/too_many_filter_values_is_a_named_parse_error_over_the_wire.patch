@@ -1,0 +1,17 @@
+diff --git a/crates/sutura-domain/src/question.rs b/crates/sutura-domain/src/question.rs
+index 4444aec08..b7346809f 100644
+--- a/crates/sutura-domain/src/question.rs
++++ b/crates/sutura-domain/src/question.rs
+@@ -287,12 +287,6 @@ fn value_of(index: usize, raw: &str) -> Result<DimensionValue, MalformedQuestion
+ /// The size bound is checked first, before a single value is parsed: `raw.len()` is free to read
+ /// and a list past the limit is refused without allocating or parsing anything proportional to it.
+ fn values_of(index: usize, raw: &[String]) -> Result<NonEmpty<DimensionValue>, MalformedQuestion> {
+-    if raw.len() > crate::catalog::MAX_VALUES_PER_DIMENSION {
+-        return Err(MalformedQuestion::FilterValues {
+-            index,
+-            limit: crate::catalog::MAX_VALUES_PER_DIMENSION,
+-        });
+-    }
+     let mut parsed = Vec::with_capacity(raw.len());
+     for value in raw {
+         parsed.push(value_of(index, value)?);
