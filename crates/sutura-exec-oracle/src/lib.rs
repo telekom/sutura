@@ -389,12 +389,12 @@ impl OracleWarehouse {
             cause: cause.into(),
         };
         let db_type = column.db_type();
-        if *db_type == oracledb::DB_TYPE_BOOLEAN {
+        if db_type == oracledb::DB_TYPE_BOOLEAN {
             Ok(row
                 .get::<Option<bool>>(index)
                 .map_err(decode_err)?
                 .map_or(Value::Null, |v| Value::Integer(i64::from(v))))
-        } else if *db_type == oracledb::DB_TYPE_NUMBER {
+        } else if db_type == oracledb::DB_TYPE_NUMBER {
             Ok(row
                 .get::<Option<oracledb::OracleNumber>>(index)
                 .map_err(decode_err)?
@@ -408,7 +408,7 @@ impl OracleWarehouse {
             row.get::<Option<oracledb::OracleTimestamp>>(index)
                 .map_err(decode_err)?
                 .map_or(Ok(Value::Null), |ts| date_cell(&ts))
-        } else if *db_type == oracledb::DB_TYPE_BINARY_DOUBLE {
+        } else if db_type == oracledb::DB_TYPE_BINARY_DOUBLE {
             row.get::<Option<f64>>(index).map_err(decode_err)?.map_or_else(
                 || Ok(Value::Null),
                 |v| {
@@ -418,7 +418,7 @@ impl OracleWarehouse {
                     })
                 },
             )
-        } else if *db_type == oracledb::DB_TYPE_BINARY_FLOAT {
+        } else if db_type == oracledb::DB_TYPE_BINARY_FLOAT {
             Err(OracleError::UnsupportedType {
                 column: String::from(label),
                 oracle_type: "BINARY_FLOAT; a 32-bit float has no exact 64-bit rendering",
@@ -474,13 +474,11 @@ impl std::error::Error for DriverError {}
 impl DriverError {
     /// Whether the server's own error message names `code` (`"ORA-01476"`, say).
     ///
-    /// **Measured, not the `main` branch's shape:** at the pinned `26.0.0-beta.3`,
-    /// `oracledb::ErrorKind::DbError` carries the server's message as a bare `String`, not a
-    /// structured type with its own error-number accessor - so this is a substring match on
-    /// Oracle's own `ORA-NNNNN:` prefix rather than a typed comparison. A future driver release
-    /// that structures this is a strictly easier match to write, not a compatibility break.
+    /// **Measured against `26.0.0-beta.4`:** `oracledb::ErrorKind::DbError` carries the server's
+    /// message in a `DbError` struct, accessed via its `message()` method. This is a substring match
+    /// on Oracle's own `ORA-NNNNN:` prefix rather than a typed comparison.
     fn names_ora_code(&self, code: &str) -> bool {
-        matches!(self.0.kind(), oracledb::ErrorKind::DbError(message) if message.contains(code))
+        matches!(self.0.kind(), oracledb::ErrorKind::DbError(db_error) if db_error.message().contains(code))
     }
 
     /// Whether this is the driver's own `CallTimeoutExceeded` - the per-read idle timeout firing,
@@ -564,7 +562,7 @@ fn rows_from_cursor(
     budget: sutura_domain::warehouse::ResultBudget,
     most_rows: Option<usize>,
 ) -> Result<RowSet, OracleError> {
-    let columns: Vec<oracledb::Metadata> = cursor.columns().clone();
+    let columns: Vec<oracledb::Metadata> = cursor.columns().to_vec();
     let labels: Vec<String> = columns.iter().map(|c| c.name().to_owned()).collect();
     let values = cursor.map(|row| {
         let row = row.map_err(execute_err_mapped)?;
