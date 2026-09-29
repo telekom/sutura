@@ -265,6 +265,14 @@ impl FederatedPlan {
                     label: link,
                 });
             }
+            // Each fact groups by the link and nothing else. A key only one fact carries would
+            // group that fact alone, fan the other's rows out across it, and answer a null key for
+            // every row only the other fact reached - the chasm trap and a NULL-padded dimension.
+            if let Some(extra) = fact.keys().iter().chain(second.keys()).find(|key| key.label() != link) {
+                return Err(FederatedPlanError::FactKeyNotShared {
+                    label: String::from(extra.label()),
+                });
+            }
         }
         for key in &keys {
             let (side, leg) = match key.side() {
@@ -529,6 +537,13 @@ pub enum FederatedPlanError {
     /// production splitter projects `InternalLabel::Link` on both fact legs unconditionally.
     #[error("the two fact legs share no key, so no join is possible")]
     FactsShareNoKey,
+    /// A two-fact plan whose fact legs group by a key besides the link (`telekom/sutura#780`).
+    ///
+    /// Reached only by direct construction: `plan()` refuses a question grouped by a dimension
+    /// only one fact reaches as `CrossModelRatioWithoutSharedDimension`, and this holds the same
+    /// shape as a type.
+    #[error("a fact leg of a two-fact plan groups by `{label}`, which is not the link both facts share")]
+    FactKeyNotShared { label: String },
 }
 
 /// Whether a [`LegPlan`] projects a key under `label`.

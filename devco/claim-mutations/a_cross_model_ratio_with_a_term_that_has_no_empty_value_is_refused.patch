@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-domain/src/catalog/consistency.rs b/crates/sutura-domain/src/catalog/consistency.rs
+--- a/crates/sutura-domain/src/catalog/consistency.rs
++++ b/crates/sutura-domain/src/catalog/consistency.rs
+@@ -481,7 +481,7 @@
+         {
+             for term in measure.terms() {
+                 if let Term::Aggregate(inner) = term
+-                    && matches!(inner.aggregate(), Aggregate::Avg | Aggregate::Min | Aggregate::Max)
++                    && matches!(inner.aggregate(), Aggregate::Avg | Aggregate::Min)
+                 {
+                     return Err(InconsistentDefinitions::CrossModelTermHasNoEmptyValue {
+                         metric: metric.name.clone(),

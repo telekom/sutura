@@ -70,7 +70,7 @@ use datafusion::common::{Column, JoinType, TableReference};
 use datafusion::datasource::MemTable;
 use datafusion::functions::expr_fn::{coalesce, nullif};
 use datafusion::functions_aggregate::expr_fn::{count, max, min, sum};
-use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, cast, lit};
+use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, cast, lit, when};
 use datafusion::prelude::{SessionConfig, SessionContext};
 // `StreamExt::next`, so the combined answer is charged batch by batch instead of collected first.
 use futures_util::StreamExt as _;
@@ -558,10 +558,13 @@ async fn combine_plan(
     // grouped by both, so each first-fact row meets at most the one second-fact row of its own
     // period. On the link alone a second fact with two periods fans every first-fact row out across
     // both and multiplies the numerator. FULL, not INNER - drill-across: a (link, period) only one
-    // fact carried keeps its own measure and a null for the other, so a customer with revenue and
-    // no visits still counts in the numerator, and a group the second fact never reached is a row
-    // whose ratio is null rather than a row that vanishes. The join columns are coalesced and the
-    // result re-named as the fact leg, so everything below reads one relation.
+    // fact carried still counts on its own side. The owner's empty-set rule decides the other side:
+    // a fact that has no row there reads each leaf as its value over NO rows, which is 0 for the
+    // sum and the count every leaf re-aggregates by - never a null pad. So revenue with no visits
+    // divides by 0 and `zero_denominator` answers as declared, and visits with no revenue is 0/x.
+    // A side is absent exactly when its bucket is null: every leg row carries one, because the leg
+    // bounds the range on that same column. The join columns are coalesced and the result re-named
+    // as the fact leg, so everything below reads one relation.
     let mut builder = LogicalPlanBuilder::from(fact);
     let mut leaves = leaves.to_vec();
     if let Some(table) = second_table {
@@ -571,20 +574,41 @@ async fn combine_plan(
             qualified(FACT_TABLE, link).eq(qualified(table, link)),
             qualified(FACT_TABLE, bucket).eq(qualified(table, bucket)),
         ];
+        if let Some(aggregate) = plan
+            .federation()
+            .carried()
+            .iter()
+            .map(|leaf| leaf.combine())
+            .find(|a| *a != Aggregate::Sum)
+        {
+            // A minimum or a maximum has no value over no rows; `Definitions::assemble` refuses the
+            // definition, and this is the combine refusing to invent one if a plan ever carries it.
+            return Err(CombineError::UnsupportedAggregate { aggregate });
+        }
         let joined = builder
             .join_on(second, JoinType::Full, on)
             .map_err(|cause| CombineError::Build { cause })?;
+        let leaf_labels: Vec<&str> = leaves.iter().map(|leaf| leaf.0.as_str()).collect();
         let mut columns = vec![
             coalesce(vec![qualified(FACT_TABLE, link), qualified(table, link)]).alias(link),
             coalesce(vec![qualified(FACT_TABLE, bucket), qualified(table, bucket)]).alias(bucket),
         ];
-        columns.extend(
-            joined
-                .schema()
-                .iter()
-                .filter(|(_, field)| field.name() != link && field.name() != bucket)
-                .map(|(qualifier, field)| Expr::Column(Column::new(qualifier.cloned(), field.name()))),
-        );
+        for (qualifier, field) in joined.schema().iter() {
+            if field.name() == link || field.name() == bucket {
+                continue;
+            }
+            let column = Expr::Column(Column::new(qualifier.cloned(), field.name()));
+            match qualifier.filter(|_| leaf_labels.contains(&field.name().as_str())) {
+                Some(side) => {
+                    let absent = Expr::Column(Column::new(Some(side.clone()), bucket)).is_null();
+                    let leaf = when(absent, cast(lit(0_i64), field.data_type().clone()))
+                        .otherwise(column)
+                        .map_err(|cause| CombineError::Build { cause })?;
+                    columns.push(leaf.alias(field.name()));
+                }
+                None => columns.push(column),
+            }
+        }
         builder = joined
             .project(columns)
             .and_then(|merged| merged.alias(FACT_TABLE))

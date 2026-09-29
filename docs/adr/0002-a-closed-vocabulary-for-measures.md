@@ -223,11 +223,19 @@ through its own relationship inside its own statement, each bucketed AND bounded
 range on the calendar's column, and each carrying only the leaves of its own model. The second fact
 links to the lookup through ITS OWN relationship into the model the first fact crosses into, on the
 same lookup column. The combiner joins the two above on the link and the bucket - FULL, the
-drill-across join: a customer-period only one fact carried keeps its own measure and a null for the
-other, so a customer with revenue and no visits still counts in the numerator, and a group only one
-fact reached is a row whose ratio is null rather than a row that vanishes - then divides once and
-applies `zero_denominator` once. A group with no rows in one fact therefore answers null under
-either `zero_denominator`, because a leg's grouped count never emits a zero row to divide by. `FederatedPlan::new` holds the two halves of that by type: both fact
+drill-across join, so a customer-period only one fact carried still counts on its own side - then
+divides once and applies `zero_denominator` once.
+
+**The empty-set rule, the owner's decision (2026-09-29).** A fact with no rows for a group reads each
+of its leaves as the aggregate's value over NO rows: 0 for a sum, a count or a conditional count.
+Nothing is NULL-padded. So revenue with no visits is x/0, and `zero_denominator` applies as declared:
+`Fail` refuses it exactly as it refuses an explicit zero row, and `Null` answers null. Visits with no
+revenue is 0/x = 0. An aggregate with no value over no rows - an average, a minimum or a maximum -
+cannot take part: a cross-model ratio using one on either side is refused at load
+(`InconsistentDefinitions::CrossModelTermHasNoEmptyValue`), and the combiner refuses such a leaf in a
+two-fact plan too. `FederatedPlan::new` also refuses a two-fact plan whose fact legs group by any key
+but the link (`FactKeyNotShared`): a key only one fact carries would fan the other out across it and
+null-pad a dimension, the shape `CrossModelRatioWithoutSharedDimension` refuses at plan time. `FederatedPlan::new` holds the two halves of that by type: both fact
 legs must carry the plan's bucket (`BucketMismatch`), and a leaf naming another model can only ride a
 second fact leg (`TermsDoNotMatchFederation`) - so no producer can fold two fact tables into one
 statement. **The chasm trap is impossible because the two facts are two statements that never share a

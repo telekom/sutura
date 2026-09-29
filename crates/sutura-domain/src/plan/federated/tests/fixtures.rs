@@ -127,6 +127,20 @@ pub(super) fn second_fact_leg() -> LegPlan {
 
 /// A second fact leg over a different source that shares NO key with the first fact leg - the
 /// chasm-trap guard: no join is possible.
+/// [`fact_leg`] grouped by the link alone, the only key a two-fact plan's legs may carry.
+pub(super) fn linked_fact_leg(terms: Vec<LegTerm>) -> LegPlan {
+    LegPlan::Fact {
+        source: source(FACT_SOURCE),
+        metric: metric("revenue"),
+        tables: StatementTables::only(table(FACT)),
+        bucket: bucket(),
+        keys: vec![link_key(FACT)],
+        terms,
+        bindings: PlanBindings::none(),
+        range: range(),
+    }
+}
+
 /// [`second_fact_leg`] on `on`, bucketed by `bucket`.
 pub(super) fn second_fact_on(on: &str, bucket: PlanBucket) -> LegPlan {
     LegPlan::Fact {
@@ -134,7 +148,7 @@ pub(super) fn second_fact_on(on: &str, bucket: PlanBucket) -> LegPlan {
         metric: metric("revenue"),
         tables: StatementTables::only(table("dim_orders")),
         bucket,
-        keys: vec![key("product_family", "dim_orders"), link_key("dim_orders")],
+        keys: vec![link_key("dim_orders")],
         terms: Vec::new(),
         bindings: PlanBindings::none(),
         range: range(),
@@ -147,7 +161,7 @@ pub(super) fn two_fact_plan(federation: Federation, second: LegPlan) -> Result<F
         metric("revenue"),
         ResultLabel::measure(&metric("revenue")),
         bucket(),
-        fact_leg(terms_for(&federation)),
+        linked_fact_leg(terms_for(&federation)),
         Some(second),
         lookup_leg(),
         true,

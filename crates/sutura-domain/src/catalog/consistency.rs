@@ -20,7 +20,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Column, Dimension, MAX_DEFINITIONS_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL};
-use crate::model::{ColumnName, DimensionName, IdentifierCase, MetricName, ModelName, RelationshipName, SourceName, TableName};
+use crate::measure::Term;
+use crate::model::{
+    Aggregate, ColumnName, DimensionName, IdentifierCase, MetricName, ModelName, RelationshipName, SourceName, TableName,
+};
 
 /// Everything a catalog said, with its cross-references checked.
 ///
@@ -275,6 +278,14 @@ pub enum InconsistentDefinitions {
         calendar: ModelName,
         model: ModelName,
     },
+    /// A cross-model ratio term whose aggregate has no value over no rows (`telekom/sutura#780`).
+    ///
+    /// The two facts are combined drill-across, and a group one fact never reached reads that
+    /// fact's side as its aggregate over the empty set - 0 for a sum, a count or a conditional
+    /// count, the owner's rule. An average, a minimum or a maximum has no such value, so a ratio
+    /// using one on either side cannot be answered for every group; refused at declaration.
+    #[error("metric {metric} is a cross-model ratio with a {aggregate} term, which has no value over no rows")]
+    CrossModelTermHasNoEmptyValue { metric: MetricName, aggregate: Aggregate },
 }
 
 impl Definitions {
@@ -459,12 +470,37 @@ impl Definitions {
         for dimension in metric.dimensions.values() {
             Self::check_dimension(models, relationships, metric, model, dimension)?;
         }
+        Self::check_cross_model(models, relationships, metric)
+    }
+
+    /// `telekom/sutura#780`'s load checks for a cross-model ratio: every term has a value over no
+    /// rows, and the shared calendar is one each fact can join. Split from [`Self::check_metric`] to
+    /// keep that function under the CRAP threshold.
+    fn check_cross_model(
+        models: &BTreeMap<ModelName, Model>,
+        relationships: &BTreeMap<RelationshipName, Relationship>,
+        metric: &Metric,
+    ) -> Result<(), InconsistentDefinitions> {
         // `telekom/sutura#780`: a cross-model ratio buckets both facts through a shared calendar
         // model, reached via a relationship from each fact model. Checked here, at load, because a
         // calendar one fact cannot reach is a definition whose ratio can never be bucketed - the
         // refusal is at declaration time, which is where this repo puts them. Only the models a
         // ratio term actually names are checked: a one-model metric has no cross-model term, so its
         // `shared_calendar` (if set) is checked against just its own model.
+        if let Some(measure) = metric.computation.measure()
+            && measure.models().into_iter().flatten().any(|named| named != &metric.model)
+        {
+            for term in measure.terms() {
+                if let Term::Aggregate(inner) = term
+                    && matches!(inner.aggregate(), Aggregate::Avg | Aggregate::Min | Aggregate::Max)
+                {
+                    return Err(InconsistentDefinitions::CrossModelTermHasNoEmptyValue {
+                        metric: metric.name.clone(),
+                        aggregate: inner.aggregate(),
+                    });
+                }
+            }
+        }
         if let Some(calendar) = metric.shared_calendar.as_ref() {
             // The calendar model must exist.
             if !models.contains_key(calendar) {

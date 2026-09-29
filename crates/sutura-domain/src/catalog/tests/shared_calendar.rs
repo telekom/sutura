@@ -204,3 +204,42 @@ fn a_shared_calendar_without_the_metric_s_time_column_is_refused() {
         }
     );
 }
+
+#[test]
+fn a_cross_model_ratio_with_a_term_that_has_no_empty_value_is_refused() {
+    // A group only one fact reached reads the other fact's term over no rows. A maximum has no
+    // value there - not 0, not null - so the definition is refused rather than answered wrongly.
+    let (models, relationships) = three_models_with_calendar();
+    let Measure::Ratio { numerator, .. } = ratio_over_two_facts().measure().cloned().expect("a measure") else {
+        panic!("the fixture is a ratio");
+    };
+    let with_max = Metric::new(
+        metric_name("biggest_order_per_customer"),
+        model_name("orders"),
+        Measure::Ratio {
+            numerator,
+            denominator: Term::Aggregate(AggregatedColumn::on_model(
+                Aggregate::Max,
+                column("id"),
+                model_name("customers"),
+            )),
+            zero_denominator: crate::measure::ZeroDenominator::Null,
+        },
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        None,
+        Description::default(),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate")
+    .with_shared_calendar(model_name("calendar"));
+    assert_eq!(
+        Definitions::assemble(models, relationships, vec![with_max]).unwrap_err(),
+        InconsistentDefinitions::CrossModelTermHasNoEmptyValue {
+            metric: metric_name("biggest_order_per_customer"),
+            aggregate: Aggregate::Max,
+        }
+    );
+}

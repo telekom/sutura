@@ -305,6 +305,28 @@ fn a_leaf_naming_another_model_with_no_second_fact_does_not_construct() {
     );
 }
 
+/// A fact leg grouped by a key only it carries, beside a second fact, does not construct: it would
+/// fan the second fact out across that key and null-pad it for every row only the second reached.
+#[test]
+fn a_fact_side_key_beside_a_second_fact_does_not_construct() {
+    let federation = Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));
+    let plan = FederatedPlan::new(
+        metric("revenue"),
+        ResultLabel::measure(&metric("revenue")),
+        bucket(),
+        fact_leg(terms_for(&federation)),
+        Some(second_fact_leg()),
+        lookup_leg(),
+        true,
+        federation,
+        Vec::new(),
+    );
+    assert!(
+        matches!(plan, Err(FederatedPlanError::FactKeyNotShared { ref label }) if label == "product_family"),
+        "a key only the first fact groups by is not a two-fact plan, got {plan:?}"
+    );
+}
+
 /// Two fact legs that share no key label cannot be joined above - the chasm-trap guard as a type
 /// refusal. Without a shared dimension key the combined answer is not one certified number but two
 /// unrelated row sets, so the plan does not exist.
@@ -372,7 +394,7 @@ fn two_facts_sharing_a_key_with_a_lookup_construct() {
         metric("revenue"),
         ResultLabel::measure(&metric("revenue")),
         bucket(),
-        fact_leg(terms_for(&federation)),
+        linked_fact_leg(terms_for(&federation)),
         Some(second_fact_leg()),
         lookup_leg(),
         true,
@@ -396,7 +418,7 @@ fn a_two_fact_plan_legs_lists_the_second_fact_under_its_own_source() {
         metric("revenue"),
         ResultLabel::measure(&metric("revenue")),
         bucket(),
-        fact_leg(terms_for(&federation)),
+        linked_fact_leg(terms_for(&federation)),
         Some(second_fact_leg()),
         lookup_leg(),
         true,
