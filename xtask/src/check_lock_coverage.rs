@@ -12,25 +12,76 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 }
 
 fn gather_locks() -> Result<Vec<String>, String> {
-    let out = std::process::Command::new("git")
-        .args(["ls-files", "*Cargo.lock"])
-        .output()
-        .map_err(|e| format!("git: {e}"))?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).to_string());
-    }
-    Ok(String::from_utf8(out.stdout)
-        .map_err(|e| format!("UTF-8: {e}"))?
-        .lines()
+    // Try git first (works in normal checkout)
+    let out = std::process::Command::new("git").args(["ls-files", "*Cargo.lock"]).output();
+
+    let locks: Vec<String> = match out {
+        Ok(output) if output.status.success() => String::from_utf8(output.stdout)
+            .map_err(|e| format!("UTF-8: {e}"))?
+            .lines()
+            .map(std::borrow::ToOwned::to_owned)
+            .collect(),
+        Ok(output) => {
+            // Git failed but was available - this is a real error
+            return Err(String::from_utf8_lossy(&output.stderr).to_string());
+        }
+        Err(_) => {
+            // Git not available (e.g., in nix sandbox) - fall back to filesystem scan
+            scan_locks()?
+        }
+    };
+
+    Ok(locks
+        .iter()
         .map(|line| {
             std::path::Path::new(line)
                 .parent()
                 .filter(|x| !x.as_os_str().is_empty())
-                .map_or_else(|| "/".into(), |x| format!("/{}", x.display()))
+                .map_or_else(
+                    || "/".into(),
+                    |x| {
+                        let parent_str = x.display().to_string();
+                        if parent_str == "." {
+                            "/".into()
+                        } else if let Some(stripped) = parent_str.strip_prefix("./") {
+                            format!("/{stripped}")
+                        } else {
+                            format!("/{parent_str}")
+                        }
+                    },
+                )
         })
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect())
+}
+
+fn scan_locks() -> Result<Vec<String>, String> {
+    let mut locks = Vec::new();
+    scan_dir(".", &mut locks)?;
+    Ok(locks)
+}
+
+fn scan_dir(dir: &str, locks: &mut Vec<String>) -> Result<(), String> {
+    let entries = std::fs::read_dir(dir).map_err(|e| format!("read_dir {dir}: {e}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        let path_str = path.to_string_lossy().to_string();
+        if path.file_name().is_some_and(|n| n == "Cargo.lock") {
+            locks.push(path_str);
+        } else if path.is_dir() && !is_ignored_dir(&path) {
+            scan_dir(&path_str, locks)?;
+        }
+    }
+    Ok(())
+}
+
+fn is_ignored_dir(path: &std::path::Path) -> bool {
+    path.file_name().is_some_and(|n| {
+        let name = n.to_str().unwrap_or("");
+        name == "target" || name == "node_modules" || name.starts_with('.')
+    })
 }
 
 fn check_coverage(locks: &[String]) -> Verdict {
@@ -98,5 +149,86 @@ mod tests {
     fn covered() {
         let yaml = "updates:\n  - package-ecosystem: cargo\n    directories: [\"/\", \"/fuzz\"]\n";
         assert_eq!(parse_dirs(yaml).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn walk_finds_missing_directory_uncovered() {
+        let td = std::env::temp_dir().join(format!(
+            "sutura-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _: () = std::fs::remove_dir_all(&td).ok().unwrap_or(());
+        std::fs::create_dir_all(&td).unwrap();
+        std::fs::write(td.join("Cargo.lock"), "").unwrap();
+        std::fs::create_dir_all(td.join("sub")).unwrap();
+        std::fs::write(td.join("sub/Cargo.lock"), "").unwrap();
+
+        let orig_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&td).unwrap();
+        let result = scan_locks().unwrap();
+        std::env::set_current_dir(orig_dir).unwrap();
+        let _: () = std::fs::remove_dir_all(&td).ok().unwrap_or(());
+
+        assert_eq!(result.len(), 2);
+        let normalized: Vec<_> = result
+            .iter()
+            .map(|p| {
+                std::path::Path::new(p)
+                    .parent()
+                    .filter(|x| !x.as_os_str().is_empty())
+                    .map_or_else(
+                        || "/".into(),
+                        |x| {
+                            let parent_str = x.display().to_string();
+                            if parent_str == "." {
+                                "/".into()
+                            } else if let Some(stripped) = parent_str.strip_prefix("./") {
+                                format!("/{stripped}")
+                            } else {
+                                format!("/{parent_str}")
+                            }
+                        },
+                    )
+            })
+            .collect();
+        assert!(normalized.contains(&"/".to_owned()));
+        assert!(normalized.contains(&"/sub".to_owned()));
+    }
+
+    #[test]
+    fn walk_respects_ignored_directories() {
+        let td = std::env::temp_dir().join(format!(
+            "sutura-test-ignored-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _: () = std::fs::remove_dir_all(&td).ok().unwrap_or(());
+        std::fs::create_dir_all(&td).unwrap();
+        std::fs::write(td.join("Cargo.lock"), "").unwrap();
+
+        // Create directories that should be ignored
+        std::fs::create_dir_all(td.join(".git")).unwrap();
+        std::fs::write(td.join(".git/Cargo.lock"), "").unwrap();
+        std::fs::create_dir_all(td.join("target")).unwrap();
+        std::fs::write(td.join("target/Cargo.lock"), "").unwrap();
+        std::fs::create_dir_all(td.join("node_modules")).unwrap();
+        std::fs::write(td.join("node_modules/Cargo.lock"), "").unwrap();
+
+        let orig_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&td).unwrap();
+        let result = scan_locks().unwrap();
+        std::env::set_current_dir(orig_dir).unwrap();
+        let _: () = std::fs::remove_dir_all(&td).ok().unwrap_or(());
+
+        // Should only find the root Cargo.lock
+        assert_eq!(result.len(), 1);
+        assert!(result[0].ends_with("Cargo.lock"));
     }
 }
