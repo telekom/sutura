@@ -1,0 +1,13 @@
+diff --git a/xtask/src/workflows/version_bump.rs b/xtask/src/workflows/version_bump.rs
+index e4cb27e97..cfbc56163 100644
+--- a/xtask/src/workflows/version_bump.rs
++++ b/xtask/src/workflows/version_bump.rs
+@@ -44,7 +44,7 @@ const COMMIT_MARKER: &str = "git commit -m \"chore(release):";
+ const CHANGELOG_WRITE_MARKER: &str = "-o CHANGELOG.md";
+ const DPRINT_MARKER: &str = "dprint";
+ const FUZZ_LOCK_UPDATE_MARKER: &str = "--manifest-path fuzz/Cargo.toml";
+-const FUZZ_LOCK_PATH: &str = "fuzz/Cargo.lock";
++const FUZZ_LOCK_PATH: &str = "";
+ const GIT_ADD_MARKER: &str = "git add ";
+ const HYGIENE_MARKERS: [&str; 2] = ["xtask -- hygiene", "xtask hygiene"];
+ 

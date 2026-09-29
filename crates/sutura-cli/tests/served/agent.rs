@@ -132,3 +132,28 @@ fn two_verified_callers_over_the_composed_binary_see_two_different_tool_lists() 
         "the broad caller must see more than the narrow caller: {broad_tools:?}"
     );
 }
+
+#[cfg(feature = "agent")]
+#[test]
+fn served_initialize_does_not_publish_the_whole_physical_schema() {
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "serve-agent-physical-schema").expect("the key set publishes");
+    let settings = format!(
+        "{}\nprompt:\n  list_physical_schema: true\n",
+        crate::harness::settings_with_agent_surface(&example_root(), &issuer, published.path())
+    );
+    let served = start_configured("agent-physical-schema", &settings);
+    let token = issuer
+        .mint(&Token::for_subject("reader@example.com").granting(sutura_app::Capability::DescribeCatalog.scope()))
+        .expect("the issuer mints a reader token");
+    let initialized = served.mcp(Some(&token), &initialize(1)).json();
+    let instructions = initialized["result"]["instructions"].as_str().expect("the prompt is text");
+    assert!(!instructions.contains("fct_subscription_monthly"), "{instructions}");
+
+    let call = serde_json::json!({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": {"name": "describe_catalog", "arguments": {}}
+    });
+    let listing = served.mcp(Some(&token), &call.to_string()).json();
+    assert_eq!(listing["result"]["structuredContent"]["models"], serde_json::json!([]));
+}

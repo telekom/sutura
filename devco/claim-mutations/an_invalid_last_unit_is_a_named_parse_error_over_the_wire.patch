@@ -1,0 +1,21 @@
+diff --git a/crates/sutura-runtime/src/relative_range.rs b/crates/sutura-runtime/src/relative_range.rs
+index 239c60273..363250b6b 100644
+--- a/crates/sutura-runtime/src/relative_range.rs
++++ b/crates/sutura-runtime/src/relative_range.rs
+@@ -83,14 +83,8 @@ pub struct UnknownRelativeUnit;
+ 
+ impl RelativeUnit {
+     fn parse(raw: &str) -> Result<Self, UnknownRelativeUnit> {
+-        match raw {
+-            "day" => Ok(Self::Day),
+-            "week" => Ok(Self::Week),
+-            "month" => Ok(Self::Month),
+-            "quarter" => Ok(Self::Quarter),
+-            "year" => Ok(Self::Year),
+-            _ => Err(UnknownRelativeUnit),
+-        }
++        let _ = raw;
++        Ok(Self::Day)
+     }
+ }
+ 
