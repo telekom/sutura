@@ -606,7 +606,14 @@ jobs:
       # The classification reaches these bodies through step-level `env:` and never as `${{ }}`
       # inside the shell, which is `zizmor`'s template-injection finding and would redden
       # `Workflow static analysis` below.
+      # #985 D2: push `ci` is reduced to its 3 unique outputs (CRAP baseline, last-validated marker,
+      # main-scoped Nix-store cache save). Every step below this point that verifies the tree - the
+      # closure-free gates, the stage-2 lint gates, the stage-3 tests and tiers, the shipped feature
+      # set, causality - is gated off on `push` because the merge queue already verified the same tree.
+      # `github.event_name != 'push'` on each step is the mechanism; the obligations gate in
+      # `xtask/src/workflows/obligations.rs` pins the amended conditions on Secrets, Licensing and Chart.
       - name: Realise the closure-free gates in one graph
+        if: github.event_name != 'push'
         continue-on-error: true
         # The ONLY runner-utilisation telemetry CI has: this samples /proc/stat once a second
         # across the stage and reports cpus/memory/model + the nix max-jobs/cores pair in force +
@@ -636,14 +643,14 @@ jobs:
       # its root is in stage 1 and hygiene's is not - there is nothing to save by skipping it and
       # nothing to wait for before running it.
       - name: Licensing
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event_name != 'push' }}
         run: nix build .#checks.x86_64-linux.reuse -L
 
       # `charts/sutura` is one directory, not a classification category (#149 branch 1) - same
       # closure-free reasoning as `Licensing`, cheaper to always run than to teach the classifier
       # a fourth axis for it.
       - name: Chart
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event_name != 'push' }}
         run: nix build .#checks.x86_64-linux.helm-chart -L
 
       # THE DRIVER CHECK, UNCONDITIONALLY - and it was gated by nothing until this step existed.
@@ -657,7 +664,7 @@ jobs:
       # the `.so`; whether that `.so` LOADS is `bigquery-driver-check` below, which is a different
       # question and a different venue.
       - name: ADBC driver
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event_name != 'push' }}
         run: nix build .#checks.x86_64-linux.adbc-driver-bigquery .#checks.x86_64-linux.adbc-driver-postgresql -L
 
       # The authoritative secret scan. The pre-commit hook is best-effort - it can be
@@ -703,7 +710,7 @@ jobs:
       # or not. That gap is accepted deliberately (see the job-level comment) and is not something
       # this step's condition closes.
       - name: Secrets
-        if: ${{ always() }}
+        if: ${{ always() && github.event_name != 'push' }}
         run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
 
       # THE ONE SUBJECT NO HOOK SEES. The queue squashes and composes the landed subject from the
@@ -741,7 +748,7 @@ jobs:
           fi
 
       - name: Format
-        if: steps.classify.outputs.rust == 'true'
+        if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.fmt -L
 
       # >>> STAGE 2: THE DEPENDENCY CLOSURE IS PAID FOR HERE, AND THE TESTS ARE NOT YET RUN. <<<
@@ -766,6 +773,7 @@ jobs:
       # lint, which nothing could do before the staging work and which #642 shipped. Placement is
       # about what may pre-empt what, not about the closure.
       - name: Realise the xtask and lint gates in one graph
+        if: github.event_name != 'push'
         continue-on-error: true
         uses: ./.github/actions/measure-host
         env:
@@ -779,16 +787,17 @@ jobs:
             nix build -L --keep-going "${checks[@]}"
 
       - name: Structural gates
+        if: github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.hygiene -L
 
       - name: Clippy
-        if: steps.classify.outputs.rust == 'true'
+        if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.clippy -L
 
       # An app, not a check: it fetches the advisory database and a build sandbox has no
       # network. The app also supplies the pinned cargo.
       - name: Supply chain
-        if: steps.classify.outputs.deps == 'true'
+        if: steps.classify.outputs.deps == 'true' && github.event_name != 'push'
         run: nix run .#deny
 
       # NOT gated on classification: a licence value can move without `Cargo.lock` moving. The
@@ -796,6 +805,7 @@ jobs:
       # generates one and refuses an incomplete result, which needs a resolvable registry. The
       # hygiene half holds the ABSENCE of a committed copy and needs nothing.
       - name: The attribution document generates completely
+        if: github.event_name != 'push'
         run: nix run .#xtask -- check-attribution
 
       # `nix/lint-workflows.sh` rather than inline, because the composite-action pass below it had
@@ -813,7 +823,7 @@ jobs:
       # caught the next time a workflow file changes. The "already disclosed" argument stops at
       # credentials; it does not extend here.
       - name: Workflow static analysis
-        if: steps.classify.outputs.run_all == 'true'
+        if: steps.classify.outputs.run_all == 'true' && github.event_name != 'push'
         run: bash nix/lint-workflows.sh
 
       # >>> STAGE 3: THE TEST ROOTS, WHICH A RED IN STAGE 1 OR 2 NO LONGER LAUNCHES. <<<
@@ -843,6 +853,7 @@ jobs:
       # `core`; reaching an empty selection needs `rust`, both tier conditions and `api` all false
       # at once. So it is reasoned and linted, not observed - cite it as such.
       - name: Realise the test graph in one invocation
+        if: github.event_name != 'push'
         continue-on-error: true
         uses: ./.github/actions/measure-host
         env:
@@ -877,7 +888,7 @@ jobs:
             nix build -L --keep-going "${checks[@]}"
 
       - name: Tests
-        if: steps.classify.outputs.rust == 'true'
+        if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.nextest -L
 
       # The identity tier, brought up and provisioned inside the sandbox: a realm, a client and two
@@ -890,7 +901,7 @@ jobs:
       # declines for the same server. `nix/**` fails open to `run_all`, and `flake.nix`/`flake.lock`
       # are the `nix` area, so between them the two conditions cover every file the tier reads.
       - name: Identity tier
-        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.identity == 'true'
+        if: (steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.identity == 'true') && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.keycloak-tier -L
 
       # The Postgres tier's state machine, which the `Tests` step above cannot report on: it starts
@@ -902,19 +913,19 @@ jobs:
       # Gated like the identity tier and for its reason: nothing compiled here changes what the
       # tier script does, and the two conditions between them cover every file it reads.
       - name: Postgres tier
-        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_postgres == 'true'
+        if: (steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_postgres == 'true') && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.postgres-tier -L
 
       # The ClickHouse tier's state machine, for the Postgres tier's reason and gated the same way
       # on its own category. The golden cells it serves run in `Tests` above, which starts this tier.
       - name: ClickHouse tier
-        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_clickhouse == 'true'
+        if: (steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_clickhouse == 'true') && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.clickhouse-tier -L
 
       # nextest deliberately does not run doctests, so a `///` example that stops compiling
       # would pass unnoticed. A separate check, so the gap is visible rather than assumed.
       - name: Doctests
-        if: steps.classify.outputs.rust == 'true'
+        if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.doctest -L
 
       # The pages under docs/api/ are GENERATED from the library crates' doc comments and
@@ -941,7 +952,7 @@ jobs:
       # identical output and passes, so nothing here has to guess which Rust changes reach the
       # public surface.
       - name: API reference pages
-        if: steps.classify.outputs.api == 'true'
+        if: steps.classify.outputs.api == 'true' && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.api-docs -L
 
       # The writable `target/causality-target` the three tail apps recompile into, carried on the
@@ -982,6 +993,7 @@ jobs:
       # message names is weaker than it reads. Written down rather than fixed here: teaching it
       # position is a change to that gate, not to this file.
       - uses: ./.github/actions/causality-target-cache
+        if: github.event_name != 'push'
         with:
           scope: ci
 
@@ -1028,7 +1040,7 @@ jobs:
       # answers that next question. The `run:` is the same command, `nix run .#default-features`;
       # only the wrapper is added.
       - name: The shipped feature set compiles and lints
-        if: steps.classify.outputs.rust == 'true'
+        if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
         uses: ./.github/actions/measure-host
         with:
           label: shipped feature set compiles and lints
@@ -1039,7 +1051,7 @@ jobs:
       # The other half. `xtask/src/default_feature_tests.rs` carries its own argument, its own
       # measurement - 2m18s reusing the warmed closure at the `ci` profile - and its own limits.
       - name: The shipped feature set runs its tests
-        if: steps.classify.outputs.rust == 'true'
+        if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
         uses: ./.github/actions/measure-host
         with:
           label: shipped feature set runs its tests
@@ -1256,7 +1268,7 @@ jobs:
       # and nothing here can check that they gave it. Cite the VERDICT LINE, never this step's
       # colour.
       - name: Test causality
-        if: steps.classify.outputs.rust == 'true'
+        if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
         env:
           BASE: ${{ steps.base.outputs.base }}
           EVENT: ${{ github.event_name }}
