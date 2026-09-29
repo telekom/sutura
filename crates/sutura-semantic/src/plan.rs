@@ -28,6 +28,8 @@
 
 use std::collections::BTreeSet;
 
+use sutura_domain::calendar::TimeRange;
+use sutura_domain::catalog::Metric;
 use sutura_domain::measure::Measure;
 use sutura_domain::model::{DimensionName, MetricName, ModelName, SourceName, TableName};
 use sutura_domain::nonempty::NonEmpty;
@@ -43,7 +45,7 @@ use crate::resolve::{Resolution, ResolvedFilter, ResolvedFilterValue};
 mod chain;
 mod federated;
 
-use chain::{chain_joins, chain_leaving_its_source, column_of, every_remote_dimension};
+use chain::{chain_joins, chain_leaving_its_source, column_of, every_dimension, every_remote_dimension, is_remote};
 use federated::federated_plan;
 
 /// What the plan stage decided to execute.
@@ -141,6 +143,17 @@ pub(crate) enum PlanError {
         dimension: DimensionName,
         hop: usize,
     },
+    /// A cross-model ratio reached the splitter with no `resolution.cross` to build its second
+    /// fact leg from.
+    ///
+    /// **Unreachable by construction, [`NoRemoteJoin`](Self::NoRemoteJoin)'s reason again.**
+    /// `resolve` fills `cross` whenever the first metric names another model and declares a
+    /// calendar, `plan` refuses a ratio with no calendar and a multi-metric question before this,
+    /// and `Federation::of_metric` erases the metric's own model, so a leaf left naming a model is
+    /// one `cross` was built for. A `PlanError` rather than a `RefusalReason`, for the same reason:
+    /// a caller cannot narrow their way out of our own wiring.
+    #[error("the federated splitter carries a second fact's leaves with no second fact model or calendar model")]
+    NoSecondFactModel,
 }
 
 impl From<RefusalReason> for PlanError {
@@ -190,14 +203,49 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
             metric: resolution.metric.name().clone(),
         });
     };
-    // `telekom/sutura#780`: neither plan shape builds a second FACT leg, so a term naming a model
-    // other than the metric's own is refused here rather than resolved against the metric's own
-    // table under a certified name - the catalog already proved the reference, not the plan shape.
+    // `telekom/sutura#780`: a cross-model ratio plans as two fact statements joined above, both
+    // bucketed through the metric's shared calendar - a conformed time dimension each fact joins
+    // inside its own statement. Every shape that cannot be built that way is refused here by name,
+    // never planned against the metric's own table. The calendar read is the metric `cross_model_term` found, never `resolution.metric`'s: in a
+    // multi-metric question they differ, and the first metric's calendar says nothing about another's.
     if let Some((cross_metric, model)) = cross_model_term(resolution) {
-        return Err(PlanError::Refused(RefusalReason::CrossModelRatioNotExecutable {
-            metric: cross_metric.clone(),
-            model: model.clone(),
-        }));
+        if cross_metric.shared_calendar().is_none() {
+            return Err(PlanError::Refused(RefusalReason::CrossModelRatioWithoutSharedCalendar {
+                metric: cross_metric.name().clone(),
+                model: model.clone(),
+            }));
+        }
+        // `resolve` reads the second fact and the calendar off the first metric only, and a
+        // multi-metric question never federates - so a cross-model ratio asked beside another metric
+        // would otherwise plan as one statement over the metric's own table.
+        if resolution.metrics.len() > 1 {
+            return Err(PlanError::Refused(RefusalReason::MultiMetricFederationNotExecutable {
+                metrics: resolution.metrics.iter().map(|m| m.name().clone()).collect(),
+            }));
+        }
+        let Some(cross) = resolution.cross.as_ref() else {
+            return Err(PlanError::NoSecondFactModel);
+        };
+        // Each fact leg joins the calendar inside its own statement, and a statement reads one
+        // source - so the second fact and the calendar sit on the metric's.
+        let own = resolution.model.source();
+        if let Some(off) = [cross.second, cross.calendar].into_iter().find(|m| m.source() != own) {
+            return Err(PlanError::Refused(RefusalReason::CrossModelRatioSpansSources {
+                metric: cross_metric.name().clone(),
+                model: off.name().clone(),
+            }));
+        }
+        // The two facts are combined above on ONE link into a remote dimension, so the question
+        // groups and filters by that dimension's model and nothing else: a same-source dimension
+        // would group the first fact alone, and with no remote dimension there is no link.
+        if every_remote_dimension(resolution).next().is_none()
+            || every_dimension(resolution).any(|dimension| !is_remote(dimension, own))
+        {
+            return Err(PlanError::Refused(RefusalReason::CrossModelRatioWithoutSharedDimension {
+                metric: cross_metric.name().clone(),
+                model: cross.second.name().clone(),
+            }));
+        }
     }
     if let Some((dimension, hop)) = chain_leaving_its_source(resolution) {
         return Err(PlanError::ChainLeavesItsSource {
@@ -212,7 +260,6 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
     let remote: BTreeSet<&SourceName> = every_remote_dimension(resolution)
         .filter_map(|dim| dim.join.as_ref().and_then(|hops| hops.last()).map(|hop| hop.model.source()))
         .collect();
-
     // A multi-metric question never federates - `mono_plan`'s own comment argues why the metrics
     // sharing a model puts them on one data system - but `federated_plan` below reads only
     // `resolution.metric` (the first named metric), so without this check a multi-metric question
@@ -243,8 +290,8 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
 /// because both resolve their column against the metric's own table. Scans every named metric,
 /// because a multi-metric question can name one metric with a cross-model ratio beside others
 /// without one.
-fn cross_model_term<'a>(resolution: &Resolution<'a>) -> Option<(&'a MetricName, &'a ModelName)> {
-    resolution.metrics.iter().find_map(|metric| {
+fn cross_model_term<'a>(resolution: &Resolution<'a>) -> Option<(&'a Metric, &'a ModelName)> {
+    resolution.metrics.iter().copied().find_map(|metric| {
         let own = metric.model();
         metric
             .measure()?
@@ -252,7 +299,7 @@ fn cross_model_term<'a>(resolution: &Resolution<'a>) -> Option<(&'a MetricName, 
             .into_iter()
             .flatten()
             .find(|model| *model != own)
-            .map(|model| (metric.name(), model))
+            .map(|model| (metric, model))
     })
 }
 
@@ -358,29 +405,7 @@ fn predicates_and_params(
     let mut params: Vec<ParamValue> = Vec::new();
     let mut filters: Vec<PlanFilter> = Vec::new();
 
-    // A function-shaped closure, so it never borrows `params` for its own lifetime: each call takes
-    // the list as an argument and borrows it only for the statement.
-    let bind = |params: &mut Vec<ParamValue>, value: ParamValue| {
-        params.push(value);
-        params.len().saturating_sub(1)
-    };
-
-    let start = bind(&mut params, ParamValue::Date(resolution.range.start()));
-    filters.push(PlanFilter::new(
-        PredicateOrigin::Definition,
-        PlanPredicate::AtOrAfter {
-            column: time_column.clone(),
-            param: start,
-        },
-    ));
-    let end = bind(&mut params, ParamValue::Date(resolution.range.end()));
-    filters.push(PlanFilter::new(
-        PredicateOrigin::Definition,
-        PlanPredicate::Before {
-            column: time_column.clone(),
-            param: end,
-        },
-    ));
+    filters.extend(range_filters(resolution.range, time_column, &mut params));
 
     for required in metric.required_filters() {
         let column = PlanColumn::new(own_table.clone(), required.column().clone());
@@ -462,26 +487,7 @@ fn guards_and_shared(
     // The shared tail: the two range bounds, then the question's own filters. None of the metrics'
     // required filters appear here - each is already a guard above, and putting it in the WHERE
     // would let it prune a row a sibling metric's column must count.
-    let bind = |params: &mut Vec<ParamValue>, value: ParamValue| {
-        params.push(value);
-        params.len().saturating_sub(1)
-    };
-    let start = bind(&mut params, ParamValue::Date(resolution.range.start()));
-    all_filters.push(PlanFilter::new(
-        PredicateOrigin::Definition,
-        PlanPredicate::AtOrAfter {
-            column: time_column.clone(),
-            param: start,
-        },
-    ));
-    let end = bind(&mut params, ParamValue::Date(resolution.range.end()));
-    all_filters.push(PlanFilter::new(
-        PredicateOrigin::Definition,
-        PlanPredicate::Before {
-            column: time_column.clone(),
-            param: end,
-        },
-    ));
+    all_filters.extend(range_filters(resolution.range, time_column, &mut params));
     for filter in requested {
         let column = column_of(&filter.dimension, own_table);
         let predicate = requested_predicate(filter, column, &mut params);
@@ -495,6 +501,38 @@ fn guards_and_shared(
     let head = measures.remove(0);
     Ok((NonEmpty::of(head, measures), PlanBindings::parse(all_filters, params)?))
 }
+/// The range's two bounds on `time_column`, each binding the next parameter - the head of every
+/// fact leg's predicates, and the whole of a second fact leg's (`telekom/sutura#780`).
+fn range_filters(range: TimeRange, time_column: &PlanColumn, params: &mut Vec<ParamValue>) -> [PlanFilter; 2] {
+    let start = params.len();
+    params.push(ParamValue::Date(range.start()));
+    params.push(ParamValue::Date(range.end()));
+    [
+        PlanFilter::new(
+            PredicateOrigin::Definition,
+            PlanPredicate::AtOrAfter {
+                column: time_column.clone(),
+                param: start,
+            },
+        ),
+        PlanFilter::new(
+            PredicateOrigin::Definition,
+            PlanPredicate::Before {
+                column: time_column.clone(),
+                param: start.saturating_add(1),
+            },
+        ),
+    ]
+}
+
+/// A second fact leg's bindings: the range on the shared calendar and nothing else - the metric's
+/// required filters constrain its own model's columns, which the second fact's statement does not read.
+fn range_only(range: TimeRange, time_column: &PlanColumn) -> Result<PlanBindings, IncoherentBindings> {
+    let mut params = Vec::with_capacity(2);
+    let filters = range_filters(range, time_column, &mut params);
+    PlanBindings::parse(filters.into(), params)
+}
+
 /// One requested filter's predicate, and the parameter(s) it binds - one for `Eq`, one per value
 /// for `In`/`NotIn`, each pushed in placeholder order so [`PlanBindings::parse`] sees them
 /// consecutive.

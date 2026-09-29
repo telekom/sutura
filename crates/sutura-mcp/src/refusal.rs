@@ -239,17 +239,36 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              whoever operates this deployment, who can raise this ceiling."
         ),
         // Written for an agent: nothing you asked was wrong, and nothing you can change fixes it -
-        // the metric names a fact model this workspace does not yet know how to join a second one
-        // against. Say so, and name the metric.
-        RefusalReason::CrossModelRatioNotExecutable { ref metric, ref model } => format!(
-            "`{metric}` measures a ratio side on model `{model}`, and this deployment does not yet \
-             build the second fact leg such a term needs. Nothing you can change in the question \
-             helps and this is not an outage to retry; report it to the person you are acting for."
+        // the metric declares no shared calendar for its cross-model ratio. Say so, and name the
+        // metric.
+        RefusalReason::CrossModelRatioWithoutSharedCalendar { ref metric, ref model } => format!(
+            "`{metric}` measures a ratio side on model `{model}`, and the metric declares no shared \
+             calendar, so both facts cannot be bucketed through the same time dimension. Nothing \
+             you can change in the question helps; report it to the person you are acting for."
         ),
+        RefusalReason::CrossModelRatioSpansSources { ref metric, ref model } => spans_sources(metric, model),
+        RefusalReason::CrossModelRatioWithoutSharedDimension { ref metric, ref model } => without_shared_dimension(metric, model),
     };
     (code, detail)
 }
 
+/// Written for an agent: nothing in the question fixes where a cross-model ratio's models live.
+fn spans_sources(metric: &sutura_domain::model::MetricName, model: &sutura_domain::model::ModelName) -> String {
+    format!(
+        "`{metric}` measures a ratio over two fact models, and `{model}` lives on another data system \
+         than the metric's own, so both facts cannot join its shared calendar. Nothing you can change \
+         in the question helps; report it to the person you are acting for."
+    )
+}
+
+/// Written for an agent: this one IS narrowable, so the sentence says how.
+fn without_shared_dimension(metric: &sutura_domain::model::MetricName, model: &sutura_domain::model::ModelName) -> String {
+    format!(
+        "`{metric}` measures a ratio over two fact models, and this question does not group only by a \
+         dimension both `{metric}`'s model and `{model}` link to. Group by such a dimension and nothing \
+         else; if none of the metric's dimensions does, report it to a person."
+    )
+}
 #[cfg(test)]
 mod tests {
     use sutura_domain::model::{Aggregate, DimensionName, Grain, MetricName, SourceName, TableName};
@@ -339,9 +358,17 @@ mod tests {
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },
             RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
             RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
-            RefusalReason::CrossModelRatioNotExecutable {
+            RefusalReason::CrossModelRatioWithoutSharedCalendar {
                 metric: metric(),
                 model: sutura_domain::model::ModelName::parse("customers").expect("a test model is a model"),
+            },
+            RefusalReason::CrossModelRatioSpansSources {
+                metric: metric(),
+                model: sutura_domain::model::ModelName::parse("calendar").expect("a test model is a model"),
+            },
+            RefusalReason::CrossModelRatioWithoutSharedDimension {
+                metric: metric(),
+                model: sutura_domain::model::ModelName::parse("visits").expect("a test model is a model"),
             },
         ]
     }
