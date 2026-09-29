@@ -14,7 +14,8 @@ updates:
       prefix: "ci"
 
   - package-ecosystem: cargo
-    # Both locks, so a bump reaches the fuzz workspace too.
+    # Both locks, so a bump reaches the fuzz workspace too. `cargo xtask check-lock-coverage`
+    # fails on a Cargo.lock in the tree that no entry here covers.
     directories: ["/", "/fuzz"]
     schedule:
       interval: weekly
