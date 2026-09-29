@@ -18,7 +18,7 @@ use sutura_app::Permitted;
 use sutura_app::prompt::CatalogProse;
 use sutura_config::{LogFilter, LogFormat, ServiceName, TelemetrySettings};
 
-use super::{a_certified_question, admission, ask, eventually, reply, served, text_of};
+use super::{a_certified_question, admission, ask, eventually, raw, reply, served, text_of};
 use crate::testing;
 
 /// A cancelled request receives no response by protocol, so the handler ending its wait is observed
@@ -382,5 +382,55 @@ async fn the_reply_deadline_bounds_the_wait_for_a_slot_too() {
          transports - a window of {:?} was not inside a deadline of {:?}: {waited:?}",
         admission.wait(),
         deadline.duration()
+    );
+}
+
+/// **A raw call's deadline opens before it waits for a slot**, so the wait is spent from its budget.
+///
+/// The only slot is held by a certified question for `QUEUED`; the raw call queued behind it must
+/// reach the port with at most `budget - QUEUED` left. A deadline opened after admission arrives with
+/// nearly the whole budget. `MARGIN`, half of `QUEUED`, is the slack, so the call's own trip to the server
+/// cannot read as queueing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_raw_calls_deadline_opens_before_it_waits_for_a_slot() {
+    const QUEUED: Duration = Duration::from_secs(1);
+    const MARGIN: Duration = Duration::from_millis(500);
+    let overlay =
+        "runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 30\nserver:\n  request_timeout_seconds: 5\n";
+    let budget = reply(overlay).budget().duration();
+    let (surface, holding) = testing::surface_that_can_be_held();
+    let client = Arc::new(
+        served(
+            surface,
+            Permitted::every_capability(),
+            CatalogProse::Quoted,
+            admission(overlay),
+            reply(overlay),
+        )
+        .await,
+    );
+    holding.arm();
+    let first = tokio::spawn({
+        let client = Arc::clone(&client);
+        async move { client.call_tool(ask(&a_certified_question())).await }
+    });
+    assert!(
+        eventually(|| holding.inside() == 1).await,
+        "the held question never reached the port"
+    );
+
+    let queued = tokio::spawn({
+        let client = Arc::clone(&client);
+        async move { client.call_tool(raw(&serde_json::json!({ "statement": "select 1" }))).await }
+    });
+    tokio::time::sleep(QUEUED).await;
+    holding.release();
+    drop(queued.await.expect("the raw call's task ran"));
+    drop(first.await.expect("the held question's task ran"));
+
+    let left = holding.raw_remaining().expect("the raw call never reached the port");
+    assert!(
+        left < budget.saturating_sub(MARGIN),
+        "the raw call arrived with {left:?} of {budget:?} after queueing for {QUEUED:?}, so its deadline opened after admission"
     );
 }

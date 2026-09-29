@@ -7,9 +7,11 @@
 
 use futures_util::TryStreamExt as _;
 use sutura_domain::identity::Presented;
+use sutura_domain::warehouse::deadline::Deadline;
 use tokio_postgres::types::{ToSql, Type};
 
-use crate::{PostgresError, PostgresWarehouse, Value, execute_err_mapped};
+use crate::deadline::{begin_read_only_with_timeout, deadline_statement_timeout_ms, refuse_if_spent};
+use crate::{PostgresError, PostgresWarehouse, Value, execute_err_mapped, lock_execution};
 
 #[expect(
     clippy::multiple_inherent_impl,
@@ -45,30 +47,33 @@ impl PostgresWarehouse {
     /// side effects once the connecting role may call it. Naming such a function in the statement is
     /// outside both this transaction and the role grant it sits beside.
     ///
-    /// **What stops a slow caller statement here is the connect-time `SET statement_timeout`**
-    /// (`docs/adr/0029`'s Postgres row), unchanged by `docs/adr/0029`'s own record and already true
-    /// on `main` before it: `Warehouse::execute_raw` carries no per-request `Deadline` at all, so
-    /// there is nothing here for a `SET LOCAL` to narrow the session default with - adding one would
-    /// send exactly the value already in effect (`telekom/sutura#687`'s review, finding 5). What
-    /// `docs/adr/0029` adds for this path is [`crate::deadline::deadline_exceeded`] recognising the
-    /// `57014` that ceiling produces, so `Warehouse::deadline_exceeded` answers `true` for it too.
+    /// **`SET LOCAL statement_timeout` rides the same `BEGIN READ ONLY`**, what is left of `deadline`
+    /// clamped to the connect-time ceiling - `docs/adr/0029`'s Postgres row, the same shape
+    /// [`PostgresWarehouse::run_with_deadline`] already has for the certified path. **The lock is
+    /// acquired FIRST, then the deadline is re-checked** (via [`crate::deadline::refuse_if_spent`]),
+    /// the identical ordering and the identical reason: waiting for `execution_lock` is itself
+    /// outside the deadline. The connect-time ceiling (`SUTURA_DEV_STATEMENT_TIMEOUT_MS`) remains the
+    /// outer bound `SET LOCAL` may only narrow, never widen.
     pub(crate) fn run_raw(
         &self,
         statement: &sutura_domain::raw::RawStatement,
         presented: &Presented,
+        deadline: Deadline,
     ) -> Result<sutura_domain::warehouse::RawRows, PostgresError> {
         self.deliverable(presented)?;
         let sql = statement.as_str();
         // Held for the whole `BEGIN` / statement / `ROLLBACK` triple: this client pipelines, so
         // without this a concurrent caller's own exchange interleaves on the wire mid-transaction
         // - see `PostgresWarehouse::execution_lock` for what was measured without it.
-        let _guard = crate::lock_execution(&self.execution_lock);
+        let _guard = lock_execution(&self.execution_lock);
+        refuse_if_spent(deadline)?;
+        let timeout_ms = deadline_statement_timeout_ms(self.statement_timeout_ceiling_ms, deadline);
         self.runtime.block_on(async {
-            self.client
-                .batch_execute("BEGIN READ ONLY")
-                .await
-                .map_err(|cause| PostgresError::RawTransaction { cause })?;
-            let outcome = self.run_raw_statement(sql).await;
+            let began = begin_read_only_with_timeout(&self.client, timeout_ms).await;
+            let outcome = match began {
+                Ok(()) => self.run_raw_statement(sql).await,
+                Err(cause) => Err(cause),
+            };
             // Rolled back unconditionally: no `COMMIT` exists on this path, so nothing the call did
             // persists whether it answered, errored, or timed out. A rollback that itself fails is
             // the connection's problem on its way out, not the caller's statement's - logged nowhere

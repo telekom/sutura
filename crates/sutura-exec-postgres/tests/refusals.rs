@@ -151,7 +151,7 @@ mod refusals {
     fn a_subject_token_is_refused_by_execute_raw_before_anything_is_run() {
         let warehouse = warehouse();
         for presented in subjects() {
-            let outcome = warehouse.execute_raw(&statement(), &presented);
+            let outcome = warehouse.execute_raw(&statement(), &presented, corpus::deadline());
             assert!(
                 matches!(outcome, Some(Err(PostgresError::NoPlaceForASubject { .. }))),
                 "a subject credential has nowhere to arrive on this adapter: {outcome:?}"

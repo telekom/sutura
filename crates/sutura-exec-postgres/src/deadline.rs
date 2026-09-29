@@ -144,6 +144,21 @@ async fn begin_with_timeout(client: &tokio_postgres::Client, timeout_ms: NonZero
         .map_err(|cause| PostgresError::Transaction { cause })
 }
 
+/// [`begin_with_timeout`]'s `READ ONLY` twin - `raw.rs`'s own transaction, which is already `BEGIN
+/// READ ONLY` unconditionally (`docs/adr/0013`'s amendment), now with `SET LOCAL statement_timeout`
+/// riding the same `BEGIN` the way the certified path's does (`telekom/sutura#1144`). One round trip
+/// over the simple protocol, same as the certified twin - sutura's own fixed literal, never the
+/// caller's statement.
+pub(crate) async fn begin_read_only_with_timeout(
+    client: &tokio_postgres::Client,
+    timeout_ms: NonZeroU32,
+) -> Result<(), PostgresError> {
+    client
+        .batch_execute(&format!("BEGIN READ ONLY; SET LOCAL statement_timeout = {timeout_ms}"))
+        .await
+        .map_err(|cause| PostgresError::RawTransaction { cause })
+}
+
 /// Refuses locally, no round trip, if `deadline` is already spent - the check
 /// [`PostgresWarehouse::run_with_deadline`]'s and `dry_run`'s own doc explain: `sutura_app`'s own
 /// pre-call check runs before the wait for `execution_lock`, so it cannot see a budget spent
