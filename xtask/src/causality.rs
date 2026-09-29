@@ -426,8 +426,10 @@ fn stack_parent(root: &Path, asked_for: &Commit) -> Option<Parent> {
 /// separate calls so those two are separate answers.
 ///
 /// The source listing is behind a `OnceCell` because most runs never need it: it is consulted only
-/// for a manifest that declares a feature name the base did not, which is rare, and
-/// `repo::all_files` shells out to git twice.
+/// for a manifest that declares a feature name the base did not, which is rare, and the census it
+/// consults is taken with [`repo::Census::inspect`], which opens every compiled source in the tree.
+/// The read is the census's own, so a listed source that vanished before it is a refusal here, not
+/// an empty answer.
 fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], read: &regions::PostImage<'_>) -> Activation {
     let base = |path: &str| {
         if worktree::base_has(root, at, path) {
@@ -436,26 +438,35 @@ fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], rea
             BaseText::Absent
         }
     };
-    let listing: std::cell::OnceCell<Vec<String>> = std::cell::OnceCell::new();
+    let listing: std::cell::OnceCell<features::Listing> = std::cell::OnceCell::new();
     let sources = |dir: &str| {
         listing
-            // FAIL OPEN, unchanged and now visible: a refusal yields an EMPTY listing and the
-            // feature-activation walk proceeds over nothing. Narrow - this is consulted only for a
-            // manifest declaring a feature name the base did not - and it is
-            // `github.com/telekom/sutura#414`'s own finding on this file, left to the PR that owns
-            // this gate rather than folded into a mechanical one.
             .get_or_init(|| {
-                repo::all_files()
-                    .and_then(|census| census.into_listing(repo::Unmigrated::Causality))
-                    .map(|(_root, files)| files)
-                    .unwrap_or_default()
+                let census = repo::all_files().map_err(|why| why.describe())?;
+                let mut listing = Vec::new();
+                match census.inspect(&[], is_compiled_rust, |rel, _| {
+                    listing.push(String::from(rel));
+                }) {
+                    Ok(inspected) if inspected.absent() == 0 => Ok(listing),
+                    Ok(inspected) => Err(format!(
+                        "{} source file(s) the working tree's listing named are no longer on disk",
+                        inspected.absent()
+                    )),
+                    Err(why) => Err(why.describe()),
+                }
             })
-            .iter()
-            // `is_compiled_rust` rather than an extension test, so the one rule that decides
-            // what this workspace compiles decides here too - a vendored path is excluded by it.
-            .filter(|path| is_compiled_rust(path) && (dir.is_empty() || path.starts_with(&format!("{dir}/"))))
-            .cloned()
-            .collect()
+            .as_ref()
+            .map_err(String::clone)
+            .map(|listing| {
+                listing
+                    .iter()
+                    // `is_compiled_rust` rather than an extension test, so the one rule that
+                    // decides what this workspace compiles decides here too - a vendored path is
+                    // excluded by it.
+                    .filter(|path| dir.is_empty() || path.starts_with(&format!("{dir}/")))
+                    .cloned()
+                    .collect()
+            })
     };
     Activation::of(
         files,

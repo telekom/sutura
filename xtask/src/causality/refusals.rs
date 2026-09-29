@@ -180,7 +180,8 @@ pub(super) fn report_enabled_tests(enabled: &[Enabled]) -> Verdict {
 /// source listing that never came back - the same fail-closed direction `report_unreadable` holds
 /// for a post-image, one level up. Each cause prints what it could not read, because the remedy
 /// differs: a missing base blob is a fetch or a shallow clone, an empty source listing is a path
-/// this gate resolved wrongly, and a listed source that would not read is a working tree that
+/// this gate resolved wrongly, a census of the working tree's sources that was itself refused is
+/// the census's own cause, and a listed source that would not read is a working tree that
 /// changed under the scan.
 pub(super) fn report_unread_manifests(unread: &[Unread]) -> Verdict {
     eprintln!("xtask test-causality: FAILED - a changed manifest this gate could not read");
@@ -192,6 +193,9 @@ pub(super) fn report_unread_manifests(unread: &[Unread]) -> Verdict {
             }
             Unread::Sources { ref manifest, ref dir } => {
                 eprintln!("  {manifest} declares a new feature and no source file was listed under {dir}");
+            }
+            Unread::Census { ref manifest, ref why } => {
+                eprintln!("  {manifest} declares a new feature and the census of the working tree's sources refused: {why}");
             }
             Unread::Listed(ref path) => {
                 eprintln!("  {path} is a listed source of a package whose manifest changed, and could not be read");
@@ -339,13 +343,17 @@ mod tests {
         ];
         assert_eq!(report_enabled_tests(&enabled), Verdict::Fail);
         // And the manifest this gate could not read on one side, which may not answer *nothing was
-        // enabled* - all four causes, each with its own sentence.
+        // enabled* - all five causes, each with its own sentence.
         let unread = [
             Unread::Manifest(String::from("crates/x/Cargo.toml")),
             Unread::AtBase(String::from("crates/x/Cargo.toml")),
             Unread::Sources {
                 manifest: String::from("crates/x/Cargo.toml"),
                 dir: String::from("crates/x"),
+            },
+            Unread::Census {
+                manifest: String::from("crates/x/Cargo.toml"),
+                why: String::from("1 source file(s) the working tree's listing named are no longer on disk"),
             },
             Unread::Listed(String::from("crates/x/src/legacy.rs")),
         ];
