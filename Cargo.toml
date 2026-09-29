@@ -321,7 +321,7 @@ serde_norway = "0.9"
 #     wrong under a feature we said we do not compile. `crate::dialect::DateTruncShape` covers Oracle
 #     the same way it already covers `BigQuery`'s argument order: `bucket_expression` builds the
 #     correct call directly, with no dialect-layer rewrite in between.
-polyglot-sql = { version = "0.12.0", default-features = false, features = ["generate", "builder", "stacker", "dialect-duckdb", "dialect-postgresql", "dialect-clickhouse", "dialect-bigquery", "dialect-oracle"] }
+polyglot-sql = { version = "0.13.0", default-features = false, features = ["generate", "builder", "stacker", "dialect-duckdb", "dialect-postgresql", "dialect-clickhouse", "dialect-bigquery", "dialect-oracle"] }
 
 # The local and single-file data system. WITHOUT `bundled`: that feature compiles DuckDB's C++
 # from source, which in the Nix build sandbox is minutes and gigabytes per derivation. We link

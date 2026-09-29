@@ -560,18 +560,19 @@ fn a_column_the_qualification_rewrite_did_not_reach_is_refused() {
     // `traversal::transform_map` dispatches on a hardcoded list of node kinds and returns a kind it
     // has no arm for untouched, children and all; the unknown-column check is a `dfs` walk, which
     // has the WIDER coverage. So the check saw columns the rewrite never touched, and each of these
-    // eight compiled with a bare column in the output.
+    // compiled with a bare column in the output.
     //
     // Measured in the pinned DuckDB for the COLLATE case, against a joined dimension carrying the same
     // column name: `Binder Error: Ambiguous reference to column name "region"` - at query time, for
     // a metric whose load succeeded. On an engine that resolves by precedence instead of erroring it
     // is silently the wrong number, which is what `qualify` exists to prevent.
+    //
+    // polyglot-sql fixed LIST() aggregate ORDER BY qualification (tobilg/polyglot#480), but others still don't.
     for raw in [
         "MAX(mrr_eur COLLATE NOCASE)",
         "SUM(mrr_eur) SIMILAR TO 'x'",
         "SUM(mrr_eur) WITHIN GROUP (ORDER BY region)",
         "ARRAY_AGG(mrr_eur ORDER BY region)",
-        "LIST(mrr_eur ORDER BY region)",
         "GROUP_CONCAT(status ORDER BY region)",
         "FIRST_VALUE(mrr_eur IGNORE NULLS) OVER (PARTITION BY region)",
         "LAST_VALUE(mrr_eur) IGNORE NULLS OVER (PARTITION BY region)",
@@ -591,11 +592,13 @@ fn a_column_the_qualification_rewrite_did_not_reach_is_refused() {
     // And because it is a check on the OUTPUT rather than a second denylist of node kinds, every
     // fragment the rewrite DOES reach still compiles - including `WITHIN GROUP`, whose `order_by` is
     // rewritten while its `this` is not, which is why one of the two is here and the other is above.
+    // polyglot-sql improved LIST() aggregate ORDER BY qualification (tobilg/polyglot#480).
     for raw in [
         "PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY mrr_eur)",
         "SUM(mrr_eur) OVER (PARTITION BY region)",
         "SUM(CASE WHEN status = 'active' THEN mrr_eur END)",
         "ARRAY_AGG(DISTINCT mrr_eur)",
+        "LIST(mrr_eur ORDER BY region)",
     ] {
         let compiled = portable(raw).unwrap_or_else(|err| panic!("{raw:?} should still compile: {err}"));
         for dialect in ALL.iter().copied() {

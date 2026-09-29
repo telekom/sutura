@@ -523,6 +523,7 @@ fn ordered(expr: Expr, desc: bool) -> Expr {
         nulls_first: Some(false),
         explicit_asc: false,
         with_fill: None,
+        nulls_auto: false,
     })))
 }
 
