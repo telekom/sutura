@@ -1,0 +1,8 @@
+diff --git a/crates/sutura-mcp/src/wire/catalog.rs b/crates/sutura-mcp/src/wire/catalog.rs
+index 8417bd38..0f4dfe8e 100644
+--- a/crates/sutura-mcp/src/wire/catalog.rs
++++ b/crates/sutura-mcp/src/wire/catalog.rs
+@@ -210,2 +210,3 @@ impl CatalogContent {
+             view.models()
++                .take(0)
+                 .map(|model| ModelContent {

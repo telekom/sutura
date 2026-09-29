@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/query.rs b/crates/sutura-domain/src/query.rs
+index 3c36e1440..efd44afba 100644
+--- a/crates/sutura-domain/src/query.rs
++++ b/crates/sutura-domain/src/query.rs
+@@ -656,7 +656,7 @@ impl RefusalReason {
+             Self::DimensionValueNotAllowed { .. } => "dimension_value_not_allowed",
+             Self::DuplicateDimension { .. } => "duplicate_dimension",
+             Self::TooManyDimensions { .. } => "too_many_dimensions",
+-            Self::TooManyFilters { .. } => "too_many_filters",
++            Self::TooManyFilters { .. } => "killed",
+             Self::ResultTooLarge { .. } => "result_too_large",
+             Self::TimeRangeTooLong { .. } => "time_range_too_long",
+             Self::PlanSpansTooManySources { .. } => "plan_spans_too_many_sources",

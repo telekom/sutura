@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-mcp/src/server.rs b/crates/sutura-mcp/src/server.rs
+index e13e9cc28..bbb28e68c 100644
+--- a/crates/sutura-mcp/src/server.rs
++++ b/crates/sutura-mcp/src/server.rs
+@@ -505,7 +505,7 @@ where
+ fn no_established_caller() -> ErrorData {
+     tracing::warn!("a tool call was refused: this transport established no caller for it");
+     ErrorData::new(
+-        ErrorCode::INVALID_REQUEST,
++        ErrorCode::INVALID_PARAMS,
+         "this deployment could not establish who is asking, so the call is refused rather than \
+          answered as the deployment itself",
+         None,

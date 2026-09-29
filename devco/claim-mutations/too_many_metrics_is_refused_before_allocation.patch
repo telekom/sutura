@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/query.rs b/crates/sutura-domain/src/query.rs
+index 3c36e1440..dec5ee149 100644
+--- a/crates/sutura-domain/src/query.rs
++++ b/crates/sutura-domain/src/query.rs
+@@ -646,7 +646,7 @@ impl RefusalReason {
+         match self {
+             Self::MetricUnknown { .. } => "metric_unknown",
+             Self::MetricsSpanDifferentModels { .. } => "metrics_span_different_models",
+-            Self::TooManyMetrics { .. } => "too_many_metrics",
++            Self::TooManyMetrics { .. } => "killed",
+             Self::DuplicateMetricName { .. } => "duplicate_metric_name",
+             Self::MultiMetricFederationNotExecutable { .. } => "multi_metric_federation_not_executable",
+             Self::MultiMetricTopNotExecutable { .. } => "multi_metric_top_not_executable",

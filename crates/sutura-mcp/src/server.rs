@@ -186,19 +186,20 @@ use rmcp::model::{
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData, ServerHandler};
 use sutura_app::prompt::{PromptInputs, Tool};
-use sutura_app::surface::{Surface, SurfaceFailure, cause_chain};
+use sutura_app::surface::{Surface, cause_chain};
 use sutura_app::{Asked, Capability};
 use sutura_config::RequestTimeout;
 use sutura_domain::query::Query;
 use sutura_domain::raw::RawStatement;
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_runtime::{Admission, AtCapacity};
+use sutura_runtime::Admission;
 
 use crate::Asking;
 use crate::tool;
-use crate::wire::{
-    AskArgs, CatalogContent, DescribeCatalogArgs, MalformedQuestion, MalformedStatement, OutcomeContent, RawContent, RunSqlArgs,
-};
+use crate::wire::{AskArgs, CatalogContent, DescribeCatalogArgs, MalformedQuestion, MalformedStatement, RunSqlArgs};
+
+mod bounds;
+mod outcome;
 
 /// The agent-facing surface over one [`Surface`].
 ///
@@ -216,6 +217,7 @@ pub struct AgentSurface<S> {
     /// How catalog descriptions are treated, so the tool honours `prompt.catalog_prose` the same
     /// way the prompt does - an operator who omits the prose there must not ship it through here.
     prose: sutura_app::prompt::CatalogProse,
+    list_physical_schema: bool,
     /// How many questions may be executing at once, and how long a call waits for a turn.
     ///
     /// Held by value and not behind an `Option`: a deployment that forgot to bound its execution is
@@ -298,11 +300,18 @@ impl<S> AgentSurface<S> {
             service,
             asking,
             prose,
+            list_physical_schema: false,
             admission,
             reply,
             tools,
             operator_instructions,
         }
+    }
+
+    #[must_use]
+    pub const fn listing_physical_schema(mut self, enabled: bool) -> Self {
+        self.list_physical_schema = enabled;
+        self
     }
 
     /// Who this call is attributed to and what it may invoke, resolved from `self.asking` and - under
@@ -370,7 +379,8 @@ where
         context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<InitializeResult, ErrorData>> + Send + '_ {
         context.peer.set_peer_info(request.clone());
-        let inputs = PromptInputs::new(&self.tools, self.prose, self.operator_instructions.as_deref());
+        let inputs = PromptInputs::new(&self.tools, self.prose, self.operator_instructions.as_deref())
+            .listing_physical_schema(self.list_physical_schema);
         std::future::ready(self.asked(&context).and_then(|asked| {
             let view = sutura_app::scoped_for(self.service.definitions(), asked.context());
             self.negotiate_initialize(&request)
@@ -449,13 +459,14 @@ where
                     asked.context(),
                     self.prose,
                     self.operator_instructions.as_deref(),
+                    self.list_physical_schema,
                 )
             }
             Capability::AskMetric => {
                 let query = match question(request)? {
                     QuestionAdmission::Query(query) => query,
                     QuestionAdmission::Refused(reason) => {
-                        return Ok(CallToolResponse::Complete(produced(
+                        return Ok(CallToolResponse::Complete(outcome::produced(
                             &sutura_domain::query::ToolOutcome::Refusal { reason },
                         )));
                     }
@@ -571,6 +582,12 @@ fn question(request: CallToolRequestParams) -> Result<QuestionAdmission, ErrorDa
     // `deny_unknown_fields` - and an absent `arguments` is an empty object, so a call with no
     // arguments fails on the missing required fields rather than on a different message.
     let arguments = serde_json::Value::Object(request.arguments.unwrap_or_default());
+    // An earlier check on the same count limits `sutura_domain::question::parse_query` checks
+    // downstream, refused here as the same `RefusalReason` so one count has one limit and one
+    // channel - see `server::bounds`'s module doc for what firing here actually saves.
+    if let Some(reason) = bounds::refused_for_over_cap(&arguments) {
+        return Ok(QuestionAdmission::Refused(reason));
+    }
     let args: AskArgs = serde_json::from_value(arguments).map_err(|cause| invalid(&MalformedQuestion::NotAnObject { cause }))?;
     match Query::try_from(args) {
         Ok(query) => Ok(QuestionAdmission::Query(query)),
@@ -593,6 +610,10 @@ fn question(request: CallToolRequestParams) -> Result<QuestionAdmission, ErrorDa
 /// be tempted for on this path too.
 fn run_sql_statement(request: CallToolRequestParams) -> Result<RawStatement, ErrorData> {
     let arguments = serde_json::Value::Object(request.arguments.unwrap_or_default());
+    // An earlier check than `RawStatement::parse`'s own, same `-32602` it returns for the same reason.
+    if let Some(error) = bounds::oversized_statement(&arguments) {
+        return Err(invalid_statement(&error));
+    }
     let args: RunSqlArgs =
         serde_json::from_value(arguments).map_err(|cause| invalid_statement(&MalformedStatement::NotAnObject { cause }))?;
     RawStatement::try_from(args).map_err(|error| invalid_statement(&error))
@@ -730,6 +751,7 @@ fn describe<S>(
     context: &sutura_domain::identity::RequestContext,
     prose: sutura_app::prompt::CatalogProse,
     operator_instructions: Option<&str>,
+    list_physical_schema: bool,
 ) -> CallToolResult
 where
     S: Surface,
@@ -737,7 +759,8 @@ where
     // The setting reaches the CONTENT and not only the rendering, which is the whole of `H1` in
     // `#266`: the text block honoured it while `structured_content` beside it carried every
     // description, so a deployment that had withheld its catalog prose shipped it anyway to any
-    // client reading the structured half. `CatalogContent::of` cannot be called without the answer.
+    // client reading the structured half. `CatalogContent::of_with_physical_schema` cannot be
+    // called without the answer.
     //
     // And the view is built here, from the caller this request's own verification resolved - see the
     // doc above for why `scoped_for` maps an absent or process-owner caller to the whole bundle.
@@ -745,7 +768,7 @@ where
     // The operator's own text - the raw value, before it was folded into the rendered prompt - rides
     // the catalog tool so a gateway that surfaces only tools (and never delivers
     // `initialize.instructions`) still reaches the operator's rules.
-    let listing = CatalogContent::of(&view, prose, operator_instructions);
+    let listing = CatalogContent::of_with_physical_schema(&view, prose, operator_instructions, list_physical_schema);
     let mut result = CallToolResult::success(vec![ContentBlock::text(listing.as_text())]);
     // `ok()` rather than a propagated error, for the reason `produced` gives: the content is strings,
     // numbers and vectors, so serializing it cannot fail, and there is no `unwrap` in this workspace
@@ -784,7 +807,7 @@ where
     let deadline = Deadline::opened_at(Instant::now(), reply.budget());
     match tokio::time::timeout(reply.duration(), admitted(service, admission, asked_as, query, deadline)).await {
         Ok(result) => result,
-        Err(_elapsed) => outran_its_deadline(reply),
+        Err(_elapsed) => outcome::outran_its_deadline(reply),
     }
 }
 
@@ -814,7 +837,7 @@ where
     // be a pool thread already taken while waiting for permission to take one.
     let slot = match admission.admit().await {
         Ok(slot) => slot,
-        Err(shed) => return at_capacity(&shed),
+        Err(shed) => return outcome::at_capacity(&shed),
     };
     let service = Arc::clone(service);
     let working = sutura_runtime::spawn_carrying_span(move || {
@@ -834,13 +857,13 @@ where
     match working.await {
         // A refusal and an answer take the same branch, which is the point: both are `Ok`, both are
         // a tool result, and only `outcome` inside the payload tells them apart.
-        Ok(Ok(ref outcome)) => produced(outcome),
-        Ok(Err(failure)) => could_not_answer(&failure),
+        Ok(Ok(ref outcome)) => outcome::produced(outcome),
+        Ok(Err(failure)) => outcome::could_not_answer(&failure),
         // The blocking task did not finish: it panicked, or the runtime is shutting down. Reported
         // like a failure, because from a caller's side it is the same fact.
         Err(error) => {
             tracing::error!(error = %error, "the blocking task answering a tool call did not finish");
-            failed("this deployment could not answer")
+            outcome::failed("this deployment could not answer")
         }
     }
 }
@@ -859,7 +882,7 @@ where
 {
     match tokio::time::timeout(reply.duration(), admitted_raw(service, admission, asked_as, statement)).await {
         Ok(result) => result,
-        Err(_elapsed) => outran_its_deadline(reply),
+        Err(_elapsed) => outcome::outran_its_deadline(reply),
     }
 }
 
@@ -878,7 +901,7 @@ where
 {
     let slot = match admission.admit().await {
         Ok(slot) => slot,
-        Err(shed) => return at_capacity(&shed),
+        Err(shed) => return outcome::at_capacity(&shed),
     };
     let service = Arc::clone(service);
     let working = sutura_runtime::spawn_carrying_span(move || {
@@ -887,106 +910,13 @@ where
         answered
     });
     match working.await {
-        Ok(Ok(ref outcome)) => raw_produced(outcome),
-        Ok(Err(failure)) => could_not_answer(&failure),
+        Ok(Ok(ref outcome)) => outcome::raw_produced(outcome),
+        Ok(Err(failure)) => outcome::could_not_answer(&failure),
         Err(error) => {
             tracing::error!(error = %error, "the blocking task running a raw statement did not finish");
-            failed("this deployment could not run this statement")
+            outcome::failed("this deployment could not run this statement")
         }
     }
-}
-
-/// A raw answer or refusal, as one result shape - [`produced`]'s shape, over [`RawContent`].
-fn raw_produced(outcome: &sutura_domain::raw::RawOutcome) -> CallToolResult {
-    let content = RawContent::from(outcome);
-    let mut result = CallToolResult::success(vec![ContentBlock::text(content.as_text())]);
-    result.structured_content = serde_json::to_value(&content).ok();
-    result
-}
-
-/// The peer waited out `server.request_timeout_seconds` and the question is still running.
-///
-/// **A failure and not a refusal**, for `at_capacity`'s reason one bound over: nothing was judged.
-/// The HTTP surface answers the same fact `408` with `code: timeout`, and the argument for the
-/// channel is the same - a caller must be able to tell *this went wrong* from *you may not ask
-/// that*.
-///
-/// **No digits in the sentence, and that is the same call `at_capacity` makes.** The deadline is the
-/// operator's own configuration: the answer to a bound too small for the questions a deployment
-/// gets is a settings change or a narrower catalog, and neither is something the asking model can
-/// do. So the number goes to the log, where an operator reads it.
-///
-/// **It does not say *try again*, deliberately.** The question is still executing and still holds
-/// its slot, so an immediate repeat costs a second slot for the same answer. What it says instead is
-/// the one thing the caller can act on: ask for less.
-fn outran_its_deadline(reply: RequestTimeout) -> CallToolResult {
-    tracing::warn!(
-        request_timeout_seconds = reply.seconds(),
-        "gave up waiting for a tool call's answer: the question is still running and keeps its slot"
-    );
-    failed(
-        "this deployment gave up waiting for the answer to this question. It may still be running, so asking the same question again will not be faster and will take a second execution slot; ask for a narrower time range or fewer dimensions",
-    )
-}
-
-/// Every execution slot was taken for the whole admission window, so the question was shed.
-///
-/// **A failure and not a refusal**, which is the same call `sutura_http::problem` makes for the same
-/// fact: a `RefusalReason` says *do not ask this again*, and this question was never judged - it did
-/// not run. So it comes back on the third channel, with the one thing an agent can act on. Waiting
-/// helps here, which is why the sentence says so and the `SurfaceFailure::Warehouse` one does not.
-///
-/// **The two numbers go to the log and not into the model's context.** They are an operator's own
-/// configuration: the answer to a bound too small for the machine is a settings change, and the
-/// answer to a window that expires under normal load is another replica. Neither is something the
-/// caller can do.
-fn at_capacity(shed: &AtCapacity) -> CallToolResult {
-    tracing::warn!(
-        max_concurrent_queries = shed.bound(),
-        admission_timeout_seconds = shed.waited().as_secs(),
-        "shed a tool call: every execution slot was taken for the whole admission window"
-    );
-    failed(
-        "this deployment is already answering as many questions at once as it admits, and no slot came free while this call waited; ask again shortly",
-    )
-}
-
-/// An answer or a refusal, as one result shape.
-fn produced(outcome: &sutura_domain::query::ToolOutcome) -> CallToolResult {
-    let content = OutcomeContent::from(outcome);
-    let mut result = CallToolResult::success(vec![ContentBlock::text(content.as_text())]);
-    // `ok()` rather than a propagated error: `OutcomeContent` is strings, numbers and vectors, so
-    // serializing it cannot fail, and there is no `unwrap` in this workspace to say so. A client
-    // that got no structured content still has the text block.
-    result.structured_content = serde_json::to_value(&content).ok();
-    result
-}
-
-/// Something went wrong, said with no detail taken from the cause.
-///
-/// The text of a `SurfaceFailure`'s chain is a path, a table or a column, and this result reaches a
-/// model's context. The cause goes to the log instead, which is the one place text is the point -
-/// the same judgement `sutura_http::problem`'s internal failure already makes.
-fn could_not_answer(failure: &SurfaceFailure) -> CallToolResult {
-    tracing::error!(error = %failure, causes = ?cause_chain(failure), "the agent surface could not answer");
-    failed(match *failure {
-        SurfaceFailure::Compile { .. } => "this deployment could not compile the question",
-        SurfaceFailure::Warehouse { .. } => "the data system did not answer",
-        // Written for an agent: what it needs is whether waiting helps. It does here, and it does
-        // not for the arm below - which is why the two are separate sentences rather than one about
-        // credentials.
-        SurfaceFailure::Broker { .. } => {
-            "the identity provider this deployment depends on did not answer; this may work if you try again shortly"
-        }
-        SurfaceFailure::Miswired { .. } => {
-            "this deployment is misconfigured: what it holds for the data system does not match the question's. Nothing you can change - report it"
-        }
-    })
-}
-
-/// A tool result that says the call failed, with a fixed sentence and nothing derived from a cause.
-fn failed(detail: &str) -> CallToolResult {
-    CallToolResult::error(vec![ContentBlock::text(String::from(detail))])
 }
 
 #[cfg(test)]
