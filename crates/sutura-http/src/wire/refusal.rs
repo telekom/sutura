@@ -30,7 +30,7 @@
 //!   DELETE)."
 //!
 //! Go's `net/http` reference documents no status-driven retry anywhere in `Client`, `Transport` or
-//! `RoundTripper`. 11 refusal reasons land on `422` below, documented the other way round from the
+//! `RoundTripper`. 12 refusal reasons land on `422` below, documented the other way round from the
 //! premise: "Clients that receive a `422` response should expect that repeating the request
 //! without modification will fail with the same error."
 //!
@@ -380,8 +380,10 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         RefusalReason::CrossModelRatioSpansSources { ref metric, ref model } => {
             (StatusCode::CONFLICT, spans_sources(metric, model))
         }
+        // 422, not 409: the question is understood and a different grouping answers it - the
+        // file's own rule for a status is what the caller should do, and that is to regroup.
         RefusalReason::CrossModelRatioWithoutSharedDimension { ref metric, ref model } => {
-            (StatusCode::CONFLICT, without_shared_dimension(metric, model))
+            (StatusCode::UNPROCESSABLE_ENTITY, without_shared_dimension(metric, model))
         }
     };
     (
@@ -751,7 +753,7 @@ mod tests {
 
     #[test]
     fn every_refusal_has_a_distinct_code() {
-        // The status is shared on purpose - 11 refusal reasons land on `422` - so the code is what
+        // The status is shared on purpose - 12 refusal reasons land on `422` - so the code is what
         // a client has to be able to branch on, and two variants sharing one would make that
         // impossible. THE NUMBER HERE IS PROSE: it said four while `docs/serving.md` mapped five,
         // then five while this file gained a sixth arm, and every OTHER gate stayed green both
