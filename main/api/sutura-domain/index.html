@@ -9904,7 +9904,7 @@ merely undone by a rule somebody remembers to apply.</p>
 <code>docs/adr/0013</code>'s amendment gives: <code>crate::query::RefusalReason</code> is keyed to a compiled plan -
 dimensions, grains, federation - and a raw statement has none of those to refuse. What it can be
 refused for is a bound this deployment applies before or after execution, or the data system's own
-answer about the statement, and this module's four variants are exactly that list.</p>
+answer about the statement, and this module's five variants are exactly that list.</p>
 <h1 id="what-this-module-does-not-decide">What this module does not decide<a class="headerlink" href="#what-this-module-does-not-decide" title="Permanent link">&para;</a></h1>
 <p><strong>Neither variant carries the data system's own error text.</strong> <code>docs/adr/0022</code> Decision 3 - not yet
 built, because the raw tool did not exist when that record was written - requires the raw tool's
@@ -9969,12 +9969,12 @@ answer about the statement once it ran.</p>
   rows plus one off a STREAMED result (<code>Client::query_raw</code>) before refusing, rather than by
   materialising the whole result first and counting afterward. What this does NOT bound: the
   statement's own execution time or the SERVER's memory while it produces those rows - both
-  are the connect-time <code>statement_timeout</code>'s job, a coarser and unrelated ceiling.
+  are bounded by the per-request deadline and the connect-time <code>statement_timeout</code>, the finer and coarser ceilings.
 - <code>ResultTooLarge</code> - The data system would not hand this result back in one piece.</p>
 <p>Carries no number, for the reason <code>crate::query::ResultBound::Volume</code> carries none: the bound
   belongs to the data system, and a figure borrowed from wherever the statement failed would be
   a certified-looking number for a bound that is not the one that fired.
-- <code>StatementFailed</code> - The statement did not complete: a syntax error the data system's own parser found, a constraint it enforced, or the connection's own statement timeout firing before it returned.</p>
+- <code>StatementFailed</code> - The statement did not complete: a syntax error the data system's own parser found, or a constraint it enforced.</p>
 <p><strong>No text from the driver is carried</strong>, and that is the whole point of the variant rather than
   a field left unfilled. Whoever controls the statement controls part of the message a database
   returns about it - <code>docs/adr/0013</code>'s own accounting of what this tool spends - so until
@@ -9987,7 +9987,8 @@ answer about the statement once it ran.</p>
   system saying no about WHO asked and what they may do, not a malformed statement or a timeout.
   <code>docs/adr/0013</code>'s amendment is explicit that the read-only transaction is a real, server-
   enforced boundary for statement-shaped writes and not for a VOLATILE function's own side
-  effects - see that record for the limit stated with the claim.</p>
+  effects - see that record for the limit stated with the claim.
+- <code>DeadlineExceeded</code> - The asker's own per-request deadline ran out. <code>execute_raw</code> carries the same bound <code>execute</code> does, and the same <code>Warehouse::deadline_exceeded</code> predicate classifies the stop - including one by an adapter's own ceiling that fired before the budget did. Carries the configured budget in seconds, for <code>crate::query::RefusalReason::DeadlineExceeded</code>'s own reason: a number an operator configured, safe in a log, not how long the statement ran.</p>
 <h4 id="methods_91">Methods<a class="headerlink" href="#methods_91" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-587-1"><a id="__codelineno-587-1" name="__codelineno-587-1" href="#__codelineno-587-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>

@@ -2702,6 +2702,11 @@ the read-only transaction <code>docs/adr/0013</code>'s amendment wraps every cal
 that statement</em> - not an infrastructure outage this deployment must page for. What remains an
 <code>Err</code> is only what happens before the statement ever reaches the data system: the broker not
 answering, or credentials that do not fit.</p>
+<h1 id="the-deadline-is-opened-by-the-transport-before-this-call-crateanswers-own-shape">The deadline is opened by the transport, before this call - <code>crate::answer</code>'s own shape<a class="headerlink" href="#the-deadline-is-opened-by-the-transport-before-this-call-crateanswers-own-shape" title="Permanent link">&para;</a></h1>
+<p><code>deadline</code> is checked once here, before the port is ever called (<code>telekom/sutura#1144</code>): a
+budget already spent refuses the statement before it reaches the data system at all, the same
+pre-call check <code>crate::answer</code> makes before <code>Warehouse::execute</code>. What an adapter does with the
+deadline once it is handed to <code>Warehouse::execute_raw</code> is the adapter's own business.</p>
 <h2 id="use-grains_coarsest_first"><code>use grains_coarsest_first</code><a class="headerlink" href="#use-grains_coarsest_first" title="Permanent link">&para;</a></h2>
 <p>The grains a metric declares, coarsest first.</p>
 <p>A small helper the composition root uses to describe a metric, kept here so the ordering is the

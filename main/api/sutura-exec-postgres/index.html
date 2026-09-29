@@ -2428,13 +2428,13 @@ through <code>sutura-sql</code> (<code>Dialect::Postgres</code>); nothing here i
   (<code>tls::client_config</code>). Which source gets which is <code>sutura_config::sources::transport</code>'s
   decision and never this adapter's, so a caller that builds no config gets a cleartext
   connection - including to a server that offers TLS.</li>
-<li><strong><code>dry_run</code> and <code>execute</code> stop at the port's deadline</strong>, with <code>SET LOCAL statement_timeout</code> -
+<li><strong><code>dry_run</code>, <code>execute</code> and <code>execute_raw</code> all stop at the port's per-request deadline</strong>
+  (<code>telekom/sutura#1144</code> threaded this onto the raw path too), with <code>SET LOCAL statement_timeout</code> -
   <code>docs/adr/0029</code>'s Postgres row. The wait for <code>execution_lock</code> is itself outside the deadline;
   a caller already spent once the lock is held is refused locally as <code>DeadlineSpent</code>. <code>57014
   query_canceled</code> is also what a manual <code>pg_cancel_backend</code> produces - indistinguishable to
-  <code>deadline_exceeded</code>. The raw SQL tool's own path (<code>execute_raw</code>) carries no per-request
-  deadline; it is stopped by the connect-time <code>SET statement_timeout</code> that already existed, and
-  this record adds only classifying that stop.</li>
+  <code>deadline_exceeded</code>. The connect-time <code>SET statement_timeout</code> remains the outer ceiling a
+  request's own budget may only narrow, never widen, on every path including the raw one.</li>
 </ul>
 <h2 id="enum-postgreserror"><code>enum PostgresError</code><a class="headerlink" href="#enum-postgreserror" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">PostgresError</span>
