@@ -161,3 +161,24 @@ fn a_rdbms_catalog_with_a_missing_tls_anchor_bundle_is_refused_naming_it() {
         "this build DOES link the feature - the refusal must not send an operator chasing one: {err}"
     );
 }
+
+/// A declaration `sutura-config` accepts and no reader in this build opens is refused here, naming
+/// the catalog and the key, rather than opened as the Postgres documentation-schema reader.
+#[test]
+fn a_rdbms_catalog_no_reader_opens_is_refused_naming_the_key() {
+    let postgres = "      host: \"127.0.0.1\"\n      port: 5432\n      database: \"dictionary\"\n      \
+         user: \"reader\"\n      password_file: \"/run/secrets/dictionary\"\n      transport_mode: \"plaintext\"\n";
+    let oracle = "      dialect: \"oracle\"\n      host: \"127.0.0.1\"\n      port: 1521\n      service_name: \"FREEPDB1\"\n      \
+         user: \"reader\"\n      password_file: \"/run/secrets/dictionary\"\n      transport_mode: \"plaintext\"\n";
+    let native = format!("{postgres}    dictionary_source: \"native_dictionary\"\n");
+    for (connection, key) in [
+        (oracle, "connection.dialect: oracle"),
+        (native.as_str(), "dictionary_source: native_dictionary"),
+    ] {
+        let err = crate::catalog::open_catalog(&catalogs(connection), None).expect_err("no reader opens this declaration");
+        assert!(
+            err.contains(&format!("`catalogs.dictionary` declares `{key}`")) && err.contains("not supported by this build"),
+            "the refusal names the catalog and the key: {err}"
+        );
+    }
+}
