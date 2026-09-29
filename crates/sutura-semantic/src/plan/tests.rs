@@ -21,6 +21,9 @@ use sutura_domain::query::RefusalReason;
 use super::{DimensionName, Plan, PlanError, plan};
 use crate::resolve::{Resolution, ResolvedDimension, ResolvedFilter, ResolvedFilterValue, ResolvedJoin};
 
+mod two_sources;
+use two_sources::TwoSources;
+
 fn column(raw: &str) -> ColumnName {
     ColumnName::parse(raw).expect("a test column is a column")
 }
@@ -869,3 +872,36 @@ fn a_cross_model_ratio_with_a_shared_calendar_plans_with_a_second_fact_leg() {
 // check returns before `second_fact_model` is ever read, so a second copy differing only in that
 // field would exercise the identical branch. A `jscpd` clone of that test was here and was cut
 // rather than kept beside a `dup-ignore` exception, per `docs/adr/0002`'s second amendment.
+
+/// A term that spells the metric's OWN model federates exactly like one naming none: both leaves
+/// stay on the first fact leg and no second leg exists. `resolve` sets no second fact model for
+/// such a term, so a splitter that routed the leaf by its `Some` model alone refused the question
+/// with `NoSecondFactModel` - the regression review probe P1 caught.
+#[test]
+fn a_term_naming_the_metric_s_own_model_federates_on_the_first_fact_leg() {
+    let corpus = TwoSources::new();
+    let metric = TwoSources::metric(
+        "revenue_per_row",
+        Measure::Ratio {
+            numerator: Term::Aggregate(AggregatedColumn::on_model(
+                Aggregate::Sum,
+                column("amount_cents"),
+                ModelName::parse("facts").expect("a test model is a model"),
+            )),
+            denominator: Term::Aggregate(AggregatedColumn::new(Aggregate::Count, column("customer_key"))),
+            zero_denominator: sutura_domain::measure::ZeroDenominator::Null,
+        },
+    );
+    let planned = plan(&corpus.asking(vec![&metric], true));
+    let Ok(Plan::Federated(federated)) = planned else {
+        panic!(
+            "an own-model term with a remote dimension is a federated plan, got {:?}",
+            planned.err()
+        );
+    };
+    assert!(
+        federated.second_fact().is_none(),
+        "an own-model term builds no second fact leg"
+    );
+    assert_eq!(federated.fact().terms().len(), 2, "both leaves stay on the first fact leg");
+}

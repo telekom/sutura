@@ -39,7 +39,8 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
     let own_path = model.table();
     let own_table = model.table_name();
 
-    let federation = Federation::of(closed);
+    // `of_metric`, not `of`: a term naming the metric's own model stays on the first fact leg.
+    let federation = Federation::of_metric(closed, model.name());
     // The combiner cannot re-count a distinct aggregate, so a measure that needs that is refused.
     if let Some(keys) = federation.carried().iter().find_map(|leaf| match **leaf {
         Carried::Keys { pulled, .. } => Some(pulled.above()),
