@@ -12,10 +12,10 @@
 //! `kind: rdbms` by name. Every value below is a checked declaration either way.
 //!
 //! The `connection:` block selects its dialect through a `dialect` key (default `postgres`):
-//! `postgres` dials a Postgres documentation schema, `oracle` dials an Oracle dictionary over a
-//! plaintext, loopback-confined EZCONNECT connection - the same constraint the `oracle` source
-//! kind holds. An Oracle connection is parsed and refused at the composition root as not supported
-//! by this build, so the declaration is checked but not yet opened.
+//! `postgres` dials a Postgres documentation schema. `oracle` declares an Oracle connection held to
+//! plaintext, loopback-confined EZCONNECT - the constraint the `oracle` source kind holds - and
+//! nothing reads it: the composition root refuses it as not supported by this build, so the
+//! declaration is checked but never opened.
 
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
@@ -297,14 +297,16 @@ pub enum InvalidDocumentationSchema {
 
 /// Which dictionary an `rdbms` catalog reads.
 ///
-/// A setting parsed but read by no composition root in this build. `documentation_schema` (the default) is the supported shape;
-/// `native_dictionary` is parsed as an opt-in declaration but not opened. A closed set: a new one is a visible diff plus a
-/// parse arm and a reader arm, which is the review it deserves.
+/// `documentation_schema` (the default) is the only one a build reads; the composition root refuses
+/// `native_dictionary` as not supported by this build, so it is checked but never opened. A closed
+/// set: a new one is a visible diff plus a parse arm and a reader arm, which is the review it
+/// deserves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DictionarySource {
     /// A `columns` documentation-schema view installed in the database (the default).
     DocumentationSchema,
-    /// The database's own dictionary views (`ALL_TAB_COLUMNS` etc.).
+    /// The database's own dictionary views. No reader for it exists; it is refused at the
+    /// composition root.
     NativeDictionary,
 }
 
@@ -312,12 +314,8 @@ impl DictionarySource {
     /// Every accepted spelling, so a message and the parser cannot disagree.
     pub const ALL: [Self; 2] = [Self::DocumentationSchema, Self::NativeDictionary];
 
-    /// The default spelling, so [`crate::raw::RawCatalog`] can default the field without naming the
-    /// variant in two places.
-    pub const DEFAULT: &'static str = "documentation_schema";
-
     fn parse(written: Option<&str>) -> Result<Self, InvalidRdbmsCatalog> {
-        let word = written.unwrap_or(Self::DEFAULT).trim();
+        let word = written.unwrap_or(Self::DocumentationSchema.as_str()).trim();
         Self::ALL
             .into_iter()
             .find(|source| source.as_str() == word)
@@ -345,10 +343,9 @@ impl DictionarySource {
 ///
 /// **Default `postgres`**, so a deployment that wrote no `dialect` key reads exactly as it did
 /// before the Oracle variant existed. The variant is the dispatch point: a Postgres connection
-/// dials a documentation schema over a `PostgresDial`, and an Oracle connection dials a
-/// dictionary over plaintext EZCONNECT, loopback-confined. The composition root matches on the
-/// variant to build the reader; until the Oracle reader lands (PR 2 of
-/// `github.com/telekom/sutura#972`), an `Oracle` variant is parsed and refused there.
+/// dials a documentation schema over a `PostgresDial`, and an Oracle connection is held to
+/// plaintext EZCONNECT, loopback-confined. The composition root matches on the
+/// variant to build the reader, and refuses an `Oracle` one: no Oracle reader exists in this build.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CatalogConnection {
     /// A Postgres documentation-schema connection, the default dialect.
@@ -376,7 +373,7 @@ impl CatalogConnection {
 pub enum Dialect {
     /// The Postgres documentation-schema reader - the default and the precedent.
     Postgres,
-    /// An Oracle dictionary reader, plaintext EZCONNECT over loopback.
+    /// An Oracle connection, plaintext EZCONNECT over loopback. Parsed; no reader exists.
     Oracle,
 }
 
@@ -384,12 +381,8 @@ impl Dialect {
     /// Every accepted spelling, so a message and the parser cannot disagree.
     pub const ALL: [Self; 2] = [Self::Postgres, Self::Oracle];
 
-    /// The default spelling, so [`RawCatalogConnection`] can default the field without naming the
-    /// variant in two places.
-    pub const DEFAULT: &'static str = "postgres";
-
     fn parse(written: Option<&str>) -> Result<Self, InvalidConnection> {
-        let word = written.unwrap_or(Self::DEFAULT).trim();
+        let word = written.unwrap_or(Self::Postgres.as_str()).trim();
         Self::ALL
             .into_iter()
             .find(|dialect| dialect.as_str() == word)
@@ -694,7 +687,7 @@ pub enum InvalidConnection {
         #[source]
         cause: InvalidOracleServiceName,
     },
-    #[error("`connection.{key}` is read only when `dialect` is `{dialect}` - remove it")]
+    #[error("`connection.{key}` is not read when `dialect` is `{dialect}` - remove it")]
     ForeignKey { key: &'static str, dialect: &'static str },
     #[error(
         "`connection` is `dialect: oracle` and declares transport mode `{mode}`, but the Oracle driver builds its own TLS - only `plaintext` is accepted"
