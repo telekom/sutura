@@ -16,7 +16,8 @@ unsayable - [Two levels, not three siblings](#two-levels-not-three-siblings) is 
 second lets a ratio's term carry a model other than the metric's own - the section below titled
 *Amendment, 2026-09-25* is the record. The third declares a shared calendar and lifts the refusal
 for the case that one left refused - the section below titled *Second amendment, 2026-09-28* is
-the record, and `telekom/sutura#780` is why for both. The rest of this record stands.
+the record, and `telekom/sutura#780` is why for both. The headings number only the dated sections,
+which is why the third amendment is headed the second. The rest of this record stands.
 
 ## Context
 
@@ -196,7 +197,7 @@ in the deployment at boot, not a question at query time.
 
 ## Second amendment, 2026-09-28: a shared calendar lifts the refusal
 
-`telekom/sutura#780`, continued. The second amendment let a ratio's term name a model other than
+`telekom/sutura#780`, continued. The 2026-09-25 amendment let a ratio's term name a model other than
 the metric's own and refused every such ratio under one name
 (`RefusalReason::CrossModelRatioNotExecutable`). The open question it left was Q2 of the issue:
 *which column buckets the second fact?* Four shapes were on the table; the owner's call is **(B)
