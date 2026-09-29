@@ -2818,8 +2818,8 @@ The model this leaf reads, copied from the term by `descend`.
 `None` for every term written before `telekom/sutura#780`'s vocabulary (`AggregatedColumn::new`
 sets no model). A term that names a model explicitly - including the metric's own - carries
 `Some`, because `descend` has no metric to compare against and copies the field. The combiner
-reads a `Some` leaf off the second fact leg only when the plan carries one; a splitter that
-builds a second fact leg must first erase the metric's own model to `None`, and none does yet.
+reads a `Some` leaf off the second fact leg only when the plan carries one, so a splitter
+builds its federation with `Federation::of_metric`, which erases the metric's own model.
 
 #### Implements
 
@@ -2888,6 +2888,17 @@ Classifies one measure.
 Exhaustive over `Measure`'s shapes, and over `Term`'s terms through `descend`. A ratio
 becomes an `Above::Quotient` whose halves are pushed separately, which is the rule stated
 as the only tree this function can build.
+
+```rust
+pub fn of_metric(measure: &Measure, own: &ModelName) -> Self
+```
+
+`Self::of` for a metric over `own`, with every leaf that names `own` erased to `None`.
+
+A term may spell the metric's own model explicitly, and it is the same question as one that
+names none (`telekom/sutura#780`). The splitter, `FederatedPlan::new`'s D9 split and the
+combiner all route a leaf by `Carried::model` off this one tree, so erasing here is what
+keeps an own-model leaf on the first fact leg in all three.
 
 ```rust
 pub fn pulls_up_rows(&self) -> bool
@@ -7379,8 +7390,7 @@ Both legs' results, which cannot hold two of one side and cannot be built with t
 
 A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a third result
 from a second fact model, joined above on the link and the time bucket. The combiner reads it
-through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names. No
-question produces a second fact yet: `plan()` refuses a cross-model ratio before dispatching.
+through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names.
 
 Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
@@ -8136,8 +8146,7 @@ Every leg, in execution order: the fact leg, the second fact leg if present, the
 lookup leg.
 
 A two-fact plan (`telekom/sutura#780`) carries a third leg; the combiner joins it on the
-link and the time bucket above the port. No question produces one yet: `plan()` refuses a
-cross-model ratio before dispatching, so only a hand-built plan reaches this.
+link and the time bucket above the port.
 
 ```rust
 pub const fn lookup(&self) -> &LegPlan
@@ -8199,8 +8208,6 @@ pub const fn second_fact(&self) -> Option<&LegPlan>
 ```
 
 The second fact leg, when the measure's ratio terms name two fact models.
-
-`None` for every plan a question produces today - see `FederatedPlanError::FactsShareNoKey`.
 
 ```rust
 pub fn sources(&self) -> impl Iterator<Item> + '_
@@ -8313,20 +8320,12 @@ Why a federated plan could not be built.
 
   Same reason as `BucketMismatch`: the one production splitter derives
   both from `labels(&federation)` in one pass.
-- `FactsOnSameSource` - The second fact leg names the same data system as the first, so it is a no-op second leg rather than a second fact over a different model.
-
-  `telekom/sutura#780`: a cross-model ratio's two facts must read two sources, because each
-  source is a separate identity to satisfy and the chasm trap is impossible only when the two
-  facts never share a `FROM`. Reachable from a question: a cross-model ratio whose two fact
-  models sit on one source dispatches to `federated_plan` with a second leg, and this guard
-  catches it. `FactsShareNoKey` carries the same reachability.
 - `FactsShareNoKey` - Two fact legs share no key label, so the join above them is impossible.
 
   The chasm-trap guard as a type refusal: without a shared dimension key to join on, a
   combined answer is not a certified number but two unrelated row sets, so the plan does not
-  exist rather than producing one. **Reachable from a question:** a cross-model ratio with a
-  shared calendar dispatches to `federated_plan`, which builds a second fact leg; this guard
-  catches two such legs that share no key. The guard is also exercised by direct construction.
+  exist rather than producing one. **Reached only by direct construction:** the one
+  production splitter projects `InternalLabel::Link` on both fact legs unconditionally.
 
 ##### Implements
 
@@ -8386,8 +8385,7 @@ Both legs' results, which cannot hold two of one side and cannot be built with t
 
 A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a third result
 from a second fact model, joined above on the link and the time bucket. The combiner reads it
-through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names. No
-question produces a second fact yet: `plan()` refuses a cross-model ratio before dispatching.
+through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names.
 
 Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
@@ -8656,8 +8654,7 @@ Both legs' results, which cannot hold two of one side and cannot be built with t
 
 A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a third result
 from a second fact model, joined above on the link and the time bucket. The combiner reads it
-through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names. No
-question produces a second fact yet: `plan()` refuses a cross-model ratio before dispatching.
+through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names.
 
 Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
@@ -10230,8 +10227,21 @@ somebody else's input.
   mechanism `TopNotFederated` → `TopOverUncertifiedRows` already used.
 
   Narrowable in principle: a catalog author who declares the shared calendar makes the ratio
-  executable. Not narrowable by the caller: the `shared_calendar` is part of the metric's
-  definition, not of the question.
+  executable. Only a local catalog can declare one (its `shared_calendar:` key); no other
+  catalog adapter reads the field yet. Not narrowable by the caller: the `shared_calendar` is
+  part of the metric's definition, not of the question.
+- `CrossModelRatioSpansSources` - A cross-model ratio whose second fact model or shared calendar sits on another data system than the metric's own (`telekom/sutura#780`); `model` names the one that does.
+
+  Each fact leg joins the calendar inside its OWN statement, and a statement reads one source,
+  so both facts and the calendar share the metric's. Not narrowable by the caller: where a
+  model lives is the catalog's, not the question's. A calendar declared once per source is
+  the shape that would lift this, and it is not built.
+- `CrossModelRatioWithoutSharedDimension` - A cross-model ratio asked by no dimension both fact models link to (`telekom/sutura#780`).
+
+  The two facts are aggregated in two statements and joined above on ONE link into a remote
+  dimension's model, so the question groups and filters by that model's dimensions and nothing
+  else, and the second fact `model` declares its own relationship into it on the column the
+  first fact links through. Narrowable: group by a dimension both facts link to.
 
 #### Methods
 
