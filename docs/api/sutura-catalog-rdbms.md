@@ -88,15 +88,39 @@ a deployment whose whole model is a physical schema must not be told it has metr
 This crate contains the conversion `RdbmsCatalog` applies to dictionary records, and it is
 tested against a fake reader that serves a recorded dictionary - the port gets a fake,
 not mocked SQL (`github.com/telekom/sutura#151`'s thing 4). Since #972, it also contains the
-live implementor over a Postgres documentation schema (`postgres_reader`), behind a
-default-off `live` feature so the library closure stays domain + thiserror and no build links
-the reader's `tokio-postgres`/`rustls`/`ring` stack without asking for it.
+live implementors over a Postgres (`postgres_reader`) and an Oracle (`oracle_reader`)
+documentation schema, behind a default-off `live` feature so the library closure stays
+domain + thiserror and no build links either driver's stack without asking for it.
 
 **The fake dominates the suite; the live reader is the production half, feature-gated.**
-`DictionaryReader` is the seam both implement (`fixture::FixtureReader` the recorded corpus,
-`postgres_reader::PostgresReader` a real connection), and the conversion is the same for both.
+`DictionaryReader` is the seam they implement (`fixture::FixtureReader` the recorded corpus,
+`AnyDictionaryReader` a real connection), and the conversion is the same for each.
 A composition root that links the `live` feature serves `catalog.kind: rdbms`; a build without
 it refuses by name. (Its only other dependant is `sutura-app`, as a dev-dependency.)
+
+## `enum AnyDictionaryReader`
+
+```rust
+pub enum AnyDictionaryReader
+```
+
+The live reader a declared `connection.dialect` selects, so one `RdbmsCatalog` type holds
+either without a trait object.
+
+### Variants
+
+- `Postgres` - The Postgres documentation-schema reader, boxed because it is several times the Oracle one.
+- `Oracle` - The Oracle documentation-schema reader.
+
+### Methods
+
+```rust
+pub const fn bounds(&self) -> DictionaryBounds
+```
+
+### Implements
+
+`Clone`, `Debug`, `DictionaryReader`
 
 ## `trait DictionaryReader`
 
@@ -559,6 +583,91 @@ A `crate::RdbmsCatalog` over the recorded corpus.
 
 The constructor the conformance registry uses to register the adapter; it is `pub` because an
 integration suite is a separate crate and cannot reach a `#[cfg(test)]` item.
+
+## Module `oracle_reader`
+
+The live Oracle documentation-schema reader, behind the default-off `live` feature.
+
+`crate::postgres_reader`'s twin over an Oracle connection: the same documented `columns` view
+(that module's header carries the column table), the same constructor checks, inline caps and
+assembly - all held once in `crate::documentation` - so the conversion in `crate::RdbmsCatalog`
+cannot tell the two apart. What differs is the SQL dialect and the driver.
+
+# The contract's Oracle spelling
+
+`is_primary_key` and `is_deleted` are `NUMBER(1)`, `1` for true and `0` for false; any other
+value of `is_primary_key` is refused as missing evidence rather than read as either. The
+schema, the view and the predicate column are validated identifiers, **folded to upper case and
+then quoted** - Oracle folds an unquoted name to upper case when the object is created, so
+`sutura_dictionary.columns` is found as written. A schema created under a quoted lower-case
+name is not. The environment and an `equals` value are bound as `:1`/`:2`, never interpolated.
+
+# The limits, next to the claims
+
+- **No live Oracle run is observed or cited.** No venue that runs `just validate` reaches an
+  Oracle server (`compose.services.yaml`'s `oracle` row says why, and why no Rust cell reaches
+  that tier). The unit cells prove the constructor refusals, the rendered statement and the
+  flag decode - never a read. Nothing here is golden-pinned.
+- **Read-only by statement, not by driver flag.** The pinned driver has no read-only option;
+  the reader issues `SET TRANSACTION READ ONLY` before its one `SELECT` and rolls back after it.
+  Unobserved against a server, like every other line of the read path.
+- **The byte cap is an estimate.** The driver exposes no row's wire size, so a row spends the
+  UTF-8 length of its decoded text plus one byte - bounding the decoded payload, not the bytes
+  on the wire. The driver materialises a row before it is counted, and neither cap limits
+  elapsed read time.
+- **The connection is plaintext and confined only at its first dial.** `sutura-config`'s
+  `OracleCatalogConnection` refuses TLS and a non-loopback host, because the driver takes no
+  caller-built trust store; the driver still follows a listener's TNS redirect to any address
+  it names - the limit `sutura-cli`'s `oracle` module holds for the source kind.
+- **`SharedServiceUser`, not leg 2.** A catalog read has no caller to run as; it is one login
+  under the user the deployment declared.
+
+### `struct OracleLogin`
+
+```rust
+pub struct OracleLogin
+```
+
+Where and as whom the reader logs in: an EZCONNECT `host:port/service_name` dial.
+
+#### Methods
+
+```rust
+pub const fn new(host: String, port: u16, service_name: String, user: String, password: Secret) -> Self
+```
+
+#### Implements
+
+`Clone`, `Debug`
+
+### `struct OracleReader`
+
+```rust
+pub struct OracleReader
+```
+
+A live `DictionaryReader` over an Oracle documentation schema.
+
+#### Methods
+
+```rust
+pub const fn bounds(&self) -> DictionaryBounds
+```
+
+```rust
+pub fn new(login: OracleLogin, documentation_schema: &str, environment: String, predicate: RowPredicate, row_cap: Option<NonZeroU64>, byte_cap: Option<NonZeroU64>) -> Result<Self, InvalidReaderConfig>
+```
+
+Builds the reader without dialling. An absent `row_cap`/`byte_cap` selects the documented
+defaults `crate::postgres_reader::PostgresReader` uses.
+
+# Errors
+
+The documentation schema or the predicate column is not an identifier.
+
+#### Implements
+
+`Clone`, `Debug`, `DictionaryReader`
 
 ## Module `postgres_reader`
 

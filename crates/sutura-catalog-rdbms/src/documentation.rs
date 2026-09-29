@@ -67,6 +67,26 @@ pub(crate) struct Row {
     pub(crate) is_primary_key: Option<bool>,
 }
 
+impl Row {
+    /// The decoded text's UTF-8 length plus one byte for the key flag - never zero, so every row
+    /// spends from the byte cap.
+    pub(crate) fn decoded_len(&self) -> u64 {
+        let text = [
+            &self.environment,
+            &self.catalog_name,
+            &self.schema_name,
+            &self.table_name,
+            &self.model_name,
+            &self.table_description,
+            &self.column_name,
+            &self.column_type,
+            &self.column_description,
+        ];
+        let bytes: usize = text.iter().map(|cell| cell.as_deref().map_or(0, str::len)).sum();
+        u64::try_from(bytes).unwrap_or(u64::MAX).saturating_add(1)
+    }
+}
+
 type PhysicalKey = (Option<String>, String, String);
 
 /// The rows of one read, gathered into tables under the declared bounds.

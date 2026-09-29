@@ -162,23 +162,45 @@ fn a_rdbms_catalog_with_a_missing_tls_anchor_bundle_is_refused_naming_it() {
     );
 }
 
-/// A declaration `sutura-config` accepts and no reader in this build opens is refused here, naming
-/// the catalog and the key, rather than opened as the Postgres documentation-schema reader.
+/// `dialect: oracle` opens the Oracle documentation-schema reader - without dialling, as the
+/// Postgres one does not either - while `native_dictionary`, which no reader in this build reads, is
+/// refused naming the catalog and the key rather than opened as the documentation-schema reader.
 #[test]
-fn a_rdbms_catalog_no_reader_opens_is_refused_naming_the_key() {
+fn an_oracle_catalog_opens_its_reader_and_a_native_dictionary_is_refused() {
+    let scratch = ScratchDir::prepared();
+    let oracle = oracle_connection(&readable_password_file(&scratch).display().to_string());
+    let opened = crate::catalog::open_catalog(&catalogs(&oracle), None).expect("the Oracle reader opens at boot");
+    assert!(
+        matches!(&opened, crate::catalog::OpenedCatalogs::Rdbms(catalogs) if catalogs.len() == 1),
+        "one rdbms catalog opened"
+    );
+
     let postgres = "      host: \"127.0.0.1\"\n      port: 5432\n      database: \"dictionary\"\n      \
          user: \"reader\"\n      password_file: \"/run/secrets/dictionary\"\n      transport_mode: \"plaintext\"\n";
-    let oracle = "      dialect: \"oracle\"\n      host: \"127.0.0.1\"\n      port: 1521\n      service_name: \"FREEPDB1\"\n      \
-         user: \"reader\"\n      password_file: \"/run/secrets/dictionary\"\n      transport_mode: \"plaintext\"\n";
     let native = format!("{postgres}    dictionary_source: \"native_dictionary\"\n");
-    for (connection, key) in [
-        (oracle, "connection.dialect: oracle"),
-        (native.as_str(), "dictionary_source: native_dictionary"),
-    ] {
-        let err = crate::catalog::open_catalog(&catalogs(connection), None).expect_err("no reader opens this declaration");
-        assert!(
-            err.contains(&format!("`catalogs.dictionary` declares `{key}`")) && err.contains("not supported by this build"),
-            "the refusal names the catalog and the key: {err}"
-        );
-    }
+    let err = crate::catalog::open_catalog(&catalogs(&native), None).expect_err("no reader opens this declaration");
+    assert!(
+        err.contains("`catalogs.dictionary` declares `dictionary_source: native_dictionary`")
+            && err.contains("not supported by this build"),
+        "the refusal names the catalog and the key: {err}"
+    );
+}
+
+/// An Oracle catalog's `password_file` is read at boot through the same read a `sources:` Oracle
+/// entry uses, and a missing one is refused naming the catalog's own key.
+#[test]
+fn an_oracle_catalog_with_an_unreadable_password_file_is_refused_naming_it() {
+    let err = crate::catalog::open_catalog(&catalogs(&oracle_connection("/definitely/not/a/real/secret")), None)
+        .expect_err("an unreadable password file is a composition refusal");
+    assert!(
+        err.contains("`catalogs.dictionary.connection.password_file` could not be read"),
+        "the refusal names the catalog's key: {err}"
+    );
+}
+
+fn oracle_connection(password_file: &str) -> String {
+    format!(
+        "      dialect: \"oracle\"\n      host: \"127.0.0.1\"\n      port: 1521\n      service_name: \"FREEPDB1\"\n      \
+         user: \"reader\"\n      password_file: \"{password_file}\"\n      transport_mode: \"plaintext\"\n"
+    )
 }

@@ -50,10 +50,13 @@ fn an_assembly_refuses_a_row_that_breaks_the_views_contract() {
     other.environment = Some(String::from("staging"));
     let mut unkeyed = row("orders", "id", true);
     unkeyed.is_primary_key = None;
+    let mut renamed = row("orders", "total", false);
+    renamed.model_name = Some(String::from("sales_orders"));
     for (bad, words) in [
         (other, "environment did not match"),
         (unkeyed, "no primary-key evidence"),
         (row("orders", "id", false), "repeated column id"),
+        (renamed, "disagree about one table's model"),
     ] {
         let mut assembly = Assembly::new("prod", bounds(10, 1_000));
         assembly
@@ -80,4 +83,14 @@ fn an_assembly_gathers_rows_into_keyed_tables() {
     assert_eq!(orders.primary_key(), ["id"]);
     assert_eq!(dictionary.tables().len(), 2);
     assert_eq!(dictionary.relationships().len(), 0, "no foreign keys are read");
+}
+
+#[test]
+fn a_rows_decoded_length_counts_its_text_and_is_never_zero() {
+    assert_eq!(Row::default().decoded_len(), 1);
+    assert_eq!(
+        row("orders", "id", true).decoded_len(),
+        18,
+        "prod + sales + orders + id, plus one"
+    );
 }
