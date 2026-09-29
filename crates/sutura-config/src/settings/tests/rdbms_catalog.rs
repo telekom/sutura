@@ -25,6 +25,16 @@ const CONNECTION: &[&str] = &[
     "password_file: /run/secrets/dictionary",
     "transport_mode: plaintext",
 ];
+/// A complete `dialect: oracle` `connection:` block: a loopback EZCONNECT dial, `plaintext` only.
+const ORACLE_CONNECTION: &[&str] = &[
+    "dialect: oracle",
+    "host: 127.0.0.1",
+    "port: 1521",
+    "service_name: FREEPDB1",
+    "user: reader",
+    "password_file: /run/secrets/dictionary",
+    "transport_mode: plaintext",
+];
 
 /// `base` with each change applied: `key: value` replaces the line for `key` (or appends it), and
 /// `-key` removes it.
@@ -55,6 +65,7 @@ fn load(overlay: &str) -> Result<Settings, crate::settings::SettingsLoadError> {
 }
 
 /// The refusal an overlay meets, as its whole source chain, after asserting it is a CATALOG one.
+#[track_caller]
 fn refusal(overlay: &str) -> String {
     let error = load(overlay).expect_err("the entry is refused");
     let reason = error.reason();
@@ -69,8 +80,23 @@ fn refusal(overlay: &str) -> String {
     chain
 }
 
+#[track_caller]
 fn rdbms_refusal(entry: &[&str], connection: &[&str]) -> String {
     refusal(&overlay("rdbms", &edit(ENTRY, entry), Some(&edit(CONNECTION, connection))))
+}
+
+#[track_caller]
+fn oracle_refusal(connection: &[&str]) -> String {
+    refusal(&overlay("rdbms", ENTRY, Some(&edit(ORACLE_CONNECTION, connection))))
+}
+
+/// The loaded entry's rdbms settings as `Debug` renders them: every parsed value, reached without an
+/// accessor the base tree lacks, so a cell reading it compiles - and reddens - against that tree.
+#[track_caller]
+fn rendered(overlay: &str) -> String {
+    let settings = load(overlay).expect("the entry loads");
+    let catalog = settings.catalogs().each().next().expect("one catalog");
+    format!("{:?}", catalog.rdbms().expect("an rdbms entry carries its rdbms settings"))
 }
 
 #[track_caller]
@@ -266,4 +292,105 @@ fn a_zero_dictionary_bound_is_refused() {
         let chain = rdbms_refusal(&[zero.as_str()], &[]);
         assert_names(&chain, &format!("`{key}` is 0, which would refuse every read"));
     }
+}
+
+#[test]
+fn a_complete_oracle_catalog_loads() {
+    let shown = rendered(&overlay("rdbms", ENTRY, Some(ORACLE_CONNECTION)));
+    assert_names(
+        &shown,
+        "connection: Oracle(OracleCatalogConnection { host: HostName(\"127.0.0.1\"), port: 1521, \
+         service_name: OracleServiceName(\"FREEPDB1\"), user: \"reader\", password_file: \"/run/secrets/dictionary\" })",
+    );
+    assert_names(&shown, "dictionary_source: DocumentationSchema");
+}
+
+#[test]
+fn each_required_oracle_connection_key_is_refused_when_absent() {
+    for key in ["host", "port", "service_name", "user", "password_file", "transport_mode"] {
+        let removal = format!("-{key}");
+        assert_names(
+            &oracle_refusal(&[removal.as_str()]),
+            &format!("`connection.{key}` is required"),
+        );
+    }
+}
+
+#[test]
+fn an_oracle_connection_with_a_tls_transport_is_refused() {
+    let chain = oracle_refusal(&["transport_mode: verified", "transport_anchors: system"]);
+    assert_names(&chain, "the Oracle driver builds its own TLS");
+}
+
+#[test]
+fn a_remote_oracle_plaintext_connection_is_refused() {
+    let chain = oracle_refusal(&["host: db.example.com"]);
+    assert_names(
+        &chain,
+        "host `db.example.com` is not a loopback address and `transport_mode` is `plaintext`",
+    );
+}
+
+#[test]
+fn an_unknown_connection_dialect_is_refused() {
+    let chain = rdbms_refusal(&[], &["dialect: mysql"]);
+    assert_names(&chain, "`connection.dialect` is `mysql`");
+}
+
+#[test]
+fn a_native_dictionary_source_is_parsed_as_written() {
+    let entry = edit(ENTRY, &["dictionary_source: native_dictionary"]);
+    assert_names(
+        &rendered(&overlay("rdbms", &entry, Some(CONNECTION))),
+        "dictionary_source: NativeDictionary",
+    );
+}
+
+#[test]
+fn an_unknown_dictionary_source_is_refused() {
+    let chain = rdbms_refusal(&["dictionary_source: wikipedia"], &[]);
+    assert_names(&chain, "`dictionary_source` is `wikipedia`");
+}
+
+#[test]
+fn a_dictionary_source_on_another_kind_is_refused() {
+    let chain = refusal(&overlay("markdown", &["dictionary_source: documentation_schema"], None));
+    assert_names(
+        &chain,
+        "`catalogs.dict.dictionary_source` is read only when `kind` is `rdbms`",
+    );
+}
+
+#[test]
+fn a_postgres_only_key_on_an_oracle_connection_is_refused() {
+    for (line, key) in [
+        ("database: dictionary", "database"),
+        ("unix_socket: /run/postgresql", "unix_socket"),
+    ] {
+        assert_names(
+            &oracle_refusal(&[line]),
+            &format!("`connection.{key}` is not read when `dialect` is `oracle`"),
+        );
+    }
+}
+
+#[test]
+fn a_postgres_connection_with_service_name_is_refused() {
+    let chain = rdbms_refusal(&[], &["service_name: FREEPDB1"]);
+    assert_names(&chain, "`connection.service_name` is not read when `dialect` is `postgres`");
+}
+
+#[test]
+fn an_oracle_connection_with_relative_password_file_is_refused() {
+    let chain = oracle_refusal(&["password_file: secrets/dictionary"]);
+    assert_names(&chain, "`connection.password_file` is relative");
+}
+
+#[test]
+fn an_oracle_connection_with_plaintext_and_transport_anchors_is_refused() {
+    let chain = oracle_refusal(&["transport_anchors: system"]);
+    assert_names(
+        &chain,
+        "`transport_mode: plaintext` does not read it - a control nothing honours is worse than one nobody wrote",
+    );
 }
