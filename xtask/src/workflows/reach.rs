@@ -78,6 +78,9 @@
 use std::collections::{BTreeSet, VecDeque};
 use std::path::Path;
 
+// `cachix-push.yml`, outside the walk and read directly: its own file for the 1000-line cap.
+mod cache_publish;
+
 /// Where a reusable workflow lives, relative to the repository root.
 const WORKFLOWS: &str = ".github/workflows/";
 
@@ -362,6 +365,7 @@ fn deps_is_the_dependency_closure(root: &Path) -> bool {
 ///
 /// Over the whole closure and not over one file name, which is the widening this module exists
 /// for: the refusal has to reach wherever a step can move, and a line cap moves steps.
+/// `cachix-push.yml` is outside that closure and read directly, by [`cache_publish`].
 pub(super) fn release_outputs(root: &Path, closure: &Closure) -> Vec<String> {
     let deps_exempt = deps_is_the_dependency_closure(root);
     let mut out = Vec::new();
@@ -370,6 +374,7 @@ pub(super) fn release_outputs(root: &Path, closure: &Closure) -> Vec<String> {
             out.push(format!("{}:{line}  {output}", file.label));
         }
     }
+    out.extend(cache_publish::outputs(root, deps_exempt));
     out
 }
 

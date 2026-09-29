@@ -215,8 +215,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             eprintln!("  {found}");
         }
         eprintln!("Release outputs belong to the tag-triggered release workflow, not ordinary CI -");
-        eprintln!("and ordinary CI is every pull-request workflow plus everything they call:");
-        eprintln!("  {}", walked.join(", "));
+        eprintln!("and ordinary CI is every pull-request workflow plus everything they call,");
+        eprintln!("plus the cache-publish workflow, read directly:");
+        eprintln!("  {}, cachix-push.yml", walked.join(", "));
         return Verdict::Fail;
     }
 
@@ -270,7 +271,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // refusal that walked four files from one that walked one. So the walked set is printed
         // too, which is the property `the_committed_tree_reaches_past_ci_yml` asserts.
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no codegen-backend env variable set in CI, every reader of the image-record file anchored on its record kind, {} step obligation(s) held to the `if:` each needs rather than to a position, {} release-skip obligation(s) held on the jobs that repeat the clause, {} ci-aggregate env input(s) held to their committed source job, no release output in the {} file(s) ordinary CI runs: {}",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no codegen-backend env variable set in CI, every reader of the image-record file anchored on its record kind, {} step obligation(s) held to the `if:` each needs rather than to a position, {} release-skip obligation(s) held on the jobs that repeat the clause, {} ci-aggregate env input(s) held to their committed source job, no release output in the {} file(s) ordinary CI runs or in cachix-push.yml (read directly): {}",
             references.len(),
             obligations::held(),
             obligations::release_skip_held(),
