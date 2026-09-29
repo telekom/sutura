@@ -1,0 +1,18 @@
+diff --git a/crates/sutura-domain/src/question.rs b/crates/sutura-domain/src/question.rs
+index 4444aec08..76f431a9e 100644
+--- a/crates/sutura-domain/src/question.rs
++++ b/crates/sutura-domain/src/question.rs
+@@ -310,11 +310,8 @@ fn top_of(raw: RawTop<'_>) -> Result<Top, MalformedQuestion> {
+         "period" => TopBy::Period,
+         _other => return Err(MalformedQuestion::TopBy),
+     };
+-    let direction = match raw.direction {
+-        "desc" => TopDirection::Desc,
+-        "asc" => TopDirection::Asc,
+-        _other => return Err(MalformedQuestion::TopDirection),
+-    };
++    let direction = TopDirection::Desc;
++    let _ = raw.direction;
+     Ok(Top::new(n, by, direction))
+ }
+ 

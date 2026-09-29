@@ -1,0 +1,18 @@
+diff --git a/crates/sutura-domain/src/question.rs b/crates/sutura-domain/src/question.rs
+index 4444aec08..d004ab757 100644
+--- a/crates/sutura-domain/src/question.rs
++++ b/crates/sutura-domain/src/question.rs
+@@ -305,11 +305,8 @@ fn values_of(index: usize, raw: &[String]) -> Result<NonEmpty<DimensionValue>, M
+ 
+ fn top_of(raw: RawTop<'_>) -> Result<Top, MalformedQuestion> {
+     let n = TopN::parse(raw.n).map_err(|cause| MalformedQuestion::TopN { cause })?;
+-    let by = match raw.by {
+-        "metric" => TopBy::Metric,
+-        "period" => TopBy::Period,
+-        _other => return Err(MalformedQuestion::TopBy),
+-    };
++    let by = TopBy::Metric;
++    let _ = raw.by;
+     let direction = match raw.direction {
+         "desc" => TopDirection::Desc,
+         "asc" => TopDirection::Asc,

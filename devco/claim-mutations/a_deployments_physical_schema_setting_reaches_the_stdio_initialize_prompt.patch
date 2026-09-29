@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-app/src/prompt.rs b/crates/sutura-app/src/prompt.rs
+index dd87d9544..c07f088bd 100644
+--- a/crates/sutura-app/src/prompt.rs
++++ b/crates/sutura-app/src/prompt.rs
+@@ -330,7 +330,7 @@ pub fn render(view: &ScopedView<'_>, inputs: &PromptInputs<'_>) -> String {
+         knowledge::declaration(notes, audience),
+         knowledge::glossary(notes, inputs.prose, audience),
+         physical_schema_guidance(pinned),
+-        if inputs.list_physical_schema {
++        if inputs.list_physical_schema && false {
+             physical_schema(view, inputs.prose)
+         } else {
+             String::new()
