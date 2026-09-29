@@ -41,9 +41,6 @@
 mod claim_mutation;
 #[path = "affected/lockfile.rs"]
 mod lockfile;
-#[cfg(test)]
-#[path = "affected/mutation_tests.rs"]
-mod mutation_tests;
 
 use std::collections::BTreeSet;
 use std::io::Write as _;

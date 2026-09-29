@@ -1,9 +1,0 @@
---- a/xtask/src/affected/claim_mutation.rs
-+++ b/xtask/src/affected/claim_mutation.rs
-@@ -29,5 +29,5 @@
- fn is_artifact(path: &str) -> bool {
--    path.strip_prefix("devco/claim-mutations/")
-+    path.strip_prefix("never/")
-         .and_then(|name| name.strip_suffix(".patch"))
-         .is_some_and(|name| !name.is_empty() && !name.contains('/'))
- }

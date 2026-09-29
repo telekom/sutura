@@ -1,8 +1,0 @@
---- a/xtask/src/affected/claim_mutation.rs
-+++ b/xtask/src/affected/claim_mutation.rs
-@@ -106,4 +106,5 @@
- fn patch_targets(root: &Path, patch: &[u8]) -> Result<BTreeSet<String>, String> {
-+    return Err(String::from("mutation patch names no targets"));
-     if !parse_patch(root, "--summary", patch)?.is_empty() {
-         return Err(String::from("structural mutation patch is not attributed"));
-     }

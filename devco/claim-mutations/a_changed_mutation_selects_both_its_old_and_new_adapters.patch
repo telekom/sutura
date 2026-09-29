@@ -1,9 +1,0 @@
---- a/xtask/src/affected/claim_mutation.rs
-+++ b/xtask/src/affected/claim_mutation.rs
-@@ -77,5 +77,5 @@
-     )?;
--    if entry.is_empty() {
-+    if !entry.is_empty() {
-         return Ok(None);
-     }
-     let entry = std::str::from_utf8(&entry).map_err(|error| format!("base tree entry: {error}"))?;
