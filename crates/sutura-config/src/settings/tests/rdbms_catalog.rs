@@ -25,6 +25,16 @@ const CONNECTION: &[&str] = &[
     "password_file: /run/secrets/dictionary",
     "transport_mode: plaintext",
 ];
+/// A complete `dialect: oracle` `connection:` block: a loopback EZCONNECT dial, `plaintext` only.
+const ORACLE_CONNECTION: &[&str] = &[
+    "dialect: oracle",
+    "host: 127.0.0.1",
+    "port: 1521",
+    "service_name: FREEPDB1",
+    "user: reader",
+    "password_file: /run/secrets/dictionary",
+    "transport_mode: plaintext",
+];
 
 /// `base` with each change applied: `key: value` replaces the line for `key` (or appends it), and
 /// `-key` removes it.
@@ -73,6 +83,10 @@ fn refusal(overlay: &str) -> String {
 
 fn rdbms_refusal(entry: &[&str], connection: &[&str]) -> String {
     refusal(&overlay("rdbms", &edit(ENTRY, entry), Some(&edit(CONNECTION, connection))))
+}
+
+fn oracle_refusal(connection: &[&str]) -> String {
+    refusal(&overlay("rdbms", ENTRY, Some(&edit(ORACLE_CONNECTION, connection))))
 }
 
 #[track_caller]
@@ -268,4 +282,50 @@ fn a_zero_dictionary_bound_is_refused() {
         let chain = rdbms_refusal(&[zero.as_str()], &[]);
         assert_names(&chain, &format!("`{key}` is 0, which would refuse every read"));
     }
+}
+
+#[test]
+fn a_complete_oracle_catalog_loads() {
+    load(&overlay("rdbms", ENTRY, Some(ORACLE_CONNECTION)))
+        .expect("a complete dialect: oracle connection with every required key, loopback and plaintext");
+}
+
+#[test]
+fn an_oracle_connection_without_a_service_name_is_refused() {
+    let chain = oracle_refusal(&["-service_name"]);
+    assert_names(&chain, "`connection.service_name` is required");
+}
+
+#[test]
+fn an_oracle_connection_with_a_tls_transport_is_refused() {
+    let chain = oracle_refusal(&["transport_mode: verified", "transport_anchors: system"]);
+    assert_names(&chain, "the Oracle driver builds its own TLS");
+}
+
+#[test]
+fn a_remote_oracle_plaintext_connection_is_refused() {
+    let chain = oracle_refusal(&["host: db.example.com"]);
+    assert_names(
+        &chain,
+        "host `db.example.com` is not a loopback address and `transport_mode` is `plaintext`",
+    );
+}
+
+#[test]
+fn an_unknown_connection_dialect_is_refused() {
+    let chain = rdbms_refusal(&[], &["dialect: mysql"]);
+    assert_names(&chain, "`connection.dialect` is `mysql`");
+}
+
+#[test]
+fn a_native_dictionary_source_loads() {
+    let entry = edit(ENTRY, &["dictionary_source: native_dictionary"]);
+    load(&overlay("rdbms", &entry, Some(CONNECTION)))
+        .expect("dictionary_source: native_dictionary is a valid opt-in declaration");
+}
+
+#[test]
+fn an_unknown_dictionary_source_is_refused() {
+    let chain = rdbms_refusal(&["dictionary_source: wikipedia"], &[]);
+    assert_names(&chain, "`dictionary_source` is `wikipedia`");
 }

@@ -581,6 +581,11 @@ pub(crate) struct RawCatalog {
     /// The byte cap on one dictionary read. Absent selects the reader's default.
     #[serde(default)]
     pub(crate) max_dictionary_bytes: Option<u64>,
+    /// Which dictionary the reader reads: `documentation_schema` (default) or
+    /// `native_dictionary` (the database's own dictionary views). Absent selects the default, the
+    /// same shape as the Postgres reader.
+    #[serde(default)]
+    pub(crate) dictionary_source: Option<String>,
     /// The catalog's OWN read-only connection - never borrowed from a `sources:` entry, because a
     /// catalog read has no caller to run as.
     #[serde(default)]
@@ -592,12 +597,21 @@ pub(crate) struct RawCatalog {
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawCatalogConnection {
+    /// Which dialect this connection dials: `postgres` (default) or `oracle`. Absent reads as
+    /// `postgres`, so a deployment that wrote no `dialect` key reads the same connection it did
+    /// before the Oracle variant existed.
+    #[serde(default)]
+    pub(crate) dialect: Option<String>,
     #[serde(default)]
     pub(crate) host: Option<String>,
     #[serde(default)]
     pub(crate) unix_socket: Option<String>,
     #[serde(default)]
     pub(crate) port: Option<u16>,
+    /// `dialect: oracle` only - the service name the driver resolves over EZCONNECT. Absent for
+    /// `dialect: postgres`, which names the database by `database` instead.
+    #[serde(default)]
+    pub(crate) service_name: Option<String>,
     #[serde(default)]
     pub(crate) database: Option<String>,
     #[serde(default)]

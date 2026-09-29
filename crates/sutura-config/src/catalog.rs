@@ -13,8 +13,9 @@ use sutura_domain::pinned::DefinitionVersion;
 
 pub mod rdbms;
 pub use crate::catalog::rdbms::{
-    CatalogConnection, CatalogEnvironment, DocumentationSchema, InvalidConnection, InvalidDocumentationSchema,
-    InvalidRdbmsCatalog, LiveRowPredicate, PredicateOperator, RdbmsSettings,
+    CatalogConnection, CatalogEnvironment, Dialect, DictionarySource, DocumentationSchema, InvalidConnection,
+    InvalidDocumentationSchema, InvalidRdbmsCatalog, LiveRowPredicate, OracleCatalogConnection, PostgresCatalogConnection,
+    PredicateOperator, RdbmsSettings,
 };
 
 /// Which adapter the catalog configuration names, and therefore which one opens it.
