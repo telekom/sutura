@@ -177,13 +177,15 @@ fn an_oracle_catalog_opens_its_reader_and_a_native_dictionary_is_refused() {
 
     let postgres = "      host: \"127.0.0.1\"\n      port: 5432\n      database: \"dictionary\"\n      \
          user: \"reader\"\n      password_file: \"/run/secrets/dictionary\"\n      transport_mode: \"plaintext\"\n";
-    let native = format!("{postgres}    dictionary_source: \"native_dictionary\"\n");
-    let err = crate::catalog::open_catalog(&catalogs(&native), None).expect_err("no reader opens this declaration");
-    assert!(
-        err.contains("`catalogs.dictionary` declares `dictionary_source: native_dictionary`")
-            && err.contains("not supported by this build"),
-        "the refusal names the catalog and the key: {err}"
-    );
+    for connection in [postgres, oracle.as_str()] {
+        let native = format!("{connection}    dictionary_source: \"native_dictionary\"\n");
+        let err = crate::catalog::open_catalog(&catalogs(&native), None).expect_err("no reader opens this declaration");
+        assert!(
+            err.contains("`catalogs.dictionary` declares `dictionary_source: native_dictionary`")
+                && err.contains("not supported by this build"),
+            "the refusal names the catalog and the key, under either dialect: {err}"
+        );
+    }
 }
 
 /// An Oracle catalog's `password_file` is read at boot through the same read a `sources:` Oracle

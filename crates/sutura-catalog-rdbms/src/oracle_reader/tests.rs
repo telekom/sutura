@@ -4,8 +4,12 @@ use super::{OracleLogin, OracleReader, flag, statement};
 use crate::postgres_reader::{InvalidReaderConfig, RowPredicate};
 
 fn login() -> OracleLogin {
+    login_at("127.0.0.1")
+}
+
+fn login_at(host: &str) -> OracleLogin {
     OracleLogin::new(
-        String::from("127.0.0.1"),
+        String::from(host),
         1521,
         String::from("FREEPDB1"),
         String::from("reader"),
@@ -60,4 +64,19 @@ fn a_primary_key_flag_is_evidence_only_as_zero_or_one() {
     assert_eq!(flag(Some(0)), Some(false));
     assert_eq!(flag(Some(2)), None);
     assert_eq!(flag(None), None);
+}
+
+#[test]
+fn the_reader_binds_the_environment_and_the_equals_value_in_placeholder_order() {
+    let reader = |predicate: RowPredicate| {
+        OracleReader::new(login(), "dictionary", String::from("prod"), predicate, None, None).expect("a valid reader")
+    };
+    assert_eq!(reader(equals("state")).binds(), ["prod", "live'; DROP TABLE t; --"]);
+    assert_eq!(reader(RowPredicate::IsNotNull(String::from("state"))).binds(), ["prod"]);
+}
+
+#[test]
+fn an_ipv6_login_is_bracketed_in_the_connect_string() {
+    assert_eq!(login_at("::1").address(), "[::1]:1521/FREEPDB1");
+    assert_eq!(login_at("127.0.0.1").address(), "127.0.0.1:1521/FREEPDB1");
 }

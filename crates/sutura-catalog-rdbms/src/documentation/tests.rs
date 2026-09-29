@@ -52,11 +52,20 @@ fn an_assembly_refuses_a_row_that_breaks_the_views_contract() {
     unkeyed.is_primary_key = None;
     let mut renamed = row("orders", "total", false);
     renamed.model_name = Some(String::from("sales_orders"));
+    let mut redescribed = row("orders", "total", false);
+    redescribed.table_description = Some(String::from("another story"));
+    let mut unplaced = row("orders", "total", false);
+    unplaced.schema_name = None;
+    let mut untabled = row("orders", "total", false);
+    untabled.table_name = Some(String::new());
     for (bad, words) in [
         (other, "environment did not match"),
         (unkeyed, "no primary-key evidence"),
         (row("orders", "id", false), "repeated column id"),
         (renamed, "disagree about one table's model"),
+        (redescribed, "disagree about one table's model or description"),
+        (unplaced, "no schema and table identity"),
+        (untabled, "no schema and table identity"),
     ] {
         let mut assembly = Assembly::new("prod", bounds(10, 1_000));
         assembly

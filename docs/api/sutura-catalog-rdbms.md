@@ -613,8 +613,9 @@ name is not. The environment and an `equals` value are bound as `:1`/`:2`, never
   Unobserved against a server, like every other line of the read path.
 - **The byte cap is an estimate.** The driver exposes no row's wire size, so a row spends the
   UTF-8 length of its decoded text plus one byte - bounding the decoded payload, not the bytes
-  on the wire. The driver materialises a row before it is counted, and neither cap limits
-  elapsed read time.
+  on the wire. Neither cap limits elapsed read time, and neither bounds a fetch: the pinned
+  driver prefetches 2 rows on execute and fetches 100 per round trip by default - read off its
+  source, not observed against a server - so up to one batch is in memory before a cap refuses.
 - **The connection is plaintext and confined only at its first dial.** `sutura-config`'s
   `OracleCatalogConnection` refuses TLS and a non-loopback host, because the driver takes no
   caller-built trust store; the driver still follows a listener's TNS redirect to any address

@@ -25,8 +25,9 @@
 //!   Unobserved against a server, like every other line of the read path.
 //! - **The byte cap is an estimate.** The driver exposes no row's wire size, so a row spends the
 //!   UTF-8 length of its decoded text plus one byte - bounding the decoded payload, not the bytes
-//!   on the wire. The driver materialises a row before it is counted, and neither cap limits
-//!   elapsed read time.
+//!   on the wire. Neither cap limits elapsed read time, and neither bounds a fetch: the pinned
+//!   driver prefetches 2 rows on execute and fetches 100 per round trip by default - read off its
+//!   source, not observed against a server - so up to one batch is in memory before a cap refuses.
 //! - **The connection is plaintext and confined only at its first dial.** `sutura-config`'s
 //!   `OracleCatalogConnection` refuses TLS and a non-loopback host, because the driver takes no
 //!   caller-built trust store; the driver still follows a listener's TNS redirect to any address
@@ -53,6 +54,15 @@ pub struct OracleLogin {
 }
 
 impl OracleLogin {
+    /// The EZCONNECT `host:port/service_name`, with an IPv6 literal bracketed.
+    fn address(&self) -> String {
+        if self.host.parse::<std::net::Ipv6Addr>().is_ok() {
+            format!("[{}]:{}/{}", self.host, self.port, self.service_name)
+        } else {
+            format!("{}:{}/{}", self.host, self.port, self.service_name)
+        }
+    }
+
     #[must_use]
     pub const fn new(host: String, port: u16, service_name: String, user: String, password: Secret) -> Self {
         Self {
@@ -105,13 +115,17 @@ impl OracleReader {
         self.bounds
     }
 
+    /// The values bound to the statement's `:1` and `:2`, in order.
+    fn binds(&self) -> Vec<&str> {
+        let mut binds = vec![self.environment.as_str()];
+        if let RowPredicate::Equals { value, .. } = &self.predicate {
+            binds.push(value);
+        }
+        binds
+    }
+
     fn connect(&self) -> Result<oracledb::Connection, RdbmsError> {
         let login = &self.login;
-        let address = if login.host.parse::<std::net::Ipv6Addr>().is_ok() {
-            format!("[{}]:{}/{}", login.host, login.port, login.service_name)
-        } else {
-            format!("{}:{}/{}", login.host, login.port, login.service_name)
-        };
         #[expect(
             clippy::disallowed_methods,
             reason = "the password's destination is the connection handshake, which is the one place the \
@@ -119,7 +133,7 @@ impl OracleReader {
         )]
         let password = login.password.expose_secret();
         let config = oracledb::Config::default()
-            .set_connect_string(&address)
+            .set_connect_string(&login.address())
             .map_err(read_err)?
             .set_credentials(&login.user, password);
         oracledb::connect(config).map_err(read_err)
@@ -130,10 +144,8 @@ impl DictionaryReader for OracleReader {
     fn read_dictionary(&self) -> Result<Dictionary, RdbmsError> {
         let connection = self.connect()?;
         connection.execute("SET TRANSACTION READ ONLY", &[]).map_err(read_err)?;
-        let mut params: Vec<&dyn oracledb::ToDbValue> = vec![&self.environment];
-        if let RowPredicate::Equals { value, .. } = &self.predicate {
-            params.push(value);
-        }
+        let binds = self.binds();
+        let params: Vec<&dyn oracledb::ToDbValue> = binds.iter().map(|value| value as &dyn oracledb::ToDbValue).collect();
         let mut assembly = Assembly::new(&self.environment, self.bounds);
         for row in connection.query(&self.statement, &params).map_err(read_err)? {
             let row = decode_row(&row.map_err(read_err)?)?;
