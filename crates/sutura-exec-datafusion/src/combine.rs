@@ -583,6 +583,8 @@ async fn combine_plan(
         {
             // A minimum or a maximum has no value over no rows; `Definitions::assemble` refuses the
             // definition, and this is the combine refusing to invent one if a plan ever carries it.
+            // An average cannot be seen here - it arrives as a sum leaf and a count leaf - so the
+            // load check is its only refusal.
             return Err(CombineError::UnsupportedAggregate { aggregate });
         }
         let joined = builder

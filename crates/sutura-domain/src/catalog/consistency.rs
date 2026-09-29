@@ -286,6 +286,11 @@ pub enum InconsistentDefinitions {
     /// using one on either side cannot be answered for every group; refused at declaration.
     #[error("metric {metric} is a cross-model ratio with a {aggregate} term, which has no value over no rows")]
     CrossModelTermHasNoEmptyValue { metric: MetricName, aggregate: Aggregate },
+    /// A cross-model ratio term counting distinct values (`telekom/sutura#780`). A cross-model ratio
+    /// is always two fact legs combined above, and a distinct count cannot be re-aggregated across
+    /// legs, so the definition could never be answered; refused at declaration rather than when asked.
+    #[error("metric {metric} is a cross-model ratio with a {aggregate} term, which cannot be re-aggregated across two facts")]
+    CrossModelTermDoesNotReaggregate { metric: MetricName, aggregate: Aggregate },
 }
 
 impl Definitions {
@@ -473,6 +478,19 @@ impl Definitions {
         Self::check_cross_model(models, relationships, metric)
     }
 
+    /// One cross-model ratio term's aggregate: it must have a value over no rows (the empty-set rule
+    /// reads an absent fact's leaves as it) and re-aggregate across the two fact legs.
+    fn check_cross_model_aggregate(metric: &Metric, aggregate: Aggregate) -> Result<(), InconsistentDefinitions> {
+        let metric = metric.name.clone();
+        match aggregate {
+            Aggregate::Avg | Aggregate::Min | Aggregate::Max => {
+                Err(InconsistentDefinitions::CrossModelTermHasNoEmptyValue { metric, aggregate })
+            }
+            Aggregate::CountDistinct => Err(InconsistentDefinitions::CrossModelTermDoesNotReaggregate { metric, aggregate }),
+            Aggregate::Sum | Aggregate::Count => Ok(()),
+        }
+    }
+
     /// `telekom/sutura#780`'s load checks for a cross-model ratio: every term has a value over no
     /// rows, and the shared calendar is one each fact can join. Split from [`Self::check_metric`] to
     /// keep that function under the CRAP threshold.
@@ -491,13 +509,8 @@ impl Definitions {
             && measure.models().into_iter().flatten().any(|named| named != &metric.model)
         {
             for term in measure.terms() {
-                if let Term::Aggregate(inner) = term
-                    && matches!(inner.aggregate(), Aggregate::Avg | Aggregate::Min | Aggregate::Max)
-                {
-                    return Err(InconsistentDefinitions::CrossModelTermHasNoEmptyValue {
-                        metric: metric.name.clone(),
-                        aggregate: inner.aggregate(),
-                    });
+                if let Term::Aggregate(inner) = term {
+                    Self::check_cross_model_aggregate(metric, inner.aggregate())?;
                 }
             }
         }

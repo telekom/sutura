@@ -295,7 +295,7 @@ fn a_ratio_term_naming_a_real_model_and_column_assembles() {
         Measure::Ratio {
             numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
             denominator: Term::Aggregate(AggregatedColumn::on_model(
-                Aggregate::CountDistinct,
+                Aggregate::Count,
                 column("id"),
                 model_name("customers"),
             )),

@@ -232,8 +232,10 @@ Nothing is NULL-padded. So revenue with no visits is x/0, and `zero_denominator`
 `Fail` refuses it exactly as it refuses an explicit zero row, and `Null` answers null. Visits with no
 revenue is 0/x = 0. An aggregate with no value over no rows - an average, a minimum or a maximum -
 cannot take part: a cross-model ratio using one on either side is refused at load
-(`InconsistentDefinitions::CrossModelTermHasNoEmptyValue`), and the combiner refuses such a leaf in a
-two-fact plan too. `FederatedPlan::new` also refuses a two-fact plan whose fact legs group by any key
+(`InconsistentDefinitions::CrossModelTermHasNoEmptyValue`), and so is a distinct count, which cannot be
+re-aggregated across two legs (`CrossModelTermDoesNotReaggregate`). The combiner also refuses a minimum
+or maximum leaf in a two-fact plan; an average reaches it as a sum leaf and a count leaf, so for an
+average the load check is the only refusal. `FederatedPlan::new` also refuses a two-fact plan whose fact legs group by any key
 but the link (`FactKeyNotShared`): a key only one fact carries would fan the other out across it and
 null-pad a dimension, the shape `CrossModelRatioWithoutSharedDimension` refuses at plan time. `FederatedPlan::new` holds the two halves of that by type: both fact
 legs must carry the plan's bucket (`BucketMismatch`), and a leaf naming another model can only ride a

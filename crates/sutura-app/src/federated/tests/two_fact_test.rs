@@ -18,7 +18,10 @@ use super::*;
 /// `Above::Quotient` of two leaves, so `labels(&federation)` returns leaf 0 (numerator, model
 /// `None`) and leaf 1 (denominator, model `Some(orders)`), and D9 splits the fact legs' terms along
 /// exactly that seam.
-fn two_fact_plan_dividing(zero_denominator: ZeroDenominator) -> sutura_domain::plan::FederatedPlan {
+fn two_fact_plan_of(
+    numerator: sutura_domain::model::Aggregate,
+    zero_denominator: ZeroDenominator,
+) -> sutura_domain::plan::FederatedPlan {
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, ModelName, TableName};
     use sutura_domain::plan::{
@@ -42,7 +45,7 @@ fn two_fact_plan_dividing(zero_denominator: ZeroDenominator) -> sutura_domain::p
         PlanColumn::new(TableName::parse("dim_calendar").expect("a test table"), column("month")),
     );
     let measure = Measure::Ratio {
-        numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+        numerator: Term::Aggregate(AggregatedColumn::new(numerator, column("amount_cents"))),
         denominator: Term::Aggregate(AggregatedColumn::on_model(
             Aggregate::Count,
             column("customer_key"),
@@ -111,7 +114,7 @@ fn two_fact_plan_dividing(zero_denominator: ZeroDenominator) -> sutura_domain::p
 }
 
 fn two_fact_plan() -> sutura_domain::plan::FederatedPlan {
-    two_fact_plan_dividing(ZeroDenominator::Null)
+    two_fact_plan_of(sutura_domain::model::Aggregate::Sum, ZeroDenominator::Null)
 }
 
 /// One leg row: `(customer, period, leaf value)`.
@@ -493,7 +496,7 @@ fn a_group_only_the_numerator_reached_divides_by_an_empty_count() {
 #[test]
 fn a_group_only_the_numerator_reached_is_refused_under_fail() {
     let outcome = answered(
-        &two_fact_plan_dividing(ZeroDenominator::Fail),
+        &two_fact_plan_of(sutura_domain::model::Aggregate::Sum, ZeroDenominator::Fail),
         fact_rows(0, &[("c1", "2026-06", 100), ("c2", "2026-06", 200)]),
         fact_rows(1, &[("c1", "2026-06", 1)]),
         region_rows(&[("c1", "north"), ("c2", "south")]),
@@ -541,5 +544,55 @@ fn a_customer_only_the_second_fact_reached_keeps_each_period_apart() {
         south,
         [&Value::Text("2026-06".into()), &Value::Text("2026-07".into())],
         "two periods, two rows: {rows:?}"
+    );
+}
+
+/// A minimum has no value over no rows, so the combine refuses a two-fact plan carrying one rather
+/// than reading an absent side as 0. `Definitions::assemble` refuses such a definition first; this
+/// hand-built plan is the only way past it, and the cell is the witness for the combiner's own guard.
+#[test]
+fn a_two_fact_plan_with_a_minimum_leaf_is_not_combined() {
+    let source = |name: &str| SourceName::parse(name).expect("a test source");
+    let shared = shared();
+    let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
+        source("facts"),
+        shared.clone(),
+        revenue_rows(),
+    ))
+    .and(crate::tests_support::LegsWarehouse::answering(
+        source("orders"),
+        shared.clone(),
+        visit_rows(),
+    ))
+    .expect("two sources so far")
+    .and(crate::tests_support::LegsWarehouse::answering(
+        source("geo"),
+        shared,
+        north_rows(),
+    ))
+    .expect("three sources, one registry");
+    let failure = answer_federated(
+        &bundle(),
+        &two_fact_plan_of(sutura_domain::model::Aggregate::Min, ZeroDenominator::Null),
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
+        FEDERATED_BUDGET,
+        test_deadline(),
+        &SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeiling::DEFAULT,
+    )
+    .err();
+    assert!(
+        matches!(
+            failure,
+            Some(crate::ServiceError::Combine {
+                cause: sutura_exec_datafusion::CombineError::UnsupportedAggregate {
+                    aggregate: sutura_domain::model::Aggregate::Min
+                }
+            })
+        ),
+        "a minimum leaf in a two-fact plan is refused by the combiner: {failure:?}"
     );
 }

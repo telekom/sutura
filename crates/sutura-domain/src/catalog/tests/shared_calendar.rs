@@ -111,7 +111,7 @@ fn ratio_over_two_facts() -> Metric {
         Measure::Ratio {
             numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
             denominator: Term::Aggregate(AggregatedColumn::on_model(
-                Aggregate::CountDistinct,
+                Aggregate::Count,
                 column("id"),
                 model_name("customers"),
             )),
@@ -205,24 +205,21 @@ fn a_shared_calendar_without_the_metric_s_time_column_is_refused() {
     );
 }
 
-#[test]
-fn a_cross_model_ratio_with_a_term_that_has_no_empty_value_is_refused() {
-    // A group only one fact reached reads the other fact's term over no rows. A maximum has no
-    // value there - not 0, not null - so the definition is refused rather than answered wrongly.
+/// What the load says of [`ratio_with_a`]'s metric: its refusal, if any.
+fn refused_with_a(aggregate: Aggregate) -> Option<InconsistentDefinitions> {
     let (models, relationships) = three_models_with_calendar();
-    let Measure::Ratio { numerator, .. } = ratio_over_two_facts().measure().cloned().expect("a measure") else {
-        panic!("the fixture is a ratio");
-    };
-    let with_max = Metric::new(
-        metric_name("biggest_order_per_customer"),
+    Definitions::assemble(models, relationships, vec![ratio_with_a(aggregate)]).err()
+}
+
+/// `revenue_per_customer` with its denominator's aggregate replaced by `aggregate`.
+fn ratio_with_a(aggregate: Aggregate) -> Metric {
+    let numerator = Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")));
+    Metric::new(
+        metric_name("revenue_per_customer"),
         model_name("orders"),
         Measure::Ratio {
             numerator,
-            denominator: Term::Aggregate(AggregatedColumn::on_model(
-                Aggregate::Max,
-                column("id"),
-                model_name("customers"),
-            )),
+            denominator: Term::Aggregate(AggregatedColumn::on_model(aggregate, column("id"), model_name("customers"))),
             zero_denominator: crate::measure::ZeroDenominator::Null,
         },
         Vec::new(),
@@ -234,12 +231,42 @@ fn a_cross_model_ratio_with_a_term_that_has_no_empty_value_is_refused() {
         Audience::Open,
     )
     .expect("no dimensions to duplicate")
-    .with_shared_calendar(model_name("calendar"));
+    .with_shared_calendar(model_name("calendar"))
+}
+
+fn no_empty_value(aggregate: Aggregate) -> InconsistentDefinitions {
+    InconsistentDefinitions::CrossModelTermHasNoEmptyValue {
+        metric: metric_name("revenue_per_customer"),
+        aggregate,
+    }
+}
+
+// A group only one fact reached reads the other fact's term over no rows. An average, a minimum
+// and a maximum have no value there - not 0, not null - so each definition is refused at load.
+#[test]
+fn a_cross_model_ratio_with_a_term_that_has_no_empty_value_is_refused() {
+    assert_eq!(refused_with_a(Aggregate::Max), Some(no_empty_value(Aggregate::Max)));
+}
+
+#[test]
+fn a_cross_model_ratio_with_a_minimum_term_is_refused() {
+    assert_eq!(refused_with_a(Aggregate::Min), Some(no_empty_value(Aggregate::Min)));
+}
+
+/// The load check is the ONLY guard for an average: it reaches the combiner as a sum leaf and a
+/// count leaf, which pass its minimum-or-maximum guard.
+#[test]
+fn a_cross_model_ratio_with_an_average_term_is_refused() {
+    assert_eq!(refused_with_a(Aggregate::Avg), Some(no_empty_value(Aggregate::Avg)));
+}
+
+#[test]
+fn a_cross_model_ratio_with_a_distinct_count_term_is_refused_at_load() {
     assert_eq!(
-        Definitions::assemble(models, relationships, vec![with_max]).unwrap_err(),
-        InconsistentDefinitions::CrossModelTermHasNoEmptyValue {
-            metric: metric_name("biggest_order_per_customer"),
-            aggregate: Aggregate::Max,
-        }
+        refused_with_a(Aggregate::CountDistinct),
+        Some(InconsistentDefinitions::CrossModelTermDoesNotReaggregate {
+            metric: metric_name("revenue_per_customer"),
+            aggregate: Aggregate::CountDistinct,
+        })
     );
 }

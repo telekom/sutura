@@ -6,12 +6,12 @@ diff --git a/crates/sutura-domain/src/catalog/consistency.rs b/crates/sutura-dom
          let metric = metric.name.clone();
          match aggregate {
 -            Aggregate::Avg | Aggregate::Min | Aggregate::Max => {
-+            Aggregate::Avg | Aggregate::Min => {
++            Aggregate::Avg | Aggregate::Max => {
                  Err(InconsistentDefinitions::CrossModelTermHasNoEmptyValue { metric, aggregate })
              }
              Aggregate::CountDistinct => Err(InconsistentDefinitions::CrossModelTermDoesNotReaggregate { metric, aggregate }),
 -            Aggregate::Sum | Aggregate::Count => Ok(()),
-+            Aggregate::Sum | Aggregate::Count | Aggregate::Max => Ok(()),
++            Aggregate::Sum | Aggregate::Count | Aggregate::Min => Ok(()),
          }
      }
  
