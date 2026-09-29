@@ -603,7 +603,8 @@ limit it named (one ceiling for every caller and every question) stands with it.
 `execute_raw` now carries the same per-request `Deadline` `Warehouse::execute` does, threaded the
 whole way from the transport: `Surface::run_sql` and `sutura_app::run_sql` take it, and it is opened
 by `middleware::enforce_timeout` (HTTP) or the MCP `run_sql` handler the same instant `answer`'s own
-is - never re-derived, exactly `docs/adr/0029`'s shape for the certified path. So the two sentences
+is, `docs/adr/0029`'s shape for the certified path (its *What holds it* table names the cells that
+hold the opening before admission, and what none holds). So the two sentences
 this record's second amendment left standing as the present-tense correction are now themselves
 stale in the direction that matters:
 

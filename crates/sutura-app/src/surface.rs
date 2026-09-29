@@ -142,11 +142,9 @@ pub trait Surface: Send + Sync + 'static {
     /// writes one record per outcome before this returns. What differs is the vocabulary - see
     /// [`sutura_domain::raw`] for why it is not [`ToolOutcome`] wearing a second name.
     ///
-    /// **Now takes a `deadline` too** (`telekom/sutura#1144`), opened by the transport the same
-    /// instant [`Self::answer`]'s is - `docs/adr/0029`'s threading landed for `answer`/`execute_leg`
-    /// first and this tool had no `LIMIT`-bearing plan for it to bound, only the row cap and the
-    /// connect-time `statement_timeout`; this parameter is what closes that gap. What an adapter
-    /// does with it past `crate::run_sql`'s own pre-call check is the adapter's own business, for
+    /// `deadline` is opened by the transport the same instant [`Self::answer`]'s is, before
+    /// admission (`docs/adr/0029`). `crate::run_sql` refuses a budget already spent before the port
+    /// is called; what an adapter does with it past that check is the adapter's own business, for
     /// [`Self::answer`]'s reason.
     fn run_sql(
         &self,

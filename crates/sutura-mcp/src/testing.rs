@@ -23,8 +23,8 @@
 //! allowed to reach into another adapter, which it is not.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use sutura_app::surface::{Surface, SurfaceFailure};
@@ -826,6 +826,8 @@ struct Occupancy {
     inside: AtomicUsize,
     peak: AtomicUsize,
     held: AtomicBool,
+    /// What was left of the first raw call's deadline when it reached the port.
+    raw_remaining: OnceLock<Duration>,
 }
 
 /// The longest a held answer is held, whatever the test does.
@@ -859,15 +861,17 @@ impl Surface for HoldingSurface {
         })
     }
 
-    /// Not exercised by any test naming this fixture - `HoldingSurface` exists for the admission
-    /// bound, which `Surface::answer` alone is enough to measure. Refuses cleanly rather than
-    /// panicking, so a future test naming it by accident fails on an assertion rather than a trap.
+    /// Never held: records what was left of `deadline` on arrival, so a raw call queued behind a
+    /// held [`Surface::answer`] shows whether its deadline was opened before or after admission.
     fn run_sql(
         &self,
         _context: &RequestContext,
         _statement: &sutura_domain::raw::RawStatement,
-        _deadline: Deadline,
+        deadline: Deadline,
     ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
+        self.occupancy
+            .raw_remaining
+            .get_or_init(|| deadline.remaining_at(Instant::now()).unwrap_or_default());
         Ok(sutura_domain::raw::RawOutcome::Refusal {
             reason: sutura_domain::raw::RawRefusalReason::StatementFailed,
         })
@@ -909,6 +913,12 @@ impl Holding {
     /// The most that were ever inside `answer` at once.
     pub(crate) fn peak(&self) -> usize {
         self.0.peak.load(Ordering::SeqCst)
+    }
+
+    /// What was left of the first raw call's deadline at the port, zero if it arrived spent; `None`
+    /// if none arrived.
+    pub(crate) fn raw_remaining(&self) -> Option<Duration> {
+        self.0.raw_remaining.get().copied()
     }
 }
 

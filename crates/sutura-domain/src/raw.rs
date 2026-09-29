@@ -147,14 +147,14 @@ pub enum RawRefusalReason {
     /// enforced boundary for statement-shaped writes and not for a VOLATILE function's own side
     /// effects - see that record for the limit stated with the claim.
     SourceRefused,
-    /// The asker's own per-request deadline ran out - the same bound
-    /// [`execute`](crate::warehouse::Warehouse::execute) carries, now threaded onto
-    /// [`execute_raw`](crate::warehouse::Warehouse::execute_raw) too (`telekom/sutura#1144`). A raw
-    /// caller's statement is stopped by its own budget rather than only by the connect-time
-    /// ceiling, and the same [`Warehouse::deadline_exceeded`](crate::warehouse::Warehouse::deadline_exceeded)
-    /// predicate the certified path reads classifies the stop here. Carries the configured budget
-    /// in seconds, for [`crate::query::RefusalReason::DeadlineExceeded`]'s own reason: a number an
-    /// operator configured, safe in a log, not how long the statement ran.
+    /// The asker's own per-request deadline ran out.
+    /// [`execute_raw`](crate::warehouse::Warehouse::execute_raw) carries the same bound
+    /// [`execute`](crate::warehouse::Warehouse::execute) does, and the same
+    /// [`Warehouse::deadline_exceeded`](crate::warehouse::Warehouse::deadline_exceeded) predicate
+    /// classifies the stop - including one by an adapter's own ceiling that fired before the
+    /// budget did. Carries the configured budget in seconds, for
+    /// [`crate::query::RefusalReason::DeadlineExceeded`]'s own reason: a number an operator
+    /// configured, safe in a log, not how long the statement ran.
     DeadlineExceeded { budget_seconds: u64 },
 }
 

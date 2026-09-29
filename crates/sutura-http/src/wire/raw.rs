@@ -142,7 +142,7 @@ const fn refused_status(reason: &RawRefusalReason) -> StatusCode {
         // 413: too much data, the same status a certified answer's row cap or volume bound uses.
         RawRefusalReason::TooManyRows { .. } | RawRefusalReason::ResultTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
         // 422: the statement is well formed as far as this deployment can tell without parsing it,
-        // and it did not complete - a syntax error, a constraint, or a timeout. `docs/adr/0022`'s
+        // and it did not complete - a syntax error or a constraint. `docs/adr/0022`'s
         // Decision 3 governs what the DETAIL may say once it is built; this is only the status.
         // `DeadlineExceeded` shares it, the same status the certified path's own
         // `RefusalReason::DeadlineExceeded` gets (`sutura_http::wire::refusal`): a statement this
