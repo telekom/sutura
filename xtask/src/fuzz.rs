@@ -41,6 +41,7 @@
 
 use std::collections::BTreeSet;
 
+mod deny_wiring;
 mod hook_paths;
 
 use crate::Verdict;
@@ -99,16 +100,20 @@ const FUZZ_INVOCATIONS: [&str; 3] = ["run-fuzz.sh", "nix run .#fuzz", "cargo fuz
 /// looking for the guarantee will be.
 const LOCK: &str = "fuzz/Cargo.lock";
 
-/// The root workspace manifest, whose single `version = "..."` line `nix/version-bump.yml`'s
-/// "Set the workspace version" step writes.
+/// The root workspace manifest, whose single `version = "..."` line
+/// `.github/workflows/version-bump.yml`'s "Set the workspace version" step writes.
 ///
-/// **`github.com/telekom/sutura#issue-fuzz-lock-drift`**: that step ran `cargo update --workspace`
-/// against the ROOT manifest only, so a release left [`LOCK`] pinning every `sutura-*` crate at the
-/// PREVIOUS version while `ROOT_MANIFEST` already declared the new one - green until the next PR's
-/// `check-boundaries` ran `cargo metadata --locked` against `fuzz/Cargo.toml` and refused the drift.
-/// This is the PR-time half: it catches the same drift on every pull request, not only at a version
-/// bump, so a stale [`LOCK`] fails here before it ever reaches a release.
-const ROOT_MANIFEST: &str = "Cargo.toml";
+/// **`3ab86ad77`, the v0.6.0 release commit**: that step ran `cargo update --workspace`
+/// against the ROOT manifest only, so the release left [`LOCK`] pinning every `sutura-*` crate at
+/// the PREVIOUS version while `ROOT_MANIFEST` already declared the new one - green until the next
+/// PR's `check-boundaries` ran `cargo metadata --locked` against `fuzz/Cargo.toml` and refused the
+/// drift. This is the PR-time half: it catches the same drift on every pull request, not only at a
+/// version bump, so a stale [`LOCK`] fails here before it ever reaches a release.
+///
+/// `pub(crate)` for `crate::boundaries::second_workspace`, which reads it for the same reason
+/// [`version_gaps`] is `pub(crate)`: one owner for "which file holds the workspace version"
+/// rather than a second literal that could disagree with this one.
+pub(crate) const ROOT_MANIFEST: &str = "Cargo.toml";
 
 /// The prefix that marks a `[[package]]` in [`LOCK`] as a first-party crate rather than a
 /// crates.io dependency - a path dependency's stanza carries no `source = ` line, but the name
@@ -261,16 +266,63 @@ fn first_party_pins(lock: &str) -> Vec<(String, String)> {
     found
 }
 
-/// Strip the surrounding quotes from a lock-file value, or `None` if it is not quoted.
+/// Strip the surrounding quotes from a lock-file or manifest value, or `None` if it is not
+/// quoted.
+///
+/// Takes the FIRST quoted span and ignores anything after its closing quote, rather than
+/// requiring the value to end on one - TOML allows a `# comment` after a value on the same
+/// line, and `version = "0.6.0" # workspace` is legal, parseable TOML that the earlier
+/// exact-suffix match refused, silently skipping the drift check below it rather than reading
+/// the version (`telekom/sutura#1150` review, mutation 3c). [`first_party_pins`]' lock lines
+/// never carry a trailing comment, so the same relaxation there costs nothing.
 fn unquote(value: &str) -> Option<&str> {
-    value.strip_prefix('"')?.strip_suffix('"')
+    let inner = value.strip_prefix('"')?;
+    let end = inner.find('"')?;
+    inner.get(..end)
 }
 
 /// [`ROOT_MANIFEST`]'s single `version = "..."` line, unquoted.
+///
+/// `None` is the documented, accepted case ONLY when no line starts `version = ` at all -
+/// `xtask/tests/hook_paths.rs`'s fixture tree is a bare `[workspace]\n` with no shared version,
+/// and a workspace that declares none has nothing for [`version_gaps`] to compare against. Any
+/// line that DOES start `version = ` is read by [`unquote`], comment or not.
 fn workspace_version(root_manifest: &str) -> Option<&str> {
     root_manifest
         .lines()
         .find_map(|line| line.strip_prefix("version = ").and_then(unquote))
+}
+
+/// Every [`LOCK`] pin that disagrees with [`ROOT_MANIFEST`]'s workspace version, each already
+/// formatted as a failure line - the pure comparison [`run`] wires into [`report`]'s `hook_gaps`,
+/// and the one [`crate::boundaries`] calls to put the same hint on its own `fuzz/Cargo.toml`
+/// `cargo metadata --locked` failure, which the drift trips FIRST in the `hygiene` sweep
+/// (`check-boundaries` runs before `check-fuzz` - `telekom/sutura#1150` review, finding 3a: the
+/// sweep stops at the first failure, so this gate's own readable message was never reached
+/// there).
+///
+/// Extracted to a pure `(text, text) -> Vec<String>` function, rather than left inline in `run`,
+/// for a reason that is not tidiness: the version this gate shipped with (`telekom/sutura#1150`
+/// review, finding 4) tested `report`'s `hook_gaps` parameter with a HAND-WRITTEN string and
+/// never called `first_party_pins`, `workspace_version` or this filter at all - so a mutated
+/// filter (`pinned != workspace` weakened to `pinned != workspace && false`) passed all 2065
+/// tests in the workspace. A test that calls this function directly, on a real stale lock, is
+/// killed by that same mutation; a test that calls `report` with a pre-written string cannot be.
+pub(crate) fn version_gaps(root_manifest: &str, lock: &str) -> Vec<String> {
+    let Some(workspace) = workspace_version(root_manifest) else {
+        return Vec::new();
+    };
+    first_party_pins(lock)
+        .into_iter()
+        .filter(|(_, pinned)| pinned != workspace)
+        .map(|(name, pinned)| {
+            format!(
+                "{LOCK} pins {name} at \"{pinned}\", but {ROOT_MANIFEST} declares the \
+                 workspace version \"{workspace}\" - run `cargo update --workspace \
+                 --offline --manifest-path fuzz/Cargo.toml` after bumping the version"
+            )
+        })
+        .collect()
 }
 
 /// Does the manifest compile the harness with the shipped panic strategy?
@@ -573,25 +625,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     };
     // Merged into `hook_gaps` rather than given `report` an 11th parameter: `clippy.toml` caps
     // `too-many-arguments-threshold` at 10, already the shape's own limit.
-    //
-    // No version line is not itself a defect this gate owns - `xtask/tests/hook_paths.rs`'s
-    // fixture tree is a bare `[workspace]\n` with no shared version at all, and a workspace that
-    // declares none has nothing for a `fuzz/Cargo.lock` pin to drift FROM. `Vec::new()` on that
-    // branch, not a failure.
-    hook_gaps.extend(workspace_version(&root_manifest).map_or_else(Vec::new, |workspace| {
-        let lock_text = std::fs::read_to_string(root.join(LOCK)).unwrap_or_default();
-        first_party_pins(&lock_text)
-            .into_iter()
-            .filter(|(_, pinned)| pinned != workspace)
-            .map(|(name, pinned)| {
-                format!(
-                    "{LOCK} pins {name} at \"{pinned}\", but {ROOT_MANIFEST} declares the \
-                         workspace version \"{workspace}\" - run `cargo update --workspace \
-                         --offline --manifest-path fuzz/Cargo.toml` after bumping the version"
-                )
-            })
-            .collect::<Vec<_>>()
-    }));
+    let lock_text = std::fs::read_to_string(root.join(LOCK)).unwrap_or_default();
+    hook_gaps.extend(version_gaps(&root_manifest, &lock_text));
+    hook_gaps.extend(deny_wiring::gaps(&root));
     match matrix_targets(&workflow) {
         Ok(matrix) => report(
             &sources,
@@ -762,29 +798,50 @@ mod tests {
         assert_eq!(workspace_version("[workspace.package]\nedition = \"2024\"\n"), None);
     }
 
-    /// `github.com/telekom/sutura#issue-fuzz-lock-drift`: a `fuzz/Cargo.lock` a release left behind
-    /// at the previous version, with the root manifest already bumped, is exactly this shape - and
-    /// this shape is red on base, because base's `report` has no `version_gaps` parameter to fail on.
+    /// `3ab86ad77`, the v0.6.0 release commit: a `fuzz/Cargo.lock` a release left behind at the
+    /// previous version, with the root manifest already bumped, is exactly this shape.
+    ///
+    /// Calls [`version_gaps`] directly rather than hand-writing a `hook_gaps` string for
+    /// `report`. `telekom/sutura#1150` review, finding 4: the earlier version of this test did
+    /// the latter, so it never called [`first_party_pins`], [`workspace_version`] or the
+    /// comparison at all, and a mutated filter (weakened to always find no gap) still passed
+    /// every test in the workspace. This one is killed by that same mutation.
     #[test]
     fn a_stale_first_party_pin_fails() {
-        let verdict = report(
-            &set(&["sql_expression"]),
-            &bins(&[("sql_expression", "fuzz_targets/sql_expression.rs")]),
-            &set(&["sql_expression"]),
-            &set(&["sql_expression"]),
-            &set(&["sql_expression"]),
-            &[],
-            &[],
-            true,
-            true,
-            &[format!(
-                "{LOCK} pins sutura-domain at \"0.5.1\", but {ROOT_MANIFEST} declares the workspace version \"0.6.0\""
-            )],
-        );
-        assert!(
-            verdict == Verdict::Fail,
-            "a fuzz lock stale against the workspace version must fail"
-        );
+        let root_manifest = "[workspace.package]\nversion = \"0.6.0\"\n";
+        let lock = "[[package]]\nname = \"sutura-domain\"\nversion = \"0.5.1\"\ndependencies = []\n";
+        let gaps = version_gaps(root_manifest, lock);
+        assert_eq!(gaps.len(), 1, "a stale first-party pin must be reported exactly once");
+        assert!(gaps[0].contains("sutura-domain"));
+        assert!(gaps[0].contains("\"0.5.1\""));
+        assert!(gaps[0].contains("\"0.6.0\""));
+    }
+
+    #[test]
+    fn a_matching_pin_reports_no_gap() {
+        let root_manifest = "[workspace.package]\nversion = \"0.6.0\"\n";
+        let lock = "[[package]]\nname = \"sutura-domain\"\nversion = \"0.6.0\"\ndependencies = []\n";
+        assert_eq!(version_gaps(root_manifest, lock), Vec::<String>::new());
+    }
+
+    /// `telekom/sutura#1150` review, finding 3c: a trailing `# comment` after the version's
+    /// closing quote is legal TOML, and the earlier `unquote` refused to parse it - so
+    /// `workspace_version` returned `None` and this whole check was skipped without saying so,
+    /// on a manifest this gate could read perfectly well otherwise.
+    #[test]
+    fn a_trailing_comment_on_the_version_line_does_not_skip_the_check() {
+        let root_manifest = "[workspace.package]\nversion = \"0.6.0\" # workspace\n";
+        let lock = "[[package]]\nname = \"sutura-domain\"\nversion = \"0.5.1\"\ndependencies = []\n";
+        assert_eq!(version_gaps(root_manifest, lock).len(), 1);
+    }
+
+    /// No `version = ` line at all is the one case this gate accepts silently -
+    /// `xtask/tests/hook_paths.rs`'s fixture tree is exactly this shape.
+    #[test]
+    fn no_workspace_version_line_reports_no_gap() {
+        let root_manifest = "[workspace]\n";
+        let lock = "[[package]]\nname = \"sutura-domain\"\nversion = \"0.5.1\"\ndependencies = []\n";
+        assert_eq!(version_gaps(root_manifest, lock), Vec::<String>::new());
     }
 
     #[test]

@@ -1,0 +1,15 @@
+diff --git a/xtask/src/fuzz/deny_wiring.rs b/xtask/src/fuzz/deny_wiring.rs
+index 4e3819c2a..131ec732d 100644
+--- a/xtask/src/fuzz/deny_wiring.rs
++++ b/xtask/src/fuzz/deny_wiring.rs
+@@ -24,9 +24,7 @@ const SITES: [(&str, &str); 3] = [
+ 
+ /// Does `text` run [`MARKER`] on a line that is not wholly a comment?
+ fn invokes(text: &str) -> bool {
+-    text.lines()
+-        .filter(|line| !line.trim_start().starts_with('#'))
+-        .any(|line| line.contains(MARKER))
++    text.lines().any(|line| line.contains(MARKER))
+ }
+ 
+ /// One message per site under `root` that does not run [`MARKER`]. Empty is a pass.

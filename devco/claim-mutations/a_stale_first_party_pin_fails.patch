@@ -1,0 +1,13 @@
+diff --git a/xtask/src/fuzz.rs b/xtask/src/fuzz.rs
+index 17857fe43..9631d7658 100644
+--- a/xtask/src/fuzz.rs
++++ b/xtask/src/fuzz.rs
+@@ -314,7 +314,7 @@ pub(crate) fn version_gaps(root_manifest: &str, lock: &str) -> Vec<String> {
+     };
+     first_party_pins(lock)
+         .into_iter()
+-        .filter(|(_, pinned)| pinned != workspace)
++        .filter(|(_, pinned)| pinned.is_empty())
+         .map(|(name, pinned)| {
+             format!(
+                 "{LOCK} pins {name} at \"{pinned}\", but {ROOT_MANIFEST} declares the \
