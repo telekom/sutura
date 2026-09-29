@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine.rs b/crates/sutura-exec-datafusion/src/combine.rs
+--- a/crates/sutura-exec-datafusion/src/combine.rs
++++ b/crates/sutura-exec-datafusion/src/combine.rs
+@@ -572,7 +572,7 @@
+             qualified(FACT_TABLE, bucket).eq(qualified(table, bucket)),
+         ];
+         let joined = builder
+-            .join_on(second, JoinType::Full, on)
++            .join_on(second, JoinType::Inner, on)
+             .map_err(|cause| CombineError::Build { cause })?;
+         let mut columns = vec![
+             coalesce(vec![qualified(FACT_TABLE, link), qualified(table, link)]).alias(link),

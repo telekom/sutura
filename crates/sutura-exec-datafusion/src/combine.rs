@@ -68,7 +68,7 @@ use datafusion::arrow::array::{Array as _, Float64Array};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::common::{Column, JoinType, TableReference};
 use datafusion::datasource::MemTable;
-use datafusion::functions::expr_fn::nullif;
+use datafusion::functions::expr_fn::{coalesce, nullif};
 use datafusion::functions_aggregate::expr_fn::{count, max, min, sum};
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, cast, lit};
 use datafusion::prelude::{SessionConfig, SessionContext};
@@ -554,12 +554,16 @@ async fn combine_plan(
 ) -> Result<LogicalPlan, CombineError> {
     let fact = scan(context, FACT_TABLE).await?;
     let lookup = scan(context, LOOKUP_TABLE).await?;
-    // A second fact leg (`telekom/sutura#780`) is joined INNER on the link AND the bucket: both
-    // legs are grouped by both, so each first-fact row meets at most the one second-fact row of its
-    // own period. On the link alone a second fact with two periods fans every first-fact row out
-    // across both and multiplies the numerator. A row present in one fact and absent in the other is
-    // dropped rather than null-padded; the lookup join below is the splitter's decision, apart.
+    // A second fact leg (`telekom/sutura#780`) is joined on the link AND the bucket: both legs are
+    // grouped by both, so each first-fact row meets at most the one second-fact row of its own
+    // period. On the link alone a second fact with two periods fans every first-fact row out across
+    // both and multiplies the numerator. FULL, not INNER - drill-across: a (link, period) only one
+    // fact carried keeps its own measure and a null for the other, so a customer with revenue and
+    // no visits still counts in the numerator, and a group the second fact never reached is a row
+    // whose ratio is null rather than a row that vanishes. The join columns are coalesced and the
+    // result re-named as the fact leg, so everything below reads one relation.
     let mut builder = LogicalPlanBuilder::from(fact);
+    let mut leaves = leaves.to_vec();
     if let Some(table) = second_table {
         let second = scan(context, table).await?;
         let bucket = plan.bucket_label();
@@ -567,9 +571,27 @@ async fn combine_plan(
             qualified(FACT_TABLE, link).eq(qualified(table, link)),
             qualified(FACT_TABLE, bucket).eq(qualified(table, bucket)),
         ];
-        builder = builder
-            .join_on(second, JoinType::Inner, on)
+        let joined = builder
+            .join_on(second, JoinType::Full, on)
             .map_err(|cause| CombineError::Build { cause })?;
+        let mut columns = vec![
+            coalesce(vec![qualified(FACT_TABLE, link), qualified(table, link)]).alias(link),
+            coalesce(vec![qualified(FACT_TABLE, bucket), qualified(table, bucket)]).alias(bucket),
+        ];
+        columns.extend(
+            joined
+                .schema()
+                .iter()
+                .filter(|(_, field)| field.name() != link && field.name() != bucket)
+                .map(|(qualifier, field)| Expr::Column(Column::new(qualifier.cloned(), field.name()))),
+        );
+        builder = joined
+            .project(columns)
+            .and_then(|merged| merged.alias(FACT_TABLE))
+            .map_err(|cause| CombineError::Build { cause })?;
+        for leaf in &mut leaves {
+            leaf.2 = FACT_TABLE;
+        }
     }
     // **The join kind is the splitter's decision, carried on the plan rather than guessed.** LEFT
     // keeps a fact row whose link value found no lookup row, with null remote keys; INNER drops it.
@@ -591,7 +613,7 @@ async fn combine_plan(
     grouping.push(qualified(FACT_TABLE, plan.bucket_label()));
     let group_count = grouping.len();
 
-    let measure = above_expression(plan.federation().above(), leaves, &mut 0)?;
+    let measure = above_expression(plan.federation().above(), &leaves, &mut 0)?;
     builder = builder
         .aggregate(grouping, vec![measure])
         .map_err(|cause| CombineError::Build { cause })?;

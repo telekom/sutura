@@ -231,7 +231,7 @@ fn zero_denominator_fact_rows() -> RowSet {
 fn a_cross_model_ratio_answer_is_one_certified_number() {
     // Three sources, one warehouse each: the fact leg answers the numerator, the second fact leg
     // answers the denominator, the lookup leg decorates the join. The combiner joins both facts
-    // INNER on the link and the lookup LEFT, then groups by (product_family, region, bucket) and
+    // FULL on the link and the bucket and the lookup LEFT, then groups by (product_family, region, bucket) and
     // divides the re-aggregated sums once, above the legs. A/north is (100 + 200) / (1 + 1) = 150
     // and B/north is 50 / 1 = 50, the two numbers this cell pins.
     let facts = SourceName::parse("facts").expect("a test source");
@@ -686,4 +686,108 @@ fn a_second_fact_with_two_periods_is_joined_per_period_rather_than_fanned_out() 
         ],
         "each month divides its own rows once: {rows:?}"
     );
+}
+
+/// `(link, value)` pairs as one leg's rows under `labels`, all in June; the fact leg's rows also
+/// carry family A, the fact-side key [`two_fact_plan`] groups by.
+fn june_rows(labels: Vec<String>, family: bool, rows: &[(&str, i64)]) -> RowSet {
+    let rows = rows
+        .iter()
+        .map(|&(link, value)| {
+            let tail = [Value::Text(link.into()), Value::Text("2026-06".into()), Value::Integer(value)];
+            family.then(|| Value::Text("A".into())).into_iter().chain(tail).collect()
+        })
+        .collect();
+    RowSet::new(labels, rows).expect("well-formed leg rows")
+}
+
+/// The answer's rows over one fact leg's `(customer, revenue)`, the second's `(customer, visits)`
+/// and the lookup's `(customer, region)`, through the real combiner.
+fn drilled_across(fact: &[(&str, i64)], second: &[(&str, i64)], regions: &[(&str, &str)]) -> Vec<Vec<Value>> {
+    use sutura_domain::plan::InternalLabel;
+    let bucket = || String::from(sutura_domain::catalog::TIME_BUCKET_LABEL);
+    let leaf = |n: usize| InternalLabel::Leaf(n).label();
+    let fact = june_rows(
+        vec![String::from("product_family"), InternalLabel::Link.label(), bucket(), leaf(0)],
+        true,
+        fact,
+    );
+    let second = june_rows(vec![InternalLabel::Link.label(), bucket(), leaf(1)], false, second);
+    let lookup = RowSet::new(
+        vec![InternalLabel::Link.label(), String::from("region")],
+        regions
+            .iter()
+            .map(|&(link, region)| vec![Value::Text(link.into()), Value::Text(region.into())])
+            .collect(),
+    )
+    .expect("well-formed lookup rows");
+    let source = |name: &str| SourceName::parse(name).expect("a test source");
+    let shared = shared();
+    let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
+        source("facts"),
+        shared.clone(),
+        fact,
+    ))
+    .and(crate::tests_support::LegsWarehouse::answering(
+        source("orders"),
+        shared.clone(),
+        second,
+    ))
+    .expect("two sources so far")
+    .and(crate::tests_support::LegsWarehouse::answering(source("geo"), shared, lookup))
+    .expect("three sources, one registry");
+    let outcome = answer_federated(
+        &bundle(),
+        &two_fact_plan(),
+        &asked_by_a_person(),
+        &crate::tests_support::CountingBroker::default(),
+        &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
+        FEDERATED_BUDGET,
+        test_deadline(),
+        &SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeiling::DEFAULT,
+    )
+    .expect("a three-source cross-model ratio is not an error")
+    .into_outcome();
+    let ToolOutcome::Answer { rows, .. } = outcome else {
+        panic!("a cross-model ratio whose three legs execute is answered, not {outcome:?}");
+    };
+    rows.rows().to_vec()
+}
+
+/// The row for `region`, if the answer has one.
+fn in_region<'r>(rows: &'r [Vec<Value>], region: &str) -> Option<&'r Vec<Value>> {
+    rows.iter()
+        .find(|row| matches!(row.get(1), Some(Value::Text(t)) if t == region))
+}
+
+/// Review probe C1, as a golden: c2 has revenue and no visit, and its revenue still counts. The
+/// ratio of the region's totals is (100 + 200) / 1 = 300; joined INNER, c2 left the numerator and
+/// the certified number was 100.
+#[test]
+fn a_customer_only_the_first_fact_reached_still_counts_in_the_numerator() {
+    let rows = drilled_across(&[("c1", 100), ("c2", 200)], &[("c1", 1)], &[("c1", "north"), ("c2", "north")]);
+    let north = in_region(&rows, "north").unwrap_or_else(|| panic!("north is answered: {rows:?}"));
+    assert_eq!(north.last(), Some(&real_cell(300.0)), "north is (100 + 200) / 1: {rows:?}");
+}
+
+/// A region only the numerator's fact reached is a row whose ratio is null (no visits, so no
+/// denominator), never a row that vanishes from the answer (review probe C2).
+#[test]
+fn a_group_only_the_numerator_reached_is_a_null_ratio_not_a_missing_row() {
+    let rows = drilled_across(&[("c1", 100), ("c2", 200)], &[("c1", 1)], &[("c1", "north"), ("c2", "south")]);
+    let south = in_region(&rows, "south").unwrap_or_else(|| panic!("south is answered: {rows:?}"));
+    assert_eq!(south.last(), Some(&Value::Null), "south has revenue and no visits: {rows:?}");
+    assert_eq!(in_region(&rows, "north").and_then(|row| row.last()), Some(&real_cell(100.0)));
+}
+
+/// The mirror: a region only the denominator's fact reached is a row whose ratio is null, not a
+/// missing row. Its fact-side key is null too - no first-fact row carried one.
+#[test]
+fn a_group_only_the_denominator_reached_is_a_null_ratio_not_a_missing_row() {
+    let rows = drilled_across(&[("c1", 100)], &[("c1", 1), ("c2", 2)], &[("c1", "north"), ("c2", "south")]);
+    let south = in_region(&rows, "south").unwrap_or_else(|| panic!("south is answered: {rows:?}"));
+    assert_eq!(south.last(), Some(&Value::Null), "south has visits and no revenue: {rows:?}");
+    assert_eq!(in_region(&rows, "north").and_then(|row| row.last()), Some(&real_cell(100.0)));
 }

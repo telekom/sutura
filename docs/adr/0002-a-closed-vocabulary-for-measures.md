@@ -222,8 +222,12 @@ over the metric's own table, the second over the other term's model, each joinin
 through its own relationship inside its own statement, each bucketed AND bounded by the question's
 range on the calendar's column, and each carrying only the leaves of its own model. The second fact
 links to the lookup through ITS OWN relationship into the model the first fact crosses into, on the
-same lookup column. The combiner joins the two above on the link and the bucket, divides once and
-applies `zero_denominator` once. `FederatedPlan::new` holds the two halves of that by type: both fact
+same lookup column. The combiner joins the two above on the link and the bucket - FULL, the
+drill-across join: a customer-period only one fact carried keeps its own measure and a null for the
+other, so a customer with revenue and no visits still counts in the numerator, and a group only one
+fact reached is a row whose ratio is null rather than a row that vanishes - then divides once and
+applies `zero_denominator` once. A group with no rows in one fact therefore answers null under
+either `zero_denominator`, because a leg's grouped count never emits a zero row to divide by. `FederatedPlan::new` holds the two halves of that by type: both fact
 legs must carry the plan's bucket (`BucketMismatch`), and a leaf naming another model can only ride a
 second fact leg (`TermsDoNotMatchFederation`) - so no producer can fold two fact tables into one
 statement. **The chasm trap is impossible because the two facts are two statements that never share a
