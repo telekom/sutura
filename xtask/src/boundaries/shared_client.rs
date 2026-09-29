@@ -30,6 +30,15 @@ pub(crate) const SHARED_CLIENT: &str = "sutura-http-client";
 /// the class a small shared read must not reach back into does not depend on which read it is.
 pub(crate) const BOUNDED_READ: &str = "sutura-bounded-read";
 
+/// `sutura-adbc` gets the same third row for the same reason - PR 1146's review found the identical
+/// gap a third time: the crate joins no `adapters::CLASSES` prefix (it opens no data system and
+/// renders no dialect, `sutura-adbc/src/lib.rs`'s own header says so) and it is not one of
+/// [`super::application::APPLICATION`]/[`SHARED_CLIENT`]/[`BOUNDED_READ`], so an edge from it back
+/// into `sutura-config` passed every existing half. `sutura-exec-bigquery -> sutura-exec-duckdb`
+/// forbids one path to it only transitively, through today's one consumer, and disappears if that
+/// consumer changes.
+pub(crate) const ADBC: &str = "sutura-adbc";
+
 /// Prefixes that join the forbidden class - the same two `super::adapters::CLASSES` names as
 /// "data systems" and "metadata providers". Kept as its own copy for the reason
 /// `application::ADAPTER_PREFIX` is: two rules asking different questions each keep the
@@ -84,6 +93,11 @@ pub(crate) fn check_bounded_read(meta: &serde_json::Value) -> Result<Report, Str
     check_named(meta, BOUNDED_READ)
 }
 
+/// The same check as [`check`], over [`ADBC`]'s normal-dependency tree instead.
+pub(crate) fn check_adbc(meta: &serde_json::Value) -> Result<Report, String> {
+    check_named(meta, ADBC)
+}
+
 /// The argument, printed once, the same shape every sibling half in this gate prints.
 pub(crate) fn explain() {
     eprintln!("  Why: this crate exists so two catalog HTTP readers of the SAME adapter class share");
@@ -104,9 +118,18 @@ pub(crate) fn explain_bounded_read() {
     eprintln!("  the same answer `sutura-tls`'s own header gives.");
 }
 
+/// The same argument as [`explain`], for [`ADBC`]'s own reason to exist.
+pub(crate) fn explain_adbc() {
+    eprintln!("  Why: this crate exists so the workspace's one `unsafe` linked-driver FFI call has one");
+    eprintln!("  home instead of one per ADBC adapter - it names no data system and joins no");
+    eprintln!("  `adapters::CLASSES` prefix, so nothing else in this gate can see an edge FROM it.");
+    eprintln!("  Do:  a type both an ADBC adapter and this crate genuinely need belongs in");
+    eprintln!("  `sutura-domain`, the same answer `sutura-tls`'s own header gives.");
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{check, check_bounded_read, explain, explain_bounded_read};
+    use super::{check, check_adbc, check_bounded_read, explain, explain_adbc, explain_bounded_read};
 
     fn meta(edges: &str) -> serde_json::Value {
         serde_json::from_str(&format!(
@@ -200,6 +223,72 @@ mod tests {
     #[test]
     fn explain_bounded_read_does_not_panic() {
         explain_bounded_read();
+    }
+
+    fn adbc_meta(edges: &str) -> serde_json::Value {
+        serde_json::from_str(&format!(
+            r#"{{
+                "packages": [
+                    {{"id": "adbc", "name": "sutura-adbc"}},
+                    {{"id": "exec", "name": "sutura-exec-bigquery"}},
+                    {{"id": "config", "name": "sutura-config"}},
+                    {{"id": "app", "name": "sutura-app"}},
+                    {{"id": "http", "name": "sutura-http"}},
+                    {{"id": "mcp", "name": "sutura-mcp"}},
+                    {{"id": "domain", "name": "sutura-domain"}}
+                ],
+                "resolve": {{"nodes": [
+                    {{"id": "adbc", "deps": [{{"pkg": "domain"}}{edges}]}},
+                    {{"id": "exec", "deps": []}},
+                    {{"id": "config", "deps": []}},
+                    {{"id": "app", "deps": []}},
+                    {{"id": "http", "deps": []}},
+                    {{"id": "mcp", "deps": []}},
+                    {{"id": "domain", "deps": []}}
+                ]}}
+            }}"#
+        ))
+        .expect("fixture parses")
+    }
+
+    #[test]
+    fn an_adbc_tree_reaching_only_the_domain_passes() {
+        let report = check_adbc(&adbc_meta("")).expect("walk succeeds");
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
+        assert_eq!(report.tree_size, 1, "sutura-domain alone");
+    }
+
+    /// The exact break review measured: `sutura-config` added to `sutura-adbc/Cargo.toml` passed
+    /// every existing half of `check-boundaries` before this row existed.
+    #[test]
+    fn an_adbc_normal_edge_onto_the_settings_crate_is_a_violation() {
+        let report = check_adbc(&adbc_meta(r#", {"pkg": "config"}"#)).expect("walk succeeds");
+        assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+        assert!(report.problems[0].contains("sutura-config"), "{:?}", report.problems);
+    }
+
+    #[test]
+    fn an_adbc_normal_edge_onto_an_adapter_the_application_or_a_transport_is_a_violation() {
+        let report = check_adbc(&adbc_meta(
+            r#", {"pkg": "exec"}, {"pkg": "app"}, {"pkg": "http"}, {"pkg": "mcp"}"#,
+        ))
+        .expect("walk succeeds");
+        assert_eq!(report.problems.len(), 4, "{:?}", report.problems);
+    }
+
+    #[test]
+    fn the_real_adbc_tree_has_no_such_edge() {
+        let Ok(meta) = crate::cargo_metadata(&["--all-features"]) else {
+            return;
+        };
+        let report = check_adbc(&meta).expect("the real tree resolves");
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
+        assert!(report.tree_size > 0, "sutura-adbc's own tree is not empty");
+    }
+
+    #[test]
+    fn explain_adbc_does_not_panic() {
+        explain_adbc();
     }
 
     #[test]

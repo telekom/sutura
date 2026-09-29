@@ -36,7 +36,7 @@
 
 let
   # THE DRIVER A PUBLISHED ARTEFACT CARRIES, as the environment
-  # `crates/sutura-exec-bigquery/build.rs` reads to link it in.
+  # `crates/sutura-adbc/build.rs` reads to link it in.
   #
   # **This is `telekom/sutura#929`'s sixth finding closed.** Before it, a deployment pointed
   # `SUTURA_BIGQUERY_ADBC_DRIVER` at any file on the host and no release artefact contained a
@@ -57,7 +57,7 @@ let
   adbcArchiveFor = target:
     let drv = adbcDrivers."adbc-driver-bigquery-${target}" or null;
     in pkgs.lib.optionalAttrs (drv != null) {
-      SUTURA_ADBC_BIGQUERY_ARCHIVE_DIR = "${drv}/lib";
+      SUTURA_ADBC_ARCHIVE_DIR = "${drv}/lib";
     };
 
   # Targets we CROSS-build. Deliberately excludes the host architecture: on an x86_64 builder
