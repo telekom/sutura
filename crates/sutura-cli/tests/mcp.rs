@@ -70,6 +70,13 @@
 #[path = "mcp/harness.rs"]
 mod harness;
 
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "rdbms")]
+#[cfg(feature = "postgres")]
+#[path = "common/mod.rs"]
+mod common;
+
 // The tests, split by surface for `cargo xtask max-lines`; each takes the two `cfg`s above.
 #[cfg(unix)]
 #[cfg(test)]
@@ -95,3 +102,15 @@ mod settings;
 #[cfg(test)]
 #[path = "mcp/catalog_kinds.rs"]
 mod catalog_kinds;
+// `catalog.kind: rdbms`, stdio: #970 box A7's positive RDBMS run over the MCP transport - see
+// `mcp/rdbms.rs`'s module header. `cfg(test)` for the same `allow-expect-in-tests` reason
+// `protocol`/`tools` above carry one; `cfg(feature = "rdbms")` so a build without the reader does
+// not parse a file naming a crate it did not link, and `cfg(feature = "postgres")` for the
+// `tokio-postgres` fixture install and the `postgres` source the catalog's `source_alias` names -
+// the same two-feature split `served/rdbms.rs` (PR #1147) holds.
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "rdbms")]
+#[cfg(feature = "postgres")]
+#[path = "mcp/rdbms.rs"]
+mod rdbms;
