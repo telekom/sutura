@@ -1,13 +1,13 @@
 diff --git a/xtask/src/fuzz.rs b/xtask/src/fuzz.rs
-index 07a60054c..a79009a03 100644
+index 17857fe43..a9a049019 100644
 --- a/xtask/src/fuzz.rs
 +++ b/xtask/src/fuzz.rs
-@@ -255,7 +255,7 @@ fn first_party_pins(lock: &str) -> Vec<(String, String)> {
-             current = unquote(value);
-         } else if let Some(value) = line.strip_prefix("version = ")
-             && let Some(seen) = current.take()
--            && seen.starts_with(FIRST_PARTY_PREFIX)
-+            && (seen.starts_with(FIRST_PARTY_PREFIX) || true)
-             && seen != FUZZ_CRATE
-             && let Some(version) = unquote(value)
-         {
+@@ -118,7 +118,7 @@ pub(crate) const ROOT_MANIFEST: &str = "Cargo.toml";
+ /// The prefix that marks a `[[package]]` in [`LOCK`] as a first-party crate rather than a
+ /// crates.io dependency - a path dependency's stanza carries no `source = ` line, but the name
+ /// prefix is cheaper to check and does not depend on stanza order.
+-const FIRST_PARTY_PREFIX: &str = "sutura";
++const FIRST_PARTY_PREFIX: &str = "";
+ 
+ /// The fuzz crate's OWN package - [`MANIFEST`]'s `[package]` name, versioned `0.0.0` on purpose
+ /// (the manifest's header) and never bumped alongside [`ROOT_MANIFEST`]. Excluded from

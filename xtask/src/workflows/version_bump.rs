@@ -23,10 +23,10 @@
 //! workflow writes are simple enough for a line scan to hold. **What this does not reach:** a
 //! step reordered so the commit runs FIRST and one of the four runs uselessly after it renders
 //! as the SAME failure this gate reports for "never runs at all" - the message names the
-//! missing property, not the shape of what is missing. And a `dprint`/`hygiene`/`update` line
-//! inside a comment or a string still counts, because - unlike `check-workflows`'s own
-//! reference scan - a comment EXPLAINING one of these four lines is common here and refusing it
-//! would make the explanation unwritable, the same trade `fuzz::release_invocations` makes.
+//! missing property, not the shape of what is missing. A line that is wholly a comment is
+//! dropped before any rule reads the job, because it runs nothing - `947bb315d` counted one, so
+//! commenting out both `dprint` commands, the fuzz update or the hygiene run stayed green. A
+//! marker inside a string, or after code on the same line, still counts.
 
 use std::path::Path;
 
@@ -38,9 +38,8 @@ use super::step;
 const WORKFLOW: &str = ".github/workflows/version-bump.yml";
 const JOB: &str = "bump";
 
-/// The commit step's own marker - unique in this workflow. The substring `git commit` alone
-/// would appear in other steps (e.g., the stale-dispatch check's credential helper step), so we
-/// use the full form with the commit message prefix.
+/// The release commit's own marker. Longer than `git commit` so it pins THE release commit, not
+/// whichever `git commit` a later step might add.
 const COMMIT_MARKER: &str = "git commit -m \"chore(release):";
 const CHANGELOG_WRITE_MARKER: &str = "-o CHANGELOG.md";
 const DPRINT_MARKER: &str = "dprint";
@@ -56,6 +55,7 @@ pub(crate) fn check(workflow: &str) -> Vec<String> {
             "{WORKFLOW} declares no `{JOB}:` job - none of the four rules below could be checked"
         )];
     };
+    let job: Vec<&str> = job.into_iter().filter(|line| !line.trim_start().starts_with('#')).collect();
     let Some(commit_at) = job.iter().position(|line| line.contains(COMMIT_MARKER)) else {
         return vec![format!(
             "{WORKFLOW}'s `{JOB}` job never commits (`{COMMIT_MARKER}` was not found) - none of the four rules below could be checked against it"
@@ -73,7 +73,6 @@ pub(crate) fn check(workflow: &str) -> Vec<String> {
                 .get(write_at..)
                 .unwrap_or(&[])
                 .iter()
-                .filter(|line| !line.trim_start().starts_with('#'))
                 .any(|line| line.contains(DPRINT_MARKER))
             {
                 problems.push(format!(
@@ -110,7 +109,6 @@ pub(crate) fn check(workflow: &str) -> Vec<String> {
 
     if !before_commit
         .iter()
-        .filter(|line| !line.trim_start().starts_with('#'))
         .any(|line| HYGIENE_MARKERS.iter().any(|marker| line.contains(marker)))
     {
         problems.push(format!(
@@ -221,6 +219,34 @@ mod tests {
             "",
         );
         let problems = check(&job(&steps));
+        assert_eq!(problems.len(), 1, "only rule 4 should fire: {problems:?}");
+        assert!(problems[0].contains("structural sweep"));
+    }
+
+    /// Each command commented out rather than deleted: a comment runs nothing, so each rule fires.
+    fn commented_out(line: &str) -> Vec<String> {
+        let steps = COMPLETE.replace(line, &line.replacen("nix", "# nix", 1));
+        assert_ne!(steps, COMPLETE, "fixture line not found: {line}");
+        check(&job(&steps))
+    }
+
+    #[test]
+    fn a_commented_out_dprint_line_fails() {
+        let problems = commented_out("          nix run .#dprint -- fmt CHANGELOG.md\n");
+        assert_eq!(problems.len(), 1, "only rule 1 should fire: {problems:?}");
+        assert!(problems[0].contains("dprint"));
+    }
+
+    #[test]
+    fn a_commented_out_fuzz_lock_update_fails() {
+        let problems = commented_out("          nix run .#cargo -- update --workspace --manifest-path fuzz/Cargo.toml\n");
+        assert_eq!(problems.len(), 1, "only rule 2 should fire: {problems:?}");
+        assert!(problems[0].contains("fuzz/Cargo.lock"));
+    }
+
+    #[test]
+    fn a_commented_out_hygiene_run_fails() {
+        let problems = commented_out("          nix run .#xtask -- hygiene\n");
         assert_eq!(problems.len(), 1, "only rule 4 should fire: {problems:?}");
         assert!(problems[0].contains("structural sweep"));
     }

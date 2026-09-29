@@ -1,8 +1,8 @@
 diff --git a/xtask/src/fuzz.rs b/xtask/src/fuzz.rs
-index 07a60054c..e7838df8b 100644
+index 17857fe43..a33c0e271 100644
 --- a/xtask/src/fuzz.rs
 +++ b/xtask/src/fuzz.rs
-@@ -290,6 +290,7 @@ fn workspace_version(root_manifest: &str) -> Option<&str> {
+@@ -291,6 +291,7 @@ fn workspace_version(root_manifest: &str) -> Option<&str> {
      root_manifest
          .lines()
          .find_map(|line| line.strip_prefix("version = ").and_then(unquote))

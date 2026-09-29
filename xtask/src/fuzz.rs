@@ -41,6 +41,7 @@
 
 use std::collections::BTreeSet;
 
+mod deny_wiring;
 mod hook_paths;
 
 use crate::Verdict;
@@ -626,6 +627,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // `too-many-arguments-threshold` at 10, already the shape's own limit.
     let lock_text = std::fs::read_to_string(root.join(LOCK)).unwrap_or_default();
     hook_gaps.extend(version_gaps(&root_manifest, &lock_text));
+    hook_gaps.extend(deny_wiring::gaps(&root));
     match matrix_targets(&workflow) {
         Ok(matrix) => report(
             &sources,
@@ -958,38 +960,5 @@ mod tests {
             release_invocations(&release).is_empty(),
             "the release workflow must not run the fuzzer - see RELEASE_WORKFLOW for why"
         );
-    }
-
-    #[test]
-    fn fuzz_deny_is_wired_everywhere_it_needs_to_be() {
-        let Some(root) = repo::root() else { return };
-        let marker = "cargo deny --manifest-path fuzz/Cargo.toml";
-        let mut missing = Vec::new();
-
-        if let Ok(flake) = std::fs::read_to_string(root.join("flake.nix")) {
-            if !flake.contains(marker) {
-                missing.push("flake.nix (apps.deny)");
-            }
-        } else {
-            missing.push("flake.nix (unreadable)");
-        }
-
-        if let Ok(justfile) = std::fs::read_to_string(root.join("justfile")) {
-            if !justfile.contains(marker) {
-                missing.push("justfile (gates recipe)");
-            }
-        } else {
-            missing.push("justfile (unreadable)");
-        }
-
-        if let Ok(run_gate) = std::fs::read_to_string(root.join("nix/run-gate.sh")) {
-            if !run_gate.contains(marker) {
-                missing.push("nix/run-gate.sh (supply-chain arm)");
-            }
-        } else {
-            missing.push("nix/run-gate.sh (unreadable)");
-        }
-
-        assert!(missing.is_empty(), "fuzz Cargo.lock is unchecked in: {}", missing.join(", "));
     }
 }
