@@ -2519,7 +2519,8 @@ as a refusal a caller would retry.</p>
   naming the dimension and the hop. So nothing provokes this from a catalog either, and what it
   buys is the thing the load check alone did not have - a second reader of the same rule, on
   the path where getting it wrong renders another data system's table into one statement under
-  a certified metric name. <code>crate::plan::PlanError::ChainLeavesItsSource</code> carries the report.</p>
+  a certified metric name. <code>crate::plan::PlanError::ChainLeavesItsSource</code> carries the report.
+- <code>NoSecondFactModel</code> - The splitter carried a cross-model ratio's second-fact leaves with no second fact model or calendar model resolved for them. Same limit as <code>NoRemoteJoin</code>: <code>plan</code> dispatches such a ratio only once <code>resolve</code> has already looked up both, so nothing provokes this either - see <code>crate::plan::PlanError::NoSecondFactModel</code>'s own doc for the construction that holds it.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="fn-compile"><code>fn compile</code><a class="headerlink" href="#fn-compile" title="Permanent link">&para;</a></h2>
