@@ -397,7 +397,7 @@ fn the_batch_this_transport_built_is_the_batch_the_statement_is_bound_with() {
         JobIdentity::Transport,
         JobDeadline::Boot,
     );
-    let bound = super::bind::parameter_batch(request.params()).expect("a range is bindable");
+    let bound = sutura_adbc::parameter_batch(request.params()).expect("a range is bindable");
     let mut statement = Recording::new();
     super::prepared(&mut statement, &request, bound, a_gibibyte(), Instant::now())
         .expect("the recording statement accepts both calls");
@@ -468,7 +468,7 @@ fn a_call_carrying_no_values_binds_nothing_at_all() {
         JobIdentity::Transport,
         JobDeadline::Boot,
     );
-    let bound = super::bind::parameter_batch(request.params()).expect("no values is not a failure");
+    let bound = sutura_adbc::parameter_batch(request.params()).expect("no values is not a failure");
     let mut statement = Recording::new();
     super::prepared(&mut statement, &request, bound, a_gibibyte(), Instant::now())
         .expect("the recording statement accepts the query");

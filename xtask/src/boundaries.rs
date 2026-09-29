@@ -16,11 +16,12 @@
 //!   entry or an intra-class comparison, added at `telekom/sutura#112` because neither sibling
 //!   rule above could see this edge at all: `FORBIDDEN_EDGES` has no row naming `sutura-app`, and
 //!   `sutura-app` joins none of `adapters`'s classes
-//! * `sutura-http-client` AND `sutura-bounded-read` each reach no adapter, composition root,
-//!   settings crate or transport over a normal edge ([`no_adapter_in_shared_client`], and
-//!   `shared_client`) - the identical third shape, for the identical reason: neither joins
-//!   `adapters`'s classes either, and #970's review found the gap the same way #112 found the one
-//!   above; #1045's review (round 2) found it again for the second crate
+//! * `sutura-http-client`, `sutura-bounded-read` AND `sutura-adbc` each reach no adapter,
+//!   composition root, settings crate or transport over a normal edge
+//!   ([`no_adapter_in_shared_client`], and `shared_client`) - the identical third shape, for the
+//!   identical reason: none joins `adapters`'s classes either, and #970's review found the gap the
+//!   same way #112 found the one above; #1045's review (round 2) found it again for the second
+//!   crate, and PR 1146's review a third time for `sutura-adbc`
 //! * a driving port is not declared by one of its callers ([`declared_ports`], and `ports`) - the
 //!   one half that reads which crate declares a TRAIT rather than which crate depends on which
 //! * a caller of that port reaches the answer path THROUGH it ([`answer_through_the_port`], and
@@ -217,7 +218,34 @@ fn no_adapter_in_shared_client() -> Verdict {
             Verdict::Fail
         }
     };
-    if client == Verdict::Pass && bounded_read == Verdict::Pass {
+    // `sutura-adbc` gets the same row for the same reason, a third time - `shared_client`'s own
+    // header on `ADBC`. PR 1146's review measured this crate's `sutura-adbc -> sutura-config` edge
+    // passing every other half of this gate before this row existed.
+    let adbc = match shared_client::check_adbc(&meta) {
+        Err(message) => {
+            eprintln!("xtask check-boundaries: {message}");
+            Verdict::Fail
+        }
+        Ok(report) if report.problems.is_empty() => {
+            println!(
+                "xtask check-boundaries: ok - {} reaches no adapter, composition root, settings crate or transport over a \
+                 normal edge ({} crate(s) in its normal tree)",
+                shared_client::ADBC,
+                report.tree_size
+            );
+            Verdict::Pass
+        }
+        Ok(report) => {
+            eprintln!("xtask check-boundaries: FAILED - the shared ADBC crate reaches a forbidden crate:");
+            for problem in &report.problems {
+                eprintln!("  {problem}");
+            }
+            eprintln!();
+            shared_client::explain_adbc();
+            Verdict::Fail
+        }
+    };
+    if client == Verdict::Pass && bounded_read == Verdict::Pass && adbc == Verdict::Pass {
         Verdict::Pass
     } else {
         Verdict::Fail
