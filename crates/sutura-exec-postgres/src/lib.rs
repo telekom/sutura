@@ -14,13 +14,13 @@
 //!   ([`tls::client_config`]). Which source gets which is `sutura_config::sources::transport`'s
 //!   decision and never this adapter's, so a caller that builds no config gets a cleartext
 //!   connection - including to a server that offers TLS.
-//! - **`dry_run` and `execute` stop at the port's deadline**, with `SET LOCAL statement_timeout` -
+//! - **`dry_run`, `execute` and `execute_raw` all stop at the port's per-request deadline**
+//!   (`telekom/sutura#1144` threaded this onto the raw path too), with `SET LOCAL statement_timeout` -
 //!   `docs/adr/0029`'s Postgres row. The wait for `execution_lock` is itself outside the deadline;
 //!   a caller already spent once the lock is held is refused locally as `DeadlineSpent`. `57014
 //!   query_canceled` is also what a manual `pg_cancel_backend` produces - indistinguishable to
-//!   `deadline_exceeded`. The raw SQL tool's own path (`execute_raw`) carries no per-request
-//!   deadline; it is stopped by the connect-time `SET statement_timeout` that already existed, and
-//!   this record adds only classifying that stop.
+//!   `deadline_exceeded`. The connect-time `SET statement_timeout` remains the outer ceiling a
+//!   request's own budget may only narrow, never widen, on every path including the raw one.
 
 pub mod connection;
 /// The fixture tier's credential - a value that cannot exist unconfigured.
@@ -806,8 +806,9 @@ impl Warehouse for PostgresWarehouse {
         &self,
         statement: &sutura_domain::raw::RawStatement,
         presented: &Presented,
+        deadline: Deadline,
     ) -> sutura_domain::warehouse::RawExecution<Self::Error> {
-        Some(self.run_raw(statement, presented))
+        Some(self.run_raw(statement, presented, deadline))
     }
 
     /// Refuses `25006 read_only_sql_transaction`/`42501 insufficient_privilege` as the data system

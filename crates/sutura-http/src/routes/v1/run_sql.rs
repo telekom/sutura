@@ -15,10 +15,12 @@
 //! `crate::wire::RunSqlOutcome` out. Kept apart deliberately, the same reason `sutura_domain::raw`
 //! is a module of its own rather than a widened `sutura_domain::query`.
 
+use axum::Extension;
 use axum::Json;
 use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
 use sutura_domain::raw::RawStatement;
+use sutura_domain::warehouse::deadline::Deadline;
 
 use crate::problem::Failure;
 use crate::state::ServiceState;
@@ -66,7 +68,10 @@ const TAG: &str = "run_sql";
         ),
         (
             status = 422,
-            description = "REFUSED. `code: statement_failed` - the statement did not complete.",
+            description = "REFUSED. `code: statement_failed` - the statement did not complete. \
+                           `code: deadline_exceeded` - this deployment stopped the statement after \
+                           the asker's own per-request budget; narrow the statement rather than \
+                           retrying it as is.",
             body = RawOutcomeBody
         ),
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),
@@ -83,6 +88,9 @@ pub(crate) async fn run_sql(
     // See `super::query::ask`'s own parameter for the whole mechanism: a REQUIRED extractor, so an
     // absent `sutura_app::Asked` answers `500` rather than reading as the deployment's own identity.
     axum::Extension(asked): axum::Extension<sutura_app::Asked>,
+    // Opened by `middleware::enforce_timeout`, before admission - the same extension mechanism
+    // `super::query::ask` reads its own `deadline` through.
+    Extension(deadline): Extension<Deadline>,
     body: Result<Json<RunSqlBody>, JsonRejection>,
 ) -> Result<RunSqlOutcome, Failure> {
     let Json(body) = body.map_err(|rejection| crate::problem::rejected(&rejection))?;
@@ -105,7 +113,7 @@ pub(crate) async fn run_sql(
     let context = asked.context().clone();
     tracing::Span::current().record("asker", context.chain().subject().established());
     let joined = sutura_runtime::spawn_carrying_span(move || {
-        let answered = surface.run_sql(&context, &statement);
+        let answered = surface.run_sql(&context, &statement, deadline);
         drop(slot);
         drop(slot_guard);
         answered

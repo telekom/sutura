@@ -1,13 +1,14 @@
 diff --git a/crates/sutura-exec-postgres/src/raw.rs b/crates/sutura-exec-postgres/src/raw.rs
-index 9d817bc06..d719ae169 100644
+index 2f666c048..aafc90bd9 100644
 --- a/crates/sutura-exec-postgres/src/raw.rs
 +++ b/crates/sutura-exec-postgres/src/raw.rs
-@@ -55,9 +55,8 @@ impl PostgresWarehouse {
+@@ -59,10 +59,9 @@ impl PostgresWarehouse {
      pub(crate) fn run_raw(
          &self,
          statement: &sutura_domain::raw::RawStatement,
 -        presented: &Presented,
 +        _presented: &Presented,
+         deadline: Deadline,
      ) -> Result<sutura_domain::warehouse::RawRows, PostgresError> {
 -        self.deliverable(presented)?;
          let sql = statement.as_str();

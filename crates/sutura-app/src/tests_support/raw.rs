@@ -12,7 +12,9 @@ use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, Warehouse};
 use super::{AdapterFailure, DriverFailure};
 
 /// A data system that accepts a raw statement - `docs/adr/0013`'s raw SQL tool - and answers with a
-/// fixed row count, or refuses when handed the one magic statement text `"refuse me"`.
+/// fixed row count, or refuses when handed one of two magic statement texts: `"refuse me"` (a
+/// statement failure, the default predicates) or `"time me out"` (`Warehouse::deadline_exceeded`
+/// answers `true`, `telekom/sutura#1144`'s own cell).
 ///
 /// **Row count, not row CONTENT, is the whole point of this fake.** It exists for two things no
 /// certified-path fixture can stand in for: proving `crate::run_sql` actually reaches
@@ -85,6 +87,7 @@ impl Warehouse for RawCapableWarehouse {
         &self,
         statement: &sutura_domain::raw::RawStatement,
         presented: &Presented,
+        _deadline: Deadline,
     ) -> sutura_domain::warehouse::RawExecution<Self::Error> {
         if let Err(cause) = self.deliverable(presented) {
             return Some(Err(cause));
@@ -92,10 +95,20 @@ impl Warehouse for RawCapableWarehouse {
         if statement.as_str() == "refuse me" {
             return Some(Err(AdapterFailure::RefusedBySource));
         }
+        if statement.as_str() == "time me out" {
+            return Some(Err(AdapterFailure::TimedOut));
+        }
         let labels = vec![String::from("n")];
         let rows: Vec<Vec<sutura_domain::warehouse::Value>> = (0..self.rows)
             .map(|n| vec![sutura_domain::warehouse::Value::Integer(i64::try_from(n).unwrap_or(i64::MAX))])
             .collect();
         Some(Ok(sutura_domain::warehouse::RawRows::of(labels, rows)))
+    }
+
+    /// `telekom/sutura#1144`'s own predicate: `run_sql` reads this to map `"time me out"` to
+    /// `RawRefusalReason::DeadlineExceeded`, the same shape `crate::tests::deadline`'s certified-path
+    /// cells already exercise over `MonoDeadlineExceededWarehouse`.
+    fn deadline_exceeded(&self, error: &Self::Error) -> bool {
+        matches!(error, AdapterFailure::TimedOut)
     }
 }
