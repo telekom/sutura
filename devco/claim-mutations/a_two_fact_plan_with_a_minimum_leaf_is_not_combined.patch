@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine.rs b/crates/sutura-exec-datafusion/src/combine.rs
+--- a/crates/sutura-exec-datafusion/src/combine.rs
++++ b/crates/sutura-exec-datafusion/src/combine.rs
+@@ -579,7 +579,7 @@
+             .carried()
+             .iter()
+             .map(|leaf| leaf.combine())
+-            .find(|a| *a != Aggregate::Sum)
++            .find(|a| *a == Aggregate::Count)
+         {
+             // A minimum or a maximum has no value over no rows; `Definitions::assemble` refuses the
+             // definition, and this is the combine refusing to invent one if a plan ever carries it.

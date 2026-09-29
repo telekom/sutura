@@ -43,8 +43,18 @@ const QUERY: Subject = Subject {
     // answer over only the first metric named. 29: this diff also added
     // `MultiMetricTopNotExecutable` - `top` names no metric to rank by, and this build's two
     // rendering paths disagreed about which measure it meant once there was more than one.
-    // 30: questions over the filter-count limit refuse before parsing their items.
-    variants: variants(30),
+    // 30: questions over the filter-count limit refuse before parsing their items. 30 still,
+    // since `telekom/sutura#780`'s `docs/adr/0002` second amendment ADDED `CrossModelRatioWithoutSharedCalendar`
+    // and REMOVED `CrossModelRatioNotExecutable` - a straight substitution, the same mechanism
+    // line 24's `TopNotFederated` → `TopOverUncertifiedRows` already used: a cross-model ratio
+    // whose metric declares no shared calendar is refused under its own name, and the variant
+    // that used to refuse EVERY such ratio unconditionally is retired rather than kept
+    // unreachable once a declared, reachable calendar made part of that ratio's domain
+    // executable. 32: the same amendment's two-statement plan ADDED
+    // `CrossModelRatioSpansSources` (a second fact or calendar off the metric's source) and
+    // `CrossModelRatioWithoutSharedDimension` (no dimension both facts link to), each a shape the
+    // two fact legs cannot be built for, refused by name rather than planned.
+    variants: variants(32),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

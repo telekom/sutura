@@ -238,3 +238,55 @@ fn a_relationship_naming_an_absent_target_model_is_a_broken_bundle() {
         "expected JoinTargetMissing for ghost, got {failure:?}"
     );
 }
+
+/// `compile` returns `BundleInconsistent::SharedCalendarNotJoined` when a cross-model ratio's fact
+/// declares no relationship to the metric's shared calendar - the hop `assemble` proves exists
+/// (`telekom/sutura#780`), and the one each fact leg joins, so a bundle without it is broken.
+#[test]
+fn a_shared_calendar_no_fact_joins_is_a_broken_bundle() {
+    let orders = model("orders", "local", "orders", &["amount_cents", "order_date"]);
+    let visits = model("visits", "local", "visits", &["visit_id"]);
+    let calendar = model("calendar", "local", "calendar", &["order_date"]);
+    let metric = Metric::new(
+        metric_name("revenue"),
+        model_name("orders"),
+        Measure::Ratio {
+            numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+            denominator: Term::Aggregate(AggregatedColumn::on_model(
+                Aggregate::Count,
+                column("visit_id"),
+                model_name("visits"),
+            )),
+            zero_denominator: sutura_domain::measure::ZeroDenominator::Null,
+        },
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        None,
+        Description::default(),
+        Audience::Open,
+    )
+    .expect("a test metric is a metric")
+    .with_shared_calendar(model_name("calendar"));
+    let models = BTreeMap::from([
+        (model_name("orders"), orders),
+        (model_name("visits"), visits),
+        (model_name("calendar"), calendar),
+    ]);
+    let broken = pin_broken(Definitions::from_parts(
+        models,
+        BTreeMap::new(),
+        BTreeMap::from([(metric_name("revenue"), metric)]),
+    ));
+    let failure = compile(
+        &asking_revenue(Vec::new()),
+        &ScopedView::everything(&broken),
+        RowCeiling::DEFAULT,
+    )
+    .err();
+    assert!(
+        matches!(failure, Some(CompileFailure::Bundle(BundleInconsistent::SharedCalendarNotJoined { ref model, .. })) if *model == model_name("orders")),
+        "expected SharedCalendarNotJoined for orders, got {failure:?}"
+    );
+}

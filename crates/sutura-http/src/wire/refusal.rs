@@ -30,7 +30,7 @@
 //!   DELETE)."
 //!
 //! Go's `net/http` reference documents no status-driven retry anywhere in `Client`, `Transport` or
-//! `RoundTripper`. 11 refusal reasons land on `422` below, documented the other way round from the
+//! `RoundTripper`. 12 refusal reasons land on `422` below, documented the other way round from the
 //! premise: "Clients that receive a `422` response should expect that repeating the request
 //! without modification will fail with the same error."
 //!
@@ -368,14 +368,23 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // the same reason: the question is well formed and this deployment cannot express it as one
         // statement yet, which is a conflict between what was asked and what the plan stage builds
         // rather than a data system being down. Retrying it unchanged returns this same refusal.
-        RefusalReason::CrossModelRatioNotExecutable { ref metric, ref model } => (
+        RefusalReason::CrossModelRatioWithoutSharedCalendar { ref metric, ref model } => (
             StatusCode::CONFLICT,
             format!(
-                "`{metric}` measures a ratio side on model `{model}`, and this deployment does not \
-                 yet build the second fact leg such a term needs; ask a metric whose measure reads \
-                 one model, or report it to a person"
+                "`{metric}` measures a ratio side on model `{model}`, and the metric declares no \
+                 shared calendar, so both facts cannot be bucketed through the same time dimension; \
+                 ask a metric whose measure reads one model, or report it to a person"
             ),
         ),
+        // 409 with the calendar's refusal: a plan shape this metric's models cannot take.
+        RefusalReason::CrossModelRatioSpansSources { ref metric, ref model } => {
+            (StatusCode::CONFLICT, spans_sources(metric, model))
+        }
+        // 422, not 409: the question is understood and a different grouping answers it - the
+        // file's own rule for a status is what the caller should do, and that is to regroup.
+        RefusalReason::CrossModelRatioWithoutSharedDimension { ref metric, ref model } => {
+            (StatusCode::UNPROCESSABLE_ENTITY, without_shared_dimension(metric, model))
+        }
     };
     (
         status,
@@ -395,6 +404,22 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
 
 fn federation_not_executable() -> String {
     String::from("this deployment has no adapter that can execute one half of a question spanning two data systems")
+}
+
+fn spans_sources(metric: &sutura_domain::model::MetricName, model: &sutura_domain::model::ModelName) -> String {
+    format!(
+        "`{metric}` measures a ratio over two fact models, and `{model}` lives on another data system \
+         than the metric's own, so both facts cannot join its shared calendar; report it to a person"
+    )
+}
+
+/// Narrowable, unlike [`spans_sources`]: a different grouping answers it.
+fn without_shared_dimension(metric: &sutura_domain::model::MetricName, model: &sutura_domain::model::ModelName) -> String {
+    format!(
+        "`{metric}` measures a ratio over two fact models, and this question does not group only by a \
+         dimension both `{metric}`'s model and `{model}` link to; group by such a dimension, and by \
+         nothing else"
+    )
 }
 
 fn federation_link_ambiguous(source: &sutura_domain::model::SourceName) -> String {
@@ -508,7 +533,9 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::SourceRefused { .. }
         | RefusalReason::DeadlineExceeded { .. }
         | RefusalReason::TopOverUncertifiedRows { .. }
-        | RefusalReason::CrossModelRatioNotExecutable { .. } => None,
+        | RefusalReason::CrossModelRatioWithoutSharedCalendar { .. }
+        | RefusalReason::CrossModelRatioSpansSources { .. }
+        | RefusalReason::CrossModelRatioWithoutSharedDimension { .. } => None,
     }
 }
 
@@ -726,7 +753,7 @@ mod tests {
 
     #[test]
     fn every_refusal_has_a_distinct_code() {
-        // The status is shared on purpose - 11 refusal reasons land on `422` - so the code is what
+        // The status is shared on purpose - 12 refusal reasons land on `422` - so the code is what
         // a client has to be able to branch on, and two variants sharing one would make that
         // impossible. THE NUMBER HERE IS PROSE: it said four while `docs/serving.md` mapped five,
         // then five while this file gained a sixth arm, and every OTHER gate stayed green both
