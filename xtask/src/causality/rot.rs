@@ -57,6 +57,7 @@ use crate::causality::claim::{self, Claim};
 use crate::causality::place::{self, AddedTest};
 use crate::causality::scoped::{Scoped, function_name};
 use crate::repo;
+use crate::serde_parse::scan::code_lines;
 
 /// Every `.patch` file committed at `dir`, sorted by name.
 ///
@@ -180,8 +181,10 @@ fn check_apply_at(root: &Path) -> Verdict {
 enum Located {
     /// Exactly one file declares it, placed on the module tree a nextest filter can reach.
     One(AddedTest),
-    /// No file in the tree declares a test fn by this name any more - `#929`'s own shape: the
-    /// cell's test was deleted and nothing but a merge conflict noticed.
+    /// No file's CODE declares a fn by this name any more - `#929`'s own shape: the cell's test
+    /// was deleted and nothing but a merge conflict noticed. A comment or a multi-line string
+    /// naming it does not count; a non-test `fn` of the same name still does - the scan reads
+    /// `fn` items, not test attributes.
     Gone,
     /// More than one file declares a test fn by this name. Refused rather than guessed at: a
     /// wrong guess here would ask `claim::run` to mutate and kill the WRONG file's assertion.
@@ -206,9 +209,9 @@ fn locate(root: &Path, cells: &[String]) -> Result<Placement, String> {
     let scope: repo::Scope = outside_vendor;
     census
         .inspect(&[], scope, |rel, bytes| {
-            let text = String::from_utf8_lossy(bytes);
-            for line in text.lines() {
-                let Some(ident) = function_name(line) else { continue };
+            // CODE only: a comment still naming a renamed cell's old `fn` must not keep its patch alive.
+            for line in code_lines(&String::from_utf8_lossy(bytes)) {
+                let Some(ident) = function_name(&line) else { continue };
                 let Some(bucket) = found.get_mut(ident.as_str()) else {
                     continue;
                 };
@@ -541,6 +544,61 @@ mod tests {
             &root,
             "the_cell_before_its_rename",
             "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-hello\n+world\n",
+        );
+        assert_eq!(check_apply_at(&root), Verdict::Fail);
+    }
+
+    /// A scratch tree whose one committed patch, for `cell`, applies to `a.txt`, with `files`
+    /// beside it on a crate `place` can place.
+    fn applying_tree(name: &str, cell: &str, files: &[(&str, &str)]) -> PathBuf {
+        let root = scratch(name);
+        std::fs::write(root.join("a.txt"), "hello\n").expect("the target file");
+        for (path, text) in files {
+            let path = root.join(path);
+            std::fs::create_dir_all(path.parent().expect("a parent")).expect("the parent directory");
+            std::fs::write(path, text).expect("a fixture file");
+        }
+        write_patch(&root, cell, "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-hello\n+world\n");
+        root
+    }
+
+    const MANIFEST: (&str, &str) = ("Cargo.toml", "[package]\nname = \"demo\"\n");
+
+    #[test]
+    fn a_cell_two_files_declare_fails_the_apply_half() {
+        let declared = "#[test]\nfn a_shared_cell_name() {}\n";
+        let root = applying_tree(
+            "apply-ambiguous-cell",
+            "a_shared_cell_name",
+            &[
+                MANIFEST,
+                ("src/lib.rs", ""),
+                ("src/one.rs", declared),
+                ("src/two.rs", declared),
+            ],
+        );
+        assert_eq!(check_apply_at(&root), Verdict::Fail);
+    }
+
+    #[test]
+    fn a_cell_scan_that_refuses_fails_the_apply_half() {
+        // No `.rs` file at all: the census refuses an empty discovery, and that refusal is the verdict.
+        let root = applying_tree("apply-unscannable", "a_cell_the_scan_never_reached", &[]);
+        assert_eq!(check_apply_at(&root), Verdict::Fail);
+    }
+
+    #[test]
+    fn a_comment_naming_a_renamed_cell_does_not_keep_its_patch_alive() {
+        let root = applying_tree(
+            "apply-comment-only-cell",
+            "the_cell_before_its_rename",
+            &[
+                MANIFEST,
+                (
+                    "src/lib.rs",
+                    "// fn the_cell_before_its_rename was renamed\n#[test]\nfn the_cell_after_its_rename() {}\n",
+                ),
+            ],
         );
         assert_eq!(check_apply_at(&root), Verdict::Fail);
     }
