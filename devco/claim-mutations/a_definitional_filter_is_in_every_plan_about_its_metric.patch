@@ -1,9 +1,10 @@
 diff --git a/crates/sutura-semantic/src/plan.rs b/crates/sutura-semantic/src/plan.rs
+index d881269e8..62921f563 100644
 --- a/crates/sutura-semantic/src/plan.rs
 +++ b/crates/sutura-semantic/src/plan.rs
-@@ -382,7 +382,7 @@
-         },
-     ));
+@@ -407,7 +407,7 @@ fn predicates_and_params(
+ 
+     filters.extend(range_filters(resolution.range, time_column, &mut params));
  
 -    for required in metric.required_filters() {
 +    for required in metric.required_filters().iter().take(0) {
