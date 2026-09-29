@@ -133,6 +133,7 @@ as a refusal a caller would retry.
   buys is the thing the load check alone did not have - a second reader of the same rule, on
   the path where getting it wrong renders another data system's table into one statement under
   a certified metric name. `crate::plan::PlanError::ChainLeavesItsSource` carries the report.
+- `NoSecondFactModel` - The splitter carried a cross-model ratio's second-fact leaves with no second fact model or calendar model resolved for them. Same limit as `NoRemoteJoin`: `plan` dispatches such a ratio only once `resolve` has already looked up both, so nothing provokes this either - see `crate::plan::PlanError::NoSecondFactModel`'s own doc for the construction that holds it.
 
 ### Implements
 

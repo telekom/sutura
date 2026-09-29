@@ -4,336 +4,184 @@
 //! `shared`, `bundle`, `asked_by_a_person`, `test_deadline`, `metric`, `june`) exactly as the
 //! parent's own cells read them.
 
+use sutura_domain::measure::ZeroDenominator;
+use sutura_domain::plan::FederatedAnswerRefusal;
+
 use super::*;
 
 /// A two-fact `FederatedPlan` over three sources, the shape the splitter emits for a cross-model
 /// ratio whose numerator and denominator read different fact models. The fact leg (source
 /// "facts") carries the numerator leaf under the metric's own model; the second fact leg (source
 /// "orders") carries the denominator leaf under a model it names; the lookup leg (source "geo")
-/// decorates the shared link with a region. The `Federation` is an `Above::Quotient` of two leaves,
-/// so `labels(&federation)` returns leaf 0 (numerator, model `None`) and leaf 1 (denominator,
-/// model `Some(orders)`), and D9 splits the fact legs' terms along exactly that seam.
-fn two_fact_plan() -> sutura_domain::plan::FederatedPlan {
-    use sutura_domain::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
+/// decorates the shared link with a region. Both fact legs group by the link alone, which is the
+/// only key `FederatedPlan::new` admits beside a second fact. The `Federation` is an
+/// `Above::Quotient` of two leaves, so `labels(&federation)` returns leaf 0 (numerator, model
+/// `None`) and leaf 1 (denominator, model `Some(orders)`), and D9 splits the fact legs' terms along
+/// exactly that seam.
+fn two_fact_plan_of(
+    numerator: sutura_domain::model::Aggregate,
+    zero_denominator: ZeroDenominator,
+) -> sutura_domain::plan::FederatedPlan {
+    use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, ModelName, TableName};
     use sutura_domain::plan::{
         AnswerKey, InternalLabel, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanKey, PlanTerm, ResultLabel,
         StatementTables, labels,
     };
 
-    let fact_source = SourceName::parse("facts").expect("a test source");
-    let orders_source = SourceName::parse("orders").expect("a test source");
-    let lookup_source = SourceName::parse("geo").expect("a test source");
     let fact_table = TableName::parse("fct_subscription_monthly").expect("a test table");
     let orders_table = TableName::parse("dim_orders").expect("a test table");
     let column = |n: &str| ColumnName::parse(n).expect("a test column");
-    let fact_col = |n: &str| PlanColumn::new(fact_table.clone(), column(n));
-    let orders_col = |n: &str| PlanColumn::new(orders_table.clone(), column(n));
-    let dimension = |n: &str| DimensionName::parse(n).expect("a test dimension");
-    let fact_key = |n: &str| PlanKey::new(ResultLabel::dimension(&dimension(n)), fact_col(n));
-    let link = |col: PlanColumn| PlanKey::new(ResultLabel::internal(InternalLabel::Link), col);
-    let bucket = |c: &str, t: TableName| PlanBucket::new(ResultLabel::bucket(), Grain::Month, PlanColumn::new(t, column(c)));
-
-    let orders_model = ModelName::parse("orders").expect("a test model");
+    let link = |table: &TableName| {
+        PlanKey::new(
+            ResultLabel::internal(InternalLabel::Link),
+            PlanColumn::new(table.clone(), column("customer_key")),
+        )
+    };
+    // Both fact legs bucket through ONE shared calendar column, which `FederatedPlan::new` holds.
+    let calendar = PlanBucket::new(
+        ResultLabel::bucket(),
+        Grain::Month,
+        PlanColumn::new(TableName::parse("dim_calendar").expect("a test table"), column("month")),
+    );
     let measure = Measure::Ratio {
-        numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+        numerator: Term::Aggregate(AggregatedColumn::new(numerator, column("amount_cents"))),
         denominator: Term::Aggregate(AggregatedColumn::on_model(
             Aggregate::Count,
             column("customer_key"),
-            orders_model,
+            ModelName::parse("orders").expect("a test model"),
         )),
-        zero_denominator: ZeroDenominator::Null,
+        zero_denominator,
     };
     let federation = sutura_domain::federation::Federation::of(&measure);
 
-    // D9 splits a two-fact plan's terms by the model each leaf carries: the first fact leg takes
-    // the `None`-model leaves (the numerator, leaf 0) and the second fact leg takes the rest (the
-    // denominator, leaf 1). One placeholder `LegTerm` per leaf, labelled exactly as `labels` pairs
-    // the carried leaves - the same zip the production splitter runs.
-    let carried = federation.carried();
-    let all_labels = labels(&federation);
-    let fact_terms: Vec<LegTerm> = carried
-        .iter()
-        .zip(all_labels.iter())
-        .filter(|(leaf, _)| leaf.model().is_none())
-        .map(|(_, label)| {
-            LegTerm::new(
-                PlanTerm::CountIf {
-                    column: fact_col("amount_cents"),
-                },
-                ResultLabel::internal(*label),
-            )
-        })
-        .collect();
-    let second_terms: Vec<LegTerm> = carried
-        .iter()
-        .zip(all_labels.iter())
-        .filter(|(leaf, _)| leaf.model().is_some())
-        .map(|(_, label)| {
-            LegTerm::new(
-                PlanTerm::CountIf {
-                    column: orders_col("customer_key"),
-                },
-                ResultLabel::internal(*label),
-            )
-        })
-        .collect();
-
-    let fact = LegPlan::Fact {
-        source: fact_source,
+    // One placeholder `LegTerm` per leaf, labelled exactly as `labels` pairs the carried leaves -
+    // the same zip the production splitter runs - and split by the model each leaf names.
+    let terms = |second: bool, table: &TableName| -> Vec<LegTerm> {
+        federation
+            .carried()
+            .iter()
+            .zip(labels(&federation))
+            .filter(|(leaf, _)| leaf.model().is_some() == second)
+            .map(|(_, label)| {
+                LegTerm::new(
+                    PlanTerm::CountIf {
+                        column: PlanColumn::new(table.clone(), column("amount_cents")),
+                    },
+                    ResultLabel::internal(label),
+                )
+            })
+            .collect()
+    };
+    let fact_leg = |source: &str, table: &TableName, second: bool| LegPlan::Fact {
+        source: SourceName::parse(source).expect("a test source"),
         metric: metric(),
-        tables: StatementTables::only(fact_table.clone()),
-        bucket: bucket("month", fact_table.clone()),
-        keys: vec![fact_key("product_family"), link(fact_col("customer_key"))],
-        terms: fact_terms,
+        tables: StatementTables::only(table.clone()),
+        bucket: calendar.clone(),
+        keys: vec![link(table)],
+        terms: terms(second, table),
         bindings: PlanBindings::none(),
         range: june(),
     };
-    let second_fact = LegPlan::Fact {
-        source: orders_source,
-        metric: metric(),
-        tables: StatementTables::only(orders_table.clone()),
-        bucket: bucket("month", orders_table.clone()),
-        keys: vec![link(orders_col("customer_key"))],
-        terms: second_terms,
-        bindings: PlanBindings::none(),
-        range: june(),
-    };
+    let fact = fact_leg("facts", &fact_table, false);
+    let second_fact = fact_leg("orders", &orders_table, true);
     let lookup = LegPlan::Lookup {
-        source: lookup_source,
+        source: SourceName::parse("geo").expect("a test source"),
         table: fact_table.clone().into(),
-        keys: vec![link(fact_col("customer_key")), fact_key("region")],
+        keys: vec![
+            link(&fact_table),
+            PlanKey::new(
+                ResultLabel::dimension(&DimensionName::parse("region").expect("a test dimension")),
+                PlanColumn::new(fact_table.clone(), column("region")),
+            ),
+        ],
         bindings: PlanBindings::none(),
     };
     sutura_domain::plan::FederatedPlan::new(
         metric(),
         ResultLabel::measure(&metric()),
-        bucket("month", fact_table.clone()),
+        calendar,
         fact,
         Some(second_fact),
         lookup,
         true,
         federation,
-        vec![
-            AnswerKey::fact(ResultLabel::dimension(&dimension("product_family"))),
-            AnswerKey::lookup(ResultLabel::dimension(&dimension("region"))),
-        ],
+        vec![AnswerKey::lookup(ResultLabel::dimension(
+            &DimensionName::parse("region").expect("a test dimension"),
+        ))],
     )
     .expect("a valid three-source two-fact plan")
 }
 
-/// The fact leg's rows: product family, link, bucket and the numerator leaf (leaf 0). The same
-/// fixture the existing two-leg tests feed, so the numerator side is a known quantity.
-fn two_fact_rows() -> RowSet {
-    use sutura_domain::plan::InternalLabel;
-    RowSet::new(
-        vec![
-            String::from("product_family"),
-            InternalLabel::Link.label(),
-            String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
-            InternalLabel::Leaf(0).label(),
-        ],
-        vec![
-            vec![
-                Value::Text("A".into()),
-                Value::Text("c1".into()),
-                Value::Text("2026-06".into()),
-                Value::Integer(100),
-            ],
-            vec![
-                Value::Text("A".into()),
-                Value::Text("c2".into()),
-                Value::Text("2026-06".into()),
-                Value::Integer(200),
-            ],
-            vec![
-                Value::Text("B".into()),
-                Value::Text("c1".into()),
-                Value::Text("2026-06".into()),
-                Value::Integer(50),
-            ],
-        ],
-    )
-    .expect("a well-formed two-fact fact result")
+fn two_fact_plan() -> sutura_domain::plan::FederatedPlan {
+    two_fact_plan_of(sutura_domain::model::Aggregate::Sum, ZeroDenominator::Null)
 }
 
-/// The second fact leg's rows: link, bucket and the denominator leaf (leaf 1). One count per
-/// customer, the rows the denominator sums above the join.
-fn second_fact_rows() -> RowSet {
+/// One leg row: `(customer, period, leaf value)`.
+type Dated<'a> = (&'a str, &'a str, i64);
+
+/// One fact leg's rows under the link, the bucket and leaf `leaf`.
+fn fact_rows(leaf: usize, rows: &[Dated<'_>]) -> RowSet {
     use sutura_domain::plan::InternalLabel;
     RowSet::new(
         vec![
             InternalLabel::Link.label(),
             String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
-            InternalLabel::Leaf(1).label(),
+            InternalLabel::Leaf(leaf).label(),
         ],
-        vec![
-            vec![Value::Text("c1".into()), Value::Text("2026-06".into()), Value::Integer(1)],
-            vec![Value::Text("c2".into()), Value::Text("2026-06".into()), Value::Integer(1)],
-        ],
+        rows.iter()
+            .map(|&(link, period, value)| vec![Value::Text(link.into()), Value::Text(period.into()), Value::Integer(value)])
+            .collect(),
     )
-    .expect("a well-formed second-fact result")
+    .expect("well-formed fact rows")
 }
 
-/// The lookup leg's rows for the cross-model ratio: both customers in the north region, so the
-/// combiner groups by (`product_family`, `region`) and the two fact rows under A re-aggregate together.
-fn two_fact_lookup_rows() -> RowSet {
+/// The lookup leg's rows: `(customer, region)`.
+fn region_rows(rows: &[(&str, &str)]) -> RowSet {
     use sutura_domain::plan::InternalLabel;
     RowSet::new(
         vec![InternalLabel::Link.label(), String::from("region")],
-        vec![
-            vec![Value::Text("c1".into()), Value::Text("north".into())],
-            vec![Value::Text("c2".into()), Value::Text("north".into())],
-        ],
+        rows.iter()
+            .map(|&(link, region)| vec![Value::Text(link.into()), Value::Text(region.into())])
+            .collect(),
     )
-    .expect("a well-formed two-fact lookup result")
+    .expect("well-formed lookup rows")
 }
 
-/// One real cell, the shape a ratio's quotient lands in.
-fn real_cell(value: f64) -> Value {
-    Value::Real(sutura_domain::warehouse::Real::parse(value).expect("a test real is finite"))
-}
-/// The fact leg's rows for the zero-denominator cell: only family A, so each region's group has
-/// exactly one customer and the zero count is not summed away by a non-zero sibling.
-fn zero_denominator_fact_rows() -> RowSet {
-    use sutura_domain::plan::InternalLabel;
-    RowSet::new(
-        vec![
-            String::from("product_family"),
-            InternalLabel::Link.label(),
-            String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
-            InternalLabel::Leaf(0).label(),
-        ],
-        vec![
-            vec![
-                Value::Text("A".into()),
-                Value::Text("c1".into()),
-                Value::Text("2026-06".into()),
-                Value::Integer(100),
-            ],
-            vec![
-                Value::Text("A".into()),
-                Value::Text("c2".into()),
-                Value::Text("2026-06".into()),
-                Value::Integer(200),
-            ],
-        ],
-    )
-    .expect("a well-formed two-fact fact result")
+/// The fixture most cells read: c1 and c2 each with revenue and one visit in June, both in the north.
+fn revenue_rows() -> RowSet {
+    fact_rows(0, &[("c1", "2026-06", 150), ("c2", "2026-06", 200)])
 }
 
-#[test]
-fn a_cross_model_ratio_answer_is_one_certified_number() {
-    // Three sources, one warehouse each: the fact leg answers the numerator, the second fact leg
-    // answers the denominator, the lookup leg decorates the join. The combiner joins both facts
-    // INNER on the link and the lookup LEFT, then groups by (product_family, region, bucket) and
-    // divides the re-aggregated sums once, above the legs. A/north is (100 + 200) / (1 + 1) = 150
-    // and B/north is 50 / 1 = 50, the two numbers this cell pins.
-    let facts = SourceName::parse("facts").expect("a test source");
-    let orders = SourceName::parse("orders").expect("a test source");
-    let geo = SourceName::parse("geo").expect("a test source");
+fn visit_rows() -> RowSet {
+    fact_rows(1, &[("c1", "2026-06", 1), ("c2", "2026-06", 1)])
+}
+
+fn north_rows() -> RowSet {
+    region_rows(&[("c1", "north"), ("c2", "north")])
+}
+
+/// Three legs on three sources, answered through the real combiner by a broker that grants the
+/// shared identity.
+fn answered(plan: &sutura_domain::plan::FederatedPlan, fact: RowSet, second: RowSet, lookup: RowSet) -> ToolOutcome {
+    let source = |name: &str| SourceName::parse(name).expect("a test source");
     let shared = shared();
     let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
-        facts,
+        source("facts"),
         shared.clone(),
-        two_fact_rows(),
+        fact,
     ))
     .and(crate::tests_support::LegsWarehouse::answering(
-        orders,
+        source("orders"),
         shared.clone(),
-        second_fact_rows(),
+        second,
     ))
     .expect("two sources so far")
-    .and(crate::tests_support::LegsWarehouse::answering(
-        geo,
-        shared,
-        two_fact_lookup_rows(),
-    ))
+    .and(crate::tests_support::LegsWarehouse::answering(source("geo"), shared, lookup))
     .expect("three sources, one registry");
-
-    let plan = two_fact_plan();
-    let outcome = answer_federated(
+    answer_federated(
         &bundle(),
-        &plan,
-        &asked_by_a_person(),
-        &crate::tests_support::CountingBroker::default(),
-        &warehouses,
-        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
-        FEDERATED_BUDGET,
-        test_deadline(),
-        &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeiling::DEFAULT,
-    )
-    .expect("a three-source cross-model ratio is not an error")
-    .into_outcome();
-    let ToolOutcome::Answer { rows, .. } = outcome else {
-        panic!("a cross-model ratio whose three legs execute is answered, not {outcome:?}");
-    };
-    assert_eq!(rows.rows().len(), 2, "the two product families each form one group: {rows:?}");
-    let by_family = |family: &str| {
-        rows.rows()
-            .iter()
-            .find(|row| matches!(row.first(), Some(Value::Text(t)) if t == family))
-            .unwrap_or_else(|| panic!("a row for {family} is present: {rows:?}"))
-    };
-    let a = by_family("A");
-    let b = by_family("B");
-    assert_eq!(a.last(), Some(&real_cell(150.0)), "A/north is (100+200)/(1+1) = 150.0: {a:?}");
-    assert_eq!(b.last(), Some(&real_cell(50.0)), "B/north is 50/1 = 50.0: {b:?}");
-}
-
-#[test]
-fn a_cross_model_ratio_with_a_zero_denominator_subgroup_emits_null() {
-    // The zero-denominator guard is applied to the FINAL denominator, above every leg: a group
-    // whose second-fact counts all sum to zero divides by zero, and `ZeroDenominator::Null` turns
-    // that into a null cell rather than an error. Splitting the two customers across two regions
-    // keeps the groups apart - c1 alone in the north (count 0, so 100/0 -> null) and c2 alone in
-    // the south (count 1, so 200/1 = 200.0) - so the null survives the re-aggregation rather than
-    // being summed away by a non-zero sibling in the same group.
-    use sutura_domain::plan::InternalLabel;
-    let second_fact = RowSet::new(
-        vec![
-            InternalLabel::Link.label(),
-            String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
-            InternalLabel::Leaf(1).label(),
-        ],
-        vec![
-            vec![Value::Text("c1".into()), Value::Text("2026-06".into()), Value::Integer(0)],
-            vec![Value::Text("c2".into()), Value::Text("2026-06".into()), Value::Integer(1)],
-        ],
-    )
-    .expect("a well-formed second-fact result");
-    let lookup = RowSet::new(
-        vec![InternalLabel::Link.label(), String::from("region")],
-        vec![
-            vec![Value::Text("c1".into()), Value::Text("north".into())],
-            vec![Value::Text("c2".into()), Value::Text("south".into())],
-        ],
-    )
-    .expect("a well-formed lookup result");
-
-    let facts = SourceName::parse("facts").expect("a test source");
-    let orders = SourceName::parse("orders").expect("a test source");
-    let geo = SourceName::parse("geo").expect("a test source");
-    let shared = shared();
-    let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
-        facts,
-        shared.clone(),
-        zero_denominator_fact_rows(),
-    ))
-    .and(crate::tests_support::LegsWarehouse::answering(
-        orders,
-        shared.clone(),
-        second_fact,
-    ))
-    .expect("two sources so far")
-    .and(crate::tests_support::LegsWarehouse::answering(geo, shared, lookup))
-    .expect("three sources, one registry");
-
-    let plan = two_fact_plan();
-    let outcome = answer_federated(
-        &bundle(),
-        &plan,
+        plan,
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
         &warehouses,
@@ -343,28 +191,79 @@ fn a_cross_model_ratio_with_a_zero_denominator_subgroup_emits_null() {
         &SpendLedger::no_budget(),
         sutura_domain::plan::RowCeiling::DEFAULT,
     )
-    .expect("a zero-denominator group is a governed answer")
-    .into_outcome();
+    .expect("a cross-model ratio is not an error")
+    .into_outcome()
+}
+
+/// `(customer, value)` pairs as leaf `leaf`'s rows, all in June.
+fn in_june(leaf: usize, rows: &[(&str, i64)]) -> RowSet {
+    let dated: Vec<Dated<'_>> = rows.iter().map(|&(link, value)| (link, "2026-06", value)).collect();
+    fact_rows(leaf, &dated)
+}
+
+/// The answer's rows over one fact leg's `(customer, revenue)`, the second's `(customer, visits)`
+/// and the lookup's `(customer, region)`, all in June.
+fn drilled_across(fact: &[(&str, i64)], second: &[(&str, i64)], regions: &[(&str, &str)]) -> Vec<Vec<Value>> {
+    let outcome = answered(&two_fact_plan(), in_june(0, fact), in_june(1, second), region_rows(regions));
     let ToolOutcome::Answer { rows, .. } = outcome else {
-        panic!("a cross-model ratio with a zero-denominator group is answered with a null, not {outcome:?}");
+        panic!("a cross-model ratio whose three legs execute is answered, not {outcome:?}");
     };
-    assert_eq!(rows.rows().len(), 2, "one row per (family, region) group: {rows:?}");
-    let north = rows
-        .rows()
-        .iter()
-        .find(|row| matches!(row.get(1), Some(Value::Text(t)) if t == "north"))
-        .unwrap_or_else(|| panic!("a north row is present: {rows:?}"));
-    let south = rows
-        .rows()
-        .iter()
-        .find(|row| matches!(row.get(1), Some(Value::Text(t)) if t == "south"))
-        .unwrap_or_else(|| panic!("a south row is present: {rows:?}"));
+    rows.rows().to_vec()
+}
+
+/// One real cell, the shape a ratio's quotient lands in.
+fn real_cell(value: f64) -> Value {
+    Value::Real(sutura_domain::warehouse::Real::parse(value).expect("a test real is finite"))
+}
+
+/// The rows for `region`, in period order.
+fn in_region<'r>(rows: &'r [Vec<Value>], region: &str) -> Vec<&'r Vec<Value>> {
+    rows.iter()
+        .filter(|row| matches!(row.first(), Some(Value::Text(t)) if t == region))
+        .collect()
+}
+
+#[test]
+fn a_cross_model_ratio_answer_is_one_certified_number() {
+    // Three sources, one warehouse each: the fact leg answers the numerator, the second fact leg
+    // answers the denominator, the lookup leg decorates the join. The combiner joins both facts
+    // FULL on the link and the bucket and the lookup LEFT, then groups by (region, bucket) and
+    // divides the re-aggregated sums once, above the legs: north is (150 + 200) / (1 + 1) = 175.
+    let outcome = answered(&two_fact_plan(), revenue_rows(), visit_rows(), north_rows());
+    let ToolOutcome::Answer { rows, .. } = outcome else {
+        panic!("a cross-model ratio whose three legs execute is answered, not {outcome:?}");
+    };
     assert_eq!(
-        north.last(),
-        Some(&Value::Null),
-        "A/north sums to 100 over a zero count, so null: {north:?}"
+        rows.rows(),
+        [vec![
+            Value::Text("north".into()),
+            Value::Text("2026-06".into()),
+            real_cell(175.0)
+        ]],
+        "one certified number for the one group"
     );
-    assert_eq!(south.last(), Some(&real_cell(200.0)), "A/south is 200/1 = 200.0: {south:?}");
+}
+
+#[test]
+fn a_cross_model_ratio_with_a_zero_denominator_subgroup_emits_null() {
+    // The zero-denominator guard is applied to the FINAL denominator, above every leg: c1 alone in
+    // the north counts 0 visits, so 100/0 -> null under `ZeroDenominator::Null`, and c2 alone in the
+    // south is 200/1 = 200.0, so the null survives rather than being summed away by a sibling.
+    let rows = drilled_across(
+        &[("c1", 100), ("c2", 200)],
+        &[("c1", 0), ("c2", 1)],
+        &[("c1", "north"), ("c2", "south")],
+    );
+    assert_eq!(
+        in_region(&rows, "north")[0].last(),
+        Some(&Value::Null),
+        "north divides by zero: {rows:?}"
+    );
+    assert_eq!(
+        in_region(&rows, "south")[0].last(),
+        Some(&real_cell(200.0)),
+        "south is 200/1: {rows:?}"
+    );
 }
 
 #[test]
@@ -385,18 +284,18 @@ fn a_two_fact_answer_records_all_three_sources_in_executed_as() {
     let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
         facts,
         postures[0].1.clone(),
-        two_fact_rows(),
+        revenue_rows(),
     ))
     .and(crate::tests_support::LegsWarehouse::answering(
         orders,
         postures[1].1.clone(),
-        second_fact_rows(),
+        visit_rows(),
     ))
     .expect("two sources so far")
     .and(crate::tests_support::LegsWarehouse::answering(
         geo,
         postures[2].1.clone(),
-        two_fact_lookup_rows(),
+        north_rows(),
     ))
     .expect("three sources, one registry");
 
@@ -447,13 +346,9 @@ fn a_two_fact_answer_whose_second_source_lacks_a_warehouse_is_refused() {
     let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
         facts,
         shared.clone(),
-        two_fact_rows(),
+        revenue_rows(),
     ))
-    .and(crate::tests_support::LegsWarehouse::answering(
-        geo,
-        shared,
-        two_fact_lookup_rows(),
-    ))
+    .and(crate::tests_support::LegsWarehouse::answering(geo, shared, north_rows()))
     .expect("two sources, one registry - the second fact source is missing");
 
     let refused = answer_federated(
@@ -492,19 +387,15 @@ fn a_second_fact_whose_credential_disagrees_with_its_adapters_posture_never_exec
     let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
         facts,
         shared(),
-        two_fact_rows(),
+        revenue_rows(),
     ))
     .and(crate::tests_support::LegsWarehouse::answering(
         orders.clone(),
         sutura_domain::source::SourcePosture::ImpersonationAtSource,
-        second_fact_rows(),
+        visit_rows(),
     ))
     .expect("two sources so far")
-    .and(crate::tests_support::LegsWarehouse::answering(
-        geo,
-        shared(),
-        two_fact_lookup_rows(),
-    ))
+    .and(crate::tests_support::LegsWarehouse::answering(geo, shared(), north_rows()))
     .expect("three sources, one registry");
 
     let failure = answer_federated(
@@ -536,59 +427,14 @@ fn a_second_fact_with_two_rows_for_one_link_and_period_is_refused() {
     // The second fact is joined on the link and the bucket, so two of its rows for c1 in June
     // would meet every first-fact c1 row twice and double the numerator under it. Refused as the
     // lookup side's own duplicate is, rather than answered as a wrong number.
-    use sutura_domain::plan::InternalLabel;
-    let duplicated = RowSet::new(
-        vec![
-            InternalLabel::Link.label(),
-            String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
-            InternalLabel::Leaf(1).label(),
-        ],
-        vec![
-            vec![Value::Text("c1".into()), Value::Text("2026-06".into()), Value::Integer(1)],
-            vec![Value::Text("c1".into()), Value::Text("2026-06".into()), Value::Integer(1)],
-            vec![Value::Text("c2".into()), Value::Text("2026-06".into()), Value::Integer(1)],
-        ],
-    )
-    .expect("a well-formed second-fact result");
-    let shared = shared();
-    let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
-        SourceName::parse("facts").expect("a test source"),
-        shared.clone(),
-        two_fact_rows(),
-    ))
-    .and(crate::tests_support::LegsWarehouse::answering(
-        SourceName::parse("orders").expect("a test source"),
-        shared.clone(),
-        duplicated,
-    ))
-    .expect("two sources so far")
-    .and(crate::tests_support::LegsWarehouse::answering(
-        SourceName::parse("geo").expect("a test source"),
-        shared,
-        two_fact_lookup_rows(),
-    ))
-    .expect("three sources, one registry");
-
-    let outcome = answer_federated(
-        &bundle(),
-        &two_fact_plan(),
-        &asked_by_a_person(),
-        &FixedBroker::GrantsShared,
-        &warehouses,
-        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
-        FEDERATED_BUDGET,
-        test_deadline(),
-        &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeiling::DEFAULT,
-    )
-    .expect("a deterministic combine failure is a refusal, not a `ServiceError`")
-    .into_outcome();
+    let duplicated = fact_rows(1, &[("c1", "2026-06", 1), ("c1", "2026-06", 1), ("c2", "2026-06", 1)]);
+    let outcome = answered(&two_fact_plan(), revenue_rows(), duplicated, north_rows());
     assert!(
         matches!(
             outcome,
             ToolOutcome::Refusal {
                 reason: RefusalReason::FederatedAnswerNotWellFormed {
-                    federated: sutura_domain::plan::FederatedAnswerRefusal::AmbiguousLink
+                    federated: FederatedAnswerRefusal::AmbiguousLink
                 }
             }
         ),
@@ -602,62 +448,132 @@ fn a_second_fact_with_two_periods_is_joined_per_period_rather_than_fanned_out() 
     // would meet both second-fact rows: June (100 + 100) / (1 + 3) = 50 and July (300 + 300) /
     // (1 + 3) = 150. Joined on the link and the bucket, each month divides its own rows once:
     // 100 / 1 and 300 / 3, both 100.
-    use sutura_domain::plan::InternalLabel;
-    let bucket = String::from(sutura_domain::catalog::TIME_BUCKET_LABEL);
-    let fact_rows = RowSet::new(
+    let fact = fact_rows(0, &[("c1", "2026-06", 100), ("c1", "2026-07", 300)]);
+    let second = fact_rows(1, &[("c1", "2026-06", 1), ("c1", "2026-07", 3)]);
+    let ToolOutcome::Answer { rows, .. } = answered(&two_fact_plan(), fact, second, north_rows()) else {
+        panic!("a two-period cross-model ratio is answered");
+    };
+    let ratios: Vec<&[Value]> = rows.rows().iter().map(|row| &row[1..]).collect();
+    assert_eq!(
+        ratios,
         vec![
-            String::from("product_family"),
-            InternalLabel::Link.label(),
-            bucket.clone(),
-            InternalLabel::Leaf(0).label(),
+            &[Value::Text("2026-06".into()), real_cell(100.0)][..],
+            &[Value::Text("2026-07".into()), real_cell(100.0)][..],
         ],
-        vec![
-            vec![
-                Value::Text("A".into()),
-                Value::Text("c1".into()),
-                Value::Text("2026-06".into()),
-                Value::Integer(100),
-            ],
-            vec![
-                Value::Text("A".into()),
-                Value::Text("c1".into()),
-                Value::Text("2026-07".into()),
-                Value::Integer(300),
-            ],
-        ],
-    )
-    .expect("a well-formed two-period fact result");
-    let second_rows = RowSet::new(
-        vec![InternalLabel::Link.label(), bucket, InternalLabel::Leaf(1).label()],
-        vec![
-            vec![Value::Text("c1".into()), Value::Text("2026-06".into()), Value::Integer(1)],
-            vec![Value::Text("c1".into()), Value::Text("2026-07".into()), Value::Integer(3)],
-        ],
-    )
-    .expect("a well-formed two-period second-fact result");
+        "each month divides its own rows once: {rows:?}"
+    );
+}
 
+/// Review probe C1, as a golden: c2 has revenue and no visit, and its revenue still counts. The
+/// ratio of the region's totals is (100 + 200) / 1 = 300; joined INNER, c2 left the numerator and
+/// the certified number was 100.
+#[test]
+fn a_customer_only_the_first_fact_reached_still_counts_in_the_numerator() {
+    let rows = drilled_across(&[("c1", 100), ("c2", 200)], &[("c1", 1)], &[("c1", "north"), ("c2", "north")]);
+    assert_eq!(
+        in_region(&rows, "north")[0].last(),
+        Some(&real_cell(300.0)),
+        "north is (100 + 200) / 1: {rows:?}"
+    );
+}
+
+/// The owner's empty-set rule, numerator side: a region only the revenue fact reached reads its
+/// visits as a count over no rows, 0, so it divides by zero - and `Null` answers null for it,
+/// never a missing row (review probe C2).
+#[test]
+fn a_group_only_the_numerator_reached_divides_by_an_empty_count() {
+    let rows = drilled_across(&[("c1", 100), ("c2", 200)], &[("c1", 1)], &[("c1", "north"), ("c2", "south")]);
+    assert_eq!(
+        in_region(&rows, "south")[0].last(),
+        Some(&Value::Null),
+        "south is 200/0 under Null: {rows:?}"
+    );
+    assert_eq!(in_region(&rows, "north")[0].last(), Some(&real_cell(100.0)));
+}
+
+/// The same group under `Fail`: an empty count is a zero, and a zero denominator is the fault the
+/// definition declared - refused exactly as an explicit zero row is, never answered as null.
+#[test]
+fn a_group_only_the_numerator_reached_is_refused_under_fail() {
+    let outcome = answered(
+        &two_fact_plan_of(sutura_domain::model::Aggregate::Sum, ZeroDenominator::Fail),
+        fact_rows(0, &[("c1", "2026-06", 100), ("c2", "2026-06", 200)]),
+        fact_rows(1, &[("c1", "2026-06", 1)]),
+        region_rows(&[("c1", "north"), ("c2", "south")]),
+    );
+    assert!(
+        matches!(
+            outcome,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::FederatedAnswerNotWellFormed {
+                    federated: FederatedAnswerRefusal::NonFinite
+                }
+            }
+        ),
+        "200/0 under Fail is refused, as an explicit zero row is: {outcome:?}"
+    );
+}
+
+/// The empty-set rule, denominator side: a region only the visits fact reached reads its revenue as
+/// a sum over no rows, 0, so its ratio is 0/2 = 0 - a figure, not a null and not a missing row.
+#[test]
+fn a_group_only_the_denominator_reached_is_a_zero_ratio() {
+    let rows = drilled_across(&[("c1", 100)], &[("c1", 1), ("c2", 2)], &[("c1", "north"), ("c2", "south")]);
+    assert_eq!(
+        in_region(&rows, "south").into_iter().map(|row| &row[1..]).collect::<Vec<_>>(),
+        [&[Value::Text("2026-06".into()), real_cell(0.0)][..]],
+        "south is 0/2 in June: {rows:?}"
+    );
+}
+
+/// The coalesced bucket keeps a customer only the second fact reached apart per period: c2's June
+/// and July visits are two rows, each under its own period, never one row with a null period.
+#[test]
+fn a_customer_only_the_second_fact_reached_keeps_each_period_apart() {
+    let outcome = answered(
+        &two_fact_plan(),
+        fact_rows(0, &[("c1", "2026-06", 100)]),
+        fact_rows(1, &[("c1", "2026-06", 1), ("c2", "2026-06", 1), ("c2", "2026-07", 1)]),
+        region_rows(&[("c1", "north"), ("c2", "south")]),
+    );
+    let ToolOutcome::Answer { rows, .. } = outcome else {
+        panic!("a cross-model ratio is answered, not {outcome:?}");
+    };
+    let south: Vec<&Value> = in_region(rows.rows(), "south").into_iter().map(|row| &row[1]).collect();
+    assert_eq!(
+        south,
+        [&Value::Text("2026-06".into()), &Value::Text("2026-07".into())],
+        "two periods, two rows: {rows:?}"
+    );
+}
+
+/// A minimum has no value over no rows, so the combine refuses a two-fact plan carrying one rather
+/// than reading an absent side as 0. `Definitions::assemble` refuses such a definition first; this
+/// hand-built plan is the only way past it, and the cell is the witness for the combiner's own guard.
+#[test]
+fn a_two_fact_plan_with_a_minimum_leaf_is_not_combined() {
+    let source = |name: &str| SourceName::parse(name).expect("a test source");
     let shared = shared();
     let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
-        SourceName::parse("facts").expect("a test source"),
+        source("facts"),
         shared.clone(),
-        fact_rows,
+        revenue_rows(),
     ))
     .and(crate::tests_support::LegsWarehouse::answering(
-        SourceName::parse("orders").expect("a test source"),
+        source("orders"),
         shared.clone(),
-        second_rows,
+        visit_rows(),
     ))
     .expect("two sources so far")
     .and(crate::tests_support::LegsWarehouse::answering(
-        SourceName::parse("geo").expect("a test source"),
+        source("geo"),
         shared,
-        two_fact_lookup_rows(),
+        north_rows(),
     ))
     .expect("three sources, one registry");
-
-    let outcome = answer_federated(
+    let failure = answer_federated(
         &bundle(),
-        &two_fact_plan(),
+        &two_fact_plan_of(sutura_domain::model::Aggregate::Min, ZeroDenominator::Null),
         &asked_by_a_person(),
         &FixedBroker::GrantsShared,
         &warehouses,
@@ -667,18 +583,16 @@ fn a_second_fact_with_two_periods_is_joined_per_period_rather_than_fanned_out() 
         &SpendLedger::no_budget(),
         sutura_domain::plan::RowCeiling::DEFAULT,
     )
-    .expect("a two-period cross-model ratio is not an error")
-    .into_outcome();
-    let ToolOutcome::Answer { rows, .. } = outcome else {
-        panic!("a two-period cross-model ratio is answered, not {outcome:?}");
-    };
-    let ratios: Vec<&[Value]> = rows.rows().iter().map(|row| &row[2..]).collect();
-    assert_eq!(
-        ratios,
-        vec![
-            &[Value::Text("2026-06".into()), real_cell(100.0)][..],
-            &[Value::Text("2026-07".into()), real_cell(100.0)][..],
-        ],
-        "each month divides its own rows once: {rows:?}"
+    .err();
+    assert!(
+        matches!(
+            failure,
+            Some(crate::ServiceError::Combine {
+                cause: sutura_exec_datafusion::CombineError::UnsupportedAggregate {
+                    aggregate: sutura_domain::model::Aggregate::Min
+                }
+            })
+        ),
+        "a minimum leaf in a two-fact plan is refused by the combiner: {failure:?}"
     );
 }

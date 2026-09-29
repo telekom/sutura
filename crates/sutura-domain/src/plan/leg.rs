@@ -385,6 +385,19 @@ impl LegPlan {
         }
     }
 
+    /// The aggregated terms this fact leg computes, in projection order.
+    ///
+    /// Empty for a [`Lookup`](Self::Lookup) leg (no aggregation) and for the distinct-key fact leg
+    /// (no measure), which is the whole of that shape. At most four entries on a fact leg, because a
+    /// [`Measure`](crate::measure::Measure) is one term or a ratio of two and `Avg` expands one.
+    #[inline]
+    pub fn terms(&self) -> &[LegTerm] {
+        match *self {
+            Self::Fact { ref terms, .. } => terms,
+            Self::Lookup { .. } => &[],
+        }
+    }
+
     /// The predicates this leg applies.
     #[inline]
     pub fn filters(&self) -> &[PlanFilter] {
