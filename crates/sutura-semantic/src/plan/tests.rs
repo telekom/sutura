@@ -769,13 +769,8 @@ fn a_multi_metric_question_reaching_a_remote_dimension_is_refused_by_name() {
     );
 }
 
-// No separate "cross-model ratio without a shared calendar" cell here: the sibling above,
-// `a_ratio_term_naming_another_model_is_refused_with_a_remote_dimension_too`, already builds this
-// exact fixture (a metric with no `shared_calendar` and a ratio term naming `customers`) and
-// already asserts `CrossModelRatioWithoutSharedCalendar` - `plan()`'s `shared_calendar().is_none()`
-// check returns before `cross` is ever read, so a second copy differing only in that
-// field would exercise the identical branch. A `jscpd` clone of that test was here and was cut
-// rather than kept beside a `dup-ignore` exception, per `docs/adr/0002`'s second amendment.
+// No separate no-calendar cell: `a_ratio_term_naming_another_model_is_refused_with_a_remote_dimension_too`
+// above is that fixture and asserts `CrossModelRatioWithoutSharedCalendar`.
 
 /// A term that spells the metric's OWN model federates exactly like one naming none: both leaves
 /// stay on the first fact leg and no second leg exists. `resolve` sets no second fact model for
@@ -984,4 +979,20 @@ fn a_cross_model_ratio_no_two_statements_can_answer_is_refused_by_name() {
             "expected CrossModelRatioSpansSources naming {model}, got {reason:?}"
         );
     }
+}
+
+/// A calendar model over the second fact's own table would put both facts' tables in the first
+/// leg's statement - the chasm trap. It is refused as the alias clash it also is (review G8), and
+/// this cell pins that, so an aliasing scheme that one day admits a self-join cannot admit this.
+#[test]
+fn a_calendar_over_a_fact_s_own_table_is_refused_rather_than_joined() {
+    let over_visits = two_facts(&Placed {
+        calendar_table: "dim_visits",
+        ..ONE_SOURCE
+    });
+    let reason = refusal(ask(&over_visits, &["region"]));
+    assert!(
+        matches!(reason, RefusalReason::PlanTablesShareAnIdentifier { ref table } if table.as_str() == "dim_visits"),
+        "expected PlanTablesShareAnIdentifier naming dim_visits, got {reason:?}"
+    );
 }

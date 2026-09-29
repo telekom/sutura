@@ -84,6 +84,8 @@ impl TwoSources {
 pub(super) struct Placed {
     pub(super) visits_on: &'static str,
     pub(super) calendar_on: &'static str,
+    /// The calendar model's physical table.
+    pub(super) calendar_table: &'static str,
     pub(super) visits_link: bool,
 }
 
@@ -99,7 +101,13 @@ pub(super) fn two_facts(placed: &Placed) -> PinnedDefinitions {
             &["amount_cents", "customer_key", "day_key", "day", "channel"],
         ),
         model("visits", placed.visits_on, &["visit_id", "customer_key", "day_key"]),
-        model("calendar", placed.calendar_on, &["day_key", "day"]),
+        Model::new(
+            ModelName::parse("calendar").expect("a test model is a model"),
+            SourceName::parse(placed.calendar_on).expect("a test source is a source"),
+            TableName::parse(placed.calendar_table).expect("a test table is a table"),
+            ["day_key", "day"].iter().map(|c| column(c)),
+            Description::default(),
+        ),
         model("customers", "remote", &["customer_key", "region_code"]),
     ];
     let mut relationships = vec![
@@ -211,6 +219,7 @@ pub(super) fn revenue_beside_a_ratio(ratio_calendar: bool) -> (Metric, Metric) {
 pub(super) const ONE_SOURCE: Placed = Placed {
     visits_on: "local",
     calendar_on: "local",
+    calendar_table: "dim_calendar",
     visits_link: true,
 };
 
