@@ -3,9 +3,6 @@
 //! Its own module for the reason `wire/refusal.rs` has one: a seam the thousand-line limit on
 //! `wire.rs` does not have room for.
 //!
-//! ## Status mapping
-//! `DeadlineExceeded` shares `UNPROCESSABLE_ENTITY` with `StatementFailed` because both indicate
-//! the caller should modify the request rather than retry it as-is.
 //! It shares the discriminator's NAME (`outcome`), the `columns`/`rows` keys a row-carrying body
 //! needs whichever tool produced it, and the same content-negotiation `axum::Json` gives every
 //! response here - never the discriminator's VALUE, and never a provenance-shaped key. See below.
@@ -187,10 +184,8 @@ mod tests {
     /// Four of the five; `TooManyRows`'s own status is pinned through the real router in
     /// `crate::harness::run_sql`, so this file tests four variants of
     /// `RawRefusalReason` (`ResultTooLarge`, `StatementFailed`, `SourceRefused`, `DeadlineExceeded`) but
-    /// not all five - the `cargo xtask check-refusal-coverage` enrolment holds that a census over
-    /// the enum requires naming every variant, so a file naming fewer than all supplies no evidence
-    /// for any. `telekom/sutura#1144` added `DeadlineExceeded` to the test (`#1144` threads per-request
-    /// deadlines through `execute_raw`).
+    /// not all five. A file naming EVERY variant of an enum is a census and supplies no evidence for
+    /// that enum, so a file naming fewer than all supplies evidence for those named.
     #[test]
     fn four_of_the_five_refusal_reasons_have_a_status() {
         for (reason, status) in [

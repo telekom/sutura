@@ -47,15 +47,13 @@ impl PostgresWarehouse {
     /// side effects once the connecting role may call it. Naming such a function in the statement is
     /// outside both this transaction and the role grant it sits beside.
     ///
-    /// **`SET LOCAL statement_timeout` now rides the same `BEGIN READ ONLY`** (`telekom/sutura#1144`),
-    /// what is left of `deadline` clamped to the connect-time ceiling - `docs/adr/0029`'s Postgres
-    /// row, the same shape [`PostgresWarehouse::run_with_deadline`] already has for the certified
-    /// path. **The lock is acquired FIRST, then the deadline is re-checked** (via
-    /// [`crate::deadline::refuse_if_spent`]), the identical ordering and the identical reason:
-    /// waiting for `execution_lock` is itself outside the deadline. Before this change the raw path
-    /// carried no per-request `Deadline` at all and stopped only at the connect-time ceiling
-    /// (`SUTURA_DEV_STATEMENT_TIMEOUT_MS`); that ceiling remains the outer bound `SET LOCAL` may
-    /// only narrow, never widen.
+    /// **`SET LOCAL statement_timeout` rides the same `BEGIN READ ONLY`**, what is left of `deadline`
+    /// clamped to the connect-time ceiling - `docs/adr/0029`'s Postgres row, the same shape
+    /// [`PostgresWarehouse::run_with_deadline`] already has for the certified path. **The lock is
+    /// acquired FIRST, then the deadline is re-checked** (via [`crate::deadline::refuse_if_spent`]),
+    /// the identical ordering and the identical reason: waiting for `execution_lock` is itself
+    /// outside the deadline. The connect-time ceiling (`SUTURA_DEV_STATEMENT_TIMEOUT_MS`) remains the
+    /// outer bound `SET LOCAL` may only narrow, never widen.
     pub(crate) fn run_raw(
         &self,
         statement: &sutura_domain::raw::RawStatement,

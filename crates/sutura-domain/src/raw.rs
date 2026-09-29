@@ -13,7 +13,7 @@
 //! `docs/adr/0013`'s amendment gives: [`crate::query::RefusalReason`] is keyed to a compiled plan -
 //! dimensions, grains, federation - and a raw statement has none of those to refuse. What it can be
 //! refused for is a bound this deployment applies before or after execution, or the data system's own
-//! answer about the statement, and this module's four variants are exactly that list.
+//! answer about the statement, and this module's five variants are exactly that list.
 //!
 //! # What this module does not decide
 //!
@@ -118,7 +118,7 @@ pub enum RawRefusalReason {
     /// rows plus one off a STREAMED result (`Client::query_raw`) before refusing, rather than by
     /// materialising the whole result first and counting afterward. What this does NOT bound: the
     /// statement's own execution time or the SERVER's memory while it produces those rows - both
-    /// are the connect-time `statement_timeout`'s job, a coarser and unrelated ceiling.
+    /// are bounded by the per-request deadline and the connect-time `statement_timeout`, the finer and coarser ceilings.
     TooManyRows { limit: u32 },
     /// The data system would not hand this result back in one piece.
     ///
@@ -126,8 +126,8 @@ pub enum RawRefusalReason {
     /// belongs to the data system, and a figure borrowed from wherever the statement failed would be
     /// a certified-looking number for a bound that is not the one that fired.
     ResultTooLarge,
-    /// The statement did not complete: a syntax error the data system's own parser found, a
-    /// constraint it enforced, or the connection's own statement timeout firing before it returned.
+    /// The statement did not complete: a syntax error the data system's own parser found, or a
+    /// constraint it enforced.
     ///
     /// **No text from the driver is carried**, and that is the whole point of the variant rather than
     /// a field left unfilled. Whoever controls the statement controls part of the message a database
@@ -192,7 +192,7 @@ impl fmt::Display for RawRefusalReason {
             Self::SourceRefused => write!(f, "the data system refused this statement"),
             Self::DeadlineExceeded { budget_seconds } => write!(
                 f,
-                "this deployment stopped the statement after its configured budget of {budget_seconds} seconds"
+                "this deployment stopped the statement due to a deadline (limit: {budget_seconds}s or less)"
             ),
         }
     }

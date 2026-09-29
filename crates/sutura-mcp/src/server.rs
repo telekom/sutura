@@ -871,7 +871,7 @@ where
 /// One raw statement, under both bounds, as a tool result - [`answer`]'s shape, over
 /// [`Surface::run_sql`] instead of [`Surface::answer`].
 ///
-/// **Now opens a [`Deadline`] too** (`telekom/sutura#1144`), the same instant [`answer`]'s own is.
+/// Opens a [`Deadline`] the same instant [`answer`]'s own is.
 async fn run_sql<S>(
     service: &Arc<S>,
     admission: &Admission,

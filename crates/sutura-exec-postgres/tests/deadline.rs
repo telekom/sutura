@@ -566,4 +566,39 @@ mod deadline {
             "DeadlineSpent must classify as deadline_exceeded too: {error}"
         );
     }
+
+    #[test]
+    fn a_raw_caller_spent_while_waiting_for_the_lock_is_refused_locally() {
+        let Some((warehouse, _schema)) = open("rawlockwait") else {
+            return;
+        };
+        let deadline = Deadline::opened_at(
+            Instant::now(),
+            Budget::parse(Duration::from_millis(300)).expect("300ms is a budget"),
+        );
+
+        let blocker_deadline = Deadline::opened_at(
+            Instant::now(),
+            Budget::parse(Duration::from_secs(30)).expect("30s is a budget"),
+        );
+        let outcome = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                drop(warehouse.execute_raw(&statement("select pg_sleep(1.5)"), &corpus::presented(), blocker_deadline));
+            });
+            std::thread::sleep(Duration::from_millis(100));
+            warehouse.execute_raw(&statement("select 1"), &corpus::presented(), deadline)
+        });
+
+        let error = outcome
+            .expect("a raw call must produce an execution result")
+            .expect_err("a raw call with a budget spent waiting for the lock must not answer with rows");
+        assert!(
+            matches!(error, PostgresError::DeadlineSpent),
+            "expected DeadlineSpent, got {error:?}"
+        );
+        assert!(
+            warehouse.deadline_exceeded(&error),
+            "DeadlineSpent must classify as deadline_exceeded too: {error}"
+        );
+    }
 }
