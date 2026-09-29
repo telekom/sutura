@@ -314,7 +314,8 @@ pub(crate) fn agent_instructions(
 ) -> Result<RenderedPromptWithOperator, String> {
     let (prose, operator) = prompt_inputs(settings.prompt())?;
     let tools = agent_tools(settings);
-    let inputs = PromptInputs::new(&tools, prose, operator.as_deref());
+    let inputs =
+        PromptInputs::new(&tools, prose, operator.as_deref()).listing_physical_schema(settings.prompt().list_physical_schema());
     Ok((sutura_app::prompt::render(&ScopedView::everything(pinned), &inputs), operator))
 }
 

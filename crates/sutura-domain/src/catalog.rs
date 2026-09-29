@@ -71,10 +71,10 @@ pub const TIME_BUCKET_LABEL: &str = "period";
 /// the fix for that other half.
 pub const MAX_VALUES_PER_DIMENSION: usize = 64;
 
-/// The most bytes a whole [`Definitions`] may carry of authored content beyond its own identifiers.
+/// The most bytes a whole [`Definitions`] may carry of authored content and physical model identifiers.
 ///
-/// Every column a model declares, every required filter and dimension value a metric declares, and
-/// every model's and metric's description count toward it.
+/// Every model and table name, every column a model declares, every required filter and dimension
+/// value a metric declares, and every model's and metric's description count toward it.
 ///
 /// **The count [`MAX_VALUES_PER_DIMENSION`]'s own note names as missing**: that bound is one
 /// dimension's, and nothing capped how many dimensions a metric declares, how many required filters
@@ -84,18 +84,19 @@ pub const MAX_VALUES_PER_DIMENSION: usize = 64;
 /// applied to the catalog that bundle is checked against.
 ///
 /// **Measured before it was chosen, and re-measured for issue #966's column type and column
-/// description, which this bound did not cover before either existed, and again once every column
-/// in the shipped corpus gained one.** This repository's shipped `single-player` catalog - the
-/// larger of the two example catalogs - is the reference: its widest model (`subscriptions`)
-/// declares 8 columns, no metric declares more than one required filter, and every column of every
-/// model now carries a declared type - not one column, all of them - so this figure moved off the
-/// column-blind measurement for that reason, not past any round number. Its columns' names and
-/// types, required filters and dimension values together sum to about 1.1 KiB. Descriptions are the
-/// rest of it, at about 25.4 KiB across eleven metrics and five models - each individually inside
-/// [`MAX_DESCRIPTION_BYTES`], and it is their COUNT that was uncapped. `Definitions::authored_bytes`
-/// over the loaded corpus reads about 26.6 KiB in total.
+/// description, which this bound did not cover before either existed.** This repository's shipped
+/// `single-player` catalog - the larger of the two example catalogs - is the reference: its widest
+/// model (`subscriptions`) declares 8 columns, no metric declares more than one required filter, and
+/// its columns (now including one declared type), required filters and dimension values together
+/// sum to 922 bytes - one column (`subscriptions.mrr_cents`) carries a declared type and a
+/// description, and that is what moved this half from the earlier column-blind measurement's
+/// under-1-KiB figure at all, not past any round number. Descriptions are the rest of it, at 24053
+/// bytes (~23.5 KiB) across eleven metrics and five models - each individually inside
+/// [`MAX_DESCRIPTION_BYTES`], and it is their COUNT that was uncapped. Counting the five model names
+/// and table paths adds 120 bytes; `Definitions::authored_bytes` over the loaded corpus reads 25095
+/// bytes, ~24.5 KiB in total.
 ///
-/// [`MAX_DEFINITIONS_BYTES`] is 128 KiB: about 4.8 times that reference catalog's ~26.6 KiB, less
+/// [`MAX_DEFINITIONS_BYTES`] is 128 KiB: about 5.2 times that reference catalog's ~24.5 KiB, less
 /// headroom than the ~6.5 times an earlier, column-blind measurement claimed - restated here rather
 /// than left to say a smaller bundle than the corpus now is. Still more than
 /// [`crate::knowledge::MAX_KNOWLEDGE_BYTES`]'s five times its own reference, because a definitions
@@ -118,11 +119,8 @@ pub const MAX_DEFINITIONS_BYTES: usize = 128 * 1024;
 /// as what holds "never a cast", not the type system, because nothing here stops a future reader of
 /// [`Self::data_type`] from treating it as one.
 ///
-/// **Column prose is parsed and pinned, and reaches no rendering surface today.** No composition
-/// root's prompt, tool result or HTTP body names a column - `sutura_app::prompt`'s own header states
-/// that as a deliberate absence - so this type has nothing to gate behind `prompt.catalog_prose` yet.
-/// If a future surface renders it, it goes through that same gate, the way every other quoted
-/// description does.
+/// **Column prose is parsed and pinned.** The opt-in physical-schema listing quotes it under
+/// `prompt.catalog_prose`; a deployment omitting catalog prose omits it on both prompt and tool.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Column {
     name: ColumnName,
@@ -218,6 +216,8 @@ pub struct Model {
     columns: BTreeMap<ColumnName, Column>,
     primary_key: BTreeSet<ColumnName>,
     description: Description,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    audience: Option<Audience>,
 }
 
 impl Model {
@@ -256,7 +256,20 @@ impl Model {
                 .collect(),
             primary_key: BTreeSet::new(),
             description,
+            audience: None,
         }
+    }
+
+    /// Declares who may see this model in an opted-in physical-schema listing.
+    #[must_use]
+    pub fn with_audience(mut self, audience: Audience) -> Self {
+        self.audience = Some(audience);
+        self
+    }
+
+    #[inline]
+    pub const fn audience(&self) -> Option<&Audience> {
+        self.audience.as_ref()
     }
 
     /// Declares which of this model's columns a source's own dictionary marks as its primary key.
@@ -742,6 +755,19 @@ pub struct Metric {
     /// Who may see this metric - `docs/adr/0028`. Under the digest, like everything else here: a
     /// classification change moves it exactly as a rename would.
     audience: Audience,
+    /// The conformed time dimension both fact models of a cross-model ratio reach through a
+    /// `via`, so both facts bucket through the SAME calendar column (`telekom/sutura#780`).
+    ///
+    /// `None` for every metric written before #780's second leg - a one-model metric has one fact
+    /// and buckets through its own `time_column`. `Some` names a calendar model that BOTH the
+    /// metric's own model and every cross-model ratio term's model reach through a declared
+    /// relationship; the consistency check at load refuses a name no model reaches. The bucket
+    /// column is the metric's own `time_column` resolved against the calendar model's table, so a
+    /// `month`-grain question over two fact tables joined to one `dim_calendar` groups both legs
+    /// by the calendar's `day` truncated to a month, and the combiner joins them on the link AND
+    /// the bucket.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shared_calendar: Option<ModelName>,
 }
 
 impl Metric {
@@ -846,6 +872,7 @@ impl Metric {
             anchor,
             description,
             audience,
+            shared_calendar: None,
         })
     }
 
@@ -915,6 +942,30 @@ impl Metric {
     #[inline]
     pub fn dimension(&self, name: &DimensionName) -> Option<&Dimension> {
         self.dimensions.get(name)
+    }
+
+    /// Declares the conformed calendar model both fact models of a cross-model ratio reach
+    /// through a `via` (`telekom/sutura#780`). A builder rather than a constructor argument,
+    /// so every existing caller of [`Metric::new`] compiles unchanged - a one-model metric has
+    /// no shared calendar, and its on-disk shape and digest do not move the day this field ships.
+    ///
+    /// The name is checked at load by [`Definitions::assemble`]
+    /// ([`InconsistentDefinitions::SharedCalendarNotReachable`]): the calendar model must exist,
+    /// and both the metric's own model and every cross-model ratio term's model must reach it
+    /// through a declared relationship. The builder does not check, because the relationships
+    /// are cross-references only the assembled [`Definitions`] can see.
+    #[inline]
+    #[must_use]
+    pub fn with_shared_calendar(mut self, calendar: ModelName) -> Self {
+        self.shared_calendar = Some(calendar);
+        self
+    }
+
+    /// The conformed calendar model both fact models of a cross-model ratio reach through a
+    /// `via`, or `None` for a one-model metric that buckets through its own `time_column`.
+    #[inline]
+    pub const fn shared_calendar(&self) -> Option<&ModelName> {
+        self.shared_calendar.as_ref()
     }
 }
 

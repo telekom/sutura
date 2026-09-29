@@ -79,6 +79,7 @@ members = [
   # `sutura-exec-postgres` is not: nothing here links it into `sutura-cli`, so producing goldens
   # against a real Oracle is what it exists to prove, not a servable source.
   "crates/sutura-exec-oracle",
+  "crates/sutura-adbc",
   # The one place any outbound TLS adapter reads a declared bundle or the host store: no
   # `RootCertStore`, no crypto provider, no network client - just the bytes a caller's own verifier
   # folds in. `sutura-exec-postgres` depends on it today; the `BigQuery` wire's own reader
@@ -174,6 +175,7 @@ sutura-exec-oracle = { path = "crates/sutura-exec-oracle" }
 # `cargo xtask unused-deps` is what keeps the line honest in either direction. Still no golden or
 # differential suite: the crate's own `lib.rs` header carries what remains unreached.
 sutura-exec-clickhouse = { path = "crates/sutura-exec-clickhouse" }
+sutura-adbc = { path = "crates/sutura-adbc" }
 sutura-tls = { path = "crates/sutura-tls" }
 sutura-http-client = { path = "crates/sutura-http-client" }
 sutura-bounded-read = { path = "crates/sutura-bounded-read" }
@@ -696,11 +698,9 @@ unreachable_pub = "deny"
 # `forbid` is `E0453`, so there was no way to except one crate without moving the level.
 #
 # What replaces the lost strictness is the re-assertion: every crate root carries
-# `#![forbid(unsafe_code)]`, which a crate cannot then lower, and `cargo xtask check-unsafe`
-# holds both halves - the attribute at every root, and the ONE crate excepted from it. The
-# exception is `sutura-exec-bigquery`, whose `src/adbc/linked.rs` declares the ADBC driver's C
-# entrypoint so a STATIC musl artefact can carry its own driver: a static binary has no dynamic
-# loader, so the alternative was no BigQuery on two of four published triples.
+# `#![forbid(unsafe_code)]`, and `cargo xtask check-unsafe` holds both halves - the attribute at
+# every root, and the ONE crate excepted from it: `sutura-adbc`, whose `src/linked.rs` declares
+# the ADBC driver's C entrypoint a STATIC musl artefact needs, having no dynamic loader.
 #
 # The limit next to that: `forbid` at a root covers that crate's targets that HAVE that root -
 # a library, a binary, each integration test and each bench, which is why the gate reads them

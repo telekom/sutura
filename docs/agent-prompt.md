@@ -30,7 +30,7 @@ pinned bundle, or from a file an operator named.
 | What to do for every question                          | **The tool list.** The step that reads the catalog is present only when that operation is exposed, and is replaced by a sentence saying the list in the document is the whole of it when it is not                                        |
 | A refusal is an answer, not an error                   | Every `RefusalReason` variant, with what it means and what to change. The most load-bearing section in the document                                                                                                                       |
 | Terms this deployment records as NOT defined           | **The pinned bundle's knowledge**, `not_defined` kind. Present only when the provider declared that capability; a declared-and-empty capability renders the sentence that nothing is recorded, which is a different fact from not knowing |
-| The bounds a question is held to                       | `MAX_DIMENSIONS`, `MAX_RANGE_DAYS`, `MAX_ROWS` and `MAX_FILTERS`, read from the code rather than typed                                                                                                                                    |
+| The bounds a question is held to                       | `MAX_DIMENSIONS`, `MAX_RANGE_DAYS` and `MAX_ROWS`, read from the code rather than typed                                                                                                                                                   |
 | What this surface has no field for                     | Fixed text, and deliberately short - see below. Gains one sentence, only where a deployment turned on `docs/adr/0013`'s raw SQL tool, pointing at the exception rather than leaving the fixed text to contradict the operations list      |
 | The operations you have                                | **The tool list**, rendered from the same slice the workflow was composed from. `run_sql` appears here, framed as ungoverned and never as certified, only where a deployment set `tools.run_sql.enabled: true` - see below                |
 | What this deployment records about its own definitions | **The declared knowledge capabilities**, and what is *not* declared is listed too - because a kind that is not recorded is a kind an agent must not draw a conclusion from                                                                |
@@ -47,7 +47,7 @@ absence; a prompt that lists a metric the bundle does not define costs it a refu
 happen here, because there is nowhere for either to come from.
 
 The refusal section has a mechanism of its own. The mapping from a `RefusalReason` variant to its
-guidance is a total match in `sutura-app`'s prompt module, so **a refusal variant added to the domain
+guidance is a total match in `sutura-app`'s test module, so **a refusal variant added to the domain
 does not compile until somebody has written what an agent should do about it.** What that does not
 force is the list of instances the assertion walks, so the set equality it checks is a second net
 rather than the first.
@@ -58,7 +58,7 @@ rather than the first.
 design is modelled on spends most of its length teaching an agent to write SQL against semantic
 model names, to avoid raw database tables, and to dry-plan a complex statement before running it.
 None of that transfers to `query`: a question there names a metric, a grain, a bounded period, up to
-four dimensions and equality or set-membership filters over declared values, and there is no field for anything else -
+four dimensions and equality filters over declared values, and there is no field for anything else -
 so the guidance would teach an agent to attempt something that surface refuses by construction. What
 replaces it is one short section saying the field does not exist and that there is no way to widen
 it. A long section about what is absent would hand an agent a long list of things to try.
@@ -72,12 +72,14 @@ exception rather than staying silent about it, because a document that both said
 and separately advertised `run_sql` would be internally inconsistent - worse than either sentence
 alone.
 
-**No column, table, model or measure expression.** Of what a metric *is*, the prompt renders what
+**No measure expression.** Of what a metric *is*, the prompt renders what
 `GET /v1/catalog` renders and no further field: a caller needs a metric's name, prose, grains,
 dimensions and permitted values to ask a valid question; it needs no column name to do it, and a
 column name in an agent's context is a name it will eventually try to use. This is asserted rather
 than intended: a test renders a bundle whose model, table and column names appear in no prose and
-checks that none of them reaches the output.
+checks that none of them reaches the output by default. An operator can enable
+`prompt.list_physical_schema` to list descriptive model, table and column metadata. That listing
+does not make a physical name queryable or certify a metric.
 
 That is a claim about *fields of a metric*, and not about the document being a rendering of the
 endpoint - the two are worth keeping apart. The prompt carries four sections the catalog body has no
@@ -92,14 +94,15 @@ describe a control that does not exist.
 
 ## Configuration
 
-Three keys, in the same layered tree as everything else: embedded defaults, then `base.yaml`, then
+Four keys, in the same layered tree as everything else: embedded defaults, then `base.yaml`, then
 `<environment>.yaml`, then one environment variable per key.
 
 | Key                             | Default  | What it does                                                                                                                                                                                                                  |
 | ------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `prompt.catalog_prose`          | `quoted` | `quoted` includes each metric's own prose, with `>` at the start of every line and the trust boundary named above the block. `omitted` leaves it out, and the document then says the descriptions exist and were not included |
 | `prompt.instructions_file`      | absent   | A path to markdown that is appended as the document's LAST section. Absent means no operator section at all                                                                                                                   |
-| `prompt.instructions_max_bytes` | `32768`  | The maximum bytes read from `instructions_file`. A file that exceeds it is refused, so a deployment cannot accidentally paste an unbounded document into the prompt                                                           |
+| `prompt.instructions_max_bytes` | `32768`  | Maximum operator instruction bytes read at startup, configurable up to 1 MiB                                                                                                                                                  |
+| `prompt.list_physical_schema`   | `false`  | List models, tables and columns on operator-side prompts and caller-scoped catalog tool replies                                                                                                                               |
 
 ```bash
 SUTURA__PROMPT__CATALOG_PROSE=omitted \
@@ -108,7 +111,10 @@ SUTURA__PROMPT__INSTRUCTIONS_FILE=prompts/house-rules.md \
 ```
 
 `sutura prompt` takes the deployment's configuration directory as its optional second argument, so
-the text it renders is the text that deployment would hand out. It loads the settings the way the
+the text it renders is the operator-side whole-bundle preview. The served MCP `initialize` prompt
+renders the same optional physical listing, cut to the verified caller's own `ScopedView` (ADR
+0028's second amendment); `describe_catalog` renders the same per-request view, so the two agree.
+The command loads settings the way the
 service does, refusals included: a production configuration with no access token will not render a
 prompt either, and the refusal names the key to fix. That is deliberate - a second, weaker door into
 the settings is a door that can disagree with the first.
@@ -128,7 +134,7 @@ silently when it is not, which is right for a *convention*: no file means nobody
 path was written down, so absence means the operator's rules are missing from a document that claims
 to carry them.
 
-**Neither key defaults by environment.** `telemetry.format` and `api.docs` do, and record whether
+**Catalog prose and the instruction path do not default by environment.** `telemetry.format` and `api.docs` do, and record whether
 somebody wrote the value down so the startup log can tell a decision from a default. Neither
 decision here is a function of the environment: whether a catalog's authors are trusted enough to
 quote their prose into an agent's context is a fact about who writes the catalog, not about whether

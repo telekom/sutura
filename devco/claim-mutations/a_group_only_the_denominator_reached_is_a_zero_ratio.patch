@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine.rs b/crates/sutura-exec-datafusion/src/combine.rs
+--- a/crates/sutura-exec-datafusion/src/combine.rs
++++ b/crates/sutura-exec-datafusion/src/combine.rs
+@@ -595,7 +595,7 @@
+             match qualifier.filter(|_| leaf_labels.contains(&field.name().as_str())) {
+                 Some(side) => {
+                     let absent = Expr::Column(Column::new(Some(side.clone()), bucket)).is_null();
+-                    let leaf = when(absent, cast(lit(0_i64), field.data_type().clone()))
++                    let leaf = when(absent, cast(lit(datafusion::scalar::ScalarValue::Null), field.data_type().clone()))
+                         .otherwise(column)
+                         .map_err(|cause| CombineError::Build { cause })?;
+                     columns.push(leaf.alias(field.name()));

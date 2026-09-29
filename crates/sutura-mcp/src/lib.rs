@@ -225,6 +225,7 @@ pub async fn serve_stdio<S>(
     service: std::sync::Arc<S>,
     permitted: sutura_app::Permitted,
     prose: sutura_app::prompt::CatalogProse,
+    list_physical_schema: bool,
     admission: sutura_runtime::Admission,
     reply: sutura_config::RequestTimeout,
     tools: std::sync::Arc<[sutura_app::prompt::Tool]>,
@@ -242,7 +243,8 @@ where
             reply,
             tools,
             operator_instructions,
-        ),
+        )
+        .listing_physical_schema(list_physical_schema),
         rmcp::transport::stdio(),
     )
     .await

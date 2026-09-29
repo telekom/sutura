@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-semantic/src/plan/federated.rs b/crates/sutura-semantic/src/plan/federated.rs
+--- a/crates/sutura-semantic/src/plan/federated.rs
++++ b/crates/sutura-semantic/src/plan/federated.rs
+@@ -40,7 +40,7 @@
+     let own_table = model.table_name();
+ 
+     // `of_metric`, not `of`: a term naming the metric's own model stays on the first fact leg.
+-    let federation = Federation::of_metric(closed, model.name());
++    let federation = Federation::of(closed);
+     // The combiner cannot re-count a distinct aggregate, so a measure that needs that is refused.
+     if let Some(keys) = federation.carried().iter().find_map(|leaf| match **leaf {
+         Carried::Keys { pulled, .. } => Some(pulled.above()),

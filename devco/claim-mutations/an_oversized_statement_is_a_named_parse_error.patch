@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-mcp/src/server/bounds.rs b/crates/sutura-mcp/src/server/bounds.rs
+index 8bb70a5b1..7f2bd14f0 100644
+--- a/crates/sutura-mcp/src/server/bounds.rs
++++ b/crates/sutura-mcp/src/server/bounds.rs
+@@ -59,10 +59,7 @@ pub(crate) fn oversized_statement(arguments: &serde_json::Value) -> Option<Malfo
+         .and_then(serde_json::Value::as_str)?
+         .len();
+     if len > MAX_RAW_STATEMENT_BYTES {
+-        return Some(MalformedStatement::StatementTooLarge {
+-            len,
+-            limit: MAX_RAW_STATEMENT_BYTES,
+-        });
++        return None;
+     }
+     None
+ }

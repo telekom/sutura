@@ -242,11 +242,20 @@ pub struct ModelDoc {
     /// [`sutura_domain::catalog::Model::with_primary_key`]'s own doc.
     #[serde(default)]
     primary_key: BTreeSet<ColumnName>,
+    /// An absent declaration stays invisible in caller-scoped physical-schema listings.
+    #[serde(default, with = "serde_norway::with::singleton_map")]
+    audience: Option<AudienceDoc>,
 }
 
 /// Why a model document could not become a domain [`Model`].
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidModelDocument {
+    #[error("model {model}'s audience declaration is not usable as one")]
+    Audience {
+        model: ModelName,
+        #[source]
+        cause: InvalidAudienceDeclaration,
+    },
     /// One column's own `description:` is not usable prose.
     #[error("column {column}'s description is not usable")]
     ColumnDescription {
@@ -265,6 +274,14 @@ pub enum InvalidModelDocument {
 
 impl ModelDoc {
     pub fn into_domain(self, description: Description) -> Result<Model, InvalidModelDocument> {
+        let audience =
+            self.audience
+                .map(AudienceDoc::into_domain)
+                .transpose()
+                .map_err(|cause| InvalidModelDocument::Audience {
+                    model: self.name.clone(),
+                    cause,
+                })?;
         let mut columns = Vec::with_capacity(self.columns.len());
         for entry in self.columns {
             let name = entry.name().clone();
@@ -274,7 +291,11 @@ impl ModelDoc {
                     .map_err(|cause| InvalidModelDocument::ColumnDescription { column: name, cause })?,
             );
         }
-        Model::new(self.name, self.source, self.table, columns, description)
+        let mut model = Model::new(self.name, self.source, self.table, columns, description);
+        if let Some(audience) = audience {
+            model = model.with_audience(audience);
+        }
+        model
             .with_primary_key(self.primary_key)
             .map_err(|cause| InvalidModelDocument::PrimaryKey(Box::new(cause)))
     }
@@ -529,6 +550,10 @@ pub struct MetricDoc {
     /// `!Tag` nobody authoring a catalog file spells; the unit variant `open` needs no adapter.
     #[serde(with = "serde_norway::with::singleton_map")]
     audience: AudienceDoc,
+    /// The conformed calendar model a cross-model ratio buckets both facts through -
+    /// [`Metric::with_shared_calendar`], checked at load by the domain. Absent on a one-model metric.
+    #[serde(default)]
+    shared_calendar: Option<ModelName>,
 }
 
 /// Why a metric document cannot become a metric.
@@ -600,6 +625,7 @@ pub enum InvalidMetricDocument {
 
 impl MetricDoc {
     pub fn into_domain(self, description: Description) -> Result<Metric, InvalidMetricDocument> {
+        let shared_calendar = self.shared_calendar;
         // A vector, handed on as a vector. This loop used to build a map and refuse a repeat in it,
         // which was a check the DataHub adapter did not have - see `InvalidMetricDocument`.
         let mut dimensions: Vec<Dimension> = Vec::with_capacity(self.dimensions.len());
@@ -639,6 +665,10 @@ impl MetricDoc {
             description,
             audience,
         )
+        .map(|metric| match shared_calendar {
+            Some(calendar) => metric.with_shared_calendar(calendar),
+            None => metric,
+        })
         .map_err(|cause| InvalidMetricDocument::Inconsistent(Box::new(cause)))
     }
 }
