@@ -14,7 +14,7 @@ updates:
       prefix: "ci"
 
   - package-ecosystem: cargo
-    directory: "/"
+    directories: ["/", "/fuzz"]
     schedule:
       interval: weekly
       day: monday
@@ -26,4 +26,12 @@ updates:
       # because that is the one worth reading.
       patch-level:
         patterns: ["*"]
+        exclude-patterns: ["arrow*", "parquet", "datafusion*", "adbc*", "oracledb"]
         update-types: ["patch"]
+      # Arrow and crates that must share its major version bump together in one PR,
+      # so releases of datafusion / adbc do not leave the resolver stranded.
+      arrow:
+        patterns: ["arrow*", "parquet", "datafusion*", "adbc*"]
+      # Pre-releases out of the patch group so each gets its own PR.
+      oracledb-prerelease:
+        patterns: ["oracledb"]

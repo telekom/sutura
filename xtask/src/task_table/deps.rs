@@ -6,11 +6,28 @@
 
 use crate::registry::{Falsifier, Kind, Reads, Task};
 use crate::{
-    arrow_major, default_feature_tests, default_features, feature_remedies, nix_platform, pins, shipped, unused_deps,
-    vendor_count, warm_start,
+    arrow_major, check_lock_coverage, default_feature_tests, default_features, feature_remedies, nix_platform, pins, shipped,
+    unused_deps, vendor_count, warm_start,
 };
 
 pub(crate) const TASKS: &[Task] = &[
+    Task {
+        name: "check-lock-coverage",
+        description: "every tracked Cargo.lock is covered by dependabot.yml directories",
+        kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier {
+            seeds: &[
+                (
+                    ".github/dependabot.yml",
+                    "version: 2\nupdates:\n  - package-ecosystem: cargo\n    directory: \"/\"\n",
+                ),
+                ("fuzz/Cargo.lock", "# locked\n"),
+                ("Cargo.lock", "# locked\n"),
+            ],
+            in_scope: Some(".github/dependabot.yml"),
+        },
+        run: check_lock_coverage::run,
+    },
     Task {
         name: "check-pins",
         description: "no tool is pinned by both nix and pixi",

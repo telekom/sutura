@@ -1002,6 +1002,7 @@ economise.
    | `check-warm-start` | `xtask/src/causality.rs`, `nix/purge-baked-out-dirs.sh`, every `.nix` file |
    | `unused-deps` | every member manifest and that member's own Rust |
    | `check-unreachable-public-modules` | every member crate's Rust, and every first-party crate's Rust, for which `pub` module has no cross-first-party reference (#131) |
+   | `check-lock-coverage` | `.github/dependabot.yml` and `git ls-files '*Cargo.lock'`, ensuring each tracked lock is covered by a dependabot directories entry |
    | `check-arrow` | `Cargo.lock` and `devco/arrow-majors-allow` |
    | `check-vendor-count` | `VENDOR.md`'s mimalloc row, `Cargo.toml` and `REUSE.toml` |
    | `check-shared-client` | `Cargo.lock` |
