@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/catalog/consistency.rs b/crates/sutura-domain/src/catalog/consistency.rs
+--- a/crates/sutura-domain/src/catalog/consistency.rs
++++ b/crates/sutura-domain/src/catalog/consistency.rs
+@@ -486,8 +486,7 @@
+             Aggregate::Avg | Aggregate::Min | Aggregate::Max => {
+                 Err(InconsistentDefinitions::CrossModelTermHasNoEmptyValue { metric, aggregate })
+             }
+-            Aggregate::CountDistinct => Err(InconsistentDefinitions::CrossModelTermDoesNotReaggregate { metric, aggregate }),
+-            Aggregate::Sum | Aggregate::Count => Ok(()),
++            Aggregate::Sum | Aggregate::Count | Aggregate::CountDistinct => Ok(()),
+         }
+     }
+ 
