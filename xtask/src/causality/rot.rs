@@ -182,9 +182,11 @@ enum Located {
     /// Exactly one file declares it, placed on the module tree a nextest filter can reach.
     One(AddedTest),
     /// No file's CODE declares a fn by this name any more - `#929`'s own shape: the cell's test
-    /// was deleted and nothing but a merge conflict noticed. A comment or a multi-line string
-    /// naming it does not count; a non-test `fn` of the same name still does - the scan reads
-    /// `fn` items, not test attributes.
+    /// was deleted and nothing but a merge conflict noticed. A comment, a doc comment or a
+    /// multi-line string naming it does not count. Two things still do, because the scan reads the
+    /// word after `fn` on each code line and not test attributes: a non-test `fn` of the same name,
+    /// and a ONE-LINE string such as `"the fn <old name> was renamed"` - `code_lines` keeps a
+    /// single-line string's content.
     Gone,
     /// More than one file declares a test fn by this name. Refused rather than guessed at: a
     /// wrong guess here would ask `claim::run` to mutate and kill the WRONG file's assertion.
