@@ -558,6 +558,7 @@ impl Warehouse for FakeWarehouse {
         &self,
         statement: &sutura_domain::raw::RawStatement,
         _presented: &Presented,
+        _deadline: Deadline,
     ) -> sutura_domain::warehouse::RawExecution<Self::Error> {
         if statement.as_str() == "refuse me" {
             return Some(Err(StatementRejected {

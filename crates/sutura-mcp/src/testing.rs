@@ -561,6 +561,7 @@ impl Surface for FailingSurface {
         &self,
         _context: &sutura_domain::identity::RequestContext,
         _statement: &sutura_domain::raw::RawStatement,
+        _deadline: Deadline,
     ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
         Err(SurfaceFailure::Warehouse {
             cause: Box::new(ConnectionRefused),
@@ -617,6 +618,7 @@ impl Surface for RestrictedSurface {
         &self,
         _context: &sutura_domain::identity::RequestContext,
         _statement: &sutura_domain::raw::RawStatement,
+        _deadline: Deadline,
     ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
         Err(SurfaceFailure::Warehouse {
             cause: Box::new(ConnectionRefused),
@@ -671,6 +673,7 @@ impl Surface for RestrictedKnowledgeSurface {
         &self,
         _context: &sutura_domain::identity::RequestContext,
         _statement: &sutura_domain::raw::RawStatement,
+        _deadline: Deadline,
     ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
         Err(SurfaceFailure::Warehouse {
             cause: Box::new(ConnectionRefused),
@@ -747,6 +750,7 @@ impl Surface for RecordingSurface {
         &self,
         context: &sutura_domain::identity::RequestContext,
         _statement: &sutura_domain::raw::RawStatement,
+        _deadline: Deadline,
     ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
         if let Ok(mut subjects) = self.subjects.lock() {
             subjects.push(context.chain().subject().clone());
@@ -862,6 +866,7 @@ impl Surface for HoldingSurface {
         &self,
         _context: &RequestContext,
         _statement: &sutura_domain::raw::RawStatement,
+        _deadline: Deadline,
     ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
         Ok(sutura_domain::raw::RawOutcome::Refusal {
             reason: sutura_domain::raw::RawRefusalReason::StatementFailed,

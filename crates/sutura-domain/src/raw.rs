@@ -147,6 +147,15 @@ pub enum RawRefusalReason {
     /// enforced boundary for statement-shaped writes and not for a VOLATILE function's own side
     /// effects - see that record for the limit stated with the claim.
     SourceRefused,
+    /// The asker's own per-request deadline ran out - the same bound
+    /// [`execute`](crate::warehouse::Warehouse::execute) carries, now threaded onto
+    /// [`execute_raw`](crate::warehouse::Warehouse::execute_raw) too (`telekom/sutura#1144`). A raw
+    /// caller's statement is stopped by its own budget rather than only by the connect-time
+    /// ceiling, and the same [`Warehouse::deadline_exceeded`](crate::warehouse::Warehouse::deadline_exceeded)
+    /// predicate the certified path reads classifies the stop here. Carries the configured budget
+    /// in seconds, for [`crate::query::RefusalReason::DeadlineExceeded`]'s own reason: a number an
+    /// operator configured, safe in a log, not how long the statement ran.
+    DeadlineExceeded { budget_seconds: u64 },
 }
 
 impl RawRefusalReason {
@@ -163,6 +172,7 @@ impl RawRefusalReason {
             Self::ResultTooLarge => "result_too_large",
             Self::StatementFailed => "statement_failed",
             Self::SourceRefused => "source_refused",
+            Self::DeadlineExceeded { .. } => "deadline_exceeded",
         }
     }
 }
@@ -180,6 +190,10 @@ impl fmt::Display for RawRefusalReason {
             ),
             Self::StatementFailed => write!(f, "the statement did not complete"),
             Self::SourceRefused => write!(f, "the data system refused this statement"),
+            Self::DeadlineExceeded { budget_seconds } => write!(
+                f,
+                "this deployment stopped the statement after its configured budget of {budget_seconds} seconds"
+            ),
         }
     }
 }
@@ -325,6 +339,7 @@ mod tests {
             RawRefusalReason::ResultTooLarge,
             RawRefusalReason::StatementFailed,
             RawRefusalReason::SourceRefused,
+            RawRefusalReason::DeadlineExceeded { budget_seconds: 30 },
         ] {
             assert_ne!(reason.code(), "");
             assert_ne!(reason.to_string(), "");
@@ -333,5 +348,9 @@ mod tests {
         assert_eq!(RawRefusalReason::ResultTooLarge.code(), "result_too_large");
         assert_eq!(RawRefusalReason::StatementFailed.code(), "statement_failed");
         assert_eq!(RawRefusalReason::SourceRefused.code(), "source_refused");
+        assert_eq!(
+            RawRefusalReason::DeadlineExceeded { budget_seconds: 30 }.code(),
+            "deadline_exceeded"
+        );
     }
 }

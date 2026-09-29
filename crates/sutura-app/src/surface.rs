@@ -142,15 +142,17 @@ pub trait Surface: Send + Sync + 'static {
     /// writes one record per outcome before this returns. What differs is the vocabulary - see
     /// [`sutura_domain::raw`] for why it is not [`ToolOutcome`] wearing a second name.
     ///
-    /// No `deadline` parameter: `docs/adr/0029`'s threading landed for `answer`/`execute_leg` only in
-    /// the slice that added it, and this tool has no `LIMIT`-bearing plan for it to bound - the row
-    /// cap and the connect-time `statement_timeout` are its only bounds today (`crates/
-    /// sutura-exec-postgres/src/raw.rs`). Threading a deadline through this path too is future work,
-    /// not decided here.
+    /// **Now takes a `deadline` too** (`telekom/sutura#1144`), opened by the transport the same
+    /// instant [`Self::answer`]'s is - `docs/adr/0029`'s threading landed for `answer`/`execute_leg`
+    /// first and this tool had no `LIMIT`-bearing plan for it to bound, only the row cap and the
+    /// connect-time `statement_timeout`; this parameter is what closes that gap. What an adapter
+    /// does with it past `crate::run_sql`'s own pre-call check is the adapter's own business, for
+    /// [`Self::answer`]'s reason.
     fn run_sql(
         &self,
         context: &RequestContext,
         statement: &sutura_domain::raw::RawStatement,
+        deadline: Deadline,
     ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure>;
 
     /// This replica's current spend headroom, or `None` where no per-replica ceiling is
@@ -582,19 +584,21 @@ where
         &self,
         context: &RequestContext,
         statement: &sutura_domain::raw::RawStatement,
+        deadline: Deadline,
     ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
-        let answered = crate::run_sql(context, statement, &self.broker, &self.warehouses).map_err(|error| match error {
-            crate::RunSqlError::Broker { cause } => SurfaceFailure::Broker { cause: Box::new(cause) },
-            crate::RunSqlError::Credentials { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
-            crate::RunSqlError::Posture { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
-            // A boot refusal is supposed to make this unreachable in a running deployment - see
-            // `sutura_config`'s own refusal over `DeploymentIdentity` and the adapter's declared
-            // `Warehouse::ACCEPTS_RAW_STATEMENTS`. Reported as a wiring defect rather than panicking,
-            // because a port that CAN return this is a port whose contract says it might.
-            crate::RunSqlError::NoAcceptingSource => SurfaceFailure::Miswired {
-                cause: Box::new(crate::RunSqlError::<B::Error>::NoAcceptingSource),
-            },
-        })?;
+        let answered =
+            crate::run_sql(context, statement, &self.broker, &self.warehouses, deadline).map_err(|error| match error {
+                crate::RunSqlError::Broker { cause } => SurfaceFailure::Broker { cause: Box::new(cause) },
+                crate::RunSqlError::Credentials { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
+                crate::RunSqlError::Posture { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
+                // A boot refusal is supposed to make this unreachable in a running deployment - see
+                // `sutura_config`'s own refusal over `DeploymentIdentity` and the adapter's declared
+                // `Warehouse::ACCEPTS_RAW_STATEMENTS`. Reported as a wiring defect rather than panicking,
+                // because a port that CAN return this is a port whose contract says it might.
+                crate::RunSqlError::NoAcceptingSource => SurfaceFailure::Miswired {
+                    cause: Box::new(crate::RunSqlError::<B::Error>::NoAcceptingSource),
+                },
+            })?;
         // Same ordering as `answer`: written before the `Ok`, both outcomes reaching it, so a raw
         // call is recorded exactly as reliably as a certified one.
         self.sink.record(&CallRecord::of_raw(
@@ -634,7 +638,7 @@ mod tests {
     use sutura_domain::query::Query;
 
     use super::{LocalService, ServiceNotStarted, Surface as _};
-    use crate::tests::{asked_by_a_person, june, metric, shared, source};
+    use crate::tests::{asked_by_a_person, june, metric, shared, source, test_deadline};
     use crate::tests_support::{
         AuthoredWarehouse, DiscardingAuditSink, FixedBroker, FixedCatalog, RawCapableWarehouse, authored_bundle, bundle_over,
     };
@@ -787,13 +791,13 @@ mod tests {
         let answered_statement = RawStatement::parse("select 1").expect("a test statement is a statement");
         drop(
             service
-                .run_sql(&context, &answered_statement)
+                .run_sql(&context, &answered_statement, test_deadline())
                 .expect("the fake warehouse answers `select 1`"),
         );
         let refused_statement = RawStatement::parse("refuse me").expect("a test statement is a statement");
         drop(
             service
-                .run_sql(&context, &refused_statement)
+                .run_sql(&context, &refused_statement, test_deadline())
                 .expect("a refusal is a result, not an `Err`"),
         );
 

@@ -247,26 +247,26 @@ impl Warehouse for AnyWarehouse {
         result
     }
 
-    fn execute_raw(&self, statement: &RawStatement, presented: &Presented) -> RawExecution<Self::Error> {
+    fn execute_raw(&self, statement: &RawStatement, presented: &Presented, deadline: Deadline) -> RawExecution<Self::Error> {
         match self {
             Self::Files(warehouse) => warehouse
-                .execute_raw(statement, presented)
+                .execute_raw(statement, presented, deadline)
                 .map(|result| result.map_err(AnyWarehouseError::Files)),
             #[cfg(feature = "bigquery")]
             Self::BigQuery(warehouse) => warehouse
-                .execute_raw(statement, presented)
+                .execute_raw(statement, presented, deadline)
                 .map(|result| result.map_err(AnyWarehouseError::BigQuery)),
             #[cfg(feature = "postgres")]
             Self::Postgres(warehouse) => warehouse
-                .execute_raw(statement, presented)
+                .execute_raw(statement, presented, deadline)
                 .map(|result| result.map_err(AnyWarehouseError::Postgres)),
             #[cfg(feature = "clickhouse")]
             Self::ClickHouse(warehouse) => warehouse
-                .execute_raw(statement, presented)
+                .execute_raw(statement, presented, deadline)
                 .map(|result| result.map_err(AnyWarehouseError::ClickHouse)),
             #[cfg(feature = "oracle")]
             Self::Oracle(warehouse) => warehouse
-                .execute_raw(statement, presented)
+                .execute_raw(statement, presented, deadline)
                 .map(|result| result.map_err(AnyWarehouseError::Oracle)),
         }
     }

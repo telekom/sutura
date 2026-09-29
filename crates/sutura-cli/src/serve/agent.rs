@@ -53,8 +53,9 @@ impl Surface for Serving {
         &self,
         context: &RequestContext,
         statement: &sutura_domain::raw::RawStatement,
+        deadline: Deadline,
     ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
-        let answered = self.surface.run_sql(context, statement);
+        let answered = self.surface.run_sql(context, statement, deadline);
         self.push_headroom();
         answered
     }

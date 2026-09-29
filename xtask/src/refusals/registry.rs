@@ -70,14 +70,15 @@ const VALIDATION: Subject = Subject {
 };
 
 /// One refused raw statement: `docs/adr/0013`'s tool, off by default, with its own narrower
-/// vocabulary - a row cap, a data-system volume bound, a statement that did not complete, and the
-/// data system refusing at the identity/authorization level. Never `RefusalReason`'s: that
-/// vocabulary is keyed to a compiled plan, and a raw statement has none.
+/// vocabulary - a row cap, a data-system volume bound, a statement that did not complete, the
+/// data system refusing at the identity/authorization level, and (`telekom/sutura#1144`) the
+/// asker's own per-request deadline running out. Never `RefusalReason`'s: that vocabulary is keyed
+/// to a compiled plan, and a raw statement has none.
 const RAW: Subject = Subject {
     name: "RawRefusalReason",
     declared_in: "crates/sutura-domain/src/raw.rs",
     allow_file: "devco/raw-refusals-unprovoked-allow",
-    variants: variants(4),
+    variants: variants(5),
 };
 
 /// One refused TLS configuration: the certificate and key `sutura_config::TlsMaterial` parsed are

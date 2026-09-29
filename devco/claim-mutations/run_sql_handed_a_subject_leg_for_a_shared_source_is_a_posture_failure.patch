@@ -1,8 +1,8 @@
 diff --git a/crates/sutura-app/src/raw.rs b/crates/sutura-app/src/raw.rs
-index 4583aefae..1c19a0e26 100644
+index 6ba433531..0b2d251c6 100644
 --- a/crates/sutura-app/src/raw.rs
 +++ b/crates/sutura-app/src/raw.rs
-@@ -160,9 +160,7 @@ where
+@@ -171,9 +171,7 @@ where
      let presented = credentials
          .presented_for(source)
          .map_err(|cause| RunSqlError::Credentials { cause })?;
@@ -10,6 +10,6 @@ index 4583aefae..1c19a0e26 100644
 -        .agrees_with(warehouse.posture(), source)
 -        .map_err(|cause| RunSqlError::Posture { cause })?;
 +    drop(presented.agrees_with(warehouse.posture(), source));
-     let Some(executed) = warehouse.execute_raw(statement, presented) else {
-         return Err(RunSqlError::NoAcceptingSource);
-     };
+     // Checked before the call is made and never re-derived - the same shape `crate::answer`'s own
+     // pre-`execute` check takes (`docs/adr/0029`): a budget already spent here means the statement
+     // is refused before the data system is asked at all.

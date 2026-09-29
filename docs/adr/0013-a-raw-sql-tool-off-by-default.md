@@ -597,3 +597,33 @@ PR1's (`#661`) and `#160`'s state; it does not claim the raw path gained a per-r
 does not change any decision the base record or its first amendment made. The interim decision -
 ship the raw tool's execution on the connect-time `statement_timeout` ceiling - stands, and the
 limit it named (one ceiling for every caller and every question) stands with it.
+
+## Third amendment, 2026-09-28: `#1144` closes the gap the second amendment tracked
+
+`execute_raw` now carries the same per-request `Deadline` `Warehouse::execute` does, threaded the
+whole way from the transport: `Surface::run_sql` and `sutura_app::run_sql` take it, and it is opened
+by `middleware::enforce_timeout` (HTTP) or the MCP `run_sql` handler the same instant `answer`'s own
+is - never re-derived, exactly `docs/adr/0029`'s shape for the certified path. So the two sentences
+this record's second amendment left standing as the present-tense correction are now themselves
+stale in the direction that matters:
+
+- **The connect-time ceiling is no longer the raw path's only bound.** `PostgresWarehouse::run_raw`
+  now mirrors `run_with_deadline`: the lock is acquired, `crate::deadline::refuse_if_spent` re-checks
+  the budget, and `SET LOCAL statement_timeout` - derived from what is left of the deadline, clamped
+  to the connect-time ceiling the same way the certified path's is - rides the same `BEGIN READ ONLY`
+  this adapter already opens per call. A caller with a five-second budget and a caller with the
+  deployment's full timeout are no longer bounded identically; the ceiling remains the OUTER bound a
+  request's own budget may only narrow, never widen.
+- **A fifth `RawRefusalReason` variant, `DeadlineExceeded { budget_seconds }`**, mirrors
+  `RefusalReason::DeadlineExceeded` exactly: the pre-call check in `sutura_app::run_sql` refuses
+  before the port is ever asked, and `Warehouse::deadline_exceeded` classifies the adapter's own
+  `57014 query_canceled`/`DeadlineSpent` the same way `execute`'s does. Both wire transports (HTTP's
+  `422`, matching the certified path's own status for the same reason; MCP's opaque `code`/`detail`)
+  carry it.
+
+**What is NOT changed.** The raw tool still shares one lock-serialized connection with the certified
+path (the "What is left" bullet above, unchanged); the row cap's streaming stop still bounds this
+process's own heap rather than the server's work; and the wait for `execution_lock` is still outside
+the deadline - a caller queued behind a slow statement can arrive already spent, refused locally as
+`DeadlineSpent` rather than sent to the server, the identical limit `run_with_deadline` already
+carries. `telekom/sutura#1144` is closed by this change; nothing else this record tracks moved.
