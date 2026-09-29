@@ -814,7 +814,18 @@ pub trait Warehouse {
     const ACCEPTS_RAW_STATEMENTS: bool = false;
 
     /// Runs one literal statement for the raw SQL tool - not what [`execute`](Warehouse::execute) uses; see [`crate::raw`].
-    fn execute_raw(&self, _statement: &crate::raw::RawStatement, _presented: &Presented) -> RawExecution<Self::Error> {
+    ///
+    /// **Carries the same per-request [`Deadline`] as [`execute`](Warehouse::execute)**, opened
+    /// once per request by the transport and threaded through the raw path the same way
+    /// (`telekom/sutura#1144`): a raw caller's statement is bounded by the asker's own budget,
+    /// not only by the connect-time ceiling that was the sole bound before. What an adapter does
+    /// with it is the adapter's own business, for [`execute`](Warehouse::execute)'s reason.
+    fn execute_raw(
+        &self,
+        _statement: &crate::raw::RawStatement,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> RawExecution<Self::Error> {
         None
     }
 }

@@ -149,8 +149,14 @@ fn two_bundles_with_different_versions_are_refused() {
 
 #[test]
 fn an_unreachable_broker_through_run_sql_is_a_broker_failure() {
-    let failure = run_sql(&asked_by_a_person(), &select_one(), &FixedBroker::Unreachable, &raw_capable())
-        .expect_err("an unreachable broker is a failure");
+    let failure = run_sql(
+        &asked_by_a_person(),
+        &select_one(),
+        &FixedBroker::Unreachable,
+        &raw_capable(),
+        test_deadline(),
+    )
+    .expect_err("an unreachable broker is a failure");
     assert!(
         matches!(failure, RunSqlError::Broker { .. }),
         "the broker failure is typed, not {failure:?}"
@@ -164,6 +170,7 @@ fn credentials_for_the_wrong_source_through_run_sql_are_a_credentials_failure() 
         &select_one(),
         &FixedBroker::GrantsTheWrongSource,
         &raw_capable(),
+        test_deadline(),
     )
     .expect_err("a grant for the wrong source is a wiring defect");
     assert!(
@@ -187,6 +194,7 @@ fn run_sql_over_no_adapter_that_accepts_a_raw_statement_is_refused_as_no_accepti
         &select_one(),
         &broker,
         &Warehouses::of(FixedWarehouse::new(source(), shared())),
+        test_deadline(),
     )
     .expect_err("no adapter here accepts a raw statement");
     assert!(
@@ -203,6 +211,7 @@ fn run_sql_handed_a_subject_leg_for_a_shared_source_is_a_posture_failure() {
         &select_one(),
         &FixedBroker::GrantsSubjectMaterial,
         &raw_capable(),
+        test_deadline(),
     )
     .expect_err("a subject leg for a shared source is a wiring defect");
     assert!(

@@ -1120,9 +1120,9 @@ deployment switch refused. Turning it on is one line an operator writes and a re
   never an owner, a superuser, a creator or `BYPASSRLS` - is what actually bounds this, and it is an
   operator's `GRANT`, not a setting sutura reads or verifies.
 - **How long a statement may run.** The connect-time `statement_timeout` this source's connection
-  already carries is the ceiling. It is one number for every caller today, not narrowed per request -
-  `docs/adr/0013-a-raw-sql-tool-off-by-default.md` names the caller-derived deadline as a
-  prerequisite this build does not yet carry for the raw path.
+  already carries is the outer ceiling, never widened. A per-request deadline narrower than that
+  ceiling is applied by `SET LOCAL statement_timeout` inside the call's transaction, carried from the
+  caller's own request timeout via `docs/adr/0029-where-a-deadline-lives.md`.
 
 **What neither enforces, stated because an overstated control is the defect this repository names
 directly:**

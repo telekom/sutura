@@ -2,8 +2,8 @@
 //! `docs/adr/0029`'s Postgres row, measured against a real server rather than asserted from the
 //! driver's documentation - `SET LOCAL statement_timeout` actually stops a running statement AND a
 //! blocked `PREPARE`, the certified path's per-request value is not the connect-time ceiling, and
-//! the raw path (which carries no per-request `Deadline` at all - `telekom/sutura#129`'s limit,
-//! stated in `raw.rs`) is still stopped by the connect-time ceiling that pre-dates this record.
+//! the raw path now carries the same per-request `Deadline` too (`telekom/sutura#1144`), narrowing
+//! the connect-time ceiling rather than only being stopped by it.
 //!
 //! Same tier, same absence handling as `tests/conformance.rs` and `tests/raw.rs`: every venue that
 //! runs the suite provisions the tier, so these cells RUN; a developer machine with none writes
@@ -231,11 +231,11 @@ mod deadline {
         );
     }
 
-    /// **The raw path variant.** `execute_raw` carries no per-request `Deadline` - `raw.rs`'s own
-    /// doc names the limit - so this proves the connect-time ceiling alone still stops an unbounded
-    /// caller statement, which is what discharges `telekom/sutura#129`'s cancellation prerequisite
-    /// for the raw tool: the source it runs over can cancel, even though what it cancels WITH here is
-    /// the ceiling and not the asker's own budget.
+    /// **The raw path's own ceiling variant.** A deadline WIDER than the connect-time ceiling
+    /// (`telekom/sutura#1144`'s `SET LOCAL` only ever narrows, never widens it) proves the ceiling
+    /// alone still stops an unbounded caller statement whose own budget would not have, which is
+    /// what discharges `telekom/sutura#129`'s cancellation prerequisite for the raw tool: the source
+    /// it runs over can cancel, even when the asker's own budget is generous.
     ///
     /// **Slow on purpose, rather than narrowing the ceiling.** `std::env::set_var` is `unsafe` in
     /// this edition and this crate's root forbids `unsafe` outright (`crates/sutura-cli/tests/declared_source.rs`'s
@@ -247,9 +247,16 @@ mod deadline {
         let Some((warehouse, _schema)) = open("rawceiling") else {
             return;
         };
+        // Wider than the 15s default ceiling on purpose: this cell proves the CEILING fires, not a
+        // narrower per-request budget - `a_raw_statement_over_its_own_budget_is_stopped_before_the_ceiling`
+        // below is the sibling that proves the budget narrows it.
+        let generous = Deadline::opened_at(
+            Instant::now(),
+            Budget::parse(Duration::from_secs(30)).expect("30s is a budget"),
+        );
 
         let started = Instant::now();
-        let outcome = warehouse.execute_raw(&statement("select pg_sleep(20)"), &corpus::presented());
+        let outcome = warehouse.execute_raw(&statement("select pg_sleep(20)"), &corpus::presented(), generous);
         let elapsed = started.elapsed();
 
         let error = outcome
@@ -265,6 +272,86 @@ mod deadline {
         assert!(
             elapsed < ceiling,
             "stopped at the ~15s default ceiling plus tolerance, not run to the statement's own 20s: {elapsed:?}"
+        );
+    }
+
+    /// **The raw path's own per-request narrowing, `telekom/sutura#1144`'s own cell.** The sibling
+    /// of `a_certified_question_over_its_budget_is_stopped_at_the_data_system`: a raw statement that
+    /// would otherwise run for the full 2s `pg_sleep` is stopped at its own 300ms budget, well short
+    /// of both the statement's own runtime and the 15s connect-time ceiling - proving `SET LOCAL
+    /// statement_timeout` narrows the raw path's session the same way it narrows the certified one,
+    /// rather than the raw path being bounded only by the ceiling as it was before this change.
+    #[test]
+    fn a_raw_statement_over_its_own_budget_is_stopped_before_the_ceiling() {
+        let Some((warehouse, _schema)) = open("rawbudget") else {
+            return;
+        };
+        let deadline = Deadline::opened_at(
+            Instant::now(),
+            Budget::parse(Duration::from_millis(300)).expect("300ms is a budget"),
+        );
+
+        let started = Instant::now();
+        let outcome = warehouse.execute_raw(&statement("select pg_sleep(2)"), &corpus::presented(), deadline);
+        let elapsed = started.elapsed();
+
+        let error = outcome
+            .expect("this adapter accepts a raw statement")
+            .expect_err("a statement over its own budget must not answer with rows");
+        assert!(
+            warehouse.deadline_exceeded(&error),
+            "a raw statement stopped by SET LOCAL statement_timeout must classify as deadline_exceeded: {error}"
+        );
+        let ceiling = Tolerance::from_env().ceiling(Duration::from_secs(1), Duration::from_millis(1800));
+        assert!(
+            elapsed < ceiling,
+            "stopped at ~300ms plus tolerance, not run to completion (2s) or to the 15s ceiling: {elapsed:?}"
+        );
+    }
+
+    /// **The raw path's own per-statement proof**, the sibling of
+    /// `a_certified_call_sets_the_per_statement_value_not_the_ceiling`: a raw `SELECT` reading back
+    /// `pg_settings.setting` for `statement_timeout` must see the smaller, per-request value `SET
+    /// LOCAL` set from the deadline, not the connect-time ceiling this connection was opened with.
+    #[test]
+    fn a_raw_call_sets_the_per_statement_value_not_the_ceiling() {
+        let Some((warehouse, _schema)) = open("rawshowtimeout") else {
+            return;
+        };
+        // Comfortably inside the default 15s ceiling, and not a round number a Postgres display
+        // format could coincide with - the same value the certified sibling cell uses.
+        let deadline = Deadline::opened_at(
+            Instant::now(),
+            Budget::parse(Duration::from_millis(4321)).expect("4321ms is a budget"),
+        );
+
+        let outcome = warehouse
+            .execute_raw(
+                &statement("select (SELECT setting::bigint FROM pg_settings WHERE name = 'statement_timeout') AS timeout_ms"),
+                &corpus::presented(),
+                deadline,
+            )
+            .expect("this adapter accepts a raw statement")
+            .expect("well inside every timeout, this call must answer");
+        let seen_ms = match outcome.rows().first().and_then(|row| row.first()) {
+            Some(Value::Integer(ms)) => *ms,
+            other => panic!("expected exactly one integer cell, got {other:?}"),
+        };
+        assert!(
+            seen_ms < 15_000,
+            "the per-statement value must be smaller than the connect-time ceiling: saw {seen_ms}ms"
+        );
+        // Never above 4321: `SET LOCAL` cannot see a LARGER budget than the deadline was opened
+        // with, the same exact arithmetic the certified sibling cell checks.
+        assert!(
+            seen_ms <= 4321,
+            "the per-statement value must not exceed the budget it was opened with: saw {seen_ms}ms"
+        );
+        let slack_ms = Tolerance::from_env().ceiling(Duration::from_millis(200), Duration::from_millis(1000));
+        let slack_ms = i64::try_from(slack_ms.as_millis()).expect("a millisecond slack of a few seconds fits an i64");
+        assert!(
+            seen_ms >= 4321 - slack_ms,
+            "expected close to the 4321ms budget within {slack_ms}ms, saw {seen_ms}ms"
         );
     }
 
@@ -455,15 +542,56 @@ mod deadline {
             Budget::parse(Duration::from_millis(300)).expect("300ms is a budget"),
         );
 
+        // Generous on purpose: this thread is the blocker, not what is under test - the certified
+        // call below is what must be refused by a spent budget, not this raw one.
+        let blocker_deadline = Deadline::opened_at(
+            Instant::now(),
+            Budget::parse(Duration::from_secs(30)).expect("30s is a budget"),
+        );
         let outcome = std::thread::scope(|scope| {
             scope.spawn(|| {
-                drop(warehouse.execute_raw(&statement("select pg_sleep(1.5)"), &corpus::presented()));
+                drop(warehouse.execute_raw(&statement("select pg_sleep(1.5)"), &corpus::presented(), blocker_deadline));
             });
             std::thread::sleep(Duration::from_millis(100));
             warehouse.execute(Executable::Query(&plan), &corpus::presented(), deadline)
         });
 
         let error = outcome.expect_err("a budget spent waiting for the lock must not answer with rows");
+        assert!(
+            matches!(error, PostgresError::DeadlineSpent),
+            "expected DeadlineSpent, got {error:?}"
+        );
+        assert!(
+            warehouse.deadline_exceeded(&error),
+            "DeadlineSpent must classify as deadline_exceeded too: {error}"
+        );
+    }
+
+    #[test]
+    fn a_raw_caller_spent_while_waiting_for_the_lock_is_refused_locally() {
+        let Some((warehouse, _schema)) = open("rawlockwait") else {
+            return;
+        };
+        let deadline = Deadline::opened_at(
+            Instant::now(),
+            Budget::parse(Duration::from_millis(300)).expect("300ms is a budget"),
+        );
+
+        let blocker_deadline = Deadline::opened_at(
+            Instant::now(),
+            Budget::parse(Duration::from_secs(30)).expect("30s is a budget"),
+        );
+        let outcome = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                drop(warehouse.execute_raw(&statement("select pg_sleep(1.5)"), &corpus::presented(), blocker_deadline));
+            });
+            std::thread::sleep(Duration::from_millis(100));
+            warehouse.execute_raw(&statement("select 1"), &corpus::presented(), deadline)
+        });
+
+        let error = outcome
+            .expect("a raw call must produce an execution result")
+            .expect_err("a raw call with a budget spent waiting for the lock must not answer with rows");
         assert!(
             matches!(error, PostgresError::DeadlineSpent),
             "expected DeadlineSpent, got {error:?}"
