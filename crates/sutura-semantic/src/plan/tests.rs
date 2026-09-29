@@ -15,14 +15,16 @@ use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term};
 use sutura_domain::model::{
     Aggregate, ColumnName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
-use sutura_domain::plan::{PlanPredicate, QueryPlan};
+use sutura_domain::plan::leg::LegPlan;
+use sutura_domain::plan::{PlanBucket, PlanColumn, PlanPredicate, QueryPlan, ResultLabel};
 use sutura_domain::query::RefusalReason;
 
 use super::{DimensionName, Plan, PlanError, plan};
 use crate::resolve::{Resolution, ResolvedDimension, ResolvedFilter, ResolvedFilterValue, ResolvedJoin};
+use crate::{CompileFailure, Compiled};
 
 mod two_sources;
-use two_sources::TwoSources;
+use two_sources::{ONE_SOURCE, Placed, TwoSources, ask, federated, refusal, revenue_beside_a_ratio, two_facts};
 
 fn column(raw: &str) -> ColumnName {
     ColumnName::parse(raw).expect("a test column is a column")
@@ -151,8 +153,7 @@ impl Corpus {
             keys,
             filters: Vec::new(),
             top: None,
-            second_fact_model: None,
-            calendar_model: None,
+            cross: None,
         }
     }
 }
@@ -346,8 +347,7 @@ fn a_compound_crossing_relationship_is_refused_by_its_own_name() {
         }],
         filters: Vec::new(),
         top: None,
-        second_fact_model: None,
-        calendar_model: None,
+        cross: None,
     };
     let Err(refused) = plan(&resolution) else {
         panic!("a compound crossing relationship must be refused, not planned");
@@ -404,8 +404,7 @@ fn a_ratio_term_naming_another_model_is_refused_before_either_plan_shape_is_trie
         keys: Vec::new(),
         filters: Vec::new(),
         top: None,
-        second_fact_model: None,
-        calendar_model: None,
+        cross: None,
     };
     let Err(refused) = plan(&resolution) else {
         panic!("a ratio term naming another model must be refused");
@@ -478,8 +477,7 @@ fn a_ratio_term_naming_another_model_is_refused_with_a_remote_dimension_too() {
         }],
         filters: Vec::new(),
         top: None,
-        second_fact_model: None,
-        calendar_model: None,
+        cross: None,
     };
     let Err(refused) = plan(&resolution) else {
         panic!("a ratio term naming another model must be refused even with a remote dimension present");
@@ -537,8 +535,7 @@ fn a_ratio_term_naming_the_metric_s_own_model_plans_like_one_naming_none() {
         keys: Vec::new(),
         filters: Vec::new(),
         top: None,
-        second_fact_model: None,
-        calendar_model: None,
+        cross: None,
     };
     let planned = mono(&resolution);
     let sutura_domain::plan::PlanMeasure::Ratio {
@@ -642,8 +639,7 @@ fn a_multi_metric_plan_keeps_each_required_filter_on_its_own_measure() {
         keys: Vec::new(),
         filters: Vec::new(),
         top: None,
-        second_fact_model: None,
-        calendar_model: None,
+        cross: None,
     };
 
     let planned = mono(&resolution);
@@ -754,8 +750,7 @@ fn a_multi_metric_question_reaching_a_remote_dimension_is_refused_by_name() {
         }],
         filters: Vec::new(),
         top: None,
-        second_fact_model: None,
-        calendar_model: None,
+        cross: None,
     };
 
     let Err(refused) = plan(&resolution) else {
@@ -774,102 +769,11 @@ fn a_multi_metric_question_reaching_a_remote_dimension_is_refused_by_name() {
     );
 }
 
-/// `telekom/sutura#780`: a cross-model ratio WITH a shared calendar plans as a federated answer
-/// with a second fact leg. The metric's numerator reads the metric's own model (`facts`); the
-/// denominator reads `customers` on the remote source. Both facts bucket through the shared
-/// calendar model's `time_column`. The second fact leg carries the `Some`-model leaves (the
-/// denominator), and the first fact leg carries the `None`-model leaves (the numerator).
-///
-/// This is the golden plan cell: the question plans rather than refusing, and the second fact
-/// leg is present. The corpus is built by hand because the plan stage reads a `Resolution`, which
-/// only a hand-built corpus can supply with a `second_fact_model` and a `calendar_model`.
-#[test]
-fn a_cross_model_ratio_with_a_shared_calendar_plans_with_a_second_fact_leg() {
-    let facts = model("facts", "local", &["amount_cents", "customer_key", "day"]);
-    let customers = model("customers", "remote", &["customer_key", "day"]);
-    let calendar = model("calendar", "local", &["day"]);
-    let facts_customer = relationship("facts_customer", ("facts", "customer_key"), ("customers", "customer_key"));
-    // No `facts`-`calendar` or `customers`-`calendar` relationship here: this test builds its
-    // `Resolution` by hand rather than through `Definitions::assemble`, which is where such a
-    // relationship would be checked (`InconsistentDefinitions::SharedCalendarNotReachable`) and
-    // where it would matter - `plan()` itself reads only `resolution.calendar_model`, never a
-    // relationship, so this fixture has nothing to gain from declaring one it cannot exercise.
-    let metric = Metric::new(
-        MetricName::parse("revenue_per_customer").expect("a test metric is a metric"),
-        ModelName::parse("facts").expect("a test model is a model"),
-        Measure::Ratio {
-            numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
-            denominator: Term::Aggregate(AggregatedColumn::on_model(
-                Aggregate::Count,
-                column("customer_key"),
-                ModelName::parse("customers").expect("a test model is a model"),
-            )),
-            zero_denominator: sutura_domain::measure::ZeroDenominator::Null,
-        },
-        Vec::new(),
-        column("day"),
-        BTreeSet::from([Grain::Month]),
-        vec![declared("region", "region_code", &["facts_customer"])],
-        None,
-        Description::default(),
-        Audience::Open,
-    )
-    .expect("no dimensions to duplicate")
-    .with_shared_calendar(ModelName::parse("calendar").expect("a test calendar is a model"));
-    let region = metric
-        .dimension(&dimension_name("region"))
-        .expect("the metric declares this dimension");
-    let resolution = Resolution {
-        metric: &metric,
-        metrics: vec![&metric],
-        model: &facts,
-        grain: Grain::Month,
-        range: TimeRange::new(
-            Date::parse("2026-06-01").expect("a test date is a date"),
-            Date::parse("2026-07-01").expect("a test date is a date"),
-        )
-        .expect("June is a range"),
-        keys: vec![ResolvedDimension {
-            dimension: region,
-            join: Some(vec![ResolvedJoin {
-                relationship: &facts_customer,
-                model: &customers,
-            }]),
-        }],
-        filters: Vec::new(),
-        top: None,
-        second_fact_model: Some(&customers),
-        calendar_model: Some(&calendar),
-    };
-    let planned = plan(&resolution).expect("a cross-model ratio with a shared calendar plans");
-    let Plan::Federated(federated) = planned else {
-        panic!("a cross-model ratio with a shared calendar is a federated plan");
-    };
-    assert!(
-        federated.second_fact().is_some(),
-        "the second fact leg must be present for a cross-model ratio with a shared calendar"
-    );
-    let second = federated.second_fact().expect("the second fact leg is present");
-    assert_eq!(
-        second.source(),
-        &SourceName::parse("remote").expect("a test source is a source"),
-        "the second fact leg reads the remote source"
-    );
-    assert!(
-        !second.terms().is_empty(),
-        "the second fact leg carries the Some-model leaves"
-    );
-    assert!(
-        federated.fact().terms().iter().all(|t| t.label().starts_with("0_leaf")),
-        "the first fact leg carries the None-model leaves"
-    );
-}
-
 // No separate "cross-model ratio without a shared calendar" cell here: the sibling above,
 // `a_ratio_term_naming_another_model_is_refused_with_a_remote_dimension_too`, already builds this
 // exact fixture (a metric with no `shared_calendar` and a ratio term naming `customers`) and
 // already asserts `CrossModelRatioWithoutSharedCalendar` - `plan()`'s `shared_calendar().is_none()`
-// check returns before `second_fact_model` is ever read, so a second copy differing only in that
+// check returns before `cross` is ever read, so a second copy differing only in that
 // field would exercise the identical branch. A `jscpd` clone of that test was here and was cut
 // rather than kept beside a `dup-ignore` exception, per `docs/adr/0002`'s second amendment.
 
@@ -906,34 +810,6 @@ fn a_term_naming_the_metric_s_own_model_federates_on_the_first_fact_leg() {
     assert_eq!(federated.fact().terms().len(), 2, "both leaves stay on the first fact leg");
 }
 
-/// Two metrics: `revenue`, a plain sum that declares a calendar, and `revenue_per_customer`, a
-/// cross-model ratio that declares none. The calendar that decides the refusal is the ratio's own;
-/// reading the FIRST metric's planned the ratio as one statement over `facts` (review probe P2).
-fn revenue_beside_a_ratio(ratio_calendar: bool) -> (Metric, Metric) {
-    let calendar = || ModelName::parse("calendar").expect("a test model is a model");
-    let revenue = TwoSources::metric(
-        "revenue",
-        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
-    );
-    let ratio = TwoSources::metric(
-        "revenue_per_customer",
-        Measure::Ratio {
-            numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
-            denominator: Term::Aggregate(AggregatedColumn::on_model(
-                Aggregate::Count,
-                column("customer_key"),
-                ModelName::parse("customers").expect("a test model is a model"),
-            )),
-            zero_denominator: sutura_domain::measure::ZeroDenominator::Null,
-        },
-    );
-    if ratio_calendar {
-        (revenue, ratio.with_shared_calendar(calendar()))
-    } else {
-        (revenue.with_shared_calendar(calendar()), ratio)
-    }
-}
-
 #[test]
 fn the_no_calendar_refusal_reads_the_calendar_of_the_ratio_it_found() {
     let corpus = TwoSources::new();
@@ -965,4 +841,147 @@ fn a_cross_model_ratio_beside_another_metric_is_refused_by_name() {
         ),
         "a cross-model ratio beside another metric is refused, got {refused:?}"
     );
+}
+
+/// `telekom/sutura#780`'s golden, through `compile` over an assembled catalog: each fact is its own
+/// statement joining the shared calendar, both bucket AND bound on `dim_calendar.day`, each carries
+/// only its own leaf, and the second links to the lookup through its OWN relationship's column.
+#[test]
+fn a_cross_model_ratio_plans_two_fact_statements_bucketed_through_one_calendar() {
+    let plan = federated(ask(&two_facts(&ONE_SOURCE), &["region"]));
+    let day = PlanColumn::new(TableName::parse("dim_calendar").expect("a table"), column("day"));
+    let calendar_bucket = PlanBucket::new(ResultLabel::bucket(), Grain::Month, day.clone());
+    let second = plan.second_fact().expect("a cross-model ratio carries a second fact leg");
+    for (leg, from, calendar_hop, leaf) in [
+        (plan.fact(), "dim_facts", "facts_calendar", "0_leaf_0"),
+        (second, "dim_visits", "visits_calendar", "0_leaf_1"),
+    ] {
+        let LegPlan::Fact { tables, bucket, .. } = leg else {
+            panic!("{from} is a fact leg");
+        };
+        assert_eq!(leg.table_name().as_str(), from, "each fact reads its own table");
+        let joins: Vec<&str> = tables.joins().iter().map(|join| join.relationship().as_str()).collect();
+        assert_eq!(joins, [calendar_hop], "{from} joins the calendar and nothing else");
+        assert_eq!(bucket, &calendar_bucket, "{from} buckets through the one calendar column");
+        let bounds: Vec<&PlanColumn> = leg
+            .filters()
+            .iter()
+            .filter_map(|filter| match filter.predicate() {
+                PlanPredicate::AtOrAfter { column, .. } | PlanPredicate::Before { column, .. } => Some(column),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(bounds, [&day, &day], "{from} binds the question's range on the calendar");
+        let labels: Vec<&str> = leg.terms().iter().map(sutura_domain::plan::LegTerm::label).collect();
+        assert_eq!(labels, [leaf], "{from} carries only its own leaf");
+        assert_eq!(
+            leg.terms()[0].term().column().table().as_str(),
+            from,
+            "{from}'s leaf reads {from}"
+        );
+    }
+    assert_eq!(
+        second.source().as_str(),
+        "local",
+        "the second fact reads its own model's source"
+    );
+    assert_eq!(
+        second.keys().iter().map(|key| key.column().clone()).collect::<Vec<_>>(),
+        [PlanColumn::new(
+            TableName::parse("dim_visits").expect("a table"),
+            column("customer_key")
+        )],
+        "the second fact links through its own relationship's origin column"
+    );
+}
+
+/// The chasm-trap guard, pinned: the two facts are TWO statements and neither names the other's
+/// table. Folding the second fact's leaf into the first leg's statement is refused by
+/// `FederatedPlan::new`, so this cell goes red under that merge rather than answering it.
+#[test]
+fn the_two_facts_of_a_ratio_are_two_statements_never_one_from() {
+    let answer = ask(&two_facts(&ONE_SOURCE), &["region"]);
+    let Ok(Compiled::Federated { plan }) = answer else {
+        panic!("the two facts plan as two statements, got {answer:?}");
+    };
+    let tables = |leg: &LegPlan| -> Vec<String> {
+        let LegPlan::Fact { tables, .. } = leg else {
+            return vec![leg.table_name().as_str().to_owned()];
+        };
+        std::iter::once(tables.table().name().as_str().to_owned())
+            .chain(tables.joins().iter().map(|join| join.table().name().as_str().to_owned()))
+            .collect()
+    };
+    let second = plan.second_fact().expect("the second fact is a leg of its own");
+    assert!(
+        !tables(plan.fact()).contains(&"dim_visits".to_owned()),
+        "the first fact's statement reads no second fact"
+    );
+    assert!(
+        !tables(second).contains(&"dim_facts".to_owned()),
+        "the second fact's statement reads no first fact"
+    );
+    assert_eq!(plan.legs().len(), 3, "two fact statements beside the lookup");
+}
+
+/// Every shape the two fact statements cannot be built for is refused BY NAME, never planned over
+/// the metric's own table or reported as a fabricated source count (review probes P3, P4, P5).
+#[test]
+fn a_cross_model_ratio_no_two_statements_can_answer_is_refused_by_name() {
+    let one = two_facts(&ONE_SOURCE);
+    let unlinked = two_facts(&Placed {
+        visits_link: false,
+        ..ONE_SOURCE
+    });
+    let cases = [
+        (refusal(ask(&one, &[])), "visits", "no dimension to link through"),
+        (
+            refusal(ask(&one, &["region", "channel"])),
+            "visits",
+            "a dimension the first fact alone reaches",
+        ),
+        (
+            refusal(ask(&unlinked, &["region"])),
+            "visits",
+            "a second fact with no link of its own",
+        ),
+    ];
+    for (reason, model, why) in cases {
+        assert!(
+            matches!(reason, RefusalReason::CrossModelRatioWithoutSharedDimension { model: ref named, .. } if named.as_str() == model),
+            "{why}: expected CrossModelRatioWithoutSharedDimension naming {model}, got {reason:?}"
+        );
+    }
+    for (placed, by, model) in [
+        (
+            Placed {
+                visits_on: "remote",
+                ..ONE_SOURCE
+            },
+            &[][..],
+            "visits",
+        ),
+        (
+            Placed {
+                visits_on: "remote",
+                ..ONE_SOURCE
+            },
+            &["region"][..],
+            "visits",
+        ),
+        (
+            Placed {
+                calendar_on: "remote",
+                ..ONE_SOURCE
+            },
+            &["region"][..],
+            "calendar",
+        ),
+    ] {
+        let reason = refusal(ask(&two_facts(&placed), by));
+        assert!(
+            matches!(reason, RefusalReason::CrossModelRatioSpansSources { model: ref named, .. } if named.as_str() == model),
+            "expected CrossModelRatioSpansSources naming {model}, got {reason:?}"
+        );
+    }
 }

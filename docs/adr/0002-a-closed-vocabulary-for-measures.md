@@ -209,35 +209,45 @@ this amendment builds toward the chosen shape rather than leaving it undocumente
 The amendment is one more field, again on the metric rather than on the term: `shared_calendar:
 Option<ModelName>`, `None` for every metric that predates it (so a one-model metric's on-disk shape
 and digest still do not move) and `Some` naming the calendar model a `Metric::with_shared_calendar`
-builder call declares. `Definitions::assemble` checks the name at load
-(`InconsistentDefinitions::SharedCalendarNotReachable`): the calendar model must exist, and BOTH the
-metric's own model and every cross-model ratio term's model must reach it through a declared
-relationship - a calendar one fact cannot reach is a definition whose ratio could never be bucketed
-through it, refused at declaration time rather than surfacing as a query-time failure to plan.
+builder call - or a local catalog's `shared_calendar:` key - declares. `Definitions::assemble`
+checks it at load (`InconsistentDefinitions::SharedCalendarNotReachable`): the calendar model must
+exist, BOTH the metric's own model and every cross-model ratio term's model must declare a
+relationship FROM itself TO it (the hop each fact leg joins), and the calendar must declare the
+metric's `time_column` (`UnknownTimeColumn`), the column both legs bucket by - a calendar one fact
+cannot join is a definition whose ratio could never be bucketed through it, refused at declaration
+time rather than surfacing as a query-time failure to plan.
 
-With a shared calendar declared and reachable, `plan()` no longer refuses the ratio: it dispatches
-to the federation splitter, which builds the second fact leg the second amendment's own type already
-had a shape for (`telekom/sutura#780`'s first slice) and buckets BOTH legs by the calendar's time
-column rather than by the metric's own, so the combiner can join the two legs on the link key AND
-the bucket. A cross-model ratio whose metric declares no shared calendar is still refused, but under
-its own new name, `RefusalReason::CrossModelRatioWithoutSharedCalendar` - a caller told the
-declaration is missing, not that the capability is absent. `CrossModelRatioNotExecutable` is
-retired rather than kept as a variant nothing can construct any more: the enrolled refusal count in
-`xtask/src/refusals/registry.rs` is unchanged by the swap, the same straight substitution
-`TopNotFederated` → `TopOverUncertifiedRows` already used this record's mechanism for.
+With a shared calendar declared, `plan()` builds the ratio as **two fact statements**: the first
+over the metric's own table, the second over the other term's model, each joining the calendar
+through its own relationship inside its own statement, each bucketed AND bounded by the question's
+range on the calendar's column, and each carrying only the leaves of its own model. The second fact
+links to the lookup through ITS OWN relationship into the model the first fact crosses into, on the
+same lookup column. The combiner joins the two above on the link and the bucket, divides once and
+applies `zero_denominator` once. `FederatedPlan::new` holds the two halves of that by type: both fact
+legs must carry the plan's bucket (`BucketMismatch`), and a leaf naming another model can only ride a
+second fact leg (`TermsDoNotMatchFederation`) - so no producer can fold two fact tables into one
+statement. **The chasm trap is impossible because the two facts are two statements that never share a
+`FROM`, not because they read two sources**: `FactsOnSameSource`, which demanded two sources, is
+deleted - two statements on one source are still two statements, and they are the only shape this
+amendment builds.
 
-**The limit stated next to the claim.** The plan this amendment ships BUILDS - it type-checks, and a
-cross-model ratio with a declared shared calendar produces a `FederatedPlan` with a second fact leg
-rather than a refusal. What it does not yet do is join the calendar table into either fact leg's own
-statement: each leg's bucket column qualifies a column by the calendar's table name, but neither
-leg's `StatementTables` carries a `JOIN` to it. The mechanism is **wired, with no observed run** -
-the same phrase this repository uses for the identity leg-2 boundary, chosen deliberately, because
-the shape is the same: a plan that type-checks is not a statement that executes, and no golden SQL
-fixture and no differential test exercise this leg shape yet, so nothing here claims the generated
-SQL is valid against a real data system. The join (same-source only, by the mechanism
-`chain_joins` already gives dimension chains - a calendar on neither fact's own source cannot be
-joined this way and is a gap this amendment does not close), a golden per dialect, and the
-differential's two-fact axis are the next PR the issue's own decision already named.
+Every other shape is refused by name rather than planned: a metric with no calendar
+(`CrossModelRatioWithoutSharedCalendar` - a caller told the declaration is missing, not that the
+capability is absent), a second fact or calendar on another source than the metric's
+(`CrossModelRatioSpansSources`, because a statement reads one source), and a question grouped or
+filtered by anything but dimensions on the one remote model both facts link to, or whose second fact
+has no link of its own into it (`CrossModelRatioWithoutSharedDimension`). `CrossModelRatioNotExecutable`
+is retired rather than kept as a variant nothing can construct any more.
+
+**The limit stated next to the claim.** The plan is built and held by cells over an assembled catalog
+through `compile`, and nothing more: no golden SQL fixture renders the two-fact shape per dialect and
+no differential run executes it, so nothing here claims the statements run against a real data
+system. Only a local catalog can declare `shared_calendar:`; no other catalog adapter reads it yet,
+so a metric from any other adapter keeps the no-calendar refusal. A metric's required filters bind
+only the first fact's statement - they name the metric's own model's columns - and the second fact
+is not filtered by them. A calendar declared once per source, which would let the two facts sit on
+two sources, is not built; the golden per dialect and the differential's two-fact axis are the next
+PR the issue's own decision already named.
 
 ## What does not change
 

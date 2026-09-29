@@ -265,11 +265,11 @@ pub enum InconsistentDefinitions {
     DefinitionsTooLarge { bytes: usize, limit: usize },
     /// A cross-model ratio's shared calendar is not reachable from one of its fact models
     /// (`telekom/sutura#780`). The metric declares a `shared_calendar` model, and every model a
-    /// ratio term names - including the metric's own - must reach that calendar through a declared
-    /// relationship. A model that does not is a definition that loads but whose ratio can never be
-    /// bucketed through the shared calendar, so it is refused at declaration time rather than at
-    /// query time.
-    #[error("metric {metric} declares shared calendar {calendar}, which model {model} does not reach through any relationship")]
+    /// ratio term names - including the metric's own - must declare a relationship FROM itself TO
+    /// that calendar, the direction each fact leg joins it in. A model that does not is a
+    /// definition that loads but whose ratio can never be bucketed through the shared calendar,
+    /// so it is refused at declaration time rather than at query time.
+    #[error("metric {metric} declares shared calendar {calendar}, which model {model} has no relationship to")]
     SharedCalendarNotReachable {
         metric: MetricName,
         calendar: ModelName,
@@ -474,10 +474,9 @@ impl Definitions {
                     model: calendar.clone(),
                 });
             }
-            // Every model a ratio term names must reach the calendar. The metric's own model is
-            // checked first, then each cross-model term's model. A relationship reaches the
-            // calendar if either its origin or its target is the model being checked and the other
-            // end is the calendar.
+            // Every model a ratio term names must reach the calendar - the metric's own first,
+            // then each cross-model term's - through a relationship from the model to the calendar,
+            // which is the hop each fact leg joins.
             let mut models_to_check = vec![&metric.model];
             if let Some(measure) = metric.computation.measure() {
                 for term_model in measure.models().into_iter().flatten() {
@@ -487,10 +486,9 @@ impl Definitions {
                 }
             }
             for &named in &models_to_check {
-                let reaches = relationships.values().any(|rel| {
-                    (rel.origin_model() == named && rel.target_model() == calendar)
-                        || (rel.origin_model() == calendar && rel.target_model() == named)
-                });
+                let reaches = relationships
+                    .values()
+                    .any(|rel| rel.origin_model() == named && rel.target_model() == calendar);
                 if !reaches {
                     return Err(InconsistentDefinitions::SharedCalendarNotReachable {
                         metric: metric.name.clone(),
@@ -498,6 +496,17 @@ impl Definitions {
                         model: named.clone(),
                     });
                 }
+            }
+            // The column both legs bucket and bound by is the metric's time column on the calendar.
+            if models
+                .get(calendar)
+                .is_some_and(|model| !model.has_column(&metric.time_column))
+            {
+                return Err(InconsistentDefinitions::UnknownTimeColumn {
+                    metric: metric.name.clone(),
+                    model: calendar.clone(),
+                    column: metric.time_column.clone(),
+                });
             }
         }
         Ok(())

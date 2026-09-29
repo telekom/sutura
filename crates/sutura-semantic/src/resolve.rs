@@ -78,17 +78,30 @@ pub(crate) struct Resolution<'a> {
     pub(crate) range: TimeRange,
     pub(crate) keys: Vec<ResolvedDimension<'a>>,
     pub(crate) filters: Vec<ResolvedFilter<'a>>,
-    /// The second fact model, when the metric's measure names a model other than its own
-    /// (`telekom/sutura#780`). `None` for every one-model metric. The plan stage reads this to
-    /// build the second fact leg of a cross-model ratio; the consistency check at load already
-    /// proved the model exists and its columns are declared.
-    pub(crate) second_fact_model: Option<&'a Model>,
-    /// The shared calendar model, when the metric declares one (`telekom/sutura#780`). Both fact
-    /// legs join to this model and group by the metric's `time_column` (the conformed column the
-    /// calendar exposes), so the combiner can join them on the link AND the bucket. `None` for
-    /// every one-model metric.
-    pub(crate) calendar_model: Option<&'a Model>,
+    /// A cross-model ratio's second fact and shared calendar, when the metric's measure names a
+    /// model other than its own AND the metric declares a calendar (`telekom/sutura#780`). `None`
+    /// otherwise - a cross-model ratio with no calendar is refused by the plan stage by name.
+    pub(crate) cross: Option<CrossModel<'a>>,
     pub(crate) top: Option<Top>,
+}
+
+/// What a cross-model ratio's second fact leg is built from (`telekom/sutura#780`), looked up once.
+///
+/// The consistency check at load proved each model exists and that BOTH fact models reach the
+/// calendar through a relationship of their own, so every lookup that fills this is one
+/// `Definitions::assemble` already answered.
+pub(crate) struct CrossModel<'a> {
+    /// The model the ratio's other term reads.
+    pub(crate) second: &'a Model,
+    /// The calendar both facts bucket through.
+    pub(crate) calendar: &'a Model,
+    /// The metric's own model's hop to the calendar.
+    pub(crate) own_to_calendar: &'a Relationship,
+    /// The second fact's hop to the calendar.
+    pub(crate) second_to_calendar: &'a Relationship,
+    /// Every relationship out of the second fact - the splitter reads its OWN link into the
+    /// question's remote dimension off these, never the first fact's key name.
+    pub(crate) second_relationships: Vec<&'a Relationship>,
 }
 
 /// Why resolution did not produce a resolution.
@@ -110,6 +123,8 @@ pub enum BundleInconsistent {
     RelationshipAbsent { dimension: DimensionName },
     #[error("a relationship names model {model}, which the pinned bundle does not hold")]
     JoinTargetMissing { model: ModelName },
+    #[error("metric {metric}'s model {model} declares no relationship to the metric's shared calendar")]
+    SharedCalendarNotJoined { metric: MetricName, model: ModelName },
 }
 
 /// Refused, or the bundle is broken.
@@ -346,7 +361,7 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
     // grouped statement with one certified column per metric (see
     // [`crate::plan::mono_plan`], `guards_and_shared` for how each metric's own required
     // filters become that metric's guard rather than a leaked `WHERE` term).
-    let cross_model = cross_model_and_calendar(metric, definitions)?;
+    let cross = cross_model(metric, definitions)?;
     Ok(Resolution {
         metric,
         metrics,
@@ -356,60 +371,48 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
         keys,
         filters,
         top: query.top(),
-        second_fact_model: cross_model.second_fact_model,
-        calendar_model: cross_model.calendar_model,
+        cross,
     })
 }
 
-/// The second fact model and the shared calendar model a metric's cross-model ratio needs, when
-/// it names either (`telekom/sutura#780`). A named pair rather than a tuple - `Resolution`'s own
-/// two fields, matched by name so the caller cannot swap them silently.
-struct CrossModelAndCalendar<'a> {
-    second_fact_model: Option<&'a Model>,
-    calendar_model: Option<&'a Model>,
-}
-
-/// If the metric's measure names a model other than its own, look it up so the plan stage can
-/// build the second fact leg. The consistency check at load already proved the model exists;
-/// `NoSuchModel` is the broken-bundle arm that never fires for a model the catalog declared.
-/// Likewise for the shared calendar model, when the metric declares one - the consistency check
-/// already proved it exists and both fact models reach it.
-fn cross_model_and_calendar<'a>(
-    metric: &'a Metric,
-    definitions: &'a Definitions,
-) -> Result<CrossModelAndCalendar<'a>, BundleInconsistent> {
-    let cross_model = metric
+/// The [`CrossModel`] a metric's cross-model ratio needs, when it names another model and declares
+/// a calendar. Every arm that returns an error is a broken bundle - see [`CrossModel`].
+fn cross_model<'a>(metric: &'a Metric, definitions: &'a Definitions) -> Result<Option<CrossModel<'a>>, BundleInconsistent> {
+    let named = metric
         .measure()
         .into_iter()
         .flat_map(|m| m.models().into_iter().flatten())
         .find(|m| *m != metric.model());
-    let second_fact_model = match cross_model {
-        None => None,
-        Some(named) => {
-            let model_ref = definitions.model(named).ok_or_else(|| BundleInconsistent::NoSuchModel {
-                metric: metric.name().clone(),
-                model: named.clone(),
-            })?;
-            // A term naming the metric's own model explicitly is the same question as one naming
-            // none - both resolve against the metric's own table.
-            if model_ref.name() == metric.model() {
-                None
-            } else {
-                Some(model_ref)
-            }
-        }
+    let (Some(named), Some(calendar_name)) = (named, metric.shared_calendar()) else {
+        return Ok(None);
     };
-    let calendar_model = match metric.shared_calendar() {
-        None => None,
-        Some(cal) => Some(definitions.model(cal).ok_or_else(|| BundleInconsistent::NoSuchModel {
+    let model = |name: &ModelName| {
+        definitions.model(name).ok_or_else(|| BundleInconsistent::NoSuchModel {
             metric: metric.name().clone(),
-            model: cal.clone(),
-        })?),
+            model: name.clone(),
+        })
     };
-    Ok(CrossModelAndCalendar {
-        second_fact_model,
-        calendar_model,
-    })
+    let out_of = |from: &'a ModelName| {
+        definitions
+            .relationships()
+            .values()
+            .filter(move |relationship| relationship.origin_model() == from)
+    };
+    let to_calendar = |from: &'a ModelName| {
+        out_of(from)
+            .find(|relationship| relationship.target_model() == calendar_name)
+            .ok_or_else(|| BundleInconsistent::SharedCalendarNotJoined {
+                metric: metric.name().clone(),
+                model: from.clone(),
+            })
+    };
+    Ok(Some(CrossModel {
+        second: model(named)?,
+        calendar: model(calendar_name)?,
+        own_to_calendar: to_calendar(metric.model())?,
+        second_to_calendar: to_calendar(named)?,
+        second_relationships: out_of(named).collect(),
+    }))
 }
 
 /// Finds one dimension and the chain of models its hops walk.

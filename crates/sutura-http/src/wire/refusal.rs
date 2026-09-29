@@ -376,6 +376,13 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
                  ask a metric whose measure reads one model, or report it to a person"
             ),
         ),
+        // 409 with the calendar's refusal: a plan shape this metric's models cannot take.
+        RefusalReason::CrossModelRatioSpansSources { ref metric, ref model } => {
+            (StatusCode::CONFLICT, spans_sources(metric, model))
+        }
+        RefusalReason::CrossModelRatioWithoutSharedDimension { ref metric, ref model } => {
+            (StatusCode::CONFLICT, without_shared_dimension(metric, model))
+        }
     };
     (
         status,
@@ -395,6 +402,22 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
 
 fn federation_not_executable() -> String {
     String::from("this deployment has no adapter that can execute one half of a question spanning two data systems")
+}
+
+fn spans_sources(metric: &sutura_domain::model::MetricName, model: &sutura_domain::model::ModelName) -> String {
+    format!(
+        "`{metric}` measures a ratio over two fact models, and `{model}` lives on another data system \
+         than the metric's own, so both facts cannot join its shared calendar; report it to a person"
+    )
+}
+
+/// Narrowable, unlike [`spans_sources`]: a different grouping answers it.
+fn without_shared_dimension(metric: &sutura_domain::model::MetricName, model: &sutura_domain::model::ModelName) -> String {
+    format!(
+        "`{metric}` measures a ratio over two fact models, and this question does not group only by a \
+         dimension both `{metric}`'s model and `{model}` link to; group by such a dimension, and by \
+         nothing else"
+    )
 }
 
 fn federation_link_ambiguous(source: &sutura_domain::model::SourceName) -> String {
@@ -508,7 +531,9 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::SourceRefused { .. }
         | RefusalReason::DeadlineExceeded { .. }
         | RefusalReason::TopOverUncertifiedRows { .. }
-        | RefusalReason::CrossModelRatioWithoutSharedCalendar { .. } => None,
+        | RefusalReason::CrossModelRatioWithoutSharedCalendar { .. }
+        | RefusalReason::CrossModelRatioSpansSources { .. }
+        | RefusalReason::CrossModelRatioWithoutSharedDimension { .. } => None,
     }
 }
 

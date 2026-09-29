@@ -9,18 +9,17 @@
 //! Nothing here decides which plan SHAPE a question gets - `super::plan` does that, and calls
 //! [`federated_plan`] only once it has already decided there is exactly one remote source.
 
-use sutura_domain::catalog::{JoinKey, Metric};
 use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::measure::Measure;
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
-    FederatedPlan, InternalLabel, PlanBindings, PlanBucket, PlanColumn, PlanKey, PlanTerm, ResultLabel, StatementTables, labels,
+    FederatedPlan, InternalLabel, LegPlan, PlanBucket, PlanColumn, PlanKey, PlanTerm, ResultLabel, StatementTables, labels,
 };
 use sutura_domain::query::RefusalReason;
 
 use super::PlanError;
-use super::chain::{chain_joins, column_of, every_remote_dimension, is_remote};
-use crate::resolve::{Resolution, ResolvedFilter};
+use super::chain::{chain_joins, column_of, every_remote_dimension, hop_join, is_remote};
+use crate::resolve::{Resolution, ResolvedFilter, ResolvedJoin};
 
 /// Splits a two-source question into a fact leg and a lookup leg.
 ///
@@ -143,16 +142,13 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
         .filter(|filter| is_remote(&filter.dimension, model.source()))
         .collect();
 
-    // `telekom/sutura#780`: when a shared calendar is declared, both facts bucket through the
-    // calendar's `time_column`, not the metric's own, and groups by it. The calendar table is NOT
-    // joined yet: neither leg's `StatementTables` carries it, so the bucket column references a
-    // table the statement does not name - a known limit of this build, not a finished plan. Without
-    // a shared calendar (every pre-#780 metric), the bucket is the metric's own `time_column` as
-    // before.
+    // `telekom/sutura#780`: a cross-model ratio buckets and bounds both fact legs on the shared
+    // calendar's column, which each leg joins below; every other metric on its own `time_column`.
     let time_table = resolution
-        .calendar_model
-        .map_or_else(|| own_table.clone(), |cal| cal.table_name().clone());
-    let time_column = PlanColumn::new(time_table, metric.time_column().clone());
+        .cross
+        .as_ref()
+        .map_or(own_table, |cross| cross.calendar.table_name());
+    let time_column = PlanColumn::new(time_table.clone(), metric.time_column().clone());
     let fact_bindings = super::predicates_and_params(resolution, &local_filters, own_table, &time_column)?;
     let lookup_bindings = super::requested_for(&remote_filters, remote_table)?;
 
@@ -163,17 +159,13 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
     let leaf_labels = labels(&federation);
     let mut terms: Vec<LegTerm> = Vec::with_capacity(leaf_labels.len());
     let mut second_terms: Vec<LegTerm> = Vec::new();
-    // `telekom/sutura#780`: a cross-model ratio's leaves split by the model each reads. The
-    // first fact leg carries the leaves whose model is `None` (the metric's own); the second
-    // fact leg carries the leaves whose model is `Some` (the named model). Both legs' terms are
-    // labelled by position through `labels(&federation)`, so the combiner reads them back by the
-    // same rule - the D9 check in `FederatedPlan::new` verifies each leg's terms match.
-    let second_table = resolution.second_fact_model.map(|m| m.table_name().clone());
+    // `telekom/sutura#780`: a cross-model ratio's leaves split by the model each reads - `None`
+    // (the metric's own, erased by `of_metric`) on the first fact leg, `Some` on the second, each
+    // column qualified by the table its own leg reads. Both legs are labelled by position through
+    // `labels(&federation)`, and D9 in `FederatedPlan::new` checks each leg carries its own share.
+    let second_table = resolution.cross.as_ref().map_or(own_table, |cross| cross.second.table_name());
     for (leaf, &label) in federation.carried().iter().zip(leaf_labels.iter()) {
-        let owning_table = match leaf.model() {
-            None => own_table.clone(),
-            Some(_) => second_table.clone().unwrap_or_else(|| own_table.clone()),
-        };
+        let owning_table = (if leaf.model().is_some() { second_table } else { own_table }).clone();
         let plan_term = match **leaf {
             Carried::Aggregated { pushed, ref column, .. } => PlanTerm::Aggregate {
                 aggregate: pushed.push(),
@@ -204,7 +196,10 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
     // dispatching here. Same builder as the whole-answer path: two copies of "one join per hop,
     // qualified by the previous hop's target" is how one of them came to be qualified by the
     // metric's table instead.
-    let joins = chain_joins(resolution, own_table, model.source());
+    let mut joins = chain_joins(resolution, own_table, model.source());
+    if let Some(cross) = resolution.cross.as_ref() {
+        joins.push(hop_join(cross.own_to_calendar, own_table, cross.calendar));
+    }
 
     let bucket = PlanBucket::new(ResultLabel::bucket(), resolution.grain, time_column);
 
@@ -259,7 +254,7 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
         bindings: lookup_bindings,
     };
 
-    let second_fact = second_fact_leg(resolution, metric, crossing_key, second_terms)?;
+    let second_fact = second_fact_leg(resolution, first_join, &bucket, second_terms)?;
     let plan = FederatedPlan::new(
         metric.name().clone(),
         ResultLabel::measure(metric.name()),
@@ -287,46 +282,56 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
     })
 }
 
-/// The second fact leg, when the ratio's terms name a second fact model and the metric declares a
-/// shared calendar (`telekom/sutura#780`). It reads the named model's table, carries the
-/// `Some`-model leaves, and groups by the link key and the bucket. The bucket is the shared
-/// calendar's time column - both facts join to the calendar and group by its `time_column`, so
-/// the combiner can join them on the link AND the bucket. The second fact's source may equal the
-/// first's - the consistency check proves only that each fact model reaches the calendar, not
-/// that the two sit on different sources - so `FactsOnSameSource` can fire from a question and is
-/// the wiring defect that catches it, not a refusal.
+/// The second fact leg of a cross-model ratio (`telekom/sutura#780`): its OWN statement over the
+/// second fact's table, joined to the shared calendar, bucketed and bounded on the calendar exactly
+/// as the first leg is, and linked to the lookup through the second fact's own relationship.
 ///
-/// `Ok(None)` when the ratio names no second fact model (`second_terms` empty, the ordinary
-/// one-model metric). [`PlanError::NoSecondFactModel`] is the wiring-defect guard for the case
-/// that cannot arise from a question: `second_terms` non-empty with no `second_fact_model` or no
-/// `calendar_model` resolved for it - see that variant's own doc for why `plan`'s dispatch and
-/// `resolve`'s lookups make it unreachable.
+/// `Ok(None)` when no leaf names another model - every one-model metric. The link is the second
+/// fact's relationship into the model the first fact crosses into, joining the SAME lookup column
+/// the lookup leg projects under the link label; without one the two facts share no dimension and
+/// the ratio is refused by name rather than linked on a column borrowed from the first fact's key.
 fn second_fact_leg(
     resolution: &Resolution<'_>,
-    metric: &Metric,
-    crossing_key: &JoinKey,
+    crossing: &ResolvedJoin<'_>,
+    bucket: &PlanBucket,
     second_terms: Vec<LegTerm>,
-) -> Result<Option<sutura_domain::plan::LegPlan>, PlanError> {
+) -> Result<Option<LegPlan>, PlanError> {
     if second_terms.is_empty() {
         return Ok(None);
     }
-    let (Some(second_model), Some(calendar)) = (resolution.second_fact_model, resolution.calendar_model) else {
+    let Some(cross) = resolution.cross.as_ref() else {
         return Err(PlanError::NoSecondFactModel);
     };
-    let cal_time = PlanColumn::new(calendar.table_name().clone(), metric.time_column().clone());
-    let second_bucket = PlanBucket::new(ResultLabel::bucket(), resolution.grain, cal_time);
-    let second_keys = vec![PlanKey::new(
-        ResultLabel::internal(InternalLabel::Link),
-        PlanColumn::new(second_model.table_name().clone(), crossing_key.target().clone()),
-    )];
-    Ok(Some(sutura_domain::plan::LegPlan::Fact {
-        source: second_model.source().clone(),
-        metric: metric.name().clone(),
-        tables: StatementTables::only(second_model.table().clone()),
-        bucket: second_bucket,
-        keys: second_keys,
+    let second = cross.second;
+    let lookup_column = crossing.relationship.keys().first().target();
+    let Some(link) = cross.second_relationships.iter().find(|relationship| {
+        relationship.target_model() == crossing.model.name()
+            && relationship.keys().len() == 1
+            && relationship.keys().first().target() == lookup_column
+    }) else {
+        return Err(PlanError::Refused(RefusalReason::CrossModelRatioWithoutSharedDimension {
+            metric: resolution.metric.name().clone(),
+            model: second.name().clone(),
+        }));
+    };
+    let tables = StatementTables::parse(
+        second.table().clone(),
+        vec![hop_join(cross.second_to_calendar, second.table_name(), cross.calendar)],
+    )
+    .map_err(|ambiguous| RefusalReason::PlanTablesShareAnIdentifier {
+        table: ambiguous.alias().clone(),
+    })?;
+    Ok(Some(LegPlan::Fact {
+        source: second.source().clone(),
+        metric: resolution.metric.name().clone(),
+        tables,
+        bucket: bucket.clone(),
+        keys: vec![PlanKey::new(
+            ResultLabel::internal(InternalLabel::Link),
+            PlanColumn::new(second.table_name().clone(), link.keys().first().origin().clone()),
+        )],
         terms: second_terms,
-        bindings: PlanBindings::none(),
+        bindings: super::range_only(resolution.range, bucket.column())?,
         range: resolution.range,
     }))
 }

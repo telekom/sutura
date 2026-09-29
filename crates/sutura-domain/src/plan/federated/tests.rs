@@ -11,7 +11,7 @@
 //! own header.
 
 use crate::federation::Federation;
-use crate::measure::Measure;
+use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{Aggregate, ColumnName, DimensionName, Grain, InvalidIdentifier, MetricName, TableName};
 use crate::plan::leg::LegPlan;
 use crate::plan::{
@@ -251,35 +251,57 @@ fn a_carried_leaf_that_reaggregates_constructs() {
     );
 }
 
-/// A second fact leg over the same source as the first is a no-op second leg, not a federated
-/// question - refused at construction so the two facts never share a `FROM` by mistake.
+/// `telekom/sutura#780`: a second fact leg on the FIRST fact's source constructs. It is its own
+/// statement, so the two facts still never share a `FROM` - which is what makes the chasm trap
+/// impossible, not the two reading two sources.
 #[test]
-fn a_second_fact_on_the_same_source_as_the_first_does_not_construct() {
+fn a_second_fact_on_the_first_fact_s_source_constructs() {
     let federation = Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));
-    let same_source = LegPlan::Fact {
-        source: source(FACT_SOURCE),
-        metric: metric("revenue"),
-        tables: StatementTables::only(table(FACT)),
-        bucket: bucket(),
-        keys: vec![key("product_family", FACT), link_key(FACT)],
-        terms: Vec::new(),
-        bindings: PlanBindings::none(),
-        range: range(),
-    };
+    let plan = two_fact_plan(federation, second_fact_on(FACT_SOURCE, bucket()));
+    assert!(plan.is_ok(), "two statements on one source are a two-fact plan, got {plan:?}");
+}
+
+/// D9 holds BOTH buckets: a second fact grouped by any column but the plan's is refused, so the
+/// combiner's join on the bucket label can only ever compare one calendar column with itself.
+#[test]
+fn a_second_fact_bucketed_on_another_column_does_not_construct() {
+    let federation = Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));
+    let elsewhere = PlanBucket::new(
+        ResultLabel::bucket(),
+        Grain::Month,
+        PlanColumn::new(table("dim_orders"), column("month")),
+    );
+    let plan = two_fact_plan(federation, second_fact_on(SECOND_FACT_SOURCE, elsewhere));
+    assert!(
+        matches!(plan, Err(FederatedPlanError::BucketMismatch)),
+        "a second fact bucketed elsewhere is not a plan, got {plan:?}"
+    );
+}
+
+/// A leaf naming another model has to be on a second fact leg: with none, the plan does not exist.
+/// The first leg carries no term here, so its own label check passes and only the "no second leg
+/// for a second model's leaf" rule refuses - a leaf is never silently dropped from the answer.
+#[test]
+fn a_leaf_naming_another_model_with_no_second_fact_does_not_construct() {
+    let federation = Federation::of(&Measure::Simple(Term::Aggregate(AggregatedColumn::on_model(
+        Aggregate::Sum,
+        column("mrr_cents"),
+        crate::model::ModelName::parse("orders").expect("a test model is a model"),
+    ))));
     let plan = FederatedPlan::new(
         metric("revenue"),
         ResultLabel::measure(&metric("revenue")),
         bucket(),
-        fact_leg(terms_for(&federation)),
-        Some(same_source),
+        fact_leg(Vec::new()),
+        None,
         lookup_leg(),
         true,
         federation,
         Vec::new(),
     );
     assert!(
-        matches!(plan, Err(FederatedPlanError::FactsOnSameSource { .. })),
-        "a second fact on the same source is not a plan, got {plan:?}"
+        matches!(plan, Err(FederatedPlanError::TermsDoNotMatchFederation)),
+        "a second model's leaf with no second fact leg is not a plan, got {plan:?}"
     );
 }
 

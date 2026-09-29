@@ -32,7 +32,12 @@ fn two_fact_plan() -> sutura_domain::plan::FederatedPlan {
     let dimension = |n: &str| DimensionName::parse(n).expect("a test dimension");
     let fact_key = |n: &str| PlanKey::new(ResultLabel::dimension(&dimension(n)), fact_col(n));
     let link = |col: PlanColumn| PlanKey::new(ResultLabel::internal(InternalLabel::Link), col);
-    let bucket = |c: &str, t: TableName| PlanBucket::new(ResultLabel::bucket(), Grain::Month, PlanColumn::new(t, column(c)));
+    // Both fact legs bucket through ONE shared calendar column, which `FederatedPlan::new` holds.
+    let calendar = PlanBucket::new(
+        ResultLabel::bucket(),
+        Grain::Month,
+        PlanColumn::new(TableName::parse("dim_calendar").expect("a test table"), column("month")),
+    );
 
     let orders_model = ModelName::parse("orders").expect("a test model");
     let measure = Measure::Ratio {
@@ -83,7 +88,7 @@ fn two_fact_plan() -> sutura_domain::plan::FederatedPlan {
         source: fact_source,
         metric: metric(),
         tables: StatementTables::only(fact_table.clone()),
-        bucket: bucket("month", fact_table.clone()),
+        bucket: calendar.clone(),
         keys: vec![fact_key("product_family"), link(fact_col("customer_key"))],
         terms: fact_terms,
         bindings: PlanBindings::none(),
@@ -93,7 +98,7 @@ fn two_fact_plan() -> sutura_domain::plan::FederatedPlan {
         source: orders_source,
         metric: metric(),
         tables: StatementTables::only(orders_table.clone()),
-        bucket: bucket("month", orders_table.clone()),
+        bucket: calendar.clone(),
         keys: vec![link(orders_col("customer_key"))],
         terms: second_terms,
         bindings: PlanBindings::none(),
@@ -108,7 +113,7 @@ fn two_fact_plan() -> sutura_domain::plan::FederatedPlan {
     sutura_domain::plan::FederatedPlan::new(
         metric(),
         ResultLabel::measure(&metric()),
-        bucket("month", fact_table.clone()),
+        calendar,
         fact,
         Some(second_fact),
         lookup,

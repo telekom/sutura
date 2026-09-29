@@ -122,11 +122,18 @@ pub(super) const SECOND_FACT_SOURCE: &str = "second";
 /// chasm guard passes. It carries no terms because a simple measure names no second model, so the
 /// constructor's term check expects none on it.
 pub(super) fn second_fact_leg() -> LegPlan {
+    second_fact_on(SECOND_FACT_SOURCE, bucket())
+}
+
+/// A second fact leg over a different source that shares NO key with the first fact leg - the
+/// chasm-trap guard: no join is possible.
+/// [`second_fact_leg`] on `on`, bucketed by `bucket`.
+pub(super) fn second_fact_on(on: &str, bucket: PlanBucket) -> LegPlan {
     LegPlan::Fact {
-        source: source(SECOND_FACT_SOURCE),
+        source: source(on),
         metric: metric("revenue"),
         tables: StatementTables::only(table("dim_orders")),
-        bucket: bucket(),
+        bucket,
         keys: vec![key("product_family", "dim_orders"), link_key("dim_orders")],
         terms: Vec::new(),
         bindings: PlanBindings::none(),
@@ -134,8 +141,21 @@ pub(super) fn second_fact_leg() -> LegPlan {
     }
 }
 
-/// A second fact leg over a different source that shares NO key with the first fact leg - the
-/// chasm-trap guard: no join is possible.
+/// A two-fact plan over `federation`, its first leg carrying every leaf.
+pub(super) fn two_fact_plan(federation: Federation, second: LegPlan) -> Result<FederatedPlan, FederatedPlanError> {
+    FederatedPlan::new(
+        metric("revenue"),
+        ResultLabel::measure(&metric("revenue")),
+        bucket(),
+        fact_leg(terms_for(&federation)),
+        Some(second),
+        lookup_leg(),
+        true,
+        federation,
+        Vec::new(),
+    )
+}
+
 pub(super) fn second_fact_leg_with_no_shared_key() -> LegPlan {
     LegPlan::Fact {
         source: source(SECOND_FACT_SOURCE),

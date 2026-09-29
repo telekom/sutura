@@ -150,11 +150,12 @@ Every reason you can be given, and what to do about each:
   Try a dimension that does not need that join - it is the join that puts both tables in one
   statement, so a question without it is still answered. If every dimension you need goes through
   it, report it to a person: it is a fact about where the tables live, not about how you asked.
-- **cross_model_ratio_without_shared_calendar** - the metric measures a ratio whose two sides read
-  from two different fact models, and the metric declares no shared calendar, so both facts cannot
-  be bucketed through the same time dimension.
-  Nothing you can change in the question. Report it to the person you are acting for: the metric's
-  definition needs a shared calendar declaration, not a narrower question.
+- **cross_model_ratio_without_shared_calendar** - a two-fact ratio declaring no shared calendar.
+  Nothing you can change in the question. Report it: the metric needs a shared calendar declared.
+- **cross_model_ratio_spans_sources** - a two-fact ratio whose models span data systems.
+  Nothing you can change in the question. Report it: it is a fact about where the models live.
+- **cross_model_ratio_without_shared_dimension** - not grouped by only a shared dimension.
+  Group only by a dimension both fact models link to; if the metric has none, report it.
 - **source_unavailable** - the data system that metric lives in is not one this deployment opened.
   Nothing you can change. Report it to a person. This is the one refusal that looks like an outage
   and is still not one to retry: the answer will not become available by asking again.

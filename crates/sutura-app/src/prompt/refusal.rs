@@ -272,13 +272,24 @@ const TOP_OVER_UNCERTIFIED_ROWS: Guide = Guide {
              this deployment can raise it.",
 };
 
+// The three two-fact guides are one line each on purpose: the rendered prompt sits at the
+// thousand-line cap `cargo xtask max-lines` holds, and three wrapped entries crossed it.
 const CROSS_MODEL_RATIO_WITHOUT_SHARED_CALENDAR: Guide = Guide {
     reason: "cross_model_ratio_without_shared_calendar",
-    meaning: "the metric measures a ratio whose two sides read from two different fact models, and \
-              the metric declares no shared calendar, so both facts cannot be bucketed through the \
-              same time dimension",
-    remedy: "Nothing you can change in the question. Report it to the person you are acting for: \
-             the metric's definition needs a shared calendar declaration, not a narrower question.",
+    meaning: "a two-fact ratio declaring no shared calendar",
+    remedy: "Nothing you can change in the question. Report it: the metric needs a shared calendar declared.",
+};
+
+const CROSS_MODEL_RATIO_SPANS_SOURCES: Guide = Guide {
+    reason: "cross_model_ratio_spans_sources",
+    meaning: "a two-fact ratio whose models span data systems",
+    remedy: "Nothing you can change in the question. Report it: it is a fact about where the models live.",
+};
+
+const CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION: Guide = Guide {
+    reason: "cross_model_ratio_without_shared_dimension",
+    meaning: "not grouped by only a shared dimension",
+    remedy: "Group only by a dimension both fact models link to; if the metric has none, report it.",
 };
 
 /// Every refusal a caller can be given, in the order the prompt lists them.
@@ -338,6 +349,8 @@ pub(super) const GUIDES: &[&Guide] = &[
     // it is to ask a different metric, and an agent reaching it has already read that a refusal
     // about the plan's shape is not one to retry unchanged.
     &CROSS_MODEL_RATIO_WITHOUT_SHARED_CALENDAR,
+    &CROSS_MODEL_RATIO_SPANS_SOURCES,
+    &CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION,
     &SOURCE_UNAVAILABLE,
     &SOURCE_REFUSED,
     &CREDENTIAL_UNAVAILABLE,
@@ -386,6 +399,8 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::BudgetExhausted { .. } => &BUDGET_EXHAUSTED,
         RefusalReason::TopOverUncertifiedRows { .. } => &TOP_OVER_UNCERTIFIED_ROWS,
         RefusalReason::CrossModelRatioWithoutSharedCalendar { .. } => &CROSS_MODEL_RATIO_WITHOUT_SHARED_CALENDAR,
+        RefusalReason::CrossModelRatioSpansSources { .. } => &CROSS_MODEL_RATIO_SPANS_SOURCES,
+        RefusalReason::CrossModelRatioWithoutSharedDimension { .. } => &CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION,
     }
 }
 

@@ -111,5 +111,21 @@ pub(super) fn every_reason_the_second_half() -> Vec<Expected> {
             StatusCode::CONFLICT,
             "cross_model_ratio_without_shared_calendar",
         ),
+        (
+            RefusalReason::CrossModelRatioSpansSources {
+                metric: metric(),
+                model: sutura_domain::model::ModelName::parse("calendar").expect("a test model is a model"),
+            },
+            StatusCode::CONFLICT,
+            "cross_model_ratio_spans_sources",
+        ),
+        (
+            RefusalReason::CrossModelRatioWithoutSharedDimension {
+                metric: metric(),
+                model: sutura_domain::model::ModelName::parse("visits").expect("a test model is a model"),
+            },
+            StatusCode::CONFLICT,
+            "cross_model_ratio_without_shared_dimension",
+        ),
     ]
 }
