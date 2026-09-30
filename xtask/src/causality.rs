@@ -196,11 +196,8 @@ fn prove(
     // so a provable test inside the new crate keeps the crate in the workspace on both attempts.
     // Withdrawing it there would leave that test in a directory cargo no longer reads, and nextest
     // failing an empty filterset is a red about this partition rather than about the change.
-    let inputs = &separable.build_inputs;
-    let membership = membership::Membership::of(root, base, inputs);
-    let at_head = separable.at_head_first_attempt();
-    let reverting = membership.reverting(&separable.revert, inputs, &at_head);
-    let holding = membership.reverting(&separable.held(), inputs, &separable.test_files);
+    // The retry also takes every changed manifest and lockfile to base: `membership::Membership::attempts`.
+    let [reverting, holding] = membership::Membership::of(root, base, &separable.build_inputs).attempts(separable);
     let first = base_state(root, base, &reverting);
     let held = base_state(root, base, &holding);
     let unreverted = separable.unreverted_from(&reverting);
