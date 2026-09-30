@@ -1,0 +1,19 @@
+diff --git a/crates/sutura-bounded-read/src/read.rs b/crates/sutura-bounded-read/src/read.rs
+index 5705d35df..3ced087de 100644
+--- a/crates/sutura-bounded-read/src/read.rs
++++ b/crates/sutura-bounded-read/src/read.rs
+@@ -162,9 +162,11 @@ pub fn read_document(root: &Path, path: &Path, total_bytes: u64) -> Result<Strin
+             }
+         }
+     }
+-    let text = String::from_utf8(buf).map_err(|cause| ReadError::Io {
+-        path: path.to_path_buf(),
+-        cause: io::Error::new(io::ErrorKind::InvalidData, cause),
++    let text = String::from_utf8(buf).map_err(|_cause| ReadError::TooLarge {
++        root: root.to_path_buf(),
++        document: path.to_path_buf(),
++        found: 0,
++        limit: MAX_CATALOG_BYTES,
+     })?;
+     // The capped read above bounds what arrives; if the file actually held more than `remaining`
+     // bytes, the length of what was READ re-checks it - closing the case of a file that grew

@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-bounded-read/src/walk.rs b/crates/sutura-bounded-read/src/walk.rs
+index 14ca768b0..76e19d2d8 100644
+--- a/crates/sutura-bounded-read/src/walk.rs
++++ b/crates/sutura-bounded-read/src/walk.rs
+@@ -155,8 +155,8 @@ pub fn walk(root: &Path, extensions: &[&str], max_documents: usize) -> Result<Ve
+                 if found.len() > max_documents {
+                     return Err(WalkError::TooManyDocuments {
+                         path: root.to_path_buf(),
+-                        found: found.len(),
+-                        limit: max_documents,
++                        found: max_documents,
++                        limit: found.len(),
+                     });
+                 }
+             }

@@ -232,4 +232,56 @@ mod tests {
         assert!(matches!(err, ReadError::TooLarge { .. }), "{err:?}");
         drop(std::fs::remove_dir_all(&root));
     }
+
+    /// A FIFO at a document path opens without blocking and is refused by the `fstat` on the handle
+    /// as `NotARegularFile`. `std` has no `mkfifo`, so the system's is used.
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_at_a_document_path_is_refused_as_not_a_regular_file() {
+        let root = scratch("fifo");
+        let path = root.join("doc.yaml");
+        let status = std::process::Command::new("mkfifo").arg(&path).status().expect("mkfifo runs");
+        assert!(status.success(), "mkfifo succeeded: {status}");
+        let err = super::read_document(&root, &path, 0).expect_err("a FIFO is not a regular file");
+        assert!(
+            matches!(err, ReadError::NotARegularFile { path: ref p } if *p == path),
+            "expected NotARegularFile naming {}, got {err:?}",
+            path.display(),
+        );
+        drop(std::fs::remove_dir_all(&root));
+    }
+
+    /// Non-UTF-8 bytes pass the size and regular-file checks and are refused as `Io` naming the path.
+    #[test]
+    fn a_document_with_non_utf8_bytes_is_refused_as_read_io() {
+        let root = scratch("non-utf8");
+        let path = root.join("doc.yaml");
+        std::fs::write(&path, [0xFF, 0xFE, 0xFD]).expect("a document is writable");
+        let err = super::read_document(&root, &path, 0).expect_err("non-UTF-8 refuses");
+        assert!(
+            matches!(err, ReadError::Io { path: ref p, .. } if *p == path),
+            "expected Io naming {}, got {err:?}",
+            path.display(),
+        );
+        drop(std::fs::remove_dir_all(&root));
+    }
+
+    /// A file past the budget is refused as `TooLarge` naming the root, the document, the found
+    /// total and the limit - the fields a caller's refusal renders.
+    #[test]
+    fn a_file_whose_size_is_past_the_budget_names_the_root_document_found_and_limit() {
+        let root = scratch("oversized-fields");
+        let path = root.join("doc.yaml");
+        let bytes = vec![0u8; usize::try_from(MAX_CATALOG_BYTES + 1).expect("fits usize on a 64-bit test target")];
+        std::fs::write(&path, &bytes).expect("a document is writable");
+        let err = super::read_document(&root, &path, 0).expect_err("an oversized file refuses");
+        assert!(
+            matches!(err, ReadError::TooLarge { root: ref r, document: ref d, found, limit }
+                if *r == root && *d == path && found == MAX_CATALOG_BYTES + 1 && limit == MAX_CATALOG_BYTES),
+            "expected TooLarge naming root, document, found={} and limit={}, got {err:?}",
+            MAX_CATALOG_BYTES + 1,
+            MAX_CATALOG_BYTES,
+        );
+        drop(std::fs::remove_dir_all(&root));
+    }
 }
