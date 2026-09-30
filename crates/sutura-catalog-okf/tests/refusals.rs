@@ -7,8 +7,9 @@
 //! `Digest` (no public-port fixture reaches a pinning digest failure). `Unnamed` is provoked
 //! on Linux only - a file name that is not UTF-8, which not every filesystem can hold. `Io` is
 //! provoked on both arms: its read arm (a non-UTF-8 document) and its walk arm (an unreadable
-//! subdirectory). `TooLarge`, `Open`, and `NotARegularFile` are provoked here; `tests/bounds.rs`
-//! also tests `TooLarge` as an integration bound.
+//! subdirectory). `TooLarge`, `Open` and `NotARegularFile` were already reached by their
+//! `tests/bounds.rs` siblings, which assert on the rendered text; the cells here add the match on
+//! the variant.
 //!
 //! Wrapped in `#[cfg(test)] mod tests` so `allow-expect-in-tests` reaches the helpers, the shape
 //! `tests/bounds.rs` uses.

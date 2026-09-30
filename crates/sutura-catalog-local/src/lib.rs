@@ -324,8 +324,8 @@ impl LocalCatalog {
             // actually read - the read, the regular-file check, the byte budget and the post-read
             // recheck all live in `sutura_bounded_read::read_document`, on the ONE handle that was
             // opened. The refusal half, the `O_NOFOLLOW` / `O_NONBLOCK` / `O_CLOEXEC` flags, is that
-            // crate's open. See its `read.rs` for why a document swapped for a symlink or a FIFO is
-            // refused at open, and why the budget is enforced on the read itself.
+            // crate's open. See its `read.rs` for why a swapped symlink is refused at open, a swapped
+            // FIFO by the handle's `fstat`, and why the budget is enforced on the read itself.
             //
             // "Opened once" is held by `cargo xtask check-catalog-opened-once`, a static gate that
             // refuses any path-based `std::fs` read in this crate's non-test source: a hand
