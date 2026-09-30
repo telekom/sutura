@@ -66,9 +66,9 @@ pub(crate) enum OpenedCatalogs {
     DataContract(Vec<sutura_catalog_datacontract::DataContractCatalog>),
     /// A live RDBMS dictionary, behind this crate's default-off `rdbms` feature - see
     /// `Cargo.toml` for why it is default-off (artefact: its reader links outbound TLS). Opened over
-    /// a Postgres documentation schema by [`sutura_catalog_rdbms::postgres_reader::PostgresReader`].
+    /// a Postgres or an Oracle documentation schema by [`sutura_catalog_rdbms::AnyDictionaryReader`].
     #[cfg(feature = "rdbms")]
-    Rdbms(Vec<sutura_catalog_rdbms::RdbmsCatalog<sutura_catalog_rdbms::postgres_reader::PostgresReader>>),
+    Rdbms(Vec<sutura_catalog_rdbms::RdbmsCatalog<sutura_catalog_rdbms::AnyDictionaryReader>>),
 }
 
 /// Opens every catalog the settings declare.
@@ -355,10 +355,9 @@ fn open_rdbms_catalogs(catalogs: &sutura_config::Catalogs) -> Result<OpenedCatal
 #[cfg(feature = "rdbms")]
 fn open_one_rdbms_catalog(
     settings: &sutura_config::CatalogSettings,
-) -> Result<sutura_catalog_rdbms::RdbmsCatalog<sutura_catalog_rdbms::postgres_reader::PostgresReader>, String> {
-    use sutura_catalog_rdbms::postgres_reader::{PostgresReader, RowPredicate};
-    use sutura_exec_postgres::connection::{ConnectionTarget, config as pg_config};
-    use sutura_exec_postgres::tls::{TlsAnchors, TlsIdentity, client_config};
+) -> Result<sutura_catalog_rdbms::RdbmsCatalog<sutura_catalog_rdbms::AnyDictionaryReader>, String> {
+    use sutura_catalog_rdbms::AnyDictionaryReader;
+    use sutura_catalog_rdbms::postgres_reader::RowPredicate;
 
     let rdbms = settings.rdbms().ok_or_else(|| {
         format!(
@@ -366,17 +365,6 @@ fn open_one_rdbms_catalog(
             settings.name()
         )
     })?;
-    let connection = rdbms.connection();
-    let connection = match connection {
-        sutura_config::CatalogConnection::Postgres(postgres) => postgres,
-        sutura_config::CatalogConnection::Oracle(_) => {
-            return Err(format!(
-                "`catalogs.{}` declares `connection.dialect: oracle`, but the Oracle dictionary reader is not yet wired - \
-                 not supported by this build",
-                settings.name()
-            ));
-        }
-    };
     if rdbms.dictionary_source() == sutura_config::DictionarySource::NativeDictionary {
         return Err(format!(
             "`catalogs.{}` declares `dictionary_source: native_dictionary`, but the native dictionary reader is not yet wired - \
@@ -384,8 +372,90 @@ fn open_one_rdbms_catalog(
             settings.name()
         ));
     }
-    // The driver config, from the catalog's OWN read-only Postgres connection - a catalog read has
-    // no caller to run as, so it is never borrowed from a `sources:` entry.
+
+    // The documentation schema, defaulting to the reader's own documented default.
+    let documentation_schema = rdbms.dictionary_schema().map_or_else(
+        || String::from(sutura_catalog_rdbms::postgres_reader::DEFAULT_DOCUMENTATION_SCHEMA),
+        |schema| String::from(schema.as_str()),
+    );
+    let environment = String::from(rdbms.environment().as_str());
+
+    let predicate = match rdbms.live_row_predicate() {
+        None => RowPredicate::None,
+        Some(p) => match p.operator() {
+            sutura_config::PredicateOperator::IsNull => RowPredicate::IsNull(String::from(p.column().as_str())),
+            sutura_config::PredicateOperator::IsNotNull => RowPredicate::IsNotNull(String::from(p.column().as_str())),
+            sutura_config::PredicateOperator::Equals => RowPredicate::Equals {
+                column: String::from(p.column().as_str()),
+                value: p
+                    .value()
+                    .map(String::from)
+                    .ok_or_else(|| format!("`catalogs.{}.live_row_predicate` is `equals` with no value, which CatalogSettings::parse should have refused", settings.name()))?,
+            },
+        },
+    };
+
+    // A catalog read has no caller to run as, so its connection is the catalog's OWN, never
+    // borrowed from a `sources:` entry.
+    let reader = match rdbms.connection() {
+        sutura_config::CatalogConnection::Postgres(connection) => {
+            postgres_dictionary_reader(settings, connection, documentation_schema, environment, predicate, rdbms)
+                .map(|reader| AnyDictionaryReader::Postgres(Box::new(reader)))
+        }
+        sutura_config::CatalogConnection::Oracle(connection) => {
+            let password = crate::password_file::read_key(
+                &format!("catalogs.{}.connection", settings.name()),
+                connection.password_file(),
+            )?;
+            let login = sutura_catalog_rdbms::oracle_reader::OracleLogin::new(
+                String::from(connection.host().as_str()),
+                connection.port(),
+                String::from(connection.service_name().as_str()),
+                String::from(connection.user()),
+                password,
+            );
+            sutura_catalog_rdbms::oracle_reader::OracleReader::new(
+                login,
+                &documentation_schema,
+                environment,
+                predicate,
+                rdbms.max_dictionary_rows(),
+                rdbms.max_dictionary_bytes(),
+            )
+            .map(AnyDictionaryReader::Oracle)
+            .map_err(|cause| {
+                format!(
+                    "`catalogs.{}` has an invalid dictionary reader setting: {cause}",
+                    settings.name()
+                )
+            })
+        }
+    }?;
+
+    // The contribution manifest stays under the catalog NAME while the semantic models bind to the
+    // declared `source_alias` - see `RdbmsCatalog::with_source_alias`.
+    let bounds = reader.bounds();
+    Ok(
+        sutura_catalog_rdbms::RdbmsCatalog::new(settings.name().clone(), settings.version().clone(), reader)
+            .with_source_alias(rdbms.source_alias().clone())
+            .with_bounds(bounds),
+    )
+}
+
+/// The Postgres reader over the catalog's own read-only connection and declared transport.
+#[cfg(feature = "rdbms")]
+fn postgres_dictionary_reader(
+    settings: &sutura_config::CatalogSettings,
+    connection: &sutura_config::PostgresCatalogConnection,
+    documentation_schema: String,
+    environment: String,
+    predicate: sutura_catalog_rdbms::postgres_reader::RowPredicate,
+    rdbms: &sutura_config::RdbmsSettings,
+) -> Result<sutura_catalog_rdbms::postgres_reader::PostgresReader, String> {
+    use sutura_catalog_rdbms::postgres_reader::PostgresReader;
+    use sutura_exec_postgres::connection::{ConnectionTarget, config as pg_config};
+    use sutura_exec_postgres::tls::{TlsAnchors, TlsIdentity, client_config};
+
     let (target, port) = match connection.dial() {
         sutura_config::sources::placement::PostgresDial::Tcp { host, port } => (ConnectionTarget::Host(host.as_str()), *port),
         sutura_config::sources::placement::PostgresDial::UnixSocket { directory, port } => {
@@ -437,29 +507,7 @@ fn open_one_rdbms_catalog(
         }
     };
 
-    // The documentation schema, defaulting to the reader's own documented default.
-    let documentation_schema = rdbms.dictionary_schema().map_or_else(
-        || String::from(sutura_catalog_rdbms::postgres_reader::DEFAULT_DOCUMENTATION_SCHEMA),
-        |schema| String::from(schema.as_str()),
-    );
-    let environment = String::from(rdbms.environment().as_str());
-
-    let predicate = match rdbms.live_row_predicate() {
-        None => RowPredicate::None,
-        Some(p) => match p.operator() {
-            sutura_config::PredicateOperator::IsNull => RowPredicate::IsNull(String::from(p.column().as_str())),
-            sutura_config::PredicateOperator::IsNotNull => RowPredicate::IsNotNull(String::from(p.column().as_str())),
-            sutura_config::PredicateOperator::Equals => RowPredicate::Equals {
-                column: String::from(p.column().as_str()),
-                value: p
-                    .value()
-                    .map(String::from)
-                    .ok_or_else(|| format!("`catalogs.{}.live_row_predicate` is `equals` with no value, which CatalogSettings::parse should have refused", settings.name()))?,
-            },
-        },
-    };
-
-    let reader = PostgresReader::new(
+    PostgresReader::new(
         config,
         tls,
         documentation_schema,
@@ -473,16 +521,7 @@ fn open_one_rdbms_catalog(
             "`catalogs.{}` has an invalid dictionary reader setting: {cause}",
             settings.name()
         )
-    })?;
-
-    // The contribution manifest stays under the catalog NAME while the semantic models bind to the
-    // declared `source_alias` - see `RdbmsCatalog::with_source_alias`.
-    let bounds = reader.bounds();
-    Ok(
-        sutura_catalog_rdbms::RdbmsCatalog::new(settings.name().clone(), settings.version().clone(), reader)
-            .with_source_alias(rdbms.source_alias().clone())
-            .with_bounds(bounds),
-    )
+    })
 }
 
 /// The refusal for a build that did not link the `rdbms` adapter - the message names the feature.
