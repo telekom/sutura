@@ -40,13 +40,8 @@
 //! [`Scan::Enabled`], it refuses, and `super::place::declared_module_files` is what resolves the
 //! declaration instead of asserting it.
 //!
-//! AN `#[ignore]`d TEST IS NAMED AND DROPPED, because a filterset naming only ignored tests
-//! matches nothing and nextest exits 4 with *error: no tests to run* - a false RED on legitimate
-//! work, and the acceptance suites here are full of them
-//! (`git grep -c -E '^[[:space:]]*#\[ignore' -- '*.rs'` counts the attributes; the same command
-//! WITHOUT the anchor answers roughly twice as many across twice as many files, because most
-//! `#[ignore` in this tree is a doc comment ABOUT one - no number is written down, because the
-//! argument holds at any count above zero and a figure would rot within a PR).
+//! AN `#[ignore]`d TEST IS NAMED AND DROPPED: a filterset naming only ignored tests matches
+//! nothing, and nextest exits 4 with *error: no tests to run* over legitimate work.
 //! Running them is the wrong direction for the reason a tier-backed cell is not required in the
 //! reconstructed worktree (see [`super::runner::nextest`]): they are ignored because this venue lacks what
 //! they need, so forcing them in a tree nothing provisioned fails CLOSED and reads as
@@ -72,7 +67,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::causality::attributes::{attached, declares_a_test, item_below};
+use crate::causality::attributes::{attached, decides_a_run_unevaluably, declares_a_test, item_below};
 use crate::causality::diff::ChangedFile;
 use crate::causality::edited;
 use crate::causality::features::{Because, Enabled};
@@ -245,8 +240,8 @@ impl Scan {
                             ignored.push(name);
                         }
                     }
-                    Declared::Runs(name) => {
-                        let one = AddedTest::at(&file.path, &at, name);
+                    Declared::Runs(name, gate) => {
+                        let one = AddedTest::at(&file.path, &at, name).with_gate(gate);
                         if !runnable.contains(&one) {
                             runnable.push(one);
                         }
@@ -342,7 +337,7 @@ impl Scan {
 /// A test an added attribute declares, and whether a run in this venue reaches it.
 enum Declared {
     /// A test that runs here.
-    Runs(Ident),
+    Runs(Ident, Option<String>),
     /// `#[ignore]`d, so no filter can make it run and naming it in one matches nothing.
     Ignored(Ident),
 }
@@ -362,7 +357,12 @@ fn declared_under(lines: &[&str], added: &AddedLine) -> Option<Declared> {
     Some(if is_ignored(lines, index) {
         Declared::Ignored(name)
     } else {
-        Declared::Runs(name)
+        let gate = attached(lines, index)
+            .into_iter()
+            .map(|(_, opening)| opening)
+            .find(|opening| decides_a_run_unevaluably(opening))
+            .map(String::from);
+        Declared::Runs(name, gate)
     })
 }
 
