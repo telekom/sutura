@@ -1099,11 +1099,15 @@ cell.** A test the base tree already satisfies can never be red against base - t
 revert - so the only honest proof is a mutation, and `causality::claim` is the mechanism that lets a
 PR carry it, on the `Cleanup-Split:` precedent: the trailer is a CLAIM the gate CHECKS rather than
 a permission. `Claim-Cell: <test-fn-name>` is a commit trailer read PER COMMIT, NOT range-wide:
-each declaration answers for the tests its OWN declaring commit added and nothing else
+each declaration answers for the tests its OWN declaring commit added or modified and nothing else
 (`github.com/telekom/sutura#954` - the old range-wide unity made one legitimate declaring commit
 refuse every other added test in the range as undeclared, measured `×135` on #929). The gate
-requires each declared name to be a test the DECLARING COMMIT added (declared-not-added is a
-refusal), resolves each cell to a committed
+requires each declared name to be a test the DECLARING COMMIT added or MODIFIED (declared-not-added
+is a refusal). MODIFIED is `edited::touched_in`: an added line inside a pre-existing `#[test]`
+item's own span, never merely a test in a changed file; a pure deletion is `Weakens-Test:`'s. It
+is the added-test path itself (`Scan::of`), held through `causality::run` by `gas_tests`' three
+edited-assertion cells (no claim refused, no patch refused, claim plus killing patch accepted). It
+resolves each cell to a committed
 mutation at `devco/claim-mutations/<test-fn-name>.patch`, applies it in the isolated causality
 target, runs the named cell, and requires it to FAIL *naming that cell* by its OWN ASSERTION - the
 mutation kills it. The composite half of #954: the reverse direction - an added test no declaration

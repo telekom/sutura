@@ -10,7 +10,7 @@
 //! the test to redden. That proof existed but this gate could not consume it.
 //!
 //! WHAT THE TRAILER IS AND IS NOT. `Claim-Cell: <test-fn-name>` in a commit message says *this
-//! added test pins behaviour that already exists, and the killing mutation for it lives at
+//! added or modified test pins behaviour that already exists, and the killing mutation for it lives at
 //! `devco/claim-mutations/<test-fn-name>.patch`*. It is **not** the permission: a trailer
 //! nothing checks is the gate that has quietly stopped gating, because anyone can bypass
 //! red-before-green by typing a word. So the trailer NARROWS what may pass and never disables the
@@ -197,7 +197,8 @@ impl Claim {
 /// One reason a declared claim cell is not one.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Cause {
-    /// The trailer names a test the diff did not ADD.
+    /// The trailer names a test its declaring commit neither ADDED nor MODIFIED - an added line
+    /// inside that test's own item (`super::edited::touched_in`), never merely its file.
     NotAdded(String),
     /// No mutation patch lives at `devco/claim-mutations/<cell>.patch`.
     MissingPatch(String),
@@ -556,6 +557,11 @@ fn validate(wt: &Path, claim: &Claim, test_files: &[String]) -> Vec<Cause> {
 
 /// The tests ONE commit's own diff added, including their executable locations.
 ///
+/// MODIFIED COUNTS AS ADDED HERE, and by the same scan rather than a second one: `Scan::of` also
+/// names a PRE-existing test whose own item an added line lands inside (`super::edited::touched_in`),
+/// so a commit that edits a test pinning base behaviour may declare it. A test merely sharing the
+/// edited file is not named, and a pure deletion is `super::weakens`', never a claim.
+///
 /// The single-commit diff numbers its `AddedLine`s in THAT commit's post-image, so they resolve
 /// against the commit's own tree, never HEAD's: a later commit in the range that shifts or deletes
 /// lines above the test would otherwise read it as absent, or name a test it did not add
@@ -823,7 +829,7 @@ fn refused_lines(causes: &[Cause], unmeasured: bool, caller: Caller) -> Vec<Stri
 fn cause_line(cause: &Cause) -> String {
     match cause {
         Cause::NotAdded(cell) => {
-            format!("  not added:   {cell}  (the trailer names it; the diff added no such test)")
+            format!("  not added:   {cell}  (the trailer names it; its commit added or modified no such test)")
         }
         Cause::MissingPatch(cell) => {
             format!("  no patch:    {MUTATIONS_DIR}/{cell}.patch  (a claim cell needs a killing mutation)")
