@@ -389,3 +389,21 @@ fn leaves(item: &[TokenTree]) -> Option<Vec<String>> {
     }
     Some(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Edited;
+
+    #[test]
+    fn a_range_of_only_wrapped_call_sites_reports_inconclusive() {
+        let edited = vec![Edited {
+            path: String::from("crates/x/tests/a.rs"),
+            tests: vec![String::from("renders")],
+        }];
+        assert_eq!(
+            super::report(&edited),
+            crate::Verdict::Inconclusive,
+            "an all-edited range must report INCONCLUSIVE, never a pass"
+        );
+    }
+}

@@ -1,0 +1,11 @@
+--- a/xtask/src/causality/edited/callsite.rs
++++ b/xtask/src/causality/edited/callsite.rs
+@@ -162,7 +162,7 @@
+     println!("xtask test-causality: INCONCLUSIVE - every test file in scope only wrapped call-site arguments,");
+     println!("so no test in scope is new and none was run. Add a test that is red on base, or prove the");
+     println!("change by MUTATION and state it in the handoff. Exit code 3, not a pass.");
+-    Verdict::Inconclusive
++    Verdict::Pass
+ }
+ 
+ /// Is `after` `before` with nothing changed but wrapped call-site arguments and the imports the
