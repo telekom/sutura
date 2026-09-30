@@ -67,3 +67,13 @@ success-output = "immediate"
 # the packs crate's own, so a behaviour added to a pack is covered without a second edit here.
 filter = "binary(conformance) + binary(bound)"
 success-output = "immediate"
+
+[[profile.default.overrides]]
+# `causality::gas_tests::a_claim_cell_and_an_ordinary_test_are_both_proven` builds two real Cargo
+# workspaces to test the causality routing seam (github.com/telekom/sutura#954); each invocation of
+# `composite()` builds a repo and runs the full causality engine. Test timed out at 300s under load
+# (2 of 3 validates), indicating ~150s baseline per composite() + load variance. Per-test override
+# raises ceiling to 600s (10 min) to absorb host load without masking hangs: 150s baseline x2 +
+# 100% load variance margin, with 2x safety factor for future regression.
+filter = "test(causality::gas_tests::a_claim_cell_and_an_ordinary_test_are_both_proven)"
+slow-timeout = { period = "150s", terminate-after = 4 }

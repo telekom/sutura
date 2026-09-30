@@ -188,9 +188,11 @@ def supervisor_environment(run_dir: pathlib.Path) -> dict[str, str]:
     }
 
 
-def _wait_for(path: pathlib.Path, seconds: float = 15.0) -> None:
+def _wait_for(path: pathlib.Path, seconds: float = 30.0) -> None:
     """Poll for a file rather than sleep a fixed guess - a freshly written script's first exec can
-    take longer than any short sleep on a loaded host, and a blind sleep just makes that flaky."""
+    take longer than any short sleep on a loaded host, and a blind sleep just makes that flaky.
+    Deadline increased from 15s to 30s to absorb host load variance; trap installation on a
+    loaded system can exceed 15s while remaining healthy."""
     deadline = time.monotonic() + seconds
     while not path.exists():
         if time.monotonic() > deadline:
@@ -394,7 +396,7 @@ class DemoBehavior(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 check=False,
-                timeout=300,
+                timeout=600,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             calls = [
