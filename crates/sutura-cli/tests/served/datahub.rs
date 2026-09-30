@@ -397,4 +397,43 @@ mod tests {
             ANCHORS = anchors,
         )
     }
+
+    /// A datahub catalog served by the binary boots, loads its definition from the `DataHub` fake,
+    /// and when asked for its `/catalog` listing, it returns the declared version and a non-empty
+    /// digest - proof the reader loaded and pinned the definition.
+    ///
+    /// **RED/GREEN.** Mutating the version stamp in `open_one_datahub_catalog` (replacing VERSION
+    /// with `DefinitionVersion::parse("mutated")`) makes this test's version assertion fail.
+    #[test]
+    fn a_datahub_catalog_boots_and_lists_its_declared_version_and_digest_from_the_served_binary() {
+        let case = "datahub-boot-and-list";
+        let data = DataDir::prepared(case);
+        let mut answers = happy_path_answers();
+        answers.extend(happy_path_answers());
+        let server = FakeServer::start(answers);
+        let deployment = start_configured(case, &settings(&server, &data));
+
+        let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        let body = reply.json();
+        assert_eq!(
+            body["metrics"].as_array().map(Vec::len),
+            Some(1),
+            "a DataHub catalog with one metric must list one: {}",
+            reply.body
+        );
+        assert_eq!(
+            body["provenance"]["definition_version"], VERSION,
+            "the served bundle must be stamped with the declared version: {}",
+            reply.body
+        );
+        let digest_str = body["provenance"]["definition_digest"]
+            .as_str()
+            .expect("the digest is a string");
+        assert!(
+            !digest_str.is_empty(),
+            "the served DataHub bundle must have a non-empty digest: {}",
+            reply.body
+        );
+    }
 }

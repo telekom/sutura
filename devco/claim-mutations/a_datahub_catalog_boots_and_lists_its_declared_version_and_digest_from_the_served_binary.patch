@@ -1,0 +1,12 @@
+--- a/crates/sutura-cli/src/catalog.rs
++++ b/crates/sutura-cli/src/catalog.rs
+@@ -742,7 +742,7 @@ fn open_one_datahub_catalog(
+     let mut sources = std::collections::BTreeMap::new();
+     drop(sources.insert(String::from("bigquery"), settings.name().clone()));
+     Ok(sutura_catalog_datahub::DataHubCatalog::new(
+         settings.name().clone(),
+-        settings.version().clone(),
++        DefinitionVersion::parse("mutated").expect("a mutated version is a version"),
+         sources,
+         reader,
+     ))
