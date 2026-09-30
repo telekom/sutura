@@ -87,21 +87,21 @@ use sutura_semantic::{Compiled, compile};
 mod bounds;
 #[path = "federated/corpus.rs"]
 mod corpus;
-// A NEW file rather than inline, but it must carry a test of its own or `xtask test-causality`'s
-// base reconstruction REMOVES it (a new file with no `#[test]` in it is dropped outright) while
-// keeping this file - which calls into it - at HEAD, breaking the base build. `two_kinds::tests`
-// is what causality's own "held: … (carries its own tests)" rule keys on.
+// A NEW file rather than inline. `xtask test-causality`'s `declared::keep` (#1115) holds a module a
+// kept file declares at HEAD transitively, so this file's own `#[test]` is no longer what keeps
+// `two_kinds.rs` in the base image - `keep` does, because this file declares it with `mod`.
 #[path = "federated/two_kinds.rs"]
 mod two_kinds;
 // The leg-capability declaration and the cells that hold it against the tree, carved out for
-// `max-lines`. It carries the `#[test]`s the `registered!` expansion emits, which is what keeps
-// causality's base reconstruction from dropping the file.
+// `max-lines`. `declared::keep` (#1115) holds it at HEAD because this file declares it with `mod`,
+// so the `#[test]`s the `registered!` expansion emits are evidence rather than the mechanism that
+// keeps the file in the base image.
 #[path = "federated/leg_evidence.rs"]
 mod leg_evidence;
 
-// The sides, the differential and the classifier, split out for `cargo xtask max-lines`. It carries
-// one `#[test]` so `just causality` keeps it at HEAD: a new file with none is dropped on the base
-// image while this file, which calls into it, stays.
+// The sides, the differential and the classifier, split out for `cargo xtask max-lines`.
+// `declared::keep` (#1115) holds it at HEAD because this file declares it with `mod`; its own
+// `#[test]` is evidence rather than the mechanism that keeps it in the base image.
 #[path = "federated/harness.rs"]
 mod harness;
 

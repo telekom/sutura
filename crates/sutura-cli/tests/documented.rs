@@ -49,9 +49,12 @@
 //! hold.
 //!
 //! **The other limits, next to the claim.** `SKIPPED` is `sutura mcp`, which speaks a protocol on
-//! its own pipes and would block on this harness's stdin; a `sutura-serve` invocation and a `curl`
-//! are not invocations of this binary and are not read here at all -
-//! `crates/sutura-cli/tests/served.rs` is their venue. An invocation that SETS an environment
+//! its own pipes and would block on this harness's stdin; a `sutura-serve` invocation, a `curl` and
+//! a `docker compose` invocation are not invocations of this binary and are not read here at all -
+//! `crates/sutura-cli/tests/served.rs` is the venue for the catalog and config those fences drive,
+//! but nothing here or there runs the `docker compose up`/`curl`/`docker compose down` fence in
+//! `examples/single-player/README.md` itself; `.github/serve-smoke.sh` smoke-tests the `docker run`
+//! shape `docs/serving.md` prints, not the `compose.yaml` file. An invocation that SETS an environment
 //! variable is refused rather than run, because `run` strips every `SUTURA*` variable and adds
 //! none, so this harness cannot be the deployment such a line describes. And the subcommand names
 //! are DERIVED from the listing the binary prints with no arguments, so a rename is red here rather
