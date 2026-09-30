@@ -242,12 +242,18 @@ jobs:
     /// What one run of `push-images`' shell asked `docker` to do, and how it ended.
     struct Pushed {
         succeeded: bool,
+        status: std::process::ExitStatus,
         calls: String,
         stderr: String,
     }
 
     /// `push-images`' real `run:` body at `profile`, against a `docker` shell function. With
     /// `digestless`, every push succeeds and prints no digest.
+    ///
+    /// The stub's `login` DRAINS its stdin, as `--password-stdin` does. Without that the token's
+    /// `printf` races a reader that has already exited, and a SIGPIPE under `pipefail` ends the
+    /// step with nothing on stderr - the likeliest cause of the one silent failure of the release
+    /// half seen in validate's nix leg, which 3600 local runs under contention did not reproduce.
     fn pushed(profile: &str, digestless: bool) -> Pushed {
         const TRIPLES: [&str; 4] = [
             "x86_64-unknown-linux-gnu",
@@ -258,6 +264,7 @@ jobs:
         const DOCKER: &str = r#"docker() {
   printf '%s\n' "$*" >> "$DOCKER_LOG"
   case "$1" in
+    login) cat > /dev/null ;;
     push) [ -n "${DIGESTLESS:-}" ] || printf 'digest: sha256:%064d size: 1\n' 0 ;;
     buildx) if [ "$3" = inspect ]; then if [ "$5" = --format ]; then echo "linux/amd64 linux/arm64 "; else echo raw; fi; fi ;;
   esac
@@ -298,6 +305,7 @@ jobs:
             .expect("the action's shell executes");
         Pushed {
             succeeded: output.status.success(),
+            status: output.status,
             calls: std::fs::read_to_string(scratch.join("docker.log")).unwrap_or_default(),
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         }
@@ -308,10 +316,14 @@ jobs:
     #[test]
     fn the_optimised_images_never_move_latest() {
         let release = pushed("release", false);
-        assert!(release.succeeded, "{}", release.stderr);
+        assert!(release.succeeded, "{}: {}\n{}", release.status, release.stderr, release.calls);
         assert!(release.calls.contains("ghcr.io/example/sutura:latest"), "{}", release.calls);
         let optimised = pushed("performance", false);
-        assert!(optimised.succeeded, "{}", optimised.stderr);
+        assert!(
+            optimised.succeeded,
+            "{}: {}\n{}",
+            optimised.status, optimised.stderr, optimised.calls
+        );
         let lists: Vec<&str> = optimised
             .calls
             .lines()
