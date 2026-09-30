@@ -554,8 +554,9 @@ mod tests {
     /// The runtime and drop-order rationale above applies here unchanged. What this does NOT reach
     /// is `SUTURA_CONFIG_DIR` and `serve` - a settings tree on disk read by the spawned binary -
     /// which is `tests/mcp.rs`'s
-    /// `a_deployments_prose_setting_reaches_both_halves_of_the_agent_surface`, on the split that
-    /// suite's own header states: this one holds the composition, that one holds the process.
+    /// `the_prose_setting_a_settings_file_declares_reaches_both_halves_of_the_agent_surface`, on the
+    /// split that suite's own header states: this one holds the composition, that one holds the
+    /// process.
     #[test]
     fn the_mcp_composition_honours_the_prose_setting_it_was_configured_with() {
         let (catalog, opened, settings) = example_composition("prompt:\n  catalog_prose: omitted\n");

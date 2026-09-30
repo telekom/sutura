@@ -769,7 +769,7 @@ mod tests {
     }
 
     #[test]
-    fn a_shared_helper_no_target_declares_falls_back_to_the_package() {
+    fn a_helper_with_no_integration_root_above_it_falls_back_to_the_package() {
         // `tests/support/mod.rs` has no integration root above it, so the declaration that would
         // name a binary is not there. The package alone is the honest answer; claiming one of the
         // targets that share it would be a filter matching nothing for the others.
