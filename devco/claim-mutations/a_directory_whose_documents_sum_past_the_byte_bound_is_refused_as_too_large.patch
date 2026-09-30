@@ -1,0 +1,22 @@
+diff --git a/crates/sutura-catalog-okf/src/lib.rs b/crates/sutura-catalog-okf/src/lib.rs
+index 6048791..abc9395 100644
+--- a/crates/sutura-catalog-okf/src/lib.rs
++++ b/crates/sutura-catalog-okf/src/lib.rs
+@@ -250,13 +250,13 @@ fn map_read_error(cause: sutura_bounded_read::ReadError) -> OkfCatalogError {
+         sutura_bounded_read::ReadError::Open { path, cause } => OkfCatalogError::Open { path, cause },
+         sutura_bounded_read::ReadError::NotARegularFile { path } => OkfCatalogError::NotARegularFile { path },
+         sutura_bounded_read::ReadError::TooLarge {
+-            root,
+-            document,
++            root: _,
++            document: _,
+             found,
+             limit,
+         } => OkfCatalogError::TooLarge {
+-            path: root,
+-            document,
++            path: std::path::PathBuf::new(),
++            document: std::path::PathBuf::new(),
+             found,
+             limit,
+         },

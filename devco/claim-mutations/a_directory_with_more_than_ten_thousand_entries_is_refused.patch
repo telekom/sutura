@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-catalog-datacontract/src/lib.rs b/crates/sutura-catalog-datacontract/src/lib.rs
+index 2ca208b..f304033 100644
+--- a/crates/sutura-catalog-datacontract/src/lib.rs
++++ b/crates/sutura-catalog-datacontract/src/lib.rs
+@@ -557,9 +557,7 @@ fn map_walk_error(cause: sutura_bounded_read::WalkError) -> DataContractError {
+             DataContractError::TooManyDocuments { path, found, limit }
+         }
+         sutura_bounded_read::WalkError::Empty { path } => DataContractError::Empty { path },
+-        sutura_bounded_read::WalkError::TooManyEntries { path, found, limit } => {
+-            DataContractError::TooManyEntries { path, found, limit }
+-        }
++        sutura_bounded_read::WalkError::TooManyEntries { path, .. } => DataContractError::Empty { path }
+     }
+ }
+ 

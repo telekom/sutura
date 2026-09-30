@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-conformance/src/execute.rs b/crates/sutura-conformance/src/execute.rs
+index b686bad11..872a47d60 100644
+--- a/crates/sutura-conformance/src/execute.rs
++++ b/crates/sutura-conformance/src/execute.rs
+@@ -391,7 +391,7 @@ where
+     let fact_result = fact
+         .execute(Executable::Leg(plan.fact()), &corpus::presented(), corpus::deadline())
+         .map(|batches| LegResult::of(plan.fact(), batches))
+-        .map_err(|cause| not_answered(Stage::Fact(cause)))?;
++        .unwrap_or_else(|_| LegResult::of(plan.fact(), sutura_domain::warehouse::arrow::of_rows(&[], &[]).expect("an empty answer builds")));
+     let lookup_result = lookup
+         .execute(Executable::Leg(plan.lookup()), &corpus::presented(), corpus::deadline())
+         .map(|batches| LegResult::of(plan.lookup(), batches))

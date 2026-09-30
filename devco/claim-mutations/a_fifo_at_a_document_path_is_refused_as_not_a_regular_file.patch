@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-bounded-read/src/read.rs b/crates/sutura-bounded-read/src/read.rs
+index 5705d35df..f5814ea39 100644
+--- a/crates/sutura-bounded-read/src/read.rs
++++ b/crates/sutura-bounded-read/src/read.rs
+@@ -113,8 +113,9 @@ pub fn read_document(root: &Path, path: &Path, total_bytes: u64) -> Result<Strin
+         cause,
+     })?;
+     if rustix::fs::FileType::from_raw_mode(stat.st_mode) != rustix::fs::FileType::RegularFile {
+-        return Err(ReadError::NotARegularFile {
++        return Err(ReadError::Io {
+             path: path.to_path_buf(),
++            cause: std::io::Error::other("not a regular file"),
+         });
+     }
+     let remaining = MAX_CATALOG_BYTES - total_bytes.min(MAX_CATALOG_BYTES);

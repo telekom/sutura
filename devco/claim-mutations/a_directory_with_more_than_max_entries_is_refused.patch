@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-catalog-okf/src/lib.rs b/crates/sutura-catalog-okf/src/lib.rs
+index 6048791..af15cac 100644
+--- a/crates/sutura-catalog-okf/src/lib.rs
++++ b/crates/sutura-catalog-okf/src/lib.rs
+@@ -236,8 +236,8 @@ fn map_walk_error(cause: sutura_bounded_read::WalkError) -> OkfCatalogError {
+             OkfCatalogError::TooManyDocuments { path, found, limit }
+         }
+         sutura_bounded_read::WalkError::Empty { path } => OkfCatalogError::Empty { path },
+-        sutura_bounded_read::WalkError::TooManyEntries { path, found, limit } => {
+-            OkfCatalogError::TooManyEntries { path, found, limit }
++        sutura_bounded_read::WalkError::TooManyEntries { path, found: _, limit: _ } => {
++            OkfCatalogError::TooManyDocuments { path, found: 0, limit: 0 }
+         }
+     }
+ }
