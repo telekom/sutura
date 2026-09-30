@@ -38,14 +38,16 @@
 # documented behaviour; no run here has told the two apart, because every past dispatch had the same
 # file on the tag and on `main`.
 #
-# ITS TAG IS `v<version>-performance`, created by this workflow's `gh release create` and never
-# moved or deleted afterwards: ruleset 24231026 holds `refs/tags/v*-performance` with update and
-# deletion rules and no creation rule, and the `v*` ruleset excludes that pattern - so this job's
-# token can create one, and only that ruleset's two bypass actors can repoint it. The tag matches
-# `v*`, so `release.yml` excludes `v*-performance` from its trigger, `version-bump.yml` excludes it
-# from `git describe`, and `cliff.toml`'s `tag_pattern` keeps it out of the changelog and the bump
-# - measured on a scratch repository: without the pattern, `git-cliff --bumped-version` answered
-# `v0.6.1-performance.1`.
+# ITS TAG IS `v<version>-performance`, at the built commit: `gh release create --target` is ignored
+# for a tag that already exists, so the release step refuses one of that name at another commit (a
+# tag created between that check and the release is not caught). Ruleset 24231026 holds
+# `refs/tags/v*-performance` with update and deletion rules and no creation rule, and the `v*`
+# ruleset excludes that pattern - so this job's token can create one, and once created only that
+# ruleset's two bypass actors can repoint it. The tag matches `v*`, so every `v*` tag trigger -
+# `release.yml`, `docs.yml`, `fuzz.yml` - excludes `v*-performance`, `push-images` and `docs.yml`'s
+# dispatch guard refuse it as a ref, `version-bump.yml` excludes it from `git describe`, and
+# `cliff.toml`'s `tag_pattern` keeps it out of the changelog and the bump - measured on a scratch
+# repository: without the pattern, `git-cliff --bumped-version` answered `v0.6.1-performance.1`.
 #
 # `latest` is never moved, and no asset or tag shares a name with the normal release, so nothing
 # starts running an optimised build by accident. `xtask/src/workflows/performance_release.rs`
@@ -352,6 +354,14 @@ jobs:
           fi
           if gh release view "$release" >/dev/null 2>&1; then
             echo "::error::a release ${release} already exists. Published, it is immutable and cannot be repaired; a draft is a leftover - delete it with 'gh release delete ${release} --yes --cleanup-tag' and re-run."
+            exit 1
+          fi
+          # `--target` is ignored for an existing tag, so one a writer created first, at another
+          # commit, would carry this release. An annotated tag's peeled `^{}` line comes last.
+          refs="$(git ls-remote --tags origin "refs/tags/${release}" "refs/tags/${release}^{}")"
+          tagged="$(printf '%s\n' "$refs" | tail -1 | cut -f1)"
+          if [ -n "$tagged" ] && [ "$tagged" != "$SHA" ]; then
+            echo "::error::tag ${release} already exists at ${tagged}, not at the built commit ${SHA}; only a bypass actor of ruleset 24231026 can remove it"
             exit 1
           fi
           {

@@ -67,13 +67,13 @@ const TAG_PATTERN: &str = r#"tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$""#;
 pub(crate) fn check(workflow: &str) -> Vec<String> {
     let Some(job) = step::job(workflow, JOB) else {
         return vec![format!(
-            "{WORKFLOW} declares no `{JOB}:` job - none of the four rules below could be checked"
+            "{WORKFLOW} declares no `{JOB}:` job - none of rules 1-5 could be checked"
         )];
     };
     let job: Vec<&str> = job.into_iter().filter(|line| !line.trim_start().starts_with('#')).collect();
     let Some(commit_at) = job.iter().position(|line| line.contains(COMMIT_MARKER)) else {
         return vec![format!(
-            "{WORKFLOW}'s `{JOB}` job never commits (`{COMMIT_MARKER}` was not found) - none of the four rules below could be checked against it"
+            "{WORKFLOW}'s `{JOB}` job never commits (`{COMMIT_MARKER}` was not found) - none of rules 1-5 could be checked against it"
         )];
     };
     // `.get` rather than direct indexing: `commit_at`/`write_at` are always valid positions in
@@ -162,7 +162,7 @@ fn run_over(root: Option<&Path>) -> Verdict {
         return Verdict::Fail;
     };
     let Ok(workflow) = std::fs::read_to_string(root.join(WORKFLOW)) else {
-        eprintln!("xtask check-version-bump: {WORKFLOW} is unreadable - none of the four rules below could be checked");
+        eprintln!("xtask check-version-bump: {WORKFLOW} is unreadable - none of the six rules could be checked");
         return Verdict::Fail;
     };
     let Ok(cliff) = std::fs::read_to_string(root.join(CLIFF)) else {

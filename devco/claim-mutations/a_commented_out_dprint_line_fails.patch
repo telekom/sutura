@@ -3,10 +3,10 @@ index e4cb27e97..f230c61a1 100644
 --- a/xtask/src/workflows/version_bump.rs
 +++ b/xtask/src/workflows/version_bump.rs
 @@ -55,7 +55,6 @@ pub(crate) fn check(workflow: &str) -> Vec<String> {
-             "{WORKFLOW} declares no `{JOB}:` job - none of the four rules below could be checked"
+             "{WORKFLOW} declares no `{JOB}:` job - none of rules 1-5 could be checked"
          )];
      };
 -    let job: Vec<&str> = job.into_iter().filter(|line| !line.trim_start().starts_with('#')).collect();
      let Some(commit_at) = job.iter().position(|line| line.contains(COMMIT_MARKER)) else {
          return vec![format!(
-             "{WORKFLOW}'s `{JOB}` job never commits (`{COMMIT_MARKER}` was not found) - none of the four rules below could be checked against it"
+             "{WORKFLOW}'s `{JOB}` job never commits (`{COMMIT_MARKER}` was not found) - none of rules 1-5 could be checked against it"
