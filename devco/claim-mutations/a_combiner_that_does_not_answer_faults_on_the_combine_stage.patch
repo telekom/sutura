@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-conformance/src/execute.rs b/crates/sutura-conformance/src/execute.rs
+index b686bad11..c7f3d251b 100644
+--- a/crates/sutura-conformance/src/execute.rs
++++ b/crates/sutura-conformance/src/execute.rs
+@@ -399,7 +399,7 @@ where
+     let legs = Legs::of(&fact_result, &lookup_result).expect("a FederatedPlan's legs are one fact and one lookup");
+     combiner
+         .combine(plan, legs, WORKING_SET_BYTES)
+-        .map_err(|cause| not_answered(Stage::Combine(cause)))?
++        .unwrap_or_else(|_| sutura_domain::warehouse::arrow::of_rows(&[], &[]).expect("an empty answer builds"))
+         .to_rows()
+         .map_err(|cause| Fault::Unreadable {
+             case: case.name().to_owned(),

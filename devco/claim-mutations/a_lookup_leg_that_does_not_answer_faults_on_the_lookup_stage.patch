@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-conformance/src/execute.rs b/crates/sutura-conformance/src/execute.rs
+index b686bad11..6d54f8b70 100644
+--- a/crates/sutura-conformance/src/execute.rs
++++ b/crates/sutura-conformance/src/execute.rs
+@@ -395,7 +395,7 @@ where
+     let lookup_result = lookup
+         .execute(Executable::Leg(plan.lookup()), &corpus::presented(), corpus::deadline())
+         .map(|batches| LegResult::of(plan.lookup(), batches))
+-        .map_err(|cause| not_answered(Stage::Lookup(cause)))?;
++        .unwrap_or_else(|_| LegResult::of(plan.lookup(), sutura_domain::warehouse::arrow::of_rows(&[], &[]).expect("an empty answer builds")));
+     let legs = Legs::of(&fact_result, &lookup_result).expect("a FederatedPlan's legs are one fact and one lookup");
+     combiner
+         .combine(plan, legs, WORKING_SET_BYTES)
