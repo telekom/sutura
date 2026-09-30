@@ -381,7 +381,7 @@ fn sentences(text: &str) -> Vec<Sentence> {
         }
         out.push(Sentence {
             line: lines.get(start).copied().unwrap_or(1),
-            text: characters.get(start..after).map(|s| s.iter().collect()).unwrap_or_default(),
+            text: characters.get(start..after).map_or_default(|s| s.iter().collect()),
         });
         start = next;
     }
@@ -608,7 +608,7 @@ mod tests {
         assert_eq!(reading.resolved, 1);
         assert_eq!(reading.confirmed, 0);
         assert_eq!(reading.problems.len(), 1, "{:?}", reading.problems);
-        let problem = reading.problems.first().map(String::as_str).unwrap_or_default();
+        let problem = reading.problems.first().map_or_default(String::as_str);
         assert!(problem.contains("says `NoPlaceForASubject`"), "{problem}");
         assert!(problem.contains("holds `PerSubjectCredential`"), "{problem}");
         // The line the claim STARTS on, found through the flattened view: the constant and the

@@ -14,9 +14,9 @@ chain; *Fourth amendment, 2026-09-21* retires the working-set and deadline figur
 records that now carry them; *Fifth amendment, 2026-09-22* is the one that closes the largest absence
 this record carried - **the second driven port designed below is BUILT**). Oracle now has a linked
 adapter; the seventh amendment records its evidence limit. The code this decision led to is cited
-beside each amendment. **Read
+beside each amendment. __Read
 *Amendment, 2026-09-16* before citing the `feat/source-registry` bullet under *The order, by
-branch*** - it names an absence that has since become false.
+branch*__ - it names an absence that has since become false.
 [Several databases behind one data system](0006-several-databases-behind-one-data-system.md) declined
 both a federation crate and attaching several databases below the port. This record decides
 what is built instead, for the systems that are three separate logins: BigQuery, Postgres and Oracle.

@@ -80,7 +80,7 @@ lands in one document and is not carried to its siblings takes. Each is quoted h
 be wrong here and nowhere else, and each is registered in `xtask`'s `CONTRADICTED` table against the
 signature that refutes it:
 
-- *a mixed-posture **answer is unconstructible*** - the invariants skill's own row, held by the type.
+- _a mixed-posture **answer is unconstructible**_ - the invariants skill's own row, held by the type.
 - *It is refused rather than labelled* - the HTTP refusal's sentence to a caller, and *Refused rather
   than disclosed* on the domain variant that produced it.
 - *every leg decides identity the SAME way, or the question is refused* - the query-surface skill's

@@ -1,0 +1,11 @@
+--- a/xtask/src/affected/claim_mutation.rs
++++ b/xtask/src/affected/claim_mutation.rs
+@@ -16,7 +16,7 @@
+             continue;
+         }
+         match targets(root, base, path) {
+-            Ok(targets) => expanded.extend(targets),
++            Ok(targets) => expanded.extend(targets.into_iter().filter(|path| path.starts_with("crates/sutura-catalog-"))),
+             Err(why) => {
+                 expanded.push(path.clone());
+                 reasons.push(format!("{path}: {why} - running every category"));

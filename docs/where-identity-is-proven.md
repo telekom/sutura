@@ -430,6 +430,14 @@ masked-comparison cell; the narrowed wording below was held by PR #755's own hos
 unmasked cell, `keycloak-served-test` `success` (run
 https://github.com/telekom/sutura/actions/runs/34928050323/job/104251967900).
 
+**Observed again on 2026-09-27:** `keycloak-served-test` succeeded on main `c721454e`, using the
+`nixpkgs`-pinned Keycloak build (run
+https://github.com/telekom/sutura/actions/runs/36315904920/job/108610582610). The log records both
+`a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused`
+and `a_real_idp_mints_an_id_token_whose_aud_is_a_third_partys` passing. This is the same password-grant
+venue with a declared audience mapper, an RFC-2606 placeholder audience and fixture `token_type: any`.
+It proves neither a browser-delegated flow nor a source executing as the caller.
+
 **The second cell answers a different row.** `a_real_idp_mints_an_id_token_whose_aud_is_a_third_partys`
 asks the same tier for a token with `scope=openid` and asserts the ID token's `aud` carries the value
 `nix/keycloak-tier.nix`'s `id-token-audience` mapper declares - read off the realm file the tier wrote,

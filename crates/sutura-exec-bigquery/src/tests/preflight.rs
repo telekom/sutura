@@ -34,8 +34,7 @@ fn short(reported: u64, identified: u64) -> ListingTotal {
 fn absent_names(answered: &TablesPresent) -> Vec<String> {
     answered
         .absent()
-        .map(|tables| tables.named().iter().map(ToString::to_string).collect())
-        .unwrap_or_default()
+        .map_or_default(|tables| tables.named().iter().map(ToString::to_string).collect())
 }
 
 #[test]

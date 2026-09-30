@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-bigquery/src/preflight.rs b/crates/sutura-exec-bigquery/src/preflight.rs
+--- a/crates/sutura-exec-bigquery/src/preflight.rs
++++ b/crates/sutura-exec-bigquery/src/preflight.rs
+@@ -195,7 +195,7 @@
+     // to fix. Unreadable inventories and counted gaps also stop startup and wait for the next
+     // boot. A transport error above still short-circuits the walk; this orders answers only.
+     if !absent.is_empty() {
+-        return Ok(TablesPresent::of(absent));
++        return Ok(TablesPresent::All);
+     }
+     // Among answered inventories, diagnose an unreadable one before a counted gap. Keep its
+     // tables separate: the unreadable total says nothing about another dataset's shortfall.

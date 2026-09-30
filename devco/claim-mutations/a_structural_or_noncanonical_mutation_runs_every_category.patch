@@ -1,0 +1,12 @@
+--- a/xtask/src/affected/claim_mutation.rs
++++ b/xtask/src/affected/claim_mutation.rs
+@@ -100,9 +100,6 @@
+ /// Nonempty summary includes renames/copies, creations/deletions and mode changes.
+ /// Numstat alone names only the destination of a rename, so those forms stay at core.
+ fn patch_targets(root: &Path, patch: &[u8]) -> Result<BTreeSet<String>, String> {
+-    if !parse_patch(root, "--summary", patch)?.is_empty() {
+-        return Err(String::from("structural mutation patch is not attributed"));
+-    }
+     let numstat = parse_patch(root, "--numstat", patch)?;
+     let numstat = std::str::from_utf8(&numstat).map_err(|error| format!("mutation target path: {error}"))?;
+     let mut paths = BTreeSet::new();

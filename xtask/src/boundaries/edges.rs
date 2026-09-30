@@ -518,13 +518,12 @@ pub(crate) fn transitive_names(meta: &serde_json::Value, start: &str, edges: Edg
             .iter()
             .find(|n| n.get("id").and_then(|i| i.as_str()) == Some(id))
             .and_then(|n| n.get("deps")?.as_array())
-            .map(|deps| {
+            .map_or_default(|deps| {
                 deps.iter()
                     .filter(|dep| edges.follows(dep))
                     .filter_map(|d| d.get("pkg")?.as_str().map(String::from))
                     .collect()
             })
-            .unwrap_or_default()
     };
 
     // Iterative, so a dependency cycle cannot blow the stack.

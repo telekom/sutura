@@ -6,7 +6,7 @@
 [extend]
 useDefault = true
 
-[allowlist]
+[[allowlists]]
 description = "Imported prose and generated tool output: neither is our source"
 # A GCP API enum, not a credential: `key_algorithm="KEY_ALG_RSA_2048"` on the service-account Key
 # resources in the test-infra pulumi program trips the `generic-api-key` rule (it is exactly the
@@ -54,3 +54,26 @@ paths = [
   '''target/.*''',
   '''result(-[a-z0-9-]+)?/.*''',
 ]
+
+# Public local-service fixtures: the default and YAML alias, not credential values.
+[[allowlists]]
+description = "Local service fixture password default and aliases"
+condition = "AND"
+targetRules = ["generic-password"]
+paths = ['''^compose\.services\.yaml$''']
+regexTarget = "line"
+regexes = [
+  '''^\s*password: &fixture-password \$\{SUTURA_DEV_PASSWORD:-sutura\}\s*$''',
+  '''^\s*(?:EBEAN_DATASOURCE_PASSWORD|CLICKHOUSE_PASSWORD|KC_BOOTSTRAP_ADMIN_PASSWORD|MYSQL_PASSWORD|MYSQL_ROOT_PASSWORD|ORACLE_PASSWORD|APP_USER_PASSWORD): \*fixture-password\s*$''',
+]
+
+# These malformed authority strings probe the userinfo parser with an IPv6 literal.
+[[allowlists]]
+description = "Malformed loopback authority parser examples"
+condition = "AND"
+targetRules = ["generic-credential-uri"]
+paths = [
+  '''^crates/(?:sutura-http-client/src/endpoint\.rs|sutura-catalog-(?:datahub|openmetadata)/tests/http_reader\.rs)$''',
+]
+regexTarget = "match"
+regexes = ['''^http://\[::1\]:1@(?:localhost|127\.0\.0\.1:9002)["`]?$''']

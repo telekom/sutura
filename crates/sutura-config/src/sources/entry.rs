@@ -137,7 +137,7 @@ pub(super) fn parse_placement(
                     });
                 }
                 (true, false) => {
-                    let text = entry.host.map(str::trim).unwrap_or_default();
+                    let text = entry.host.map_or_default(str::trim);
                     let host = crate::sources::placement::HostName::parse(text).map_err(|cause| InvalidSourceRegistry::Host {
                         alias: alias.clone(),
                         cause,
@@ -145,7 +145,7 @@ pub(super) fn parse_placement(
                     crate::sources::placement::PostgresDial::Tcp { host, port }
                 }
                 (false, true) => {
-                    let text = entry.unix_socket.map(str::trim).unwrap_or_default();
+                    let text = entry.unix_socket.map_or_default(str::trim);
                     let directory = PathBuf::from(text);
                     if directory.is_relative() {
                         return Err(InvalidSourceRegistry::RelativePath {
