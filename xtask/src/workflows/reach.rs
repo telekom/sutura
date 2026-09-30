@@ -383,17 +383,28 @@ pub(super) fn release_outputs(root: &Path, closure: &Closure) -> Vec<String> {
 /// **Every `.#` TOKEN on the line, not just the first one** - #980 review: reading only the first
 /// non-flag token let `nix build --print-build-logs .#deps .#sutura` report `ok`, because the
 /// exempt token at the head of the line hid every real release output written after it on the
-/// SAME line. A continuation line (`nix build … \` then `.#x` below) is still not read - that gap
-/// predates this change and is not fixed here.
+/// SAME line. A `\` continuation is one command, so the installables on the lines it continues onto
+/// are read too and reported at the `nix build` line. An interpolated name (`.#${bin}-…`) is not
+/// read: it parses to no output.
 fn literal_release_builds(text: &str, deps_exempt: bool) -> Vec<(usize, String)> {
+    let lines: Vec<&str> = text.lines().collect();
     let mut found = Vec::new();
-    for (index, line) in text.lines().enumerate() {
+    for (index, line) in lines.iter().enumerate() {
         if line.trim_start().starts_with('#') {
             continue;
         }
-        let Some((_, after)) = line.split_once("nix build ") else {
+        let Some((_, first)) = line.split_once("nix build ") else {
             continue;
         };
+        let mut after = String::from(first);
+        let mut next = index;
+        while let Some(open) = after.trim_end().strip_suffix('\\') {
+            next = next.saturating_add(1);
+            let Some(more) = lines.get(next) else {
+                break;
+            };
+            after = format!("{open} {more}");
+        }
         // SKIP LEADING FLAGS. This used to require the installable to be the very next token, so
         // `nix build -L .#sutura-serve` - an ordinary spelling - walked past the refusal at exit 0.
         // That it did not bite was a property of this tree's text (flags written after the

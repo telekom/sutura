@@ -5,14 +5,18 @@
 //! jobs stayed green. It is read DIRECTLY here, by path, not walked: nothing calls it.
 //!
 //! It exists to publish CI's store to the cache, so some of its literal builds are not release
-//! outputs by intent. [`CACHE_ONLY`] is the owner-decided exemption list, keyed by JOB as well as
-//! by name, so a release output moved into an exempt job is still refused, and so is an exempt
-//! name built from any other job. The cross-build job's shipped binary is deliberately NOT listed.
+//! outputs by intent. [`CACHE_ONLY`] is the owner-decided exemption list
+//! (`github.com/telekom/sutura#1037`, issuecomment-5900986058), keyed by JOB as well as by name, so
+//! a release output moved into an exempt job is still refused, and so is a listed name built from
+//! any other job. That keying is [`CACHE_ONLY`]'s alone: `.#deps` (while it is `ciArtifacts`) and
+//! every `checks.*` output pass in any job, as they do in ordinary CI.
 //!
-//! **The limit, next to the claim.** An exemption trusts a NAME: it does not check that
-//! `packages.deps-native-ci` still IS a dependency closure the way `deps_is_the_dependency_closure`
-//! checks `packages.deps`. And it inherits [`super::literal_release_builds`]' own blind spots - a
-//! `nix build … \` continuation line and an interpolated `.#${bin}-…` name are not read.
+//! **The limit, next to the claim.** The one output the owner named NOT exempt - the cross-build
+//! job's shipped binary - is built as `.#${bin}-${TARGET}-ci`, an interpolated name no rule here
+//! reads, so on the committed tree nothing holds it. A literal spelling of it is refused, and
+//! [`CACHE_ONLY`] may not name that job, both held by cells below. An exemption also trusts a NAME:
+//! it does not check that `packages.deps-native-ci` still IS a dependency closure the way
+//! `deps_is_the_dependency_closure` checks `packages.deps`.
 
 use std::path::Path;
 
@@ -76,7 +80,12 @@ mod tests {
         "jobs:\n",
         "  push:\n",
         "    steps:\n",
-        "      - run: nix build --print-build-logs .#deps .#xtask .#jscpd\n",
+        "      - run: |\n",
+        "          nix build --print-build-logs \\\n",
+        "            .#deps \\\n",
+        "            .#xtask \\\n",
+        "            .#jscpd \\\n",
+        "            .#sutura-serve\n",
         "  cross-build:\n",
         "    steps:\n",
         "      - run: nix build --print-build-logs .#sutura-x86_64-unknown-linux-gnu-ci\n",
@@ -91,12 +100,21 @@ mod tests {
         assert_eq!(
             super::refused(PUBLISH, true),
             vec![
-                String::from("cachix-push.yml:9  sutura-x86_64-unknown-linux-gnu-ci"),
-                String::from("cachix-push.yml:12  sutura"),
-                String::from("cachix-push.yml:13  xtask"),
+                String::from("cachix-push.yml:7  sutura-serve"),
+                String::from("cachix-push.yml:14  sutura-x86_64-unknown-linux-gnu-ci"),
+                String::from("cachix-push.yml:17  sutura"),
+                String::from("cachix-push.yml:18  xtask"),
             ],
-            "the cross job's binary, a release output beside exempt closures, and an exempt name \
-             from a job it is not exempt in are each refused"
+            "a release output continued onto a later line, the cross job's binary, a release output \
+             beside exempt closures, and an exempt name from a job it is not exempt in are each refused"
+        );
+    }
+
+    #[test]
+    fn the_cross_build_job_is_never_cache_only() {
+        assert!(
+            super::CACHE_ONLY.iter().all(|&(job, _)| job != "cross-build"),
+            "the owner decision on #1037 row m names the cross job's shipped binary NOT exempt"
         );
     }
 
@@ -110,7 +128,7 @@ mod tests {
         let found = super::super::release_outputs(&at, &closure);
         std::fs::remove_dir_all(&at).expect("the scratch tree");
         assert!(
-            found.contains(&String::from("cachix-push.yml:12  sutura")),
+            found.contains(&String::from("cachix-push.yml:17  sutura")),
             "an empty walk still refuses what the cache-publish workflow builds: {found:?}"
         );
     }
