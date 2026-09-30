@@ -68,12 +68,23 @@ success-output = "immediate"
 filter = "binary(conformance) + binary(bound)"
 success-output = "immediate"
 
+# The fixtures that spawn a REAL nested `cargo nextest run` over a throwaway crate: the gas family,
+# `causality::tests` and `rot`'s kill half (the filter also queues `causality::tests`' one pure
+# cell). Capped as a GROUP instead of given a longer ceiling. Measured 09-30 at host load 30-60. In
+# the dev shell: 1.4-16.1s per gas cell run alone, and 0.1-21.1s for the family at nextest's default
+# of one thread per CPU (15 here). In the red `checks.nextest` run the family took 5.7-410.3s, 11 of
+# 30 under 60s, and `run_dispatches_to_the_claim_arm` hit the 300s ceiling above; the 410.3s cell
+# survived only under a 600s override since removed. That run was host-starved - a pure in-memory
+# cell took 9.0s against 0.13s after - so it is not an A/B. Two at a time, two later
+# `checks.nextest` runs put the slowest at 118s and 70s and every other cell at 33s or under. A
+# queued cell has not started and the ceiling counts from start (checked on a scratch crate), so the
+# ceiling is unchanged.
+# Limits: the sandbox's per-cell slowdown is not explained, only kept from compounding; this bounds
+# the fixtures against each other, not against a loaded host; and in the dev shell it is pure cost -
+# 73s for the family against 23s unconstrained.
+[test-groups]
+real-cargo = { max-threads = 2 }
+
 [[profile.default.overrides]]
-# `causality::gas_tests::a_claim_cell_and_an_ordinary_test_are_both_proven` builds two real Cargo
-# workspaces to test the causality routing seam (github.com/telekom/sutura#954); each invocation of
-# `composite()` builds a repo and runs the full causality engine. Test timed out at 300s under load
-# (2 of 3 validates), indicating ~150s baseline per composite() + load variance. Per-test override
-# raises ceiling to 600s (10 min) to absorb host load without masking hangs: 150s baseline x2 +
-# 100% load variance margin, with 2x safety factor for future regression.
-filter = "test(causality::gas_tests::a_claim_cell_and_an_ordinary_test_are_both_proven)"
-slow-timeout = { period = "150s", terminate-after = 4 }
+filter = "binary_id(xtask::bin/xtask) & (test(/^causality::gas_tests::/) | test(/^causality::tests::/) | test(/^causality::rot::tests::the_kill_half_/))"
+test-group = "real-cargo"

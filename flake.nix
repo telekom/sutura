@@ -644,10 +644,11 @@
             # The disposable demo's fake-child contract is stdlib-only and runs from the same
             # unfiltered source tree as the Rust tests, before the tier is provisioned. One
             # exception: `test_dev_down_only_demo_scopes_the_docker_teardown_it_issues` runs the real
-            # `xtask` CLI against a faked `docker`, so THIS check now also builds `xtask` and
-            # whatever it pulls in before the `cargoNextest` build below does - cargo's own cache
-            # makes that a scheduling change, not a second build, but it moves real wall time ahead
-            # of `preCheck` rather than eliminating it.
+            # `xtask` CLI against a faked `docker`, so THIS check now also builds `xtask` before the
+            # `cargoNextest` build below does. The test reads the exported `CARGO_PROFILE` and builds
+            # `--workspace --all-features --bin xtask` under it, so that build lands in the warm `ci`
+            # closure: a bare `cargo run -p xtask` built the dev profile, whose 37 third-party units
+            # the closure does not hold, cold, ahead of every Rust cell.
             #
             # `pkgs.git` is NOT only for that faked `docker` contract. `xtask`'s own causality gate
             # shells to a real `git` (`causality::worktree::git`, called from `causality::claim`,
