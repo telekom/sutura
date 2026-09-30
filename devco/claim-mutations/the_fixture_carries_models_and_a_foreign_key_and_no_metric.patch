@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-rdbms/src/fixture.rs b/crates/sutura-catalog-rdbms/src/fixture.rs
+--- a/crates/sutura-catalog-rdbms/src/fixture.rs
++++ b/crates/sutura-catalog-rdbms/src/fixture.rs
+@@ -65,7 +65,7 @@ pub fn corpus() -> Dictionary {
+                 "customers".to_owned(),
+                 public("customers"),
+                 vec!["customer_id".to_owned(), "segment".to_owned()],
+-                Some("Customer reference data.".to_owned()),
++                None,
+             )
+             .with_column_metadata([("customer_id".to_owned(), ColumnMetadata::new(Some("bigint".to_owned()), None))])
+             .with_primary_key(vec!["customer_id".to_owned()]),

@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-rdbms/src/lib.rs b/crates/sutura-catalog-rdbms/src/lib.rs
+--- a/crates/sutura-catalog-rdbms/src/lib.rs
++++ b/crates/sutura-catalog-rdbms/src/lib.rs
+@@ -570,7 +570,7 @@ fn stable_fingerprint<'a>(parts: impl IntoIterator<Item = &'a str>) -> u64 {
+     let mut fingerprint = OFFSET_BASIS;
+     for part in parts {
+         for byte in part.bytes().chain(core::iter::once(0xff)) {
+-            fingerprint ^= u64::from(byte);
++            fingerprint ^= 0;
+             fingerprint = fingerprint.wrapping_mul(PRIME);
+         }
+     }
