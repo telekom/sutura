@@ -447,3 +447,197 @@ mod content {
         );
     }
 }
+
+/// `kind: cube` (`telekom/sutura#1148`), through a real directory, because the expansion and the
+/// `absorb` arm that reaches it are both on this side of the boundary. Every case is red on a tree
+/// without the kind, where the probe refuses `cube` before any check below exists.
+mod cube {
+    use super::{catalog, outcome_of, scratch};
+    use crate::LocalCatalogError;
+    use crate::document::cube::InvalidCubeDocument;
+    use sutura_domain::catalog::{Audience, InconsistentDefinitions};
+    use sutura_domain::model::{DimensionName, MetricName, ModelName};
+    use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog as _};
+
+    const MODEL: &str = "---\nkind: model\nname: orders\nsource: local\ntable: fct_order\ncolumns: [amount_cents, order_date, order_key, region]\n---\nOne row per order.\n";
+
+    const CUBE: &str = "---
+kind: cube
+name: sales
+model: orders
+time_column: order_date
+grains: [month]
+dimensions:
+  - name: region
+    column: region
+    values: [east, west]
+measures:
+  - name: revenue
+    measure:
+      simple: { aggregate: sum, column: amount_cents }
+    audience: open
+    description: Net revenue, in minor units.
+  - name: orders
+    measure:
+      simple: { aggregate: count_distinct, column: order_key }
+    audience:
+      restricted: [finance]
+---
+Sales over the order fact.
+";
+
+    /// [`CUBE`], written out by hand as the two metric documents it stands for.
+    const FLAT_REVENUE: &str = "---\nkind: metric\nname: sales_revenue\nmodel: orders\nmeasure:\n  simple: { aggregate: sum, column: amount_cents }\ntime_column: order_date\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    values: [east, west]\naudience: open\n---\nNet revenue, in minor units.\n";
+    const FLAT_ORDERS: &str = "---\nkind: metric\nname: sales_orders\nmodel: orders\nmeasure:\n  simple: { aggregate: count_distinct, column: order_key }\ntime_column: order_date\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    values: [east, west]\naudience:\n  restricted: [finance]\n---\nSales over the order fact.\n";
+
+    fn name(raw: &str) -> MetricName {
+        MetricName::parse(raw).expect("a test name is a name")
+    }
+
+    fn cube_outcome(case: &str, cube: &str) -> Result<crate::Content, LocalCatalogError> {
+        outcome_of(case, &[("orders.md", MODEL), ("doc.md", cube)])
+    }
+
+    fn pinned(case: &str, documents: &[(&str, &str)]) -> PinnedDefinitions {
+        let root = scratch(case);
+        for &(file, document) in documents {
+            std::fs::write(root.join(file), document).expect("a document is writable");
+        }
+        let pinned = catalog(root.clone()).load().expect("this catalog loads");
+        drop(std::fs::remove_dir_all(&root));
+        pinned
+    }
+
+    /// A cube refused while its frontmatter is read, and the serde message that says why.
+    fn frontmatter_refusal(case: &str, cube: &str) -> String {
+        let err = cube_outcome(case, cube).expect_err("this cube is refused");
+        assert!(matches!(err, LocalCatalogError::Frontmatter { kind: "cube", .. }), "{err:?}");
+        core::error::Error::source(&err)
+            .expect("a frontmatter refusal keeps its serde cause")
+            .to_string()
+    }
+
+    #[test]
+    fn a_cube_expands_to_one_metric_per_measure_sharing_its_model_time_and_dimensions() {
+        let (definitions, _) = cube_outcome("cube-expands", CUBE).expect("the cube loads");
+        let revenue = definitions
+            .metric(&name("sales_revenue"))
+            .expect("the first measure is a metric");
+        let orders = definitions
+            .metric(&name("sales_orders"))
+            .expect("the second measure is a metric");
+        assert!(
+            definitions.metric(&name("sales")).is_none(),
+            "the cube itself is not a metric"
+        );
+        let region = DimensionName::parse("region").expect("a test name is a name");
+        for metric in [revenue, orders] {
+            assert_eq!(metric.model().as_str(), "orders");
+            assert_eq!(metric.time_column().as_str(), "order_date");
+            assert_eq!(metric.dimensions().keys().collect::<Vec<_>>(), [&region]);
+        }
+        assert_eq!(revenue.audience(), &Audience::Open);
+        assert_ne!(orders.audience(), &Audience::Open, "a measure's audience is its own");
+        assert_eq!(revenue.description(), "Net revenue, in minor units.");
+        assert_eq!(
+            orders.description(),
+            "Sales over the order fact.",
+            "no description: the cube's prose"
+        );
+    }
+
+    #[test]
+    fn a_cube_and_its_hand_flattened_equivalent_pin_the_same_digest() {
+        let cube = pinned("cube-digest", &[("orders.md", MODEL), ("sales.md", CUBE)]);
+        let flat = pinned(
+            "cube-digest-flat",
+            &[("orders.md", MODEL), ("revenue.md", FLAT_REVENUE), ("count.md", FLAT_ORDERS)],
+        );
+        assert_eq!(cube.digest(), flat.digest());
+        // The twin: the digest sees the field the cube supplies by fallback, so equality above is
+        // not a digest blind to the difference.
+        let reworded = pinned(
+            "cube-digest-reworded",
+            &[
+                ("orders.md", MODEL),
+                ("revenue.md", FLAT_REVENUE),
+                ("count.md", &FLAT_ORDERS.replace("Sales over", "Orders over")),
+            ],
+        );
+        assert_ne!(cube.digest(), reworded.digest());
+    }
+
+    #[test]
+    fn a_measure_declaring_dimensions_of_its_own_is_refused() {
+        let cube = CUBE.replace(
+            "    description: Net",
+            "    dimensions:\n      - name: channel\n        column: region\n    description: Net",
+        );
+        let cause = frontmatter_refusal("cube-measure-dimensions", &cube);
+        assert!(cause.contains("unknown field `dimensions`"), "{cause}");
+    }
+
+    #[test]
+    fn a_cube_without_a_time_column_is_refused() {
+        let cause = frontmatter_refusal("cube-no-time", &CUBE.replace("time_column: order_date\n", ""));
+        assert!(cause.contains("missing field `time_column`"), "{cause}");
+    }
+
+    #[test]
+    fn a_cube_declaring_hierarchies_is_refused_by_name() {
+        let cube = CUBE.replace(
+            "measures:\n",
+            "hierarchies:\n  - name: geography\n    levels: [region]\nmeasures:\n",
+        );
+        let cause = frontmatter_refusal("cube-hierarchies", &cube);
+        assert!(cause.contains("unknown field `hierarchies`"), "{cause}");
+    }
+
+    #[test]
+    fn two_measures_of_one_cube_sharing_a_name_are_refused_naming_the_cube() {
+        let err = cube_outcome("cube-duplicate", &CUBE.replace("  - name: orders\n", "  - name: revenue\n"))
+            .expect_err("a measure declared twice is refused");
+        assert!(
+            matches!(
+                &err,
+                LocalCatalogError::Cube {
+                    cause: InvalidCubeDocument::DuplicateMeasure { cube, measure },
+                    ..
+                } if *cube == name("sales") && *measure == name("revenue")
+            ),
+            "{err:?}"
+        );
+        assert!(err.to_string().contains("doc.md"), "{err}");
+    }
+
+    #[test]
+    fn a_cube_with_no_measure_is_refused() {
+        let empty = format!(
+            "{}measures: []\n---\nNothing.\n",
+            CUBE.split("measures:\n").next().unwrap_or_default()
+        );
+        let err = cube_outcome("cube-no-measures", &empty).expect_err("a cube of nothing is refused");
+        assert!(
+            matches!(&err, LocalCatalogError::Cube { cause: InvalidCubeDocument::NoMeasures { cube }, .. } if *cube == name("sales")),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn a_measure_naming_an_undeclared_model_reaches_the_consistency_refusal() {
+        let cube = CUBE.replace(
+            "      simple: { aggregate: sum, column: amount_cents }\n",
+            "      ratio:\n        numerator: { aggregate: sum, column: amount_cents }\n        denominator: { aggregate: count, column: invoice_key, model: invoices }\n        zero_denominator: yields_null\n",
+        );
+        let err = cube_outcome("cube-unknown-model", &cube).expect_err("a term on an undeclared model is refused");
+        assert!(
+            matches!(
+                &err,
+                LocalCatalogError::Inconsistent {
+                    cause: InconsistentDefinitions::UnknownTermModel { metric, model },
+                } if *metric == name("sales_revenue") && *model == ModelName::parse("invoices").expect("a test name is a name")
+            ),
+            "{err:?}"
+        );
+    }
+}

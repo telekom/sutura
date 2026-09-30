@@ -34,6 +34,7 @@ use crate::document::audience::{AudienceDoc, InvalidAudienceDeclaration};
 // see a metric, and the four knowledge documents (a definition decides what executes, a note
 // decides what a reader understands).
 pub mod audience;
+pub mod cube;
 pub mod knowledge;
 
 /// What a document declares itself to be.
@@ -42,7 +43,7 @@ pub mod knowledge;
 /// wrong directory is then an error naming the mismatch, instead of a metric that was quietly never
 /// loaded, and the loader can walk one tree instead of trusting a layout convention.
 ///
-/// **Seven kinds now, and the split between them is worth reading as two groups.** The first three
+/// **Eight kinds now, and the split between them is worth reading as two groups.** The first four
 /// are definitions: they decide what executes, and `sutura_domain::catalog` checks them. The last
 /// four are knowledge: they decide what a reader understands, and `sutura_domain::knowledge` checks
 /// them. Nothing in the loader treats the two groups differently - one walk, one tag, one dispatch -
@@ -53,6 +54,9 @@ pub enum DocumentKind {
     Model,
     Relationship,
     Metric,
+    /// Several metrics over one model sharing a time column and a dimension list - authoring sugar
+    /// expanded into ordinary metrics here, so the domain never sees one ([`cube::CubeDoc`]).
+    Cube,
     /// One entry of the business glossary.
     Glossary,
     /// Something a reader has to know before trusting a number.
@@ -73,6 +77,7 @@ impl DocumentKind {
             Self::Model => "model",
             Self::Relationship => "relationship",
             Self::Metric => "metric",
+            Self::Cube => "cube",
             Self::Glossary => "glossary",
             Self::Caveat => "caveat",
             Self::NotDefined => "not_defined",
@@ -420,7 +425,7 @@ impl RelationshipDoc {
 /// every existing document has, and `via: [a, b]` is the chain. `deny_unknown_fields` is a struct
 /// rule, so the enum carries the adapter's one place where a misspelled key is not caught - a
 /// misspelled NAME inside the chain still refuses, because the name is a `RelationshipName`.
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize)]
 #[serde(untagged)]
 pub enum ViaDoc {
     One(RelationshipName),
@@ -443,7 +448,7 @@ impl ViaDoc {
 /// the same key twice keeps the last value and reports nothing, so a metric declaring `region`
 /// twice would load with whichever definition came second. As a list the duplication survives to
 /// where [`MetricDoc::into_domain`] can refuse it.
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DimensionDoc {
     name: DimensionName,

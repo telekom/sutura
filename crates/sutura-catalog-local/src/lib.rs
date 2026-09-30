@@ -40,6 +40,7 @@ use sutura_domain::pinned::{
     CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
 };
 
+use crate::document::cube::{CubeDoc, InvalidCubeDocument};
 use crate::document::knowledge::{CaveatDoc, ExampleDoc, GlossaryDoc, NotDefinedDoc};
 use crate::document::{
     DocumentKind, InvalidMetricDocument, InvalidModelDocument, InvalidRelationshipDocument, KindProbe, MetricDoc, ModelDoc,
@@ -134,6 +135,12 @@ pub enum LocalCatalogError {
         path: PathBuf,
         #[source]
         cause: InvalidMetricDocument,
+    },
+    #[error("{path} is not a usable cube")]
+    Cube {
+        path: PathBuf,
+        #[source]
+        cause: InvalidCubeDocument,
     },
     /// A model's own column or its `primary_key:` is not usable.
     #[error("{path} is not a usable model")]
@@ -448,7 +455,9 @@ impl Collected {
     /// One document, into whichever half it belongs to.
     fn absorb(&mut self, path: &Path, split: &Split<'_>, kind: DocumentKind) -> Result<(), LocalCatalogError> {
         match kind {
-            DocumentKind::Model | DocumentKind::Relationship | DocumentKind::Metric => self.absorb_definition(path, split, kind),
+            DocumentKind::Model | DocumentKind::Relationship | DocumentKind::Metric | DocumentKind::Cube => {
+                self.absorb_definition(path, split, kind)
+            }
             DocumentKind::Glossary | DocumentKind::Caveat | DocumentKind::NotDefined | DocumentKind::Example => {
                 self.absorb_note(path, split, kind)
             }
@@ -484,6 +493,14 @@ impl Collected {
                 let doc: RelationshipDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
                 self.relationships
                     .push(doc.into_domain().map_err(|cause| LocalCatalogError::Relationship {
+                        path: PathBuf::from(path),
+                        cause,
+                    })?);
+            }
+            DocumentKind::Cube => {
+                let doc: CubeDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
+                self.metrics
+                    .extend(doc.into_domain(&description).map_err(|cause| LocalCatalogError::Cube {
                         path: PathBuf::from(path),
                         cause,
                     })?);
