@@ -34,8 +34,8 @@ let
   # ONE version string per tool. `cargo xtask check-crap` reads `crapVersion` back out of this
   # file and fails if docs/crap.md states a different one, so a bump here cannot leave the
   # documentation describing a version nobody runs.
-  crapVersion = "0.4.3";
-  llvmCovVersion = "0.9.0";
+  crapVersion = "0.5.0";
+  llvmCovVersion = "0.9.1";
 
   # One entry per system the flake evaluates for (flake-utils' default four). A system missing
   # from a table is a loud eval error below rather than a silently absent tool: a gate whose
@@ -48,17 +48,17 @@ let
   };
 
   crapHashes = {
-    x86_64-unknown-linux-gnu = "sha256-bKzPSJNwTtx01wFNux4CLXxk73zSkwh1Gcp7wdjAIoU=";
-    aarch64-unknown-linux-gnu = "sha256-9Jhm8/Ph8bpGk1SQktVHRswkJucSL89DswvKBLDSc20=";
-    x86_64-apple-darwin = "sha256-HkrY/h9p/ev9MAM1kMtGyS5UK3aIw4/bvNcNtWoRvYw=";
-    aarch64-apple-darwin = "sha256-spKaEpHkCg2KBIR2T0mrzb0W3DxUPp586AKKKnXZQqA=";
+    x86_64-unknown-linux-gnu = "sha256-Dog3hpMaj1Lt73zsAuKD5XMkUlcf1kluTVzl2dTg0kA=";
+    aarch64-unknown-linux-gnu = "sha256-CcqxeP2mRpmBku3rLBQkPxPnYA5Vyo5NcVp5rAoQK3I=";
+    x86_64-apple-darwin = "sha256-c4WKR5YeQiiJwQYw+NvoZcHrKR8X+9N9M2GCTW/yqdY=";
+    aarch64-apple-darwin = "sha256-50xbooCkhO/vY9YOhC1yUkC9SqaD2e67cCAJEdgA56Y=";
   };
 
   llvmCovHashes = {
-    x86_64-unknown-linux-gnu = "sha256-sGj3yYhBqsucTzgrSgwYSugvSbVqMtRCtCmylhxzvhU=";
-    aarch64-unknown-linux-gnu = "sha256-mvU7Jz5Q0B2L3oeF3oVB9nOMxDdSSM12g67ItXaLnSE=";
-    x86_64-apple-darwin = "sha256-RZW8kxCwCZE1cFFOsP98Orp0kCViV4A48XANYReD/cI=";
-    aarch64-apple-darwin = "sha256-G79dyK2C4Pb/DrkjqmppHHYK22D3l83LRU4gS5OZxPA=";
+    x86_64-unknown-linux-gnu = "sha256-s/aOYlSB/tmxZEQXTz+l68295KGHiAOjXqvi3O/NxBo=";
+    aarch64-unknown-linux-gnu = "sha256-q/XxPBUg+HVtIZK/qurbAgj1t+qoytwVv4R776Qrc2A=";
+    x86_64-apple-darwin = "sha256-3flJuCpjAXRB6naqBovdfi3egFX0fNPvc2/bvWM7wz4=";
+    aarch64-apple-darwin = "sha256-foIabJDAiE9591n12b5QeZreZ7uCUVGG2SLyYDLvQ7g=";
   };
 
   system = pkgs.stdenv.hostPlatform.system;

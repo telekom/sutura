@@ -295,7 +295,7 @@ fn dispatch(args: &[String]) -> ExitCode {
 
 /// What this argument vector asks for. Pure.
 fn requested(args: &[String]) -> Requested<'_> {
-    let rest = args.split_first().map(|(_, rest)| rest).unwrap_or_default();
+    let rest = args.split_first().map_or_default(|(_, rest)| rest);
 
     match args.first().map(String::as_str) {
         Some("--version" | "-V") => Requested::Print(format!("sutura {}", env!("CARGO_PKG_VERSION"))),

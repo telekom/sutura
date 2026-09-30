@@ -120,7 +120,7 @@ jobs:
       # Before nix installs: /nix/store is what fills. See
       # `.github/actions/reclaim-disk` for why this is local and why it cannot
       # affect the Nix cache.
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           # The flag that makes nix honour settings from flake.nix itself is deliberately
@@ -256,7 +256,7 @@ jobs:
     needs: [gates]
     # No `permissions:` block: a caller cannot grant a called workflow more than it holds, so
     # omitting it leaves this workflow's own `contents: read`.
-    uses: ./.github/workflows/demo-container.yml
+    uses: $/.github/workflows/demo-container.yml
 
   # NO write permissions, which is the point of having this job separate at all. Everything
   # that compiles happens here, under a token that can read the repository and nothing else.
@@ -292,7 +292,7 @@ jobs:
       # Before nix installs: /nix/store is what fills. See
       # `.github/actions/reclaim-disk` for why this is local and why it cannot
       # affect the Nix cache.
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           # As in `gates`: settings that matter are written here, not read out of flake.nix.
@@ -317,7 +317,7 @@ jobs:
       # as a tarball, every shipped binary as an image with a smoke test, and an SBOM per image.
       # That action's header says why it is not inline, and it is the same argument
       # `.github/actions/attest-and-sign` already made about the other half of this file.
-      - uses: ./.github/actions/build-artefacts
+      - uses: $/.github/actions/build-artefacts
         with:
           target: ${{ matrix.target }}
           binaries: ${{ env.BINARIES }}
@@ -511,7 +511,7 @@ jobs:
       # THE CHART: packaged, pushed as an OCI artefact beside the images, signed the same way,
       # and its Artifact Hub metadata pushed if registered - see the action's own header.
       - name: Package, push and sign the chart
-        uses: ./.github/actions/publish-chart
+        uses: $/.github/actions/publish-chart
         with:
           registry-username: ${{ github.actor }}
           registry-token: ${{ secrets.GITHUB_TOKEN }}
@@ -541,7 +541,7 @@ jobs:
       # it was a second source of truth for a value the file already carried - and a second
       # repository would have made the input wrong rather than merely redundant.
       - name: Attest and sign
-        uses: ./.github/actions/attest-and-sign
+        uses: $/.github/actions/attest-and-sign
         with:
           registry-username: ${{ github.actor }}
           registry-token: ${{ secrets.GITHUB_TOKEN }}

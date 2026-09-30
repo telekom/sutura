@@ -5,10 +5,6 @@
 //! as the other split-out modules read them.
 
 use super::*;
-#[expect(
-    clippy::disallowed_types,
-    reason = "a synchronous test fake's recorder and barrier: blocking scoped threads with no async awaiting the lock, so the executor-deadlock this ban exists for cannot arise; std Mutex (not tokio) because the fakes are synchronous"
-)]
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 

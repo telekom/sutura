@@ -365,8 +365,8 @@ pub(crate) fn cells(text: &str, code: &str) -> Cells {
     let blanked: Vec<&str> = code.lines().collect();
     let mut found = Cells::default();
     for index in 0..lines.len() {
-        let written = lines.get(index).map(|line| line.trim()).unwrap_or_default();
-        let visible = blanked.get(index).map(|line| line.trim()).unwrap_or_default();
+        let written = lines.get(index).map_or_default(|line| line.trim());
+        let visible = blanked.get(index).map_or_default(|line| line.trim());
         if !declares_a_test(written) || !declares_a_test(visible) {
             continue;
         }

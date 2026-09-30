@@ -73,7 +73,7 @@ pub(super) fn classify_mutation(text: &str, cell: &AddedTest, read: &PostImage<'
         MutationKill::Killed
     } else {
         MutationKill::NotByAssertion {
-            site: sites.first().map(|(path, line)| format!("{path}:{line}")).unwrap_or_default(),
+            site: sites.first().map_or_default(|(path, line)| format!("{path}:{line}")),
         }
     }
 }
@@ -177,13 +177,16 @@ fn panic_sites(text: &str) -> Vec<(String, usize)> {
 /// reported anything at all - not about this cell, not about any other - which is the shape
 /// `NotKilled` (*the mutation does not kill it*) is not entitled to claim.
 pub(super) fn attest(ok: bool, text: &str, cell: &str, added: &AddedTest, read: &PostImage<'_>) -> Result<(), Cause> {
-    if !ok && let Some(why) = base::could_not_attest(text) {
+    if ok {
+        return Err(Cause::NotKilled { cell: cell.to_owned() });
+    }
+    if let Some(why) = base::could_not_attest(text) {
         return Err(Cause::BuildFailed {
             cell: cell.to_owned(),
             why: why.to_owned(),
         });
     }
-    if !ok && base::failures(text).is_empty() {
+    if base::failures(text).is_empty() {
         return Err(Cause::BuildFailed {
             cell: cell.to_owned(),
             why: String::from("the run failed but named no test failing at all - not a verdict about the declaration"),
@@ -197,7 +200,7 @@ pub(super) fn attest(ok: bool, text: &str, cell: &str, added: &AddedTest, read: 
         // whatever its text echoes. The site is a path literal, so moving that panic out of
         // `dev/src/provisioned.rs` makes a tier skip read as `NotByAssertion` again - loud.
         MutationKill::NotByAssertion { ref site }
-            if !ok && site.starts_with("dev/src/provisioned.rs:") && text.contains(sutura_dev::requirement::REQUIRED) =>
+            if site.starts_with("dev/src/provisioned.rs:") && text.contains(sutura_dev::requirement::REQUIRED) =>
         {
             Err(Cause::BuildFailed {
                 cell: cell.to_owned(),
