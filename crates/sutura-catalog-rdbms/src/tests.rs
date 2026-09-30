@@ -5,7 +5,7 @@ use sutura_domain::capabilities::{DeclarableKind, DefinitionCapabilities, Defini
 use sutura_domain::catalog::{InconsistentDefinitions, InvalidDescription};
 use sutura_domain::definitions::{DefinitionDigest, NotDigestible};
 use sutura_domain::knowledge::KnowledgeCapabilities;
-use sutura_domain::model::{Grain, JoinType, MetricName, ModelName, SourceName};
+use sutura_domain::model::{Grain, InvalidIdentifier, JoinType, MetricName, ModelName, SourceName};
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{DefinitionVersion, SemanticCatalog};
 use sutura_domain::query::{Query, RefusalReason};
@@ -644,10 +644,13 @@ fn a_physical_table_identifier_that_would_be_trimmed_is_refused() {
         )],
         Vec::new(),
     ));
-    assert!(matches!(
-        RdbmsCatalog::new(name(), version(), table_with_space).load(),
-        Err(RdbmsError::TableName { table, .. }) if table == "public.orders "
-    ));
+    match RdbmsCatalog::new(name(), version(), table_with_space).load() {
+        Err(RdbmsError::TableName { table, cause }) => {
+            assert_eq!(table, "public.orders ");
+            assert_eq!(cause, InvalidIdentifier::IllegalCharacter { offending: ' ' });
+        }
+        other => panic!("a trailing-space table name must refuse as `TableName`: {other:?}"),
+    }
 
     // The schema part is exercised the same way: an edge space would silently become a different
     // schema once the shared parser trimmed it.
@@ -660,10 +663,13 @@ fn a_physical_table_identifier_that_would_be_trimmed_is_refused() {
         )],
         Vec::new(),
     ));
-    assert!(matches!(
-        RdbmsCatalog::new(name(), version(), schema_with_space).load(),
-        Err(RdbmsError::SchemaName { schema, .. }) if schema == " public"
-    ));
+    match RdbmsCatalog::new(name(), version(), schema_with_space).load() {
+        Err(RdbmsError::SchemaName { schema, cause, .. }) => {
+            assert_eq!(schema, " public");
+            assert_eq!(cause, InvalidIdentifier::IllegalCharacter { offending: ' ' });
+        }
+        other => panic!("a leading-space schema name must refuse as `SchemaName`: {other:?}"),
+    }
 
     // And the catalog part, the outermost qualifier a three-part address carries.
     let catalog_with_space = SparseReader(Dictionary::new(
@@ -675,10 +681,13 @@ fn a_physical_table_identifier_that_would_be_trimmed_is_refused() {
         )],
         Vec::new(),
     ));
-    assert!(matches!(
-        RdbmsCatalog::new(name(), version(), catalog_with_space).load(),
-        Err(RdbmsError::CatalogName { catalog, .. }) if catalog == " warehouse"
-    ));
+    match RdbmsCatalog::new(name(), version(), catalog_with_space).load() {
+        Err(RdbmsError::CatalogName { catalog, cause, .. }) => {
+            assert_eq!(catalog, " warehouse");
+            assert_eq!(cause, InvalidIdentifier::IllegalCharacter { offending: ' ' });
+        }
+        other => panic!("a leading-space catalog name must refuse as `CatalogName`: {other:?}"),
+    }
 
     // A relationship column is a physical identifier too, resolved by the same helper as the table
     // and schema parts above, and it was previously unmeasured.
@@ -696,11 +705,14 @@ fn a_physical_table_identifier_that_would_be_trimmed_is_refused() {
             Some(SingleColumnTargetUniqueness::PrimaryKey),
         )],
     ));
-    assert!(matches!(
-        RdbmsCatalog::new(name(), version(), relationship_column_with_space).load(),
-        Err(RdbmsError::ColumnName { table, column, .. })
-            if table == "public.orders" && column == "customer_id "
-    ));
+    match RdbmsCatalog::new(name(), version(), relationship_column_with_space).load() {
+        Err(RdbmsError::ColumnName { table, column, cause }) => {
+            assert_eq!(table, "public.orders");
+            assert_eq!(column, "customer_id ");
+            assert_eq!(cause, InvalidIdentifier::IllegalCharacter { offending: ' ' });
+        }
+        other => panic!("a trailing-space relationship column must refuse as `ColumnName`: {other:?}"),
+    }
 }
 
 #[test]
