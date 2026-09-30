@@ -4365,6 +4365,7 @@ name = "sutura-catalog-rdbms"
 version = "0.6.1"
 dependencies = [
  "futures-util",
+ "oracledb",
  "rustls",
  "sutura-dev",
  "sutura-domain",

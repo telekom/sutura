@@ -37,7 +37,8 @@
 //! The mutation this cell is meant to catch: drop every table description the reader decodes
 //! (the killing patch at
 //! `devco/claim-mutations/an_rdbms_catalog_boots_and_lists_from_the_served_binary.patch` filters
-//! `table_description` to `None` in `PostgresReader::decode_row`), so the deployment boots and
+//! `table_description` to `None` in the shared `documentation::Assembly::decode` the Postgres reader
+//! hands every row to), so the deployment boots and
 //! `/catalog` responds but the served digest no longer matches the digest [`expected`] builds
 //! independently from the same fixture rows - the cell's own `assert_eq!` fires, RED. GREEN is
 //! this file as written. The implementation is already on main (#1105), so this is a claim cell:
