@@ -10,3 +10,4 @@ crates/sutura-cli/tests/served/keycloak_test.rs::a_real_idp_mints_an_id_token_wh
 crates/sutura-cli/tests/served/keycloak_test.rs::a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused
 crates/sutura-exec-bigquery/tests/declared_principal.rs::each_subject_executes_as_its_own_principal_at_the_declared_pool
 crates/sutura-exec-bigquery/tests/declared_principal.rs::the_deployments_own_identity_is_neither_subjects_principal
+crates/sutura-exec-oracle/tests/acceptance.rs::a_quoted_identifier_names_the_object_the_dictionary_stores

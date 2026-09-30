@@ -438,11 +438,12 @@ jobs:
             # second before it starts a job; an evicted run validates nothing, and if the next run
             # classified from `before` (= the evicted run's head) the evicted run's commits would
             # fall out of every completed run's range - nine `main` commits went unvalidated that
-            # way. So the base here is the durable marker of the last commit a GREEN ci job fully
-            # validated, published as artifact `last-validated` at the end of this job. A run that
-            # never starts never advances it, so the evicted run's commits sit between the marker
-            # and HEAD and ARE covered by this run - which is exactly the property #561 demands,
-            # proven as a unit test in xtask `validated_base`. Read it over the Actions API (the
+            # way. So the base here is the durable marker published as artifact `last-validated` at
+            # the end of a green push job. Since #985 D2 a push job verifies nothing - it classifies
+            # and scores CRAP - so the marker certifies a commit the merge queue validated, and
+            # #561's property (an evicted run's commits stay covered) now rests on the queue having
+            # run every landed tree. A run that never starts never advances the marker, so the
+            # range logic is unchanged, proven as a unit test in xtask `validated_base`. Read it over the Actions API (the
             # CRAP-baseline read's pattern) and prefer it when it is an ancestor of HEAD; `before`
             # stays the fallback for the first push or when no marker is readable.
             base="$BEFORE"
@@ -457,7 +458,7 @@ jobs:
             )" || marker=""
             if [ -n "$marker" ] && git merge-base --is-ancestor "$marker" HEAD 2>/dev/null; then
               base="$marker"
-              echo "classifying against the last fully-validated commit $marker (evicted-run commits stay covered)"
+              echo "classifying against the last-validated marker $marker, a tree the merge queue validated (evicted-run commits stay covered)"
             fi
           else
             # A push to a topic branch: judge the branch, not the push.
@@ -606,7 +607,18 @@ jobs:
       # The classification reaches these bodies through step-level `env:` and never as `${{ }}`
       # inside the shell, which is `zizmor`'s template-injection finding and would redden
       # `Workflow static analysis` below.
+      # #985 D2 (owner decision, issuecomment-5900985733): push `ci` is reduced to its 3 unique
+      # outputs (CRAP baseline, last-validated marker, main-scoped Nix-store cache save). Every step
+      # below this point that verifies the tree - the closure-free gates, the stage-2 lint gates, the
+      # stage-3 tests and tiers, the shipped feature set, causality - is gated off on `push`, because
+      # the merge queue already verified the same tree. `github.event_name != 'push'` on each step is
+      # the mechanism; `xtask/src/workflows/obligations.rs` pins it on Secrets, Licensing and Chart
+      # only. THE COST: the causality-target cache is saved only from a push to `main`, and its
+      # caller is one of the gated steps, so that entry is never written again and freezes at its
+      # last generation. Once the lockfile or a manifest moves, pull-request runs of the three tail
+      # apps restore a stale generation and recompile cold.
       - name: Realise the closure-free gates in one graph
+        if: github.event_name != 'push'
         continue-on-error: true
         # The ONLY runner-utilisation telemetry CI has: this samples /proc/stat once a second
         # across the stage and reports cpus/memory/model + the nix max-jobs/cores pair in force +
@@ -636,14 +648,14 @@ jobs:
       # its root is in stage 1 and hygiene's is not - there is nothing to save by skipping it and
       # nothing to wait for before running it.
       - name: Licensing
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event_name != 'push' }}
         run: nix build .#checks.x86_64-linux.reuse -L
 
       # `charts/sutura` is one directory, not a classification category (#149 branch 1) - same
       # closure-free reasoning as `Licensing`, cheaper to always run than to teach the classifier
       # a fourth axis for it.
       - name: Chart
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event_name != 'push' }}
         run: nix build .#checks.x86_64-linux.helm-chart -L
 
       # THE DRIVER CHECK, UNCONDITIONALLY - and it was gated by nothing until this step existed.
@@ -657,7 +669,7 @@ jobs:
       # the `.so`; whether that `.so` LOADS is `bigquery-driver-check` below, which is a different
       # question and a different venue.
       - name: ADBC driver
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event_name != 'push' }}
         run: nix build .#checks.x86_64-linux.adbc-driver-bigquery .#checks.x86_64-linux.adbc-driver-postgresql -L
 
       # The authoritative secret scan. The pre-commit hook is best-effort - it can be
@@ -703,7 +715,7 @@ jobs:
       # or not. That gap is accepted deliberately (see the job-level comment) and is not something
       # this step's condition closes.
       - name: Secrets
-        if: ${{ always() }}
+        if: ${{ always() && github.event_name != 'push' }}
         run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
 
       # THE ONE SUBJECT NO HOOK SEES. The queue squashes and composes the landed subject from the
@@ -741,7 +753,7 @@ jobs:
           fi
 
       - name: Format
-        if: steps.classify.outputs.rust == 'true'
+        if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.fmt -L
 
       # >>> STAGE 2: THE DEPENDENCY CLOSURE IS PAID FOR HERE, AND THE TESTS ARE NOT YET RUN. <<<
@@ -766,6 +778,7 @@ jobs:
       # lint, which nothing could do before the staging work and which #642 shipped. Placement is
       # about what may pre-empt what, not about the closure.
       - name: Realise the xtask and lint gates in one graph
+        if: github.event_name != 'push'
         continue-on-error: true
         uses: $/.github/actions/measure-host
         env:
@@ -779,16 +792,17 @@ jobs:
             nix build -L --keep-going "${checks[@]}"
 
       - name: Structural gates
+        if: github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.hygiene -L
 
       - name: Clippy
-        if: steps.classify.outputs.rust == 'true'
+        if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.clippy -L
 
       # An app, not a check: it fetches the advisory database and a build sandbox has no
       # network. The app also supplies the pinned cargo.
       - name: Supply chain
-        if: steps.classify.outputs.deps == 'true'
+        if: steps.classify.outputs.deps == 'true' && github.event_name != 'push'
         run: nix run .#deny
 
       # NOT gated on classification: a licence value can move without `Cargo.lock` moving. The
@@ -796,6 +810,7 @@ jobs:
       # generates one and refuses an incomplete result, which needs a resolvable registry. The
       # hygiene half holds the ABSENCE of a committed copy and needs nothing.
       - name: The attribution document generates completely
+        if: github.event_name != 'push'
         run: nix run .#xtask -- check-attribution
 
       # `nix/lint-workflows.sh` rather than inline, because the composite-action pass below it had
@@ -813,7 +828,7 @@ jobs:
       # caught the next time a workflow file changes. The "already disclosed" argument stops at
       # credentials; it does not extend here.
       - name: Workflow static analysis
-        if: steps.classify.outputs.run_all == 'true'
+        if: steps.classify.outputs.run_all == 'true' && github.event_name != 'push'
         run: bash nix/lint-workflows.sh
 
       # >>> STAGE 3: THE TEST ROOTS, WHICH A RED IN STAGE 1 OR 2 NO LONGER LAUNCHES. <<<
@@ -843,6 +858,7 @@ jobs:
       # `core`; reaching an empty selection needs `rust`, both tier conditions and `api` all false
       # at once. So it is reasoned and linted, not observed - cite it as such.
       - name: Realise the test graph in one invocation
+        if: github.event_name != 'push'
         continue-on-error: true
         uses: $/.github/actions/measure-host
         env:
@@ -877,7 +893,7 @@ jobs:
             nix build -L --keep-going "${checks[@]}"
 
       - name: Tests
-        if: steps.classify.outputs.rust == 'true'
+        if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.nextest -L
 
       # The identity tier, brought up and provisioned inside the sandbox: a realm, a client and two
@@ -890,7 +906,7 @@ jobs:
       # declines for the same server. `nix/**` fails open to `run_all`, and `flake.nix`/`flake.lock`
       # are the `nix` area, so between them the two conditions cover every file the tier reads.
       - name: Identity tier
-        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.identity == 'true'
+        if: (steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.identity == 'true') && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.keycloak-tier -L
 
       # The Postgres tier's state machine, which the `Tests` step above cannot report on: it starts
@@ -902,19 +918,19 @@ jobs:
       # Gated like the identity tier and for its reason: nothing compiled here changes what the
       # tier script does, and the two conditions between them cover every file it reads.
       - name: Postgres tier
-        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_postgres == 'true'
+        if: (steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_postgres == 'true') && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.postgres-tier -L
 
       # The ClickHouse tier's state machine, for the Postgres tier's reason and gated the same way
       # on its own category. The golden cells it serves run in `Tests` above, which starts this tier.
       - name: ClickHouse tier
-        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_clickhouse == 'true'
+        if: (steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_clickhouse == 'true') && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.clickhouse-tier -L
 
       # nextest deliberately does not run doctests, so a `///` example that stops compiling
       # would pass unnoticed. A separate check, so the gap is visible rather than assumed.
       - name: Doctests
-        if: steps.classify.outputs.rust == 'true'
+        if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.doctest -L
 
       # The pages under docs/api/ are GENERATED from the library crates' doc comments and
@@ -941,13 +957,14 @@ jobs:
       # identical output and passes, so nothing here has to guess which Rust changes reach the
       # public surface.
       - name: API reference pages
-        if: steps.classify.outputs.api == 'true'
+        if: steps.classify.outputs.api == 'true' && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.api-docs -L
 
       # The writable `target/causality-target` the three tail apps recompile into, carried on the
       # SAME digest the store cache uses so a lockfile/manifest change invalidates it and restores
-      # the previous generation's recompile otherwise. Saved from main; `save:` inside the action
-      # owns the write, so this caller carries no `if:`.
+      # the previous generation's recompile otherwise. `save:` inside the action writes only from a
+      # push to main, and #985 D2 gates this caller off on push, so the save never runs: the entry
+      # is frozen at its last generation (the cost the D2 comment at the top of the gates states).
       #
       # RESTORED HERE - immediately before its first reader - RATHER THAN BESIDE THE STORE CACHE
       # AT THE TOP OF THE JOB (#639 slice I). It restores nothing any check above needs: only
@@ -971,8 +988,8 @@ jobs:
       # **THE LIMIT OF MOVING IT, STATED BESIDE THE CLAIM: THE SAVE IS A POST STEP, AND A STEP THAT
       # NEVER EXECUTES REGISTERS NO POST STEP.** While this sat at the top of the job its save was
       # reached by every run that got past the installer; from here, a `main` push that reddens
-      # anywhere above no longer refreshes the entry, so the generation on `main` ages until a green
-      # push renews it. That is the cost side of the saving two paragraphs up, and it is a real
+      # anywhere above no longer refreshes the entry, so the generation on `main` ages - and since
+      # #985 D2 no push reaches this step, so none renews it. That is the cost side of the saving two paragraphs up, and it is a real
       # change rather than a relabelling.
       #
       # AND NO GATE HOLDS EITHER HALF. `cargo xtask check-workflows` reports this cache as "restored
@@ -982,6 +999,7 @@ jobs:
       # message names is weaker than it reads. Written down rather than fixed here: teaching it
       # position is a change to that gate, not to this file.
       - uses: $/.github/actions/causality-target-cache
+        if: github.event_name != 'push'
         with:
           scope: ci
 
@@ -1028,7 +1046,7 @@ jobs:
       # answers that next question. The `run:` is the same command, `nix run .#default-features`;
       # only the wrapper is added.
       - name: The shipped feature set compiles and lints
-        if: steps.classify.outputs.rust == 'true'
+        if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
         uses: $/.github/actions/measure-host
         with:
           label: shipped feature set compiles and lints
@@ -1039,7 +1057,7 @@ jobs:
       # The other half. `xtask/src/default_feature_tests.rs` carries its own argument, its own
       # measurement - 2m18s reusing the warmed closure at the `ci` profile - and its own limits.
       - name: The shipped feature set runs its tests
-        if: steps.classify.outputs.rust == 'true'
+        if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
         uses: $/.github/actions/measure-host
         with:
           label: shipped feature set runs its tests
@@ -1256,7 +1274,7 @@ jobs:
       # and nothing here can check that they gave it. Cite the VERDICT LINE, never this step's
       # colour.
       - name: Test causality
-        if: steps.classify.outputs.rust == 'true'
+        if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
         env:
           BASE: ${{ steps.base.outputs.base }}
           EVENT: ${{ github.event_name }}
@@ -1323,8 +1341,9 @@ jobs:
       - uses: $/.github/actions/nix-store-cache-report
         if: always()
 
-      # DURABLE VALIDATED-COMMIT MARKER (#561). Advance "the last commit a completed run fully
-      # validated" to THIS run's head, ONLY on a green push to the default branch. The base step
+      # DURABLE VALIDATED-COMMIT MARKER (#561). Advance the marker to THIS run's head, ONLY on a green
+      # push to the default branch. Since #985 D2 this push job verified nothing itself: the marker
+      # certifies a tree the merge queue validated. The base step
       # reads it; this is the write half. An EVICTED run never reaches here (it never starts a
       # job), so the marker only moves on runs that actually ran to a green conclusion - which is
       # exactly what keeps an evicted run's commits inside the NEXT run's classification range.
@@ -1909,6 +1928,44 @@ jobs:
       - name: Driver executes
         run: bash nix/bigquery-driver-check.sh
 
+  # The Oracle docker tier (#127) - the only CI venue that executes a statement against a live
+  # Oracle. The `gvenzl/oracle-free` image carries the Oracle Free licence, which permits use for
+  # developing and testing an application and is NOT OSI-approved: this job runs Oracle under it on
+  # a fixture corpus, and it reaches no release artifact - `nix/shipped.nix` carries no `oracle`
+  # feature. The image is pinned by digest in `compose.services.yaml`, which says why.
+  #
+  # Category-gated on `data_source_oracle`, like `bigquery-driver-check` on its own category, and
+  # held run-or-fail by `ci-aggregate`. An app rather than a `checks.*` entry because it needs a
+  # docker socket, and because its cell panics on a missing endpoint, which would go fatal on every
+  # `just validate`. `SUTURA_DOCKER_PROBE_TIMEOUT_SECS` for `e2e-datahub-adbc`'s reason: `docker
+  # info` inside the 10s default has wedged on this runner.
+  oracle-tier:
+    needs: [ci]
+    if: needs.ci.outputs.data_source_oracle == 'true'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      SUTURA_DOCKER_PROBE_TIMEOUT_SECS: "60"
+    concurrency:
+      group: oracle-tier-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: Oracle acceptance cell
+        run: nix run .#oracle-acceptance -- --no-capture
+
   # THE BODY IS `.github/workflows/demo-container.yml`, the same split `cross-link.yml` uses and
   # for the same reason: what moves is the body, and the gating - `needs: [ci]` and the event test
   # - stays where the decision is reviewed. Event-gated rather than category-gated: `examples/demo-chatinterface/**`
@@ -1956,7 +2013,7 @@ jobs:
 
   ci-aggregate:
     runs-on: ubuntu-latest
-    needs: [ci, keycloak-served-test, bigquery-driver-check, e2e-datahub-adbc]
+    needs: [ci, keycloak-served-test, bigquery-driver-check, e2e-datahub-adbc, oracle-tier]
     # Never category-skipped and never suppressed by an upstream failure: it reads the results.
     if: ${{ !cancelled() }}
     steps:
@@ -1969,6 +2026,8 @@ jobs:
           BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery }}
           E2E_RESULT: ${{ needs.e2e-datahub-adbc.result }}
           E2E_REQUIRED: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.catalog_datahub == 'true' || needs.ci.outputs.identity == 'true') }}
+          ORACLE_RESULT: ${{ needs.oracle-tier.result }}
+          ORACLE_SELECTED: ${{ needs.ci.outputs.data_source_oracle }}
         run: |
           set -eu
           fail() { echo "ci-aggregate: RED - $*"; exit 1; }
@@ -2022,6 +2081,19 @@ jobs:
             case "$E2E_RESULT" in
               skipped|success) ;;
               *) fail "e2e-datahub-adbc reported '$E2E_RESULT' without an allowed skip" ;;
+            esac
+          fi
+          # The Oracle docker tier reads no secret, so it carries no event exception: every event
+          # that selects `data_source_oracle` must run it, the same rule as `bigquery-driver-check`
+          # above.
+          if [ "$ORACLE_SELECTED" = "true" ]; then
+            if [ "$ORACLE_RESULT" != "success" ]; then
+              fail "oracle-tier must run (data_source_oracle category selected) but reported '$ORACLE_RESULT'"
+            fi
+          else
+            case "$ORACLE_RESULT" in
+              skipped|success) ;;
+              *) fail "oracle-tier reported '$ORACLE_RESULT' and was neither required to run nor allowed to skip" ;;
             esac
           fi
           echo "ci-aggregate: ok - every category-gated leg green"

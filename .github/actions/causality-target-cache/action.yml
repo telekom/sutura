@@ -66,8 +66,9 @@
 # whose widest tier still hashes an input. Deleting the bare scope was a GREEN change before that
 # check, which is how a reader came to conclude the tier was absent. `save:` gates the write to a
 # push to `main` (restore on every event), and a pull-request path can never write. NO commit
-# sha and NO `if:`, for `nix-store-cache`'s reasons - a source-only change must reuse the generation
-# and a gated restore is a stopped restore.
+# sha and NO `if:` inside this action, for `nix-store-cache`'s reasons - a source-only change must
+# reuse the generation and a gated restore is a stopped restore. The `ci.yml` caller IS gated off on
+# push by #985 D2, so its `ci` entry is never saved again (a cost that caller's comment states).
 #
 # ONE ENTRY PER JOB SHAPE is why `scope` exists (a shared key would have two jobs overwrite each
 # other's entry), mirroring the store action's own `scope`.
