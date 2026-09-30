@@ -45,7 +45,7 @@ fn judge(text: &str) -> Vec<String> {
         .any(|step| calls(step, "build-artefacts") && says(step, "profile: performance"))
     {
         found.push(format!(
-            "{WORKFLOW}: job `build` does not run `./.github/actions/build-artefacts` with `profile: \
+            "{WORKFLOW}: job `build` does not run `build-artefacts` with `profile: \
              performance`, so no target gets an optimised image, tarball or SBOM"
         ));
     }
@@ -55,7 +55,7 @@ fn judge(text: &str) -> Vec<String> {
         .any(|step| calls(step, "push-images") && says(step, "profile: performance"))
     {
         found.push(format!(
-            "{WORKFLOW}: job `publish` does not run `./.github/actions/push-images` with `profile: \
+            "{WORKFLOW}: job `publish` does not run `push-images` with `profile: \
              performance`, so the four leaves and both `-performance` manifest lists are not pushed"
         ));
     }
@@ -66,7 +66,7 @@ fn judge(text: &str) -> Vec<String> {
     });
     if !matches!((signed, created), (Some(signed), Some(created)) if signed < created) {
         found.push(format!(
-            "{WORKFLOW}: job `publish` must run `./.github/actions/attest-and-sign` BEFORE the step \
+            "{WORKFLOW}: job `publish` must run `attest-and-sign` BEFORE the step \
              whose `gh release create` attaches `dist/*` - found the signing step at {signed:?} and \
              the release at {created:?} - or an asset reaches the release unsigned"
         ));
@@ -99,9 +99,10 @@ fn steps_of<'a>(text: &'a str, name: &str) -> Vec<Vec<&'a str>> {
     steps
 }
 
-/// Does `step` run the local composite action `action`?
+/// Does `step` run the local composite action `action`, in the self-repository `$/` spelling
+/// every workflow here uses since `github.com/telekom/sutura#1161`?
 fn calls(step: &[&str], action: &str) -> bool {
-    let want = format!("uses: ./.github/actions/{action}");
+    let want = format!("uses: $/.github/actions/{action}");
     step.iter().any(|line| step_key(line).trim_end() == want)
 }
 
@@ -121,15 +122,15 @@ jobs:
         target:
           - x86_64-unknown-linux-gnu
     steps:
-      - uses: ./.github/actions/build-artefacts
+      - uses: $/.github/actions/build-artefacts
         with:
           profile: performance
   publish:
     steps:
-      - uses: ./.github/actions/push-images
+      - uses: $/.github/actions/push-images
         with:
           profile: performance
-      - uses: ./.github/actions/attest-and-sign
+      - uses: $/.github/actions/attest-and-sign
       - name: Publish
         run: |
           gh release create \"$release\" dist/* --prerelease
@@ -165,8 +166,8 @@ jobs:
     #[test]
     fn a_build_without_the_performance_profile_is_refused() {
         refused(
-            "- uses: ./.github/actions/build-artefacts\n        with:\n          profile: performance\n",
-            "- uses: ./.github/actions/build-artefacts\n",
+            "- uses: $/.github/actions/build-artefacts\n        with:\n          profile: performance\n",
+            "- uses: $/.github/actions/build-artefacts\n",
             "job `build`",
         );
     }
@@ -174,8 +175,8 @@ jobs:
     #[test]
     fn a_publish_without_the_performance_images_is_refused() {
         refused(
-            "- uses: ./.github/actions/push-images\n        with:\n          profile: performance\n",
-            "- uses: ./.github/actions/push-images\n        with:\n          profile: release\n",
+            "- uses: $/.github/actions/push-images\n        with:\n          profile: performance\n",
+            "- uses: $/.github/actions/push-images\n        with:\n          profile: release\n",
             "push-images",
         );
     }
@@ -184,13 +185,13 @@ jobs:
     #[test]
     fn a_release_created_before_signing_is_refused() {
         refused(
-            "      - uses: ./.github/actions/attest-and-sign\n      - name: Publish\n        run: |\n          gh release create \"$release\" dist/* --prerelease\n",
-            "      - name: Publish\n        run: |\n          gh release create \"$release\" dist/* --prerelease\n      - uses: ./.github/actions/attest-and-sign\n",
+            "      - uses: $/.github/actions/attest-and-sign\n      - name: Publish\n        run: |\n          gh release create \"$release\" dist/* --prerelease\n",
+            "      - name: Publish\n        run: |\n          gh release create \"$release\" dist/* --prerelease\n      - uses: $/.github/actions/attest-and-sign\n",
             "BEFORE",
         );
         refused(
-            "      - uses: ./.github/actions/attest-and-sign\n",
-            "      # - uses: ./.github/actions/attest-and-sign\n",
+            "      - uses: $/.github/actions/attest-and-sign\n",
+            "      # - uses: $/.github/actions/attest-and-sign\n",
             "unsigned",
         );
     }

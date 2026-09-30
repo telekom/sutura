@@ -500,7 +500,7 @@ jobs:
       # Leaves, the two manifest lists and `dist/image-digests.txt`, in the composite action
       # `release-performance.yml` calls too - see its header for the tags and why each is so.
       - name: Push the images
-        uses: ./.github/actions/push-images
+        uses: $/.github/actions/push-images
         with:
           targets: ${{ env.TARGETS }}
           binaries: ${{ env.BINARIES }}

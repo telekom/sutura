@@ -187,7 +187,7 @@ jobs:
       # Before nix installs: /nix/store is what fills. See
       # `.github/actions/reclaim-disk` for why this is local and why it cannot
       # affect the Nix cache.
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           # The same installer and stores as `gates` above - see the reason written there.
@@ -201,7 +201,7 @@ jobs:
       # The release's own build sequence at the other profile: binaries, images run as
       # `sutura serve` on x86_64, and an SBOM per image. Unconditional, so a dry run
       # (`publish=false`) builds and runs everything a publish would push.
-      - uses: ./.github/actions/build-artefacts
+      - uses: $/.github/actions/build-artefacts
         with:
           target: ${{ matrix.target }}
           binaries: ${{ env.BINARIES }}
@@ -280,7 +280,7 @@ jobs:
           ls -l dist images
 
       - name: Push the images
-        uses: ./.github/actions/push-images
+        uses: $/.github/actions/push-images
         with:
           targets: ${{ env.TARGETS }}
           binaries: ${{ env.BINARIES }}
@@ -292,7 +292,7 @@ jobs:
       # Before the release exists, as in `release.yml`: every file in `dist/` gets a Sigstore
       # bundle and SLSA provenance, every image reference a signature, every leaf its SBOM.
       - name: Attest and sign
-        uses: ./.github/actions/attest-and-sign
+        uses: $/.github/actions/attest-and-sign
         with:
           registry-username: ${{ github.actor }}
           registry-token: ${{ secrets.GITHUB_TOKEN }}
