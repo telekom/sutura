@@ -21,16 +21,16 @@ returns a `PinnedDefinitions`; its halves are a `Definitions` and a `Knowledge`,
 `Definitions::assemble` is the only constructor of the first. So *can an OKF source express our model*
 is really *can it fill these fields and survive these checks*:
 
-| What a complete semantic model supplies           | The type in `sutura-domain`                                                                                                                                |
-| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| a physical table and the column set it exposes    | `Model` - `ModelName`, `SourceName`, `TableName`, `BTreeSet<ColumnName>`, `Description`                                                                    |
-| a join                                            | `Relationship` - a name, two `(ModelName, ColumnName)` endpoints, and a `JoinType` of `OneToOne`, `ManyToOne` or `OneToMany`                               |
-| what a metric measures                            | `Measure` - `Simple(Term)` or `Ratio { numerator, denominator, zero_denominator }`, over a `Term` of `Aggregate(AggregatedColumn)` or `CountIf { column }` |
-| a predicate that is part of what the metric means | `Vec<RequiredFilter>` - `Equals`, `NotEquals`, `IsTrue`, `IsNotNull`                                                                                       |
-| when, and at what resolution                      | `ColumnName` plus a `BTreeSet<Grain>`                                                                                                                      |
-| what it may be broken down by                     | `Dimension` - a column, optionally `via` one relationship, optionally an allowlist of at most `MAX_VALUES_PER_DIMENSION` values                            |
-| the number it produced when it was certified      | `Option<Anchor>` - a `TimeRange` and a value as text                                                                                                       |
-| what a reader has to know                         | `Knowledge` - phrases, caveats, reviewed absences and worked examples, the phrases and caveats carrying a `Referent`                                       |
+| What a complete semantic model supplies           | The type in `sutura-domain`                                                                                                                                                          |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| a physical table and the column set it exposes    | `Model` - `ModelName`, `SourceName`, `QualifiedTable`, `BTreeMap<ColumnName, Column>`, `Description`                                                                                 |
+| a join                                            | `Relationship` - a name, two `(ModelName, ColumnName)` endpoints, and a `JoinType` of `OneToOne`, `ManyToOne` or `OneToMany`                                                         |
+| what a metric measures                            | `Measure` - `Simple(Term)` or `Ratio { numerator, denominator, zero_denominator }`, over a `Term` of `Aggregate(AggregatedColumn)` or `CountIf { column, model: Option<ModelName> }` |
+| a predicate that is part of what the metric means | `Vec<RequiredFilter>` - `Equals`, `NotEquals`, `IsTrue`, `IsNotNull`                                                                                                                 |
+| when, and at what resolution                      | `ColumnName` plus a `BTreeSet<Grain>`                                                                                                                                                |
+| what it may be broken down by                     | `Dimension` - a column, optionally `via` one relationship, optionally an allowlist of at most `MAX_VALUES_PER_DIMENSION` values                                                      |
+| the number it produced when it was certified      | `Option<Anchor>` - a `TimeRange` and a value as text                                                                                                                                 |
+| what a reader has to know                         | `Knowledge` - phrases, caveats, reviewed absences and worked examples; the glossary entries and caveats carry a `Referent`, and absences do not                                      |
 
 `Definitions::assemble` refuses a dimension reached through a relationship whose declared cardinality
 may duplicate rows, as `JoinWouldDuplicateRows`; and every field above is a type with no free-text SQL

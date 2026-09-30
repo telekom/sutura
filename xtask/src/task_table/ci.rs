@@ -22,7 +22,67 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-workflows",
         description: "every flake output a workflow names exists",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        falsifier: Falsifier {
+            // A tree that satisfies every `check_gates` sub-rule - the contexts, obligations,
+            // cache anchor, SAST stand-in, cross matrix, image-record grammar and action-input
+            // record - while carrying a `nix run .#nonexistent` reference in a CI source file.
+            // The own rule at the end of `run` is the only arm that fires: `nonexistent` is not in
+            // the flake's runnable set, so `missing` is non-empty and the verdict is `Fail`.
+            // `nix/run-gate.sh` also carries `nix build .#checks.x86_64-linux.clippy` for
+            // `sast::invokes_check` and the six declared image-record lines for `image_records`.
+            seeds: &[
+                (
+                    "flake.nix",
+                    "{\n  apps.xtask = { type = \"app\"; };\n\n  packages = {\n    xtask = { };\n  };\n\n  checks = {\n    clippy = { };\n    reuse = { };\n  };\n\n  cargoClippyExtraArgs = [ \"-D warnings\" ];\n}\n",
+                ),
+                (
+                    ".github/workflows/ci.yml",
+                    "on:\n  pull_request:\njobs:\n  ci:\n    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') }}\n    steps:\n      - name: Secrets\n        if: ${{ always() && github.event_name != 'push' }}\n        run: echo secrets\n      - name: Licensing\n        if: ${{ !cancelled() && github.event_name != 'push' }}\n        run: echo licensing\n      - name: Chart\n        if: ${{ !cancelled() && github.event_name != 'push' }}\n        run: echo chart\n      - name: PR title\n        if: ${{ github.event_name == 'pull_request' }}\n        run: echo pr-title\n      - uses: nix-community/cache-nix-action@0123456789abcdef0123456789abcdef01234567\n        save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}\n        with:\n          primary-key: flake.lock-Cargo.lock-rust-toolchain.toml-flake.nix-nix/**-.cargo/config.toml-**/Cargo.toml\n          restore-prefixes-first-match: |\n            flake.lock-Cargo.lock-rust-toolchain.toml-flake.nix-nix/**-.cargo/config.toml-**/Cargo.toml\n            flake.lock\n  bigquery-driver-check:\n    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') }}\n    steps:\n      - run: echo bq\n  ci-aggregate:\n    steps:\n      - run: echo aggregate\n        env:\n          CI_RESULT: ${{ needs.ci.result }}\n          KC_RESULT: ${{ needs.keycloak-served-test.result }}\n          KC_SELECTED: ${{ needs.ci.outputs.data_source_bigquery }}\n          BQ_RESULT: ${{ needs.bigquery-driver-check.result }}\n          BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery }}\n          E2E_RESULT: ${{ needs.e2e-datahub-adbc.result }}\n          E2E_REQUIRED: ${{ needs.ci.outputs.data_source_bigquery }}\n          ORACLE_RESULT: ${{ needs.oracle-tier.result }}\n          ORACLE_SELECTED: ${{ needs.ci.outputs.data_source_oracle }}\n",
+                ),
+                (
+                    ".github/workflows/cross-link.yml",
+                    "on: workflow_call\njobs:\n  link:\n    strategy:\n      matrix:\n        target:\n          - aarch64-unknown-linux-gnu\n          - x86_64-unknown-linux-musl\n    steps:\n      - run: echo link\n",
+                ),
+                (
+                    ".github/workflows/cachix-push.yml",
+                    "on:\n  push:\n    branches:\n      - main\njobs:\n  cross-build:\n    strategy:\n      matrix:\n        target:\n          - aarch64-unknown-linux-gnu\n          - x86_64-unknown-linux-musl\n    steps:\n      - run: echo build\n",
+                ),
+                (
+                    ".github/workflows/release.yml",
+                    "on: push\njobs:\n  build:\n    strategy:\n      matrix:\n        target:\n          - x86_64-unknown-linux-gnu\n          - aarch64-unknown-linux-gnu\n          - x86_64-unknown-linux-musl\n          - aarch64-unknown-linux-musl\n    steps:\n      - run: echo build\n",
+                ),
+                (
+                    ".github/workflows/release-performance.yml",
+                    "on: push\njobs:\n  build:\n    if: ${{ github.event_name == 'workflow_dispatch' }}\n    steps:\n      - run: |\n          nix build .#sutura-x86_64-unknown-linux-gnu-performance\n          nix build .#sutura-aarch64-unknown-linux-gnu-performance\n          nix build .#sutura-x86_64-unknown-linux-musl-performance\n          nix build .#sutura-aarch64-unknown-linux-musl-performance\n",
+                ),
+                (
+                    "nix/run-gate.sh",
+                    "#!/usr/bin/env bash\nnix run .#nonexistent\nnix build .#checks.x86_64-linux.clippy\necho \"# header\" > dist/image-digests.txt\ngrep '^leaf ' dist/image-digests.txt\ndigests-file:\ndefault: dist/image-digests.txt\nIMAGE_DIGESTS: ${{ inputs.digests-file }}\ncat dist/image-digests.txt\nif [ -f dist/image-digests.txt ]; then\nnix run .#xtask -- collect-provenance subjects.sha256 \"$IMAGE_DIGESTS\" \\\n",
+                ),
+                (
+                    "REUSE.toml",
+                    "SPDX-PackageDownloadLocation = \"https://github.com/test/repo\"\n",
+                ),
+                ("README.md", "# repo\n"),
+                (
+                    "devco/required-contexts",
+                    "[required]\nci\n\n[advisory]\nci.yml:bigquery-driver-check\nci.yml:ci-aggregate\n",
+                ),
+                (
+                    "docs/adr/0025-what-a-scorecard-zero-says-about-this-repository.md",
+                    "# ADR 0025\n\nScorecard's SAST zero is accepted.\n",
+                ),
+                (
+                    "docs/adr/0026-no-third-party-binary-cache.md",
+                    "# ADR 0026\n\nNo third-party binary cache.\n",
+                ),
+                (
+                    "devco/action-inputs",
+                    "nix-community/cache-nix-action@0123456789abcdef0123456789abcdef01234567\n  primary-key\n  restore-prefixes-first-match\n",
+                ),
+            ],
+            in_scope: Some("nix/run-gate.sh"),
+        },
         run: workflows::run,
     },
     Task {

@@ -111,7 +111,7 @@ arrangement that would have gone wrong:**
   **BigQuery is where per-subject execution has to work, and Postgres is where it would be nice if it
   did.** An earlier version of this table had no BigQuery row at all, ordering purely on cost while
   the deployment's priority ordered on value, and the two disagreed silently. BigQuery is genuinely
-  the more expensive step - there is no `Dialect::BigQuery`, so it costs a fourth dialect of goldens
+  the more expensive step - at the time of writing there was no `Dialect::BigQuery`, so it cost a fourth dialect of goldens
   and an AGENTS.md invariant the guidance gate will fail until it is updated - and it goes first
   anyway. **Cheap-first is a tiebreak, not a rule**; when the expensive step is the one that pays for
   the stack, it leads.
@@ -132,7 +132,7 @@ arrangement that would have gone wrong:**
   a dimension lookup has none of the three. Splitting it follows
   [0007](adr/0007-federating-across-different-data-systems.md)'s own ordering. **The reason given here
   for the split used to be that this branch moves the definition digest, and that was false** - checked
-  since: `DefinitionDigest::of` hashes the `Definitions` and the `Knowledge`, so no plan type is under
+  since: `DefinitionDigest::of` hashes the `Definitions`, the `Knowledge` and the contribution manifest, so no plan type is under
   it and no committed digest moves. The real reason is better: types plus rendering plus per-dialect
   parse checks are evidence that stands before anything executes them, and one branch landing shapes,
   goldens and a combiner puts three kinds of failure in one review.
@@ -181,9 +181,10 @@ here because a spent constraint read as a live one costs a reviewer the same tim
 
 **The limit, stated next to the claim:** these are orderings between changes, not a statement about
 what identity sutura proves. Leg 1 - knowing who is asking - is built. Leg 2 - a source executing AS
-the asker - is **built and unproven**: on BigQuery a source's declared per-source map decides only
-WHETHER a caller may be served there, the source executes as whatever principal the declared pool
-resolves that subject to, and the hosted venue that would show a pool resolving one is `wired` with
+the asker - is **built and unproven**: on BigQuery the caller's own verified assertion is federated
+through the declared pool, and the account the source's per-source map declares for that subject
+becomes the credential's `service_account_impersonation_url` - an undeclared subject is refused,
+never run as the deployment. The adapter venue that would show it is `wired` with
 nobody having dispatched it. The run this paragraph used to cite was of an HTTP exchange the ADBC
 adoption deleted. See
 [where each identity claim is proven](where-identity-is-proven.md) for which venue may be cited for
@@ -340,7 +341,7 @@ means reconciling two shapes that have already drifted.
 **Generated from what, decided here rather than left to the branch.** An earlier version of this
 section said "derived from the domain `Query`", one word away from an architecture decision that does
 not survive being looked at: the derive macro the agent transport needs is `schemars`, it appears
-**nowhere in `Cargo.toml` or `Cargo.lock` today** - verified, not assumed - and putting it on a domain
+**nowhere in `Cargo.toml` or `Cargo.lock` at the time of writing** - verified, not assumed - and putting it on a domain
 type adds a macro crate and its whole tree to `ALLOWED_IN_DOMAIN`, which `AGENTS.md` calls an
 architecture decision rather than a convenience, and which `cargo xtask check-boundaries` walks the
 transitive tree to enforce. So the derive goes on a **wire type in the agent-surface crate**, with
@@ -366,8 +367,8 @@ type earlier in this same change**, so the two now agree and nothing is owed her
 path or the tool surface* table says a new or widened tool input is caught because "the dumped tool
 schemas change and the byte-compare fails until they are re-dumped", and that a new failure mode meets
 "the schema drift check". **There is no such dump and no such check** - searched rather than assumed:
-`docs/generated/` does not exist, no `xtask` subcommand or `just` task dumps a schema, and `schemars` is
-in neither manifest nor lockfile. So the drift guard this step is described as inheriting is a guard it
+`docs/generated/` does not exist, no `xtask` subcommand or `just` task dumps a schema, and at the time of writing `schemars` was
+in neither manifest nor lockfile. (It has since been declared as a workspace dependency.) So the drift guard this step is described as inheriting is a guard it
 has to BUILD, and it is the one mechanism in slice one load-bearing for the governance boundary rather
 than for the transport: without it, "no field carries SQL, a table, a predicate or row ids" is enforced
 by `Query`'s own `deny_unknown_fields` and by review, and not by a diff a reviewer cannot miss.
@@ -529,9 +530,9 @@ one that went wrong, which is why the ordering is part of the requirement rather
 **And the port arrives with a real implementor, not a fake.** `AGENTS.md` says a port trait arrives
 with its first implementor; the implementor here is a structured writer over the tracing subscriber
 `sutura-runtime` already composes, which needs nothing from anybody and is what a deployment that
-attaches nothing else gets. Today the only thing that records a call at all is one `tracing::info!` per
-outcome in `crates/sutura-http/src/routes/v1/query.rs`, and its own doc comment says there is no audit
-sink and nothing records a principal chain - so this step is not adding a second channel beside a
+attaches nothing else gets. When this was written the only thing that recorded a call at all was one
+`tracing::info!` per outcome in `crates/sutura-http/src/routes/v1/query.rs`, and its own doc comment
+said there was no audit sink and nothing recorded a principal chain - so this step is not adding a second channel beside a
 working one, it is turning a log line into the thing two other records already depend on.
 
 **Touches.** `crates/sutura-domain` for the types and the sink port, `crates/sutura-app` for the
@@ -832,7 +833,7 @@ shapes do not exist yet:
   type, a `sutura-sql` entry point and a golden family.
 - `PlanMeasure` has exactly two variants: `Simple { term }` and
   `Ratio { numerator, denominator, zero_denominator }`. And `Ratio` **renders the division into the
-  statement** - `measure_expression` in `crates/sutura-sql/src/generate.rs` emits
+  statement** - `measure_expression` in `crates/sutura-sql/src/generate/measure.rs` emits
   `CAST(numerator AS DOUBLE) / NULLIF(denominator, 0)`. So the one shape that carries two terms is the
   shape 0009's Decision 2 forbids per leg, and there is no variant that projects two terms
   side-by-side. **A decomposed `Avg` travelling as a sum and a count, and a ratio travelling as its
@@ -884,14 +885,14 @@ silently non-federating. Note this is the same signature the credential port cha
 
 **One thing that does not move, and it is the reason this is affordable.** Every leg is still
 mono-source, so `QueryPlan`'s single `source` field stays, *a plan cannot silently span two sources*
-applies per leg unchanged, and no existing SQL golden moves - `AGENTS.md`'s counted claim about 63
-goldens reading `LIMIT 10001` stands, because a federated leg is a new plan shape with its own goldens
+applies per leg unchanged, and no existing SQL golden moves - the invariant in `.agents/skills/sutura/invariants/SKILL.md` (150 SQL goldens reading
+`LIMIT 10001`, counted by `check-guidance`) stands, because a federated leg is a new plan shape with its own goldens
 rather than an edit to those.
 
 **And the definition digest does NOT move. An earlier version of this section said it did, twice, and
 that was false** - a claim invented to justify why this is its own branch. `DefinitionDigest::of` in
-`crates/sutura-domain/src/definitions.rs` hashes the `Definitions` and the `Knowledge` and nothing
-else; a plan type is under neither, so no committed digest changes. What is pinned about the plan is 21
+`crates/sutura-domain/src/definitions.rs` hashes the `Definitions`, the `Knowledge` and the contribution
+manifest, and nothing else; a plan type is under none of them, so no committed digest changes. What is pinned about the plan is 30
 `plan@markdown` snapshots, and those move only if `QueryPlan` itself changes, which it does not. The
 real reason this is its own branch is better than the invented one: the shapes, their rendering and
 their per-dialect parse checks are evidence that stands on its own, before anything executes them, and
@@ -1034,7 +1035,7 @@ from what is specified below, and each is written where the code is rather than 
    second vocabulary over the same four kinds, and that is a `BTreeSet` newtype no `const` expression
    can build. The const-friendly alternative is a boolean per kind, which `sutura_domain::knowledge`
    already argues against. Nothing needs the value in a const context.
-2. **Two of the nine kinds are observed through their consequence rather than through a field.**
+2. **Two of the eleven kinds are observed through their consequence rather than through a field.**
    `Cardinality` is observed as *some dimension is reached through a relationship*, because every
    `Relationship` holds a `JoinType` - the type has no other shape - so the field's presence says
    nothing and what a caller loses is the join. `Descriptions` is observed as *some description is
@@ -1044,7 +1045,7 @@ from what is specified below, and each is written where the code is rather than 
    exercised over the two narrow fakes the suite already had - `HandWrittenCatalog`, which carries no
    prose, and `TwoSourceCatalog`, which carries five fewer kinds. Each now declares that, and the
    fidelity test is what holds it. Both fidelity directions also expand over every registered catalog,
-   which for the reference adapter asserts the example corpus really carries all thirteen kinds.
+   which for the reference adapter asserts the example corpus really carries all fifteen kinds.
 
 **Goal.** A `SemanticCatalog` adapter cannot be silent about what it does not provide.
 [Pluggable by declaration](adr/0011-pluggable-by-declaration.md) decided this and
@@ -1211,7 +1212,7 @@ states its choice in its own transcript, and 0016 names that as a fork rather th
   against a real source rather than a fixture.
 
 **Done when** a deployment running DataHub gets its physical model, its prose and its joins with no
-catalog authored here, its declaration says in words which of the nine definition kinds and four
+catalog authored here, its declaration says in words which of the eleven definition kinds and four
 knowledge kinds it cannot supply, and the docs offer a way to get more without implying it is required.
 
 ## The rest of the stack

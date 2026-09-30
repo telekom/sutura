@@ -406,8 +406,8 @@ fn declared_route(root: String, target: &str, read: &PostImage<'_>, path_only: b
 /// Only the target named by the FIRST segment is consulted. A file that some OTHER target also
 /// pulls in by `#[path]` is therefore keyed to this one - which NARROWS the filter rather than
 /// widening it, so the failure direction is a loud `RedOutsideTheDiff` and never a false green.
-/// `tests/support/mod.rs`, which two bigquery targets share, has no integration root above it
-/// and so falls back to the package.
+/// `sutura-app`'s `tests/support/support.rs`, which `golden.rs` pulls in by `#[path]`, has no
+/// integration root above it and so falls back to the package.
 fn included_by(package: &CargoName, dir: &str, inner: &str, read: &PostImage<'_>) -> Option<Place> {
     let (first, _) = inner.split_once('/')?;
     let target = CargoName::parse(first)?;
@@ -788,11 +788,10 @@ mod tests {
     }
 
     #[test]
-    fn a_shared_helper_no_target_declares_falls_back_to_the_package() {
-        // `tests/support/mod.rs` is pulled in by two bigquery targets and has no `tests/support.rs`
-        // above it, so the declaration that would name a binary is not there. The package alone is
-        // the honest answer; claiming one of the two targets would be a filter matching nothing
-        // half the time.
+    fn a_helper_with_no_integration_root_above_it_falls_back_to_the_package() {
+        // `tests/support/mod.rs` has no integration root above it, so the declaration that would
+        // name a binary is not there. The package alone is the honest answer; claiming one of the
+        // targets that share it would be a filter matching nothing for the others.
         let files = vec![changed("crates/x/tests/support/mod.rs", 1, &["#[test]", "fn sums() {}"])];
         let read = tree(&[
             ("crates/x/tests/support/mod.rs", "#[test]\nfn sums() {}\n"),

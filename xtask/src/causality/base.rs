@@ -442,7 +442,8 @@ pub(super) const fn reported_per_test(outcome: &BaseOutcome) -> bool {
 }
 
 /// How many tests nextest's own `Summary` line says it RAN in this text - not skipped, not merely
-/// named by the filter, but the count whose bodies actually executed.
+/// named by the filter, but the count whose bodies actually executed - reading the LAST such line,
+/// when a nested fixture prints its own earlier summary that would otherwise be counted instead.
 ///
 /// **Why this number is safe to compare against what the filter NAMED.** The gate's filterset is a
 /// whole-name match ([`super::scoped::Scoped::filterset`]), so a scoped name absent from the base

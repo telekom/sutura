@@ -786,6 +786,19 @@ dev-up-datahub:
 dev-up-oracle:
     cargo run -q -p xtask -- dev-up --with oracle
 
+# Start the Oracle tier and run its one live acceptance cell - fails rather than skips (#127).
+# CI runs the same cell through `nix run .#oracle-acceptance`; keep the two filters aligned.
+oracle-acceptance:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "oracle-acceptance: scope sutura-exec-oracle - one live Oracle cell."
+    echo "oracle-acceptance: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
+    just dev-up-oracle
+    export SUTURA_DEV_REQUIRE_TIER=1
+    export SUTURA_DEV_USER="${SUTURA_DEV_USER:-sutura}"
+    export SUTURA_DEV_PASSWORD="${SUTURA_DEV_PASSWORD:-sutura}"
+    cargo nextest run -p sutura-exec-oracle --all-features --run-ignored only -E 'test(/^acceptance::/)'
+
 # The sibling of `dev-up-identity` and `dev-up-datahub`, and it exists for the reason they do: a
 # service behind a profile is brought up by the task named after that profile, and the tier's own
 # remedy for a missing service cites that task. Unlike the other two it must also BUILD the derived

@@ -1,15 +1,16 @@
 ---
 title: Knowledge channels for rules, glossary referents on models and columns, and caveats on relationships
-description: A draft of the three answers issue #969 asks for - whether a catalog may carry global rules, glossary entries whose referent is a model or a column rather than a metric, and caveats about a relationship - each with options, the prompt-injection security argument knowledge.rs states, a code cost, and a recommendation awaiting the owner. Amends ADR 0036, which declined the rules kind and the non-metric referent; this record reopens neither without pricing them in full.
+description: The three answers issue #969 asked for, decided A/A/B (issue #969) - global rules route to the operator's instructions_file and gain no new kind (Q1=A); glossary entries whose referent is a model or a column become two new Referent variants, with metric() returning Option (Q2=A); caveats about a relationship are expanded at load into one caveat per metric that uses it, with no new Referent variant and CaveatAboutNothing unchanged (Q3=B). Amends ADR 0036, which declined the rules kind and the source-scoped Referent::Source; this record reopens neither, and prices each option it did not take.
 ---
 
 # Knowledge channels for rules, glossary referents on models and columns, and caveats on relationships
 
-Status: **proposed - awaiting owner decision**. This record drafts options for each of the three
-kinds the WrenAI reference project carries that sutura does not, and marks a recommendation for
-each. It does not decide; the owner does. It amends ADR 0036, which made the surviving position a
-decision - a knowledge-only source speaks through a metric, or it says nothing - and this record
-reopens neither the `rules` kind nor a non-metric `Referent` without stating the full cost.
+Status: **a decision record** (issue #969). The maintainer's decision, "Confirm A/A/B" on
+2026-09-27, is recorded at `github.com/telekom/sutura/issues/969#issuecomment-5905960128`. It is A/A/B: Q1 rules = A, Q2 glossary = A,
+Q3 relationship caveats = B, as laid out in the option tables below. This record
+amends ADR 0036, which made the surviving position a decision - a knowledge-only source speaks
+through a metric, or it says nothing - and reopens neither the `rules` kind nor a
+`Referent::Source`, pricing each option it did not take in full.
 
 Issue #969 found the gap by scanning sutura `origin/main` against the full WrenAI type set (wrenai
 0.13.1 / engine 1.28.1). The golden reference carries three kinds this repository does not:
@@ -35,9 +36,10 @@ A note is attached to a `Referent`, and `Referent` has three variants - `Metric 
 named. The retrieval path is keyed on a metric, the prompt prints a caveat under the metric it is
 about, and an unscoped note is refused at load as `InconsistentKnowledge::CaveatAboutNothing`. A
 fifth `Capability` is a compile error in `Capability::next`, `Capability::previous`,
-`Capability::as_str`, and `sutura_app::prompt::knowledge::claim` - four exhaustive matches, three
-in the domain - plus the `const` assertion on the discriminant that holds the seed of
-`Knowledge::assemble`'s undeclared-content guard.
+`Capability::as_str`, and `sutura_app::prompt::knowledge::{claim, recorded}` - five exhaustive
+matches, three in the domain (one test-only: `previous` is `#[cfg(test)]`, so only two compile-fail
+in shipped domain code) and two in the app - plus the `const` assertion on the discriminant that
+holds the seed of `Knowledge::assemble`'s undeclared-content guard.
 
 The operator has one channel for authored prose about the deployment at large:
 `PromptSettings::instructions_file` is a configured path, layered on top of the derived text and
@@ -80,7 +82,7 @@ the operator rather than the catalog.
 - **Code cost.** None in the domain or the prompt module. The operator writes the file, or a
   deploy-time tool does. A catalog adapter that harvests rules prose would need a place to put
   it; if that place is the operator's file, the adapter writes outside the bundle, which is a new
-  kind of side effect no adapter has today. The cheaper path is a human or a script outside sutra.
+  kind of side effect no adapter has today. The cheaper path is a human or a script outside sutura.
 - **Limit.** Five of the reference project's seven rules are already enforced by types in this
   crate or are unrepresentable here - certified metrics only, no DML, a bounded time range, a join
   that cannot duplicate rows, one data system. Restating them in the prompt is what
@@ -106,7 +108,7 @@ digest, and the prompt snapshot records it.
   `rules` kind its own scoping rule: a rule is about the deployment, not about a metric, so the
   check does not apply. That is a new rule about what scoping means, and it is the thing ADR 0036
   declined to reopen.
-- **Code cost.** A fifth `Capability` (four exhaustive matches, the const assertion, the
+- **Code cost.** A fifth `Capability` (five exhaustive matches - three in the domain, one test-only, and two in the app - the const assertion, the
   undeclared-content guard), a `Rules` collection and `KnowledgeInput` field, a `Rules` note
   record, a rendering position in `sutura_app::prompt` that is not under a metric (the
   preamble or a top-level untrusted section), and a scoping rule that says "a rule is about the
@@ -130,15 +132,16 @@ instead.
   enum that carries `Rules` as a variant the declaration can name but the content cannot supply,
   which is a fifth `Capability` that licenses nothing, and that is half of Option B's cost.
 
-### Recommendation (awaiting owner)
+### Decision: Option A
 
-**Option A.** The operator instructions file is the channel that already exists, it is
-operator-owned, and the rules that survive the structural filter are few. Option B reopens the
-preamble question ADR 0036 closed, and the cost is a fifth `Capability` plus a rendering position
-that is not under a metric. Option C is honest but adds a check for a kind the domain does not
-carry, which is a refusal for something nobody can send through the type system today. If the
-owner wants catalog-authored rules under the digest, Option B is the path; if the owner wants
-rules without a new channel, Option A is the path with no code cost.
+**Option A, decided by the owner.** Global rules route to the operator's
+`instructions_file`; no new kind, no domain code. The operator instructions file is the channel
+that already exists, it is operator-owned, and the rules that survive the structural filter are
+few. Option B was not taken: it reopens the preamble question ADR 0036 closed, and the cost is a
+fifth `Capability` plus a rendering position that is not under a metric. Option C was not taken:
+it adds a check for a kind the domain does not carry, a refusal for something nobody can send
+through the type system today. The owner who wants catalog-authored rules under the digest takes
+Option B in a later record; this one takes Option A at no code cost.
 
 ## 2. Glossary entries whose referent is a MODEL or a COLUMN
 
@@ -155,13 +158,13 @@ it cannot name a model or a column.
 
 ### Dependency on PR #995
 
-Column referents depend on PR #995 (`feat(catalog): column type, description and key evidence`,
-open as of this writing). PR #995 gives a `Column` a type, a description and a nullability claim,
-extending `Model` from a set of column names to a record that carries per-column metadata. Until
-that lands, a column is a name and nothing else; a glossary entry that means a column would point
-at a name with no description, no type, and no rendering position. The recommendation below assumes
-PR #995 has landed for column referents. Model referents do not depend on #995: a `Model` exists
-today, with a name, columns and a description.
+Column referents depend on PR #995 (`feat(catalog): column type, description and key evidence`),
+which has merged. PR #995 gives a `Column` a type, a description and a nullability claim, extending
+`Model` from a set of column names to a record that carries per-column metadata. With it landed,
+a column is a name with a type, a description and a nullability claim, so a glossary entry that
+means a column points at a real thing rather than a bare name. Model referents do not depend on
+#995: a `Model` exists today, with a name, columns and a description. Both referents are
+unblocked.
 
 ### Options
 
@@ -232,16 +235,17 @@ The message points the author at the description channel.
   exists; naming it as a deliberate choice rather than a schema accident is a message change in
   the adapter, not a domain change.
 
-### Recommendation (awaiting owner)
+### Decision: Option A
 
-**Option A, after PR #995 lands for column referents; Option A for model referents now.** The
-glossary is the structured index an agent reads to resolve a phrase, and a phrase that means a
-model or a column is exactly what it is for. The `Referent` type is the mechanism that holds the
-claim "the structured renderings cannot name a model or a column", and adding the variant is the
-honest way to narrow that claim rather than routing around it. The cost is `Referent::metric()`
-returning `Option<&MetricName>`, which is the cost ADR 0011 priced in full. Option B is cheaper
-but answers a weaker question - "where is the phrase" rather than "what does it mean". Option C
-is today's state, and it is a schema accident rather than a decision.
+**Option A, decided by the owner, for both model and column referents.** PR #995 has merged, so
+both are unblocked. The glossary is the structured index an agent reads to resolve a phrase, and
+a phrase that means a model or a column is exactly what it is for. The `Referent` type is the
+mechanism that holds the claim "the structured renderings cannot name a model or a column", and
+adding the variant is the honest way to narrow that claim rather than routing around it. The cost
+is `Referent::metric()` returning `Option<&MetricName>`, which is the cost ADR 0011 priced in
+full. Option B was not taken: it is cheaper but answers a weaker question - "where is the phrase"
+rather than "what does it mean". Option C was not taken: it is today's state, and it is a schema
+accident rather than a decision.
 
 ## 3. Caveats about a RELATIONSHIP
 
@@ -317,15 +321,16 @@ per-metric caveats.
   `metric` that does not resolve, which fails as `CaveatUnknownMetric`. Naming it as a
   relationship refusal is a message change, not a structural one.
 
-### Recommendation (awaiting owner)
+### Decision: Option B
 
-**Option B.** A caveat about a relationship is relevant to the metrics that use it, and the
-expansion to per-metric caveats keeps the retrieval path, the rendering position, and the
-`CaveatAboutNothing` check unchanged. The cost is a load-time walk, not a `Referent` variant or a
-new retrieval path at request time. Option A is the stronger answer if the owner wants a
-relationship to be a first-class referent that renders once rather than N times, but it reopens
-`caveats_about` and adds a request-time walk. Option C is today's state, and it is a misnamed
-metric refusal rather than a decision.
+**Option B, decided by the owner.** A caveat about a relationship is expanded at load into one
+caveat per metric whose definition uses it, each carrying a `Referent::Metric`. This keeps the
+retrieval path, the rendering position, and the `CaveatAboutNothing` check unchanged. The cost is
+a load-time walk over the definitions to find which metrics reference the relationship, not a
+`Referent` variant or a new retrieval path at request time. Option A was not taken: it is the
+stronger answer if the owner wants a relationship to be a first-class referent that renders once
+rather than N times, but it reopens `caveats_about` and adds a request-time walk. Option C was not
+taken: it is today's state, and it is a misnamed metric refusal rather than a decision.
 
 ## What does not change, whichever option is chosen
 
@@ -355,23 +360,34 @@ a model's description, a column's description (after #995), and an operator's `i
 are channels that exist. The question is whether they answer the same question the glossary does -
 "what does this phrase mean" - and the answer is that they answer a related one: "what is this
 thing". The glossary is the structured index; the descriptions are prose blocks. Both are
-legitimate, and the recommendation is to use both rather than one.
+legitimate, and the decision is to use both rather than one.
 
 ## Decision
 
-None. This record drafts options and recommendations; the owner decides. Each recommendation is
-marked above and is a recommendation, not a decision. The issue's acceptance criteria - a merged
-ADR, a knowledge golden for each decided kind, and a named refusal for each rejected kind - are
-met when the owner picks and the code lands.
+**A/A/B (issue #969).**
+
+1. **Q1 global rules = A.** Route to the operator's `instructions_file`; no new kind, no domain
+   code.
+2. **Q2 glossary referent = A.** `Referent::Model` and `Referent::Column`, with
+   `Referent::metric()` returning `Option<&MetricName>` and `fault_in` / `caveats_about` rewritten.
+   PR #995 has merged, so both model and column referents are unblocked.
+3. **Q3 relationship caveats = B.** Expand at load into one caveat per metric that uses the
+   relationship; no new `Referent` variant, no request-time walk, `CaveatAboutNothing` unchanged.
+
+The issue's acceptance criteria - a merged ADR, a knowledge golden for each decided kind, and a
+named load refusal for each rejected kind - are met when the code lands in the follow-up split:
+Q1 (independent) → Q2 model → Q2 column → Q3 → goldens plus a named load refusal per rejected
+kind. Q2 and Q3-A would have shared the `metric()` signature change; with Q3=B, Q3 is
+independent of it and lands after Q2.
 
 ## Amendment, 2026-09-26: `CatalogProse` renders metric descriptions only
 
 Option A's security argument says a model's or a column's name "already reaches the context through
 the model's own description, which `CatalogProse::Quoted` renders today", and Option B routes a
-phrase through "the description channel, which `CatalogProse` governs". The prompt quotes a
-metric's description and no other: `sutura_app::prompt`'s header names no column, table, model or
-measure expression as a deliberate absence, and `sutura_domain::catalog::Column`'s doc says column
-prose is parsed and pinned and reaches no rendering surface. So under Option A a glossary referent
-is the first way a model or a column is named in the prompt, and Option B has to extend the
-description channel to models and columns before a phrase can travel through it. The options and
-recommendations above stand as drafted; this corrects the premise both security arguments share.
+phrase through "the description channel, which `CatalogProse` governs". By default the prompt quotes
+a metric's description and no other; model and column prose reach it only through the opt-in
+physical-schema listing (`prompt.list_physical_schema`), which quotes them under
+`prompt.catalog_prose` - `sutura_domain::catalog::Column`'s doc says so. So under Option A a glossary
+referent is, by default, the first way a model or a column is named in the prompt, and Option B has
+to extend the description channel to models and columns before a phrase can travel through it. The options and
+decisions above stand as decided; this corrects the premise both security arguments share.

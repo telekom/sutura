@@ -57,6 +57,11 @@ support matrix states that BigQuery (or any data API this repository calls) can 
 principal. This is the issue's own early-termination condition, and it fires: on the documented
 surface there is no basis to claim BigQuery accepts an agent identity.
 
+**Read beside `docs/adr/0035`, which answers (1) differently.** IAM's principal identifiers for allow
+policies include agent identities, with BigQuery as an example service, so an agent identity can be
+granted access there. (2) and the decision below stand: it changes who asks, not whose identity the
+source executes as.
+
 **2. Is it obtainable in the venues this runs in?** Independently of (1), an agent identity is
 "attested and tied to the lifecycle of the agent" - an agent that lives in a GCP agent runtime.
 This deployment's exchange path runs from a **GitHub Actions OIDC token** on an external runner

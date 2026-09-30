@@ -153,7 +153,8 @@ refactor!: rename the Warehouse port's execute method
 ```
 
 The body is not checked. Use it for *why*. The subject also decides the next version: `feat` a
-minor, `fix` and the rest a patch, `!` or a `BREAKING CHANGE` footer a major.
+minor, `fix` and the rest a patch, `!` or a `BREAKING CHANGE` footer a major - a minor while the
+version is 0.x (`breaking_always_bump_major = false` in `cliff.toml`).
 
 ## Testing
 
@@ -233,7 +234,7 @@ git-derived copy of the tree - so `git add -N` a new file immediately, or it com
 does not exist in the sandbox. It does not run `check-default-features` or
 `check-default-feature-tests`, though - `just gates` does, per `github.com/telekom/sutura#866`'s
 option 2, chosen 2026-09-18: those two close the compile-and-lint gap on the default feature set,
-not the link gap, since neither links - the four `cross` builds stay the authority on a musl link.
+not the link gap, since neither links - the `cross` matrix legs stay the authority on a musl link.
 Gate stages, what each one covers and where a green run means less than it looks are all in
 [the `gates` skill](https://github.com/telekom/sutura/blob/main/.agents/skills/sutura/gates/SKILL.md).
 
@@ -311,9 +312,12 @@ what a consumer of the artifacts reads.
   mechanically fixable.
 - **No em dashes.** Plain hyphens, in prose and in comments. A gate rather than a request, because
   the convention was stated from the start and one shipped anyway.
-- **No first-party `unsafe`.** `forbid` in the workspace lint table, so a crate cannot re-allow it
-  locally.
-- **`#[expect(.., reason = "..")]`, never `#[allow]`**, so a suppression cannot outlive its cause.
+- **No first-party `unsafe`.** `deny` in the workspace lint table and `#![forbid(unsafe_code)]` at
+  every crate root but `sutura-adbc`'s, held by `check-unsafe`, so a crate cannot re-allow it locally.
+- **`#[expect(.., reason = "..")]` over `#[allow]`**, so a suppression cannot outlive its cause -
+  except on the three count-threshold lints, where `check-expect-thresholds` refuses an `#[expect]`:
+  split the function or raise the threshold in `clippy.toml`. A workspace-wide exception is an
+  `= "allow"` row in the workspace lint table instead.
 - **No file over 1000 lines**, and no exemption under `crates/` or `xtask/` - the only way past it
   is to split the file.
 - **No dependency declared and unused.** Declaring one to satisfy a document is what that gate
