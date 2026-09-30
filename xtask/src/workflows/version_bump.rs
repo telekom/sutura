@@ -1,5 +1,5 @@
 //! Does `.github/workflows/version-bump.yml`'s `bump` job still keep the four properties the
-//! v0.6.0 release incident needed, before it commits and tags?
+//! v0.6.0 release incident needed, before it commits and tags - and read the right previous tag?
 //!
 //! `telekom/sutura#1150` review, finding 1a: nothing held these lines before this gate. A
 //! reviewer deleted the dprint step, the fuzz lock update, `fuzz/Cargo.lock` from the commit's
@@ -17,6 +17,16 @@
 //!   4. some step before the commit runs the SAME structural sweep `ci.yml` runs over every pull
 //!      request (`xtask -- hygiene` or `cargo xtask hygiene`) - so a bump that would redden main
 //!      fails in the bump instead (preventing releases that break at tag-time).
+//!
+//! And two about WHICH TAG the bump reads as the previous release, since
+//! `release-performance.yml` tags `v<version>-performance` on a released commit and `v*` matches
+//! it:
+//!
+//!   5. every `git describe` in the job carries `--exclude 'v*-performance'` - measured on a
+//!      scratch repository, an annotated `v0.6.1-performance` wins an unmatched describe over the
+//!      release's own `v0.6.1`;
+//!   6. `cliff.toml` carries the anchored `tag_pattern` - without it, on the same repository,
+//!      `git-cliff --bumped-version` answered `v0.6.1-performance.1`.
 //!
 //! Reads the job's raw lines through [`super::step::job`] rather than a YAML parser, for the
 //! reason every other `xtask` workflow gate does: no dependency, and the shapes this one
@@ -47,8 +57,13 @@ const FUZZ_LOCK_UPDATE_MARKER: &str = "--manifest-path fuzz/Cargo.toml";
 const FUZZ_LOCK_PATH: &str = "fuzz/Cargo.lock";
 const GIT_ADD_MARKER: &str = "git add ";
 const HYGIENE_MARKERS: [&str; 2] = ["xtask -- hygiene", "xtask hygiene"];
+const DESCRIBE_MARKER: &str = "git describe";
+const PERFORMANCE_EXCLUDE: &str = "--exclude 'v*-performance'";
+const CLIFF: &str = "cliff.toml";
+/// The exact line, so a widened pattern is a diff this rule refuses rather than a reading of it.
+const TAG_PATTERN: &str = r#"tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$""#;
 
-/// The four rules, over one job's lines. Empty is a pass.
+/// Rules 1-5, over one job's lines. Empty is a pass.
 pub(crate) fn check(workflow: &str) -> Vec<String> {
     let Some(job) = step::job(workflow, JOB) else {
         return vec![format!(
@@ -116,7 +131,24 @@ pub(crate) fn check(workflow: &str) -> Vec<String> {
         ));
     }
 
+    let describes: Vec<&&str> = job.iter().filter(|line| line.contains(DESCRIBE_MARKER)).collect();
+    if describes.is_empty() || describes.iter().any(|line| !line.contains(PERFORMANCE_EXCLUDE)) {
+        problems.push(format!(
+            "{WORKFLOW}: a `{DESCRIBE_MARKER}` in the job lacks `{PERFORMANCE_EXCLUDE}`, or there is none - the bump can read an optimised build's `v<version>-performance` tag as the previous release"
+        ));
+    }
+
     problems
+}
+
+/// Rule 6, over `cliff.toml`'s text.
+pub(crate) fn cliff_problems(cliff: &str) -> Vec<String> {
+    if cliff.lines().any(|line| line.trim() == TAG_PATTERN) {
+        return Vec::new();
+    }
+    vec![format!(
+        "{CLIFF} lacks `{TAG_PATTERN}` - git-cliff then reads `v<version>-performance` as a release and bumps it"
+    )]
 }
 
 /// Reads [`WORKFLOW`] off the tree and hands [`check`] the text.
@@ -133,9 +165,14 @@ fn run_over(root: Option<&Path>) -> Verdict {
         eprintln!("xtask check-version-bump: {WORKFLOW} is unreadable - none of the four rules below could be checked");
         return Verdict::Fail;
     };
-    let problems = check(&workflow);
+    let Ok(cliff) = std::fs::read_to_string(root.join(CLIFF)) else {
+        eprintln!("xtask check-version-bump: {CLIFF} is unreadable - rule 6 could not be checked");
+        return Verdict::Fail;
+    };
+    let mut problems = check(&workflow);
+    problems.extend(cliff_problems(&cliff));
     if problems.is_empty() {
-        println!("xtask check-version-bump: ok - {WORKFLOW}'s `{JOB}` job keeps all four properties");
+        println!("xtask check-version-bump: ok - {WORKFLOW}'s `{JOB}` job keeps all six properties");
         return Verdict::Pass;
     }
     eprintln!("xtask check-version-bump: {} problem(s)", problems.len());
@@ -161,6 +198,9 @@ mod tests {
         run: |
           nix run .#git-cliff -- --tag \"$VERSION\" -o CHANGELOG.md
           nix run .#dprint -- fmt CHANGELOG.md
+      - name: Compute the next version
+        run: |
+          prev_raw=\"$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude 'v*-performance' 2>/dev/null || true)\"
       - name: Set the workspace version
         run: |
           nix run .#cargo -- update --workspace
@@ -177,6 +217,41 @@ mod tests {
     #[test]
     fn all_four_properties_pass() {
         assert_eq!(check(&job(COMPLETE)), Vec::<String>::new());
+    }
+
+    /// THE PRODUCTION ENTRY POINT over the real tree, so a mutation of either real file reddens a
+    /// test and not only the `check-version-bump` gate.
+    #[test]
+    fn the_real_workflow_and_changelog_config_keep_all_six() {
+        let root = crate::repo::root().expect("repo root");
+        let workflow = std::fs::read_to_string(root.join(WORKFLOW)).expect("the workflow");
+        let cliff = std::fs::read_to_string(root.join(CLIFF)).expect("cliff.toml");
+        let mut problems = check(&workflow);
+        problems.extend(cliff_problems(&cliff));
+        assert_eq!(problems, Vec::<String>::new());
+    }
+
+    /// Rule 5: the release's own tag must win `git describe`, whatever the optimised build tags.
+    #[test]
+    fn a_describe_that_can_read_the_performance_tag_fails() {
+        for steps in [
+            COMPLETE.replace(" --exclude 'v*-performance'", ""),
+            COMPLETE.replace("prev_raw=", "# prev_raw="),
+        ] {
+            let problems = check(&job(&steps));
+            assert_eq!(problems.len(), 1, "only rule 5 should fire: {problems:?}");
+            assert!(problems[0].contains("v<version>-performance"), "{problems:?}");
+        }
+    }
+
+    /// Rule 6, on the real `cliff.toml` and on one that lost or widened the pattern.
+    #[test]
+    fn a_changelog_config_that_reads_the_performance_tag_fails() {
+        let root = crate::repo::root().expect("repo root");
+        let cliff = std::fs::read_to_string(root.join(CLIFF)).expect("cliff.toml");
+        assert_eq!(cliff_problems(&cliff), Vec::<String>::new());
+        assert_eq!(cliff_problems(&cliff.replace(TAG_PATTERN, "")).len(), 1);
+        assert_eq!(cliff_problems(&cliff.replace("[0-9]+$", "[0-9]+")).len(), 1);
     }
 
     #[test]
@@ -258,6 +333,7 @@ mod tests {
       - name: Write the release changelog
         run: |
           nix run .#git-cliff -- --tag \"$VERSION\" -o CHANGELOG.md
+          git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude 'v*-performance'
       - name: Set the workspace version
         run: |
           nix run .#cargo -- update --workspace

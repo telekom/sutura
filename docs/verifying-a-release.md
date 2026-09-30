@@ -42,17 +42,17 @@ and `nix build .#checks.x86_64-linux.shipped-features` is what asserts it, out o
 binary's own embedded dependency list rather than out of a manifest - including that `ring` and
 `ureq`, the crates the earlier default-off decision existed to keep out, are now genuinely present.
 
-**The optimised build is a separate prerelease, `<version>-performance`** - no `v`, and never
-`latest` - published only when a maintainer dispatches `release-performance.yml` on a release tag
-whose tree contains that workflow's publishing steps; a dispatch runs the workflow as the tag holds
-it, so no tag cut before them can produce one. The same commit at the `release-performance`
+**The optimised build is a separate prerelease, `v<version>-performance`**, never `latest`,
+published only when a maintainer dispatches `release-performance.yml` on a release tag whose tree
+contains that workflow's publishing steps; a dispatch runs the workflow as the tag holds it, so no
+tag cut before them can produce one. The first is v0.6.2; there is no v0.6.1 backfill. The same commit at the `release-performance`
 profile: assets `sutura-<triple>-performance.tar.gz`, leaf images
 `:<version>-performance-<triple>`, lists `:<version>-performance` and `:<version>-performance-musl`.
 The same signing, SBOM and provenance sequence runs over it, so the regexp-based `cosign` commands
 below apply unchanged. The bundle-mode `gh attestation verify` below does not: for an optimised
 asset its identity is
 `https://github.com/telekom/sutura/.github/workflows/release-performance.yml@refs/tags/$TAG`, and
-`$TAG` is the dispatched `v<version>`, not `<version>-performance` - derived from how the
+`$TAG` is the dispatched `v<version>`, not `v<version>-performance` - derived from how the
 certificate records the workflow and ref, not yet run against an optimised release. Its change
 list, licence statement and chart are the ones on `v<version>`.
 

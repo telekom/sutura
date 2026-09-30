@@ -34,13 +34,18 @@
 # FROM A TAG THAT CONTAINS THIS FILE'S PUBLISHING STEPS. A dispatch runs the workflow, and checks
 # out the tree, as the dispatched ref holds them - so dispatching on a tag cut before them runs
 # that tag's older copy of this file. The first release that can publish this way is the first
-# tag cut after these steps landed. Which copy runs is GitHub's documented behaviour; no run here
-# has told the two apart, because every past dispatch had the same file on the tag and on `main`.
+# tag cut after these steps landed - v0.6.2, with no v0.6.1 backfill. Which copy runs is GitHub's
+# documented behaviour; no run here has told the two apart, because every past dispatch had the same
+# file on the tag and on `main`.
 #
-# ITS TAG IS `<version>-performance`, WITHOUT THE `v`, and that is a ruleset rather than a taste:
-# `refs/tags/v*` creation is restricted to named bypass actors, and this job's token is not one,
-# so `v<version>-performance` would be refused. Outside `v*` it also cannot trigger `release.yml`,
-# which moves `latest`. The immutable-release setting locks the tag once the release is published.
+# ITS TAG IS `v<version>-performance`, created by this workflow's `gh release create` and never
+# moved or deleted afterwards: ruleset 24231026 holds `refs/tags/v*-performance` with update and
+# deletion rules and no creation rule, and the `v*` ruleset excludes that pattern - so this job's
+# token can create one, and only that ruleset's two bypass actors can repoint it. The tag matches
+# `v*`, so `release.yml` excludes `v*-performance` from its trigger, `version-bump.yml` excludes it
+# from `git describe`, and `cliff.toml`'s `tag_pattern` keeps it out of the changelog and the bump
+# - measured on a scratch repository: without the pattern, `git-cliff --bumped-version` answered
+# `v0.6.1-performance.1`.
 #
 # `latest` is never moved, and no asset or tag shares a name with the normal release, so nothing
 # starts running an optimised build by accident. `xtask/src/workflows/performance_release.rs`
@@ -337,7 +342,7 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -eu
-          release="${GITHUB_REF_NAME#v}-performance"
+          release="${GITHUB_REF_NAME}-performance"
           repo="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
           if [ ! -s dist/sutura-provenance.intoto.jsonl ]; then
             echo "::error::missing provenance release asset"

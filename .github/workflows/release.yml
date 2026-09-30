@@ -54,7 +54,9 @@ name: release
 
 on:
   push:
-    tags: ["v*"]
+    # Not the optimised build's `v<version>-performance` tags, which `release-performance.yml`
+    # creates on an already released commit: a run from one would move `latest`.
+    tags: ["v*", "!v*-performance"]
 
 # Nothing broad at the workflow level: a default grant applies to every job the file gains.
 permissions:
