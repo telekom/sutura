@@ -155,7 +155,8 @@ pub struct CatalogSettings {
 /// Why a catalog configuration is not usable.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidCatalogSettings {
-    /// A required path was empty, which would resolve to the process working directory.
+    /// A required path was empty, which would resolve to the process working directory - a different
+    /// directory on every host, and never the one the operator meant.
     #[error("{name} is empty - write the directory, not nothing")]
     EmptyPath { name: &'static str },
     /// No catalog was declared, so there is nothing to serve.

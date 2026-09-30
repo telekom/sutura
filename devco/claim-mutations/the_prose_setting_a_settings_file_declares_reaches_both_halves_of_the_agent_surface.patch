@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-cli/src/mcp.rs b/crates/sutura-cli/src/mcp.rs
+index cbcf6e7bf..44332d675 100644
+--- a/crates/sutura-cli/src/mcp.rs
++++ b/crates/sutura-cli/src/mcp.rs
+@@ -282,7 +282,7 @@ where
+     let operator_instructions = operator_instructions.map(std::sync::Arc::from);
+     Ok((
+         service,
+-        catalog_prose(settings.prompt().catalog_prose()),
++        catalog_prose(sutura_config::CatalogProse::Quoted),
+         Admission::from_settings(settings.runtime()),
+         // **The peer's wait, and `telekom/sutura#339` is that it had no bound at all.** The same key
+         // `open_engine` above already divides into a `bigquery` job deadline, so before this line

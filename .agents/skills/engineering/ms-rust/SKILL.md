@@ -47,7 +47,8 @@ reviewer can find the rule rather than infer it.
 
 Particularly load-bearing here, and already enforced by the gates rather than by memory:
 `M-TAUTOLOGICAL-TESTS` (a test asserting ground truth proves nothing - see the causality
-gate), `M-SINGLE-ITEM-PATH` (`unreachable_pub` is denied), `M-PANIC-IS-STOP` and
+gate), `M-SINGLE-ITEM-PATH` (review; `unreachable_pub` is a related but distinct
+visibility-honesty lint), `M-PANIC-IS-STOP` and
 `M-UNSAFE` (`unwrap_used`/`expect_used`/`panic` denied, `unsafe_code` forbidden).
 
 ## Refreshing
