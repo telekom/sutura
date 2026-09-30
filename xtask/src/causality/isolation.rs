@@ -390,6 +390,11 @@ mod tests {
         assert_eq!(one.dir(), Path::new("/tmp/tree"));
         assert_eq!(one.target(), Path::new("/tmp/target"));
         assert_eq!(one.profile(), WARM_PROFILE);
+        assert_eq!(
+            one.to_string(),
+            format!("isolated: removed 0 first-party {WARM_PROFILE} artifact(s) from /tmp/target"),
+            "a wiring witness is a removal of nothing, never a skip"
+        );
     }
 
     #[test]
@@ -450,11 +455,13 @@ mod tests {
                 .is_ok_and(|s| s.success())
         };
         let rebuilt = build_ci();
-        let again = Isolated::of(&root, &target).map(|isolated| isolated.removed);
+        let again = Isolated::of(&root, &target);
         let kept = removed_by_a_dry_run(&root, &target);
         // A removal that FAILS in between must not leave the old record licensing a skip: the next
         // call for the first pair removes for real.
         let failed = Isolated::of(&root.join("absent"), &target).is_err();
+        // Nor may the failed pair record ITSELF: its own retry removes (and fails) again.
+        let failed_again = Isolated::of(&root.join("absent"), &target).is_err();
         let rebuilt_again = build_ci();
         let after_failure = Isolated::of(&root, &target).map(|isolated| isolated.removed);
         let _swept = std::fs::remove_dir_all(&root);
@@ -467,9 +474,18 @@ mod tests {
         assert_eq!(after, Some(0), "and they are gone");
         assert!(dev_survived, "the removal does not reach a profile no run here builds");
         assert!(rebuilt && rebuilt_again, "the rebuilds between the calls succeeded");
-        assert_eq!(again, Ok(None), "the same pair right after is skipped");
+        assert_eq!(
+            again.as_ref().map(|isolated| isolated.removed),
+            Ok(None),
+            "the same pair right after is skipped"
+        );
+        assert!(
+            again.is_ok_and(|isolated| isolated.to_string().ends_with("- removal skipped")),
+            "and the skip is printed as a skip, never as a zero"
+        );
         assert!(kept.is_some_and(|n| n > 0), "and the rebuild survived it: {kept:?}");
         assert!(failed, "a directory that does not exist cannot be cleaned");
+        assert!(failed_again, "a failed removal records nothing, not even its own pair");
         assert!(
             after_failure.as_ref().is_ok_and(|removed| removed.is_some_and(|n| n > 0)),
             "a failed removal in between forces a real one: {after_failure:?}"
