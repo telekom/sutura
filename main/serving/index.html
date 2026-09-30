@@ -4578,9 +4578,15 @@ get is honest and the backlog is bounded, but the <em>sharing</em> is not fair a
 With leg 1 there is now a principal to be fair <em>between</em> - and nothing keys anything on it: no budget
 port exists, so what bounds a caller is still <code>rate_limit.api_per_second</code>, which bounds how fast one
 address can start questions.</p>
-<p>The same caller can keep a question running after being answered <code>408</code>, because nothing cancels one.
-So the cost of a question is not bounded by anything the caller experiences - only the <em>number</em> of
-them running at once is.</p>
+<p>The same caller can keep a question running after being answered <code>408</code> for as long as its adapter
+overruns the port budget - the request timeout minus a one-second reply margin (<code>docs/adr/0029</code>).
+The engine stops at its next cooperative yield. Postgres stops at <code>SET LOCAL statement_timeout</code>,
+after an execution-lock wait nothing bounds (the raw SQL path too, since <code>#1144</code>). ClickHouse's
+server stops at <code>max_execution_time</code>, checked at block boundaries, while its HTTP client waits
+without a deadline. BigQuery stops at a best-effort <code>jobTimeoutMs</code> and a client-side cancel. Oracle
+does not stop a statement that keeps its socket busy - its call timeout is a per-read idle timeout,
+behind an execution-lock wait nothing bounds. So the cost of one question is bounded only as well as
+its adapter honours that budget; the <em>number</em> running at once is bounded by admission.</p>
 
 
 
