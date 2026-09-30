@@ -438,11 +438,12 @@ jobs:
             # second before it starts a job; an evicted run validates nothing, and if the next run
             # classified from `before` (= the evicted run's head) the evicted run's commits would
             # fall out of every completed run's range - nine `main` commits went unvalidated that
-            # way. So the base here is the durable marker of the last commit a GREEN ci job fully
-            # validated, published as artifact `last-validated` at the end of this job. A run that
-            # never starts never advances it, so the evicted run's commits sit between the marker
-            # and HEAD and ARE covered by this run - which is exactly the property #561 demands,
-            # proven as a unit test in xtask `validated_base`. Read it over the Actions API (the
+            # way. So the base here is the durable marker published as artifact `last-validated` at
+            # the end of a green push job. Since #985 D2 a push job verifies nothing - it classifies
+            # and scores CRAP - so the marker certifies a commit the merge queue validated, and
+            # #561's property (an evicted run's commits stay covered) now rests on the queue having
+            # run every landed tree. A run that never starts never advances the marker, so the
+            # range logic is unchanged, proven as a unit test in xtask `validated_base`. Read it over the Actions API (the
             # CRAP-baseline read's pattern) and prefer it when it is an ancestor of HEAD; `before`
             # stays the fallback for the first push or when no marker is readable.
             base="$BEFORE"
@@ -606,12 +607,16 @@ jobs:
       # The classification reaches these bodies through step-level `env:` and never as `${{ }}`
       # inside the shell, which is `zizmor`'s template-injection finding and would redden
       # `Workflow static analysis` below.
-      # #985 D2: push `ci` is reduced to its 3 unique outputs (CRAP baseline, last-validated marker,
-      # main-scoped Nix-store cache save). Every step below this point that verifies the tree - the
-      # closure-free gates, the stage-2 lint gates, the stage-3 tests and tiers, the shipped feature
-      # set, causality - is gated off on `push` because the merge queue already verified the same tree.
-      # `github.event_name != 'push'` on each step is the mechanism; the obligations gate in
-      # `xtask/src/workflows/obligations.rs` pins the amended conditions on Secrets, Licensing and Chart.
+      # #985 D2 (owner decision, issuecomment-5900985733): push `ci` is reduced to its 3 unique
+      # outputs (CRAP baseline, last-validated marker, main-scoped Nix-store cache save). Every step
+      # below this point that verifies the tree - the closure-free gates, the stage-2 lint gates, the
+      # stage-3 tests and tiers, the shipped feature set, causality - is gated off on `push`, because
+      # the merge queue already verified the same tree. `github.event_name != 'push'` on each step is
+      # the mechanism; `xtask/src/workflows/obligations.rs` pins it on Secrets, Licensing and Chart
+      # only. THE COST: the causality-target cache is saved only from a push to `main`, and its
+      # caller is one of the gated steps, so that entry is never written again and freezes at its
+      # last generation. Once the lockfile or a manifest moves, pull-request runs of the three tail
+      # apps restore a stale generation and recompile cold.
       - name: Realise the closure-free gates in one graph
         if: github.event_name != 'push'
         continue-on-error: true
@@ -957,8 +962,9 @@ jobs:
 
       # The writable `target/causality-target` the three tail apps recompile into, carried on the
       # SAME digest the store cache uses so a lockfile/manifest change invalidates it and restores
-      # the previous generation's recompile otherwise. Saved from main; `save:` inside the action
-      # owns the write, so this caller carries no `if:`.
+      # the previous generation's recompile otherwise. `save:` inside the action writes only from a
+      # push to main, and #985 D2 gates this caller off on push, so the save never runs: the entry
+      # is frozen at its last generation (the cost the D2 comment at the top of the gates states).
       #
       # RESTORED HERE - immediately before its first reader - RATHER THAN BESIDE THE STORE CACHE
       # AT THE TOP OF THE JOB (#639 slice I). It restores nothing any check above needs: only
@@ -982,8 +988,8 @@ jobs:
       # **THE LIMIT OF MOVING IT, STATED BESIDE THE CLAIM: THE SAVE IS A POST STEP, AND A STEP THAT
       # NEVER EXECUTES REGISTERS NO POST STEP.** While this sat at the top of the job its save was
       # reached by every run that got past the installer; from here, a `main` push that reddens
-      # anywhere above no longer refreshes the entry, so the generation on `main` ages until a green
-      # push renews it. That is the cost side of the saving two paragraphs up, and it is a real
+      # anywhere above no longer refreshes the entry, so the generation on `main` ages - and since
+      # #985 D2 no push reaches this step, so none renews it. That is the cost side of the saving two paragraphs up, and it is a real
       # change rather than a relabelling.
       #
       # AND NO GATE HOLDS EITHER HALF. `cargo xtask check-workflows` reports this cache as "restored
@@ -1335,8 +1341,9 @@ jobs:
       - uses: $/.github/actions/nix-store-cache-report
         if: always()
 
-      # DURABLE VALIDATED-COMMIT MARKER (#561). Advance "the last commit a completed run fully
-      # validated" to THIS run's head, ONLY on a green push to the default branch. The base step
+      # DURABLE VALIDATED-COMMIT MARKER (#561). Advance the marker to THIS run's head, ONLY on a green
+      # push to the default branch. Since #985 D2 this push job verified nothing itself: the marker
+      # certifies a tree the merge queue validated. The base step
       # reads it; this is the write half. An EVICTED run never reaches here (it never starts a
       # job), so the marker only moves on runs that actually ran to a green conclusion - which is
       # exactly what keeps an evicted run's commits inside the NEXT run's classification range.

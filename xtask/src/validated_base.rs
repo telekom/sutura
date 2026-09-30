@@ -12,7 +12,9 @@
 //! Of the three candidate directions in #561 - a durable marker of the last fully-validated
 //! commit, narrowing the group off the downstream tail, or a cumulative (non-adjacent) base - the
 //! soundest given this repository's gates is the **durable marker**: classify a main push against
-//! the last commit a COMPLETED run validated, not against the previous push. That is the only
+//! the last commit a COMPLETED run validated, not against the previous push. Since #985 D2 the push
+//! run that advances the marker verifies nothing itself, so "validated" means the merge queue ran
+//! that tree; the range argument below is unchanged. That is the only
 //! option that makes "validated" well-defined: a marker only ever ADVANCES on a run that actually
 //! completed, so whatever sits between the marker and HEAD is, by construction, not yet covered and
 //! must be covered by the next completed run. Narrowing the group fixes the latency of the
