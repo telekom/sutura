@@ -431,10 +431,11 @@ fn stack_parent(root: &Path, asked_for: &Commit) -> Option<Parent> {
 /// The read is the census's own, so a listed source that vanished before it is a refusal here, not
 /// an empty answer.
 ///
-/// **The limit, next to the claim.** [`sources_under`] - a refusal carried through rather than
-/// turned into an empty listing - has a cell. The census-to-refusal conversion inside the
-/// `OnceCell` (an `all_files` refusal, an `inspect` refusal, a source gone from disk) has none: it
-/// reads the real repository, and no cell injects a census.
+/// **The limit, next to the claim.** Only [`sources_under`] - a refusal carried through rather
+/// than turned into an empty listing - has a cell. The rest of this function has none: neither the
+/// census-to-refusal conversion inside the `OnceCell` (an `all_files` refusal, an `inspect`
+/// refusal, a source gone from disk) nor the call that hands its result to [`sources_under`]. Both
+/// read the real repository, and no cell injects a census.
 fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], read: &regions::PostImage<'_>) -> Activation {
     let base = |path: &str| {
         if worktree::base_has(root, at, path) {
