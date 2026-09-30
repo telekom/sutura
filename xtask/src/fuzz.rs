@@ -95,10 +95,9 @@ const FUZZ_INVOCATIONS: [&str; 3] = ["run-fuzz.sh", "nix run .#fuzz", "cargo fuz
 
 /// The lock the fuzz crate resolves against.
 ///
-/// Its own, because `fuzz/` is a workspace of its own - see the manifest's header. **`cargo deny`
-/// reads the ROOT lock only**, so nothing advisory-checks this one; that is the cost of keeping
-/// `libfuzzer-sys` and `#![no_main]` out of the shipped graph, and it is stated where a reader
-/// looking for the guarantee will be.
+/// Its own, because `fuzz/` is a workspace of its own - see the manifest's header. A root-level
+/// `cargo deny` never reads it: [`deny_wiring`] holds a fuzz-scoped run at every site that runs the
+/// root one, and [`lock_drift`] holds every pin it shares with the root lock to the root's version.
 const LOCK: &str = "fuzz/Cargo.lock";
 
 /// The root workspace manifest, whose single `version = "..."` line
