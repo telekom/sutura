@@ -101,6 +101,10 @@ mod tests {
         // metric.
         assert_eq!(dictionary.tables().len(), 2);
         assert_eq!(dictionary.relationships().len(), 1);
+        assert!(
+            dictionary.tables().iter().all(|table| table.description().is_some()),
+            "the spike's two tables both carry comments"
+        );
         FixtureReader.read_dictionary().unwrap();
     }
 }

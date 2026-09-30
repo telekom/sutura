@@ -1,0 +1,19 @@
+diff --git a/crates/sutura-catalog-rdbms/src/lib.rs b/crates/sutura-catalog-rdbms/src/lib.rs
+--- a/crates/sutura-catalog-rdbms/src/lib.rs
++++ b/crates/sutura-catalog-rdbms/src/lib.rs
+@@ -514,12 +514,12 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
+         )?;
+         Ok(DomainRelationship::new(
+             name,
+-            origin_model,
+             target_model,
++            origin_model,
+             JoinType::ManyToOne,
+             JoinKeys::single(JoinKey::Equal {
+-                origin: origin_column,
+-                target: target_column,
++                origin: target_column,
++                target: origin_column,
+             }),
+         ))
+     }

@@ -211,6 +211,40 @@ fn a_column_s_type_comment_and_primary_key_evidence_arrive() {
     assert_eq!(status.description(), "");
 }
 
+/// A column's metadata arrives through the conversion, not the recorded corpus: a dictionary of its
+/// own surfaces the type and comment it declared, and `None`/empty for a column it did not.
+#[test]
+fn a_column_s_metadata_arrives_through_the_conversion_not_the_corpus() {
+    let dictionary = Dictionary::new(
+        vec![
+            table("orders", vec!["amount_cents".to_owned(), "status".to_owned()], None).with_column_metadata([(
+                "amount_cents".to_owned(),
+                crate::ColumnMetadata::new(Some("numeric".to_owned()), Some("The total.".to_owned())),
+            )]),
+        ],
+        Vec::new(),
+    );
+    let pinned = RdbmsCatalog::new(name(), version(), SparseReader(dictionary))
+        .load()
+        .expect("a dictionary with column metadata loads");
+    let orders = pinned
+        .definitions()
+        .models()
+        .get(&ModelName::parse("orders").expect("a test model is a model"))
+        .expect("orders is a model");
+    let amount = sutura_domain::model::ColumnName::parse("amount_cents").expect("a test column is a column");
+    let column = orders.column(&amount).expect("amount_cents is declared");
+    assert_eq!(
+        column.data_type().map(sutura_domain::catalog::ColumnType::as_str),
+        Some("numeric")
+    );
+    assert_eq!(column.description(), "The total.");
+    let status = sutura_domain::model::ColumnName::parse("status").expect("a test column is a column");
+    let status = orders.column(&status).expect("status is declared");
+    assert_eq!(status.data_type(), None);
+    assert_eq!(status.description(), "");
+}
+
 /// A column type longer than `ColumnType` can represent is dropped, not refused: the load still
 /// succeeds and the column carries no type, per that type's own doc.
 #[test]
@@ -288,6 +322,12 @@ fn a_foreign_key_licenses_no_dimension_without_a_declared_cardinality() {
     );
     // The relationship is present in the bundle as a `Relationships` contribution.
     assert!(produced.declares(DeclarableKind::Definition(DefinitionKind::Relationships)));
+    // ...and it is the fixture's foreign key, read in its direction, not merely some relationship.
+    let relationships = pinned.definitions().relationships();
+    assert_eq!(relationships.len(), 1, "the fixture's one foreign key is one relationship");
+    let relationship = relationships.values().next().expect("the one relationship");
+    assert_eq!(relationship.origin_model().as_str(), "orders");
+    assert_eq!(relationship.target_model().as_str(), "customers");
 }
 
 /// A sparse dictionary does not over-claim its declaration.
@@ -397,6 +437,38 @@ fn an_unnamed_relationship_with_long_endpoints_gets_a_bounded_deterministic_name
     let second_name = second.definitions().relationships().keys().next().expect("one relationship");
     assert!(first_name.as_str().len() <= 63);
     assert_eq!(first_name, second_name);
+
+    // Two FKs whose generated prefix truncates alike but whose endpoints differ get different
+    // names: the fingerprint reads the endpoints, not the prefix.
+    let alternate_target = "enterprise_customer_balances";
+    let reader_two = SparseReader(Dictionary::new(
+        vec![
+            table(origin_table, vec![origin_column.to_owned()], None),
+            table(alternate_target, vec![target_column.to_owned()], None),
+        ],
+        vec![foreign_key(
+            None,
+            origin_table,
+            origin_column,
+            alternate_target,
+            target_column,
+            Some(SingleColumnTargetUniqueness::PrimaryKey),
+        )],
+    ));
+    let alternate = RdbmsCatalog::new(name(), version(), reader_two)
+        .load()
+        .expect("long endpoints still produce a valid relationship name");
+    let alternate_name = alternate
+        .definitions()
+        .relationships()
+        .keys()
+        .next()
+        .expect("one relationship");
+    assert!(alternate_name.as_str().len() <= 63);
+    assert_ne!(
+        first_name, alternate_name,
+        "two FKs differing in target table must get different names even when their prefixes truncate alike"
+    );
 }
 
 /// A relationship is accepted only when the reader supplies single-column unique-target evidence.
