@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/legs.rs
+expression: query.sql()
+---
+SELECT `fct_ticket_monthly`.`customer_key` AS `0_link`, CAST(DATE_TRUNC(`dim_calendar`.`month`, MONTH) AS DATE) AS `period`, sum(`fct_ticket_monthly`.`tickets`) AS `0_leaf_0` FROM `fct_ticket_monthly` LEFT JOIN `dim_calendar` ON `fct_ticket_monthly`.`month` = `dim_calendar`.`month` WHERE `dim_calendar`.`month` >= ? AND `dim_calendar`.`month` < ? GROUP BY `fct_ticket_monthly`.`customer_key`, CAST(DATE_TRUNC(`dim_calendar`.`month`, MONTH) AS DATE) ORDER BY `fct_ticket_monthly`.`customer_key` NULLS LAST, CAST(DATE_TRUNC(`dim_calendar`.`month`, MONTH) AS DATE) NULLS LAST

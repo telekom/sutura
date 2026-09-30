@@ -27,13 +27,15 @@
 //!
 //! **The fixtures are the federated form of questions that already exist in the corpus**, over the
 //! same telco catalog, with `customers` imagined on a second data system - which is the case
-//! `docs/adr/0007` is about. Three fact shapes and two lookup shapes:
+//! `docs/adr/0007` is about. The fact shapes, then the lookup shapes:
 //!
 //! | Fixture | The question behind it | What it shows |
 //! | --- | --- | --- |
 //! | `fact-sum-over-a-local-join` | `recurring_revenue by product_family` | a term that descends as written, and a same-source hop staying a join |
 //! | `fact-decomposed-average` | `mean_subscription_mrr` | an `Avg` travelling as a sum beside a count, **undivided** |
 //! | `fact-distinct-keys` | `active_subscriptions by region` | the third shape, which is a `Fact` with an EMPTY `terms` list |
+//! | `two-fact-first` | `tickets_per_subscription by region` | a cross-model ratio's own fact, bucketed and bounded on a JOINED calendar |
+//! | `two-fact-second` | the same question's other fact | the second fact's own statement: its own calendar hop and link, the range and nothing else |
 //! | `lookup-unfiltered` | the `customers` half of the same question | LEFT above, so no predicate at all |
 //! | `lookup-filtered` | `active_subscriptions in the north` | a lookup carrying the question's value, bound |
 //!
@@ -69,6 +71,12 @@ const LOCAL_DIMENSION_TABLE: &str = "dim_product";
 
 /// The month-grain snapshot a usage fact joins through the compound key.
 const MONTHLY_TABLE: &str = "dim_monthly";
+
+/// The shared calendar both facts of a cross-model ratio bucket through (`telekom/sutura#780`).
+const CALENDAR_TABLE: &str = "dim_calendar";
+
+/// The second fact of that ratio, on the metric's own data system.
+const TICKET_TABLE: &str = "fct_ticket_monthly";
 
 fn source(name: &str) -> SourceName {
     SourceName::parse(name).expect("a fixture source is a source")
@@ -306,6 +314,97 @@ fn fact_distinct_keys() -> LegPlan {
     }
 }
 
+/// One fact's hop to the shared calendar, on the month both sides carry.
+fn calendar_join(relationship: &str, fact_table: &str) -> PlanJoin {
+    PlanJoin::new(
+        RelationshipName::parse(relationship).expect("a fixture relationship is a relationship"),
+        table(CALENDAR_TABLE),
+        JoinType::ManyToOne,
+        sutura_domain::nonempty::NonEmpty::parse(vec![PlanJoinKey::Equal {
+            origin: column(fact_table, "month"),
+            target: column(CALENDAR_TABLE, "month"),
+        }])
+        .expect("a calendar join declares one key"),
+    )
+}
+
+/// The range, bound on the CALENDAR's column rather than on either fact's own.
+fn calendar_range() -> PlanBindings {
+    let filters = vec![
+        PlanFilter::new(
+            PredicateOrigin::Definition,
+            PlanPredicate::AtOrAfter {
+                column: column(CALENDAR_TABLE, "month"),
+                param: 0,
+            },
+        ),
+        PlanFilter::new(
+            PredicateOrigin::Definition,
+            PlanPredicate::Before {
+                column: column(CALENDAR_TABLE, "month"),
+                param: 1,
+            },
+        ),
+    ];
+    PlanBindings::parse(
+        filters,
+        vec![
+            ParamValue::Date(Date::parse("2026-06-01").expect("a fixture date is a date")),
+            ParamValue::Date(Date::parse("2026-07-01").expect("a fixture date is a date")),
+        ],
+    )
+    .expect("the two range bounds bind in placeholder order")
+}
+
+fn calendar_bucket() -> PlanBucket {
+    PlanBucket::new(ResultLabel::bucket(), Grain::Month, column(CALENDAR_TABLE, "month"))
+}
+
+/// `tickets_per_subscription by region`'s first fact: the denominator, over the metric's own model.
+///
+/// The bucket and the bounds read the joined calendar, not the fact's own `month`, which is what
+/// lets a second statement bucket the same way. It carries leaf 1 - the denominator's position -
+/// because the numerator is the other fact's.
+fn two_fact_first() -> LegPlan {
+    LegPlan::Fact {
+        source: source("local"),
+        metric: metric("tickets_per_subscription"),
+        tables: StatementTables::parse(table(FACT_TABLE), vec![calendar_join("subscription_calendar", FACT_TABLE)])
+            .expect("two differently named fixture tables are distinguishable"),
+        bucket: calendar_bucket(),
+        keys: vec![link_key(FACT_TABLE)],
+        terms: vec![term(Aggregate::Count, "subscription_key", 1)],
+        bindings: calendar_range(),
+        range: june(),
+    }
+}
+
+/// The same question's second fact: its OWN statement, never a join onto the first.
+///
+/// Its own hop to the calendar, its own link column into the remote dimension, leaf 0, and the
+/// range alone - a metric's required filters name its own model's columns, which this statement
+/// does not read. Two statements that never share a `FROM` are what makes the chasm trap
+/// impossible here.
+fn two_fact_second() -> LegPlan {
+    LegPlan::Fact {
+        source: source("local"),
+        metric: metric("tickets_per_subscription"),
+        tables: StatementTables::parse(table(TICKET_TABLE), vec![calendar_join("ticket_calendar", TICKET_TABLE)])
+            .expect("two differently named fixture tables are distinguishable"),
+        bucket: calendar_bucket(),
+        keys: vec![link_key(TICKET_TABLE)],
+        terms: vec![LegTerm::new(
+            PlanTerm::Aggregate {
+                aggregate: Aggregate::Sum,
+                column: column(TICKET_TABLE, "tickets"),
+            },
+            ResultLabel::internal(InternalLabel::Leaf(0)),
+        )],
+        bindings: calendar_range(),
+        range: june(),
+    }
+}
+
 /// The `customers` half of the same question, on a second data system, carrying no filter.
 ///
 /// No bucket, no terms, no range, no metric - and with no filter, no `WHERE` clause at all. That
@@ -346,13 +445,15 @@ fn lookup_filtered() -> LegPlan {
 /// Every leg shape, by the name its snapshots carry.
 ///
 /// A list rather than a test each, so the assertions below are written over the whole set and a
-/// sixth fixture is covered by all of them the moment it is added here.
+/// new fixture is covered by all of them the moment it is added here.
 fn shapes() -> Vec<(&'static str, LegPlan)> {
     vec![
         ("fact-sum-over-a-local-join", fact_sum_over_a_local_join()),
         ("fact-compound-join", fact_compound_join()),
         ("fact-decomposed-average", fact_decomposed_average()),
         ("fact-distinct-keys", fact_distinct_keys()),
+        ("two-fact-first", two_fact_first()),
+        ("two-fact-second", two_fact_second()),
         ("lookup-unfiltered", lookup_unfiltered()),
         ("lookup-filtered", lookup_filtered()),
     ]

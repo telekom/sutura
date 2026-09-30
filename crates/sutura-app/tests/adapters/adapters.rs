@@ -45,7 +45,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use sutura_dev::discovery::Endpoint;
 use sutura_dev::provisioned::{self, Provisioned};
-use sutura_domain::model::TableName;
+use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::query::Query;
 use sutura_domain::warehouse::ResultBatches;
@@ -364,8 +364,16 @@ pub(crate) trait DataSystemUnderTest: Warehouse + Sized {
     /// The name this adapter's tests and snapshots carry.
     const NAME: &'static str;
 
+    /// Opens it as the data system `name`, with each `(table, csv)` attached.
+    ///
+    /// The one open every entry writes, so a cell that needs a SECOND source - the two-fact ratio's
+    /// lookup on its own data system - opens the same adapter the corpus cells do.
+    fn open_on(name: SourceName, tables: Vec<(TableName, PathBuf)>) -> Self;
+
     /// Opens it with one table attached per model in `pinned`.
-    fn open(pinned: &PinnedDefinitions) -> Self;
+    fn open(pinned: &PinnedDefinitions) -> Self {
+        Self::open_on(source(), fixture_tables(pinned))
+    }
 
     /// Whether this adapter can execute HERE at all.
     ///
@@ -384,16 +392,16 @@ pub(crate) trait DataSystemUnderTest: Warehouse + Sized {
 impl DataSystemUnderTest for sutura_exec_datafusion::DataFusionWarehouse {
     const NAME: &'static str = "datafusion";
 
-    fn open(pinned: &PinnedDefinitions) -> Self {
+    fn open_on(name: SourceName, tables: Vec<(TableName, PathBuf)>) -> Self {
         // A gibibyte, which is `sutura_config::WorkingSetCeiling::DEFAULT_BYTES` - written as a
         // literal rather than read from that crate, because this suite must not give `sutura-app` a
         // dependency on the settings tree to obtain one number. The corpus is a few hundred rows, so
         // no question in it comes near the bound; what this passes on is the shape a deployment gets,
         // and the bound's own assertions live in the adapter's `pool.rs`.
         let ceiling = core::num::NonZeroUsize::new(1024 * 1024 * 1024).expect("a gibibyte is positive");
-        let engine = Self::new(source(), posture(), sutura_exec_datafusion::WorkingSet::of_bytes(ceiling))
+        let engine = Self::new(name, posture(), sutura_exec_datafusion::WorkingSet::of_bytes(ceiling))
             .expect("an in-process engine starts");
-        for (table, csv) in fixture_tables(pinned) {
+        for (table, csv) in tables {
             engine
                 .attach_csv(&table, &csv)
                 .unwrap_or_else(|e| panic!("the engine could not attach {}: {e}", csv.display()));
@@ -405,9 +413,9 @@ impl DataSystemUnderTest for sutura_exec_datafusion::DataFusionWarehouse {
 impl DataSystemUnderTest for sutura_exec_duckdb::DuckDbWarehouse {
     const NAME: &'static str = "duckdb";
 
-    fn open(pinned: &PinnedDefinitions) -> Self {
-        let warehouse = Self::in_memory(source(), posture(), result_budget()).expect("an in-memory database opens");
-        for (table, csv) in fixture_tables(pinned) {
+    fn open_on(name: SourceName, tables: Vec<(TableName, PathBuf)>) -> Self {
+        let warehouse = Self::in_memory(name, posture(), result_budget()).expect("an in-memory database opens");
+        for (table, csv) in tables {
             warehouse
                 .attach_csv(&table, &csv)
                 .unwrap_or_else(|e| panic!("duckdb could not attach {}: {e}", csv.display()));
@@ -423,7 +431,7 @@ impl DataSystemUnderTest for sutura_exec_postgres::PostgresWarehouse {
         postgres_tier().is_some()
     }
 
-    fn open(pinned: &PinnedDefinitions) -> Self {
+    fn open_on(name: SourceName, tables: Vec<(TableName, PathBuf)>) -> Self {
         // `available()` guards every cell, so this is reached only when discovery answered.
         let endpoint = postgres_tier().expect("`available()` guards the Open of every postgres cell");
         // The tier PUBLISHES the credential and nothing here defaults one: a discovered server with
@@ -434,9 +442,9 @@ impl DataSystemUnderTest for sutura_exec_postgres::PostgresWarehouse {
         // One PRIVATE schema per open, so parallel corpus cells sharing one server cannot clobber one
         // another's tables - the same per-worktree isolation the compose tier gets, applied per cell.
         let schema = format!("cell_{}_{}", std::process::id(), schema_counter());
-        let warehouse = Self::connect_in_schema(source(), posture(), &config, &schema)
+        let warehouse = Self::connect_in_schema(name, posture(), &config, &schema)
             .unwrap_or_else(|e| panic!("postgres did not open at {endpoint}: {e}"));
-        for (table, csv) in fixture_tables(pinned) {
+        for (table, csv) in tables {
             warehouse
                 .load_csv(&table, &csv)
                 .unwrap_or_else(|e| panic!("postgres could not load {}: {e}", csv.display()));
@@ -459,12 +467,12 @@ impl DataSystemUnderTest for sutura_exec_clickhouse::ClickHouseWarehouse<sutura_
         clickhouse_tier().is_some()
     }
 
-    fn open(pinned: &PinnedDefinitions) -> Self {
+    fn open_on(name: SourceName, tables: Vec<(TableName, PathBuf)>) -> Self {
         let endpoint = clickhouse_tier().expect("`available()` guards the Open of every clickhouse cell");
         let auth = sutura_exec_clickhouse::fixture::credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
         let database = format!("cell_{}_{}", std::process::id(), schema_counter());
         let warehouse = Self::connect_in_database(
-            source(),
+            name,
             posture(),
             sutura_exec_clickhouse::transport::Endpoint::plaintext(endpoint.host(), endpoint.port()),
             auth,
@@ -472,7 +480,7 @@ impl DataSystemUnderTest for sutura_exec_clickhouse::ClickHouseWarehouse<sutura_
             result_budget(),
         )
         .unwrap_or_else(|e| panic!("clickhouse did not open at {endpoint}: {e}"));
-        for (table, csv) in fixture_tables(pinned) {
+        for (table, csv) in tables {
             warehouse
                 .load_csv(&table, &csv)
                 .unwrap_or_else(|e| panic!("clickhouse could not load {}: {e}", csv.display()));
@@ -534,7 +542,7 @@ impl DataSystemUnderTest for sutura_exec_bigquery::BigQueryWarehouse<NoLocalTier
         false
     }
 
-    fn open(_pinned: &PinnedDefinitions) -> Self {
+    fn open_on(_name: SourceName, _tables: Vec<(TableName, PathBuf)>) -> Self {
         panic!("`available()` guards the Open of every bigquery cell")
     }
 }
@@ -574,7 +582,7 @@ impl DataSystemUnderTest for sutura_exec_oracle::OracleWarehouse {
         false
     }
 
-    fn open(_pinned: &PinnedDefinitions) -> Self {
+    fn open_on(_name: SourceName, _tables: Vec<(TableName, PathBuf)>) -> Self {
         panic!("`available()` guards the Open of every oracle cell")
     }
 }

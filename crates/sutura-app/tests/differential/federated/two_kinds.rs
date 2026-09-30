@@ -23,7 +23,7 @@ use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, ResultBatches, Warehouse};
 
 use super::corpus::{derived, lookup_source};
-use super::harness::{Side, duckdb_on, engine_on};
+use super::harness::{Side, opened_on};
 use crate::adapters::source;
 
 pub(super) enum TwoKinds {
@@ -97,8 +97,8 @@ impl Warehouse for TwoKinds {
 /// The two-kinds side: the FACT leg on `DuckDB`, the LOOKUP leg on the engine.
 pub(super) fn two_kinds(pinned: PinnedDefinitions) -> Side<TwoKinds> {
     let data = &derived().data;
-    let warehouses = sutura_app::Warehouses::of(TwoKinds::DuckDb(duckdb_on(data, &source(), &pinned)))
-        .and(TwoKinds::DataFusion(engine_on(data, &lookup_source(), &pinned)))
+    let warehouses = sutura_app::Warehouses::of(TwoKinds::DuckDb(opened_on(data, &source(), &pinned)))
+        .and(TwoKinds::DataFusion(opened_on(data, &lookup_source(), &pinned)))
         .expect("two sources, one registry, two kinds");
     Side {
         bundle: sutura_app::verify_and_validate(pinned, &warehouses)
