@@ -22,6 +22,9 @@
 //!   `deadline_exceeded`. The connect-time `SET statement_timeout` remains the outer ceiling a
 //!   request's own budget may only narrow, never widen, on every path including the raw one.
 
+/// The ADBC transport - default-off, and nothing reaches it yet: its own header says what it holds.
+#[cfg(feature = "adbc")]
+pub mod adbc;
 pub mod connection;
 /// The fixture tier's credential - a value that cannot exist unconfigured.
 ///

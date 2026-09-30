@@ -15,8 +15,8 @@
 //!
 //! **What keeps this script from running at all for a build that never wants the driver:** this
 //! script has no `CARGO_FEATURE_ADBC` early return, unlike the per-adapter one it replaced,
-//! because `sutura-adbc` is itself an OPTIONAL dependency behind `sutura-exec-bigquery`'s `adbc`
-//! feature - Cargo does not build a crate at all when nothing pulls in the feature that makes it
+//! because `sutura-adbc` is itself an OPTIONAL dependency behind each adapter's own `adbc`
+//! feature (`sutura-exec-bigquery`'s and `sutura-exec-postgres`') - Cargo does not build a crate at all when nothing pulls in the feature that makes it
 //! optional, so this script's absence from a build is the workspace manifest's job, not this
 //! file's.
 //!

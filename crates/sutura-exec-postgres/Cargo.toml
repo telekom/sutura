@@ -42,6 +42,17 @@ sutura-tls = { workspace = true }
 bytes = { workspace = true }
 futures-util = { workspace = true }
 thiserror = { workspace = true }
+# The ADBC transport (`src/adbc.rs`, `telekom/sutura#913`), all behind the default-off `adbc`
+# feature. `sutura-adbc` is the shared crate that owns the workspace's one `unsafe` ADBC site, so
+# this adapter adds none; the driver manager loads the self-built `libadbc_driver_postgresql.so`
+# (`nix/postgres-adbc.nix`) by path and the two Arrow crates name what it hands back. Every one of
+# these is already in `Cargo.lock` through `sutura-exec-bigquery`, so the feature adds edges and no
+# packages.
+adbc_core = { version = "0.24", optional = true }
+adbc_driver_manager = { version = "0.24", optional = true }
+arrow-array = { version = "59", optional = true }
+arrow-schema = { version = "59", optional = true }
+sutura-adbc = { workspace = true, optional = true }
 # The conformance packs, which `tests/conformance.rs` binds this adapter to, and the developer
 # workflow crate that answers where this worktree's Postgres is listening.
 #
@@ -77,6 +88,14 @@ rcgen = { workspace = true }
 # this is still compiled, linted and tested on every run. `check-default-features` and
 # `check-default-feature-tests` scope themselves to the shipped set, which this crate is not in.
 [features]
+# THE ADBC TRANSPORT, and nothing reaches it yet: `src/adbc.rs`'s header says what it holds and
+# what it does not. Default-off for `sutura-exec-bigquery`'s reason - a native driver is a
+# per-triple addition a lean build should not link - and because the `tokio-postgres` path is still
+# how every Postgres source is answered. Off is not hidden: every compiling gate passes
+# `--all-features`, so the module is compiled, linted and tested on every run. The OFF arm has no
+# gate: no shipped package enables this crate by default, so `check-default-features` never builds
+# it - the same gap `sutura-exec-bigquery`'s `adbc` feature has.
+adbc = ["dep:adbc_core", "dep:adbc_driver_manager", "dep:arrow-array", "dep:arrow-schema", "dep:sutura-adbc"]
 fixtures = ["sutura-domain/fixtures"]
 
 [[test]]

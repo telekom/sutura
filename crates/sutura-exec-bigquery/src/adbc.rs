@@ -744,6 +744,10 @@ impl JobTransport for AdbcBigQuery {
     #[cfg(feature = "fixtures")]
     fn apply(&self, request: &JobRequest<'_>) -> Result<(), Self::Error> {
         let (_driver, mut statement, _source) = self.connect(request)?;
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the fixture loader's own `CREATE OR REPLACE TABLE`, text this crate renders from a committed CSV, behind the default-off `fixtures` feature"
+        )]
         statement.execute_update().map_err(AdbcError::Adbc)?;
         Ok(())
     }
