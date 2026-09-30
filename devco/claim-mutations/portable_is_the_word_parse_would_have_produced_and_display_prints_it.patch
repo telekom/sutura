@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/expression.rs b/crates/sutura-domain/src/expression.rs
+index 1dd7e7e4e..c9ca4846c 100644
+--- a/crates/sutura-domain/src/expression.rs
++++ b/crates/sutura-domain/src/expression.rs
+@@ -296,7 +296,7 @@ impl TryFrom<String> for DialectTag {
+ /// an operator reads.
+ impl core::fmt::Display for DialectTag {
+     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+-        f.write_str(&self.0)
++        write!(f, "{:?}", self.0)
+     }
+ }
+ 

@@ -67,6 +67,8 @@ system speaks SQL**, and one does not: an in-process engine executes a logical p
 never sees a string. So the port takes a `QueryPlan`, and *how* to execute it is the adapter's own
 business - render a statement and send it, or build a plan of its own.
 
+**Corrected:** the port now takes an `Executable<'_>` rather than a `QueryPlan` (`crates/sutura-domain/src/warehouse.rs`).
+
 The plan therefore moved into `sutura-domain`, because a port speaks domain types, and a port naming
 a compiler type would invert the direction
 [the layout exists to keep](../architecture.md#hexagonal-by-construction). `QueryPlan` and
@@ -94,6 +96,8 @@ it.
 thiserror and the proc-macro chain their derives need, over the whole transitive tree, and that does
 not change: `datafusion`, `arrow` and `tokio` are three of the names it exists to fail on. So the
 domain still compiles nothing heavy, and its test suite is still the inner loop.
+
+**Corrected:** `arrow-*` is now in `ALLOWED_IN_DOMAIN` (`xtask/src/boundaries/edges.rs`), per `docs/adr/0039` - Arrow is allowlisted in the domain rather than failed on.
 
 **DataFusion's own SQL unparser has known dialect defects**, `DATE_TRUNC` argument order and
 identifier quoting among them. That is not an argument against using it for local execution, where it
