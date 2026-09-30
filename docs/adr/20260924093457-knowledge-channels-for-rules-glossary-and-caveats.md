@@ -5,7 +5,8 @@ description: The three answers issue #969 asked for, decided A/A/B (issue #969) 
 
 # Knowledge channels for rules, glossary referents on models and columns, and caveats on relationships
 
-Status: **a decision record** (issue #969). The decision is A/A/B: Q1 rules = A, Q2 glossary = A,
+Status: **a decision record** (issue #969). The maintainer's decision, "Confirm A/A/B" on
+2026-09-27, is recorded at `github.com/telekom/sutura/issues/969#issuecomment-5905960128`. It is A/A/B: Q1 rules = A, Q2 glossary = A,
 Q3 relationship caveats = B, as laid out in the option tables below. This record
 amends ADR 0036, which made the surviving position a decision - a knowledge-only source speaks
 through a metric, or it says nothing - and reopens neither the `rules` kind nor a

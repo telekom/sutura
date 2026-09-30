@@ -1734,7 +1734,8 @@ What `causality::claim::validate` holds:
 | trailer on the commit that ADDS the test | measured by its mutation |
 | trailer on a commit that adds no such test - one base already carries, or one the range only edits | `not added:` - read PER COMMIT, so the trailer sits on the commit that adds the test |
 | trailer, no committed patch | `no patch:` |
-| an EDITED test that is green on base | no trailer can carry it - it needs a gate decision, or a change to the behaviour it pins |
+| an EDITED test, renamed | a rename counts as added: `Claim-Cell: <new-name>` on the renaming commit. The old name reads as a deleted test, so the range also carries `Weakens-Test: <old-name> - <reason>` (`causality::weakens`), or causality exits 1 |
+| an EDITED test, not renamed, green on base | `INCONCLUSIVE - these tests were not ADDED here` (exit 3): rename it as above, or change the behaviour it pins |
 
 **Exit 3 (`INCONCLUSIVE`) is not a verdict.** Quote it verbatim and supply a hand mutation table in
 its place - each mechanism removed, and the cell that goes red. Exit 1 `the base does not compile

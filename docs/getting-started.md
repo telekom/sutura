@@ -423,8 +423,9 @@ run a query from this command against a real dataset - the furthest any of them 
 the credential file, because the transport's host is a compile-time constant with no loopback to
 point at. What HAD been accepted by a real dataset is the corpus, through the (since-removed) `bigquery-acceptance` leg,
 on the adapter's own suite. And the job's deadline is the request's own: what is left of it is sent as the job's
-`jobTimeoutMs`, rounded up, and a spent one is refused before anything is sent. That stop is the
-service's, and best-effort - this process cancels nothing itself.
+`jobTimeoutMs`, rounded up, and a spent one is refused before anything is sent. The service stops
+the job at `jobTimeoutMs`; this process also stops waiting at the deadline and asks the driver to
+cancel, which is best-effort - the cancel queues behind the driver's statement lock.
 
 `table:` may also name where the table lives, when that is more than the connection's own default:
 

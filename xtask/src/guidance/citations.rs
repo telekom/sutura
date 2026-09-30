@@ -143,6 +143,20 @@ mod tests {
         assert_eq!(cited_path("docs/adr/0016"), None, "an abbreviated record reference");
     }
 
+    /// `examples/` is first-party: the #1151 move put the runnable examples there, and a citation of
+    /// one is as checkable as one under `docs/`.
+    #[test]
+    fn a_file_under_examples_is_a_first_party_citation() {
+        assert_eq!(
+            cited_path("examples/single-player/compose.yaml"),
+            Some("examples/single-player/compose.yaml")
+        );
+        assert_eq!(
+            cited_path("examples/single-player/README.md:30"),
+            Some("examples/single-player/README.md")
+        );
+    }
+
     /// The refusal itself, planted and then removed - a gate nobody has seen fail is not known to
     /// work, and the predicate above passing proves nothing about the walk calling it.
     #[test]

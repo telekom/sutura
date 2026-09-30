@@ -71,9 +71,10 @@ The intent is that every query runs as the calling principal. Concretely:
 `sutura_domain::identity::CredentialBroker` is the credential port, with production implementors in
 `sutura-config` and in `sutura-exec-bigquery`'s `DeclaredPrincipalBroker`. There the caller's own
 verified assertion is federated through the declared pool, and the account the source's per-source
-map declares for that subject becomes the credential's `service_account_impersonation_url` - Google's
-workload identity federation, not RFC 8693 token exchange. An undeclared subject is refused, never run
-as the deployment. The adapter venue that would show it is `wired` with no observed run. The bullets
+map declares for that subject becomes the credential's `service_account_impersonation_url`. The
+first leg of that federation IS an RFC 8693 token exchange, at Google's STS - performed by the
+driver's auth library, not by sutura, and followed by service-account impersonation; no RFC 8707
+`resource` is sent. An undeclared subject is refused, never run as the deployment. The adapter venue that would show it is `wired` with no observed run. The bullets
 below are the design every other leg is still held to.
 
 - A broker mints a credential per request, from the request's own context. There is no service

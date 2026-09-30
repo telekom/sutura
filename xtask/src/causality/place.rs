@@ -387,7 +387,7 @@ fn declared_route(root: String, target: &str, read: &PostImage<'_>, path_only: b
 /// Only the target named by the FIRST segment is consulted. A file that some OTHER target also
 /// pulls in by `#[path]` is therefore keyed to this one - which NARROWS the filter rather than
 /// widening it, so the failure direction is a loud `RedOutsideTheDiff` and never a false green.
-/// `sutura-app`'s `tests/support/support.rs`, which two targets pull in by `#[path]`, has no
+/// `sutura-app`'s `tests/support/support.rs`, which `golden.rs` pulls in by `#[path]`, has no
 /// integration root above it and so falls back to the package.
 fn included_by(package: &CargoName, dir: &str, inner: &str, read: &PostImage<'_>) -> Option<Place> {
     let (first, _) = inner.split_once('/')?;
