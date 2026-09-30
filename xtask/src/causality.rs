@@ -837,10 +837,11 @@ mod tests {
     use super::{BaseState, retry_with_held_back};
     use crate::Verdict;
 
-    /// `github.com/telekom/sutura#414`: a refused census is carried through to the feature scan,
-    /// never swapped for an empty listing that would let *nothing was enabled* pass unread.
+    /// `github.com/telekom/sutura#414`: `sources_under`, the step between the census and the
+    /// feature scan, carries a refusal through rather than an empty listing that would let
+    /// *nothing was enabled* pass unread. The scan itself reads the real repository and has no cell.
     #[test]
-    fn a_refused_census_reaches_the_scan_as_a_refusal_not_an_empty_listing() {
+    fn sources_under_carries_a_census_refusal_through_and_keeps_only_that_directory() {
         let refused: super::features::Listing = Err(String::from("the census refused"));
         assert_eq!(
             super::sources_under(&refused, "crates/x"),

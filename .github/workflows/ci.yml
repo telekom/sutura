@@ -458,7 +458,7 @@ jobs:
             )" || marker=""
             if [ -n "$marker" ] && git merge-base --is-ancestor "$marker" HEAD 2>/dev/null; then
               base="$marker"
-              echo "classifying against the last fully-validated commit $marker (evicted-run commits stay covered)"
+              echo "classifying against the last-validated marker $marker, a tree the merge queue validated (evicted-run commits stay covered)"
             fi
           else
             # A push to a topic branch: judge the branch, not the push.
