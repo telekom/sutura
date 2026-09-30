@@ -9,7 +9,15 @@
 //! | `build` runs `build-artefacts` with `profile: performance` | the tarballs, images and SBOMs of every matrix cell; `cross_link` holds the cells to the full four |
 //! | `publish` runs `push-images` with `profile: performance` | four leaves and both manifest lists, and never `latest` |
 //! | `publish` runs `attest-and-sign` before the step whose `gh release create` attaches `dist/*` | every attached file has a bundle and provenance before the release exists |
+//! | that `gh release create` line carries `--prerelease` and `--latest=false` | without both, the optimised build becomes the repository's Latest release, which `docs/getting-started.md` downloads from |
 //! | no `gh release upload`, anywhere in the file | an upload onto a published release is `HTTP 422` under immutable releases; one `gh release create` carrying every asset is the only path |
+//!
+//!
+//! And one cell that EXECUTES rather than reads: `push-images`' own shell, run at both profiles
+//! against a `docker` shell function that records its arguments, must tag `latest` at `release`
+//! and never at `performance`. The stub answers every push with a digest and every list with both
+//! platforms, so what that cell proves is the tags the script asks for, not that a registry takes
+//! them.
 //!
 //! # What it does NOT hold
 //!
@@ -60,10 +68,18 @@ fn judge(text: &str) -> Vec<String> {
         ));
     }
     let signed = publish.iter().position(|step| calls(step, "attest-and-sign"));
-    let created = publish.iter().position(|step| {
-        step.iter()
-            .any(|line| line.contains("gh release create") && line.contains(" dist/* "))
-    });
+    let is_release = |line: &str| line.contains("gh release create") && line.contains(" dist/* ");
+    let created = publish.iter().position(|step| step.iter().any(|line| is_release(line)));
+    if let Some(line) = publish.iter().flatten().find(|line| is_release(line)) {
+        for flag in ["--prerelease", "--latest=false"] {
+            if !line.split_whitespace().any(|word| word == flag) {
+                found.push(format!(
+                    "{WORKFLOW}: the `gh release create` that attaches `dist/*` lacks `{flag}` - the \
+                     optimised build must never become the repository's Latest release"
+                ));
+            }
+        }
+    }
     if !matches!((signed, created), (Some(signed), Some(created)) if signed < created) {
         found.push(format!(
             "{WORKFLOW}: job `publish` must run `attest-and-sign` BEFORE the step \
@@ -133,7 +149,7 @@ jobs:
       - uses: $/.github/actions/attest-and-sign
       - name: Publish
         run: |
-          gh release create \"$release\" dist/* --prerelease
+          gh release create \"$release\" dist/* --prerelease --latest=false
 ";
 
     fn judged(text: &str) -> Vec<String> {
@@ -185,8 +201,8 @@ jobs:
     #[test]
     fn a_release_created_before_signing_is_refused() {
         refused(
-            "      - uses: $/.github/actions/attest-and-sign\n      - name: Publish\n        run: |\n          gh release create \"$release\" dist/* --prerelease\n",
-            "      - name: Publish\n        run: |\n          gh release create \"$release\" dist/* --prerelease\n      - uses: $/.github/actions/attest-and-sign\n",
+            "      - uses: $/.github/actions/attest-and-sign\n      - name: Publish\n        run: |\n          gh release create \"$release\" dist/* --prerelease --latest=false\n",
+            "      - name: Publish\n        run: |\n          gh release create \"$release\" dist/* --prerelease --latest=false\n      - uses: $/.github/actions/attest-and-sign\n",
             "BEFORE",
         );
         refused(
@@ -206,13 +222,128 @@ jobs:
     #[test]
     fn an_upload_onto_an_existing_release_is_refused() {
         refused(
-            "--prerelease\n",
-            "--prerelease\n          gh release upload \"$GITHUB_REF_NAME\" dist/*\n",
+            "--latest=false\n",
+            "--latest=false\n          gh release upload \"$GITHUB_REF_NAME\" dist/*\n",
             "`gh release upload`",
         );
         assert!(
-            judged(&SOUND.replacen("--prerelease\n", "--prerelease\n          # gh release upload x\n", 1)).is_empty(),
+            judged(&SOUND.replacen("--latest=false\n", "--latest=false\n          # gh release upload x\n", 1)).is_empty(),
             "a comment is not an upload"
+        );
+    }
+
+    /// Either flag dropped makes `<version>-performance` the release an unqualified download takes.
+    #[test]
+    fn a_release_that_could_become_latest_is_refused() {
+        refused(" --prerelease ", " ", "lacks `--prerelease`");
+        refused(" --latest=false", "", "lacks `--latest=false`");
+    }
+
+    /// What one run of `push-images`' shell asked `docker` to do, and how it ended.
+    struct Pushed {
+        succeeded: bool,
+        calls: String,
+        stderr: String,
+    }
+
+    /// `push-images`' real `run:` body at `profile`, against a `docker` shell function. With
+    /// `digestless`, every push succeeds and prints no digest.
+    fn pushed(profile: &str, digestless: bool) -> Pushed {
+        const TRIPLES: [&str; 4] = [
+            "x86_64-unknown-linux-gnu",
+            "aarch64-unknown-linux-gnu",
+            "x86_64-unknown-linux-musl",
+            "aarch64-unknown-linux-musl",
+        ];
+        const DOCKER: &str = r#"docker() {
+  printf '%s\n' "$*" >> "$DOCKER_LOG"
+  case "$1" in
+    push) [ -n "${DIGESTLESS:-}" ] || printf 'digest: sha256:%064d size: 1\n' 0 ;;
+    buildx) if [ "$3" = inspect ]; then if [ "$5" = --format ]; then echo "linux/amd64 linux/arm64 "; else echo raw; fi; fi ;;
+  esac
+}
+"#;
+        let root = crate::repo::root().expect("repo root");
+        let action = std::fs::read_to_string(root.join(".github/actions/push-images/action.yml")).expect("the action");
+        let lines: Vec<&str> = action.lines().collect();
+        let body = crate::workflows::step::shell(&lines)
+            .into_iter()
+            .skip(1)
+            .map(str::trim_start)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let suffix = if profile == "performance" { "-performance" } else { "" };
+        let images: Vec<String> = TRIPLES
+            .iter()
+            .map(|triple| format!("images/sutura-oci-{triple}{suffix}.tar.gz"))
+            .collect();
+        let fixtures: Vec<_> = images.iter().map(|path| (path.as_str(), &b""[..])).collect();
+        let tree = crate::scratch_tree::Tree::of(&format!("push-images-{profile}-{digestless}"), &fixtures);
+        let scratch = tree.root();
+        let output = std::process::Command::new("bash")
+            .args(["--noprofile", "--norc", "-eo", "pipefail", "-c", &format!("{DOCKER}{body}")])
+            .current_dir(scratch)
+            .env_remove("BASH_ENV")
+            .env("DOCKER_LOG", scratch.join("docker.log"))
+            .env("DIGESTLESS", if digestless { "1" } else { "" })
+            .env("TARGETS", TRIPLES.join(" "))
+            .env("BINARIES", "sutura")
+            .env("PROFILE", profile)
+            .env("IMAGE", "ghcr.io/example/sutura")
+            .env("GHCR_USERNAME", "user")
+            .env("GHCR_TOKEN", "token")
+            .env("GITHUB_REF_NAME", "v0.6.1")
+            .env("GITHUB_STEP_SUMMARY", scratch.join("summary.md"))
+            .output()
+            .expect("the action's shell executes");
+        Pushed {
+            succeeded: output.status.success(),
+            calls: std::fs::read_to_string(scratch.join("docker.log")).unwrap_or_default(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        }
+    }
+
+    /// `latest` is what an unqualified pull resolves, so the optimised images must never take it -
+    /// and the release profile must, or the stub would pass by never seeing the tag at all.
+    #[test]
+    fn the_optimised_images_never_move_latest() {
+        let release = pushed("release", false);
+        assert!(release.succeeded, "{}", release.stderr);
+        assert!(release.calls.contains("ghcr.io/example/sutura:latest"), "{}", release.calls);
+        let optimised = pushed("performance", false);
+        assert!(optimised.succeeded, "{}", optimised.stderr);
+        let lists: Vec<&str> = optimised
+            .calls
+            .lines()
+            .filter(|call| call.starts_with("buildx imagetools create"))
+            .collect();
+        assert_eq!(lists.len(), 2, "{}", optimised.calls);
+        assert!(
+            lists[0].starts_with("buildx imagetools create -t ghcr.io/example/sutura:0.6.1-performance ghcr.io/"),
+            "{lists:?}"
+        );
+        assert!(
+            lists[1].starts_with("buildx imagetools create -t ghcr.io/example/sutura:0.6.1-performance-musl ghcr.io/"),
+            "{lists:?}"
+        );
+        assert!(
+            !optimised.calls.contains("ghcr.io/example/sutura:latest"),
+            "{}",
+            optimised.calls
+        );
+    }
+
+    /// A composite `shell: bash` runs with `pipefail`, which once ended the step at the digest
+    /// capture, before the refusal that names the leaf.
+    #[test]
+    fn a_push_that_prints_no_digest_is_refused_by_name() {
+        let run = pushed("performance", true);
+        assert!(!run.succeeded, "{}", run.calls);
+        assert!(
+            run.stderr
+                .contains("no digest in the push output for x86_64-unknown-linux-gnu-performance"),
+            "{}",
+            run.stderr
         );
     }
 }

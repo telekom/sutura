@@ -134,7 +134,9 @@ runs:
           # registered, which needs no bookkeeping to survive.
           push_log="$(mktemp)"
           docker push "${IMAGE}:${tag}${psfx}-${base}" | tee "$push_log"
-          digest="$(grep -oE 'sha256:[0-9a-f]{64}' "$push_log" | tail -1)"
+          # `|| true`: a composite `shell: bash` runs with `pipefail`, so a push that printed no
+          # digest would otherwise end the step here, before the refusal below can say why.
+          digest="$(grep -oE 'sha256:[0-9a-f]{64}' "$push_log" | tail -1 || true)"
           rm -f "$push_log"
           # FAIL rather than record `unknown`. A release whose digests are missing cannot
           # be pinned, and a placeholder makes an absence look like data.

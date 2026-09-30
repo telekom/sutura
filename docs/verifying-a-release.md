@@ -43,12 +43,18 @@ binary's own embedded dependency list rather than out of a manifest - including 
 `ureq`, the crates the earlier default-off decision existed to keep out, are now genuinely present.
 
 **The optimised build is a separate prerelease, `<version>-performance`** - no `v`, and never
-`latest` - published only when a maintainer dispatches `release-performance.yml` on a release tag.
-The same commit at the `release-performance` profile: assets `sutura-<triple>-performance.tar.gz`,
-leaf images `:<version>-performance-<triple>`, lists `:<version>-performance` and
-`:<version>-performance-musl`. Everything below applies to it unchanged - the same signing, SBOM
-and provenance sequence runs over it - except that its change list, licence statement and chart
-are the ones on `v<version>`.
+`latest` - published only when a maintainer dispatches `release-performance.yml` on a release tag
+whose tree contains that workflow's publishing steps; a dispatch runs the workflow as the tag holds
+it, so no tag cut before them can produce one. The same commit at the `release-performance`
+profile: assets `sutura-<triple>-performance.tar.gz`, leaf images
+`:<version>-performance-<triple>`, lists `:<version>-performance` and `:<version>-performance-musl`.
+The same signing, SBOM and provenance sequence runs over it, so the regexp-based `cosign` commands
+below apply unchanged. The bundle-mode `gh attestation verify` below does not: for an optimised
+asset its identity is
+`https://github.com/telekom/sutura/.github/workflows/release-performance.yml@refs/tags/$TAG`, and
+`$TAG` is the dispatched `v<version>`, not `<version>-performance` - derived from how the
+certificate records the workflow and ref, not yet run against an optimised release. Its change
+list, licence statement and chart are the ones on `v<version>`.
 
 **A release also carries a licence statement, and it is a different list on purpose.** What each of
 the two documents answers is under [The licence statement](#the-licence-statement).

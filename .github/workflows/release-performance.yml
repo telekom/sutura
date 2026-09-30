@@ -11,6 +11,10 @@
 # represent the CPU it was built on, so the mismatch would not even be visible. A build
 # pinned to a known deployment host can make that trade; a downloadable release cannot.
 #
+# NOR THE ADBC DRIVER CHECK `release.yml` runs on its published binaries:
+# `nix/bigquery-driver-check.sh` knows the `ci` and `release` profiles only, so that the fat-LTO
+# binaries carry a driver whose Go runtime starts is not established by anything.
+#
 # WHAT IT PUBLISHES, on `publish=true` from a tag - everything the normal release publishes for
 # the binary, built at this profile, and nothing built and discarded:
 #
@@ -27,13 +31,22 @@
 # this file, which used to try. So the optimised build gets its own release, created WITH every
 # asset in one `gh release create`, and never an upload onto an existing one.
 #
+# FROM A TAG THAT CONTAINS THIS FILE'S PUBLISHING STEPS. A dispatch runs the workflow, and checks
+# out the tree, as the dispatched ref holds them - so dispatching on a tag cut before them runs
+# that tag's older copy of this file. The first release that can publish this way is the first
+# tag cut after these steps landed. Which copy runs is GitHub's documented behaviour; no run here
+# has told the two apart, because every past dispatch had the same file on the tag and on `main`.
+#
 # ITS TAG IS `<version>-performance`, WITHOUT THE `v`, and that is a ruleset rather than a taste:
 # `refs/tags/v*` creation is restricted to named bypass actors, and this job's token is not one,
 # so `v<version>-performance` would be refused. Outside `v*` it also cannot trigger `release.yml`,
 # which moves `latest`. The immutable-release setting locks the tag once the release is published.
 #
 # `latest` is never moved, and no asset or tag shares a name with the normal release, so nothing
-# starts running an optimised build by accident.
+# starts running an optimised build by accident. `xtask/src/workflows/performance_release.rs`
+# holds both halves: a test executes `push-images` against a stub `docker` and refuses a `latest`
+# tag at this profile, and `check-workflows` refuses a release step without `--prerelease
+# --latest=false`.
 #
 # ONE BINARY, `sutura`, and it carries the HTTP surface too as `sutura serve` - since
 # `github.com/telekom/sutura#685` step 2 folded the `sutura-serve` binary this comment used to
@@ -48,7 +61,8 @@
 # `profile: performance`, `push-images` (leaves, lists, digest records) and `attest-and-sign` -
 # the composite actions `release.yml` calls, so the two publishers cannot drift apart. The
 # third-party actions are the ones `release.yml` uses, pinned by the same commits. Publishing is
-# `gh` and `docker` rather than a release action, for the same reason as release.yml.
+# `gh` and `docker` rather than a release action, as in release.yml - with one difference, which
+# the release step states: it relies on `gh`'s own draft-then-publish ordering.
 name: release-performance
 
 on:
@@ -264,11 +278,18 @@ jobs:
           set -eu
           test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would expect no artefact"; exit 1; }
           missing=0
+          want=0
           for target in $TARGETS; do
             for bin in $BINARIES; do
               if [ "$bin" = sutura ]; then key="${target}-performance"; else key="${bin#sutura-}-${target}-performance"; fi
-              for f in "dist/${bin}-${target}-performance.tar.gz" "dist/${bin}-${target}-performance.tar.gz.sha256" \
-                "images/sutura-oci-${key}.tar.gz" "dist/sutura-oci-${key}.cdx.json" "dist/sutura-oci-${key}.spdx.json"; do
+              want=$((want + 1))
+              files="facts/${key}.txt images/sutura-oci-${key}.tar.gz"
+              files="${files} dist/${bin}-${target}-performance.tar.gz dist/${bin}-${target}-performance.tar.gz.sha256"
+              files="${files} dist/sutura-oci-${key}.cdx.json dist/sutura-oci-${key}.spdx.json"
+              case "$target" in
+                *-musl) files="${files} dist/sutura-oci-${key}.tar.gz dist/sutura-oci-${key}.tar.gz.sha256" ;;
+              esac
+              for f in $files; do
                 if [ ! -s "$f" ]; then
                   echo "::error::${key}: ${f} is missing or empty"
                   missing=1
@@ -277,7 +298,12 @@ jobs:
             done
           done
           [ "$missing" -eq 0 ] || exit 1
-          ls -l dist images
+          have="$(find facts -type f -name '*.txt' | wc -l)"
+          if [ "$have" -ne "$want" ]; then
+            echo "::error::${have} artefact(s) arrived but this job expects ${want}: TARGETS here and strategy.matrix.target in 'build' have drifted apart"
+            exit 1
+          fi
+          ls -l dist images facts
 
       - name: Push the images
         uses: $/.github/actions/push-images
@@ -298,7 +324,11 @@ jobs:
           registry-token: ${{ secrets.GITHUB_TOKEN }}
 
       # ONE `gh release create` with every asset, never an upload onto an existing release - the
-      # header says why. `--target` pins the new tag to the commit that was built rather than to
+      # header says why. THE LIMIT: this relies on `gh` creating a release that is given assets as a
+      # draft, uploading, and only then publishing - `release.yml` spells that sequence out because
+      # `gh` is the one unpinned tool here, and this step does not. Should `gh` ever publish first,
+      # the uploads would meet an immutable release; the `isDraft` and asset-count checks below
+      # report that afterwards and cannot undo it. `--target` pins the new tag to the commit that was built rather than to
       # the default branch's head. A release of that name already existing is a refusal: once
       # published it can never be changed, and a leftover draft is invisible to users.
       - name: Publish the performance release
@@ -331,11 +361,15 @@ jobs:
             cat dist/image-digests.txt
             echo '```'
             echo
-            printf "Every asset has a \`<asset>.sigstore.json\` bundle and SLSA provenance, verified as [Verifying a release](%s/blob/%s/docs/verifying-a-release.md) describes.\n" "$repo" "$GITHUB_REF_NAME"
+            printf "The binaries, image tarballs, SBOMs, their \`.sha256\` sidecars and \`image-digests.txt\` each have a \`<asset>.sigstore.json\` bundle and SLSA provenance in \`sutura-provenance.intoto.jsonl\`; the images are signed in the registry. [Verifying a release](%s/blob/%s/docs/verifying-a-release.md) says how to check each, and which identity an optimised asset carries.\n" "$repo" "$GITHUB_REF_NAME"
           } > notes.md
           cat notes.md
           count="$(find dist -maxdepth 1 -type f | wc -l)"
           gh release create "$release" dist/* --target "$SHA" --title "$release" --notes-file notes.md --prerelease --latest=false
+          if [ "$(gh release view "$release" --json isDraft --jq '.isDraft')" != "false" ]; then
+            echo "::error::${release} is still a draft after 'gh release create'"
+            exit 1
+          fi
           attached="$(gh release view "$release" --json assets --jq '.assets | length')"
           echo "published ${release} with ${attached} asset(s)"
           if [ "$attached" -ne "$count" ]; then
