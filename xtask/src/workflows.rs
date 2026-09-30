@@ -100,6 +100,10 @@ mod codegen;
 // holds nothing about resolution, cache writes or badges. See its header for what it cannot hold.
 mod cross_link;
 
+// DOES THE OPTIMISED BUILD PUBLISH WHAT THE RELEASE DOES, SIGNED? It once built four binaries and
+// discarded them. Its own file: it reads which shared actions one workflow calls, and in what order.
+mod performance_release;
+
 // IS A `with:` KEY AN INPUT THE ACTION DECLARES? A key an action does not declare is a log
 // warning and then the action's DEFAULT - `path:` to an action whose input is `paths:` cached
 // `/nix` on twenty-one runs with every gate green. Its own file for `sast`'s reason, and the seam
@@ -469,21 +473,19 @@ fn check_gates(
     // pull request and four on `main` with nothing holding it - every gate stayed green on a
     // 4-on-PR regression. `#477`'s own review rated that M1 gap compute-only, not blocking, but
     // called it a claim no mechanism held. This pins the ternary.
-    let cross = cross_link::problems(root);
-    if !cross.is_empty() {
-        eprintln!(
-            "xtask check-workflows: FAILED - {} cross-matrix rule(s) broken\n",
-            cross.len()
-        );
-        for problem in &cross {
-            eprintln!("  {problem}");
-        }
-        eprintln!();
-        eprintln!("A pull request proves the two aarch64 triples the native ci job never compiles,");
-        eprintln!("and a push to `main` builds all four; that split lives in one inline ternary in");
-        eprintln!("cross-link.yml. A gate that holds it keeps `cannot silently run 4 on a PR` true");
-        eprintln!("instead of merely written beside it - see xtask/src/workflows/cross_link.rs.");
-        return Some(Verdict::Fail);
+    if let Some(failed) = refuse(
+        &cross_link::problems(root),
+        "cross-matrix rule(s) broken",
+        "each venue builds one fixed set of triples - see xtask/src/workflows/cross_link.rs for which and why",
+    ) {
+        return Some(failed);
+    }
+    if let Some(failed) = refuse(
+        &performance_release::problems(root),
+        "optimised-release rule(s) broken",
+        "see xtask/src/workflows/performance_release.rs for what each rule holds and what it cannot",
+    ) {
+        return Some(failed);
     }
 
     // DOES EVERY READER OF THE IMAGE-RECORD FILE ANCHOR ON THE RECORD KIND? Beside the rules

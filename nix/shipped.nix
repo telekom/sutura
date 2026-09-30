@@ -500,18 +500,22 @@ let
 
   # One image per shipped binary per shipped target, named after the RUST triple like the
   # binaries are, so a published image and a published tarball can be traced back to the same
-  # build. `oci-<triple>` for the CLI, `oci-serve-<triple>` for the server.
+  # build: `oci-<key>` from the `release` profile, `oci-<key>-performance` from
+  # `release-performance`, which `release-performance.yml` publishes. Never `-ci`: that profile
+  # is a link check and no image of it may exist.
   ociImages = builtins.listToAttrs (builtins.concatMap
-    (b: map
-      (t: {
-        name = "oci-${keyFor b t}";
-        value = ociFor {
-          package = crossPackages."${b.bin}-${t}";
-          architecture = ociArch t;
-          inherit (b) bin entrypoint cmd description;
-        };
-      })
-      imageTargets)
+    (b: builtins.concatMap
+      (suffix: map
+        (t: {
+          name = "oci-${keyFor b t}${suffix}";
+          value = ociFor {
+            package = crossPackages."${b.bin}-${t}${suffix}";
+            architecture = ociArch t;
+            inherit (b) bin entrypoint cmd description;
+          };
+        })
+        imageTargets)
+      [ "" "-performance" ])
     binaries);
 
   # The local image per binary, and its performance sibling: `nix build .#oci` and

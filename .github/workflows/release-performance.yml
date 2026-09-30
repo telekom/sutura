@@ -11,9 +11,49 @@
 # represent the CPU it was built on, so the mismatch would not even be visible. A build
 # pinned to a known deployment host can make that trade; a downloadable release cannot.
 #
-# Names never collide with the normal release: assets are `-performance` and the image tag is
-# `<version>-performance`. `latest` is never moved, so nothing starts running an optimised
-# build by accident.
+# NOR THE ADBC DRIVER CHECK `release.yml` runs on its published binaries:
+# `nix/bigquery-driver-check.sh` knows the `ci` and `release` profiles only, so that the fat-LTO
+# binaries carry a driver whose Go runtime starts is not established by anything.
+#
+# WHAT IT PUBLISHES, on `publish=true` from a tag - everything the normal release publishes for
+# the binary, built at this profile, and nothing built and discarded:
+#
+# | Kind | Where |
+# | --- | --- |
+# | four tarballs, their `.sha256`, both musl image tarballs, the SBOMs, `image-digests.txt` | the `v<version>-performance` prerelease |
+# | a Sigstore bundle per asset, SLSA provenance over all of them | the same prerelease |
+# | four leaves `<version>-performance-<triple>` | the registry, signed, each with its SBOM attested |
+# | lists `<version>-performance` (glibc) and `<version>-performance-musl` | the registry, signed, with provenance |
+#
+# A SEPARATE RELEASE, because the normal one cannot take them: this repository has GitHub's
+# immutable releases enabled, so `v<version>`'s assets froze when it was published and an upload
+# returns `HTTP 422: Cannot upload assets to an immutable release` - observed on the v0.1.0 run of
+# this file, which used to try. So the optimised build gets its own release, created WITH every
+# asset in one `gh release create`, and never an upload onto an existing one.
+#
+# FROM A TAG THAT CONTAINS THIS FILE'S PUBLISHING STEPS. A dispatch runs the workflow, and checks
+# out the tree, as the dispatched ref holds them - so dispatching on a tag cut before them runs
+# that tag's older copy of this file. The first release that can publish this way is the first
+# tag cut after these steps landed - v0.6.2, with no v0.6.1 backfill. Which copy runs is GitHub's
+# documented behaviour; no run here has told the two apart, because every past dispatch had the same
+# file on the tag and on `main`.
+#
+# ITS TAG IS `v<version>-performance`, at the built commit: `gh release create --target` is ignored
+# for a tag that already exists, so the release step refuses one of that name at another commit (a
+# tag created between that check and the release is not caught). Ruleset 24231026 holds
+# `refs/tags/v*-performance` with update and deletion rules and no creation rule, and the `v*`
+# ruleset excludes that pattern - so this job's token can create one, and once created only that
+# ruleset's two bypass actors can repoint it. The tag matches `v*`, so every `v*` tag trigger -
+# `release.yml`, `docs.yml`, `fuzz.yml` - excludes `v*-performance`, `push-images` and `docs.yml`'s
+# dispatch guard refuse it as a ref, `version-bump.yml` excludes it from `git describe`, and
+# `cliff.toml`'s `tag_pattern` keeps it out of the changelog and the bump - measured on a scratch
+# repository: without the pattern, `git-cliff --bumped-version` answered `v0.6.1-performance.1`.
+#
+# `latest` is never moved, and no asset or tag shares a name with the normal release, so nothing
+# starts running an optimised build by accident. `xtask/src/workflows/performance_release.rs`
+# holds both halves: a test executes `push-images` against a stub `docker` and refuses a `latest`
+# tag at this profile, and `check-workflows` refuses a release step without `--prerelease
+# --latest=false`.
 #
 # ONE BINARY, `sutura`, and it carries the HTTP surface too as `sutura serve` - since
 # `github.com/telekom/sutura#685` step 2 folded the `sutura-serve` binary this comment used to
@@ -24,9 +64,12 @@
 # measured the server's. That reasoning has nothing left to apply to: one binary, one measurement
 # question, answered by whichever workload asked for `--features` this build was told to carry.
 #
-# ACTIONS: the same three release.yml uses - checkout, the nix installer and the nix cache -
-# each pinned by commit, and nothing more. Publishing is `gh` and `docker` rather than a
-# release action, for the same reason as release.yml.
+# REUSED, NOT COPIED: `build-artefacts` (binaries, images, smoke tests, SBOMs) with
+# `profile: performance`, `push-images` (leaves, lists, digest records) and `attest-and-sign` -
+# the composite actions `release.yml` calls, so the two publishers cannot drift apart. The
+# third-party actions are the ones `release.yml` uses, pinned by the same commits. Publishing is
+# `gh` and `docker` rather than a release action, as in release.yml - with one difference, which
+# the release step states: it relies on `gh`'s own draft-then-publish ordering.
 name: release-performance
 
 on:
@@ -37,18 +80,19 @@ on:
         required: true
         type: string
       publish:
-        description: "Attach to the release and push the image (requires a tag ref)"
+        description: "Push the images and create the v<version>-performance release (requires a tag ref)"
         required: false
         default: false
         type: boolean
 
 # Nothing broad at the workflow level. `validate` reads a text input and needs no write
-# at all; only `build` publishes, and only when asked to.
+# at all; only `publish` writes, and only when asked to.
 permissions:
   contents: read
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
+  BINARIES: sutura
 
 jobs:
   # A 20-minute build should not start because someone clicked the wrong button.
@@ -76,13 +120,12 @@ jobs:
           fi
           echo "confirmed - ref $REF, publish=$PUBLISH"
 
-  build:
+  gates:
     needs: [validate]
     runs-on: rust-mcp-32core
-    timeout-minutes: 120
+    timeout-minutes: 60
     permissions:
-      contents: write # attach assets to an existing release
-      packages: write # push the image to GHCR
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -140,92 +183,213 @@ jobs:
           # embedded dependency list. `nix/shipped.nix` decides it; this is what asserts it.
           nix build .#checks.x86_64-linux.shipped-features -L
 
-      # FOUR targets, the same set `release.yml`'s matrix builds - glibc and musl, on each
-      # architecture. `github.com/telekom/sutura#685` step 2: the musl pair was matrix-only,
-      # already resolvable at `nix build` before this step named it here.
-      - name: Build all four targets (release-performance)
-        run: |
-          set -eu
-          nix build .#sutura-x86_64-unknown-linux-gnu-performance   -L -o result-x86_64-unknown-linux-gnu
-          nix build .#sutura-aarch64-unknown-linux-gnu-performance  -L -o result-aarch64-unknown-linux-gnu
-          nix build .#sutura-x86_64-unknown-linux-musl-performance  -L -o result-x86_64-unknown-linux-musl
-          nix build .#sutura-aarch64-unknown-linux-musl-performance -L -o result-aarch64-unknown-linux-musl
+  # FOUR targets, one runner each - the matrix `release.yml`'s `build` runs, and
+  # `xtask/src/workflows/cross_link.rs` holds the two to the same list. Fat LTO is the slowest
+  # build there is, so four runners in parallel is the wall-clock the person who clicked waits.
+  build:
+    needs: [gates]
+    runs-on: rust-mcp-32core
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # Before nix installs: /nix/store is what fills. See
+      # `.github/actions/reclaim-disk` for why this is local and why it cannot
+      # affect the Nix cache.
+      - uses: $/.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          # The same installer and stores as `gates` above - see the reason written there.
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      # The point of the profile is a different binary. Print the sizes so the run is
-      # evidence of that rather than an assertion about it.
-      - name: Report what was produced
+      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+
+      # The release's own build sequence at the other profile: binaries, images run as
+      # `sutura serve` on x86_64, and an SBOM per image. Unconditional, so a dry run
+      # (`publish=false`) builds and runs everything a publish would push.
+      - uses: $/.github/actions/build-artefacts
+        with:
+          target: ${{ matrix.target }}
+          binaries: ${{ env.BINARIES }}
+          profile: performance
+
+      - name: Hand the artifacts to publish
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: performance-${{ matrix.target }}
+          path: |
+            dist/
+            images/
+            facts/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  # The only job holding write tokens, and it compiles and executes nothing: it moves bytes
+  # `build` produced, signs them, and creates the release - `release.yml`'s split, same reason.
+  publish:
+    needs: [build]
+    if: ${{ inputs.publish }}
+    runs-on: rust-mcp-32core
+    timeout-minutes: 60
+    permissions:
+      contents: write # create the v<version>-performance release
+      packages: write # push to GHCR, and the signatures and attestations that sit beside it
+      id-token: write # mint the OIDC token Fulcio signs a certificate against
+      attestations: write # store the SLSA provenance against this repository
+    env:
+      TARGETS: >-
+        x86_64-unknown-linux-gnu
+        aarch64-unknown-linux-gnu
+        x86_64-unknown-linux-musl
+        aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          # The same installer and stores as `gates` above - see the reason written there.
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: Collect what the matrix built
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: performance-*
+          merge-multiple: true
+
+      # `attest-and-sign` signs what it is handed, so a missing artefact would be a quietly
+      # absent one rather than an unsigned one. This is what refuses it.
+      - name: Check that every build arrived
         run: |
           set -eu
-          for f in result-*/bin/sutura; do
-            printf '%-40s %s bytes\n' "$f" "$(wc -c < "$f")"
+          test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would expect no artefact"; exit 1; }
+          missing=0
+          want=0
+          for target in $TARGETS; do
+            for bin in $BINARIES; do
+              if [ "$bin" = sutura ]; then key="${target}-performance"; else key="${bin#sutura-}-${target}-performance"; fi
+              want=$((want + 1))
+              files="facts/${key}.txt images/sutura-oci-${key}.tar.gz"
+              files="${files} dist/${bin}-${target}-performance.tar.gz dist/${bin}-${target}-performance.tar.gz.sha256"
+              files="${files} dist/sutura-oci-${key}.cdx.json dist/sutura-oci-${key}.spdx.json"
+              case "$target" in
+                *-musl) files="${files} dist/sutura-oci-${key}.tar.gz dist/sutura-oci-${key}.tar.gz.sha256" ;;
+              esac
+              for f in $files; do
+                if [ ! -s "$f" ]; then
+                  echo "::error::${key}: ${f} is missing or empty"
+                  missing=1
+                fi
+              done
+            done
           done
-          result-x86_64-unknown-linux-gnu/bin/sutura --version
+          [ "$missing" -eq 0 ] || exit 1
+          have="$(find facts -type f -name '*.txt' | wc -l)"
+          if [ "$have" -ne "$want" ]; then
+            echo "::error::${have} artefact(s) arrived but this job expects ${want}: TARGETS here and strategy.matrix.target in 'build' have drifted apart"
+            exit 1
+          fi
+          ls -l dist images facts
 
-      - name: Package with checksums
-        run: |
-          set -eu
-          mkdir -p dist stage
-          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
-            install -m755 "result-${target}/bin/sutura" stage/sutura
-            name="sutura-${target}-performance"
-            tar -C stage -czf "dist/${name}.tar.gz" sutura
-            ( cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256" )
-          done
-          ls -l dist
+      - name: Push the images
+        uses: $/.github/actions/push-images
+        with:
+          targets: ${{ env.TARGETS }}
+          binaries: ${{ env.BINARIES }}
+          profile: performance
+          image: ${{ env.IMAGE }}
+          registry-username: ${{ github.actor }}
+          registry-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build the optimised image
-        run: nix build .#oci-performance -L -o result-oci
+      # Before the release exists, as in `release.yml`: every file in `dist/` gets a Sigstore
+      # bundle and SLSA provenance, every image reference a signature, every leaf its SBOM.
+      - name: Attest and sign
+        uses: $/.github/actions/attest-and-sign
+        with:
+          registry-username: ${{ github.actor }}
+          registry-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Load it and prove the binary runs
-        run: |
-          set -eu
-          ./result-oci | docker load
-          docker run --rm sutura:latest --version
-          docker image inspect sutura:latest --format 'digest: {{.Id}}'
-
-      # Tagged `<version>-performance` and never `latest`: an optimised image must be opted
-      # into by name, not inherited by anything already pulling `latest`.
-      - name: Push as <version>-performance
-        if: ${{ inputs.publish }}
+      # ONE `gh release create` with every asset, never an upload onto an existing release - the
+      # header says why. THE LIMIT: this relies on `gh` creating a release that is given assets as a
+      # draft, uploading, and only then publishing - `release.yml` spells that sequence out because
+      # `gh` is the one unpinned tool here, and this step does not. Should `gh` ever publish first,
+      # the uploads would meet an immutable release; the `isDraft` and asset-count checks below
+      # report that afterwards and cannot undo it. `--target` pins the new tag to the commit that was built rather than to
+      # the default branch's head. A release of that name already existing is a refusal: once
+      # published it can never be changed, and a leftover draft is invisible to users.
+      - name: Publish the performance release
         env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.sha }}
         run: |
           set -eu
-          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
-          tag="${GITHUB_REF_NAME#v}"
-          docker tag sutura:latest "${IMAGE}:${tag}-performance"
-          docker push "${IMAGE}:${tag}-performance"
-          docker logout ghcr.io
-
-      # The binaries are NOT attached to the release, and cannot be.
-      #
-      # This step used to run `gh release upload "$GITHUB_REF_NAME" dist/* --clobber`, which can
-      # never succeed here: this repository has GitHub's immutable releases enabled, so a
-      # release's assets are frozen the moment it is published. It returns
-      # `HTTP 422: Cannot upload assets to an immutable release` - observed for real on the
-      # v0.1.0 run - and no flag changes that. A workflow that runs manually, after the release
-      # exists, has no way in.
-      #
-      # So the optimised build's deliverable is the IMAGE, pushed above as
-      # `<image>:<tag>-performance`. That is digest-addressed, layer-shared and reachable by
-      # anyone who can reach the registry, which the release asset never was.
-      #
-      # The tarballs stay in `dist/` and are listed in the step summary below, so a maintainer
-      # running this by hand can still see and download them from the run. If they are ever
-      # needed as durable artifacts, the answer is a separate release for the optimised build,
-      # created WITH its assets in one call - not an upload onto an existing one.
-      - name: Say where the binaries went
-        if: ${{ inputs.publish }}
-        run: |
-          set -eu
+          release="${GITHUB_REF_NAME}-performance"
+          # The images keep no `v`: `push-images` tags `${GITHUB_REF_NAME#v}`, as the registry always has.
+          image_tag="${GITHUB_REF_NAME#v}-performance"
+          repo="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+          if [ ! -s dist/sutura-provenance.intoto.jsonl ]; then
+            echo "::error::missing provenance release asset"
+            exit 1
+          fi
+          if gh release view "$release" >/dev/null 2>&1; then
+            echo "::error::a release ${release} already exists. Published, it is immutable and cannot be repaired; a draft is a leftover - delete it with 'gh release delete ${release} --yes --cleanup-tag' and re-run."
+            exit 1
+          fi
+          # `--target` is ignored for an existing tag, so one a writer created first, at another
+          # commit, would carry this release. An annotated tag's peeled `^{}` line comes last.
+          refs="$(git ls-remote --tags origin "refs/tags/${release}" "refs/tags/${release}^{}")"
+          tagged="$(printf '%s\n' "$refs" | tail -1 | cut -f1)"
+          if [ -n "$tagged" ] && [ "$tagged" != "$SHA" ]; then
+            echo "::error::tag ${release} already exists at ${tagged}, not at the built commit ${SHA}; only a bypass actor of ruleset 24231026 can remove it"
+            exit 1
+          fi
           {
-            echo "## Binaries"
+            echo "The \`release-performance\` build of [${GITHUB_REF_NAME}](${repo}/releases/tag/${GITHUB_REF_NAME}): the same commit, fat LTO and one codegen unit, no \`target-cpu=native\`. The change list, the licence statement and the chart are on that release."
             echo
-            echo "Not attached to the release: immutable releases freeze assets at publish."
-            echo "The optimised build ships as the image tagged below."
+            echo "## Images"
+            echo
+            echo "| Variant | Tag | Platforms |"
+            echo "| --- | --- | --- |"
+            printf "| glibc | \`%s:%s\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$image_tag"
+            printf "| static musl | \`%s:%s-musl\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$image_tag"
             echo
             echo '```'
-            ls -l dist/
+            cat dist/image-digests.txt
             echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo
+            printf "The binaries, image tarballs, SBOMs, their \`.sha256\` sidecars and \`image-digests.txt\` each have a \`<asset>.sigstore.json\` bundle and SLSA provenance in \`sutura-provenance.intoto.jsonl\`; the images are signed in the registry. [Verifying a release](%s/blob/%s/docs/verifying-a-release.md) says how to check each, and which identity an optimised asset carries.\n" "$repo" "$GITHUB_REF_NAME"
+          } > notes.md
+          cat notes.md
+          count="$(find dist -maxdepth 1 -type f | wc -l)"
+          gh release create "$release" dist/* --target "$SHA" --title "$release" --notes-file notes.md --prerelease --latest=false
+          if [ "$(gh release view "$release" --json isDraft --jq '.isDraft')" != "false" ]; then
+            echo "::error::${release} is still a draft after 'gh release create'"
+            exit 1
+          fi
+          attached="$(gh release view "$release" --json assets --jq '.assets | length')"
+          echo "published ${release} with ${attached} asset(s)"
+          if [ "$attached" -ne "$count" ]; then
+            echo "::error::attached ${attached} asset(s) but dist/ holds ${count}"
+            exit 1
+          fi

@@ -14,6 +14,13 @@ inputs:
       download and an unqualified `docker pull` mean here.
     required: false
     default: sutura
+  profile:
+    description: >
+      `release` or `performance` - the cargo profile, as the nix attribute suffix `nix/shipped.nix`
+      gives it. `performance` appends `-performance` to every attribute, asset name and SBOM stem,
+      so its artefacts can never be mistaken for the release's.
+    required: false
+    default: release
 
 # A LOCAL COMPOSITE ACTION, for `attest-and-sign`'s reasons and one of its own.
 #
@@ -40,6 +47,21 @@ inputs:
 runs:
   using: composite
   steps:
+    # PARSED ONCE, refused if unknown: a typo would otherwise build the release profile under a
+    # name that says it is something else.
+    - name: Profile
+      id: profile
+      shell: bash
+      env:
+        PROFILE: ${{ inputs.profile }}
+      run: |
+        set -eu
+        case "$PROFILE" in
+          release) echo "suffix=" >> "$GITHUB_OUTPUT" ;;
+          performance) echo "suffix=-performance" >> "$GITHUB_OUTPUT" ;;
+          *) echo "::error::profile is '${PROFILE}' - it is release or performance"; exit 1 ;;
+        esac
+
     # The static-linking claim is ASSERTED here rather than described, because a musl target
     # that quietly linked dynamically would still build, still run on this runner, and fail
     # only on the machine the artifact exists for.
@@ -63,6 +85,7 @@ runs:
       env:
         TARGET: ${{ inputs.target }}
         BINARIES: ${{ inputs.binaries }}
+        SUFFIX: ${{ steps.profile.outputs.suffix }}
       run: |
         set -eu
         # An EMPTY set is a loop that runs zero times and a step that exits 0, so the job would be
@@ -71,9 +94,9 @@ runs:
         test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would build nothing"; exit 1; }
         mkdir -p dist stage facts
         for bin in $BINARIES; do
-          if [ "$bin" = sutura ]; then key="$TARGET"; else key="${bin#sutura-}-${TARGET}"; fi
+          if [ "$bin" = sutura ]; then key="$TARGET$SUFFIX"; else key="${bin#sutura-}-${TARGET}$SUFFIX"; fi
           rm -rf stage && mkdir -p stage
-          nix build ".#${bin}-${TARGET}" -L -o "result-${key}"
+          nix build ".#${bin}-${TARGET}${SUFFIX}" -L -o "result-${key}"
           described="$(file -b "result-${key}/bin/${bin}")"
           echo "${bin} ${TARGET}: ${described}"
           case "$TARGET" in
@@ -98,8 +121,9 @@ runs:
             *) linkage="dynamic (glibc)" ;;
           esac
           install -m755 "result-${key}/bin/${bin}" "stage/${bin}"
-          tar -C stage -czf "dist/${bin}-${TARGET}.tar.gz" "${bin}"
-          ( cd dist && sha256sum "${bin}-${TARGET}.tar.gz" > "${bin}-${TARGET}.tar.gz.sha256" )
+          asset="${bin}-${TARGET}${SUFFIX}.tar.gz"
+          tar -C stage -czf "dist/${asset}" "${bin}"
+          ( cd dist && sha256sum "${asset}" > "${asset}.sha256" )
           # Feeds the release notes, and lives OUTSIDE dist/ so it cannot become an asset
           # repeating what the notes already say. Written with `>` and not `>>`: on a re-run in
           # a warm workspace an append would report this artefact twice.
@@ -120,12 +144,13 @@ runs:
       env:
         TARGET: ${{ inputs.target }}
         BINARIES: ${{ inputs.binaries }}
+        SUFFIX: ${{ steps.profile.outputs.suffix }}
       run: |
         set -eu
         test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would build no image"; exit 1; }
         mkdir -p dist images
         for bin in $BINARIES; do
-          if [ "$bin" = sutura ]; then key="$TARGET"; else key="${bin#sutura-}-${TARGET}"; fi
+          if [ "$bin" = sutura ]; then key="$TARGET$SUFFIX"; else key="${bin#sutura-}-${TARGET}$SUFFIX"; fi
           nix build ".#oci-${key}" -L -o result-oci
           # Written to a file once and loaded from it, rather than streamed twice: the stream
           # script rebuilds and recompresses every layer each time it runs. The gzip is both
@@ -180,7 +205,7 @@ runs:
         case "$TARGET" in
           *-musl)
             for bin in $BINARIES; do
-              if [ "$bin" = sutura ]; then key="$TARGET"; else key="${bin#sutura-}-${TARGET}"; fi
+              if [ "$bin" = sutura ]; then key="$TARGET$SUFFIX"; else key="${bin#sutura-}-${TARGET}$SUFFIX"; fi
               cp "images/sutura-oci-${key}.tar.gz" "dist/sutura-oci-${key}.tar.gz"
               ( cd dist && sha256sum "sutura-oci-${key}.tar.gz" > "sutura-oci-${key}.tar.gz.sha256" )
             done
@@ -230,6 +255,7 @@ runs:
       env:
         TARGET: ${{ inputs.target }}
         BINARIES: ${{ inputs.binaries }}
+        SUFFIX: ${{ steps.profile.outputs.suffix }}
       run: |
         set -eu
         test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would write no SBOM"; exit 1; }
@@ -238,10 +264,10 @@ runs:
         # target, generically: a second shipped binary would link its own crates, not share this
         # one's inventory, so a single document could never be true of both.
         for bin in $BINARIES; do
-          if [ "$bin" = sutura ]; then key="$TARGET"; else key="${bin#sutura-}-${TARGET}"; fi
+          if [ "$bin" = sutura ]; then key="$TARGET$SUFFIX"; else key="${bin#sutura-}-${TARGET}$SUFFIX"; fi
           gzip -dc "images/sutura-oci-${key}.tar.gz" > sbom-input.tar
           nix run .#syft -- scan "docker-archive:sbom-input.tar" \
-            --source-name "${bin}-${TARGET}" \
+            --source-name "${bin}-${TARGET}${SUFFIX}" \
             --source-version "${GITHUB_REF_NAME}" \
             -o "cyclonedx-json=dist/sutura-oci-${key}.cdx.json" \
             -o "spdx-json=dist/sutura-oci-${key}.spdx.json"

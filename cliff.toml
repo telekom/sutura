@@ -60,6 +60,11 @@ body = """
 trim = true
 
 [git]
+# Only a release tag is a release. `release-performance.yml` tags `v<version>-performance` on a
+# released commit, and without this `--bumped-version` answered `v<version>-performance.1` -
+# measured on a scratch repository. Over this repository's own history the rendered changelog and
+# the bump are unchanged. `check-version-bump` holds the line.
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
 conventional_commits = true
 # A non-conventional subject is dropped rather than guessed at. The commit-msg gate means the
 # only ones that exist predate it.
