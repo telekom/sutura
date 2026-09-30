@@ -430,6 +430,11 @@ fn stack_parent(root: &Path, asked_for: &Commit) -> Option<Parent> {
 /// consults is taken with [`repo::Census::inspect`], which opens every compiled source in the tree.
 /// The read is the census's own, so a listed source that vanished before it is a refusal here, not
 /// an empty answer.
+///
+/// **The limit, next to the claim.** [`sources_under`] - a refusal carried through rather than
+/// turned into an empty listing - has a cell. The census-to-refusal conversion inside the
+/// `OnceCell` (an `all_files` refusal, an `inspect` refusal, a source gone from disk) has none: it
+/// reads the real repository, and no cell injects a census.
 fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], read: &regions::PostImage<'_>) -> Activation {
     let base = |path: &str| {
         if worktree::base_has(root, at, path) {
@@ -439,35 +444,25 @@ fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], rea
         }
     };
     let listing: std::cell::OnceCell<features::Listing> = std::cell::OnceCell::new();
-    let sources = |dir: &str| {
-        listing
-            .get_or_init(|| {
-                let census = repo::all_files().map_err(|why| why.describe())?;
-                let mut listing = Vec::new();
-                match census.inspect(&[], is_compiled_rust, |rel, _| {
-                    listing.push(String::from(rel));
-                }) {
-                    Ok(inspected) if inspected.absent() == 0 => Ok(listing),
-                    Ok(inspected) => Err(format!(
-                        "{} source file(s) the working tree's listing named are no longer on disk",
-                        inspected.absent()
-                    )),
-                    Err(why) => Err(why.describe()),
-                }
-            })
-            .as_ref()
-            .map_err(String::clone)
-            .map(|listing| {
-                listing
-                    .iter()
-                    // `is_compiled_rust` rather than an extension test, so the one rule that
-                    // decides what this workspace compiles decides here too - a vendored path is
-                    // excluded by it.
-                    .filter(|path| dir.is_empty() || path.starts_with(&format!("{dir}/")))
-                    .cloned()
-                    .collect()
-            })
+    let census_listing = || {
+        listing.get_or_init(|| {
+            let census = repo::all_files().map_err(|why| why.describe())?;
+            let mut listing = Vec::new();
+            // `is_compiled_rust` rather than an extension test, so the one rule that decides
+            // what this workspace compiles decides here too - a vendored path is excluded by it.
+            match census.inspect(&[], is_compiled_rust, |rel, _| {
+                listing.push(String::from(rel));
+            }) {
+                Ok(inspected) if inspected.absent() == 0 => Ok(listing),
+                Ok(inspected) => Err(format!(
+                    "{} source file(s) the working tree's listing named are no longer on disk",
+                    inspected.absent()
+                )),
+                Err(why) => Err(why.describe()),
+            }
+        })
     };
+    let sources = |dir: &str| sources_under(census_listing(), dir);
     Activation::of(
         files,
         &Trees {
@@ -476,6 +471,18 @@ fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], rea
             sources: &sources,
         },
     )
+}
+
+/// The compiled sources under `dir`, or the census's refusal carried through: a refusal is never
+/// an empty listing, which would let *nothing was enabled* be said over sources never read.
+fn sources_under(listing: &features::Listing, dir: &str) -> features::Listing {
+    listing.as_ref().map_err(String::clone).map(|listing| {
+        listing
+            .iter()
+            .filter(|path| dir.is_empty() || path.starts_with(&format!("{dir}/")))
+            .cloned()
+            .collect()
+    })
 }
 
 /// The tests-only shape of a separable plan: `separable.revert` is empty, so nothing here differs
@@ -829,6 +836,25 @@ mod tests {
     use super::fixtures::{Mutation, inseparable_claim_case};
     use super::{BaseState, retry_with_held_back};
     use crate::Verdict;
+
+    /// `github.com/telekom/sutura#414`: a refused census is carried through to the feature scan,
+    /// never swapped for an empty listing that would let *nothing was enabled* pass unread.
+    #[test]
+    fn a_refused_census_reaches_the_scan_as_a_refusal_not_an_empty_listing() {
+        let refused: super::features::Listing = Err(String::from("the census refused"));
+        assert_eq!(
+            super::sources_under(&refused, "crates/x"),
+            Err(String::from("the census refused"))
+        );
+        let listed: super::features::Listing = Ok(vec![
+            String::from("crates/x/src/lib.rs"),
+            String::from("crates/xy/src/lib.rs"),
+        ]);
+        assert_eq!(
+            super::sources_under(&listed, "crates/x"),
+            Ok(vec![String::from("crates/x/src/lib.rs")])
+        );
+    }
 
     /// `github.com/telekom/sutura#837` direction 2, half one: a complete declaration on an
     /// inseparable diff is EVALUATED, and a mutation that kills by the cell's own assertion is
