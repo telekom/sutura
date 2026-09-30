@@ -397,4 +397,91 @@ mod tests {
             ANCHORS = anchors,
         )
     }
+
+    /// The digest the declared definition pins to, built in-process by `DataHubCatalog` over its own
+    /// `HttpAspectReader` against a second fake serving the same pages - never from a reply, and
+    /// never through the served binary's composition root or its wire. **Limit:** it shares the
+    /// reader and the adapter's assembly with the served path, so a fault in either that corrupts
+    /// both sides alike is not caught here; `sutura-catalog-datahub`'s `tests/http_reader.rs` holds
+    /// the reader.
+    fn declared_digest() -> String {
+        use sutura_catalog_datahub::DataHubCatalog;
+        use sutura_catalog_datahub::http::{Endpoint, HttpAspectReader, ReadBounds};
+        use sutura_domain::identity::Secret;
+        use sutura_domain::model::SourceName;
+        use sutura_domain::pinned::{DefinitionVersion, SemanticCatalog as _};
+
+        let server = FakeServer::start(happy_path_answers());
+        let name = SourceName::parse(CATALOG).expect("the catalog name is a source name");
+        let reader = HttpAspectReader::new(
+            Endpoint::parse(&server.endpoint()).expect("the fake's own endpoint is usable"),
+            String::from(DEPLOYMENT_PROPERTY),
+            Secret::new(String::from("pat-under-test")),
+            ReadBounds::parse(10, 1 << 20).expect("a positive timeout and cap are usable bounds"),
+            None,
+        );
+        let mut sources = std::collections::BTreeMap::new();
+        drop(sources.insert(String::from("bigquery"), name.clone()));
+        let pinned = DataHubCatalog::new(
+            name,
+            DefinitionVersion::parse(VERSION).expect("the declared version parses"),
+            sources,
+            reader,
+        )
+        .load()
+        .expect("the declared definition loads in-process");
+        drop(server.finish());
+        String::from(pinned.digest().as_str())
+    }
+
+    /// Boots a datahub deployment and returns its `/catalog` listing.
+    fn served_listing(case: &str) -> serde_json::Value {
+        let data = DataDir::prepared(case);
+        let mut answers = happy_path_answers();
+        answers.extend(happy_path_answers());
+        let server = FakeServer::start(answers);
+        let deployment = start_configured(case, &settings(&server, &data));
+        let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        reply.json()
+    }
+
+    /// A datahub catalog served by the binary boots and its `/catalog` listing carries the declared
+    /// version and the digest [`declared_digest`] builds.
+    ///
+    /// **RED/GREEN.** The committed claim patch replaces `settings.version().clone()` in
+    /// `open_one_datahub_catalog` with a constant version, and the version assertion goes red.
+    #[test]
+    fn a_datahub_catalog_boots_and_lists_its_declared_version_and_digest_from_the_served_binary() {
+        let body = served_listing("datahub-boot-and-list");
+        assert_eq!(
+            body["metrics"].as_array().map(Vec::len),
+            Some(1),
+            "a DataHub catalog with one metric must list one: {body}"
+        );
+        assert_eq!(
+            body["provenance"]["definition_version"], VERSION,
+            "the served bundle must be stamped with the declared version: {body}"
+        );
+        assert_eq!(
+            body["provenance"]["definition_digest"],
+            declared_digest().as_str(),
+            "the served digest must be the declared definition's own: {body}"
+        );
+    }
+
+    /// The served listing's digest is the one the declared definition pins to, not merely present
+    /// (`DefinitionDigest::parse` already refuses an empty one).
+    ///
+    /// **RED/GREEN.** The committed claim patch makes `bundle_body` (`crates/sutura-http/src/wire.rs`)
+    /// list a constant digest, and this assertion goes red.
+    #[test]
+    fn a_served_datahub_listing_carries_the_digest_its_declared_definition_pins_to() {
+        let body = served_listing("datahub-listed-digest");
+        assert_eq!(
+            body["provenance"]["definition_digest"],
+            declared_digest().as_str(),
+            "the served digest must be the declared definition's own: {body}"
+        );
+    }
 }
