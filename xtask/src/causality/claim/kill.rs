@@ -202,10 +202,7 @@ pub(super) fn attest(ok: bool, text: &str, cell: &str, added: &AddedTest, read: 
         MutationKill::NotByAssertion { ref site }
             if site.starts_with("dev/src/provisioned.rs:") && text.contains(sutura_dev::requirement::REQUIRED) =>
         {
-            Err(Cause::BuildFailed {
-                cell: cell.to_owned(),
-                why: String::from("the cell needs a service tier the kill worktree does not provision - it never ran"),
-            })
+            Err(Cause::NoTier { cell: cell.to_owned() })
         }
         MutationKill::NotAsserted => Err(Cause::NotKilled { cell: cell.to_owned() }),
         MutationKill::NotByAssertion { site } => Err(Cause::NotByAssertion {

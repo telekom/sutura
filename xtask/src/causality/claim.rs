@@ -234,6 +234,10 @@ pub(super) enum Cause {
     /// ran and the cell survived it, this is a build the gate never got a chance to run the cell
     /// against, so it is not a verdict about the declaration at all.
     BuildFailed { cell: String, why: String },
+    /// The cell ended at its service-tier lookup, so it never ran. The kill worktree is provisioned
+    /// no tier ON PURPOSE: sharing the root's would let a mutated fixture write state the root's own
+    /// run reads afterwards. So a re-run cannot change this answer, and the remedy says so.
+    NoTier { cell: String },
 }
 
 impl Cause {
@@ -246,7 +250,7 @@ impl Cause {
     /// is the same non-verdict shape as `Verdict::Inconclusive` elsewhere in this gate - a subject
     /// it did not reach, not a subject it read and rejected.
     const fn unmeasured(&self) -> bool {
-        matches!(self, Self::BuildFailed { .. })
+        matches!(self, Self::BuildFailed { .. } | Self::NoTier { .. })
     }
 }
 
@@ -792,7 +796,15 @@ fn refused_lines(causes: &[Cause], unmeasured: bool, caller: Caller) -> Vec<Stri
         format!("xtask {}: FAILED - a `{TRAILER}` declaration did not hold", caller.task)
     }];
     lines.extend(causes.iter().map(cause_line));
-    if unmeasured {
+    if unmeasured && causes.iter().all(|cause| matches!(cause, Cause::NoTier { .. })) {
+        lines.extend([
+            String::new(),
+            String::from("A tier-backed claim cell cannot be killed by this gate, and re-running changes"),
+            String::from("nothing: the kill worktree shares no service tier with the root. Prove it by hand -"),
+            String::from("apply the patch, run the cell against a provisioned tier, and put the red run in"),
+            String::from("the handoff."),
+        ]);
+    } else if unmeasured {
         lines.extend([
             String::new(),
             String::from("The gate could not attest either way: the nested build under the mutation never"),
@@ -839,6 +851,9 @@ fn cause_line(cause: &Cause) -> String {
         }
         Cause::NotKilled { cell } => {
             format!("  not killed:  {cell}  (applied, run, and the cell did not fail - the mutation does not kill it)")
+        }
+        Cause::NoTier { cell } => {
+            format!("  no tier:     {cell}  (it ended at its service-tier lookup - the kill worktree provisions none)")
         }
         Cause::BuildFailed { cell, why } => {
             format!(
