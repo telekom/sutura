@@ -411,10 +411,6 @@ where
         )
     }
 
-    #[expect(
-        clippy::integer_division_remainder_used,
-        reason = "the `select!` macro expands through remainder arithmetic to pick a poll order; nothing here does"
-    )]
     async fn call_tool(
         &self,
         request: CallToolRequestParams,

@@ -157,10 +157,6 @@ enum Incoming {
 /// The race is what makes this task exit rather than park in `accept` for the life of the process:
 /// `Sender::closed` resolves when `axum` has dropped the listener, which is the only signal this
 /// task gets that serving is over.
-#[expect(
-    clippy::integer_division_remainder_used,
-    reason = "the `select!` macro expands through remainder arithmetic to pick a poll order; nothing here does"
-)]
 async fn next_connection(tcp: &TcpListener, ready: &mpsc::Sender<Accepted>) -> Incoming {
     tokio::select! {
         () = ready.closed() => served_out(),

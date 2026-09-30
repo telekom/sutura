@@ -318,7 +318,7 @@ jobs:
       # A local composite action so `docs`, `release` and the cross matrix can call the same
       # thing. See `.github/actions/reclaim-disk` for why it is local and why it cannot affect
       # the Nix cache.
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
         with:
           minimum-gb: "25"
 
@@ -371,7 +371,7 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
 
-      - uses: ./.github/actions/nix-store-cache
+      - uses: $/.github/actions/nix-store-cache
         with:
           scope: ci
 
@@ -628,7 +628,7 @@ jobs:
         # four nix cross-builds of the Go driver with no dependency on the Rust
         # closure - and it is the ONE venue that realises those builds: round-1
         # review of the ADBC PR found no gate built the driver.
-        uses: ./.github/actions/measure-host
+        uses: $/.github/actions/measure-host
         with:
           label: closure-free gate graph
           run: |-
@@ -775,7 +775,7 @@ jobs:
       - name: Realise the xtask and lint gates in one graph
         if: github.event_name != 'push'
         continue-on-error: true
-        uses: ./.github/actions/measure-host
+        uses: $/.github/actions/measure-host
         env:
           RUST: ${{ steps.classify.outputs.rust }}
         with:
@@ -855,7 +855,7 @@ jobs:
       - name: Realise the test graph in one invocation
         if: github.event_name != 'push'
         continue-on-error: true
-        uses: ./.github/actions/measure-host
+        uses: $/.github/actions/measure-host
         env:
           RUST: ${{ steps.classify.outputs.rust }}
           API: ${{ steps.classify.outputs.api }}
@@ -992,7 +992,7 @@ jobs:
       # the caller and CANNOT SEE POSITION. So the gate is satisfied while the property its own
       # message names is weaker than it reads. Written down rather than fixed here: teaching it
       # position is a change to that gate, not to this file.
-      - uses: ./.github/actions/causality-target-cache
+      - uses: $/.github/actions/causality-target-cache
         if: github.event_name != 'push'
         with:
           scope: ci
@@ -1041,7 +1041,7 @@ jobs:
       # only the wrapper is added.
       - name: The shipped feature set compiles and lints
         if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
-        uses: ./.github/actions/measure-host
+        uses: $/.github/actions/measure-host
         with:
           label: shipped feature set compiles and lints
           run: |-
@@ -1052,7 +1052,7 @@ jobs:
       # measurement - 2m18s reusing the warmed closure at the `ci` profile - and its own limits.
       - name: The shipped feature set runs its tests
         if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
-        uses: ./.github/actions/measure-host
+        uses: $/.github/actions/measure-host
         with:
           label: shipped feature set runs its tests
           run: |-
@@ -1332,7 +1332,7 @@ jobs:
           fi
           exit "$status"
 
-      - uses: ./.github/actions/nix-store-cache-report
+      - uses: $/.github/actions/nix-store-cache-report
         if: always()
 
       # DURABLE VALIDATED-COMMIT MARKER (#561). Advance "the last commit a completed run fully
@@ -1447,7 +1447,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
 
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         if: github.event_name == 'pull_request'
@@ -1483,7 +1483,7 @@ jobs:
       #
       # THE LIMIT: n=8 after that merge is a direction and not a distribution, and no A/B of THIS
       # step exists - deleting it would need its own before-and-after on this job, not the `bq` one.
-      - uses: ./.github/actions/nix-store-cache
+      - uses: $/.github/actions/nix-store-cache
         with:
           scope: ci
 
@@ -1673,7 +1673,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
         with:
           minimum-gb: "25"
 
@@ -1772,7 +1772,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           extra_nix_config: |
@@ -1814,7 +1814,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           extra_nix_config: |
@@ -1907,7 +1907,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           extra_nix_config: |
@@ -1948,7 +1948,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           extra_nix_config: |
@@ -1971,7 +1971,7 @@ jobs:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     # No `permissions:` block: a caller cannot grant a called workflow more than it holds, so
     # omitting it leaves this workflow's own `contents: read`.
-    uses: ./.github/workflows/demo-container.yml
+    uses: $/.github/workflows/demo-container.yml
 
   # #149 branch 5. NOT hermetic and NOT a nix check, for `nix/kind-smoke.nix`'s own reason: a
   # `kind` cluster needs a container runtime and a real network namespace, neither of which a
@@ -1991,7 +1991,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           extra_nix_config: |
@@ -2133,4 +2133,4 @@ jobs:
     if: needs.ci.outputs.build == 'true' && (github.event_name == 'pull_request' || github.event_name == 'push')
     # No `permissions:` block: a caller cannot grant a called workflow more than it holds, so
     # omitting it leaves this workflow's own `contents: read`, which is what the job declared.
-    uses: ./.github/workflows/cross-link.yml
+    uses: $/.github/workflows/cross-link.yml

@@ -22,6 +22,7 @@ mod branches;
 mod catalog_opened_once;
 mod causality;
 mod changes;
+mod check_lock_coverage;
 mod commit_msg;
 mod compose;
 mod conformance;
@@ -142,7 +143,7 @@ fn run_hygiene(_args: &[String]) -> Verdict {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let rest = args.split_first().map(|(_, rest)| rest).unwrap_or_default();
+    let rest = args.split_first().map_or_default(|(_, rest)| rest);
 
     match args.first().map(String::as_str) {
         Some("--help" | "-h" | "help") => {

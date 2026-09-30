@@ -1,0 +1,18 @@
+diff --git a/xtask/src/affected/claim_mutation.rs b/xtask/src/affected/claim_mutation.rs
+index 07f960173..3efa70dac 100644
+--- a/xtask/src/affected/claim_mutation.rs
++++ b/xtask/src/affected/claim_mutation.rs
+@@ -53,12 +53,7 @@ fn checked(output: std::io::Result<Output>, operation: &str) -> Result<Vec<u8>,
+ fn targets(root: &Path, base: Option<&str>, path: &str) -> Result<BTreeSet<String>, String> {
+     let base = base.ok_or("no base revision for the mutation artifact")?;
+     let metadata = std::fs::symlink_metadata(root.join(path)).map_err(|error| format!("read head metadata: {error}"))?;
+-    #[expect(
+-        clippy::filetype_is_file,
+-        reason = "symlink_metadata does not follow links, so this correctly refuses a symlink \
+-                  too - the lint's is_dir() substitute would accept one, which is not a regular file"
+-    )]
+-    if !metadata.file_type().is_file() {
++    if metadata.file_type().is_dir() {
+         return Err(String::from("head mutation artifact is not a regular file"));
+     }
+     let head = std::fs::read(root.join(path)).map_err(|error| format!("read head mutation: {error}"))?;

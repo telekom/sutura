@@ -124,7 +124,7 @@ fn touched(file: &ChangedFile, read: &PostImage<'_>) -> Vec<String> {
     let names: BTreeSet<String> = direct
         .iter()
         .map(|test| String::from(test.name().as_str()))
-        .chain(callers.iter().map(|name| String::from(name.as_str())))
+        .chain(callers.iter().map(|caller| String::from(caller.name().as_str())))
         .collect();
     names.into_iter().collect()
 }

@@ -37,8 +37,13 @@
 //! `''` too - so it agrees the skip was allowed. `every_emitted_category_is_republished_as_a_ci_job_output`
 //! holds the two lists together; nothing else does.
 
+#[path = "affected/claim_mutation.rs"]
+mod claim_mutation;
 #[path = "affected/lockfile.rs"]
 mod lockfile;
+#[cfg(test)]
+#[path = "affected/mutation_tests.rs"]
+mod mutation_tests;
 
 use std::collections::BTreeSet;
 use std::io::Write as _;
@@ -155,7 +160,9 @@ fn derive_from(paths: &[String], registry: Result<BTreeSet<String>, String>, roo
     } else {
         None
     };
-    let (mut core, selected, mut reasons) = select(paths, registry.as_ref().ok(), locks.as_ref());
+    let (paths, patch_reasons) = claim_mutation::expand(paths, root, base);
+    let (mut core, selected, mut reasons) = select(&paths, registry.as_ref().ok(), locks.as_ref());
+    reasons.extend(patch_reasons);
     let declared = match registry {
         Ok(mut set) => {
             set.insert(String::from(IDENTITY));
@@ -833,13 +840,9 @@ macro_rules! registered {
             let script = aggregator_shell();
             let mut cmd = std::process::Command::new("bash");
             cmd.arg("-c").arg(&script);
-            cmd.env("E2E_RESULT", "skipped")
-                .env("E2E_REQUIRED", "false")
-                .env("ORACLE_RESULT", "skipped")
-                .env("ORACLE_SELECTED", "false");
-            for (k, v) in envs {
-                cmd.env(k, v);
-            }
+            cmd.env("E2E_RESULT", "skipped").env("E2E_REQUIRED", "false");
+            cmd.env("ORACLE_RESULT", "skipped").env("ORACLE_SELECTED", "false");
+            cmd.envs(envs.iter().copied());
             let out = cmd.output().expect("bash runs the ci-aggregate shell");
             let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
             text.push_str(&String::from_utf8_lossy(&out.stderr));

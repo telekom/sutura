@@ -464,8 +464,8 @@ one thing here that is a change to a port rather than a new adapter.
 **3. What DataHub declares, concretely - and this is where the research lands.**
 
 Not a list of blockers. The content of a declaration, with the negatives named because naming them is
-what makes the source safe to use. **Every *does NOT provide* below that a deployment-defined structured
-property can supply is narrowed by the *Amendment, 2026-09-02*** to a declared-and-empty may-provide, and
+what makes the source safe to use. __Every *does NOT provide* below that a deployment-defined structured
+property can supply is narrowed by the *Amendment, 2026-09-02*__ to a declared-and-empty may-provide, and
 the adapter's own capability declaration - not this table - is the authority for which those are:
 
 | Kind                               | DataHub declares                   | On the evidence of                                                                                                                                           |

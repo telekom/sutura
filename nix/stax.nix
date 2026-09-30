@@ -32,7 +32,7 @@
 let
   # ONE version string. The dev shell echoes it on entry and `check-guidance` reads it back out
   # of this file, so prose that names a different one fails the gate rather than rotting.
-  staxVersion = "0.110.0";
+  staxVersion = "0.113.1";
 
   # One entry per system the dev shell is entered on. Upstream also publishes a Windows zip,
   # which has no system here to map to. A system missing from the table is a loud eval error
@@ -45,10 +45,10 @@ let
   };
 
   hashes = {
-    x86_64-unknown-linux-gnu = "sha256-pP0Gkv2KhFa+GrEaez8L6mObyb1akDs2DytLFAcIZd8=";
-    aarch64-unknown-linux-gnu = "sha256-4R0JBxxkw1hXQmavP7eClSrc/Z2AvLRmD//hHQLldd0=";
-    x86_64-apple-darwin = "sha256-sg2KISugWAVOdVuHNWt01CassakVwrg7nF+NnUaXvns=";
-    aarch64-apple-darwin = "sha256-dVYROg9xwOeHhr90YPF72s4I+aXWCGOGaE1hAUimw8s=";
+    x86_64-unknown-linux-gnu = "sha256-Qr+PY7clPF5BzJ52yNOIoh3IVSHG0TOdI0S2VEbown8=";
+    aarch64-unknown-linux-gnu = "sha256-43Hy6p7SEoNHVAq5KT9EQLh5wa0o+8jnH11gfckANGs=";
+    x86_64-apple-darwin = "sha256-wKSk2DCv2o9hJsZdWX6vIIZK0puiJMM4OEctAov319c=";
+    aarch64-apple-darwin = "sha256-hl9pSIs8xtryolnIQr0MamwNxbabcLT9PVquEiEyk6I=";
   };
 
   system = pkgs.stdenv.hostPlatform.system;

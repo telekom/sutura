@@ -57,6 +57,7 @@ use crate::causality::claim::{self, Claim};
 use crate::causality::place::{self, AddedTest};
 use crate::causality::scoped::{Scoped, function_name};
 use crate::repo;
+use crate::serde_parse::scan::code_lines;
 
 /// Every `.patch` file committed at `dir`, sorted by name.
 ///
@@ -137,11 +138,19 @@ fn check_apply_at(root: &Path) -> Verdict {
     }
 
     let mut rotted: Vec<String> = Vec::new();
+    let mut cells: Vec<String> = Vec::new();
     for patch in &list {
         let name = cell_name(patch).unwrap_or_else(|| patch.display().to_string());
         if let Err(why) = claim::apply_git(root, patch, true) {
             rotted.push(format!("{name}: {why}"));
         }
+        cells.push(name);
+    }
+    // A patch that applies but names no test is the same silent rot, one step earlier: the kill
+    // half is on demand, so this is the only per-commit gate that sees a renamed cell.
+    match locate(root, &cells) {
+        Ok(located) => rotted.extend(unlocated(&cells, &located).1),
+        Err(why) => rotted.push(why),
     }
 
     if rotted.is_empty() {
@@ -152,7 +161,7 @@ fn check_apply_at(root: &Path) -> Verdict {
         return Verdict::Pass;
     }
 
-    eprintln!("xtask check-claim-mutations: FAILED - a committed claim mutation no longer applies\n");
+    eprintln!("xtask check-claim-mutations: FAILED - a committed claim mutation no longer applies or names no test\n");
     for line in &rotted {
         eprintln!("  {line}");
     }
@@ -172,8 +181,12 @@ fn check_apply_at(root: &Path) -> Verdict {
 enum Located {
     /// Exactly one file declares it, placed on the module tree a nextest filter can reach.
     One(AddedTest),
-    /// No file in the tree declares a test fn by this name any more - `#929`'s own shape: the
-    /// cell's test was deleted and nothing but a merge conflict noticed.
+    /// No file's CODE declares a fn by this name any more - `#929`'s own shape: the cell's test
+    /// was deleted and nothing but a merge conflict noticed. A comment, a doc comment or a
+    /// multi-line string naming it does not count. Two things still do, because the scan reads the
+    /// word after `fn` on each code line and not test attributes: a non-test `fn` of the same name,
+    /// and a ONE-LINE string such as `"the fn <old name> was renamed"` - `code_lines` keeps a
+    /// single-line string's content.
     Gone,
     /// More than one file declares a test fn by this name. Refused rather than guessed at: a
     /// wrong guess here would ask `claim::run` to mutate and kill the WRONG file's assertion.
@@ -198,9 +211,9 @@ fn locate(root: &Path, cells: &[String]) -> Result<Placement, String> {
     let scope: repo::Scope = outside_vendor;
     census
         .inspect(&[], scope, |rel, bytes| {
-            let text = String::from_utf8_lossy(bytes);
-            for line in text.lines() {
-                let Some(ident) = function_name(line) else { continue };
+            // CODE only: a comment still naming a renamed cell's old `fn` must not keep its patch alive.
+            for line in code_lines(&String::from_utf8_lossy(bytes)) {
+                let Some(ident) = function_name(&line) else { continue };
                 let Some(bucket) = found.get_mut(ident.as_str()) else {
                     continue;
                 };
@@ -221,6 +234,30 @@ fn locate(root: &Path, cells: &[String]) -> Result<Placement, String> {
             (cell, located)
         })
         .collect())
+}
+
+/// The cells [`locate`] placed on exactly one file, and a refusal line for each one it could not.
+type Split = (Vec<AddedTest>, Vec<String>);
+
+/// Split `cells` into what [`Split`] holds.
+fn unlocated(cells: &[String], located: &Placement) -> Split {
+    let mut tests: Vec<AddedTest> = Vec::new();
+    let mut causes: Vec<String> = Vec::new();
+    for cell in cells {
+        match located.get(cell) {
+            Some(Located::One(test)) => tests.push(test.clone()),
+            Some(Located::Gone) => causes.push(format!(
+                "{cell}: no test fn by this name exists in the tree any more - the cell it names is gone"
+            )),
+            Some(Located::Ambiguous(files)) => causes.push(format!(
+                "{cell}: declared in more than one file ({}) - refusing rather than guessing which one \
+                 the patch means",
+                files.join(", ")
+            )),
+            None => causes.push(format!("{cell}: not scanned - this gate's own bookkeeping lost it")),
+        }
+    }
+    (tests, causes)
 }
 
 /// THE KILL HALF: does every committed mutation patch still kill the cell it names?
@@ -276,22 +313,7 @@ fn run_at(root: &Path) -> Verdict {
         }
     };
 
-    let mut tests: Vec<AddedTest> = Vec::new();
-    let mut causes: Vec<String> = Vec::new();
-    for cell in &cells {
-        match located.get(cell) {
-            Some(Located::One(test)) => tests.push(test.clone()),
-            Some(Located::Gone) => causes.push(format!(
-                "{cell}: no test fn by this name exists in the tree any more - the cell it names is gone"
-            )),
-            Some(Located::Ambiguous(files)) => causes.push(format!(
-                "{cell}: declared in more than one file ({}) - refusing rather than guessing which one \
-                 the patch means",
-                files.join(", ")
-            )),
-            None => causes.push(format!("{cell}: not scanned - this gate's own bookkeeping lost it")),
-        }
-    }
+    let (tests, causes) = unlocated(&cells, &located);
 
     if !causes.is_empty() {
         eprintln!("xtask check-claim-mutation-kills: FAILED - could not locate every committed cell\n");
@@ -502,12 +524,85 @@ mod tests {
     fn a_patch_that_still_applies_is_an_apply_pass() {
         let root = scratch("apply-healthy");
         std::fs::write(root.join("a.txt"), "hello\n").expect("the target file");
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"demo\"\n").expect("a manifest");
+        std::fs::create_dir_all(root.join("src")).expect("src/");
+        std::fs::write(root.join("src/lib.rs"), "#[test]\nfn healthy_cell() {}\n").expect("the cell's file");
         write_patch(
             &root,
             "healthy_cell",
             "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-hello\n+world\n",
         );
         assert_eq!(check_apply_at(&root), Verdict::Pass);
+    }
+
+    #[test]
+    fn a_patch_that_applies_but_names_no_test_fails_the_apply_half() {
+        let root = scratch("apply-renamed-cell");
+        std::fs::write(root.join("a.txt"), "hello\n").expect("the target file");
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"demo\"\n").expect("a manifest");
+        std::fs::create_dir_all(root.join("src")).expect("src/");
+        std::fs::write(root.join("src/lib.rs"), "#[test]\nfn the_cell_after_its_rename() {}\n").expect("the renamed cell");
+        write_patch(
+            &root,
+            "the_cell_before_its_rename",
+            "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-hello\n+world\n",
+        );
+        assert_eq!(check_apply_at(&root), Verdict::Fail);
+    }
+
+    /// A scratch tree whose one committed patch, for `cell`, applies to `a.txt`, with `files`
+    /// beside it on a crate `place` can place.
+    fn applying_tree(name: &str, cell: &str, files: &[(&str, &str)]) -> PathBuf {
+        let root = scratch(name);
+        std::fs::write(root.join("a.txt"), "hello\n").expect("the target file");
+        for (path, text) in files {
+            let path = root.join(path);
+            std::fs::create_dir_all(path.parent().expect("a parent")).expect("the parent directory");
+            std::fs::write(path, text).expect("a fixture file");
+        }
+        write_patch(&root, cell, "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-hello\n+world\n");
+        root
+    }
+
+    const MANIFEST: (&str, &str) = ("Cargo.toml", "[package]\nname = \"demo\"\n");
+
+    #[test]
+    fn a_cell_two_files_declare_fails_the_apply_half() {
+        let declared = "#[test]\nfn a_shared_cell_name() {}\n";
+        let root = applying_tree(
+            "apply-ambiguous-cell",
+            "a_shared_cell_name",
+            &[
+                MANIFEST,
+                ("src/lib.rs", ""),
+                ("src/one.rs", declared),
+                ("src/two.rs", declared),
+            ],
+        );
+        assert_eq!(check_apply_at(&root), Verdict::Fail);
+    }
+
+    #[test]
+    fn a_cell_scan_that_refuses_fails_the_apply_half() {
+        // No `.rs` file at all: the census refuses an empty discovery, and that refusal is the verdict.
+        let root = applying_tree("apply-unscannable", "a_cell_the_scan_never_reached", &[]);
+        assert_eq!(check_apply_at(&root), Verdict::Fail);
+    }
+
+    #[test]
+    fn a_comment_naming_a_renamed_cell_does_not_keep_its_patch_alive() {
+        let root = applying_tree(
+            "apply-comment-only-cell",
+            "the_cell_before_its_rename",
+            &[
+                MANIFEST,
+                (
+                    "src/lib.rs",
+                    "// fn the_cell_before_its_rename was renamed\n#[test]\nfn the_cell_after_its_rename() {}\n",
+                ),
+            ],
+        );
+        assert_eq!(check_apply_at(&root), Verdict::Fail);
     }
 
     #[test]

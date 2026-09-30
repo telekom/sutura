@@ -29,16 +29,18 @@
   src,
 }:
 let
-  # crane's filter keeps Cargo inputs; the workspace reads two non-Cargo classes at compile
-  # time - cpd-reporter's `#[template(path = ...)]` over templates/report.html, and every
-  # crate's `#[doc = include_str!("../README.md")]`. Both must ride along (the same clause the
-  # upstream flake uses for the first), or the build fails with a file-lost error.
+  # crane's filter keeps Cargo inputs; the workspace reads three non-Cargo classes at compile
+  # time - cpd-reporter's `#[template(path = ...)]` over templates/report.html, every
+  # crate's `#[doc = include_str!("../README.md")]`, and basta's
+  # `include_str!("../frameworks.yaml")` (the language/extension table). All three must ride
+  # along, or the build fails with a file-lost error.
   rustSrc = pkgs.lib.cleanSourceWith {
     src = src + "/rust";
     filter = path: type:
       (craneLib.filterCargoSources path type)
       || (pkgs.lib.hasSuffix ".html" path && pkgs.lib.hasInfix "/templates/" path)
-      || (pkgs.lib.baseNameOf path == "README.md");
+      || (pkgs.lib.baseNameOf path == "README.md")
+      || (pkgs.lib.baseNameOf path == "frameworks.yaml" && pkgs.lib.hasInfix "/basta/" path);
   };
 
   commonArgs = {
