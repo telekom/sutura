@@ -627,7 +627,7 @@ tracing-log = "0.2"
 # is load-bearing rather than tidy: without it the build script DOWNLOADS the Swagger UI
 # distribution, which cannot work in a build sandbox with no network and would put an unpinned asset
 # in the artifact. `vendored` takes the archive from a crate that embeds it instead.
-utoipa = { version = "5", features = ["preserve_order"] }
+utoipa = { version = "6", features = ["preserve_order"] }
 utoipa-axum = "0.2"
 utoipa-swagger-ui = { version = "9", default-features = false, features = ["axum", "vendored"] }
 
