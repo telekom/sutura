@@ -44,6 +44,9 @@ mod lockfile;
 #[cfg(test)]
 #[path = "affected/mutation_tests.rs"]
 mod mutation_tests;
+#[cfg(test)]
+#[path = "affected/oracle_aggregate.rs"]
+mod oracle_aggregate;
 
 use std::collections::BTreeSet;
 use std::io::Write as _;
@@ -793,7 +796,7 @@ macro_rules! registered {
     /// above cannot see the release-commit skip (a skipped `ci` implies a skipped `bigquery` leg,
     /// an event shape the two-axis model has no vocabulary for) - so these tests extract and run
     /// the script the workflow actually ships.
-    mod shell_simulation {
+    pub(super) mod shell_simulation {
         /// The `ci-aggregate` job's `run: |` block, extracted from `.github/workflows/ci.yml` and
         /// de-indented, so the simulation exercises the exact script `bash` runs in CI.
         fn aggregator_shell() -> String {
@@ -836,7 +839,7 @@ macro_rules! registered {
         }
 
         /// Run the aggregator shell with the given environment; returns (exit ok, combined output).
-        fn run_aggregator(envs: &[(&str, &str)]) -> (bool, String) {
+        pub(in super::super) fn run_aggregator(envs: &[(&str, &str)]) -> (bool, String) {
             let script = aggregator_shell();
             let mut cmd = std::process::Command::new("bash");
             cmd.arg("-c").arg(&script);
