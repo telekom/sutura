@@ -198,7 +198,8 @@ impl Claim {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Cause {
     /// The trailer names a test its declaring commit neither ADDED nor MODIFIED - an added line
-    /// inside that test's own item (`super::edited::touched_in`), never merely its file.
+    /// inside that test's own item or a same-file helper it calls (`super::edited`), never merely
+    /// its file.
     NotAdded(String),
     /// No mutation patch lives at `devco/claim-mutations/<cell>.patch`.
     MissingPatch(String),
@@ -558,9 +559,10 @@ fn validate(wt: &Path, claim: &Claim, test_files: &[String]) -> Vec<Cause> {
 /// The tests ONE commit's own diff added, including their executable locations.
 ///
 /// MODIFIED COUNTS AS ADDED HERE, and by the same scan rather than a second one: `Scan::of` also
-/// names a PRE-existing test whose own item an added line lands inside (`super::edited::touched_in`),
-/// so a commit that edits a test pinning base behaviour may declare it. A test merely sharing the
-/// edited file is not named, and a pure deletion is `super::weakens`', never a claim.
+/// names a PRE-existing test whose own item - or a same-file `#[cfg(test)]` helper it calls - an
+/// added line lands inside (`super::edited`), so a commit that edits a test pinning base behaviour
+/// may declare it. A test merely sharing the edited file is not named, and a pure deletion is
+/// `super::weakens`', never a claim.
 ///
 /// The single-commit diff numbers its `AddedLine`s in THAT commit's post-image, so they resolve
 /// against the commit's own tree, never HEAD's: a later commit in the range that shifts or deletes

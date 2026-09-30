@@ -48,7 +48,8 @@ Those three plus secure-by-design are the definition of *correct* in review here
   `just ship-check` before saying done. An added or modified test PINNING behaviour the base tree
   already provides may pass only under an accepted `Claim-Cell: <test-fn-name>` declaration naming
   it plus a committed killing mutation at `devco/claim-mutations/<test-fn-name>.patch`; a claim
-  cell with no killing mutation is refused.
+  cell with no killing mutation is refused. Limit: a test sharing one file with its implementation
+  change gets a non-verdict pass either way - no base run exists there to redden it.
 - **Cite a `just` task, never a raw command line** - `check-guidance` fails a citation of a task
   that does not exist, or a cited `cargo` line missing `--all-features`.
 - **Invariants are held by a type, a lint, a hook or a gate - never by recall.** Changing one is an

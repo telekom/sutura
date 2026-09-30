@@ -263,7 +263,8 @@ impl Scan {
                         }
                     }
                     edited::Touched::Runs(name) => {
-                        let one = AddedTest::at(&file.path, &at, name);
+                        let gate = gate_named(&lines, &name);
+                        let one = AddedTest::at(&file.path, &at, name).with_gate(gate).edited();
                         if !runnable.contains(&one) {
                             runnable.push(one);
                         }
@@ -357,13 +358,21 @@ fn declared_under(lines: &[&str], added: &AddedLine) -> Option<Declared> {
     Some(if is_ignored(lines, index) {
         Declared::Ignored(name)
     } else {
-        let gate = attached(lines, index)
-            .into_iter()
-            .map(|(_, opening)| opening)
-            .find(|opening| decides_a_run_unevaluably(opening))
-            .map(String::from);
-        Declared::Runs(name, gate)
+        Declared::Runs(name, gate_at(lines, index))
     })
+}
+
+/// The attached build condition over the fn at `index` that this venue cannot evaluate, if any.
+fn gate_at(lines: &[&str], index: usize) -> Option<String> {
+    let mut block = attached(lines, index).into_iter().map(|(_, opening)| opening);
+    block.find(|opening| decides_a_run_unevaluably(opening)).map(String::from)
+}
+
+/// [`gate_at`] for an EDITED test, which only its name locates.
+// ponytail: the first fn of that name in the file; a same-named fn in a sibling module can lend its gate.
+fn gate_named(lines: &[&str], name: &Ident) -> Option<String> {
+    let index = lines.iter().position(|line| function_name(line).as_ref() == Some(name))?;
+    gate_at(lines, index)
 }
 
 /// Does the attribute block attached to the function at `index` carry an `#[ignore]`?

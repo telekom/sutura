@@ -177,6 +177,8 @@ run can never redden, so its place is a declared claim cell: add a `Claim-Cell: 
 commit trailer AND a committed killing mutation at `devco/claim-mutations/<test-fn-name>.patch`,
 and the gate applies the mutation, requires the cell to fail, and accepts
 `ok - claim cells: N declared, N killed` - a declared cell with no killing mutation is refused.
+The not-separable case above is the limit: there an undeclared pin passes like any other test,
+because no base run exists to redden it.
 
 **Exit 3 means the gate measured nothing**, and it is neither a pass nor a violation: the base tree
 did not build, the base run named no failure, or every test in scope was one the base tree already

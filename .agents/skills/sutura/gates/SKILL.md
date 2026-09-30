@@ -1017,15 +1017,15 @@ only the harness.**
 
 **THE `Claim-Cell:` BIJECTION IS PER COMMIT and one-directional since
 `github.com/telekom/sutura#954`, so a claim cell and ordinary new tests CAN share a PR.**
-`Claim::of` (`xtask/src/causality/claim.rs:156`) keys each declaration to its own commit, and
-`claim::validate` (`claim.rs:485`) checks only that each declared name is a test THAT commit added
-or modified. An undeclared addition is no claim refusal: the separable arm proves it by the ordinary
-base/head run beside the claim arm (`scoped.minus`, `xtask/src/causality.rs:782`). Two arms still
-refuse one, because neither has a base run that could redden it: a tests-only diff
-(`causality.rs:506`), where nothing is reverted, and an inseparable one (`causality.rs:686`). The
-old range-wide rule cost two full runs on `telekom/sutura#929` (`×135` not declared). Never declare
-other tests to quiet a refusal: a `Claim-Cell:` over a test that pins NEW behaviour is a false
-claim, and the trailer is the one thing here that cannot be wrong.
+`Claim::of` keys each declaration to its own commit, and `claim::validate` checks only that each
+declared name is a test THAT commit added or modified. An undeclared addition is no claim refusal:
+the separable arm proves it by the ordinary base/head run beside the claim arm (`scoped.minus` in
+`causality::separable_verdict`). Two arms still refuse one, because neither has a base run that
+could redden it: a tests-only diff (`causality::tests_only`), where nothing is reverted, and an
+inseparable one (the `Plan::NotSeparable` arm of `causality::run`). The old range-wide rule cost two
+full runs on `telekom/sutura#929` (`×135` not declared). Never declare other tests to quiet a
+refusal: a `Claim-Cell:` over a test that pins NEW behaviour is a false claim, and the trailer is
+the one thing here that cannot be wrong.
 
 **AND THE SECOND HALF OF THAT RULE DECIDES WHICH FILE IS MEASURED: a comment-only change holds
 nothing back.** `has_non_test_additions` treats a blank line, a comment and an attribute as carrying
@@ -1098,18 +1098,24 @@ above still apply.
 **AND A TEST THAT PINNS EXISTING BEHAVIOUR NEED NOT BE PROVEN BY HAND when it declares a claim
 cell.** A test the base tree already satisfies can never be red against base - there is nothing to
 revert - so the only honest proof is a mutation, and `causality::claim` is the mechanism that lets a
-PR carry it, on the `Cleanup-Split:` precedent: the trailer is a CLAIM the gate CHECKS rather than
-a permission. `Claim-Cell: <test-fn-name>` is a commit trailer read PER COMMIT, NOT range-wide:
-each declaration answers for the tests its OWN declaring commit added or modified and nothing else
+PR carry it, on the `Cleanup-Split:` precedent: the trailer is a CLAIM the gate CHECKS rather than a
+permission. `Claim-Cell: <test-fn-name>` is a commit trailer read PER COMMIT, NOT range-wide: each
+declaration answers for the tests its OWN declaring commit added or modified and nothing else
 (`github.com/telekom/sutura#954` - the old range-wide unity made one legitimate declaring commit
 refuse every other added test in the range as undeclared, measured `×135` on #929). The gate
 requires each declared name to be a test the DECLARING COMMIT added or MODIFIED (declared-not-added
-is a refusal). MODIFIED is `edited::touched_in`: an added line inside a pre-existing `#[test]`
-item's own span, never merely a test in a changed file; a pure deletion is `Weakens-Test:`'s. It
-is the added-test path itself (`Scan::of`), held through `causality::run` by `gas_tests`' three
-edited-assertion cells (no claim refused, no patch refused, claim plus killing patch accepted). It
-resolves each cell to a committed
-mutation at `devco/claim-mutations/<test-fn-name>.patch`, applies it in the isolated causality
+is a refusal). MODIFIED is what `Scan::of` names through `super::edited`: an added line inside a
+pre-existing `#[test]` item's own span (`touched_in`), or inside a `#[cfg(test)]` helper that test
+calls in the same file (`edited_helper_caller`) - never merely a test in a changed file; a pure
+deletion is `Weakens-Test:`'s. It is the added-test path itself, held through `causality::run` by
+`gas_tests`' four edited-assertion cells on the tests-only arm (no claim refused, no patch refused,
+a non-killing patch refused, claim plus killing patch accepted). Undeclared, a modified test green
+on base REFUSES on the tests-only and the separable arm: `AddedTest::is_edited` keeps it out of
+`provenance::Moved`, so it is a pin, never a move
+(`a_modified_test_green_on_base_beside_an_implementation_change_is_refused`). In an INSEPARABLE file
+it gets the same non-verdict pass an added test does - no base run exists there to redden either.
+The gate resolves each cell to a committed mutation at `devco/claim-mutations/<test-fn-name>.patch`,
+applies it in the isolated causality
 target, runs the named cell, and requires it to FAIL *naming that cell* by its OWN ASSERTION - the
 mutation kills it. The composite half of #954: the reverse direction - an added test no declaration
 names - is NOT the claim arm's to refuse; it lands the ordinary base/head proof, so a branch that

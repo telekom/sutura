@@ -49,6 +49,9 @@ pub(crate) struct AddedTest {
     within: Module,
     name: Ident,
     gate: Option<String>,
+    /// Named through `super::edited` - an added line inside a test base already has - so a green
+    /// base run over it is a pin of base behaviour, never a move.
+    edited: bool,
 }
 
 impl PartialEq for AddedTest {
@@ -68,7 +71,17 @@ impl AddedTest {
             within: at.within.clone(),
             name,
             gate: None,
+            edited: false,
         }
+    }
+
+    pub(super) const fn edited(mut self) -> Self {
+        self.edited = true;
+        self
+    }
+
+    pub(crate) const fn is_edited(&self) -> bool {
+        self.edited
     }
 
     pub(super) fn with_gate(mut self, gate: Option<String>) -> Self {

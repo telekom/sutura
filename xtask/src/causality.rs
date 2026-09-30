@@ -249,7 +249,7 @@ fn prove(
     // *green on base* MEANS. A diff cannot tell a moved test from an added one, and the gate's
     // premise is about tests that were added: `provenance::Moved` asks the base commit instead.
     let named: Vec<&str> = scoped.tests().iter().map(AddedTest::name).collect();
-    let moved = already_there(root, base, &named);
+    let moved = already_there(root, base, &named, scoped.tests());
     report_moved(&moved);
     let (head_ok, head_out) = cargo_test(root, &shared_target, &only, Tree::Provisioned);
     if !head_ok {
@@ -290,13 +290,14 @@ fn prove(
 /// those lines, so it is in the diff. Asking the whole tree instead would let one of this tree's
 /// duplicated test names answer yes about a genuinely new test. `provenance` owns both the patterns
 /// and the classification, so the direction it fails in is stated where it is decided.
-fn already_there(root: &Path, base: &Commit, named: &[&str]) -> Moved {
+fn already_there(root: &Path, base: &Commit, named: &[&str], scoped: &[AddedTest]) -> Moved {
     let paths: Vec<String> = worktree::touched(root, base)
         .into_iter()
         .filter(|path| is_compiled_rust(path))
         .collect();
     let found = worktree::search(root, base, &provenance::needles(named), &paths);
-    Moved::of(named, &found)
+    let edited: Vec<&str> = scoped.iter().filter(|test| test.is_edited()).map(AddedTest::name).collect();
+    Moved::of(named, &edited, &found)
 }
 
 /// Put the worktree into the base state for the implementation, then run the tests.

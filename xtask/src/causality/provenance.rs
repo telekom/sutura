@@ -170,10 +170,13 @@ impl Moved {
     /// classification is testable without a repository. An empty scope is [`Self::Nothing`]:
     /// [`Self::Wholly`] over nothing would turn the loud arm into a pass, and a scope is non-empty
     /// by `super::scoped::Scoped`'s construction anyway.
-    pub(crate) fn of(scope: &[&str], at_base: &str) -> Self {
+    ///
+    /// An `edited` name is never found: an added line inside a test base already had makes it at
+    /// base by construction, so its green base run is a pin of base behaviour, not a move.
+    pub(crate) fn of(scope: &[&str], edited: &[&str], at_base: &str) -> Self {
         let found: Vec<String> = scope
             .iter()
-            .filter(|name| at_base.contains(&format!("fn {name}(")))
+            .filter(|name| !edited.contains(name) && at_base.contains(&format!("fn {name}(")))
             .map(|name| String::from(*name))
             .collect::<BTreeSet<String>>()
             .into_iter()
@@ -285,20 +288,36 @@ mod tests {
             "7a65f1e:crates/x/tests/blocking_span.rs:    let _ = a_moved_assertion;\n",
         );
         assert_eq!(
-            Moved::of(&["a_moved_assertion"], at_base),
+            Moved::of(&["a_moved_assertion"], &[], at_base),
             Moved::Wholly(vec![String::from("a_moved_assertion")])
         );
         // A MIX still fails, and that is the half a blanket rule would have lost: the new test
         // passed on base too, which is the defect, so the verdict stands and names the other one.
         assert_eq!(
-            Moved::of(&["a_moved_assertion", "genuinely_new"], at_base),
+            Moved::of(&["a_moved_assertion", "genuinely_new"], &[], at_base),
             Moved::Partly(vec![String::from("a_moved_assertion")])
         );
         // Nothing found is the premise holding: every test in scope is new here.
-        assert_eq!(Moved::of(&["genuinely_new"], at_base), Moved::Nothing);
+        assert_eq!(Moved::of(&["genuinely_new"], &[], at_base), Moved::Nothing);
         // An empty scope may not read as *everything moved*, which would turn the loud arm into a
         // pass over nothing.
-        assert_eq!(Moved::of(&[], at_base), Moved::Nothing);
+        assert_eq!(Moved::of(&[], &[], at_base), Moved::Nothing);
+    }
+
+    #[test]
+    fn an_edited_test_the_base_tree_already_had_is_a_pin_not_a_move() {
+        // An added line inside `the_edited_one` puts it at base by construction, so finding it there
+        // says nothing. The MIX is the shape dropping it from the scope instead would get wrong: the
+        // moved name alone would then read as `Wholly`, an INCONCLUSIVE over a pin.
+        let at_base = concat!(
+            "7a65f1e:crates/x/tests/t.rs:fn a_moved_assertion() {\n",
+            "7a65f1e:crates/x/tests/t.rs:fn the_edited_one() {\n",
+        );
+        assert_eq!(Moved::of(&["the_edited_one"], &["the_edited_one"], at_base), Moved::Nothing);
+        assert_eq!(
+            Moved::of(&["a_moved_assertion", "the_edited_one"], &["the_edited_one"], at_base),
+            Moved::Partly(vec![String::from("a_moved_assertion")])
+        );
     }
 
     #[test]
@@ -308,7 +327,7 @@ mod tests {
         // already paid once for treating a bare test name as a key - `super::place` carries that
         // measurement.
         let at_base = "7a65f1e:crates/x/tests/other.rs:fn not_a_moved_assertion() {\n";
-        assert_eq!(Moved::of(&["a_moved_assertion"], at_base), Moved::Nothing);
+        assert_eq!(Moved::of(&["a_moved_assertion"], &[], at_base), Moved::Nothing);
         assert_eq!(needles(&["a_moved_assertion"]), vec![String::from("fn a_moved_assertion(")]);
         // One needle per DISTINCT name: two added tests sharing a name are one search.
         assert_eq!(needles(&["dupe", "dupe"]).len(), 1);

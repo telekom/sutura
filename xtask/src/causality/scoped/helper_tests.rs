@@ -25,3 +25,18 @@ fn an_ignored_test_calling_an_added_helper_does_not_become_runnable() {
         Scan::OnlyIgnored(_)
     ));
 }
+
+/// An EDITED test carries its attached build condition, like an added one: a partial base run
+/// then names the gate as the likely cause, not the generic "may be cfg-gated" sentence.
+#[test]
+fn an_edited_cfg_gated_test_carries_its_gate_and_is_marked_edited() {
+    let path = "pa/src/lib.rs";
+    let file = "#[cfg(not(feature = \"rdbms\"))]\n#[test]\nfn omitted() {\n    let _kept = 1;\n}\n";
+    let files = vec![changed(path, 4, &["    let _kept = 1;"])];
+    let read = tree(&[(path, file), ("pa/Cargo.toml", &manifest("pa"))]);
+    let Scan::Runnable(scoped) = Scan::of(&files, &[String::from(path)], &read) else {
+        panic!("the edited test must be named");
+    };
+    assert_eq!(scoped.tests()[0].gate(), Some("#[cfg(not(feature = \"rdbms\"))]"));
+    assert!(scoped.tests()[0].is_edited());
+}
