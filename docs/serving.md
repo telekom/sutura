@@ -1439,6 +1439,12 @@ With leg 1 there is now a principal to be fair *between* - and nothing keys anyt
 port exists, so what bounds a caller is still `rate_limit.api_per_second`, which bounds how fast one
 address can start questions.
 
-The same caller can keep a question running after being answered `408`, because nothing cancels one.
-So the cost of a question is not bounded by anything the caller experiences - only the *number* of
-them running at once is.
+The same caller can keep a question running after being answered `408` for as long as its adapter
+overruns the port budget - the request timeout minus a one-second reply margin (`docs/adr/0029`).
+The engine stops at its next cooperative yield. Postgres stops at `SET LOCAL statement_timeout`,
+after an execution-lock wait nothing bounds (the raw SQL path too, since `#1144`). ClickHouse's
+server stops at `max_execution_time`, checked at block boundaries, while its HTTP client waits
+without a deadline. BigQuery stops at a best-effort `jobTimeoutMs` and a client-side cancel. Oracle
+does not stop a statement that keeps its socket busy - its call timeout is a per-read idle timeout,
+behind an execution-lock wait nothing bounds. So the cost of one question is bounded only as well as
+its adapter honours that budget; the *number* running at once is bounded by admission.
