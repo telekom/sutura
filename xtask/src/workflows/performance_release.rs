@@ -194,6 +194,7 @@ jobs:
             "      # - uses: $/.github/actions/attest-and-sign\n",
             "unsigned",
         );
+        refused("          gh release create", "          # gh release create", "unsigned");
     }
 
     /// A hand-picked glob can leave a signed file behind or attach one the loop never saw.
