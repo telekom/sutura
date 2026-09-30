@@ -2319,6 +2319,19 @@ contributor chooses, not what a release ships. <code>nix/shipped.nix</code> is w
 and <code>nix build .#checks.x86_64-linux.shipped-features</code> is what asserts it, out of the shipped
 binary's own embedded dependency list rather than out of a manifest - including that <code>ring</code> and
 <code>ureq</code>, the crates the earlier default-off decision existed to keep out, are now genuinely present.</p>
+<p><strong>The optimised build is a separate prerelease, <code>v&lt;version&gt;-performance</code></strong>, never <code>latest</code>,
+published only when a maintainer dispatches <code>release-performance.yml</code> on a release tag whose tree
+contains that workflow's publishing steps; a dispatch runs the workflow as the tag holds it, so no
+tag cut before them can produce one. The first is v0.6.2; there is no v0.6.1 backfill. The same commit at the <code>release-performance</code>
+profile: assets <code>sutura-&lt;triple&gt;-performance.tar.gz</code>, leaf images
+<code>:&lt;version&gt;-performance-&lt;triple&gt;</code>, lists <code>:&lt;version&gt;-performance</code> and <code>:&lt;version&gt;-performance-musl</code>.
+The same signing, SBOM and provenance sequence runs over it, so the regexp-based <code>cosign</code> commands
+below apply unchanged. The bundle-mode <code>gh attestation verify</code> below does not: for an optimised
+asset its identity is
+<code>https://github.com/telekom/sutura/.github/workflows/release-performance.yml@refs/tags/$TAG</code>, and
+<code>$TAG</code> is the dispatched <code>v&lt;version&gt;</code>, not <code>v&lt;version&gt;-performance</code> - derived from how the
+certificate records the workflow and ref, not yet run against an optimised release. Its change
+list, licence statement and chart are the ones on <code>v&lt;version&gt;</code>.</p>
 <p><strong>A release also carries a licence statement, and it is a different list on purpose.</strong> What each of
 the two documents answers is under <a href="#the-licence-statement">The licence statement</a>.</p>
 <h2 id="what-is-signed">What is signed<a class="headerlink" href="#what-is-signed" title="Permanent link">&para;</a></h2>
