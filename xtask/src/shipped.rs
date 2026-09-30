@@ -814,6 +814,7 @@ mod tests {
             [
                 ".github/actions/build-artefacts/action.yml:16",
                 ".github/actions/embedded-dependency-list/action.yml:15",
+                ".github/actions/push-images/action.yml:13",
                 ".github/workflows/cross-link.yml:121",
                 ".github/workflows/release.yml:85",
             ],
@@ -825,12 +826,14 @@ mod tests {
         assert_eq!(
             references,
             [
-                ".github/actions/build-artefacts/action.yml:65 -> inputs.binaries",
-                ".github/actions/build-artefacts/action.yml:122 -> inputs.binaries",
-                ".github/actions/build-artefacts/action.yml:232 -> inputs.binaries",
+                ".github/actions/build-artefacts/action.yml:87 -> inputs.binaries",
+                ".github/actions/build-artefacts/action.yml:146 -> inputs.binaries",
+                ".github/actions/build-artefacts/action.yml:257 -> inputs.binaries",
                 ".github/actions/embedded-dependency-list/action.yml:83 -> inputs.binaries",
+                ".github/actions/push-images/action.yml:84 -> inputs.binaries",
                 ".github/workflows/cross-link.yml:272 -> env.BINARIES",
                 ".github/workflows/release.yml:323 -> env.BINARIES",
+                ".github/workflows/release.yml:506 -> env.BINARIES",
             ],
             "the set of declarations referencing the shipped set has changed"
         );
