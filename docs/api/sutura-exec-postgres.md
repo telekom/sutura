@@ -177,7 +177,8 @@ changes is the cutover's decision, not this module's.
   stream and goes through `PQprepare`, where the server refuses a second statement at `Parse`.
   So `LocalTimeout::apply` is the one `execute_update` in this module, its text is a fixed
   literal and a `NonZeroU32`, and `clippy.toml` bans every other call
-  in the workspace.
+  in the workspace - except one written inside an existing `disallowed_methods` expectation's
+  scope, which that expectation covers too (the ban's own entry states it).
 - **The per-request deadline is `SET LOCAL statement_timeout`** in the transaction the driver
   opens when autocommit is switched off, clamped to the same connect-time ceiling the
   `tokio-postgres` path uses, and always rolled back. A statement the server cancelled for it
@@ -207,6 +208,11 @@ changes is the cutover's decision, not this module's.
   declared `SourceTransport` a composition root turns into a `rustls::ClientConfig` for the
   `tokio-postgres` path is not applied here.
 - **Only `execute`'s shape**: no `dry_run`, no raw statement, no boot-path call.
+- **Nothing on the two static musl triples.** A `MountedDriver`
+  is always opened with `load_dynamic_from_filename`, which a static binary cannot do
+  (`sutura-adbc`'s `linked.rs`), so there this transport can only answer `AdbcError::Load` -
+  although `nix/postgres-adbc.nix` already builds the static archive. How musl gets a
+  PostgreSQL driver is not decided here.
 
 ### `enum AdbcError`
 

@@ -17,7 +17,8 @@
 //!   stream and goes through `PQprepare`, where the server refuses a second statement at `Parse`.
 //!   So `LocalTimeout::apply` is the one `execute_update` in this module, its text is a fixed
 //!   literal and a [`NonZeroU32`](core::num::NonZeroU32), and `clippy.toml` bans every other call
-//!   in the workspace.
+//!   in the workspace - except one written inside an existing `disallowed_methods` expectation's
+//!   scope, which that expectation covers too (the ban's own entry states it).
 //! - **The per-request deadline is `SET LOCAL statement_timeout`** in the transaction the driver
 //!   opens when autocommit is switched off, clamped to the same connect-time ceiling the
 //!   `tokio-postgres` path uses, and always rolled back. A statement the server cancelled for it
@@ -47,6 +48,11 @@
 //!   declared `SourceTransport` a composition root turns into a `rustls::ClientConfig` for the
 //!   `tokio-postgres` path is not applied here.
 //! - **Only `execute`'s shape**: no `dry_run`, no raw statement, no boot-path call.
+//! - **Nothing on the two static musl triples.** A [`MountedDriver`](crate::adbc::MountedDriver)
+//!   is always opened with `load_dynamic_from_filename`, which a static binary cannot do
+//!   (`sutura-adbc`'s `linked.rs`), so there this transport can only answer `AdbcError::Load` -
+//!   although `nix/postgres-adbc.nix` already builds the static archive. How musl gets a
+//!   PostgreSQL driver is not decided here.
 
 use core::num::{NonZeroU32, NonZeroUsize};
 use std::path::PathBuf;
@@ -309,8 +315,17 @@ mod tests {
     enum Sent {
         AutoCommit(String),
         Update(String),
-        Bound { rows: usize, columns: usize },
-        Query(String),
+        /// `statement` is the ordinal the connection handed it out under, so a cell can say WHICH
+        /// statement a batch was bound to and which one ran.
+        Bound {
+            statement: usize,
+            rows: usize,
+            columns: usize,
+        },
+        Query {
+            statement: usize,
+            sql: String,
+        },
         Rollback,
     }
 
@@ -330,12 +345,15 @@ mod tests {
         log: Log,
         /// What `execute` answers with: a batch, or `None` for a statement the server refused.
         reply: Option<RecordBatch>,
+        /// How many statements this connection has handed out.
+        made: usize,
     }
 
     struct FakeStatement {
         log: Log,
         reply: Option<RecordBatch>,
         sql: String,
+        ordinal: usize,
     }
 
     impl Optionable for FakeConnection {
@@ -374,10 +392,13 @@ mod tests {
         type StatementType = FakeStatement;
 
         fn new_statement(&mut self) -> AdbcResult<Self::StatementType> {
+            let ordinal = self.made;
+            self.made += 1;
             Ok(FakeStatement {
                 log: Rc::clone(&self.log),
                 reply: self.reply.clone(),
                 sql: String::new(),
+                ordinal,
             })
         }
 
@@ -469,6 +490,7 @@ mod tests {
     impl Statement for FakeStatement {
         fn bind(&mut self, batch: RecordBatch) -> AdbcResult<()> {
             self.log.borrow_mut().push(Sent::Bound {
+                statement: self.ordinal,
                 rows: batch.num_rows(),
                 columns: batch.num_columns(),
             });
@@ -480,7 +502,10 @@ mod tests {
         }
 
         fn execute(&mut self) -> AdbcResult<Box<dyn RecordBatchReader + Send + 'static>> {
-            self.log.borrow_mut().push(Sent::Query(self.sql.clone()));
+            self.log.borrow_mut().push(Sent::Query {
+                statement: self.ordinal,
+                sql: self.sql.clone(),
+            });
             let batch = self.reply.clone().ok_or_else(|| {
                 CoreError::with_message_and_status("the server refused the statement", Status::InvalidArguments)
             })?;
@@ -538,6 +563,7 @@ mod tests {
         let mut connection = FakeConnection {
             log: Rc::clone(&log),
             reply,
+            made: 0,
         };
         let outcome = answer(&mut connection, "SELECT 1", bound, CEILING_MS, deadline);
         let sent = log.borrow().clone();
@@ -561,7 +587,10 @@ mod tests {
             vec![
                 Sent::AutoCommit(String::from("false")),
                 Sent::Update(String::from("SET LOCAL statement_timeout = 15000")),
-                Sent::Query(String::from("SELECT 1")),
+                Sent::Query {
+                    statement: 1,
+                    sql: String::from("SELECT 1")
+                },
                 Sent::Rollback,
             ]
         );
@@ -617,8 +646,8 @@ mod tests {
 
     #[test]
     fn the_plans_values_are_bound_as_one_row_on_the_statement_that_runs_them() {
-        // After the setting ran and before the query executes, so they ride the query's own
-        // statement - a batch bound to the setting's statement would appear before its update.
+        // On the statement that then runs - the second one handed out, after the setting's - and
+        // on no other: a batch bound to a throwaway statement leaves the query unbound.
         let day = Date::parse("2026-06-01").expect("a test date is a date");
         let bound = sutura_adbc::parameter_batch(&[ParamValue::Text(String::from("north")), ParamValue::Date(day)])
             .expect("the values are bindable");
@@ -629,8 +658,15 @@ mod tests {
             vec![
                 Sent::AutoCommit(String::from("false")),
                 Sent::Update(String::from("SET LOCAL statement_timeout = 15000")),
-                Sent::Bound { rows: 1, columns: 2 },
-                Sent::Query(String::from("SELECT 1")),
+                Sent::Bound {
+                    statement: 1,
+                    rows: 1,
+                    columns: 2
+                },
+                Sent::Query {
+                    statement: 1,
+                    sql: String::from("SELECT 1")
+                },
                 Sent::Rollback,
             ]
         );
@@ -687,6 +723,14 @@ mod tests {
             "{refused:?}"
         );
         assert_eq!(sent.last(), Some(&Sent::Rollback), "{sent:?}");
+    }
+
+    #[test]
+    fn the_result_byte_budget_is_the_bigquery_transports_quarter_gibibyte() {
+        // A constant pinned by a literal, because nothing else here would notice it growing: a
+        // stream past a quarter gibibyte is too costly to build in a cell, and `Accumulating`'s own
+        // refusal is held in the domain. The row ceiling is held by the cell above instead.
+        assert_eq!(super::MOST_RESULT_BYTES.get(), 256 * 1024 * 1024);
     }
 
     #[test]

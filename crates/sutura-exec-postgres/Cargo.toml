@@ -92,9 +92,10 @@ rcgen = { workspace = true }
 # what it does not. Default-off for `sutura-exec-bigquery`'s reason - a native driver is a
 # per-triple addition a lean build should not link - and because the `tokio-postgres` path is still
 # how every Postgres source is answered. Off is not hidden: every compiling gate passes
-# `--all-features`, so the module is compiled, linted and tested on every run. The OFF arm has no
-# gate: no shipped package enables this crate by default, so `check-default-features` never builds
-# it - the same gap `sutura-exec-bigquery`'s `adbc` feature has.
+# `--all-features`, so the module is compiled, linted and tested on every run. The OFF arm is what
+# a shipped build compiles (`sutura-cli`'s `postgres` feature does not turn this on), but no
+# REQUIRED gate lints it under `-D warnings` or builds its tests; the non-required `cross` feature
+# probe compiles its lib without `-D warnings`.
 adbc = ["dep:adbc_core", "dep:adbc_driver_manager", "dep:arrow-array", "dep:arrow-schema", "dep:sutura-adbc"]
 fixtures = ["sutura-domain/fixtures"]
 

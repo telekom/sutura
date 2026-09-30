@@ -198,13 +198,16 @@ disallowed-methods = [
   # multi-statement string, where `execute` prepares and the server refuses a second statement at
   # `Parse` (`telekom/sutura#913`, traced in the driver's source at `apache-arrow-adbc-24`). So
   # caller text must reach a driver through `execute` alone, and each `execute_update` is an
-  # `#[expect]` naming the fixed text it sends. The limit: a lint reaches this workspace's calls,
-  # not a driver's own, and a `BigQuery` fixture's call is here because the ban is per method, not
-  # per driver.
+  # `#[expect]` naming the text it sends and where that text comes from. The limits: a lint reaches
+  # this workspace's calls, not a driver's own; a `BigQuery` fixture's call is here because the ban
+  # is per method, not per driver; and an `#[expect]` is per LINT, not per path - a new
+  # `execute_update` written inside any existing `#[expect(clippy::disallowed_methods)]` scope (one
+  # written for `expose_secret`, say) is covered by it and reported by nothing. Only review sees
+  # which call an expectation was written for, so keep each one on the single statement it names.
   #
   # VERIFIED TO RESOLVE the way this file's header requires: each existing call carries an
   # `#[expect]`, and an expectation that the lint does not fulfil is an error under `-D warnings`.
-  { path = "adbc_core::Statement::execute_update", reason = "on the PostgreSQL driver this is the simple protocol, which runs every statement in a string; caller text goes through `execute`, and each call here carries an #[expect] naming its fixed text" },
+  { path = "adbc_core::Statement::execute_update", reason = "on the PostgreSQL driver this is the simple protocol, which runs every statement in a string; caller text goes through `execute`, and each call here carries an #[expect] naming the text it sends and its source" },
   { path = "rmcp::ErrorData::invalid_params", reason = "the message reaches a model's context as this transport's own error, so caller-chosen text must not be assembled into it; use sutura_mcp::server::RenderedCause::into_error_data, the one call this crate makes to this constructor" },
 ]
 
