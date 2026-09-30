@@ -343,6 +343,8 @@ jobs:
         run: |
           set -eu
           release="${GITHUB_REF_NAME}-performance"
+          # The images keep no `v`: `push-images` tags `${GITHUB_REF_NAME#v}`, as the registry always has.
+          image_tag="${GITHUB_REF_NAME#v}-performance"
           repo="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
           if [ ! -s dist/sutura-provenance.intoto.jsonl ]; then
             echo "::error::missing provenance release asset"
@@ -359,8 +361,8 @@ jobs:
             echo
             echo "| Variant | Tag | Platforms |"
             echo "| --- | --- | --- |"
-            printf "| glibc | \`%s:%s\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$release"
-            printf "| static musl | \`%s:%s-musl\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$release"
+            printf "| glibc | \`%s:%s\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$image_tag"
+            printf "| static musl | \`%s:%s-musl\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$image_tag"
             echo
             echo '```'
             cat dist/image-digests.txt

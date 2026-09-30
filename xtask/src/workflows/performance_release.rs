@@ -17,7 +17,9 @@
 //! against a `docker` shell function that records its arguments, must tag `latest` at `release`
 //! and never at `performance`. The stub answers every push with a digest and every list with both
 //! platforms, so what that cell proves is the tags the script asks for, not that a registry takes
-//! them.
+//! them. A second runs the release step's own shell against a `gh` shell function and holds the
+//! image tags its notes name to the lists that `push-images` run creates: the release is
+//! `v<version>-performance`, the images keep no `v`.
 //!
 //! # What it does NOT hold
 //!
@@ -357,5 +359,80 @@ jobs:
             "{}",
             run.stderr
         );
+    }
+
+    /// The release step's real `run:` body against a `gh` shell function: the notes it writes.
+    fn release_notes() -> String {
+        const GH: &str = r#"gh() {
+  case "$*" in
+    "release view "*--json\ isDraft*) echo false ;;
+    "release view "*--json\ assets*) find dist -maxdepth 1 -type f | wc -l ;;
+    "release view "*) return 1 ;;
+  esac
+}
+"#;
+        let root = crate::repo::root().expect("repo root");
+        let text = std::fs::read_to_string(root.join(super::WORKFLOW)).expect("the workflow");
+        let publish = super::steps_of(&text, "publish");
+        let step = publish
+            .iter()
+            .find(|step| {
+                step.iter()
+                    .any(|line| line.trim() == "- name: Publish the performance release")
+            })
+            .expect("the release step");
+        let body = crate::workflows::step::shell(step)
+            .into_iter()
+            .skip(1)
+            .map(str::trim_start)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let tree = crate::scratch_tree::Tree::of(
+            "performance-release-notes",
+            &[
+                ("dist/sutura-provenance.intoto.jsonl", &b"{}\n"[..]),
+                ("dist/image-digests.txt", &b"# kind name reference@digest\n"[..]),
+            ],
+        );
+        let scratch = tree.root();
+        let output = std::process::Command::new("bash")
+            .args(["--noprofile", "--norc", "-eo", "pipefail", "-c", &format!("{GH}{body}")])
+            .current_dir(scratch)
+            .env_remove("BASH_ENV")
+            .env("GITHUB_REF_NAME", "v0.6.1")
+            .env("GITHUB_SERVER_URL", "https://github.com")
+            .env("GITHUB_REPOSITORY", "example/sutura")
+            .env("IMAGE", "ghcr.io/example/sutura")
+            .env("SHA", "0")
+            .output()
+            .expect("the step's shell executes");
+        assert!(
+            output.status.success(),
+            "{}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        std::fs::read_to_string(scratch.join("notes.md")).expect("the notes")
+    }
+
+    /// The notes' image rows name the lists `push-images` creates - the release is
+    /// `v<version>-performance`, the image tags keep no `v`.
+    #[test]
+    fn the_notes_name_the_image_tags_that_were_pushed() {
+        let optimised = pushed("performance", false);
+        assert!(optimised.succeeded, "{}", optimised.stderr);
+        let pushed: Vec<&str> = optimised
+            .calls
+            .lines()
+            .filter_map(|call| call.strip_prefix("buildx imagetools create -t "))
+            .filter_map(|rest| rest.split_whitespace().next())
+            .collect();
+        let notes = release_notes();
+        let named: Vec<&str> = notes
+            .lines()
+            .filter(|line| line.starts_with("| glibc |") || line.starts_with("| static musl |"))
+            .filter_map(|line| line.split('`').nth(1))
+            .collect();
+        assert_eq!(named, pushed, "{notes}");
     }
 }
