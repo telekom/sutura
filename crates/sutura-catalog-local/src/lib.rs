@@ -92,7 +92,7 @@ pub enum LocalCatalogError {
     },
     /// An open, stat or read of a document through its descriptor failed in a way the OS
     /// described but [`Self::Io`]'s wording does not: a swapped symlink refuses with `ELOOP`
-    /// and a swapped FIFO with `ENXIO`, and neither is "could not read".
+    /// at open, and the OS reports the refusal rather than the read's generic "could not read".
     #[error("could not open {path}: {cause}")]
     Open {
         path: PathBuf,

@@ -2,9 +2,9 @@
 //!
 //! The open is INSIDE this function and everything about the file is decided from the handle that
 //! is actually read: `O_NOFOLLOW` makes a final-component symlink a refusal (`ELOOP`) at open, a
-//! swapped FIFO `ENXIO` at open rather than a boot that never returns, and the `fstat` here is of
-//! the same handle the read runs on - so a document swapped between a stat and a separately named
-//! read is not reachable at all. The byte budget is enforced on the READ itself, not on a `stat`
+//! swapped FIFO is caught by the `fstat` that follows the open (not refused at open time), and the
+//! `fstat` here is of the same handle the read runs on - so a document swapped between a stat and
+//! a separately named read is not reachable at all. The byte budget is enforced on the READ itself, not on a `stat`
 //! taken separately from it: the `fstat`'d size against the remaining budget is the fast path that
 //! refuses a legitimately-oversized file before anything is read, and the read is done in bounded
 //! chunks capped at the bytes the aggregate had left, with a post-read length recheck - so a file
@@ -14,7 +14,7 @@
 //! **What the open does NOT refuse: a document swapped for a different regular file at the same
 //! path.** The walk named a path, and the handle [`read_document`] opens is of whatever that path
 //! names now - a regular file swapped in after the walk is read and bounded, not refused; only a
-//! symlink or a FIFO swapped in is caught, by `O_NOFOLLOW`/`O_NONBLOCK` at the open itself.
+//! symlink swapped in is caught by `O_NOFOLLOW` at the open; a FIFO is caught by the `fstat` check.
 //!
 //! **"Opened exactly once per document" is held by `cargo xtask check-catalog-opened-once`, not by
 //! a test.** This function's own single `rustix::fs::open` call is the whole of that guarantee; a
@@ -46,8 +46,8 @@ pub const MAX_CATALOG_BYTES: u64 = 16 * 1024 * 1024;
 #[derive(Debug, thiserror::Error)]
 pub enum ReadError {
     /// An open or `fstat` of a descriptor failed in a way the OS described but [`Self::Io`]'s
-    /// wording cannot: a swapped symlink refuses with `ELOOP` and a swapped FIFO with `ENXIO`, and
-    /// neither is "could not read".
+    /// wording cannot: a swapped symlink refuses with `ELOOP` at open, and the OS reports the
+    /// refusal rather than the read's generic "could not read".
     #[error("could not open {path}: {cause}")]
     Open {
         path: PathBuf,
@@ -90,8 +90,8 @@ pub enum ReadError {
 ///
 /// # Errors
 ///
-/// [`ReadError::Open`] for an open or `fstat` that the OS refused (a swapped symlink `ELOOP`, a
-/// swapped FIFO `ENXIO`); [`ReadError::NotARegularFile`] for a handle that is not a regular file;
+/// [`ReadError::Open`] for an open or `fstat` that the OS refused (a swapped symlink `ELOOP`);
+/// [`ReadError::NotARegularFile`] for a handle that is not a regular file (such as a swapped FIFO);
 /// [`ReadError::TooLarge`] when the document is oversized against the aggregate budget, whether its
 /// declared size already is, it grew past it while being read, or the read delivered more than the
 /// budget left; [`ReadError::Io`] for the read itself or a failed UTF-8 conversion.
@@ -105,9 +105,9 @@ pub fn read_document(root: &Path, path: &Path, total_bytes: u64) -> Result<Strin
         cause,
     })?;
     // `fstat` on the descriptor we are about to read from: this is the file actually being read,
-    // not a separately-named path. A non-regular file that opens anyway - a device, for one - is
-    // refused here rather than read; a swapped symlink and a swapped FIFO are refused at the open
-    // itself (`O_NOFOLLOW` / `O_NONBLOCK`), before this check runs.
+    // not a separately-named path. A non-regular file that opens anyway - a device or FIFO, for one -
+    // is refused here rather than read; a swapped symlink is refused at the open itself
+    // (`O_NOFOLLOW`), before this check runs.
     let stat = rustix::fs::fstat(&fd).map_err(|cause| ReadError::Open {
         path: path.to_path_buf(),
         cause,

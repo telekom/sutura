@@ -7,7 +7,8 @@
 //! `Digest` (no public-port fixture reaches a pinning digest failure). `Unnamed` is provoked
 //! on Linux only - a file name that is not UTF-8, which not every filesystem can hold. `Io` is
 //! provoked on both arms: its read arm (a non-UTF-8 document) and its walk arm (an unreadable
-//! subdirectory).
+//! subdirectory). `TooLarge`, `Open`, and `NotARegularFile` are provoked here; `tests/bounds.rs`
+//! also tests `TooLarge` as an integration bound.
 //!
 //! Wrapped in `#[cfg(test)] mod tests` so `allow-expect-in-tests` reaches the helpers, the shape
 //! `tests/bounds.rs` uses.
@@ -227,12 +228,6 @@ mod tests {
         );
     }
 
-    /// `Open`: a symlink swapped into a descriptor's path in the walk→read window is refused by
-    /// `O_NOFOLLOW` with `ELOOP`, surfaced as `OkfCatalogError::Open` (not `Io` - the open's own
-    /// refusal, which the OS describes rather than the read's). The swap lands inside the window
-    /// between the walk's listing and the read's open; a miss just makes the load succeed on the
-    /// original file, so the loop retries. On a reader without `O_NOFOLLOW` the swap is followed
-    /// and the catalog loads with content the walk never listed - no refusal, retries exhaust.
     fn make_fifo(path: &std::path::Path) {
         let status = std::process::Command::new("mkfifo").arg(path).status().expect("mkfifo runs");
         assert!(status.success(), "mkfifo succeeded: {status}");

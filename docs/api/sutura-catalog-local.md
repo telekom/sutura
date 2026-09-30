@@ -62,7 +62,7 @@ finer split is a cheap change if a caller ever needs the branch.
 
 - `NotADirectory`
 - `Io`
-- `Open` - An open, stat or read of a document through its descriptor failed in a way the OS described but `Self::Io`'s wording does not: a swapped symlink refuses with `ELOOP` and a swapped FIFO with `ENXIO`, and neither is "could not read".
+- `Open` - An open, stat or read of a document through its descriptor failed in a way the OS described but `Self::Io`'s wording does not: a swapped symlink refuses with `ELOOP` at open, and the OS reports the refusal rather than the read's generic "could not read".
 - `NotARegularFile` - The document opened is not a regular file - a device node, for one, is refused by the regular-file check on the handle that was opened, not by the walk, which only saw the entry that was there before the swap.
 - `Malformed`
 - `Frontmatter`

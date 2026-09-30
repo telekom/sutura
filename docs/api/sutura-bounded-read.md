@@ -52,8 +52,8 @@ parses next.
 
 # Errors
 
-`ReadError::Open` for an open or `fstat` that the OS refused (a swapped symlink `ELOOP`, a
-swapped FIFO `ENXIO`); `ReadError::NotARegularFile` for a handle that is not a regular file;
+`ReadError::Open` for an open or `fstat` that the OS refused (a swapped symlink `ELOOP`);
+`ReadError::NotARegularFile` for a handle that is not a regular file (such as a swapped FIFO);
 `ReadError::TooLarge` when the document is oversized against the aggregate budget, whether its
 declared size already is, it grew past it while being read, or the read delivered more than the
 budget left; `ReadError::Io` for the read itself or a failed UTF-8 conversion.

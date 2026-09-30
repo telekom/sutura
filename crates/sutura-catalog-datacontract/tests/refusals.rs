@@ -6,8 +6,8 @@
 //! Not provoked, because no input reaches them: `RelationshipName` (the name is fitted to the
 //! identifier limit by construction), `UncheckableKnowledge` (this adapter supplies
 //! `KnowledgeInput::none()`), `NotARegularFile` (the walk yields only regular files; the swap
-//! between walk and open is a race) and `Digest`. `Io` is provoked on its read arm only; its walk
-//! arm is a `read_dir` failure no fixture produces deterministically.
+//! between walk and open is a race), and `Digest`. `Io` is provoked on its read arm only; its walk
+//! arm (a `read_dir` failure on a mode-000 subdirectory) is reachable but not tested here.
 //!
 //! Wrapped in `#[cfg(test)] mod tests` so `allow-expect-in-tests` reaches the helpers, the shape
 //! `tests/bounds.rs` uses.
@@ -207,11 +207,10 @@ mod tests {
     }
 
     /// The entry cap bounds the tree, not the documents: a wide directory of skipped non-document
-    /// files is refused here rather than walked without end. Ten thousand and one `.txt` files -
-    /// none a document the walk collects - plus one valid `.yaml` (so the refusal is the entry cap,
-    /// not `Empty`) trips `MAX_CATALOG_ENTRIES` before the document cap `TooManyDocuments` ever
-    /// could, because the entry count is checked on every entry and the document count only on
-    /// each document inserted.
+    /// files is refused here rather than walked without end. Ten thousand and one `.txt` files
+    /// (entries the walk counts but does not collect as documents) plus one valid `.yaml` document
+    /// trips `MAX_CATALOG_ENTRIES` before the document cap `TooManyDocuments` ever could, because
+    /// the entry count is checked on every entry and the document count only on each document inserted.
     #[test]
     fn a_directory_with_more_than_ten_thousand_entries_is_refused() {
         let root = scratch("too-many-entries");
