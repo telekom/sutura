@@ -1,0 +1,19 @@
+diff --git a/xtask/src/causality/place.rs b/xtask/src/causality/place.rs
+index 36ff00362..b8f585864 100644
+--- a/xtask/src/causality/place.rs
++++ b/xtask/src/causality/place.rs
+@@ -395,7 +395,13 @@ fn included_by(package: &CargoName, dir: &str, inner: &str, read: &PostImage<'_>
+     let root = [format!("tests/{first}.rs"), format!("tests/{first}/main.rs")]
+         .into_iter()
+         .map(|path| in_dir(dir, &path))
+-        .find(|path| read(path).is_some())?;
++        .find(|path| read(path).is_some());
++    let Some(root) = root else {
++        return Some(Place {
++            binary: Binary::Target(package.clone(), target),
++            within: Module::default(),
++        });
++    };
+     let file = in_dir(dir, &format!("tests/{inner}"));
+     let within = if file == root {
+         Module::default()

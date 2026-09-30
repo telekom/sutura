@@ -34,10 +34,10 @@ fn described_catalog(config_dir: &Path) -> (serde_json::Value, String) {
 const EXAMPLE_PROSE: &str = "Where the customer is.";
 
 #[test]
-fn a_deployments_prose_setting_reaches_both_halves_of_the_agent_surface() {
+fn the_prose_setting_a_settings_file_declares_reaches_both_halves_of_the_agent_surface() {
     // **`#266`'s `H1`, at the only layer that can prove it: a settings FILE this process read.**
     // The chain under test is `base.yaml` -> `Settings::load` -> `crate::mcp::serve` ->
-    // `mcp_service` -> `serve_stdio` -> `CatalogContent::of`, and nothing in it is supplied by
+    // `mcp_service` -> `serve_stdio` -> `CatalogContent::of_with_physical_schema`, and nothing in it is supplied by
     // this test except the file. The review that blocked the first attempt is why: a test that
     // hands `mcp_service` the value it wants to see stays green with the read back to a
     // constant, which is the defect one frame out.
@@ -81,8 +81,9 @@ fn a_deployments_prose_setting_reaches_both_halves_of_the_agent_surface() {
 }
 
 /// `prompt.list_physical_schema` is default-off, and stdio has no caller to cut a physical
-/// listing by - so the settings-file chain `a_deployments_prose_setting_reaches_both_halves_of_the_agent_surface`
-/// already exercises for `catalog_prose` is the only place this side of the flag can be pinned.
+/// listing by - so the settings-file chain
+/// `the_prose_setting_a_settings_file_declares_reaches_both_halves_of_the_agent_surface` already
+/// exercises for `catalog_prose` is the only place this side of the flag can be pinned.
 /// Absent, not empty, in the default: `CatalogContent::models` is `skip_serializing_if = "is_none"`.
 /// Its own test rather than folded into that one, so a diff to this file never reads as a
 /// MODIFICATION of a test the base tree already had - `just causality` classifies an unmodified

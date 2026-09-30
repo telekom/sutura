@@ -816,8 +816,8 @@ panic-free.
   `prek run --dry-run` printed `pre-commit - 8 of 10 declared hook(s) ran`, `pre-push - 4 of 4`,
   every surface covered and `ok`, exit 0 - **character for character** the lines the real run
   printed, with nothing having executed. And the only end-to-end fixture for the counting rule was
-  itself a `--dry-run` capture under a doc comment calling it a real run. (3) **Eight of the fifteen
-  declared hooks print `Passed` after deciding not to run** - both of the two on push - because a
+  itself a `--dry-run` capture under a doc comment calling it a real run. (3) **Several declared
+  hooks print `Passed` after deciding not to run** - both of the two on push - because a
   self-skip on a missing tool exits 0. Measured with the `shellcheck` entry verbatim and `nix` off
   `PATH`: notice printed, exit 0. So on any host without nix the verdict was a green run over hooks
   that announced their own abstention.
@@ -1068,8 +1068,10 @@ added - which is `the base tree does not build`, loud, and still not a pass.
 commit that changes a public signature a kept-at-HEAD test file calls.* The gate holds test files at
 HEAD and reverts implementation files to base, so if the change altered an item's ARITY or TYPE the
 held tests cannot compile against the base implementation, the retry puts everything at base, and the
-answer is `the base tree does not build` for a reason that has nothing to do with the tests being
-non-causal. Hit twice in one day - #331 changed `FederatedPlan::new`'s arity; #286 hit it earlier and
+answer is `the base tree does not build` (exit 3) for a reason that has nothing to do with the tests
+being non-causal. **With nothing held back there is no retry:** a base that does not compile on the
+first attempt is `FAILED - the base does not compile with nothing held back` (exit 1), which names
+each unmeasured test and asks for a `Claim-Cell:` - `causality::reconstruct_and_run`. Hit twice in one day - #331 changed `FederatedPlan::new`'s arity; #286 hit it earlier and
 supplied a restatement instead of a mutation, which its review correctly refused. **The verdict is
 indistinguishable from the harness move, so an author who reads only the paragraph above does not
 recognise their own situation and never reaches for the substitute.** Two substitutes, both used on
@@ -1403,7 +1405,9 @@ helper was held at HEAD while its only caller was removed at base), while the sa
 locally. So the branch had red-before-green evidence in neither venue and its author had a green
 check.
 
-**They exit 3 now (#307), and the shape of the fix is the transferable part.** Failing was rejected on
+**They exit 3 now (#307), and the shape of the fix is the transferable part.** (A base that does
+not compile with nothing held back is not one of them - it exits 1, see #332's paragraph.) **Failing
+was rejected on
 measured cost - the harness move lands on `DidNotCompile` every time, so does a changed signature on
 the retry, and a gate that reddens correct work gets disabled - so the decision moved to the venue
 with the **default closed**: 3 is neither 0 nor 1, so a consumer that has not been taught the code
@@ -1717,3 +1721,30 @@ it once BALANCES - so the comment half of that claim was asserted and the attrib
 why it earned the same treatment: a regression cell, measured to fail under exactly that mutation
 and under no other. The cell asserts the multiset is NOT doing the work, so it cannot be satisfied
 for the wrong reason.
+
+## The Claim-Cell trailer
+
+`Claim-Cell: <test-fn-name>` says the test pins behaviour the base tree already has, so it cannot be
+red on base; its proof is the killing mutation at `devco/claim-mutations/<test-fn-name>.patch` -
+production lines only, no test line, no new file - which must fail the cell by its own assertion.
+What `causality::claim::validate` holds:
+
+| Shape | Answer |
+| --- | --- |
+| trailer on the commit that ADDS the test | measured by its mutation |
+| trailer on a commit that adds no such test - one base already carries, or one the range only edits | `not added:` - read PER COMMIT, so the trailer sits on the commit that adds the test |
+| trailer, no committed patch | `no patch:` |
+| an EDITED test, renamed | a rename counts as added: `Claim-Cell: <new-name>` on the renaming commit. The old name reads as a deleted test, so the range also carries `Weakens-Test: <old-name> - <reason>` (`causality::weakens`), or causality exits 1 |
+| an EDITED test, not renamed, green on base | `INCONCLUSIVE - these tests were not ADDED here` (exit 3): rename it as above, or change the behaviour it pins |
+
+**Exit 3 (`INCONCLUSIVE`) is not a verdict.** Quote it verbatim and supply a hand mutation table in
+its place - each mechanism removed, and the cell that goes red. Exit 1 `the base does not compile
+with nothing held back` is not that case: declare each test it names.
+
+**Never turn causality green by reverting a changed test** - that deletes the evidence rather than
+supplying it.
+
+**A hollow green, measured once and not yet refused:** a range whose only other change is an
+untrailered patch under `devco/claim-mutations/` answers `NO BASE BEHAVIOUR TO COMPARE AGAINST` with
+`measured: 0 of N` and exits 0, because the patch reads as a new implementation file. Read the
+`measured:` line, not the exit code.

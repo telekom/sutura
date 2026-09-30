@@ -13,7 +13,7 @@ use std::path::Path;
 /// A path in SOMEONE ELSE'S repository is indistinguishable from a stale one by any local check -
 /// upstream source files, a cloud role name and an org/repo slug are all path-shaped and all
 /// correct - so the scope is first-party or nothing.
-const FIRST_PARTY: &[&str] = &["crates/", "xtask/", "docs/", ".github/", "nix/"];
+const FIRST_PARTY: &[&str] = &["crates/", "xtask/", "docs/", ".github/", "nix/", "examples/"];
 
 /// The path a backticked token CITES, if it cites one at all.
 ///
@@ -141,6 +141,20 @@ mod tests {
         assert_eq!(cited_path("src/transport.rs"), None, "a path in someone else's repository");
         assert_eq!(cited_path("crates/<name>/Cargo.toml"), None, "a pattern, not a citation");
         assert_eq!(cited_path("docs/adr/0016"), None, "an abbreviated record reference");
+    }
+
+    /// `examples/` is first-party: the #1151 move put the runnable examples there, and a citation of
+    /// one is as checkable as one under `docs/`.
+    #[test]
+    fn a_file_under_examples_is_a_first_party_citation() {
+        assert_eq!(
+            cited_path("examples/single-player/compose.yaml"),
+            Some("examples/single-player/compose.yaml")
+        );
+        assert_eq!(
+            cited_path("examples/single-player/README.md:30"),
+            Some("examples/single-player/README.md")
+        );
     }
 
     /// The refusal itself, planted and then removed - a gate nobody has seen fail is not known to

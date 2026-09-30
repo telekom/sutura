@@ -26,7 +26,7 @@ services:
       - .:/examples:ro
     environment:
       SUTURA__SECURITY__IDENTITY: single-user
-      SUTURA__SECURITY__SINGLE_USER_BECAUSE: "one operator reading the shipped example"
+      SUTURA__SECURITY__SINGLE_USER_BECAUSE: "one operator reading their own files"
       SUTURA__SOURCES__LOCAL__KIND: files
       SUTURA__SOURCES__LOCAL__DATA_DIR: /examples/data
       SUTURA__SOURCES__LOCAL__POSTURE: shared-service-user

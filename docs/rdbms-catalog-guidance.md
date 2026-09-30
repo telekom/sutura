@@ -5,10 +5,11 @@ description: What a database dictionary can contribute as metadata, what it cann
 
 # An RDBMS dictionary as a metadata source
 
-> **Implementation status:** the crate currently converts dictionary records and is tested only
-> through the fake `FixtureReader`. There is no production dictionary reader or database client,
-> and no composition root links or serves this catalog. Operators cannot configure or use it in a
-> shipped binary yet.
+> **Implementation status:** the crate converts dictionary records, tested through the fake
+> `FixtureReader`; its `live` feature adds Postgres and Oracle dictionary readers
+> (`postgres_reader.rs`, `oracle_reader.rs`), and `sutura-cli`'s default-off `rdbms` feature opens
+> this catalog with either. `nix/shipped.nix` does not
+> carry that feature, so no published binary serves it - an operator builds with `--features rdbms`.
 
 The crate implements the conversion half of issue #151 and
 `docs/adr/0011-pluggable-by-declaration.md`'s RDBMS row. It is intended for a metadata source that
@@ -45,7 +46,7 @@ therefore loads, pins and validates with **zero metrics**, and answers no certif
 own. That is not a limitation the deployment is missing; it is the honest statement about what a
 physical schema, by itself, knows.
 
-A future production reader will see only the objects the database exposes to its configured
+The readers the `live` feature provides see only the objects the database exposes to its configured
 identity. `load()` has no request identity, and this converter does not build impersonation at the
 source.
 
