@@ -205,6 +205,7 @@ exclude_docs: |
   adr/0039-arrow-and-datafusion-override-the-hand-written-combiner.md
   adr/0040-a-cross-posture-federated-answer-is-disclosed-per-leg.md
   adr/20260924093457-knowledge-channels-for-rules-glossary-and-caveats.md
+  adr/20260926112245-opt-in-physical-schema-listing.md
   crap.md
   what-a-bpmn-file-actually-carries.md
   what-an-rdf-graph-can-carry.md
@@ -267,6 +268,7 @@ nav:
           - sutura-exec-postgres: api/sutura-exec-postgres.md
           - sutura-exec-clickhouse: api/sutura-exec-clickhouse.md
           - sutura-exec-oracle: api/sutura-exec-oracle.md
+          - sutura-adbc: api/sutura-adbc.md
           - sutura-tls: api/sutura-tls.md
           - sutura-http-client: api/sutura-http-client.md
           - sutura-bounded-read: api/sutura-bounded-read.md

@@ -370,7 +370,7 @@ impl Warehouse for FailingWarehouse {
 pub(crate) struct WouldNotReturnAtOnce;
 /// `docs/adr/0029`'s own mapping fake, in its own file for this file's `max-lines` reason.
 mod deadline;
-pub(crate) use deadline::WarehouseThatOutranItsDeadline;
+pub(crate) use deadline::{Probed, RawDeadlineProbe, WarehouseThatOutranItsDeadline};
 mod federation; // `telekom/sutura#112`'s fixture, split out: this file is at the `max-lines` cap.
 pub(crate) use federation::two_source_fake_warehouse;
 /// A data system that will not return the whole result at once.
@@ -558,6 +558,7 @@ impl Warehouse for FakeWarehouse {
         &self,
         statement: &sutura_domain::raw::RawStatement,
         _presented: &Presented,
+        _deadline: Deadline,
     ) -> sutura_domain::warehouse::RawExecution<Self::Error> {
         if statement.as_str() == "refuse me" {
             return Some(Err(StatementRejected {

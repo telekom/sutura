@@ -20,7 +20,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Column, Dimension, MAX_DEFINITIONS_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL};
-use crate::model::{ColumnName, DimensionName, IdentifierCase, MetricName, ModelName, RelationshipName, SourceName, TableName};
+use crate::measure::Term;
+use crate::model::{
+    Aggregate, ColumnName, DimensionName, IdentifierCase, MetricName, ModelName, RelationshipName, SourceName, TableName,
+};
 
 /// Everything a catalog said, with its cross-references checked.
 ///
@@ -263,6 +266,31 @@ pub enum InconsistentDefinitions {
     /// notes.
     #[error("this catalog's definitions carry {bytes} authored bytes, and the limit is {limit}")]
     DefinitionsTooLarge { bytes: usize, limit: usize },
+    /// A cross-model ratio's shared calendar is not reachable from one of its fact models
+    /// (`telekom/sutura#780`). The metric declares a `shared_calendar` model, and every model a
+    /// ratio term names - including the metric's own - must declare a relationship FROM itself TO
+    /// that calendar, the direction each fact leg joins it in. A model that does not is a
+    /// definition that loads but whose ratio can never be bucketed through the shared calendar,
+    /// so it is refused at declaration time rather than at query time.
+    #[error("metric {metric} declares shared calendar {calendar}, which model {model} has no relationship to")]
+    SharedCalendarNotReachable {
+        metric: MetricName,
+        calendar: ModelName,
+        model: ModelName,
+    },
+    /// A cross-model ratio term whose aggregate has no value over no rows (`telekom/sutura#780`).
+    ///
+    /// The two facts are combined drill-across, and a group one fact never reached reads that
+    /// fact's side as its aggregate over the empty set - 0 for a sum, a count or a conditional
+    /// count, the owner's rule. An average, a minimum or a maximum has no such value, so a ratio
+    /// using one on either side cannot be answered for every group; refused at declaration.
+    #[error("metric {metric} is a cross-model ratio with a {aggregate} term, which has no value over no rows")]
+    CrossModelTermHasNoEmptyValue { metric: MetricName, aggregate: Aggregate },
+    /// A cross-model ratio term counting distinct values (`telekom/sutura#780`). A cross-model ratio
+    /// is always two fact legs combined above, and a distinct count cannot be re-aggregated across
+    /// legs, so the definition could never be answered; refused at declaration rather than when asked.
+    #[error("metric {metric} is a cross-model ratio with a {aggregate} term, which cannot be re-aggregated across two facts")]
+    CrossModelTermDoesNotReaggregate { metric: MetricName, aggregate: Aggregate },
 }
 
 impl Definitions {
@@ -446,6 +474,89 @@ impl Definitions {
         Self::check_labels_against_table(metric, model.table_name())?;
         for dimension in metric.dimensions.values() {
             Self::check_dimension(models, relationships, metric, model, dimension)?;
+        }
+        Self::check_cross_model(models, relationships, metric)
+    }
+
+    /// One cross-model ratio term's aggregate: it must have a value over no rows (the empty-set rule
+    /// reads an absent fact's leaves as it) and re-aggregate across the two fact legs.
+    fn check_cross_model_aggregate(metric: &Metric, aggregate: Aggregate) -> Result<(), InconsistentDefinitions> {
+        let metric = metric.name.clone();
+        match aggregate {
+            Aggregate::Avg | Aggregate::Min | Aggregate::Max => {
+                Err(InconsistentDefinitions::CrossModelTermHasNoEmptyValue { metric, aggregate })
+            }
+            Aggregate::CountDistinct => Err(InconsistentDefinitions::CrossModelTermDoesNotReaggregate { metric, aggregate }),
+            Aggregate::Sum | Aggregate::Count => Ok(()),
+        }
+    }
+
+    /// `telekom/sutura#780`'s load checks for a cross-model ratio: every term has a value over no
+    /// rows, and the shared calendar is one each fact can join. Split from [`Self::check_metric`] to
+    /// keep that function under the CRAP threshold.
+    fn check_cross_model(
+        models: &BTreeMap<ModelName, Model>,
+        relationships: &BTreeMap<RelationshipName, Relationship>,
+        metric: &Metric,
+    ) -> Result<(), InconsistentDefinitions> {
+        // `telekom/sutura#780`: a cross-model ratio buckets both facts through a shared calendar
+        // model, reached via a relationship from each fact model. Checked here, at load, because a
+        // calendar one fact cannot reach is a definition whose ratio can never be bucketed - the
+        // refusal is at declaration time, which is where this repo puts them. Only the models a
+        // ratio term actually names are checked: a one-model metric has no cross-model term, so its
+        // `shared_calendar` (if set) is checked against just its own model.
+        if let Some(measure) = metric.computation.measure()
+            && measure.models().into_iter().flatten().any(|named| named != &metric.model)
+        {
+            for term in measure.terms() {
+                if let Term::Aggregate(inner) = term {
+                    Self::check_cross_model_aggregate(metric, inner.aggregate())?;
+                }
+            }
+        }
+        if let Some(calendar) = metric.shared_calendar.as_ref() {
+            // The calendar model must exist.
+            if !models.contains_key(calendar) {
+                return Err(InconsistentDefinitions::SharedCalendarNotReachable {
+                    metric: metric.name.clone(),
+                    calendar: calendar.clone(),
+                    model: calendar.clone(),
+                });
+            }
+            // Every model a ratio term names must reach the calendar - the metric's own first,
+            // then each cross-model term's - through a relationship from the model to the calendar,
+            // which is the hop each fact leg joins.
+            let mut models_to_check = vec![&metric.model];
+            if let Some(measure) = metric.computation.measure() {
+                for term_model in measure.models().into_iter().flatten() {
+                    if term_model != &metric.model {
+                        models_to_check.push(term_model);
+                    }
+                }
+            }
+            for &named in &models_to_check {
+                let reaches = relationships
+                    .values()
+                    .any(|rel| rel.origin_model() == named && rel.target_model() == calendar);
+                if !reaches {
+                    return Err(InconsistentDefinitions::SharedCalendarNotReachable {
+                        metric: metric.name.clone(),
+                        calendar: calendar.clone(),
+                        model: named.clone(),
+                    });
+                }
+            }
+            // The column both legs bucket and bound by is the metric's time column on the calendar.
+            if models
+                .get(calendar)
+                .is_some_and(|model| !model.has_column(&metric.time_column))
+            {
+                return Err(InconsistentDefinitions::UnknownTimeColumn {
+                    metric: metric.name.clone(),
+                    model: calendar.clone(),
+                    column: metric.time_column.clone(),
+                });
+            }
         }
         Ok(())
     }
@@ -656,10 +767,15 @@ impl Definitions {
         self.relationships.get(name)
     }
 }
-/// The authored bytes behind one model beyond its own name: every column it declares, and its
-/// description.
+/// The bytes a physical-schema listing can expose for one model.
 fn model_bytes(model: &Model) -> usize {
-    sum_bytes(model.columns().map(column_bytes)).saturating_add(model.description().len())
+    model
+        .name()
+        .as_str()
+        .len()
+        .saturating_add(model.table().to_string().len())
+        .saturating_add(sum_bytes(model.columns().map(column_bytes)))
+        .saturating_add(model.description().len())
 }
 
 /// The authored bytes behind one column: its name, its data type if declared, and its description.

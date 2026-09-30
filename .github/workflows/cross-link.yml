@@ -152,7 +152,7 @@ jobs:
       # Before nix installs: /nix/store is what fills. See
       # `.github/actions/reclaim-disk` for why this is local and why it cannot
       # affect the Nix cache.
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           # Same reasoning as the `ci` job: the flag that would let flake.nix add its own
@@ -173,7 +173,7 @@ jobs:
       # One entry PER TARGET: each leg builds a different closure, so a shared key would have the
       # legs overwrite each other. Restore-only on a pull request - see
       # `.github/actions/nix-store-cache`, whose save condition `check-workflows` pins.
-      - uses: ./.github/actions/nix-store-cache
+      - uses: $/.github/actions/nix-store-cache
         with:
           scope: ${{ matrix.target }}
 
@@ -266,7 +266,7 @@ jobs:
       # DOES EVERY SHIPPED BINARY CARRY ITS OWN DEPENDENCY LIST, and can the tool the release
       # path uses read it back out? A local composite action; its header says why it is not
       # inline here and what `nix/auditable.nix` and `release.yml` depend on it for.
-      - uses: ./.github/actions/embedded-dependency-list
+      - uses: $/.github/actions/embedded-dependency-list
         with:
           target: ${{ matrix.target }}
           binaries: ${{ env.BINARIES }}

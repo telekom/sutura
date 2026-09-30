@@ -1,6 +1,6 @@
 //! What goes into the agent-facing system prompt that this deployment hands out.
 //!
-//! Three keys, and each one is read: `sutura_app::prompt::render` consumes the text and prose choice,
+//! Four keys, and each one is read: `sutura_app::prompt::render` consumes the text, prose choice and schema opt-in,
 //! and the CLI composition root reads the file under the byte limit. `sutura prompt` reaches both.
 //! That is a requirement rather than a remark - this
 //! crate has shipped a group of keys that were parsed, range-checked, refused on a bad value and
@@ -61,8 +61,9 @@ pub enum CatalogProse {
     ///
     /// **A description is untrusted content and this is not a claim that it is safe.** A per-line
     /// prefix stops catalog text from reaching column zero, so it cannot emit a heading or close a
-    /// block; it does nothing about prose that persuades without escaping. `SECURITY.md` treats
-    /// catalog content as untrusted, and `sutura_app::prompt` states the residual gap.
+    /// block; it does nothing about prose that persuades without escaping. The repository's threat
+    /// model treats a catalog document as untrusted input, and `sutura_app::prompt` states the
+    /// residual gap.
     Quoted,
     /// Left out. For a deployment whose catalog authors are not the people who decide what its
     /// agents are told.
@@ -216,6 +217,7 @@ pub struct PromptSettings {
     instructions_file: Option<InstructionsFile>,
     instructions_max_bytes: InstructionsMaxBytes,
     catalog_prose: CatalogProse,
+    list_physical_schema: bool,
 }
 
 impl PromptSettings {
@@ -240,7 +242,20 @@ impl PromptSettings {
             instructions_file,
             instructions_max_bytes,
             catalog_prose,
+            list_physical_schema: false,
         }
+    }
+
+    /// Enables the descriptive physical-schema listing on agent surfaces.
+    #[must_use]
+    pub const fn listing_physical_schema(mut self, enabled: bool) -> Self {
+        self.list_physical_schema = enabled;
+        self
+    }
+
+    #[inline]
+    pub const fn list_physical_schema(&self) -> bool {
+        self.list_physical_schema
     }
 
     /// The operator's own text, if a path was configured.

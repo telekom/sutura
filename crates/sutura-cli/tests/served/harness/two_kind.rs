@@ -51,7 +51,18 @@ pub(crate) fn settings(case: &str) -> Option<(String, FixtureLoadGuard)> {
     let catalog = derived_catalog(case, &example.join("catalog"), MOVED_MODEL, PG_SOURCE);
     without_the_product_family_dimension(&catalog);
     let loaded = load_into_tier(case, PG_SOURCE)?;
-    let sources = format!("{}{}", files_source(LOCAL_SOURCE, &data), source_entry(PG_SOURCE, &loaded));
+    let sources = format!(
+        "{}{}",
+        files_source(LOCAL_SOURCE, &data),
+        source_entry(
+            PG_SOURCE,
+            loaded.port,
+            &loaded.database,
+            &loaded.user,
+            &loaded.password_file,
+            &loaded.anchor
+        )
+    );
     let settings = settings_over(
         &catalog,
         &data,

@@ -7,6 +7,7 @@ use std::collections::BTreeSet;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{Audience, Definitions, Description, Metric, Model};
+use sutura_domain::identity::PresentedDisagreesWithPosture;
 use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{Aggregate, ColumnName, Grain, ModelName, SourceName, TableName};
@@ -20,7 +21,8 @@ use crate::spend::SpendLedger;
 use crate::surface::{LocalService, ServiceNotStarted, Surface as _, SurfaceFailure};
 use crate::tests::{asked_by_a_person, certified, june, metric, shared, source, test_deadline};
 use crate::tests_support::{
-    AuthoredWarehouse, DiscardingAuditSink, FixedBroker, FixedCatalog, FixedWarehouse, RawCapableWarehouse, authored_bundle,
+    AuthoredWarehouse, CountingBroker, DiscardingAuditSink, FixedBroker, FixedCatalog, FixedWarehouse, RawCapableWarehouse,
+    authored_bundle,
 };
 use crate::warehouses::Warehouses;
 use crate::{RunSqlError, ServiceError, run_sql, verify_and_validate};
@@ -147,8 +149,14 @@ fn two_bundles_with_different_versions_are_refused() {
 
 #[test]
 fn an_unreachable_broker_through_run_sql_is_a_broker_failure() {
-    let failure = run_sql(&asked_by_a_person(), &select_one(), &FixedBroker::Unreachable, &raw_capable())
-        .expect_err("an unreachable broker is a failure");
+    let failure = run_sql(
+        &asked_by_a_person(),
+        &select_one(),
+        &FixedBroker::Unreachable,
+        &raw_capable(),
+        test_deadline(),
+    )
+    .expect_err("an unreachable broker is a failure");
     assert!(
         matches!(failure, RunSqlError::Broker { .. }),
         "the broker failure is typed, not {failure:?}"
@@ -162,11 +170,58 @@ fn credentials_for_the_wrong_source_through_run_sql_are_a_credentials_failure() 
         &select_one(),
         &FixedBroker::GrantsTheWrongSource,
         &raw_capable(),
+        test_deadline(),
     )
     .expect_err("a grant for the wrong source is a wiring defect");
     assert!(
         matches!(failure, RunSqlError::Credentials { .. }),
         "the credential mismatch is typed, not {failure:?}"
+    );
+}
+
+#[test]
+fn run_sql_over_no_adapter_that_accepts_a_raw_statement_is_refused_as_no_accepting_source() {
+    // One warehouse is registered, but `FixedWarehouse` does not accept raw statements, so
+    // `single_raw_capable_warehouse` finds none and `run_sql` refuses at its FIRST
+    // `NoAcceptingSource` site (`raw.rs:138`), before a broker is ever asked - `run_sql`'s second
+    // site (`raw.rs:167`) is only reachable past a mint, over a raw-capable warehouse whose
+    // `execute_raw` itself returns `None`, which is a different cell's shape. `CountingBroker`
+    // pins the "before minting" half a bare variant match cannot: a broker asked even once here
+    // would mean the refusal moved past the site this cell names.
+    let broker = CountingBroker::default();
+    let failure = run_sql(
+        &asked_by_a_person(),
+        &select_one(),
+        &broker,
+        &Warehouses::of(FixedWarehouse::new(source(), shared())),
+        test_deadline(),
+    )
+    .expect_err("no adapter here accepts a raw statement");
+    assert!(
+        matches!(failure, RunSqlError::NoAcceptingSource),
+        "the missing adapter is typed, not {failure:?}"
+    );
+    assert_eq!(broker.asked(), 0, "the first NoAcceptingSource site refuses before any mint");
+}
+
+#[test]
+fn run_sql_handed_a_subject_leg_for_a_shared_source_is_a_posture_failure() {
+    let failure = run_sql(
+        &asked_by_a_person(),
+        &select_one(),
+        &FixedBroker::GrantsSubjectMaterial,
+        &raw_capable(),
+        test_deadline(),
+    )
+    .expect_err("a subject leg for a shared source is a wiring defect");
+    assert!(
+        matches!(
+            failure,
+            RunSqlError::Posture {
+                cause: PresentedDisagreesWithPosture::ShapeIsNotThePosture { .. }
+            }
+        ),
+        "the posture mismatch is typed, not {failure:?}"
     );
 }
 

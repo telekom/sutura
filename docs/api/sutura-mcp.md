@@ -189,7 +189,7 @@ that exists.
 ## `fn serve_stdio`
 
 ```rust
-pub async fn serve_stdio<S>(service: std::sync::Arc<S>, permitted: sutura_app::Permitted, prose: sutura_app::prompt::CatalogProse, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, tools: std::sync::Arc<[sutura_app::prompt::Tool]>, operator_instructions: Option<std::sync::Arc<str>>) -> Result<(), NotServed>
+pub async fn serve_stdio<S>(service: std::sync::Arc<S>, permitted: sutura_app::Permitted, prose: sutura_app::prompt::CatalogProse, list_physical_schema: bool, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, tools: std::sync::Arc<[sutura_app::prompt::Tool]>, operator_instructions: Option<std::sync::Arc<str>>) -> Result<(), NotServed>
 ```
 
 Serves the agent surface over standard input and output, until the client disconnects.
@@ -364,7 +364,7 @@ re-resolved per request out of each request's `Asked`, never out of a session.
 ### `fn service`
 
 ```rust
-pub fn service<S>(surface: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, tools: std::sync::Arc<[sutura_app::prompt::Tool]>, operator_instructions: Option<std::sync::Arc<str>>) -> rmcp::transport::StreamableHttpService<crate::AgentSurface<S>, rmcp::transport::streamable_http_server::session::local::LocalSessionManager>
+pub fn service<S>(surface: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse, list_physical_schema: bool, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, tools: std::sync::Arc<[sutura_app::prompt::Tool]>, operator_instructions: Option<std::sync::Arc<str>>) -> rmcp::transport::StreamableHttpService<crate::AgentSurface<S>, rmcp::transport::streamable_http_server::session::local::LocalSessionManager>
 ```
 
 Builds the streamable-HTTP transport over one `Surface`, as a plain `tower_service::Service`
@@ -573,6 +573,10 @@ Holds the service behind an `Arc` because a tool call is answered on the blockin
 port has to outlive the future that started the call.
 
 #### Methods
+
+```rust
+pub const fn listing_physical_schema(self, enabled: bool) -> Self
+```
 
 ```rust
 pub const fn new(service: Arc<S>, asking: Asking, prose: sutura_app::prompt::CatalogProse, admission: Admission, reply: RequestTimeout, tools: Arc<[Tool]>, operator_instructions: Option<Arc<str>>) -> Self
@@ -1133,6 +1137,32 @@ the defect this surface shipped until it took the view. `ScopedView` borrows the
 this builder cannot reach `SemanticCatalog::load` - the knowledge sections and the metrics
 are filtered by the caller's own grant, never by a call the renderer omits.
 
+```rust
+pub fn of_with_physical_schema(view: &ScopedView<'_>, prose: CatalogProse, instructions: Option<&str>, list_physical_schema: bool) -> Self
+```
+
+Include physical models only when the operator enabled them for this caller view.
+
+##### Implements
+
+`Debug`, `Serialize`
+
+#### `struct ModelContent`
+
+```rust
+pub struct ModelContent
+```
+
+##### Implements
+
+`Debug`, `Serialize`
+
+#### `struct ColumnContent`
+
+```rust
+pub struct ColumnContent
+```
+
 ##### Implements
 
 `Debug`, `Serialize`
@@ -1207,6 +1237,7 @@ Why a `run_sql` call's arguments were not a statement.
 
 - `NotAnObject`
 - `Statement`
+- `StatementTooLarge` - `statement` exceeds `sutura_domain::raw::MAX_RAW_STATEMENT_BYTES`, refused before `RawStatement::parse` runs its own check - `serde_json::from_value` allocates nothing for a `String` field either way, it only moves the value `rmcp` already parsed. The same code `RawStatement::parse`'s own `TooLong` returns, fired earlier; carries only the length and the limit, no caller text.
 
 ##### Implements
 

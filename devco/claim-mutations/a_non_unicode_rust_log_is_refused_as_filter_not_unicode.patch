@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-runtime/src/telemetry.rs b/crates/sutura-runtime/src/telemetry.rs
+index 20bb74336..81efb1dd8 100644
+--- a/crates/sutura-runtime/src/telemetry.rs
++++ b/crates/sutura-runtime/src/telemetry.rs
+@@ -134,8 +134,7 @@ fn resolve_filter(
+         // An empty variable is the shape an unset one takes in a shell - `RUST_LOG=` in a
+         // manifest - so it falls through to the configured value rather than meaning "no
+         // directives", which is what an empty `EnvFilter` would silently be.
+-        Ok(_) | Err(std::env::VarError::NotPresent) => configured(telemetry),
+-        Err(std::env::VarError::NotUnicode(_)) => Err(TelemetryNotInstalled::FilterNotUnicode),
++        Ok(_) | Err(std::env::VarError::NotPresent | std::env::VarError::NotUnicode(_)) => configured(telemetry),
+     }
+ }
+ 

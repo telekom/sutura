@@ -212,6 +212,7 @@ where
 /// for it and cannot turn it off, so nothing the caller does can make this pass or fail - which is
 /// exactly why it has to be asserted here, and why it is a property of the CATALOG rather than of a
 /// renderer.
+#[track_caller]
 fn keeps_every_definitional_filter<C>()
 where
     C: GoldenCatalog,
@@ -249,8 +250,7 @@ where
                 .measures()
                 .iter()
                 .find(|m| m.metric() == name)
-                .map(|m| m.guard().iter().collect())
-                .unwrap_or_default();
+                .map_or_default(|m| m.guard().iter().collect());
             for required in metric.required_filters() {
                 let present = plan.filters().iter().any(|f| {
                     matches!(f.origin(), PredicateOrigin::Definition) && f.predicate().column().column() == required.column()
@@ -348,11 +348,6 @@ macro_rules! golden {
         fn every_refusal_a_question_can_provoke_is_provoked_by_a_fixture() {
             super::provokes_every_refusal::<$adapter>();
         }
-
-        #[test]
-        fn a_definitional_filter_is_in_every_plan_about_its_metric() {
-            super::keeps_every_definitional_filter::<$adapter>();
-        }
     };
 }
 
@@ -396,6 +391,18 @@ macro_rules! cell {
 }
 
 crate::adapters::registered!(catalogs: cell);
+
+#[test]
+fn a_definitional_filter_is_in_every_plan_about_its_metric() {
+    macro_rules! check {
+        ($name:ident, declaring, $adapter:ty) => {};
+        ($name:ident, golden, $adapter:ty) => {
+            keeps_every_definitional_filter::<$adapter>();
+        };
+    }
+    // Keep the registry call inside the assertion owner for track_caller.
+    crate::adapters::registered!(catalogs: check);
+}
 
 #[test]
 fn dropping_prose_moves_the_digest() {
@@ -627,5 +634,11 @@ fn a_declared_kind_with_no_content_is_not_the_same_as_an_undeclared_kind() {
         <crate::support::HandWrittenCatalog as SemanticCatalog>::capabilities().checked_against(&produced),
         Ok(())
     );
-    assert!(MetadataCapabilities::everything().checked_against(&produced).is_err());
+    assert_eq!(
+        MetadataCapabilities::everything().checked_against(&produced),
+        Err(UnfaithfulDeclaration::Unprovided {
+            kind: DeclarableKind::Definition(DefinitionKind::Descriptions),
+        }),
+        "declaring every kind over a bundle that carries no descriptions over-claims exactly that"
+    );
 }

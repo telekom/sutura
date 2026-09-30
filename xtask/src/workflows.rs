@@ -140,11 +140,21 @@ pub(crate) use nix_block::declared_block;
 // Raw bodies also let check-scope compare literal nextest selectors without a second Nix lexer.
 pub(crate) use nix_block::block_source;
 
+// A DIFFERENT KIND OF QUESTION about `.github/workflows/version-bump.yml` specifically, so its
+// own file rather than a fifth arm of `run` above: not "does a reference resolve" but "does the
+// one job that writes a release commit still keep the four properties the v0.6.0 incident
+// needed" - `telekom/sutura#1150` review, finding 1a. Its own `Task` in `task_table::release`, not folded
+// into `check-workflows`'s sweep, for the reason every OTHER user of `step::job` here already has
+// one: `default_features`, `default_feature_tests` and `devenv_shell` each register separately
+// and share this module's reader rather than this file's `run`.
+pub(crate) mod version_bump;
+
 /// Which output namespace a reference points into.
 ///
 /// `Runnable` and not `App`: `nix run .#name` resolves an app OR a package with a matching main
-/// program, and this repo relies on that - `nix run .#xtask` runs `packages.xtask`, which has no
-/// `apps.xtask`. Checking only `apps` reported every such call as missing.
+/// program, and this repo relies on that for whichever names have a `packages.<name>` with a
+/// `meta.mainProgram` but no matching `apps.<name>` of its own - checking only `apps` reported
+/// every such call as missing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Runnable,

@@ -63,6 +63,13 @@
 #[path = "served/harness.rs"]
 mod harness;
 
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "rdbms")]
+#[cfg(feature = "postgres")]
+#[path = "common/mod.rs"]
+mod common;
+
 // Split out of `mod tests` below by `cargo xtask max-lines`'s 1000-line cap - the one `#[ignore]`d
 // cell that needs a real Keycloak tier, a sibling module for the same reason `harness` is one: see
 // its own header for why a `#[path]` module lives here and not nested inside `tests`.
@@ -104,6 +111,18 @@ mod openmetadata;
 #[cfg(test)]
 #[path = "served/datacontract.rs"]
 mod datacontract;
+// `catalog.kind: rdbms`, served: #970's "boots and lists" acceptance for the live RDBMS dictionary
+// reader - see `served/rdbms.rs`'s module header. `cfg(test)` for the same `allow-expect-in-tests`
+// reason `datahub`/`okf`/`openmetadata` above carry one; `cfg(feature = "postgres")` for the tier
+// harness (`dep:tokio-postgres`) the fixture installs the documentation schema through, and
+// `cfg(feature = "rdbms")` so a build without the reader does not parse a file naming a crate it
+// did not link - the same split `openmetadata` above holds on its own feature.
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "postgres")]
+#[cfg(feature = "rdbms")]
+#[path = "served/rdbms.rs"]
+mod rdbms;
 
 // The agent-surface cells (`/mcp` hidden behind leg 1, the boot refusal, two callers), split into
 // their own file for the same `max-lines` reason; `#[path]` keeps them next to the harness they

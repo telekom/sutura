@@ -171,8 +171,7 @@ Four parts, each with its own reason:
 than asserted.
 
 **Corrected: that overstates the manifest side.** `sutura-cli`'s own manifest declares the edge -
-`Cargo.toml:55`'s `bigquery` feature and `:87`'s `sutura-exec-bigquery = { workspace = true, optional
-= true }` - and `nix/shipped.nix:161-164` packages `sutura-serve` as a release artifact, published as
+`Cargo.toml:55`'s `bigquery` feature and `:87`'s `sutura-exec-bigquery = { workspace = true, optional = true }` - and `nix/shipped.nix:161-164` packages `sutura-serve` as a release artifact, published as
 the tarball `.github/workflows/release.yml:447` uploads. What holds is narrower than "none of them
 link either half":
 no artifact in the table below LINKS `sutura-exec-bigquery` or `ureq` in its DEFAULT build, because
@@ -964,8 +963,9 @@ adoption and this paragraph the transport did not call it: it answered
 surface, not a corner.** `sutura_domain::query::Question` makes its `range` a mandatory field, and
 `sutura_sql::Dialect::BigQuery` renders `PlaceholderStyle::Question`, so every rendered statement
 carries positional `?` and values to go with them - a served `bigquery` deployment booted clean and
-answered nothing. Round-2 review of telekom/sutura#929 found it; `crates/sutura-exec-bigquery/src/adbc/bind.rs`
-is the fix and carries the type map.
+answered nothing. Round-2 review of telekom/sutura#929 found it; `crates/sutura-adbc/src/bind.rs`
+is the fix and carries the type map (moved there from the bigquery adapter by `telekom/sutura#913`,
+which made it the one ADBC crate every adapter shares).
 
 **One row, and the driver is why that is a property rather than a detail.** Inside each bound batch
 the driver loops `for i := range int(rec.NumRows())` and runs the whole query once per row, appending

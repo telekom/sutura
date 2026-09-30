@@ -1003,6 +1003,7 @@ economise.
    | `unused-deps` | every member manifest and that member's own Rust |
    | `check-unreachable-public-modules` | every member crate's Rust, and every first-party crate's Rust, for which `pub` module has no cross-first-party reference (#131) |
    | `check-arrow` | `Cargo.lock` and `devco/arrow-majors-allow` |
+   | `check-lock-coverage` | every `Cargo.lock` the repo walk finds, and `.github/dependabot.yml` |
    | `check-vendor-count` | `VENDOR.md`'s mimalloc row, `Cargo.toml` and `REUSE.toml` |
    | `check-shared-client` | `Cargo.lock` |
    | `check-attribution-owner` | the ABSENCE of `ATTRIBUTION.md` at the repo root, and `.github/workflows/release.yml` for whether the release still generates the attribution asset |
@@ -1028,6 +1029,7 @@ economise.
    | `check-hook-tiers` | `.pre-commit-config.yaml` |
    | `check-devenv-shell` | `devenv.nix` and every module its `imports` reach - which attributes assign a shell body, and whether the value goes through the wrapper ShellCheck reads |
    | `check-workflows` | `.github/**`, against the outputs `flake.nix` declares - plus `devco/required-contexts` for which jobs gate, and `README.md`, `REUSE.toml` and `devco/scorecard-publication` for whether a badge's claim has a mechanism behind it |
+   | `check-version-bump` | `.github/workflows/version-bump.yml` - whether its release commit still formats the changelog, updates and stages `fuzz/Cargo.lock`, and runs the structural sweep before it commits (#1150) |
 
    **Reads prose.** Each of these reads at least one file such a diff CAN change, so skipping one
    defers a verdict rather than costing nothing - and only part of one is replaced:

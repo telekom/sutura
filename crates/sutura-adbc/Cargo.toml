@@ -1,0 +1,35 @@
+[package]
+name = "sutura-adbc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "The linked-driver FFI (the workspace's one `unsafe` site) plus the shared parameter-batch and driver-location helpers every ADBC adapter needs."
+
+[dependencies]
+# The ADBC driver manager: `ManagedDriver::load_static` (the linked route) and
+# `load_dynamic_from_filename` (the mounted route). `adbc_core` carries the error
+# and option types and the driver/connection/statement traits; `adbc_ffi` carries
+# the C ABI entrypoint type `ManagedDriver::load_static` takes. All three are
+# already in `Cargo.lock` through `sutura-exec-bigquery`, so this crate adds edges
+# and no packages.
+adbc_core = "0.24"
+adbc_driver_manager = "0.24"
+adbc_ffi = "0.24"
+# The parameter-batch helper builds an Arrow `RecordBatch` from the domain's
+# `ParamValue` list, and the driver-location error type is a `thiserror` enum.
+# Both majors match the workspace pin (`arrow-array`/`arrow-schema` 59, already in
+# the lock through the domain and the driver manager).
+arrow-array = "59"
+arrow-schema = "59"
+# The domain's `ParamValue` is the typed parameter the batch helper maps to Arrow
+# columns. `sutura-adbc` is a shared adapter-facing library, not an adapter: it
+# depends on the hexagon, as `sutura-sql` and `sutura-tls` do.
+sutura-domain = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

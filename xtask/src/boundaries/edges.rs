@@ -125,7 +125,7 @@ pub(crate) const ALLOWED_IN_DOMAIN: &[&str] = &[
     // `adbc_core`, and any Arrow Flight leg will too; all three are on major 59, so a batch crosses
     // from any of them into `sutura_domain::warehouse::arrow` with no conversion and no C data
     // interface - which the `#![forbid(unsafe_code)]` at every crate root puts out of reach anyway
-    // (`cargo xtask check-unsafe` holds that, and its one exception is in `sutura-exec-bigquery`,
+    // (`cargo xtask check-unsafe` holds that, and its one exception is in `sutura-adbc`,
     // not here). What it buys is ONE
     // Arrow-to-`Value` decode where there were three, and the one it deletes went through TEXT: a
     // cast to `Utf8`, a text cell, then a `parse::<i64>()` back, so an exact total had two chances
@@ -518,13 +518,12 @@ pub(crate) fn transitive_names(meta: &serde_json::Value, start: &str, edges: Edg
             .iter()
             .find(|n| n.get("id").and_then(|i| i.as_str()) == Some(id))
             .and_then(|n| n.get("deps")?.as_array())
-            .map(|deps| {
+            .map_or_default(|deps| {
                 deps.iter()
                     .filter(|dep| edges.follows(dep))
                     .filter_map(|d| d.get("pkg")?.as_str().map(String::from))
                     .collect()
             })
-            .unwrap_or_default()
     };
 
     // Iterative, so a dependency cycle cannot blow the stack.

@@ -3,13 +3,19 @@
 //! A read-only Postgres connection, a closed-form live-row predicate, the environment key that
 //! selects dictionary rows, the source the described objects are served from, and two read bounds.
 //!
-//! Split out of `catalog.rs` at the crate's 1000-line cap. The parent re-exports every type, so
+//! Authored as its own module, not a split. The parent re-exports every type, so
 //! `crate::catalog::<Name>` and the crate root's `pub use` both still resolve.
 //!
 //! **Parsed here, read by a composition root that links the `live` reader.** This crate's own job
 //! ends at a checked declaration; a build with `sutura-catalog-rdbms`'s `live` feature consumes
 //! these values into a reader over a Postgres documentation schema, and a build without it refuses
 //! `kind: rdbms` by name. Every value below is a checked declaration either way.
+//!
+//! The `connection:` block selects its dialect through a `dialect` key (default `postgres`):
+//! `postgres` dials a Postgres documentation schema. `oracle` declares an Oracle connection held to
+//! plaintext, loopback-confined EZCONNECT - the constraint the `oracle` source kind holds - and
+//! nothing reads it: the composition root refuses it as not supported by this build, so the
+//! declaration is checked but never opened.
 
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
@@ -18,7 +24,7 @@ use sutura_domain::model::{ColumnName, InvalidIdentifier, SourceName};
 
 use crate::raw::{RawCatalog, RawCatalogConnection, RawLiveRowPredicate};
 use crate::sources::SourceRegistry;
-use crate::sources::placement::{HostName, InvalidHostName, PostgresDial};
+use crate::sources::placement::{HostName, InvalidHostName, InvalidOracleServiceName, OracleServiceName, PostgresDial};
 use crate::sources::transport::{InvalidTransport, SourceTransport, UnsafeChannel};
 
 /// The `kind: rdbms`-only half of a catalog entry, all or nothing.
@@ -33,6 +39,7 @@ pub struct RdbmsSettings {
     dictionary_schema: Option<DocumentationSchema>,
     max_dictionary_rows: Option<NonZeroU64>,
     max_dictionary_bytes: Option<NonZeroU64>,
+    dictionary_source: DictionarySource,
     connection: CatalogConnection,
 }
 
@@ -68,6 +75,7 @@ impl RdbmsSettings {
             .map(DocumentationSchema::parse)
             .transpose()
             .map_err(|cause| InvalidRdbmsCatalog::DictionarySchema { cause })?;
+        let dictionary_source = DictionarySource::parse(raw.dictionary_source.as_deref())?;
         Ok(Self {
             environment,
             live_row_predicate,
@@ -75,6 +83,7 @@ impl RdbmsSettings {
             dictionary_schema,
             max_dictionary_rows: non_zero("max_dictionary_rows", raw.max_dictionary_rows)?,
             max_dictionary_bytes: non_zero("max_dictionary_bytes", raw.max_dictionary_bytes)?,
+            dictionary_source,
             connection,
         })
     }
@@ -122,6 +131,14 @@ impl RdbmsSettings {
     #[must_use]
     pub const fn connection(&self) -> &CatalogConnection {
         &self.connection
+    }
+
+    /// Which dictionary the reader reads: the documentation schema (default) or the database's
+    /// own dictionary views. Selected by the `dictionary_source` key on an `rdbms` catalog.
+    #[inline]
+    #[must_use]
+    pub const fn dictionary_source(&self) -> DictionarySource {
+        self.dictionary_source
     }
 }
 
@@ -244,9 +261,8 @@ impl CatalogEnvironment {
 ///
 /// Binding a schema name as a quoted, validated identifier - never interpolating it into a SQL
 /// statement as raw text. The accepted set is `[A-Za-z0-9_]`, the same leaves every Postgres
-/// identifier is built from, and case is preserved. It also doubles as the physical schema the
-/// described objects are documented against when the dictionary rows' own schema differs from a
-/// separate `catalog` part - see the dictionary contract.
+/// identifier is built from, and case is preserved. The reader selects the view `columns` in this
+/// schema; the schema of each described object is the row's own `schema_name` and `catalog_name`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentationSchema(String);
 
@@ -279,14 +295,124 @@ pub enum InvalidDocumentationSchema {
     NotIdentifier,
 }
 
-/// An rdbms catalog's own read-only Postgres connection.
+/// Which dictionary an `rdbms` catalog reads.
+///
+/// `documentation_schema` (the default) is the only one a build reads; the composition root refuses
+/// `native_dictionary` as not supported by this build, so it is checked but never opened. A closed
+/// set: a new one is a visible diff plus a parse arm and a reader arm, which is the review it
+/// deserves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DictionarySource {
+    /// A `columns` documentation-schema view installed in the database (the default).
+    DocumentationSchema,
+    /// The database's own dictionary views. No reader for it exists; it is refused at the
+    /// composition root.
+    NativeDictionary,
+}
+
+impl DictionarySource {
+    /// Every accepted spelling, so a message and the parser cannot disagree.
+    pub const ALL: [Self; 2] = [Self::DocumentationSchema, Self::NativeDictionary];
+
+    fn parse(written: Option<&str>) -> Result<Self, InvalidRdbmsCatalog> {
+        let word = written.unwrap_or(Self::DocumentationSchema.as_str()).trim();
+        Self::ALL
+            .into_iter()
+            .find(|source| source.as_str() == word)
+            .ok_or_else(|| InvalidRdbmsCatalog::DictionarySourceUnknown {
+                found: String::from(word),
+            })
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::DocumentationSchema => "documentation_schema",
+            Self::NativeDictionary => "native_dictionary",
+        }
+    }
+
+    fn known() -> String {
+        Self::ALL.map(Self::as_str).join(", ")
+    }
+}
+
+/// An rdbms catalog's own read-only connection, in the dialect its `connection.dialect` key
+/// selected.
+///
+/// **Default `postgres`**, so a deployment that wrote no `dialect` key reads exactly as it did
+/// before the Oracle variant existed. The variant is the dispatch point: a Postgres connection
+/// dials a documentation schema over a `PostgresDial`, and an Oracle connection is held to
+/// plaintext EZCONNECT, loopback-confined. The composition root matches on the
+/// variant to build the reader, and refuses an `Oracle` one: no Oracle reader exists in this build.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CatalogConnection {
+    /// A Postgres documentation-schema connection, the default dialect.
+    Postgres(PostgresCatalogConnection),
+    /// An Oracle dictionary connection: plaintext, loopback-confined EZCONNECT.
+    Oracle(OracleCatalogConnection),
+}
+
+impl CatalogConnection {
+    fn parse(name: &SourceName, raw: &RawCatalogConnection) -> Result<Self, InvalidConnection> {
+        let dialect = Dialect::parse(raw.dialect.as_deref())?;
+        match dialect {
+            Dialect::Postgres => PostgresCatalogConnection::parse(name, raw).map(Self::Postgres),
+            Dialect::Oracle => OracleCatalogConnection::parse(name, raw).map(Self::Oracle),
+        }
+    }
+}
+
+/// The dialect a `connection:` block names, defaulting to Postgres.
+///
+/// A closed set: a new one is a visible diff plus a parse arm, which is the review it deserves.
+/// `postgres` is the default so an existing deployment that wrote no `dialect` key reads the same
+/// connection it always did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dialect {
+    /// The Postgres documentation-schema reader - the default and the precedent.
+    Postgres,
+    /// An Oracle connection, plaintext EZCONNECT over loopback. Parsed; no reader exists.
+    Oracle,
+}
+
+impl Dialect {
+    /// Every accepted spelling, so a message and the parser cannot disagree.
+    pub const ALL: [Self; 2] = [Self::Postgres, Self::Oracle];
+
+    fn parse(written: Option<&str>) -> Result<Self, InvalidConnection> {
+        let word = written.unwrap_or(Self::Postgres.as_str()).trim();
+        Self::ALL
+            .into_iter()
+            .find(|dialect| dialect.as_str() == word)
+            .ok_or_else(|| InvalidConnection::UnknownDialect {
+                found: String::from(word),
+            })
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Postgres => "postgres",
+            Self::Oracle => "oracle",
+        }
+    }
+
+    fn known() -> String {
+        Self::ALL.map(Self::as_str).join(", ")
+    }
+}
+
+/// A Postgres documentation-schema connection - the existing shape, now one variant.
 ///
 /// The same parsed types a `sources:` Postgres entry holds ([`PostgresDial`], [`SourceTransport`])
 /// and the same fail-closed channel rules, through the one function both call:
 /// [`crate::sources::transport::refuse_unsafe_postgres_channel`]. **No password is held here:**
 /// `password_file` is a path the composition root reads at boot.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CatalogConnection {
+pub struct PostgresCatalogConnection {
     dial: PostgresDial,
     database: String,
     user: String,
@@ -294,10 +420,16 @@ pub struct CatalogConnection {
     transport: SourceTransport,
 }
 
-impl CatalogConnection {
+impl PostgresCatalogConnection {
     fn parse<'raw>(name: &SourceName, raw: &'raw RawCatalogConnection) -> Result<Self, InvalidConnection> {
         let required =
             |key: &'static str, value: &'raw Option<String>| written(value.as_deref()).ok_or(InvalidConnection::Missing { key });
+        if written(raw.service_name.as_deref()).is_some() {
+            return Err(InvalidConnection::ForeignKey {
+                key: "service_name",
+                dialect: "postgres",
+            });
+        }
         let port = raw.port.ok_or(InvalidConnection::Missing { key: "port" })?;
         let dial = match (written(raw.host.as_deref()), written(raw.unix_socket.as_deref())) {
             (Some(_), Some(_)) => return Err(InvalidConnection::HostAndUnixSocket),
@@ -368,6 +500,105 @@ impl CatalogConnection {
     }
 }
 
+/// An Oracle dictionary connection: plaintext EZCONNECT, loopback-confined.
+///
+/// **The same stand the `oracle` source kind makes** (`crate::sources::oracle`): the pinned
+/// driver builds its own TLS configuration and takes no caller-built one, so `verified` and
+/// `mutual` transport modes are refused (not wired) and the declared `host` is confined to a
+/// loopback literal through [`crate::sources::transport::refuse_remote_plaintext`]. The driver
+/// names the database by `service_name` rather than `database`, so there is no `database` field.
+/// **No password is held here:** `password_file` is a path the composition root reads at boot.
+///
+/// **Limit, next to the claim:** this confines the first dial, not the connection - the pinned
+/// driver follows a listener's TNS redirect to whatever address it names, still plaintext, with
+/// no option to refuse. The same limit the `oracle` source kind documents, held by the same cell
+/// there (`a_listener_redirect_is_followed_to_an_address_nobody_declared`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OracleCatalogConnection {
+    host: HostName,
+    port: u16,
+    service_name: OracleServiceName,
+    user: String,
+    password_file: PathBuf,
+}
+
+impl OracleCatalogConnection {
+    fn parse<'raw>(name: &SourceName, raw: &'raw RawCatalogConnection) -> Result<Self, InvalidConnection> {
+        let required =
+            |key: &'static str, value: &'raw Option<String>| written(value.as_deref()).ok_or(InvalidConnection::Missing { key });
+        if written(raw.database.as_deref()).is_some() {
+            return Err(InvalidConnection::ForeignKey {
+                key: "database",
+                dialect: "oracle",
+            });
+        }
+        if written(raw.unix_socket.as_deref()).is_some() {
+            return Err(InvalidConnection::ForeignKey {
+                key: "unix_socket",
+                dialect: "oracle",
+            });
+        }
+        let host = HostName::parse(required("host", &raw.host)?).map_err(|cause| InvalidConnection::Host { cause })?;
+        let port = raw.port.ok_or(InvalidConnection::Missing { key: "port" })?;
+        let service_name = OracleServiceName::parse(required("service_name", &raw.service_name)?)
+            .map_err(|cause| InvalidConnection::OracleServiceName { cause })?;
+        let user = required("user", &raw.user)?.to_owned();
+        let password_file = absolute("password_file", required("password_file", &raw.password_file)?)?;
+        let transport = crate::sources::transport::parse(
+            name,
+            required("transport_mode", &raw.transport_mode)?,
+            raw.transport_anchors.as_deref(),
+            raw.client_certificate.as_deref(),
+            raw.client_key.as_deref(),
+        )
+        .map_err(|cause| InvalidConnection::Transport { cause })?;
+        if transport != SourceTransport::Plaintext {
+            return Err(InvalidConnection::TlsNotDeliverable {
+                mode: transport.describe(),
+            });
+        }
+        crate::sources::transport::refuse_remote_plaintext(&host, &transport)
+            .map_err(|cause| InvalidConnection::Channel { cause })?;
+        Ok(Self {
+            host,
+            port,
+            service_name,
+            user,
+            password_file,
+        })
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn host(&self) -> &HostName {
+        &self.host
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn port(&self) -> u16 {
+        self.port
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn service_name(&self) -> &OracleServiceName {
+        &self.service_name
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn user(&self) -> &str {
+        &self.user
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn password_file(&self) -> &Path {
+        &self.password_file
+    }
+}
+
 /// Written text, trimmed; empty reads as absent, as everywhere else in this crate.
 fn written(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|text| !text.is_empty())
@@ -418,6 +649,8 @@ pub enum InvalidRdbmsCatalog {
         #[source]
         cause: InvalidConnection,
     },
+    #[error("`dictionary_source` is `{found}`, not one of: {}", DictionarySource::known())]
+    DictionarySourceUnknown { found: String },
 }
 
 /// Why an rdbms catalog's `connection:` block is not usable.
@@ -428,6 +661,8 @@ pub enum InvalidRdbmsCatalog {
 pub enum InvalidConnection {
     #[error("`connection.{key}` is required and was not written")]
     Missing { key: &'static str },
+    #[error("`connection.dialect` is `{found}`, not one of: {}", Dialect::known())]
+    UnknownDialect { found: String },
     #[error("`connection` declares both `host` and `unix_socket` - write one")]
     HostAndUnixSocket,
     #[error("`connection.{key}` is relative - write an absolute path")]
@@ -447,6 +682,17 @@ pub enum InvalidConnection {
         #[source]
         cause: UnsafeChannel,
     },
+    #[error("`connection.service_name` is not a service name the driver would read as written")]
+    OracleServiceName {
+        #[source]
+        cause: InvalidOracleServiceName,
+    },
+    #[error("`connection.{key}` is not read when `dialect` is `{dialect}` - remove it")]
+    ForeignKey { key: &'static str, dialect: &'static str },
+    #[error(
+        "`connection` is `dialect: oracle` and declares transport mode `{mode}`, but the Oracle driver builds its own TLS - only `plaintext` is accepted"
+    )]
+    TlsNotDeliverable { mode: &'static str },
 }
 
 #[cfg(test)]
@@ -454,7 +700,7 @@ mod tests {
     use std::num::NonZeroU64;
     use std::path::Path;
 
-    use super::{CatalogConnection, InvalidConnection, PredicateOperator};
+    use super::{CatalogConnection, InvalidConnection, InvalidDocumentationSchema, InvalidRdbmsCatalog, PredicateOperator};
     use crate::environment::Environment;
     use crate::raw::RawCatalogConnection;
     use crate::settings::{Settings, Sources};
@@ -463,9 +709,11 @@ mod tests {
     #[test]
     fn a_remote_plaintext_catalog_connection_is_refused() {
         let raw = RawCatalogConnection {
+            dialect: None,
             host: Some(String::from("192.0.2.1")),
             unix_socket: None,
             port: Some(5432),
+            service_name: None,
             database: Some(String::from("dictionary")),
             user: Some(String::from("reader")),
             password_file: Some(String::from("/run/secrets/dictionary")),
@@ -499,9 +747,85 @@ mod tests {
         assert_eq!(predicate.column().as_str(), "status");
         assert_eq!(predicate.operator(), PredicateOperator::Equals);
         assert_eq!(predicate.value(), Some("live"));
-        assert_eq!(rdbms.connection().database(), "dictionary");
-        assert_eq!(rdbms.connection().user(), "reader");
-        assert_eq!(rdbms.connection().password_file(), Path::new("/run/secrets/dictionary"));
-        assert_eq!(rdbms.connection().transport().describe(), "plaintext");
+        let connection = match rdbms.connection() {
+            CatalogConnection::Postgres(p) => p,
+            CatalogConnection::Oracle(_) => panic!("the overlay declares no dialect"),
+        };
+        assert_eq!(connection.database(), "dictionary");
+        assert_eq!(connection.user(), "reader");
+        assert_eq!(connection.password_file(), Path::new("/run/secrets/dictionary"));
+        assert_eq!(connection.transport().describe(), "plaintext");
+    }
+
+    /// An empty `dictionary_schema` is refused as `InvalidDocumentationSchema::Empty` through
+    /// `Settings::load` - the public path a declaration takes.
+    #[test]
+    fn an_empty_dictionary_schema_is_refused() {
+        let overlay = "security:\n  identity: single-user\n  single_user_because: a test\nsources:\n  warehouse:\n    kind: files\n    data_dir: /srv/data\n    posture: shared-service-user\n\
+            catalogs:\n  - name: dict\n    kind: rdbms\n    dir: /nowhere\n    data_dir: /nowhere\n    version: dict-1\n    \
+            environment: prod\n    source_alias: warehouse\n    dictionary_schema: \"\"\n    \
+            connection:\n      host: 127.0.0.1\n      port: 5432\n      database: dictionary\n      user: reader\n      \
+            password_file: /run/secrets/dictionary\n      transport_mode: plaintext\n";
+        let result = Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay));
+        assert!(result.is_err(), "an empty dictionary schema is refused");
+        let error = result.unwrap_err();
+        let mut source: Option<&dyn std::error::Error> = Some(error.reason());
+        let mut found = false;
+        while let Some(cause) = source {
+            if let Some(schema) = cause.downcast_ref::<InvalidRdbmsCatalog>() {
+                let InvalidRdbmsCatalog::DictionarySchema { cause } = schema else {
+                    panic!("expected DictionarySchema, got {schema:?}");
+                };
+                assert!(matches!(cause, InvalidDocumentationSchema::Empty), "{cause:?}");
+                found = true;
+            }
+            source = cause.source();
+        }
+        assert!(found, "the error chain never reached InvalidRdbmsCatalog::DictionarySchema");
+    }
+
+    /// A `dictionary_schema` that is not an identifier is refused as
+    /// `InvalidDocumentationSchema::NotIdentifier` through `Settings::load`.
+    #[test]
+    fn a_non_identifier_dictionary_schema_is_refused() {
+        let overlay = "security:\n  identity: single-user\n  single_user_because: a test\nsources:\n  warehouse:\n    kind: files\n    data_dir: /srv/data\n    posture: shared-service-user\n\
+            catalogs:\n  - name: dict\n    kind: rdbms\n    dir: /nowhere\n    data_dir: /nowhere\n    version: dict-1\n    \
+            environment: prod\n    source_alias: warehouse\n    dictionary_schema: bad-name\n    \
+            connection:\n      host: 127.0.0.1\n      port: 5432\n      database: dictionary\n      user: reader\n      \
+            password_file: /run/secrets/dictionary\n      transport_mode: plaintext\n";
+        let result = Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay));
+        assert!(result.is_err(), "a non-identifier dictionary schema is refused");
+        let error = result.unwrap_err();
+        let mut source: Option<&dyn std::error::Error> = Some(error.reason());
+        let mut found = false;
+        while let Some(cause) = source {
+            if let Some(schema) = cause.downcast_ref::<InvalidRdbmsCatalog>() {
+                let InvalidRdbmsCatalog::DictionarySchema { cause } = schema else {
+                    panic!("expected DictionarySchema, got {schema:?}");
+                };
+                assert!(matches!(cause, InvalidDocumentationSchema::NotIdentifier), "{cause:?}");
+                found = true;
+            }
+            source = cause.source();
+        }
+        assert!(found, "the error chain never reached InvalidRdbmsCatalog::DictionarySchema");
+    }
+
+    /// A valid `dictionary_schema` containing an underscore is accepted through `Settings::load`,
+    /// pinning the accept side of the same `[A-Za-z0-9_]` rule the two refusal cells above pin the
+    /// refusal side of.
+    #[test]
+    fn a_valid_dictionary_schema_with_an_underscore_is_accepted() {
+        let overlay = "security:\n  identity: single-user\n  single_user_because: a test\nsources:\n  warehouse:\n    kind: files\n    data_dir: /srv/data\n    posture: shared-service-user\n\
+            catalogs:\n  - name: dict\n    kind: rdbms\n    dir: /nowhere\n    data_dir: /nowhere\n    version: dict-1\n    \
+            environment: prod\n    source_alias: warehouse\n    dictionary_schema: docs_v1\n    \
+            connection:\n      host: 127.0.0.1\n      port: 5432\n      database: dictionary\n      user: reader\n      \
+            password_file: /run/secrets/dictionary\n      transport_mode: plaintext\n";
+        let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay))
+            .expect("a dictionary_schema with an underscore is accepted");
+        let catalog = settings.catalogs().each().next().expect("one catalog");
+        let rdbms = catalog.rdbms().expect("an rdbms entry carries its rdbms settings");
+        let schema = rdbms.dictionary_schema().expect("dictionary_schema was declared");
+        assert_eq!(schema.as_str(), "docs_v1");
     }
 }

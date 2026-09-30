@@ -147,8 +147,7 @@ fn compile_feature(meta: &serde_json::Value) -> Result<Vec<String>, String> {
     let default: Vec<String> = features
         .get("default")
         .and_then(|d| d.as_array())
-        .map(|d| d.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-        .unwrap_or_default();
+        .map_or_default(|d| d.iter().filter_map(|v| v.as_str().map(String::from)).collect());
     if !default.is_empty() {
         problems.push(format!(
             "{HARNESS} enables features by default ({default:?}) - the compile packs must be \
@@ -159,8 +158,7 @@ fn compile_feature(meta: &serde_json::Value) -> Result<Vec<String>, String> {
     let compile: Vec<String> = features
         .get(COMPILE_FEATURE)
         .and_then(|c| c.as_array())
-        .map(|c| c.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-        .unwrap_or_default();
+        .map_or_default(|c| c.iter().filter_map(|v| v.as_str().map(String::from)).collect());
     if compile != COMPILE_DEPS {
         problems.push(format!(
             "{HARNESS} declares `compile` as {compile:?}, expected exactly {COMPILE_DEPS:?} - the \

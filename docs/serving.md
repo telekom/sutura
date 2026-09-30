@@ -552,7 +552,7 @@ three, so a caller is told the same thing whether it reads the status, the code 
   "outcome": "answer",
   "provenance": {
     "definition_version": "local-1",
-    "definition_digest": "b0e74ef1b790cff7171094fec4b9389913e7940bf7c9a2abdec2269c3e29e538"
+    "definition_digest": "fc8d41d77d8e71ae22442a29621015faf94c03ac2628e99c3bc2d8dd06c3da19"
   },
   "columns": ["period", "recurring_revenue"],
   "rows": [
@@ -655,7 +655,7 @@ The two are now separable by `code` as well as by status, and a test asserts the
 
 This used to be a `200` for both outcomes, on the argument that an error status invites a client
 library to retry a governance decision until it succeeds. The second half of that is right and the
-first half does not survive checking: nothing mainstream retries a `4xx` by default, and 11 refusal
+first half does not survive checking: nothing mainstream retries a `4xx` by default, and 12 refusal
 reasons land on `422`, which is documented the other way round, as a status a client should expect
 to fail again on an unchanged request. What the `200` did cost was legibility to everything that reads
 a status and not a body: an ingress log, a dashboard, an error-rate alert, a generated client whose
@@ -1120,9 +1120,9 @@ deployment switch refused. Turning it on is one line an operator writes and a re
   never an owner, a superuser, a creator or `BYPASSRLS` - is what actually bounds this, and it is an
   operator's `GRANT`, not a setting sutura reads or verifies.
 - **How long a statement may run.** The connect-time `statement_timeout` this source's connection
-  already carries is the ceiling. It is one number for every caller today, not narrowed per request -
-  `docs/adr/0013-a-raw-sql-tool-off-by-default.md` names the caller-derived deadline as a
-  prerequisite this build does not yet carry for the raw path.
+  already carries is the outer ceiling, never widened. A per-request deadline narrower than that
+  ceiling is applied by `SET LOCAL statement_timeout` inside the call's transaction, carried from the
+  caller's own request timeout via `docs/adr/0029-where-a-deadline-lives.md`.
 
 **What neither enforces, stated because an overstated control is the defect this repository names
 directly:**

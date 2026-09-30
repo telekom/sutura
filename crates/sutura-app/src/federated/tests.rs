@@ -253,6 +253,14 @@ fn a_federated_answer_sums_both_legs_estimates_before_charging_the_ledger_once()
             "a federated answer refused for spend must never reach either leg's `execute`"
         );
     }
+    // The cumulative total a refused charge leaves behind: `charge` admits nothing on a ceiling
+    // refusal, so a mutation that incremented `total_spent_bytes` before the ceiling check would
+    // leave the refused 1200 here rather than the zero an all-or-nothing refusal must.
+    assert_eq!(
+        ledger.spent_bytes_total(),
+        Some(0),
+        "a federated answer refused for spend must charge nothing to the cumulative total"
+    );
 }
 
 /// `docs/adr/0029` decision 3's own RED cell - split out so this file stays under the

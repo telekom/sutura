@@ -53,8 +53,9 @@ impl Surface for Serving {
         &self,
         context: &RequestContext,
         statement: &sutura_domain::raw::RawStatement,
+        deadline: Deadline,
     ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
-        let answered = self.surface.run_sql(context, statement);
+        let answered = self.surface.run_sql(context, statement, deadline);
         self.push_headroom();
         answered
     }
@@ -114,6 +115,7 @@ pub(crate) fn mount(
         sutura_mcp::http::service(
             serving,
             crate::commands::catalog_prose(settings.prompt().catalog_prose()),
+            settings.prompt().list_physical_schema(),
             admission,
             settings.server().request_timeout(),
             tools,

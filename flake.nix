@@ -35,7 +35,7 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    jscpd-src.url = "github:kucherenko/jscpd/v5.2.0";
+    jscpd-src.url = "github:kucherenko/jscpd/v5.3.2";
     jscpd-src.flake = false;
     # The ADBC BigQuery driver, self-built from source so every release triple -
     # including the two static musl ones - gets a hermetic, reproducible native
@@ -52,10 +52,11 @@
   outputs = { self, nixpkgs, flake-utils, crane, rust-overlay, jscpd-src, bigquery-adbc-src, arrow-adbc-src, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs {
+        basePkgs = import nixpkgs {
           inherit system;
           overlays = [ (import rust-overlay) ];
         };
+        pkgs = basePkgs // import ./nix/dev-tools.nix { pkgs = basePkgs; };
 
         # The source root as a string, so the filter below can match a REPO-RELATIVE path.
         # `./.` is the flake source, and in every build that is a store path - which is the
@@ -232,8 +233,7 @@
         # The one crane lib, over the one pinned nightly toolchain: the native build, the cross
         # builds, every gate and every shipped artifact all run the same compiler.
         craneLibFor = sys:
-          (crane.mkLib pkgs).overrideToolchain
-            (p: p.rust-bin.fromRustupToolchainFile ./devco/rust-toolchain-nightly.toml);
+          (crane.mkLib pkgs).overrideToolchain toolchain;
 
         # Native build: what `nix build` and `nix flake check` use.
         craneLib = craneLibFor system;
@@ -491,7 +491,7 @@
           # The copy/paste detector, as a package as well as an app. This is the SAME derivation
           # `checks.hygiene` carries on `nativeBuildInputs` and `apps.jscpd` points at, so CI, the
           # `nix run .#jscpd` route and the dev shell all see one jscpd - the pinned `jscpd-src`
-          # v5.2.0 build from `nix/jscpd.nix`. The devenv module references this attribute so the
+          # build from `nix/jscpd.nix`. The devenv module references this attribute so the
           # local shell cannot resolve a different engine than the sandbox attests with.
           jscpd = jscpd;
 
@@ -560,7 +560,7 @@
           # triple builds a `.so` for a mounted driver AND a `.a` the published
           # artefact links in, and a gate asserting one of two would leave the
           # release half unmeasured - the archive is the ONLY route the two static
-          # musl artefacts have. `crates/sutura-exec-bigquery/build.rs` refuses an
+          # musl artefacts have. `crates/sutura-adbc/build.rs` refuses an
           # archive-less directory, so an absent `.a` would fail a release build
           # rather than ship a mounted fallback; this is the cheaper place to find
           # out, on every pull request and on every system.
@@ -686,7 +686,10 @@
             # The ClickHouse tier beside it, started and credentialed the same way: the requirement
             # below is one flag for every tier, so a tier this sandbox did not start would fail its
             # cells closed rather than skip them.
-            preCheck = "${pkgs.python3}/bin/python3 -m unittest demo.test_behavior -v && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\" && ${clickhouseTier.tier}/bin/sutura-clickhouse-tier start && eval \"$(${clickhouseTier.tier}/bin/sutura-clickhouse-tier credentials)\"";
+            # `examples/demo-chatinterface` has a hyphen, so `-m unittest examples.demo-chatinterface.test_behavior`
+            # cannot be a dotted module path at all - the subshell `cd` makes it the top-level `test_behavior`
+            # module instead, which `-m` finds via the cwd it puts at the front of `sys.path`.
+            preCheck = "(cd examples/demo-chatinterface && ${pkgs.python3}/bin/python3 -m unittest test_behavior -v) && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\" && ${clickhouseTier.tier}/bin/sutura-clickhouse-tier start && eval \"$(${clickhouseTier.tier}/bin/sutura-clickhouse-tier credentials)\"";
             postCheck = "${clickhouseTier.tier}/bin/sutura-clickhouse-tier stop && ${postgresTier.tier}/bin/sutura-postgres-tier stop";
             SUTURA_DEV_REQUIRE_TIER = "1";
           });
@@ -902,11 +905,28 @@
         # out to `cargo metadata`, and `nix run` puts only cargo-deny on PATH. On a runner
         # that happens to ship Rust it would have silently audited using *that* cargo - a
         # second, unpinned toolchain, which is the drift this flake exists to remove.
+        #
+        # TWO INVOCATIONS, ONE `deny.toml`. `fuzz/` is its own cargo workspace (its own
+        # manifest, its own lock - see `fuzz/Cargo.toml`'s header), so the first `cargo deny
+        # check` above only ever reads the ROOT graph and `fuzz/Cargo.lock` was never
+        # advisory-checked at all. The second run points `--manifest-path` at it. Same config
+        # both times: `deny.toml`'s `[[licenses.exceptions]]`-equivalent `exceptions` entry
+        # scopes `libfuzzer-sys`'s NCSA half to that one crate, so it does not need to be in
+        # the global `allow` list - which matters because `unused-allowed-license = "deny"`
+        # would then fail the ROOT run over an entry the root graph never reaches. What the
+        # root config's `allow` list DOES carry that `fuzz/`'s graph does not reach -
+        # `CDLA-Permissive-2.0` (the DuckDB/BigQuery TLS cert data set) and the `bzip2-1.0.6`
+        # compression codec, neither of which `fuzz/`'s dependency set pulls in - is exactly
+        # what `unused-allowed-license` is FOR on the root run and would be a false refusal on
+        # the fuzz-only one, so `-A license-not-encountered` disables only that one lint for
+        # the second invocation. `bans`/`advisories`/`sources` stay fully denied on both.
         apps.deny = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-deny" ''
+            set -eu
             export PATH="${toolchain}/bin:${pkgs.cargo-deny}/bin:$PATH"
-            exec cargo deny check "$@"
+            cargo deny check "$@"
+            cargo deny --manifest-path fuzz/Cargo.toml check -A license-not-encountered "$@"
           '');
         };
 
@@ -1240,6 +1260,25 @@
         apps.cargo = {
           type = "app";
           program = "${cargoWrapper}/bin/sutura-cargo";
+        };
+        # `nix run .#xtask` - every subcommand this repository already calls this way from
+        # `ci.yml` and `release.yml` (`classify`, `check-pr-title`, `check-attribution`,
+        # `attribution`, `crap-delta`), and now `hygiene` from `version-bump.yml`. An EXPLICIT
+        # app rather than the one `nix run` synthesises implicitly from `packages.xtask`'s own
+        # `meta.mainProgram`, because several of those subcommands shell out to `cargo metadata`
+        # (`main.rs`'s `run_cargo_metadata`, `env::var("CARGO")` falling back to bare `cargo` on
+        # `PATH`) and the implicit app puts nothing but the built binary itself there - a runner
+        # with no system Rust toolchain would fail with `cargo: command not found`, a tooling
+        # gap reported as a gate finding. Same fix as `apps.deny` above, for the same reason its
+        # own header states: a second, unpinned toolchain reachable only by accident is the
+        # drift this flake exists to remove. `self.packages.${system}.xtask` rather than a
+        # second build: this app WRAPS the same derivation `packages.xtask` already is.
+        apps.xtask = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-xtask" ''
+            export PATH="${toolchain}/bin:${jscpd}/bin:$PATH"
+            exec ${self.packages.${system}.xtask}/bin/xtask "$@"
+          '');
         };
         # `just api`. The writer for what `checks.api-docs` byte-compares.
         apps.api-docs = {

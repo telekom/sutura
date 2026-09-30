@@ -127,12 +127,14 @@ Why a mapping this operator wrote is not a usable one.
 
 ## `use CatalogConnection`
 
-An rdbms catalog's own read-only Postgres connection.
+An rdbms catalog's own read-only connection, in the dialect its `connection.dialect` key
+selected.
 
-The same parsed types a `sources:` Postgres entry holds (`PostgresDial`, `SourceTransport`)
-and the same fail-closed channel rules, through the one function both call:
-`crate::sources::transport::refuse_unsafe_postgres_channel`. **No password is held here:**
-`password_file` is a path the composition root reads at boot.
+**Default `postgres`**, so a deployment that wrote no `dialect` key reads exactly as it did
+before the Oracle variant existed. The variant is the dispatch point: a Postgres connection
+dials a documentation schema over a `PostgresDial`, and an Oracle connection is held to
+plaintext EZCONNECT, loopback-confined. The composition root matches on the
+variant to build the reader, and refuses an `Oracle` one: no Oracle reader exists in this build.
 
 ## `use CatalogEnvironment`
 
@@ -172,15 +174,31 @@ configuration it is handed. Order is declaration order, which is content order: 
 manifest is a `BTreeMap` keyed on each entry's `CatalogSettings::name`, so this ordering is
 what a reviewer reads and manifest determinism does not depend on it surviving a rename.
 
+## `use Dialect`
+
+The dialect a `connection:` block names, defaulting to Postgres.
+
+A closed set: a new one is a visible diff plus a parse arm, which is the review it deserves.
+`postgres` is the default so an existing deployment that wrote no `dialect` key reads the same
+connection it always did.
+
+## `use DictionarySource`
+
+Which dictionary an `rdbms` catalog reads.
+
+`documentation_schema` (the default) is the only one a build reads; the composition root refuses
+`native_dictionary` as not supported by this build, so it is checked but never opened. A closed
+set: a new one is a visible diff plus a parse arm and a reader arm, which is the review it
+deserves.
+
 ## `use DocumentationSchema`
 
 A typed PostgreSQL schema name holding the documentation rows.
 
 Binding a schema name as a quoted, validated identifier - never interpolating it into a SQL
 statement as raw text. The accepted set is `[A-Za-z0-9_]`, the same leaves every Postgres
-identifier is built from, and case is preserved. It also doubles as the physical schema the
-described objects are documented against when the dictionary rows' own schema differs from a
-separate `catalog` part - see the dictionary contract.
+identifier is built from, and case is preserved. The reader selects the view `columns` in this
+schema; the schema of each described object is the row's own `schema_name` and `catalog_name`.
 
 ## `use InvalidCatalogSettings`
 
@@ -208,6 +226,31 @@ The closed-form predicate a dictionary row must satisfy to be live.
 A typed column, an operator from a closed set, and a value only `equals` reads - never a SQL
 string. The column parses through `ColumnName`, so it holds nothing that would need escaping;
 the value is arbitrary text, and **a reader must bind it as a parameter, never interpolate it.**
+
+## `use OracleCatalogConnection`
+
+An Oracle dictionary connection: plaintext EZCONNECT, loopback-confined.
+
+**The same stand the `oracle` source kind makes** (`crate::sources::oracle`): the pinned
+driver builds its own TLS configuration and takes no caller-built one, so `verified` and
+`mutual` transport modes are refused (not wired) and the declared `host` is confined to a
+loopback literal through `crate::sources::transport::refuse_remote_plaintext`. The driver
+names the database by `service_name` rather than `database`, so there is no `database` field.
+**No password is held here:** `password_file` is a path the composition root reads at boot.
+
+**Limit, next to the claim:** this confines the first dial, not the connection - the pinned
+driver follows a listener's TNS redirect to whatever address it names, still plaintext, with
+no option to refuse. The same limit the `oracle` source kind documents, held by the same cell
+there (`a_listener_redirect_is_followed_to_an_address_nobody_declared`).
+
+## `use PostgresCatalogConnection`
+
+A Postgres documentation-schema connection - the existing shape, now one variant.
+
+The same parsed types a `sources:` Postgres entry holds (`PostgresDial`, `SourceTransport`)
+and the same fail-closed channel rules, through the one function both call:
+`crate::sources::transport::refuse_unsafe_postgres_channel`. **No password is held here:**
+`password_file` is a path the composition root reads at boot.
 
 ## `use PredicateOperator`
 
@@ -1749,16 +1792,35 @@ Reads the declared catalogs, refusing an empty list and any duplicated name.
 
 ### `use CatalogConnection`
 
-An rdbms catalog's own read-only Postgres connection.
+An rdbms catalog's own read-only connection, in the dialect its `connection.dialect` key
+selected.
 
-The same parsed types a `sources:` Postgres entry holds (`PostgresDial`, `SourceTransport`)
-and the same fail-closed channel rules, through the one function both call:
-`crate::sources::transport::refuse_unsafe_postgres_channel`. **No password is held here:**
-`password_file` is a path the composition root reads at boot.
+**Default `postgres`**, so a deployment that wrote no `dialect` key reads exactly as it did
+before the Oracle variant existed. The variant is the dispatch point: a Postgres connection
+dials a documentation schema over a `PostgresDial`, and an Oracle connection is held to
+plaintext EZCONNECT, loopback-confined. The composition root matches on the
+variant to build the reader, and refuses an `Oracle` one: no Oracle reader exists in this build.
 
 ### `use CatalogEnvironment`
 
 A non-empty environment key. Empty would select no dictionary rows, silently.
+
+### `use Dialect`
+
+The dialect a `connection:` block names, defaulting to Postgres.
+
+A closed set: a new one is a visible diff plus a parse arm, which is the review it deserves.
+`postgres` is the default so an existing deployment that wrote no `dialect` key reads the same
+connection it always did.
+
+### `use DictionarySource`
+
+Which dictionary an `rdbms` catalog reads.
+
+`documentation_schema` (the default) is the only one a build reads; the composition root refuses
+`native_dictionary` as not supported by this build, so it is checked but never opened. A closed
+set: a new one is a visible diff plus a parse arm and a reader arm, which is the review it
+deserves.
 
 ### `use DocumentationSchema`
 
@@ -1766,9 +1828,8 @@ A typed PostgreSQL schema name holding the documentation rows.
 
 Binding a schema name as a quoted, validated identifier - never interpolating it into a SQL
 statement as raw text. The accepted set is `[A-Za-z0-9_]`, the same leaves every Postgres
-identifier is built from, and case is preserved. It also doubles as the physical schema the
-described objects are documented against when the dictionary rows' own schema differs from a
-separate `catalog` part - see the dictionary contract.
+identifier is built from, and case is preserved. The reader selects the view `columns` in this
+schema; the schema of each described object is the row's own `schema_name` and `catalog_name`.
 
 ### `use InvalidConnection`
 
@@ -1793,6 +1854,31 @@ A typed column, an operator from a closed set, and a value only `equals` reads -
 string. The column parses through `ColumnName`, so it holds nothing that would need escaping;
 the value is arbitrary text, and **a reader must bind it as a parameter, never interpolate it.**
 
+### `use OracleCatalogConnection`
+
+An Oracle dictionary connection: plaintext EZCONNECT, loopback-confined.
+
+**The same stand the `oracle` source kind makes** (`crate::sources::oracle`): the pinned
+driver builds its own TLS configuration and takes no caller-built one, so `verified` and
+`mutual` transport modes are refused (not wired) and the declared `host` is confined to a
+loopback literal through `crate::sources::transport::refuse_remote_plaintext`. The driver
+names the database by `service_name` rather than `database`, so there is no `database` field.
+**No password is held here:** `password_file` is a path the composition root reads at boot.
+
+**Limit, next to the claim:** this confines the first dial, not the connection - the pinned
+driver follows a listener's TNS redirect to whatever address it names, still plaintext, with
+no option to refuse. The same limit the `oracle` source kind documents, held by the same cell
+there (`a_listener_redirect_is_followed_to_an_address_nobody_declared`).
+
+### `use PostgresCatalogConnection`
+
+A Postgres documentation-schema connection - the existing shape, now one variant.
+
+The same parsed types a `sources:` Postgres entry holds (`PostgresDial`, `SourceTransport`)
+and the same fail-closed channel rules, through the one function both call:
+`crate::sources::transport::refuse_unsafe_postgres_channel`. **No password is held here:**
+`password_file` is a path the composition root reads at boot.
+
 ### `use PredicateOperator`
 
 The operators a `LiveRowPredicate` may use. A closed set: a new one is a visible diff plus a
@@ -1812,13 +1898,19 @@ The `catalog.kind: rdbms` entry's own settings.
 A read-only Postgres connection, a closed-form live-row predicate, the environment key that
 selects dictionary rows, the source the described objects are served from, and two read bounds.
 
-Split out of `catalog.rs` at the crate's 1000-line cap. The parent re-exports every type, so
+Authored as its own module, not a split. The parent re-exports every type, so
 `crate::catalog::<Name>` and the crate root's `pub use` both still resolve.
 
 **Parsed here, read by a composition root that links the `live` reader.** This crate's own job
 ends at a checked declaration; a build with `sutura-catalog-rdbms`'s `live` feature consumes
 these values into a reader over a Postgres documentation schema, and a build without it refuses
 `kind: rdbms` by name. Every value below is a checked declaration either way.
+
+The `connection:` block selects its dialect through a `dialect` key (default `postgres`):
+`postgres` dials a Postgres documentation schema. `oracle` declares an Oracle connection held to
+plaintext, loopback-confined EZCONNECT - the constraint the `oracle` source kind holds - and
+nothing reads it: the composition root refuses it as not supported by this build, so the
+declaration is checked but never opened.
 
 #### `struct RdbmsSettings`
 
@@ -1842,6 +1934,13 @@ pub const fn dictionary_schema(&self) -> Option<&DocumentationSchema>
 ```
 
 The schema holding the dictionary rows, or `None` for the reader's documented default.
+
+```rust
+pub const fn dictionary_source(&self) -> DictionarySource
+```
+
+Which dictionary the reader reads: the documentation schema (default) or the database's
+own dictionary views. Selected by the `dictionary_source` key on an `rdbms` catalog.
 
 ```rust
 pub const fn environment(&self) -> &CatalogEnvironment
@@ -1956,9 +2055,8 @@ A typed PostgreSQL schema name holding the documentation rows.
 
 Binding a schema name as a quoted, validated identifier - never interpolating it into a SQL
 statement as raw text. The accepted set is `[A-Za-z0-9_]`, the same leaves every Postgres
-identifier is built from, and case is preserved. It also doubles as the physical schema the
-described objects are documented against when the dictionary rows' own schema differs from a
-separate `catalog` part - see the dictionary contract.
+identifier is built from, and case is preserved. The reader selects the view `columns` in this
+schema; the schema of each described object is the row's own `schema_name` and `catalog_name`.
 
 ##### Methods
 
@@ -1987,13 +2085,92 @@ Why a declared documentation schema is not usable.
 
 `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
-#### `struct CatalogConnection`
+#### `enum DictionarySource`
 
 ```rust
-pub struct CatalogConnection
+pub enum DictionarySource
 ```
 
-An rdbms catalog's own read-only Postgres connection.
+Which dictionary an `rdbms` catalog reads.
+
+`documentation_schema` (the default) is the only one a build reads; the composition root refuses
+`native_dictionary` as not supported by this build, so it is checked but never opened. A closed
+set: a new one is a visible diff plus a parse arm and a reader arm, which is the review it
+deserves.
+
+##### Variants
+
+- `DocumentationSchema` - A `columns` documentation-schema view installed in the database (the default).
+- `NativeDictionary` - The database's own dictionary views. No reader for it exists; it is refused at the composition root.
+
+##### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum CatalogConnection`
+
+```rust
+pub enum CatalogConnection
+```
+
+An rdbms catalog's own read-only connection, in the dialect its `connection.dialect` key
+selected.
+
+**Default `postgres`**, so a deployment that wrote no `dialect` key reads exactly as it did
+before the Oracle variant existed. The variant is the dispatch point: a Postgres connection
+dials a documentation schema over a `PostgresDial`, and an Oracle connection is held to
+plaintext EZCONNECT, loopback-confined. The composition root matches on the
+variant to build the reader, and refuses an `Oracle` one: no Oracle reader exists in this build.
+
+##### Variants
+
+- `Postgres` - A Postgres documentation-schema connection, the default dialect.
+- `Oracle` - An Oracle dictionary connection: plaintext, loopback-confined EZCONNECT.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum Dialect`
+
+```rust
+pub enum Dialect
+```
+
+The dialect a `connection:` block names, defaulting to Postgres.
+
+A closed set: a new one is a visible diff plus a parse arm, which is the review it deserves.
+`postgres` is the default so an existing deployment that wrote no `dialect` key reads the same
+connection it always did.
+
+##### Variants
+
+- `Postgres` - The Postgres documentation-schema reader - the default and the precedent.
+- `Oracle` - An Oracle connection, plaintext EZCONNECT over loopback. Parsed; no reader exists.
+
+##### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct PostgresCatalogConnection`
+
+```rust
+pub struct PostgresCatalogConnection
+```
+
+A Postgres documentation-schema connection - the existing shape, now one variant.
 
 The same parsed types a `sources:` Postgres entry holds (`PostgresDial`, `SourceTransport`)
 and the same fail-closed channel rules, through the one function both call:
@@ -2026,6 +2203,52 @@ pub fn user(&self) -> &str
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
+#### `struct OracleCatalogConnection`
+
+```rust
+pub struct OracleCatalogConnection
+```
+
+An Oracle dictionary connection: plaintext EZCONNECT, loopback-confined.
+
+**The same stand the `oracle` source kind makes** (`crate::sources::oracle`): the pinned
+driver builds its own TLS configuration and takes no caller-built one, so `verified` and
+`mutual` transport modes are refused (not wired) and the declared `host` is confined to a
+loopback literal through `crate::sources::transport::refuse_remote_plaintext`. The driver
+names the database by `service_name` rather than `database`, so there is no `database` field.
+**No password is held here:** `password_file` is a path the composition root reads at boot.
+
+**Limit, next to the claim:** this confines the first dial, not the connection - the pinned
+driver follows a listener's TNS redirect to whatever address it names, still plaintext, with
+no option to refuse. The same limit the `oracle` source kind documents, held by the same cell
+there (`a_listener_redirect_is_followed_to_an_address_nobody_declared`).
+
+##### Methods
+
+```rust
+pub const fn host(&self) -> &HostName
+```
+
+```rust
+pub fn password_file(&self) -> &Path
+```
+
+```rust
+pub const fn port(&self) -> u16
+```
+
+```rust
+pub const fn service_name(&self) -> &OracleServiceName
+```
+
+```rust
+pub fn user(&self) -> &str
+```
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
 #### `enum InvalidRdbmsCatalog`
 
 ```rust
@@ -2047,6 +2270,7 @@ Why an rdbms catalog's own keys are not usable.
 - `PredicateValueUnexpected`
 - `ZeroBound`
 - `Connection`
+- `DictionarySourceUnknown`
 
 ##### Implements
 
@@ -2066,11 +2290,15 @@ its message names the key under `sources.<catalog name>` rather than under this 
 ##### Variants
 
 - `Missing`
+- `UnknownDialect`
 - `HostAndUnixSocket`
 - `RelativePath`
 - `Host`
 - `Transport`
 - `Channel`
+- `OracleServiceName`
+- `ForeignKey`
+- `TlsNotDeliverable`
 
 ##### Implements
 
@@ -3156,7 +3384,7 @@ The hops whose forwarded header is believed.
 
 What goes into the agent-facing system prompt that this deployment hands out.
 
-Three keys, and each one is read: `sutura_app::prompt::render` consumes the text and prose choice,
+Four keys, and each one is read: `sutura_app::prompt::render` consumes the text, prose choice and schema opt-in,
 and the CLI composition root reads the file under the byte limit. `sutura prompt` reaches both.
 That is a requirement rather than a remark - this
 crate has shipped a group of keys that were parsed, range-checked, refused on a bad value and
@@ -3221,8 +3449,9 @@ and the crate that acts on it owns the type that acts.
 
   **A description is untrusted content and this is not a claim that it is safe.** A per-line
   prefix stops catalog text from reaching column zero, so it cannot emit a heading or close a
-  block; it does nothing about prose that persuades without escaping. `SECURITY.md` treats
-  catalog content as untrusted, and `sutura_app::prompt` states the residual gap.
+  block; it does nothing about prose that persuades without escaping. The repository's threat
+  model treats a catalog document as untrusted input, and `sutura_app::prompt` states the
+  residual gap.
 - `Omitted` - Left out. For a deployment whose catalog authors are not the people who decide what its agents are told.
 
   The prompt then says the descriptions exist and were not included, rather than rendering a
@@ -3363,6 +3592,16 @@ The operator's own text, if a path was configured.
 ```rust
 pub const fn instructions_max_bytes(&self) -> InstructionsMaxBytes
 ```
+
+```rust
+pub const fn list_physical_schema(&self) -> bool
+```
+
+```rust
+pub const fn listing_physical_schema(self, enabled: bool) -> Self
+```
+
+Enables the descriptive physical-schema listing on agent surfaces.
 
 ```rust
 pub const fn new(instructions_file: Option<InstructionsFile>, catalog_prose: CatalogProse) -> Self

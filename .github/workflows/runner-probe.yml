@@ -91,7 +91,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
         with:
           minimum-gb: "25"
 
@@ -102,7 +102,7 @@ jobs:
           extra_nix_config: |
             fallback = true
 
-      - uses: ./.github/actions/host-probe
+      - uses: $/.github/actions/host-probe
         with:
           arm: 32core-reference-auto-jobs
           workload: .#checks.x86_64-linux.clippy
@@ -116,7 +116,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
         with:
           minimum-gb: "25"
 
@@ -126,7 +126,7 @@ jobs:
             fallback = true
             max-jobs = 1
 
-      - uses: ./.github/actions/host-probe
+      - uses: $/.github/actions/host-probe
         with:
           arm: 32core-one-job
           workload: .#checks.x86_64-linux.clippy
@@ -141,7 +141,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
         with:
           minimum-gb: "25"
 
@@ -152,7 +152,7 @@ jobs:
             max-jobs = 4
             cores = 8
 
-      - uses: ./.github/actions/host-probe
+      - uses: $/.github/actions/host-probe
         with:
           arm: 32core-four-jobs-eight-cores
           workload: .#checks.x86_64-linux.clippy

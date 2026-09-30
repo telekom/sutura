@@ -13,7 +13,7 @@ use sutura_domain::catalog::{
 use sutura_domain::expression::InvalidComputation;
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
 use sutura_domain::model::AudienceId;
-use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, RelationshipName};
+use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, RelationshipName};
 
 fn metric_doc(yaml: &str) -> Result<MetricDoc, serde_norway::Error> {
     serde_norway::from_str(yaml)
@@ -83,6 +83,17 @@ fn a_metric_document_declaring_its_audience_loads_and_carries_it() {
         .into_domain(description("Net revenue."))
         .expect("no dimensions to duplicate");
     assert_eq!(metric.audience(), &Audience::Open);
+}
+
+/// `telekom/sutura#780`: `shared_calendar:` was an unknown field, so no catalog file could declare
+/// the calendar a cross-model ratio needs. It parses now and reaches the domain metric.
+#[test]
+fn a_metric_document_may_declare_a_shared_calendar() {
+    let metric = metric_doc(&format!("{MINIMAL_METRIC}shared_calendar: calendar\n"))
+        .expect("`shared_calendar` is a metric field")
+        .into_domain(Description::default())
+        .expect("no dimensions to duplicate");
+    assert_eq!(metric.shared_calendar().map(ModelName::as_str), Some("calendar"));
 }
 
 /// The `restricted:` spelling needs `singleton_map` on the field, unlike the bare-scalar
@@ -214,6 +225,17 @@ primary_key: [order_date]
     assert_eq!(date.description(), "");
     assert_eq!(date.nullable(), None);
     assert_eq!(model.primary_key(), &BTreeSet::from([column("order_date")]));
+}
+
+#[test]
+fn a_physical_only_model_may_declare_a_restricted_audience() {
+    let yaml = "kind: model\nname: orders\nsource: local\ntable: orders\ncolumns: [amount]\naudience:\n  restricted: [finance]\n";
+    let model = serde_norway::from_str::<ModelDoc>(yaml)
+        .expect("a model document with an audience parses")
+        .into_domain(Description::default())
+        .expect("the audience converts");
+    let grant = AudienceGrant::parse(BTreeSet::from([AudienceId::parse("finance").expect("an id")])).expect("a grant");
+    assert_eq!(model.audience(), Some(&Audience::Restricted(grant)));
 }
 
 /// A `type:` this crate cannot represent - here, over `MAX_COLUMN_TYPE_CHARS` - is dropped, not

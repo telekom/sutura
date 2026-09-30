@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-domain/src/knowledge.rs b/crates/sutura-domain/src/knowledge.rs
+index bcafc7b3b..f705b2b7f 100644
+--- a/crates/sutura-domain/src/knowledge.rs
++++ b/crates/sutura-domain/src/knowledge.rs
+@@ -399,7 +399,10 @@ impl NoteBody {
+         // zero-width spaces, or of one byte-order mark used to pass this check and then render as a
+         // heading over empty space, which is the exact state the check exists to make unreachable.
+         if !carries_prose(trimmed) {
+-            return Err(InvalidNoteBody::Empty);
++            return Err(InvalidNoteBody::TooLong {
++                len: trimmed.len(),
++                limit: MAX_NOTE_BODY_BYTES,
++            });
+         }
+         // Before the invisible set, for the reason `Description::parse` gives: a control character
+         // is the more accurate thing to name when a body holds both, and reporting it as an odd

@@ -63,10 +63,10 @@ pub(super) fn lowerings() -> [String; 3] {
 }
 
 /// The one crate root that does not re-assert the forbid.
-const EXCEPTED_ROOT: &str = "crates/sutura-exec-bigquery/src/lib.rs";
+const EXCEPTED_ROOT: &str = "crates/sutura-adbc/src/lib.rs";
 
 /// The one file that may lower the lint, under [`EXCEPTED_ROOT`]'s crate.
-const EXCEPTED_FILE: &str = "crates/sutura-exec-bigquery/src/adbc/linked.rs";
+const EXCEPTED_FILE: &str = "crates/sutura-adbc/src/linked.rs";
 
 /// Why the containment is not intact.
 #[derive(Debug)]

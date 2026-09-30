@@ -141,6 +141,8 @@ fn check_phase(store_path: &str) -> Result<String, String> {
 /// Nix 2.34 wraps the map in `{"version": 4, "derivations": {...}}` and earlier versions print the
 /// bare map. Both are read rather than one being assumed, because a gate that stops parsing on a
 /// tool upgrade reports a finding about this repository that is not one.
+/// Structured derivations carry their phase in `structuredAttrs`; that object is authoritative
+/// when present, so a missing phase there must not borrow one from the legacy environment.
 fn phase_of(json: &serde_json::Value, deriver: &str) -> Result<String, String> {
     let map = json.get("derivations").unwrap_or(json);
     // The fallback for a key spelling this version does not use, and it is GUARDED by the map's
@@ -160,8 +162,9 @@ fn phase_of(json: &serde_json::Value, deriver: &str) -> Result<String, String> {
         )
     })?;
     entry
-        .get("env")
-        .and_then(|env| env.get("checkPhase"))
+        .get("structuredAttrs")
+        .or_else(|| entry.get("env"))
+        .and_then(|attributes| attributes.get("checkPhase"))
         .and_then(serde_json::Value::as_str)
         .map(String::from)
         .ok_or_else(|| {
@@ -309,6 +312,46 @@ mod tests {
         let none = serde_json::json!({ "/nix/store/a.drv": { "env": { "name": "x" } } });
         let refusal = phase_of(&none, "/nix/store/a.drv").expect_err("no phase refuses");
         assert!(refusal.contains("NO checkPhase"), "{refusal}");
+    }
+
+    #[test]
+    fn a_structured_derivation_exposes_the_phase_that_checks_the_body() {
+        for env in [
+            serde_json::json!({ "out": "/nix/store/output" }),
+            serde_json::json!({ "checkPhase": "true" }),
+        ] {
+            let shown = serde_json::json!({
+                "version": 4,
+                "derivations": { "/nix/store/a.drv": {
+                    "env": env,
+                    "structuredAttrs": { "checkPhase": REAL }
+                } }
+            });
+            let phase = phase_of(&shown, "/nix/store/a.drv").expect("the structured phase is present");
+            assert_eq!(phase, REAL);
+            holds(&phase).expect("the structured phase checks the body");
+        }
+    }
+
+    #[test]
+    fn structured_attributes_cannot_borrow_a_working_phase_from_the_legacy_environment() {
+        for attrs in [
+            serde_json::json!({}),
+            serde_json::json!({ "checkPhase": false }),
+            serde_json::json!({ "checkPhase": "" }),
+        ] {
+            let shown = serde_json::json!({
+                "/nix/store/a.drv": {
+                    "env": { "checkPhase": REAL },
+                    "structuredAttrs": attrs
+                }
+            });
+            let result = phase_of(&shown, "/nix/store/a.drv").and_then(|phase| holds(&phase));
+            assert!(
+                result.is_err(),
+                "a missing, malformed or empty structured phase must refuse: {shown}"
+            );
+        }
     }
 
     #[test]

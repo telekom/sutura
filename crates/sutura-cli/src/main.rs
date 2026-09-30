@@ -103,8 +103,8 @@ mod mcp;
 /// The ONE Oracle composition, reached by both composition roots below - `clickhouse`'s shape.
 #[cfg(feature = "oracle")]
 mod oracle;
-/// The password-file read the `clickhouse` and `oracle` builds share.
-#[cfg(any(feature = "clickhouse", feature = "oracle"))]
+/// The password-file read the `clickhouse`, `oracle` and `rdbms` builds share.
+#[cfg(any(feature = "clickhouse", feature = "oracle", feature = "rdbms"))]
 mod password_file;
 /// Starts the outbound-material rotation poll - the cli half of `github.com/telekom/sutura#125`'s
 /// rotating trust bundle, where `sutura-tls::Rotator::poll_once` meets the tokio runtime.
@@ -295,7 +295,7 @@ fn dispatch(args: &[String]) -> ExitCode {
 
 /// What this argument vector asks for. Pure.
 fn requested(args: &[String]) -> Requested<'_> {
-    let rest = args.split_first().map(|(_, rest)| rest).unwrap_or_default();
+    let rest = args.split_first().map_or_default(|(_, rest)| rest);
 
     match args.first().map(String::as_str) {
         Some("--version" | "-V") => Requested::Print(format!("sutura {}", env!("CARGO_PKG_VERSION"))),

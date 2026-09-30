@@ -63,10 +63,10 @@ questions with a committed `@duckdb` row golden disagreed without it, 0 with it,
 non-`Nullable` schema; under `Nullable` columns the setting changes nothing, so a fixture
 importer's type choice decides whether the defect shows - `fixture` declares no column
 `Nullable` for that reason. `output_format_json_quote_denormals=1`: under the default `0` an
-infinite float answers the JSON `null`. `timeout_overflow_mode=throw`: `break` answers a spent
-`max_execution_time` with HTTP 200 and the rows read so far. A unit cell holds what is sent; the
-executed goldens hold what the first two settings make the server answer, and nothing executed
-holds the third.
+infinite float answers the JSON `null`. `timeout_overflow_mode=throw`: `throw` answers a spent
+`max_execution_time` with Code 159; `break` answers HTTP 200 with the rows read so far. A unit
+cell holds what is sent; the executed goldens hold what the first two settings make the server
+answer, and nothing executed holds the third.
 
 # What is NOT here
 

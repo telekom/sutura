@@ -80,19 +80,55 @@
 //! This crate contains the conversion [`RdbmsCatalog`] applies to dictionary records, and it is
 //! tested against a fake reader that serves a recorded dictionary - the port gets a fake,
 //! not mocked SQL (`github.com/telekom/sutura#151`'s thing 4). Since #972, it also contains the
-//! live implementor over a Postgres documentation schema ([`postgres_reader`]), behind a
-//! default-off `live` feature so the library closure stays domain + thiserror and no build links
-//! the reader's `tokio-postgres`/`rustls`/`ring` stack without asking for it.
+//! live implementors over a Postgres ([`postgres_reader`]) and an Oracle ([`oracle_reader`])
+//! documentation schema, behind a default-off `live` feature so the library closure stays
+//! domain + thiserror and no build links either driver's stack without asking for it.
 //!
 //! **The fake dominates the suite; the live reader is the production half, feature-gated.**
-//! [`DictionaryReader`] is the seam both implement ([`fixture::FixtureReader`] the recorded corpus,
-//! [`postgres_reader::PostgresReader`] a real connection), and the conversion is the same for both.
+//! [`DictionaryReader`] is the seam they implement ([`fixture::FixtureReader`] the recorded corpus,
+//! [`AnyDictionaryReader`] a real connection), and the conversion is the same for each.
 //! A composition root that links the `live` feature serves `catalog.kind: rdbms`; a build without
 //! it refuses by name. (Its only other dependant is `sutura-app`, as a dev-dependency.)
 
+#[cfg(feature = "live")]
+mod documentation;
 pub mod fixture;
 #[cfg(feature = "live")]
+pub mod oracle_reader;
+#[cfg(feature = "live")]
 pub mod postgres_reader;
+
+/// The live reader a declared `connection.dialect` selects, so one [`RdbmsCatalog`] type holds
+/// either without a trait object.
+#[cfg(feature = "live")]
+#[derive(Debug, Clone)]
+pub enum AnyDictionaryReader {
+    /// The Postgres documentation-schema reader, boxed because it is several times the Oracle one.
+    Postgres(Box<crate::postgres_reader::PostgresReader>),
+    /// The Oracle documentation-schema reader.
+    Oracle(crate::oracle_reader::OracleReader),
+}
+
+#[cfg(feature = "live")]
+impl AnyDictionaryReader {
+    #[must_use]
+    pub const fn bounds(&self) -> DictionaryBounds {
+        match self {
+            Self::Postgres(reader) => reader.bounds(),
+            Self::Oracle(reader) => reader.bounds(),
+        }
+    }
+}
+
+#[cfg(feature = "live")]
+impl DictionaryReader for AnyDictionaryReader {
+    fn read_dictionary(&self) -> Result<Dictionary, RdbmsError> {
+        match self {
+            Self::Postgres(reader) => reader.read_dictionary(),
+            Self::Oracle(reader) => reader.read_dictionary(),
+        }
+    }
+}
 
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;

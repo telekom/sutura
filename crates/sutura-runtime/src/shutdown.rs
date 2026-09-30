@@ -209,10 +209,6 @@ pub async fn listen(shutdown: Shutdown) {
 }
 
 /// The first of the signals this platform can observe.
-#[expect(
-    clippy::integer_division_remainder_used,
-    reason = "the `select!` macro expands through remainder arithmetic to pick a poll order; nothing here does"
-)]
 async fn next_signal() -> ShutdownReason {
     tokio::select! {
         () = interrupt() => ShutdownReason::Interrupt,
@@ -247,10 +243,6 @@ async fn terminate() {
 /// `ctrl_shutdown` is the closest equivalent: it is what the system sends when it is stopping, and
 /// like `SIGTERM` it arrives with a deadline behind it. `ctrl_close` - the console window being
 /// closed - is the other half, and both are selected over because a deployment may see either.
-#[expect(
-    clippy::integer_division_remainder_used,
-    reason = "the `select!` macro expands through remainder arithmetic to pick a poll order; nothing here does"
-)]
 #[cfg(windows)]
 async fn terminate() {
     let mut shutdown = match tokio::signal::windows::ctrl_shutdown() {

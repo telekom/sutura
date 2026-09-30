@@ -1,0 +1,9 @@
+diff --git a/crates/sutura-app/src/prompt/physical.rs b/crates/sutura-app/src/prompt/physical.rs
+index da8aedcb..33331cb0 100644
+--- a/crates/sutura-app/src/prompt/physical.rs
++++ b/crates/sutura-app/src/prompt/physical.rs
+@@ -19,3 +19,3 @@ pub fn physical_schema(view: &ScopedView<'_>, prose: CatalogProse) -> String {
+         lines.push(format!("- Table: `{}`", model.table()));
+-        if prose.is_quoted() && !model.description().is_empty() {
++        if !model.description().is_empty() {
+             lines.push(String::from("- Description (untrusted catalog prose):"));

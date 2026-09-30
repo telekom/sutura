@@ -77,4 +77,5 @@ under `destination`, which must be absent or empty.
 # Errors
 
 If `<source>/manifest.json` cannot be read or is not a wren MDL manifest this converter's `wire`
-module can parse, if `destination` already holds a file, or if it cannot be written to.
+module can parse, if `destination` already holds a file, if it cannot be read, or if writing
+into it fails.

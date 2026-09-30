@@ -562,3 +562,69 @@ heap rather than the server's work, pending a portal `max_rows` that needs `&mut
 actual shape (`#666`'s Finding 10); a dedicated read-only role for the development tier, documented
 but not provisioned. None of these are the demand signal - they were named as limits before this step
 and stay limits after it.
+
+## Second amendment, 2026-09-27: PR1 landed and #160 closed, so three present-tense sentences above are now false
+
+Three statements this record's 2026-09-13 amendment and 2026-09-14 "Built" section made in present
+tense about PR1's merge state and #160's open state are now false, and are left in place because
+each is part of the argument that made shipping on the existing Postgres ceiling the right
+interim call. This block corrects them; the lines above it are older than the state they describe.
+
+- **The 2026-09-13 amendment's prerequisite-2 prose** (line 444) said *`telekom/sutura#160` PR1
+  (in flight, not yet on `main`) puts a `Deadline` on the port*. PR1 is `#661`, and it merged on
+  2026-09-13 (`gh pr view 661` → `MERGED 2026-09-13T14:44:04Z`), so it is no longer in flight and is
+  on `main`. The argument the sentence makes - ship on the existing Postgres ceiling rather than
+  block on a deadline PR1 does not itself deliver - is unchanged by the merge; the sentence's
+  present-tense descriptor of PR1's state is what is stale.
+- **The same prose** (line 461) said *`#160` PR4 is still the fix for that*. `#160` is closed
+  (`gh issue view 160` → `CLOSED`): PR4 delivered the per-request deadline for the CERTIFIED path -
+  `Warehouse::execute` (`crates/sutura-domain/src/warehouse.rs`) carries `Deadline`, and
+  `PostgresWarehouse` sets `SET LOCAL statement_timeout` from it (`crates/sutura-exec-postgres/src/lib.rs:17-19`).
+  The RAW path's own `execute_raw` carries no per-request deadline: the adapter's own module
+  doc records that *the raw SQL tool's own path (`execute_raw`) carries no per-request deadline; it
+  is stopped by the connect-time `SET statement_timeout` that already existed*
+  (`crates/sutura-exec-postgres/src/lib.rs:21-22`). So the limit - one fixed ceiling for every raw
+  caller and every question - is still real, but `#160` PR4 is no longer "the fix for that": #160
+  closed, and with it closed nothing tracks a per-request deadline on `execute_raw` - `#1144` is
+  the new tracker for that gap. It is not blocked on `#160`.
+- **The "Built" section's own limits list** (line 558) said *the per-request deadline for the raw
+  path, waiting on `#160` PR4*. Same correction: `#160` is closed, and the raw path still has no
+  per-request deadline because it was not in #160's scope, not because #160 is still open. The
+  limit is unchanged; the "waiting on" is the stale half.
+
+**What this amendment does not claim.** It corrects the record's present-tense descriptors of
+PR1's (`#661`) and `#160`'s state; it does not claim the raw path gained a per-request deadline, and it
+does not change any decision the base record or its first amendment made. The interim decision -
+ship the raw tool's execution on the connect-time `statement_timeout` ceiling - stands, and the
+limit it named (one ceiling for every caller and every question) stands with it.
+
+## Third amendment, 2026-09-28: `#1144` closes the gap the second amendment tracked
+
+`execute_raw` now carries the same per-request `Deadline` `Warehouse::execute` does, threaded the
+whole way from the transport: `Surface::run_sql` and `sutura_app::run_sql` take it, and it is opened
+by `middleware::enforce_timeout` (HTTP) or the MCP `run_sql` handler the same instant `answer`'s own
+is, `docs/adr/0029`'s shape for the certified path (its *What holds it* table names the cells that
+hold the opening before admission, and what none holds). So the two sentences
+this record's second amendment left standing as the present-tense correction are now themselves
+stale in the direction that matters:
+
+- **The connect-time ceiling is no longer the raw path's only bound.** `PostgresWarehouse::run_raw`
+  now mirrors `run_with_deadline`: the lock is acquired, `crate::deadline::refuse_if_spent` re-checks
+  the budget, and `SET LOCAL statement_timeout` - derived from what is left of the deadline, clamped
+  to the connect-time ceiling the same way the certified path's is - rides the same `BEGIN READ ONLY`
+  this adapter already opens per call. A caller with a five-second budget and a caller with the
+  deployment's full timeout are no longer bounded identically; the ceiling remains the OUTER bound a
+  request's own budget may only narrow, never widen.
+- **A fifth `RawRefusalReason` variant, `DeadlineExceeded { budget_seconds }`**, mirrors
+  `RefusalReason::DeadlineExceeded` exactly: the pre-call check in `sutura_app::run_sql` refuses
+  before the port is ever asked, and `Warehouse::deadline_exceeded` classifies the adapter's own
+  `57014 query_canceled`/`DeadlineSpent` the same way `execute`'s does. Both wire transports (HTTP's
+  `422`, matching the certified path's own status for the same reason; MCP's opaque `code`/`detail`)
+  carry it.
+
+**What is NOT changed.** The raw tool still shares one lock-serialized connection with the certified
+path (the "What is left" bullet above, unchanged); the row cap's streaming stop still bounds this
+process's own heap rather than the server's work; and the wait for `execution_lock` is still outside
+the deadline - a caller queued behind a slow statement can arrive already spent, refused locally as
+`DeadlineSpent` rather than sent to the server, the identical limit `run_with_deadline` already
+carries. `telekom/sutura#1144` is closed by this change; nothing else this record tracks moved.

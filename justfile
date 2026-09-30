@@ -281,6 +281,11 @@ gates: hygiene
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
     cargo deny check
+    # `fuzz/` is its own cargo workspace with its own lock (`fuzz/Cargo.toml`'s header) - the line
+    # above never reads it. `-A license-not-encountered` because `deny.toml`'s root-only allow
+    # entries (`CDLA-Permissive-2.0`, `bzip2-1.0.6`) are unused in this smaller graph and
+    # `unused-allowed-license = "deny"` would refuse them here for a reason that is not a finding.
+    cargo deny --manifest-path fuzz/Cargo.toml check -A license-not-encountered
     # The DERIVING half of the attribution gate, here because it runs `cargo metadata`, which needs a
     # registry the nix sandbox has not got. The document is generated and NOT committed, so there is
     # nothing to byte-compare; `check-attribution-owner` holds the ABSENCE of a committed copy.
@@ -456,6 +461,9 @@ changelog tag="":
     else
       nix run .#git-cliff -- -o CHANGELOG.md
     fi
+    # git-cliff's own output is not dprint-formatted - `.github/workflows/version-bump.yml` runs
+    # the same line right after the same command, for the same reason.
+    nix run .#dprint -- fmt CHANGELOG.md
     git --no-pager diff --stat -- CHANGELOG.md
 
 # --------------------------------------------------------------------- docs ---
@@ -781,10 +789,10 @@ dev-up-oracle:
 # The sibling of `dev-up-identity` and `dev-up-datahub`, and it exists for the reason they do: a
 # service behind a profile is brought up by the task named after that profile, and the tier's own
 # remedy for a missing service cites that task. Unlike the other two it must also BUILD the derived
-# image, which lives in `demo/start.sh` so one owner shapes the build and the validation.
+# image, which lives in `examples/demo-chatinterface/start.sh` so one owner shapes the build and the validation.
 # The demo profile, built and started but not supervised. `just demo` is the walkthrough.
 dev-up-demo:
-    bash demo/start.sh --up-only
+    bash examples/demo-chatinterface/start.sh --up-only
 
 # A named task rather than a cell in the default suite, and the venue is the whole reason: `just
 # test` sets `SUTURA_DEV_REQUIRE_TIER=1`, the DataHub profile costs three JVMs and a migration job,
@@ -845,11 +853,11 @@ dev-clear:
 
 # Validate demo configuration without building, starting containers or contacting a model.
 demo-check:
-    bash demo/start.sh --check
+    bash examples/demo-chatinterface/start.sh --check
 
 # NOT a gate, deliberately - the plan's own rule and #595's: a demo that fails a gate gets disabled,
 # and a disabled demo holds nothing. It needs a language model, which no gate has. The configuration,
-# image build and supervision are in `demo/start.sh`; `docs/demo.md` is the walkthrough.
+# image build and supervision are in `examples/demo-chatinterface/start.sh`; `docs/demo.md` is the walkthrough.
 # The local chat demo: the sutura server and a chat client over `examples/single-player`.
 demo:
-    bash demo/start.sh
+    bash examples/demo-chatinterface/start.sh
