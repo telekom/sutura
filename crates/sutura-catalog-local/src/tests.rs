@@ -454,7 +454,6 @@ mod content {
 mod cube {
     use super::{catalog, outcome_of, scratch};
     use crate::LocalCatalogError;
-    use crate::document::cube::InvalidCubeDocument;
     use sutura_domain::catalog::{Audience, InconsistentDefinitions};
     use sutura_domain::model::{DimensionName, MetricName, ModelName};
     use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog as _};
@@ -506,6 +505,18 @@ Sales over the order fact.
         let pinned = catalog(root.clone()).load().expect("this catalog loads");
         drop(std::fs::remove_dir_all(&root));
         pinned
+    }
+
+    /// A cube refused after it parsed: the file it names, and the cube's own refusal as its source.
+    ///
+    /// Messages rather than a `matches!` on `LocalCatalogError::Cube`, so these cells compile on a
+    /// tree without the kind and `just causality` can watch them go red there.
+    fn cube_refusal(case: &str, cube: &str) -> String {
+        let err = cube_outcome(case, cube).expect_err("this cube is refused");
+        assert!(err.to_string().contains("doc.md is not a usable cube"), "{err:?}");
+        core::error::Error::source(&err)
+            .expect("a cube refusal keeps its cause")
+            .to_string()
     }
 
     /// A cube refused while its frontmatter is read, and the serde message that says why.
@@ -595,19 +606,8 @@ Sales over the order fact.
 
     #[test]
     fn two_measures_of_one_cube_sharing_a_name_are_refused_naming_the_cube() {
-        let err = cube_outcome("cube-duplicate", &CUBE.replace("  - name: orders\n", "  - name: revenue\n"))
-            .expect_err("a measure declared twice is refused");
-        assert!(
-            matches!(
-                &err,
-                LocalCatalogError::Cube {
-                    cause: InvalidCubeDocument::DuplicateMeasure { cube, measure },
-                    ..
-                } if *cube == name("sales") && *measure == name("revenue")
-            ),
-            "{err:?}"
-        );
-        assert!(err.to_string().contains("doc.md"), "{err}");
+        let cause = cube_refusal("cube-duplicate", &CUBE.replace("  - name: orders\n", "  - name: revenue\n"));
+        assert_eq!(cause, "cube sales declares measure revenue more than once");
     }
 
     #[test]
@@ -616,11 +616,7 @@ Sales over the order fact.
             "{}measures: []\n---\nNothing.\n",
             CUBE.split("measures:\n").next().unwrap_or_default()
         );
-        let err = cube_outcome("cube-no-measures", &empty).expect_err("a cube of nothing is refused");
-        assert!(
-            matches!(&err, LocalCatalogError::Cube { cause: InvalidCubeDocument::NoMeasures { cube }, .. } if *cube == name("sales")),
-            "{err:?}"
-        );
+        assert_eq!(cube_refusal("cube-no-measures", &empty), "cube sales declares no measure");
     }
 
     #[test]
