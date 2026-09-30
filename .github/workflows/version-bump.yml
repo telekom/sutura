@@ -60,7 +60,10 @@ jobs:
         run: |
           set -eu
           next_raw="$(nix run .#git-cliff -- --bumped-version 2>/dev/null || true)"
-          prev_raw="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          # `--match`: `release-performance.yml` tags `<version>-performance` on a released commit,
+          # and an unmatched describe returns THAT tag (measured on a scratch repository) - so
+          # `prev` would never equal `next`, and a dispatch with nothing to bump would release.
+          prev_raw="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
           next="v${next_raw#v}"
           prev="v${prev_raw#v}"
           echo "previous: ${prev_raw:-none}"

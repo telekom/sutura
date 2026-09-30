@@ -61,10 +61,9 @@ const PUBLISH: (&str, &str) = ("cachix-push.yml", "cross-build");
 /// The venue that still builds everything that ships: file, job.
 const RELEASE: (&str, &str) = ("release.yml", "build");
 
-/// The optimised build, file and job - `github.com/telekom/sutura#685`. Read by
-/// [`nix_build_targets`] rather than [`matrix_target`]: this job names its four targets as `nix
-/// build .#sutura-<target>-performance` lines in a shell script, not a `strategy.matrix`, and
-/// nothing here asks it to become one just to be read the same way `release.yml` is.
+/// The optimised build, file and job - `github.com/telekom/sutura#685`. A `strategy.matrix` like
+/// [`RELEASE`]'s since each cell runs the same `build-artefacts` action, so a dropped cell is a
+/// target published with neither a binary nor an image.
 const RELEASE_PERFORMANCE: (&str, &str) = ("release-performance.yml", "build");
 
 /// One cell per failure axis, and the order is the canonical one.
@@ -90,6 +89,7 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
         (LINK, REDUCED, "the reduced ordinary-CI set"),
         (PUBLISH, REDUCED, "the reduced set whose closures it publishes"),
         (RELEASE, FULL, "the full published set"),
+        (RELEASE_PERFORMANCE, FULL, "the full published set"),
     ] {
         let path = root.join(WORKFLOWS).join(file);
         let text = match std::fs::read_to_string(&path) {
@@ -121,56 +121,7 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
         }
     }
 
-    let (file, job) = RELEASE_PERFORMANCE;
-    let path = root.join(WORKFLOWS).join(file);
-    match std::fs::read_to_string(&path) {
-        Ok(text) => match nix_build_targets(&text, job) {
-            None => found.push(format!(
-                "{file}: no `nix build .#sutura-<target>-performance` line found in job `{job}` \
-                 - the optimised build's cross matrix is gone"
-            )),
-            Some(items) if items.iter().map(String::as_str).ne(FULL.iter().copied()) => found.push(format!(
-                "{file}: job `{job}` does not build the full published set - expected {FULL:?} \
-                 in that order, found {items:?}"
-            )),
-            Some(_) => {}
-        },
-        Err(error) => found.push(format!("{file} could not be read: {error}")),
-    }
     found
-}
-
-/// The triples named by `nix build .#sutura-<target>-performance` lines inside job `job`, in the
-/// order they appear.
-///
-/// A second reader rather than a second [`matrix_target`] shape: [`RELEASE_PERFORMANCE`]'s job
-/// names its targets in a shell script rather than a `strategy.matrix`, and this reads that
-/// script instead of asking the workflow to grow a matrix only this gate would use.
-fn nix_build_targets(text: &str, job: &str) -> Option<Vec<String>> {
-    let header = format!("  {job}:");
-    let start = text.lines().position(|line| line.trim_end() == header)?.saturating_add(1);
-    let mut items = Vec::new();
-    for line in text.lines().skip(start) {
-        let trimmed = line.trim_start();
-        let indent = line.len().saturating_sub(trimmed.len());
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        // The next job, or the next top-level key: this job's span is over.
-        if indent <= 2 {
-            break;
-        }
-        let Some(rest) = trimmed.strip_prefix("nix build .#sutura-") else {
-            continue;
-        };
-        let Some(token) = rest.split_whitespace().next() else {
-            continue;
-        };
-        if let Some(target) = token.strip_suffix("-performance") {
-            items.push(target.to_owned());
-        }
-    }
-    if items.is_empty() { None } else { Some(items) }
 }
 
 /// One venue's `strategy.matrix.target`: where it is, and what it says.
@@ -187,11 +138,10 @@ struct Target {
 ///
 /// Job-scoped rather than "the first `matrix:` in the file", because three of the four files this
 /// module reads hold more than one job and a whole-file scan would read the wrong one - silently,
-/// and green. `release-performance.yml` is one of them: it holds `validate` AND `build`, and
-/// [`RELEASE_PERFORMANCE`] targets `build` - [`nix_build_targets`] stays job-scoped below for the
-/// same reason this function is. The job header is the line `  <job>:` at the two-space column
-/// every job in this repository uses; the span ends at the next line indented two spaces or fewer
-/// that is not blank and not a comment.
+/// and green. `release-performance.yml` is one of them: it holds `validate`, `gates`, `build` and
+/// `publish`, and [`RELEASE_PERFORMANCE`] targets `build`. The job header is the line `  <job>:`
+/// at the two-space column every job in this repository uses; the span ends at the next line
+/// indented two spaces or fewer that is not blank and not a comment.
 fn matrix_target(text: &str, job: &str) -> Option<Target> {
     let header = format!("  {job}:");
     let start = text.lines().position(|line| line.trim_end() == header)? + 1;
@@ -275,25 +225,20 @@ mod tests {
             )
             .expect("write a workflow");
         }
-        // Clean by default - the optimised build's own shape, not a `strategy.matrix`. Tests of
-        // that row overwrite this file directly, the way `a_matrix_in_another_job_is_not_read`
-        // overwrites one of the three above.
+        // Clean by default. Tests of that row overwrite this file directly, the way
+        // `a_matrix_in_another_job_is_not_read` overwrites one of the three above.
         write_release_performance(&root, super::FULL);
         root
     }
 
-    /// `release-performance.yml`'s `build` job, in the shape `nix_build_targets` reads: `nix
-    /// build .#sutura-<target>-performance` lines rather than a `strategy.matrix`.
+    /// `release-performance.yml`, whose `build` matrix follows a `gates` job carrying no matrix.
     fn write_release_performance(root: &Path, triples: &[&str]) {
-        let mut lines = String::new();
-        for triple in triples {
-            lines.push_str("          nix build .#sutura-");
-            lines.push_str(triple);
-            lines.push_str("-performance -L -o result\n");
-        }
         std::fs::write(
             root.join(super::WORKFLOWS).join(super::RELEASE_PERFORMANCE.0),
-            format!("jobs:\n  build:\n    steps:\n      - run: |\n{lines}"),
+            format!(
+                "jobs:\n  gates:\n    steps: []\n  build:\n    strategy:\n      matrix:\n        target:{}\n",
+                list(triples)
+            ),
         )
         .expect("write the optimised build workflow");
     }
@@ -470,8 +415,8 @@ mod tests {
         drop_root(&root);
     }
 
-    /// A `nix build .#sutura-<target>-performance` line reordered is a change, not a no-op - the
-    /// same order-sensitivity [`matrix_target`]'s own rows hold.
+    /// A reordered optimised matrix is a change, not a no-op - the same order-sensitivity the
+    /// other rows hold.
     #[test]
     fn a_reordered_optimised_build_is_refused() {
         let root = sound_root("performance-reordered", &reduced(), &reduced(), &full());
@@ -490,14 +435,14 @@ mod tests {
         drop_root(&root);
     }
 
-    /// No `nix build .#sutura-*-performance` line at all reads as clean to a rule written as a
-    /// refusal, the same reason [`a_missing_matrix_is_refused`] exists for the other three rows.
+    /// An optimised build with no matrix at all reads as clean to a rule written as a refusal, the
+    /// same reason [`a_missing_matrix_is_refused`] exists for the other three rows.
     #[test]
     fn a_missing_optimised_build_is_refused() {
         let root = sound_root("performance-missing", &reduced(), &reduced(), &full());
         std::fs::write(
             root.join(super::WORKFLOWS).join(super::RELEASE_PERFORMANCE.0),
-            "jobs:\n  build:\n    steps:\n      - run: echo nothing to build\n",
+            "jobs:\n  build:\n    steps:\n      - run: nix build .#sutura-x86_64-unknown-linux-gnu-performance\n",
         )
         .expect("write a build job with no optimised targets");
         let found = super::problems(&root);

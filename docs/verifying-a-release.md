@@ -42,6 +42,14 @@ and `nix build .#checks.x86_64-linux.shipped-features` is what asserts it, out o
 binary's own embedded dependency list rather than out of a manifest - including that `ring` and
 `ureq`, the crates the earlier default-off decision existed to keep out, are now genuinely present.
 
+**The optimised build is a separate prerelease, `<version>-performance`** - no `v`, and never
+`latest` - published only when a maintainer dispatches `release-performance.yml` on a release tag.
+The same commit at the `release-performance` profile: assets `sutura-<triple>-performance.tar.gz`,
+leaf images `:<version>-performance-<triple>`, lists `:<version>-performance` and
+`:<version>-performance-musl`. Everything below applies to it unchanged - the same signing, SBOM
+and provenance sequence runs over it - except that its change list, licence statement and chart
+are the ones on `v<version>`.
+
 **A release also carries a licence statement, and it is a different list on purpose.** What each of
 the two documents answers is under [The licence statement](#the-licence-statement).
 
