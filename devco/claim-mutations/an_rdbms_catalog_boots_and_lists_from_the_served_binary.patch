@@ -1,12 +1,12 @@
-diff --git a/crates/sutura-catalog-rdbms/src/postgres_reader.rs b/crates/sutura-catalog-rdbms/src/postgres_reader.rs
---- a/crates/sutura-catalog-rdbms/src/postgres_reader.rs
-+++ b/crates/sutura-catalog-rdbms/src/postgres_reader.rs
-@@ -329,7 +329,7 @@
+diff --git a/crates/sutura-catalog-rdbms/src/documentation.rs b/crates/sutura-catalog-rdbms/src/documentation.rs
+--- a/crates/sutura-catalog-rdbms/src/documentation.rs
++++ b/crates/sutura-catalog-rdbms/src/documentation.rs
+@@ -173,7 +173,7 @@ impl<'env> Assembly<'env> {
          Ok(DecodedColumn {
-             address,
+             address: TableAddress::new(row.catalog_name, schema, table),
              model,
--            description: table_description,
-+            description: table_description.filter(|_| false),
-             column,
-             metadata,
-             is_primary_key: is_primary_key
+-            description: row.table_description,
++            description: row.table_description.filter(|_| false),
+             column: row.column_name.unwrap_or_default(),
+             metadata: ColumnMetadata::new(row.column_type, row.column_description),
+             is_primary_key: row
