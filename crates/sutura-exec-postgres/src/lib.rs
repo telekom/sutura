@@ -212,8 +212,10 @@ pub enum PostgresError {
     #[error("the client identity pair is incomplete: expected a certificate and a key, and found {what} at {path}")]
     IdentityIncomplete { path: String, what: &'static str },
     /// The client key was not an RSA/EC key this build can present.
-    #[error("the client private key at {path} is not a private key this build can present")]
-    IdentityKey { path: String, what: &'static str },
+    #[error(
+        "the client private key at {path} is not an RSA or EC key in PKCS#8, PKCS#1 or SEC1 PEM form - this build cannot present it"
+    )]
+    IdentityKey { path: String },
     /// The explicitly selected host trust store could not be read completely.
     #[error("the host trust store reported {errors} errors while it was read")]
     SystemStoreRead {

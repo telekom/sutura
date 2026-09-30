@@ -171,8 +171,10 @@ pub enum LoadError {
     #[error("the client identity pair is incomplete: expected a certificate and a key, and found {what} at {path}")]
     IdentityIncomplete { path: String, what: &'static str },
     /// The client key was not an RSA/EC key this build can present.
-    #[error("the client private key at {path} is not a private key this build can present")]
-    IdentityKey { path: String, what: &'static str },
+    #[error(
+        "the client private key at {path} is not an RSA or EC key in PKCS#8, PKCS#1 or SEC1 PEM form - this build cannot present it"
+    )]
+    IdentityKey { path: String },
 }
 
 /// Loads the declared trust anchors as raw certificate DER, refusing an empty or unreadable store.
@@ -411,7 +413,6 @@ fn load_private_key(path: &Path) -> Result<PrivateKeyDer<'static>, LoadError> {
     })?;
     PrivateKeyDer::from_pem_slice(&bytes).map_err(|_cause| LoadError::IdentityKey {
         path: path.display().to_string(),
-        what: "not a private key this build can present",
     })
 }
 
@@ -588,6 +589,22 @@ mod tests {
         std::fs::write(&bad_key, "not a private key\n").expect("a bad key writes");
         let identity = Identity::new(certificate, bad_key);
         assert!(matches!(load_identity(&identity), Err(LoadError::IdentityKey { .. })));
+    }
+
+    #[test]
+    fn a_refused_identity_key_names_the_accepted_formats() {
+        let scratch = Scratch::new("bad-key-formats");
+        let (certificate, _) = scratch.pair("client");
+        let bad_key = scratch.directory.join("key.pem");
+        std::fs::write(&bad_key, "not a private key\n").expect("a bad key writes");
+        let identity = Identity::new(certificate, bad_key);
+        let Err(error) = load_identity(&identity) else {
+            panic!("a non-key file is refused");
+        };
+        let message = error.to_string();
+        assert!(message.contains("RSA"), "the refusal names RSA: {message}");
+        assert!(message.contains("EC"), "the refusal names EC: {message}");
+        assert!(message.contains("PKCS#8"), "the refusal names PKCS#8: {message}");
     }
 
     /// `pem` repeated whole, then `#` filler, to exactly `size` bytes; the filler is not PEM.

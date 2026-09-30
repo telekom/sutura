@@ -156,10 +156,7 @@ fn from_loaded(
             let (chain, key) = loaded.into_parts();
             builder
                 .with_client_auth_cert(chain, key)
-                .map_err(|_cause| PostgresError::IdentityKey {
-                    path: String::new(),
-                    what: "not a private key this build can present",
-                })
+                .map_err(|_cause| PostgresError::IdentityKey { path: String::new() })
         }
     }
 }
@@ -225,7 +222,7 @@ fn convert_load_error(cause: sutura_tls::LoadError) -> PostgresError {
         sutura_tls::LoadError::SystemStoreEmpty => PostgresError::SystemStoreEmpty,
         sutura_tls::LoadError::IdentityRead { path, cause } => PostgresError::IdentityRead { path, cause },
         sutura_tls::LoadError::IdentityIncomplete { path, what } => PostgresError::IdentityIncomplete { path, what },
-        sutura_tls::LoadError::IdentityKey { path, what } => PostgresError::IdentityKey { path, what },
+        sutura_tls::LoadError::IdentityKey { path } => PostgresError::IdentityKey { path },
     }
 }
 

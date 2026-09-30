@@ -172,7 +172,7 @@ pub fn walk(root: &Path, extensions: &[&str], max_documents: usize) -> Result<Ve
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use super::WalkError;
 
@@ -211,7 +211,10 @@ mod tests {
     fn an_empty_directory_is_refused() {
         let root = scratch("empty");
         let err = super::walk(&root, &["yaml"], super::MAX_CATALOG_DOCUMENTS).expect_err("an empty root refuses");
-        assert!(matches!(err, WalkError::Empty { .. }), "{err:?}");
+        assert!(
+            matches!(err, WalkError::Empty { ref path } if path.as_path() == root.as_path()),
+            "{err:?}"
+        );
         drop(std::fs::remove_dir_all(&root));
     }
 
@@ -223,7 +226,10 @@ mod tests {
             super::MAX_CATALOG_DOCUMENTS,
         )
         .expect_err("a missing root refuses");
-        assert!(matches!(err, WalkError::NotADirectory { .. }), "{err:?}");
+        assert!(
+            matches!(err, WalkError::NotADirectory { ref path } if path.as_path() == Path::new("/nonexistent/definitely")),
+            "{err:?}"
+        );
     }
 }
 

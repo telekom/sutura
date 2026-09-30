@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-bounded-read/src/walk.rs b/crates/sutura-bounded-read/src/walk.rs
+--- a/crates/sutura-bounded-read/src/walk.rs
++++ b/crates/sutura-bounded-read/src/walk.rs
+@@ -75,7 +75,7 @@
+ pub fn walk(root: &Path, extensions: &[&str], max_documents: usize) -> Result<Vec<PathBuf>, WalkError> {
+     if !root.is_dir() {
+         return Err(WalkError::NotADirectory {
+-            path: root.to_path_buf(),
++            path: PathBuf::new(),
+         });
+     }
+     let mut found = BTreeSet::new();

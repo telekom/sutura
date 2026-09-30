@@ -47,8 +47,10 @@ pub enum TlsError {
     },
     #[error("the client identity pair is incomplete: expected a certificate and a key, and found {what} at {path}")]
     IdentityIncomplete { path: String, what: &'static str },
-    #[error("the client private key at {path} is not a private key this build can present")]
-    IdentityKey { path: String, what: &'static str },
+    #[error(
+        "the client private key at {path} is not an RSA or EC key in PKCS#8, PKCS#1 or SEC1 PEM form - this build cannot present it"
+    )]
+    IdentityKey { path: String },
     #[error("the host trust store reported {errors} errors while it was read")]
     SystemStoreRead {
         errors: usize,
@@ -149,7 +151,6 @@ fn owned_key(declared: &TlsIdentity) -> Result<ureq::tls::PrivateKey<'static>, T
     })?;
     ureq::tls::PrivateKey::from_pem(&pem).map_err(|_cause| TlsError::IdentityKey {
         path: declared.key.display().to_string(),
-        what: "not a private key this build can present",
     })
 }
 
@@ -175,7 +176,7 @@ fn from_load_error(cause: sutura_tls::LoadError) -> TlsError {
         sutura_tls::LoadError::SystemStoreEmpty => TlsError::SystemStoreEmpty,
         sutura_tls::LoadError::IdentityRead { path, cause } => TlsError::IdentityRead { path, cause },
         sutura_tls::LoadError::IdentityIncomplete { path, what } => TlsError::IdentityIncomplete { path, what },
-        sutura_tls::LoadError::IdentityKey { path, what } => TlsError::IdentityKey { path, what },
+        sutura_tls::LoadError::IdentityKey { path } => TlsError::IdentityKey { path },
     }
 }
 
