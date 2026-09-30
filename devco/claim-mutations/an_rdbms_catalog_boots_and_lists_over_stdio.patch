@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-cli/src/mcp.rs b/crates/sutura-cli/src/mcp.rs
+index ef08ea141..76997dc54 100644
+--- a/crates/sutura-cli/src/mcp.rs
++++ b/crates/sutura-cli/src/mcp.rs
+@@ -126,7 +126,8 @@ pub(crate) fn mcp() -> ExitCode {
+                 // A `postgres` source attaches nothing and reports no table inventory, so
+                 // `refuse_absent_tables` has nothing to add - the same reasoning `crate::serve`'s own
+                 // arm carries. A mistyped `table:` is caught on the first question against it.
+-                serve(&catalogs, opened, &settings)
++                drop(opened);
++                Err(String::from("the stdio root refuses a postgres-backed deployment"))
+             }
+             #[cfg(feature = "clickhouse")]
+             Opened::ClickHouse(opened) => {

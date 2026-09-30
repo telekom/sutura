@@ -22,6 +22,7 @@ mod branches;
 mod catalog_opened_once;
 mod causality;
 mod changes;
+mod check_lock_coverage;
 mod commit_msg;
 mod compose;
 mod conformance;
