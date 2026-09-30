@@ -145,19 +145,19 @@ active_subscriptions
   filters    status = "active"
   grains     month
   dimensions product_family, region, segment
-  anchor     59 over [2026-06-01, 2026-07-01)
+  anchor     "59" over [2026-06-01, 2026-07-01)
 churn_rate
   measure    count_if(churned_in_month) / count_distinct(subscription_key), zero denominator yields_null
   filters    none
   grains     month
   dimensions product_family, region, segment
-  anchor     0.04838709677419355 over [2026-06-01, 2026-07-01)
+  anchor     "0.04838709677419355" over [2026-06-01, 2026-07-01)
 recurring_revenue
   measure    sum(mrr_cents)
   filters    status = "active"
   grains     month
-  dimensions contract_term, product_family, product_name, region, segment
-  anchor     202121 over [2026-06-01, 2026-07-01)
+  dimensions contract_term, product_family, product_name, region, sales_area, segment
+  anchor     "202121" over [2026-06-01, 2026-07-01)
 revenue_per_churned_subscription
   measure    sum(mrr_cents) / count_if(churned_in_month), zero denominator fails
   filters    none
@@ -169,7 +169,7 @@ subscription_base
   filters    none
   grains     month
   dimensions product_family, region, segment
-  anchor     62 over [2026-06-01, 2026-07-01)
+  anchor     "62" over [2026-06-01, 2026-07-01)
 ```
 
 The digest is over the canonical form of the parsed definitions, so reformatting a document does not
@@ -422,10 +422,10 @@ you have on its `data systems` line.
 run a query from this command against a real dataset - the furthest any of them reaches is reading
 the credential file, because the transport's host is a compile-time constant with no loopback to
 point at. What HAD been accepted by a real dataset is the corpus, through the (since-removed) `bigquery-acceptance` leg,
-on the adapter's own suite. And the job's deadline comes off `server.request_timeout_seconds`: the
-default 30 leaves a job **10 seconds** and the maximum 300 leaves it **145**, because an answer makes
-two calls and each pays a connect margin. A slow question is cancelled by that bound with nothing
-waiting on any request.
+on the adapter's own suite. And the job's deadline is the request's own: what is left of it is sent as the job's
+`jobTimeoutMs`, rounded up, and a spent one is refused before anything is sent. The service stops
+the job at `jobTimeoutMs`; this process also stops waiting at the deadline and asks the driver to
+cancel, which is best-effort - the cancel queues behind the driver's statement lock.
 
 `table:` may also name where the table lives, when that is more than the connection's own default:
 
