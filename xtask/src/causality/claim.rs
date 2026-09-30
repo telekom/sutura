@@ -86,6 +86,7 @@ use crate::causality::scoped::Scoped;
 use crate::causality::worktree;
 
 mod kill;
+pub(super) mod undeclared;
 use kill::attest;
 #[cfg(test)]
 use kill::{MutationKill, classify_mutation};

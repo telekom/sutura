@@ -565,6 +565,16 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     // happen.
     println!("{}", measured.measured(&base));
 
+    // An added claim mutation no trailer declares is never applied - the fail-open of #970.
+    let touched = worktree::touched(&root, &at);
+    let undeclared =
+        claim::undeclared::undeclared(&touched, claim::Claim::of(&worktree::messages(&root, &at)).as_ref(), |path| {
+            worktree::base_has(&root, &at, path)
+        });
+    if !undeclared.is_empty() {
+        return claim::undeclared::report(&undeclared);
+    }
+
     // The POST-IMAGE of a changed file is what says which of its lines are test code, and
     // `git diff <base> --` compares base against the WORKING TREE - so the working tree is the
     // post-image, and reading it needs no second git call.
@@ -613,7 +623,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         Claim::of(&worktree::messages(&root, &at).replace('\0', "\n")).as_ref(),
         &relocation::Changed {
             files: &files,
-            touched: &worktree::touched(&root, &at),
+            touched: &touched,
         },
         &Images {
             head: &working_tree,
@@ -879,6 +889,13 @@ mod tests {
             Verdict::Fail,
             "the claimed mutation cannot prove a neighbouring ordinary test in the same inseparable file"
         );
+    }
+
+    /// `github.com/telekom/sutura#970`: the patch is committed and no trailer declares it, so no
+    /// run would ever apply it - refused, where the base answered the NOT MECHANICALLY SEPARABLE pass.
+    #[test]
+    fn a_committed_mutation_no_trailer_declares_is_refused() {
+        assert_eq!(inseparable_claim_case(false, Mutation::Kills, None), Verdict::Fail);
     }
 
     /// Half two, and UNCHANGED behaviour: with no `Claim-Cell:` trailer at all, an inseparable
