@@ -689,7 +689,9 @@ now and impossible to retrofit, and they are marked.
   glibc-only CLI path unblocks the early steps; the served surface needs an answer.
 - **Arrow in, per source, and where an Arrow-typed boundary lives.** `check-boundaries` forbids Arrow
   in the domain, AGENTS.md lists `sutura-arrow` as planned, and the pinned `duckdb` and `datafusion`
-  disagree on the Arrow major. This wants its own record.
+  disagree on the Arrow major. This wants its own record. **Corrected:** `docs/adr/0039` is that
+  record - the `arrow-*` crates are in `check-boundaries`' `ALLOWED_IN_DOMAIN` now - and `AGENTS.md`
+  no longer lists a `sutura-arrow` crate.
 - **Whether a custom DataFusion planner or extension carries the semantic extras.** It keeps the
   pushdown unit as sutura's own plan, so bind parameters and the dialect goldens stay on this side of
   the boundary. It is the most promising shape and it is unprototyped.

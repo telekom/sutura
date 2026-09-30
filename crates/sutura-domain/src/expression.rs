@@ -262,10 +262,10 @@ impl DialectTag {
     /// route and prove nothing.
     ///
     /// So the two agreeing is pinned by a test instead of by the type - see
-    /// `portable_is_the_word_parse_would_have_produced`. What that test catches is the reachable
-    /// mistake: a future tightening of `parse` - a shorter length bound, a narrower character set -
-    /// that would refuse `portable` while this constructor kept minting it, leaving a value in a map
-    /// key position that no catalog file could ever have written.
+    /// `portable_is_the_word_parse_would_have_produced_and_display_prints_it`. What that test
+    /// catches is the reachable mistake: a future tightening of `parse` - a shorter length bound, a
+    /// narrower character set - that would refuse `portable` while this constructor kept minting it,
+    /// leaving a value in a map key position that no catalog file could ever have written.
     pub fn portable() -> Self {
         Self(String::from(Self::PORTABLE))
     }
@@ -713,7 +713,7 @@ mod tests {
     }
 
     #[test]
-    fn portable_is_the_word_parse_would_have_produced() {
+    fn portable_is_the_word_parse_would_have_produced_and_display_prints_it() {
         // `DialectTag::portable` is the one constructor in this module that writes the private field
         // without going through `parse`, and it is the only newtype here that does. It cannot go
         // through it - `parse` is fallible and this is not - so what would otherwise be the type's
@@ -730,7 +730,7 @@ mod tests {
         let deserialized: DialectTag =
             serde_json::from_str("\"portable\"").expect("the reserved word is one a document can write");
         assert_eq!(deserialized, DialectTag::portable());
-        // `Display` is the word and not the derived `Debug`, which is what eleven refusals in
+        // `Display` is the word and not the derived `Debug`, which is what twelve refusals in
         // `sutura_sql::expression` interpolate.
         assert_eq!(DialectTag::portable().to_string(), "portable");
         assert_eq!(tag("clickhouse").to_string(), "clickhouse");
