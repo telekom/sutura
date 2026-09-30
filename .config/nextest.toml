@@ -75,10 +75,10 @@ success-output = "immediate"
 # of one thread per CPU (15 here). In the red `checks.nextest` run the family took 5.7-410.3s, 11 of
 # 30 under 60s, and `run_dispatches_to_the_claim_arm` hit the 300s ceiling above; the 410.3s cell
 # survived only under a 600s override since removed. That run was host-starved - a pure in-memory
-# cell took 9.0s against 0.13s after - so it is not an A/B. Two at a time, two later
-# `checks.nextest` runs put the slowest at 118s and 70s and every other cell at 33s or under. A
-# queued cell has not started and the ceiling counts from start (checked on a scratch crate), so the
-# ceiling is unchanged.
+# cell took 9.0s against 0.13s after - so it is not an A/B. Two at a time, three later
+# `checks.nextest` runs put the slowest at 118s, 70s and 174.6s (next 61.5s, on a heavier host), so
+# the measured margin to the 300s ceiling is 1.7x, not a guarantee. A queued cell has not started
+# and the ceiling counts from start (checked on a scratch crate), so the ceiling is unchanged.
 # Limits: the sandbox's per-cell slowdown is not explained, only kept from compounding; this bounds
 # the fixtures against each other, not against a loaded host; and in the dev shell it is pure cost -
 # 73s for the family against 23s unconstrained.
