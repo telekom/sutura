@@ -1,11 +1,12 @@
 diff --git a/crates/sutura-bounded-read/src/read.rs b/crates/sutura-bounded-read/src/read.rs
 --- a/crates/sutura-bounded-read/src/read.rs
 +++ b/crates/sutura-bounded-read/src/read.rs
-@@ -116,6 +116,6 @@
+@@ -118,7 +118,7 @@ pub fn read_document(root: &Path, path: &Path, total_bytes: u64) -> Result<Strin
          });
      }
--    let remaining = MAX_CATALOG_BYTES - total_bytes.min(MAX_CATALOG_BYTES);
-+    let remaining = MAX_CATALOG_BYTES;
-     if stat.st_size.cast_unsigned() > remaining {
+     let remaining = MAX_CATALOG_BYTES - total_bytes.min(MAX_CATALOG_BYTES);
+-    if stat.st_size.cast_unsigned() > remaining {
++    if stat.st_size.cast_unsigned() >= remaining {
          let found = total_bytes.saturating_add(stat.st_size.cast_unsigned());
          return Err(ReadError::TooLarge {
+             root: root.to_path_buf(),
