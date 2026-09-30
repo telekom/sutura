@@ -69,6 +69,7 @@ finer split is a cheap change if a caller ever needs the branch.
 - `MalformedFrontmatter`
 - `IdentifyKind`
 - `Metric`
+- `Cube` - A cube document did not expand: no measure, a measure declared twice, or a measure's metric refused the way a metric document's would be.
 - `Model` - A model's own column or its `primary_key:` is not usable.
 - `Relationship`
 - `Description` - The prose of a definition document is not a usable description.
@@ -198,7 +199,7 @@ Required in every document rather than inferred from the directory it sits in. A
 wrong directory is then an error naming the mismatch, instead of a metric that was quietly never
 loaded, and the loader can walk one tree instead of trusting a layout convention.
 
-**Seven kinds now, and the split between them is worth reading as two groups.** The first three
+**Eight kinds now, and the split between them is worth reading as two groups.** The first four
 are definitions: they decide what executes, and `sutura_domain::catalog` checks them. The last
 four are knowledge: they decide what a reader understands, and `sutura_domain::knowledge` checks
 them. Nothing in the loader treats the two groups differently - one walk, one tag, one dispatch -
@@ -209,6 +210,7 @@ which is what keeps "which directory is this in" from becoming part of the forma
 - `Model`
 - `Relationship`
 - `Metric`
+- `Cube` - Several metrics over one model sharing a time column and a dimension list - authoring sugar expanded into ordinary metrics here, so the domain never sees one (`cube::CubeDoc`).
 - `Glossary` - One entry of the business glossary.
 - `Caveat` - Something a reader has to know before trusting a number.
 - `NotDefined` - A term this catalog deliberately does not define.
@@ -476,7 +478,7 @@ misspelled NAME inside the chain still refuses, because the name is a `Relations
 
 #### Implements
 
-`Debug`, `Deserialize<'de>`
+`Clone`, `Debug`, `Deserialize<'de>`
 
 ### `struct DimensionDoc`
 
@@ -493,7 +495,7 @@ where `MetricDoc::into_domain` can refuse it.
 
 #### Implements
 
-`Debug`, `Deserialize<'de>`
+`Clone`, `Debug`, `Deserialize<'de>`
 
 ### `struct AnchorDoc`
 
@@ -627,6 +629,60 @@ Why an audience declaration a document parsed cannot become the domain's `Audien
 
 - `Identifier`
 - `Grant`
+
+##### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### Module `cube`
+
+A cube document: one model, one time column and one dimension list, shared by several measures.
+
+Authoring sugar and nothing more (`telekom/sutura#1148`). `CubeDoc::into_domain` expands it
+into one `MetricDoc` per measure and converts each through `MetricDoc::into_domain`, so a
+cube's metric is checked by exactly the code a hand-written metric document is, and the domain
+never sees a cube. A cube and its hand-flattened equivalent are the same bundle, digest included.
+
+What a measure cannot say is held by `deny_unknown_fields` on `MeasureDoc`: no `dimensions:`
+of its own (the cube's list is the only one), no `model:`, `time_column:` or `grains:`, and no
+`shared_calendar:` - a measure needing one is a metric document for now. `hierarchies:` is
+refused by name on `CubeDoc` the same way: a roll-up order has no domain representation.
+
+#### `struct CubeDoc`
+
+```rust
+pub struct CubeDoc
+```
+
+The document. Its `name` and each measure's `name` use a metric name's grammar because the two
+join into one: a measure's metric is `<cube>_<measure>`.
+
+##### Methods
+
+```rust
+pub fn into_domain(self, prose: &Description) -> Result<Vec<Metric>, InvalidCubeDocument>
+```
+
+One metric per measure, in the order the measures are written.
+
+##### Implements
+
+`Debug`, `Deserialize<'de>`
+
+#### `enum InvalidCubeDocument`
+
+```rust
+pub enum InvalidCubeDocument
+```
+
+Why a cube document cannot become metrics.
+
+##### Variants
+
+- `NoMeasures` - `measures: []`, which would otherwise load as nothing and say so nowhere.
+- `DuplicateMeasure` - Held here rather than left to `InconsistentDefinitions::DuplicateMetric`, which would fire too but name neither the cube nor its file.
+- `MetricName` - `<cube>_<measure>` is not a metric name. Both halves already parsed, so the one fault left is length.
+- `Metric` - A measure's metric refused as a metric document would be; the message names the metric.
 
 ##### Implements
 

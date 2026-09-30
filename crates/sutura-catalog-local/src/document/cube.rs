@@ -64,6 +64,7 @@ struct MeasureDoc {
 /// Why a cube document cannot become metrics.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidCubeDocument {
+    /// `measures: []`, which would otherwise load as nothing and say so nowhere.
     #[error("cube {cube} declares no measure")]
     NoMeasures { cube: MetricName },
     /// Held here rather than left to `InconsistentDefinitions::DuplicateMetric`, which would fire
