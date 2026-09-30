@@ -55,10 +55,10 @@
 //! does not apply, touches a test line or test region, creates a file, or leaves the cell green is
 //! refused by name.
 //!
-//! **THE COST**: each mutated run pays the same ~68 s isolated rebuild every base/head run pays
-//! (the patch forces this workspace's own crates to recompile), so a declared diff costs `+N`
-//! runs per gate invocation. Stated, not hidden: this is the price of the evidence the arm is
-//! here to consume.
+//! **THE COST**: the first mutated run pays the isolated rebuild every base/head run pays; each
+//! later cell reuses the kill worktree's own artifacts (`super::isolation` skips the removal for
+//! the pair it just cleaned) and recompiles what its patch and the previous restore touched, plus
+//! their dependents - so a declared diff costs `+N` runs per gate invocation, not `+N` rebuilds.
 //!
 //! **WHAT AN ACCEPTED ARM DOES AND DOES NOT PROVE.** It proves each declared cell DIES under its
 //! compiled mutation - the assertion the cell carries really does fail when its subject is broken.

@@ -145,12 +145,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     // is a rebuild of this workspace's own crates each run, measured in `isolation`'s own header.
     if let Some(target) = target_dir.as_deref().map(Path::new) {
         match crate::causality::isolation::Isolated::of(&root, target) {
-            Ok(witness) => println!(
-                "  isolated: removed {} first-party {} artifact(s) from {}",
-                witness.removed(),
-                crate::warm_start::WARM_PROFILE,
-                target.display()
-            ),
+            Ok(witness) => println!("  {witness}"),
             Err(why) => {
                 eprintln!("xtask check-default-feature-tests: FAILED - {why}");
                 return Verdict::Fail;

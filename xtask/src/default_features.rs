@@ -539,12 +539,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     let target_dir = std::env::var_os("CARGO_TARGET_DIR");
     if let Some(target) = target_dir.as_deref().map(Path::new) {
         match crate::causality::isolation::Isolated::of(&root, target) {
-            Ok(witness) => println!(
-                "  isolated: removed {} first-party {} artifact(s) from {}",
-                witness.removed(),
-                crate::warm_start::WARM_PROFILE,
-                target.display()
-            ),
+            Ok(witness) => println!("  {witness}"),
             Err(why) => {
                 eprintln!("xtask check-default-features: FAILED - {why}");
                 return Verdict::Fail;
