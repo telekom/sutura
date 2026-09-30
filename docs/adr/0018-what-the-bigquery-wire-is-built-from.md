@@ -55,8 +55,8 @@ of shipped binaries, not a literal `--package sutura-cli` in `flake.nix`. `flake
 **Corrected: the `anyhow` row attributes the claim to the wrong source.** `AGENTS.md` contains no
 occurrence of the word "anyhow"; the claim lives in `docs/architecture.md` and is enforced by
 `cargo xtask check-boundaries`, which fails a dynamic-error crate in a library - the gate the row
-goes on to name. The claim itself holds: `anyhow` is in no `Cargo.toml` and `Cargo.lock` carries it
-only transitively, if at all.
+goes on to name. The claim itself holds: no `Cargo.toml` names `anyhow` and `Cargo.lock` holds no
+`anyhow` package.
 
 ## The options, priced
 

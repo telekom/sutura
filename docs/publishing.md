@@ -93,7 +93,7 @@ light mode.
 
 `docs/css/telekom.css` makes Telekom magenta (`#E20074`) the Material `custom` primary, with a
 darker or lifted shade of it as the accent.
-The header, links and hover states come from a set of `--md-*` variables (eleven of them). The two colour schemes differ only
+The header, links and hover states come from eight `--md-*` variables. The two colour schemes differ only
 because `#E20074` clears WCAG AA on Material's light background and not on its dark one; the
 measured ratios sit next to each value.
 

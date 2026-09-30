@@ -153,7 +153,8 @@ refactor!: rename the Warehouse port's execute method
 ```
 
 The body is not checked. Use it for *why*. The subject also decides the next version: `feat` a
-minor, `fix` and the rest a patch, `!` or a `BREAKING CHANGE` footer a major - though for 0.x, `!` or `BREAKING CHANGE` bumps minor per SemVer's pre-1.0 rule (`breaking_always_bump_major = false` in `cliff.toml`).
+minor, `fix` and the rest a patch, `!` or a `BREAKING CHANGE` footer a major - a minor while the
+version is 0.x (`breaking_always_bump_major = false` in `cliff.toml`).
 
 ## Testing
 
@@ -311,8 +312,12 @@ what a consumer of the artifacts reads.
   mechanically fixable.
 - **No em dashes.** Plain hyphens, in prose and in comments. A gate rather than a request, because
   the convention was stated from the start and one shipped anyway.
-- **No first-party `unsafe`.** `deny` in the workspace lint table and `#![forbid(unsafe_code)]` at every crate root but one, so a crate cannot re-allow it locally.
-- **`#[expect(.., reason = "..")]` over `#[allow]` on categorical lints**, so a suppression cannot outlive its cause. `check-expect-thresholds` holds the three count-threshold lints; the workspace lint table carries `= "allow"` entries for style lints no gate enforces as `#[expect]`.
+- **No first-party `unsafe`.** `deny` in the workspace lint table and `#![forbid(unsafe_code)]` at
+  every crate root but `sutura-adbc`'s, held by `check-unsafe`, so a crate cannot re-allow it locally.
+- **`#[expect(.., reason = "..")]` over `#[allow]`**, so a suppression cannot outlive its cause -
+  except on the three count-threshold lints, where `check-expect-thresholds` refuses an `#[expect]`:
+  split the function or raise the threshold in `clippy.toml`. A workspace-wide exception is an
+  `= "allow"` row in the workspace lint table instead.
 - **No file over 1000 lines**, and no exemption under `crates/` or `xtask/` - the only way past it
   is to split the file.
 - **No dependency declared and unused.** Declaring one to satisfy a document is what that gate

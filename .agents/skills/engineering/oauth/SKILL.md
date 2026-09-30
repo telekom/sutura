@@ -67,15 +67,14 @@ the raw token deep in a call stack is authorization nobody can audit.
 
 The intent is that every query runs as the calling principal. Concretely:
 
-**The port and the downstream leg are built and unproven.** `sutura_domain::identity::CredentialBroker` is
-the credential port, with production implementors in `sutura-config` and in `sutura-exec-bigquery`'s
-`DeclaredPrincipalBroker` - the sentence that used to stand here said the workspace had no such port.
-On BigQuery the caller's own verified assertion is federated through the declared pool, and the
-account the source's per-source map declares for that subject becomes the credential's
-`service_account_impersonation_url` - not RFC 8693 token exchange but Google's workload identity
-federation. An undeclared subject is refused, never run as the deployment. The hosted venue that
-would show it is `wired` with no observed run; the bullets below are the design of the halves not yet
-built - the served binary and the row grants it would show.
+**The port is built; the downstream leg is built and unproven, on BigQuery alone.**
+`sutura_domain::identity::CredentialBroker` is the credential port, with production implementors in
+`sutura-config` and in `sutura-exec-bigquery`'s `DeclaredPrincipalBroker`. There the caller's own
+verified assertion is federated through the declared pool, and the account the source's per-source
+map declares for that subject becomes the credential's `service_account_impersonation_url` - Google's
+workload identity federation, not RFC 8693 token exchange. An undeclared subject is refused, never run
+as the deployment. The adapter venue that would show it is `wired` with no observed run. The bullets
+below are the design every other leg is still held to.
 
 - A broker mints a credential per request, from the request's own context. There is no service
   account fallback: a leg that cannot run as the subject is refused instead.
@@ -93,8 +92,9 @@ built - the served binary and the row grants it would show.
 
 The table applies to the change that *introduces* any of the above, and the first two rows are
 already enforced: `sutura-http`'s token validator pins the algorithm list and sets the audience.
-Rows 3 (every leg as subject) and 5 (refusals as typed results) are built but unproven; the
-remaining rows are still design, which is where a "no" is the honest answer.
+Row 5 holds by type - a refusal is an `Ok` outcome carrying a `RefusalReason`, not an error. Row 3
+is the BigQuery leg above, built and unproven; the rest are still design, which is where a "no" is
+the honest answer.
 
 | Question | If the answer is no |
 | --- | --- |

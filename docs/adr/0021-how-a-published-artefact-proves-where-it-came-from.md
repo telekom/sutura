@@ -59,7 +59,7 @@ nothing:
 
 **Corrected: the first table row is stale.** The `.sha256` sidecars ARE `cosign sign-blob`-signed -
 `.github/actions/attest-and-sign`'s signing step excludes only `*.sigstore.json` bundles, not
-sidecars, and that is a REVERSAL of `github.com/telekom/sutura#459`. The row's "except the `.sha256`
+sidecars, a reversal `github.com/telekom/sutura#459` decided. The row's "except the `.sha256`
 sidecars" no longer holds; the provenance row below it already covered them and still does.
 
 The tools come from the locked nixpkgs as `apps.cosign` and `apps.syft`, for the reason `apps.deny`
@@ -129,7 +129,7 @@ transparency-log entry per release. They keep provenance, which is free, and the
 because a consumer's script may read them. `docs/verifying-a-release.md` says which of the two to
 take and why.
 
-**Corrected: this section is stale - the reversal of `github.com/telekom/sutura#459`.** The sidecars
+**Corrected: this section is stale - `github.com/telekom/sutura#459` reversed it.** The sidecars
 ARE cosign-signed now, for the ergonomic reason the action's own header records: on a release page
 holding many bundles the files without one were indistinguishable from an oversight, and a reader who
 checked a sidecar and stopped had verified integrity against a file an attacker who could replace the

@@ -308,8 +308,6 @@ the ones that exist today are marked.
 | BPMN                                | target                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | RDF                                 | target                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
-**Corrected, 2026-09-28:** `sutura_config::CatalogKind::Rdbms` now exists (`crates/sutura-config/src/catalog.rs:78`) and is declarable - the composition root opens it behind the `rdbms` feature.
-
 **Data**, declaring a mode and its capabilities:
 
 | Connector                   | Mode it can declare                                                                                                                         |
@@ -768,7 +766,9 @@ What is unchanged is the half that matters - `nix/shipped.nix` publishes both bi
 DEFAULT features, so no published artefact links the adapter, and `checks.shipped-features` reads
 `ureq`'s and `ring`'s absence off each shipped binary rather than off a manifest.
 
-**Corrected, 2026-09-28:** `nix/shipped.nix` now publishes with ALL features, not DEFAULT; and `ureq` and `ring` are permitted dependencies, not banned - their absence is not read off shipped binaries.
+**Corrected:** `docs/adr/0017`'s Fifteenth amendment reversed the DEFAULT-features half. The one
+shipped binary now carries an explicit feature list in `nix/shipped.nix` - `bigquery` among it - so it
+does link the adapter, and `checks.shipped-features` permits `ureq` and `ring` for it by name.
 
 ## Third amendment, 2026-09-16: the base record's "both binaries" are one binary now
 

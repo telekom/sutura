@@ -19,7 +19,7 @@
       "repo": "https://github.com/curityio/oauth-developer-skills",
       "ref": "d411f195ab0d03bc68de6b16504036b6f7533244",
       "upstream_path": "skills/oauth-api-developer",
-      "sha256": "9ca59102063f87ccd3019865251d63d9344644ef0be38ff5f075d3ade25702fa"
+      "sha256": "7c6e6be0bf37b21ec94cedd5aaaedad22c52b084adee5e8be3efd75189acea80"
     },
     {
       "name": "ponytail",
@@ -29,7 +29,7 @@
       "repo": "https://github.com/DietrichGebert/ponytail",
       "ref": "2ed6c52c9d7e5e56942508591085fd45dea277d3",
       "upstream_path": ".openclaw/skills/ponytail",
-      "sha256": "b2347c74009a000cc714f63d0a6f3ac1829cdbc2b502d46b4cbb397994dd7365"
+      "sha256": "add9d9e876d9ac1625ef9b8a92393a4cbcd0988874863e630b81b9a8c7b10bb0"
     },
     {
       "name": "api-and-interface-design",

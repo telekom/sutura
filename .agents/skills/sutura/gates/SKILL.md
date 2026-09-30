@@ -1068,10 +1068,10 @@ added - which is `the base tree does not build`, loud, and still not a pass.
 commit that changes a public signature a kept-at-HEAD test file calls.* The gate holds test files at
 HEAD and reverts implementation files to base, so if the change altered an item's ARITY or TYPE the
 held tests cannot compile against the base implementation, the retry puts everything at base, and the
-answer is `the base tree does not build` - and since the retry leaves nothing held at HEAD, that
-`DidNotCompile` is now `Verdict::Fail` (exit 1), not the exit-3 `Inconclusive` the held-back arms
-below still take - for a reason that has nothing to do with the tests being
-non-causal. Hit twice in one day - #331 changed `FederatedPlan::new`'s arity; #286 hit it earlier and
+answer is `the base tree does not build` (exit 3) for a reason that has nothing to do with the tests
+being non-causal. **With nothing held back there is no retry:** a base that does not compile on the
+first attempt is `FAILED - the base does not compile with nothing held back` (exit 1), which names
+each unmeasured test and asks for a `Claim-Cell:` - `causality::reconstruct_and_run`. Hit twice in one day - #331 changed `FederatedPlan::new`'s arity; #286 hit it earlier and
 supplied a restatement instead of a mutation, which its review correctly refused. **The verdict is
 indistinguishable from the harness move, so an author who reads only the paragraph above does not
 recognise their own situation and never reaches for the substitute.** Two substitutes, both used on
@@ -1405,9 +1405,9 @@ helper was held at HEAD while its only caller was removed at base), while the sa
 locally. So the branch had red-before-green evidence in neither venue and its author had a green
 check.
 
-**They exit 3 now (#307), and the shape of the fix is the transferable part** - except the
-nothing-held `DidNotCompile` arm, which the retry leaves with no file at HEAD: that one is
-`Verdict::Fail` (exit 1), not `Inconclusive`. **Failing was rejected on
+**They exit 3 now (#307), and the shape of the fix is the transferable part.** (A base that does
+not compile with nothing held back is not one of them - it exits 1, see #332's paragraph.) **Failing
+was rejected on
 measured cost - the harness move lands on `DidNotCompile` every time, so does a changed signature on
 the retry, and a gate that reddens correct work gets disabled - so the decision moved to the venue
 with the **default closed**: 3 is neither 0 nor 1, so a consumer that has not been taught the code
@@ -1724,20 +1724,26 @@ for the wrong reason.
 
 ## The Claim-Cell trailer
 
-A `Claim-Cell: <test-name>` trailer on a commit pins new test behaviour to its range (declared base
-→ tip) under `just causality`. **It applies ONLY to tests that the range ADDS** - a test the base
-already carries cannot be claimed, and a MODIFIED test (including a renamed one) cannot carry the
-trailer. `causality` reads the trailer per commit (`xtask/src/causality/claim.rs:479-485`), so it
-must sit on the commit that adds or *changes* the test.
+`Claim-Cell: <test-fn-name>` says the test pins behaviour the base tree already has, so it cannot be
+red on base; its proof is the killing mutation at `devco/claim-mutations/<test-fn-name>.patch` -
+production lines only, no test line, no new file - which must fail the cell by its own assertion.
+What `causality::claim::validate` holds:
 
-**When causality exits 3 (`INCONCLUSIVE`),** a signature change to the test itself blocks measurement
-(the mutation harness cannot replicate it), and you proceed with a hand mutation table in the commit
-body naming which mutations you tested and which ones killed the cell. This is the normal path, not
-a failure case - `INCONCLUSIVE` on a signature change is a **pass that needs a hand table**, and a
-table accepted by review carries proof just as a green exit 0 does.
+| Shape | Answer |
+| --- | --- |
+| trailer on the commit that ADDS the test | measured by its mutation |
+| trailer on a commit that adds no such test - one base already carries, or one the range only edits | `not added:` - read PER COMMIT, so the trailer sits on the commit that adds the test |
+| trailer, no committed patch | `no patch:` |
+| an EDITED test that is green on base | no trailer can carry it - it needs a gate decision, or a change to the behaviour it pins |
 
-**Never revert a changed test to make causality green.** If a dependency bump breaks the test's code,
-the fix is either to adapt the test or to pin the dependency - not to hide the change. An untrailered
-claim patch in `devco/claim-mutations/` makes causality measure 0 (`exit 0` with `NO BASE BEHAVIOUR
-... 0 of N added tests measured`) - a hollow green that hides the whole cell. If you encounter this,
-add the missing trailer to the commit that adds the test, or refuse the change.
+**Exit 3 (`INCONCLUSIVE`) is not a verdict.** Quote it verbatim and supply a hand mutation table in
+its place - each mechanism removed, and the cell that goes red. Exit 1 `the base does not compile
+with nothing held back` is not that case: declare each test it names.
+
+**Never turn causality green by reverting a changed test** - that deletes the evidence rather than
+supplying it.
+
+**A hollow green, measured once and not yet refused:** a range whose only other change is an
+untrailered patch under `devco/claim-mutations/` answers `NO BASE BEHAVIOUR TO COMPARE AGAINST` with
+`measured: 0 of N` and exits 0, because the patch reads as a new implementation file. Read the
+`measured:` line, not the exit code.

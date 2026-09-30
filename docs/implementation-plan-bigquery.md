@@ -49,7 +49,7 @@ own configuration directory for exactly this class of value, and [building witho
 the value belongs on the machine and only the hook belongs here.
 
 **This is tooling availability and not the adapter.** No Rust dependency, nothing in
-`sutura-config`, and at the time of writing no `Dialect::BigQuery`. Everything below has since landed.
+`sutura-config`, and at the time of writing no `Dialect::BigQuery`; everything below was still to do.
 
 ### Which identity this login serves, and which it does not
 
@@ -205,16 +205,16 @@ either. **The wire transport has since been replaced by ADBC** (`docs/adr/0018`'
 
 **And 0017's prediction about itself did not come true, which is the part to read before believing
 any of this.** The change that wrote the wire could NOT run it: the machine had no `gcloud`, no
-application-default credential and no project. So a leg exists at
-`tests/declared_principal.rs`, two `#[ignore]`d tests behind
-`bigquery-acceptance`. **It is also narrower than what 0017 specifies**
+application-default credential and no project. So a leg existed at `acceptance.rs`, three
+`#[ignore]`d tests behind `bigquery-acceptance` - both deleted since, with the HTTP wire. **It was also
+narrower than what 0017 specifies**
 
 - one hand-built `SUM` over a two-column table, exercising none of the constructs the parse check was
   measured to be blind about, so a green run of it would close a smaller gap than the records first
-  claimed; the wider leg is #78's importer shape pointed at a dataset. **Two of the three clauses
-  `sutura-cli`'s `serve` subcommand DOES dispatch `kind: bigquery`, both behind its default-off `bigquery` feature, which
-  `docs/adr/0017`'s second amendment recorded. What was the third - the `data_systems:` axis - has
-  since gained an entry too: the golden matrix's `data_systems` arm registers `bigquery`. The honest summary is 0017's sentence with one word moved: **the statement is right as far as
+  claimed; the wider leg is #78's importer shape pointed at a dataset. **All three clauses that used to
+  end this paragraph are spent**: a composition root DOES link the crate and `sutura-cli`'s `serve`
+  DOES dispatch `kind: bigquery`, which `docs/adr/0017`'s second amendment recorded, and the golden
+  matrix's `data_systems` axis registers `bigquery`. The honest summary is 0017's sentence with one word moved: **the statement is right as far as
   five mechanisms can tell, and ONE has now been run.** On 2026-08-30 the leg passed against a real
   dataset under a service-account key - a statement generated here accepted by `BigQuery`, answered as one
   complete page, with the fixture's own numbers - and `docs/adr/0017`'s amendment puts the repeat of it in

@@ -444,8 +444,9 @@ asks the same tier for a token with `scope=openid` and asserts the ID token's `a
 not a literal the cell restated. That is row 191's `yes` half: a real IdP does mint an ID token with
 a third party's audience. The limit beside that `yes`, stated in the row and in item 1 of "What it
 cannot answer" below: it is a password grant against a hardcoded audience mapper, not a
-browser-delegated flow, and the audience is an RFC-2606 placeholder. This cell is green on `main` today
-(run https://github.com/telekom/sutura/actions/runs/36143472617).
+browser-delegated flow, and the audience is an RFC-2606 placeholder. This cell passed on `main` on
+2026-09-25, in the `keycloak-served-test` job of run
+https://github.com/telekom/sutura/actions/runs/36143472617.
 
 **What "a different subject" means, exactly.** The audit record masks every `sub` to its first
 character plus `***`, and Keycloak subjects are UUIDs, so two different `sub`s' masked forms

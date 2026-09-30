@@ -193,10 +193,11 @@ and track 2 needs the same dialects.
 `dialect-postgresql`, `dialect-clickhouse`. `sutura_sql::Dialect` is the matching three-variant closed
 enum, and its own doc comment states the rule this record leans on:
 
-**Corrected:** the workspace now compiles **five** dialect features (`dialect-duckdb`, `dialect-postgresql`, `dialect-clickhouse`, `dialect-bigquery`, `dialect-oracle`), at `Cargo.toml:324`.
-
 > A closed set rather than a passthrough of the dialect layer's thirty-three, because each entry here
 > is a claim that we generate correct SQL for it and have a golden that says so.
+
+**Corrected:** the root `Cargo.toml` now compiles **five** dialect features - `dialect-bigquery` and
+`dialect-oracle` beside those three.
 
 **BigQuery and Oracle are not compiled.** So track 1 for either is not "write an adapter"; it is
 "make the claim, with the golden behind it", and the adapter comes after.
@@ -207,7 +208,7 @@ enum, and its own doc comment states the rule this record leans on:
 them, and both have real implementation modules. Checked in the registry source and again in the
 upstream checkout, which is the same version.
 
-**Corrected:** `polyglot-sql` is now pinned at `0.12.0` (`Cargo.toml:324`).
+**Corrected:** `polyglot-sql` is now pinned at `0.12.0`.
 
 **Each feature is `[]` - an empty feature list.** It gates a module and pulls no dependency, so
 enabling one adds no crate, no licence, no `deny.toml` entry and nothing for `check-boundaries` to
@@ -1154,8 +1155,6 @@ What it still will not do is answer a question spanning two data systems"* - lan
 source*, still compile-time for *which kind*. [0009](0009-the-plan-from-one-source-to-many.md)'s own
 branch table agrees: its `feat/source-registry` row describes the refusals this registry raises at
 parse, past tense.
-
-**Corrected:** `sources.rs` is now 695 lines, not 908.
 
 **So the claim is false and only the citation was ever a paraphrase - both need correcting, and a
 line number is the wrong fix for either.** The bullet's factual clause is replaced by: *the

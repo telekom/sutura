@@ -422,10 +422,9 @@ you have on its `data systems` line.
 run a query from this command against a real dataset - the furthest any of them reaches is reading
 the credential file, because the transport's host is a compile-time constant with no loopback to
 point at. What HAD been accepted by a real dataset is the corpus, through the (since-removed) `bigquery-acceptance` leg,
-on the adapter's own suite. And the job's deadline comes off `server.request_timeout_seconds`: the
-default 30 leaves a job **29 seconds** and the maximum 300 leaves it **299**, because an answer makes
-two calls and each pays a connect margin. A slow question is cancelled by that bound with nothing
-waiting on any request.
+on the adapter's own suite. And the job's deadline is the request's own: what is left of it is sent as the job's
+`jobTimeoutMs`, rounded up, and a spent one is refused before anything is sent. That stop is the
+service's, and best-effort - this process cancels nothing itself.
 
 `table:` may also name where the table lives, when that is more than the connection's own default:
 

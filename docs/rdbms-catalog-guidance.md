@@ -5,10 +5,10 @@ description: What a database dictionary can contribute as metadata, what it cann
 
 # An RDBMS dictionary as a metadata source
 
-> **Implementation status:** the crate converts dictionary records and is tested through the fake
-> `FixtureReader`, and a production dictionary reader (`postgres_reader.rs`) exists behind the
-> crate's `live` feature. A composition root links and serves this catalog behind the `rdbms` feature.
-> Operators can configure and use it in a shipped binary.
+> **Implementation status:** the crate converts dictionary records, tested through the fake
+> `FixtureReader`; its `live` feature adds a Postgres dictionary reader (`postgres_reader.rs`), and
+> `sutura-cli`'s default-off `rdbms` feature opens this catalog with it. `nix/shipped.nix` does not
+> carry that feature, so no published binary serves it - an operator builds with `--features rdbms`.
 
 The crate implements the conversion half of issue #151 and
 `docs/adr/0011-pluggable-by-declaration.md`'s RDBMS row. It is intended for a metadata source that
@@ -95,7 +95,7 @@ this page follows the same boundary by keeping two claims out of the adapter con
 - It does not prescribe a database configuration. A database's DDL, constraints and comments are
   whatever they already are, and nothing here turns a particular configuration into a precondition.
   Every choice named on this page is an option with a payoff.
-- It does not make metrics or comments prerequisites for conversion. A dictionary
+- It does not make metrics, comments or a raw tool prerequisites for conversion. A dictionary
   without them converts to a bundle whose declaration is exactly the empty-of-metric truth.
 
 Options name their payoff without becoming preconditions.

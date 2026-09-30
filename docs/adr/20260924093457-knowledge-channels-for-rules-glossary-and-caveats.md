@@ -383,10 +383,10 @@ independent of it and lands after Q2.
 
 Option A's security argument says a model's or a column's name "already reaches the context through
 the model's own description, which `CatalogProse::Quoted` renders today", and Option B routes a
-phrase through "the description channel, which `CatalogProse` governs". The prompt quotes a
-metric's description and no other: `sutura_app::prompt`'s header names no column, table, model or
-measure expression as a deliberate absence, and `sutura_domain::catalog::Column`'s doc says column
-prose is parsed and pinned and reaches no rendering surface. So under Option A a glossary referent
-is the first way a model or a column is named in the prompt, and Option B has to extend the
-description channel to models and columns before a phrase can travel through it. The options and
+phrase through "the description channel, which `CatalogProse` governs". By default the prompt quotes
+a metric's description and no other; model and column prose reach it only through the opt-in
+physical-schema listing (`prompt.list_physical_schema`), which quotes them under
+`prompt.catalog_prose` - `sutura_domain::catalog::Column`'s doc says so. So under Option A a glossary
+referent is, by default, the first way a model or a column is named in the prompt, and Option B has
+to extend the description channel to models and columns before a phrase can travel through it. The options and
 decisions above stand as decided; this corrects the premise both security arguments share.

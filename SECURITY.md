@@ -107,8 +107,8 @@ Each of these is held by a type, a lint or a gate today, and
 - a credential appearing in a log, an error, or a serialised value
 - a result cache keyed by anything other than the subject first
 - a second call site for `Warehouse::verify_anchor` or `Warehouse::declared_key`, the two port methods that reach a data system
-  with no credential. They belong to the boot path alone; `clippy.toml` bans both and the boot path holds
-  the single `#[expect]` per method. **Their input types are self-checks and not barriers** - see *Not yet
+  with no credential. They belong to the boot path; `clippy.toml` bans both, so every other call site - a
+  delegating wrapper, a test cell - carries an `#[expect]` a reviewer sees. **Their input types are self-checks and not barriers** - see *Not yet
   guarantees* below
 
 ## Not yet guarantees

@@ -111,7 +111,7 @@ arrangement that would have gone wrong:**
   **BigQuery is where per-subject execution has to work, and Postgres is where it would be nice if it
   did.** An earlier version of this table had no BigQuery row at all, ordering purely on cost while
   the deployment's priority ordered on value, and the two disagreed silently. BigQuery is genuinely
-  the more expensive step - at the time of writing there was no `Dialect::BigQuery`, so it costs a fourth dialect of goldens
+  the more expensive step - at the time of writing there was no `Dialect::BigQuery`, so it cost a fourth dialect of goldens
   and an AGENTS.md invariant the guidance gate will fail until it is updated - and it goes first
   anyway. **Cheap-first is a tiebreak, not a rule**; when the expensive step is the one that pays for
   the stack, it leads.
@@ -201,7 +201,7 @@ project becomes something else.
 | Inspiration from Spice                          | **compared and declined as a dependency**, correctly - and nothing taken as SHAPE                                                                                                            | the connector API, connection pooling and Arrow execution patterns are exactly what `feat/source-registry`, `feat/leg-plan-types`, `feat/two-source-execution` and `feat/postgres-adapter` need                                                |
 | Execution from DataFusion                       | **present**, and it stays the combiner under federation                                                                                                                                      | none                                                                                                                                                                                                                                           |
 | Polyglot for rendering, transpilation if needed | **present for rendering**, five dialects compiled - Oracle rendering landed without the rewrite layer, by building its `TRUNC` call directly the way `BigQuery`'s argument order already was | Oracle has no adapter crate, no execution venue and no golden against a real instance yet - PR 1 of 2, rendering only                                                                                                                          |
-| Flexible sources and metadata systems           | **decided, not built - and one of the thirteen adapter crates is now measured rather than assumed**                                                                                          | the connectors, and the metadata capability declaration they conform through - which [what DataHub can carry](adr/0016-what-datahub-can-carry.md) schedules, having found the first source that provides part of a model rather than all of it |
+| Flexible sources and metadata systems           | **decided, not built - and one of the eleven connectors is now measured rather than assumed**                                                                                                | the connectors, and the metadata capability declaration they conform through - which [what DataHub can carry](adr/0016-what-datahub-can-carry.md) schedules, having found the first source that provides part of a model rather than all of it |
 | Security                                        | **the strongest part of the record**                                                                                                                                                         | the credential port is built with two production implementors; the leg that runs AS the subject is not                                                                                                                                         |
 | The agent-facing surface                        | **was missing from this plan, and has since landed**                                                                                                                                         | `sutura-mcp` exists; what it does not carry is a leg executed as the caller                                                                                                                                                                    |
 
@@ -530,9 +530,9 @@ one that went wrong, which is why the ordering is part of the requirement rather
 **And the port arrives with a real implementor, not a fake.** `AGENTS.md` says a port trait arrives
 with its first implementor; the implementor here is a structured writer over the tracing subscriber
 `sutura-runtime` already composes, which needs nothing from anybody and is what a deployment that
-attaches nothing else gets. The only thing that used to record a call was one `tracing::info!` per
-outcome in `crates/sutura-http/src/routes/v1/query.rs`; that log line was replaced by `Surface::answer`'s audit record, and its own doc comment says there is no audit
-sink and nothing records a principal chain - so this step is not adding a second channel beside a
+attaches nothing else gets. When this was written the only thing that recorded a call at all was one
+`tracing::info!` per outcome in `crates/sutura-http/src/routes/v1/query.rs`, and its own doc comment
+said there was no audit sink and nothing recorded a principal chain - so this step is not adding a second channel beside a
 working one, it is turning a log line into the thing two other records already depend on.
 
 **Touches.** `crates/sutura-domain` for the types and the sink port, `crates/sutura-app` for the
