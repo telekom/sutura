@@ -43,6 +43,7 @@ use std::collections::BTreeSet;
 
 mod deny_wiring;
 mod hook_paths;
+mod lock_drift;
 
 use crate::Verdict;
 use crate::repo;
@@ -94,10 +95,9 @@ const FUZZ_INVOCATIONS: [&str; 3] = ["run-fuzz.sh", "nix run .#fuzz", "cargo fuz
 
 /// The lock the fuzz crate resolves against.
 ///
-/// Its own, because `fuzz/` is a workspace of its own - see the manifest's header. **`cargo deny`
-/// reads the ROOT lock only**, so nothing advisory-checks this one; that is the cost of keeping
-/// `libfuzzer-sys` and `#![no_main]` out of the shipped graph, and it is stated where a reader
-/// looking for the guarantee will be.
+/// Its own, because `fuzz/` is a workspace of its own - see the manifest's header. A root-level
+/// `cargo deny` never reads it: [`deny_wiring`] holds a fuzz-scoped run at every site that runs the
+/// root one, and [`lock_drift`] holds every pin it shares with the root lock to the root's version.
 const LOCK: &str = "fuzz/Cargo.lock";
 
 /// The root workspace manifest, whose single `version = "..."` line
@@ -243,12 +243,13 @@ fn release_invocations(workflow: &str) -> Vec<(usize, &'static str)> {
         .collect()
 }
 
-/// Every first-party package [`LOCK`] pins, as `(name, version)`.
+/// Every package a lock pins, as `(name, version)` - the one parse both this gate's first-party
+/// check and [`lock_drift`]'s third-party one read.
 ///
 /// Same parse `shared_client::versions_of` uses: within a `[[package]]` stanza, `name` precedes
 /// `version`, both `key = "value"` on their own line. Not shared with it - that scan matches one
-/// exact name, this one matches a prefix over the whole file.
-fn first_party_pins(lock: &str) -> Vec<(String, String)> {
+/// exact name, this one reads the whole file.
+fn pins(lock: &str) -> Vec<(&str, &str)> {
     let mut found = Vec::new();
     let mut current: Option<&str> = None;
     for line in lock.lines() {
@@ -256,14 +257,21 @@ fn first_party_pins(lock: &str) -> Vec<(String, String)> {
             current = unquote(value);
         } else if let Some(value) = line.strip_prefix("version = ")
             && let Some(seen) = current.take()
-            && seen.starts_with(FIRST_PARTY_PREFIX)
-            && seen != FUZZ_CRATE
             && let Some(version) = unquote(value)
         {
-            found.push((String::from(seen), String::from(version)));
+            found.push((seen, version));
         }
     }
     found
+}
+
+/// Every first-party package [`LOCK`] pins, as `(name, version)`.
+fn first_party_pins(lock: &str) -> Vec<(String, String)> {
+    pins(lock)
+        .into_iter()
+        .filter(|(name, _)| name.starts_with(FIRST_PARTY_PREFIX) && *name != FUZZ_CRATE)
+        .map(|(name, version)| (String::from(name), String::from(version)))
+        .collect()
 }
 
 /// Strip the surrounding quotes from a lock-file or manifest value, or `None` if it is not
@@ -627,6 +635,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // `too-many-arguments-threshold` at 10, already the shape's own limit.
     let lock_text = std::fs::read_to_string(root.join(LOCK)).unwrap_or_default();
     hook_gaps.extend(version_gaps(&root_manifest, &lock_text));
+    hook_gaps.extend(lock_drift::gaps_in(&root, &lock_text));
     hook_gaps.extend(deny_wiring::gaps(&root));
     match matrix_targets(&workflow) {
         Ok(matrix) => report(
@@ -842,6 +851,31 @@ mod tests {
         let root_manifest = "[workspace]\n";
         let lock = "[[package]]\nname = \"sutura-domain\"\nversion = \"0.5.1\"\ndependencies = []\n";
         assert_eq!(version_gaps(root_manifest, lock), Vec::<String>::new());
+    }
+
+    fn stanza(name: &str, version: &str) -> String {
+        format!("[[package]]\nname = \"{name}\"\nversion = \"{version}\"\nsource = \"registry+x\"\n\n")
+    }
+
+    /// `yoke-derive` 0.8.3 in the fuzz lock against the root's 0.8.2, the drift crates.io's yank
+    /// of 0.8.3 turned into a red supply-chain check on every pull request.
+    #[test]
+    fn a_shared_package_at_another_version_fails() {
+        let gaps = lock_drift::gaps(&stanza("yoke-derive", "0.8.2"), &stanza("yoke-derive", "0.8.3"));
+        assert_eq!(gaps.len(), 1, "{gaps:?}");
+        assert!(gaps[0].contains("yoke-derive") && gaps[0].contains("\"0.8.3\"") && gaps[0].contains("\"0.8.2\""));
+    }
+
+    #[test]
+    fn a_shared_package_at_a_root_version_passes() {
+        let root = [stanza("syn", "2.0.119"), stanza("syn", "3.0.4")].concat();
+        assert_eq!(lock_drift::gaps(&root, &stanza("syn", "3.0.4")), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_package_only_the_fuzz_lock_pins_passes() {
+        let fuzz = [stanza("libfuzzer-sys", "0.4.12"), stanza("syn", "3.0.4")].concat();
+        assert_eq!(lock_drift::gaps(&stanza("syn", "3.0.4"), &fuzz), Vec::<String>::new());
     }
 
     #[test]

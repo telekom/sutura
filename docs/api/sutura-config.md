@@ -1739,7 +1739,7 @@ Why a catalog configuration is not usable.
 
 #### Variants
 
-- `EmptyPath` - A required path was empty, which would resolve to the process working directory.
+- `EmptyPath` - A required path was empty, which would resolve to the process working directory - a different directory on every host, and never the one the operator meant.
 - `EmptyCatalog` - No catalog was declared, so there is nothing to serve.
 - `DuplicateName` - Two catalogs share one declared name, so the contribution manifest could not tell them apart.
 - `MissingForDatahub` - A `catalog.kind: datahub` entry did not declare a field only that kind needs.
