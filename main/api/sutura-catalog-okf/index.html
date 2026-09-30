@@ -2347,7 +2347,7 @@ them.</p>
 <ul>
 <li><code>NotADirectory</code></li>
 <li><code>Io</code></li>
-<li><code>Open</code> - An open or <code>fstat</code> of a descriptor failed in a way the OS described but <code>Self::Io</code>'s wording does not: a swapped symlink refuses with <code>ELOOP</code> and a swapped FIFO with <code>ENXIO</code>, and neither is "could not read".</li>
+<li><code>Open</code> - An open or <code>fstat</code> of a descriptor failed in a way the OS described but <code>Self::Io</code>'s wording does not: a swapped symlink refuses with <code>ELOOP</code> at open, and the OS reports the refusal rather than the read's generic "could not read".</li>
 <li><code>Malformed</code></li>
 <li><code>Unnamed</code></li>
 <li><code>InvalidName</code></li>

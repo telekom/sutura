@@ -3637,8 +3637,9 @@ one-second reply margin, opens the absolute deadline carried by the <code>Wareho
 returns after that deadline at a cooperative yield and drops its rows future; Postgres sends
 <code>SET LOCAL statement_timeout</code> after acquiring its execution lock. <strong>BigQuery sends what is left of
 the deadline as the job's <code>jobTimeoutMs</code></strong> through the ADBC driver's <code>bigquery.query.job_timeout</code>,
-which the service honours on a best-effort basis; this process cancels nothing itself, and that has
-not yet been measured against the service. The concurrency bound is therefore load-bearing rather
+which the service honours on a best-effort basis; at the deadline this process also stops waiting
+and asks the driver to cancel the job, queued behind the driver's statement lock. Neither has yet
+been measured against the service. The concurrency bound is therefore load-bearing rather
 than belt-and-braces here: it caps how much work can accumulate where cancellation is delayed,
 cooperative, or best-effort.</p>
 <p><code>max_concurrent_queries</code> is that bound. A question holds its slot from the moment it starts until the
@@ -3774,7 +3775,7 @@ selects which file is layered, so a file that could change it would be self-refe
 <tr>
 <td><code>server.request_timeout_seconds</code></td>
 <td><code>30</code></td>
-<td>At most 300. Bounds a caller's whole wait on <strong>both</strong> surfaces - the <code>408</code> here, and a tool result on the agent surface. Minus a one-second reply margin, it also opens the shared execution deadline: the engine observes it at cooperative yield points and Postgres after its execution-lock wait. <strong>BigQuery is the exception, and it is one an operator has to know:</strong> what is left is sent as the job's <code>jobTimeoutMs</code>, a best-effort stop at the service, and this process cancels nothing itself - the <code>408</code> a caller sees does not by itself stop the work behind it</td>
+<td>At most 300. Bounds a caller's whole wait on <strong>both</strong> surfaces - the <code>408</code> here, and a tool result on the agent surface. Minus a one-second reply margin, it also opens the shared execution deadline: the engine observes it at cooperative yield points and Postgres after its execution-lock wait. <strong>BigQuery is the exception, and it is one an operator has to know:</strong> what is left is sent as the job's <code>jobTimeoutMs</code>, a best-effort stop at the service, and at the deadline this process asks the driver to cancel, queued behind its statement lock - the <code>408</code> a caller sees does not by itself stop the work behind it</td>
 </tr>
 <tr>
 <td><code>server.max_body_bytes</code></td>
@@ -3969,7 +3970,7 @@ selects which file is layered, so a file that could change it would be self-refe
 <tr>
 <td><code>catalogs</code></td>
 <td>one entry, named <code>model</code></td>
-<td><strong>A LIST, not a group of top-level keys.</strong> Each entry declares its own <code>name</code>, <code>kind</code>, <code>dir</code>, <code>data_dir</code> and <code>version</code> - see the rows below - and <strong>the list is file-only</strong>: <code>SUTURA__CATALOGS__0__DIR</code> does not index into it, because the environment layer builds a map and refuses a sequence it was asked to build instead</td>
+<td><strong>A LIST, not a group of top-level keys.</strong> Each entry declares its own <code>name</code>, <code>kind</code> and <code>version</code>; <code>dir</code>/<code>data_dir</code> are required for every kind except <code>rdbms</code> - see the rows below - and <strong>the list is file-only</strong>: <code>SUTURA__CATALOGS__0__DIR</code> does not index into it, because the environment layer builds a map and refuses a sequence it was asked to build instead</td>
 </tr>
 <tr>
 <td><code>catalogs[].name</code></td>
@@ -3979,7 +3980,7 @@ selects which file is layered, so a file that could change it would be self-refe
 <tr>
 <td><code>catalogs[].kind</code></td>
 <td><code>markdown</code></td>
-<td>Which adapter opens this catalog. <code>markdown</code>, <code>datahub</code>, <code>okf</code>, <code>datacontract</code>, <code>openmetadata</code> or <code>rdbms</code>. <code>datahub</code> opens behind its default-off <code>--features datahub</code>; a build without the feature refuses the kind by name, naming it. <code>okf</code> and <code>datacontract</code> open on EVERY build (<code>sutura-catalog-okf</code> and <code>sutura-catalog-datacontract</code> are unconditional dependencies of the binary). <code>openmetadata</code>/<code>rdbms</code> are declarable and refused by name on every build (no reader over a real deployment yet - see the follow-up to <code>github.com/telekom/sutura#152</code> and <code>#972</code>). <strong>A deployment declares catalogs of ONE kind</strong> - a <code>markdown</code> and a <code>datahub</code> entry together are refused, not merged; see <code>docs/adr/0016</code></td>
+<td>Which adapter opens this catalog. <code>markdown</code>, <code>datahub</code>, <code>okf</code>, <code>datacontract</code>, <code>openmetadata</code> or <code>rdbms</code>. <code>datahub</code> and <code>openmetadata</code> open behind features of their own, default-off in cargo and both carried by the published binary (<code>nix/shipped.nix</code>); <code>rdbms</code> opens behind the default-off <code>--features rdbms</code>, which no published binary carries. A build without a kind's feature refuses the kind by name, naming the feature. <code>okf</code> and <code>datacontract</code> open on EVERY build (<code>sutura-catalog-okf</code> and <code>sutura-catalog-datacontract</code> are unconditional dependencies of the binary). <strong>A deployment declares catalogs of ONE kind</strong> - a <code>markdown</code> and a <code>datahub</code> entry together are refused, not merged; see <code>docs/adr/0016</code></td>
 </tr>
 <tr>
 <td><code>catalogs[].dir</code></td>

@@ -2244,12 +2244,10 @@ composition root with the reason that no build delivers it.</p>
 <code>kind: clickhouse</code> source is declarable and openable by a build carrying the <code>clickhouse</code> feature,
 which is default-off and in no published binary. The golden and differential suites run the example
 corpus against a real ClickHouse - the server <code>nix/clickhouse-tier.nix</code> starts beside the Postgres
-tier - and pin its rows, refusals, error and anchor report. Two things the <code>Executes</code> column does
-NOT say about it: the conformance packs are not bound, because that corpus measured two wrong
-answers a fix has to land for first (an <code>Int64</code> sum that wraps, a decimal that loses its trailing
-zero - <code>check-conformance-bindings</code> carries the declaration), and <code>Warehouse::EXECUTES_LEGS</code> is
-absent on the adapter - so a federated question involving a ClickHouse source is still refused by
-the capability gate. Its identity column is the static half and stays there until an adapter change:
+tier - and pin its rows, refusals, error and anchor report; the conformance packs are bound too
+(<code>execute_packs!</code> in <code>crates/sutura-exec-clickhouse/tests/conformance.rs</code>). What the <code>Executes</code>
+column does NOT say about it: <code>Warehouse::EXECUTES_LEGS</code> is absent on the adapter - so a federated
+question involving a ClickHouse source is still refused by the capability gate. Its identity column is the static half and stays there until an adapter change:
 <code>NoPlaceForASubject</code>, so an <code>impersonation-at-source</code> declaration on this kind is refused at the
 composition root with the reason that no build delivers it.</p>
 <h2 id="identity-what-impersonation-does-and-does-not-mean-here">Identity: what "impersonation" does and does not mean here<a class="headerlink" href="#identity-what-impersonation-does-and-does-not-mean-here" title="Permanent link">&para;</a></h2>

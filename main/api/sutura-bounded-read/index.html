@@ -2035,8 +2035,8 @@ each caller's own refusal does) and <code>total_bytes</code> is the running tota
 the remaining budget is the cap minus it. Returns the document's text, which is what the caller
 parses next.</p>
 <h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
-<p><code>ReadError::Open</code> for an open or <code>fstat</code> that the OS refused (a swapped symlink <code>ELOOP</code>, a
-swapped FIFO <code>ENXIO</code>); <code>ReadError::NotARegularFile</code> for a handle that is not a regular file;
+<p><code>ReadError::Open</code> for an open or <code>fstat</code> that the OS refused (a swapped symlink <code>ELOOP</code>);
+<code>ReadError::NotARegularFile</code> for a handle that is not a regular file (such as a swapped FIFO);
 <code>ReadError::TooLarge</code> when the document is oversized against the aggregate budget, whether its
 declared size already is, it grew past it while being read, or the read delivered more than the
 budget left; <code>ReadError::Io</code> for the read itself or a failed UTF-8 conversion.</p>

@@ -2128,10 +2128,11 @@
 
 <h1 id="an-rdbms-dictionary-as-a-metadata-source">An RDBMS dictionary as a metadata source<a class="headerlink" href="#an-rdbms-dictionary-as-a-metadata-source" title="Permanent link">&para;</a></h1>
 <blockquote>
-<p><strong>Implementation status:</strong> the crate currently converts dictionary records and is tested only
-through the fake <code>FixtureReader</code>. There is no production dictionary reader or database client,
-and no composition root links or serves this catalog. Operators cannot configure or use it in a
-shipped binary yet.</p>
+<p><strong>Implementation status:</strong> the crate converts dictionary records, tested through the fake
+<code>FixtureReader</code>; its <code>live</code> feature adds Postgres and Oracle dictionary readers
+(<code>postgres_reader.rs</code>, <code>oracle_reader.rs</code>), and <code>sutura-cli</code>'s default-off <code>rdbms</code> feature opens
+this catalog with either. <code>nix/shipped.nix</code> does not
+carry that feature, so no published binary serves it - an operator builds with <code>--features rdbms</code>.</p>
 </blockquote>
 <p>The crate implements the conversion half of issue #151 and
 <code>docs/adr/0011-pluggable-by-declaration.md</code>'s RDBMS row. It is intended for a metadata source that
@@ -2164,7 +2165,7 @@ anchor and no cardinality</strong> - a human declares those in a semantic layer.
 therefore loads, pins and validates with <strong>zero metrics</strong>, and answers no certified question on its
 own. That is not a limitation the deployment is missing; it is the honest statement about what a
 physical schema, by itself, knows.</p>
-<p>A future production reader will see only the objects the database exposes to its configured
+<p>The readers the <code>live</code> feature provides see only the objects the database exposes to its configured
 identity. <code>load()</code> has no request identity, and this converter does not build impersonation at the
 source.</p>
 <p>A foreign key is the one apparent exception and it is worth saying exactly why it is not one. A

@@ -3448,18 +3448,17 @@ holds. Per-item caps alone let N conforming declarations do what one oversized d
 cannot, the same argument <code>crate::knowledge::MAX_KNOWLEDGE_BYTES</code> makes for a bundle of notes,
 applied to the catalog that bundle is checked against.</p>
 <p><strong>Measured before it was chosen, and re-measured for issue #966's column type and column
-description, which this bound did not cover before either existed.</strong> This repository's shipped
-<code>single-player</code> catalog - the larger of the two example catalogs - is the reference: its widest
-model (<code>subscriptions</code>) declares 8 columns, no metric declares more than one required filter, and
-its columns (now including one declared type), required filters and dimension values together
-sum to 922 bytes - one column (<code>subscriptions.mrr_cents</code>) carries a declared type and a
-description, and that is what moved this half from the earlier column-blind measurement's
-under-1-KiB figure at all, not past any round number. Descriptions are the rest of it, at 24053
-bytes (~23.5 KiB) across eleven metrics and five models - each individually inside
-<code>MAX_DESCRIPTION_BYTES</code>, and it is their COUNT that was uncapped. Counting the five model names
-and table paths adds 120 bytes; <code>Definitions::authored_bytes</code> over the loaded corpus reads 25095
-bytes, ~24.5 KiB in total.</p>
-<p><code>MAX_DEFINITIONS_BYTES</code> is 128 KiB: about 5.2 times that reference catalog's ~24.5 KiB, less
+description, which this bound did not cover before either existed, and again once every column
+in the shipped corpus carried both.</strong> This repository's shipped <code>single-player</code> catalog - the
+larger of the two example catalogs - is the reference: its widest model (<code>subscriptions</code>)
+declares 8 columns, no metric declares more than one required filter, and all 21 of its columns
+carry a declared type and a description. Its column names and types, relationship keys, required
+filters and dimension values together sum to 1127 bytes (~1.1 KiB), and the five model names and
+table paths add 120. Descriptions are the rest of it, at 26056 bytes (~25.4 KiB) across eleven
+metrics, five models and their columns - each individually inside <code>MAX_DESCRIPTION_BYTES</code>, and
+it is their COUNT that was uncapped. <code>Definitions::authored_bytes</code> over the loaded corpus reads
+27303 bytes, ~26.7 KiB in total.</p>
+<p><code>MAX_DEFINITIONS_BYTES</code> is 128 KiB: about 4.8 times that reference catalog's ~26.7 KiB, less
 headroom than the ~6.5 times an earlier, column-blind measurement claimed - restated here rather
 than left to say a smaller bundle than the corpus now is. Still more than
 <code>crate::knowledge::MAX_KNOWLEDGE_BYTES</code>'s five times its own reference, because a definitions
@@ -3696,10 +3695,10 @@ written down here rather than left as an oddity a reader has to notice. It canno
 the workspace denies outright, or an <code>Err</code> arm that would write the same field by another
 route and prove nothing.</p>
 <p>So the two agreeing is pinned by a test instead of by the type - see
-<code>portable_is_the_word_parse_would_have_produced</code>. What that test catches is the reachable
-mistake: a future tightening of <code>parse</code> - a shorter length bound, a narrower character set -
-that would refuse <code>portable</code> while this constructor kept minting it, leaving a value in a map
-key position that no catalog file could ever have written.</p>
+<code>portable_is_the_word_parse_would_have_produced_and_display_prints_it</code>. What that test
+catches is the reachable mistake: a future tightening of <code>parse</code> - a shorter length bound, a
+narrower character set - that would refuse <code>portable</code> while this constructor kept minting it,
+leaving a value in a map key position that no catalog file could ever have written.</p>
 <h4 id="implements_28">Implements<a class="headerlink" href="#implements_28" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Display</code>, <code>Eq</code>, <code>Hash</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code>, <code>Serialize</code></p>
 <h3 id="enum-invalidauthoredsql"><code>enum InvalidAuthoredSql</code><a class="headerlink" href="#enum-invalidauthoredsql" title="Permanent link">&para;</a></h3>

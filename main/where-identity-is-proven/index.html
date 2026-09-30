@@ -2878,7 +2878,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <tr>
 <td>Two verified callers see two different tool lists on the agent surface</td>
 <td>-</td>
-<td><strong>unrun</strong> - the standing test is <code>served.rs::two_verified_callers_over_the_composed_binary_see_two_different_tool_lists</code>, run under <code>just test</code></td>
+<td><strong>unrun</strong> - the standing test is <code>served::agent::two_verified_callers_over_the_composed_binary_see_two_different_tool_lists</code>, run under <code>just test</code></td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3235,7 +3235,9 @@ asks the same tier for a token with <code>scope=openid</code> and asserts the ID
 not a literal the cell restated. That is row 191's <code>yes</code> half: a real IdP does mint an ID token with
 a third party's audience. The limit beside that <code>yes</code>, stated in the row and in item 1 of "What it
 cannot answer" below: it is a password grant against a hardcoded audience mapper, not a
-browser-delegated flow, and the audience is an RFC-2606 placeholder.</p>
+browser-delegated flow, and the audience is an RFC-2606 placeholder. This cell passed on <code>main</code> on
+2026-09-25, in the <code>keycloak-served-test</code> job of run
+https://github.com/telekom/sutura/actions/runs/36143472617.</p>
 <p><strong>What "a different subject" means, exactly.</strong> The audit record masks every <code>sub</code> to its first
 character plus <code>***</code>, and Keycloak subjects are UUIDs, so two different <code>sub</code>s' masked forms
 collide whenever their UUIDs share a first hex character (1 in 16). The old masked-comparison cell

@@ -2238,7 +2238,7 @@ is really <em>can it fill these fields and survive these checks</em>:</p>
 <tbody>
 <tr>
 <td>a physical table and the column set it exposes</td>
-<td><code>Model</code> - <code>ModelName</code>, <code>SourceName</code>, <code>TableName</code>, <code>BTreeSet&lt;ColumnName&gt;</code>, <code>Description</code></td>
+<td><code>Model</code> - <code>ModelName</code>, <code>SourceName</code>, <code>QualifiedTable</code>, <code>BTreeMap&lt;ColumnName, Column&gt;</code>, <code>Description</code></td>
 </tr>
 <tr>
 <td>a join</td>
@@ -2246,7 +2246,7 @@ is really <em>can it fill these fields and survive these checks</em>:</p>
 </tr>
 <tr>
 <td>what a metric measures</td>
-<td><code>Measure</code> - <code>Simple(Term)</code> or <code>Ratio { numerator, denominator, zero_denominator }</code>, over a <code>Term</code> of <code>Aggregate(AggregatedColumn)</code> or <code>CountIf { column }</code></td>
+<td><code>Measure</code> - <code>Simple(Term)</code> or <code>Ratio { numerator, denominator, zero_denominator }</code>, over a <code>Term</code> of <code>Aggregate(AggregatedColumn)</code> or <code>CountIf { column, model: Option&lt;ModelName&gt; }</code></td>
 </tr>
 <tr>
 <td>a predicate that is part of what the metric means</td>
@@ -2266,7 +2266,7 @@ is really <em>can it fill these fields and survive these checks</em>:</p>
 </tr>
 <tr>
 <td>what a reader has to know</td>
-<td><code>Knowledge</code> - phrases, caveats, reviewed absences and worked examples, the phrases and caveats carrying a <code>Referent</code></td>
+<td><code>Knowledge</code> - phrases, caveats, reviewed absences and worked examples; the glossary entries and caveats carry a <code>Referent</code>, and absences do not</td>
 </tr>
 </tbody>
 </table>

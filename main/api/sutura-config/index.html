@@ -3204,7 +3204,7 @@ literal <code>0</code> is told rather than silently ignored.</p>
 <p>Why a catalog configuration is not usable.</p>
 <h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
 <ul>
-<li><code>EmptyPath</code> - A required path was empty, which would resolve to the process working directory.</li>
+<li><code>EmptyPath</code> - A required path was empty, which would resolve to the process working directory - a different directory on every host, and never the one the operator meant.</li>
 <li><code>EmptyCatalog</code> - No catalog was declared, so there is nothing to serve.</li>
 <li><code>DuplicateName</code> - Two catalogs share one declared name, so the contribution manifest could not tell them apart.</li>
 <li><code>MissingForDatahub</code> - A <code>catalog.kind: datahub</code> entry did not declare a field only that kind needs.</li>

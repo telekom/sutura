@@ -2188,7 +2188,7 @@ pinned bundle, or from a file an operator named.</p>
 </tr>
 <tr>
 <td>The bounds a question is held to</td>
-<td><code>MAX_DIMENSIONS</code>, <code>MAX_RANGE_DAYS</code> and <code>MAX_ROWS</code>, read from the code rather than typed</td>
+<td><code>MAX_DIMENSIONS</code>, <code>MAX_FILTERS</code>, <code>MAX_RANGE_DAYS</code> and <code>MAX_ROWS</code>, read from the code rather than typed</td>
 </tr>
 <tr>
 <td>What this surface has no field for</td>
@@ -2233,7 +2233,7 @@ names an operation a deployment does not mount costs the agent the turns it spen
 absence; a prompt that lists a metric the bundle does not define costs it a refusal. Neither can
 happen here, because there is nowhere for either to come from.</p>
 <p>The refusal section has a mechanism of its own. The mapping from a <code>RefusalReason</code> variant to its
-guidance is a total match in <code>sutura-app</code>'s test module, so <strong>a refusal variant added to the domain
+guidance is a total match in <code>sutura-app</code>'s <code>prompt::refusal</code> module, so <strong>a refusal variant added to the domain
 does not compile until somebody has written what an agent should do about it.</strong> What that does not
 force is the list of instances the assertion walks, so the set equality it checks is a second net
 rather than the first.</p>
@@ -2242,7 +2242,7 @@ rather than the first.</p>
 design is modelled on spends most of its length teaching an agent to write SQL against semantic
 model names, to avoid raw database tables, and to dry-plan a complex statement before running it.
 None of that transfers to <code>query</code>: a question there names a metric, a grain, a bounded period, up to
-four dimensions and equality filters over declared values, and there is no field for anything else -
+four dimensions and filters that match or exclude declared values, and there is no field for anything else -
 so the guidance would teach an agent to attempt something that surface refuses by construction. What
 replaces it is one short section saying the field does not exist and that there is no way to widen
 it. A long section about what is absent would hand an agent a long list of things to try.</p>

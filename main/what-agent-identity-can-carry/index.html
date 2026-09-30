@@ -2192,6 +2192,10 @@ identities are tied to Vertex AI Agent Engine; neither the workload-identities p
 support matrix states that BigQuery (or any data API this repository calls) can accept one as a
 principal. This is the issue's own early-termination condition, and it fires: on the documented
 surface there is no basis to claim BigQuery accepts an agent identity.</p>
+<p><strong>Read beside <code>docs/adr/0035</code>, which answers (1) differently.</strong> IAM's principal identifiers for allow
+policies include agent identities, with BigQuery as an example service, so an agent identity can be
+granted access there. (2) and the decision below stand: it changes who asks, not whose identity the
+source executes as.</p>
 <p><strong>2. Is it obtainable in the venues this runs in?</strong> Independently of (1), an agent identity is
 "attested and tied to the lifecycle of the agent" - an agent that lives in a GCP agent runtime.
 This deployment's exchange path runs from a <strong>GitHub Actions OIDC token</strong> on an external runner

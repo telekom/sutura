@@ -2265,9 +2265,9 @@ only render it. Repeating the question does not change the answer.</p>
 <p>Some models answer from their own knowledge instead of calling a tool. That is the client being
 ungoverned: if it did not call <code>ask_metric</code>, no certified number was involved.</p>
 <h2 id="stop-it">Stop it<a class="headerlink" href="#stop-it" title="Permanent link">&para;</a></h2>
-<p>Ctrl-C removes the demo's containers, its network and its named volumes. <code>examples/demo-chatinterface/start.sh</code> runs the
+<p>Ctrl-C removes the demo's container and its named volume. <code>examples/demo-chatinterface/start.sh</code> runs the
 tier's own scoped teardown through <code>xtask dev-down</code>, so only this worktree's demo goes - the chat
-client's stored state included. <code>just dev-down</code> does the same from another shell.</p>
+client's stored state included. <code>just dev-down-demo</code> does the same from another shell.</p>
 <h2 id="what-the-demo-does-not-prove">What the demo does not prove<a class="headerlink" href="#what-the-demo-does-not-prove" title="Permanent link">&para;</a></h2>
 <p>Stated here rather than left to a reader, because an overstated control is itself the defect:</p>
 <ul>
