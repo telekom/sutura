@@ -1015,18 +1015,17 @@ trying to measure. **The fix is the rule above, read the right way round: the ch
 `#[test]` belongs in a file that changes behaviour and adds tests together, and the new file keeps
 only the harness.**
 
-**THE `Claim-Cell:` BIJECTION IS RANGE-WIDE, so a claim cell and any other new test cannot share a
-PR.** `claim::validate` requires the declarations to name *exactly* the diff's added tests, both
-directions, and `Claim::of` reads every message in `base..HEAD` - so one commit carrying a
-declaration makes every later commit's new test read as *not declared* and the range fails at exit
-1 before any tree is built. CI never sees it (the push base is `HEAD^`, one commit), which is why it
-surfaces only when a human runs `just causality <pr-base>` over a landed range. Measured at the cost
-of two full runs on `telekom/sutura#929`: one claim cell plus two folded-in branches' nine new tests.
-**What to do:** re-run with a base ABOVE the declaring commit, which drops the declaration out of
-the range and returns the gate to its ordinary arm, and re-verify the claim by applying its own
-committed patch by hand - that is the same `git apply` plus single-cell run `kill_cell` performs.
-Never declare the other tests to satisfy the bijection: a `Claim-Cell:` over a test that pins NEW
-behaviour is a false claim, and the trailer is the one thing here that cannot be wrong.
+**THE `Claim-Cell:` BIJECTION IS PER COMMIT and one-directional since
+`github.com/telekom/sutura#954`, so a claim cell and ordinary new tests CAN share a PR.**
+`Claim::of` (`xtask/src/causality/claim.rs:156`) keys each declaration to its own commit, and
+`claim::validate` (`claim.rs:485`) checks only that each declared name is a test THAT commit added
+or modified. An undeclared addition is no claim refusal: the separable arm proves it by the ordinary
+base/head run beside the claim arm (`scoped.minus`, `xtask/src/causality.rs:782`). Two arms still
+refuse one, because neither has a base run that could redden it: a tests-only diff
+(`causality.rs:506`), where nothing is reverted, and an inseparable one (`causality.rs:686`). The
+old range-wide rule cost two full runs on `telekom/sutura#929` (`×135` not declared). Never declare
+other tests to quiet a refusal: a `Claim-Cell:` over a test that pins NEW behaviour is a false
+claim, and the trailer is the one thing here that cannot be wrong.
 
 **AND THE SECOND HALF OF THAT RULE DECIDES WHICH FILE IS MEASURED: a comment-only change holds
 nothing back.** `has_non_test_additions` treats a blank line, a comment and an attribute as carrying
