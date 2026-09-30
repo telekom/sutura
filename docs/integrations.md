@@ -66,12 +66,10 @@ composition root with the reason that no build delivers it.
 `kind: clickhouse` source is declarable and openable by a build carrying the `clickhouse` feature,
 which is default-off and in no published binary. The golden and differential suites run the example
 corpus against a real ClickHouse - the server `nix/clickhouse-tier.nix` starts beside the Postgres
-tier - and pin its rows, refusals, error and anchor report. Two things the `Executes` column does
-NOT say about it: the conformance packs are not bound, because that corpus measured two wrong
-answers a fix has to land for first (an `Int64` sum that wraps, a decimal that loses its trailing
-zero - `check-conformance-bindings` carries the declaration), and `Warehouse::EXECUTES_LEGS` is
-absent on the adapter - so a federated question involving a ClickHouse source is still refused by
-the capability gate. Its identity column is the static half and stays there until an adapter change:
+tier - and pin its rows, refusals, error and anchor report; the conformance packs are bound too
+(`execute_packs!` in `crates/sutura-exec-clickhouse/tests/conformance.rs`). What the `Executes`
+column does NOT say about it: `Warehouse::EXECUTES_LEGS` is absent on the adapter - so a federated
+question involving a ClickHouse source is still refused by the capability gate. Its identity column is the static half and stays there until an adapter change:
 `NoPlaceForASubject`, so an `impersonation-at-source` declaration on this kind is refused at the
 composition root with the reason that no build delivers it.
 

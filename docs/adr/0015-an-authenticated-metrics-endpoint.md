@@ -48,6 +48,9 @@ Four startup refusals, each preventing a silent collapse of the separation:
 | An invalid `metrics_token`                                                          | A malformed secret must be refused at configuration load rather than leave a deployed endpoint nobody can scrape                      |
 | Registry initialisation failing                                                     | A `200` carrying half the series is worse than a process that did not start                                                           |
 
+**Corrected:** the fourth row names no refusal. `RegistryBuilder::build` returns a `Registry`, not a
+`Result`, so registry initialisation cannot fail at boot - which is why *Consequences* counts three.
+
 **The limiter sits OUTSIDE the gate**, as `sutura-http`'s router already requires and for the reason
 recorded there: with the gate outermost a wrong-token attempt never cost a limiter cell, which made a
 32-character shared secret guessable in an unlimited loop. The same bug is available on a new tier, so

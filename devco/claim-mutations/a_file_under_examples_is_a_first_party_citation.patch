@@ -1,0 +1,13 @@
+diff --git a/xtask/src/guidance/citations.rs b/xtask/src/guidance/citations.rs
+index 1b5ade559..df6b0b9be 100644
+--- a/xtask/src/guidance/citations.rs
++++ b/xtask/src/guidance/citations.rs
+@@ -13,7 +13,7 @@ use std::path::Path;
+ /// A path in SOMEONE ELSE'S repository is indistinguishable from a stale one by any local check -
+ /// upstream source files, a cloud role name and an org/repo slug are all path-shaped and all
+ /// correct - so the scope is first-party or nothing.
+-const FIRST_PARTY: &[&str] = &["crates/", "xtask/", "docs/", ".github/", "nix/", "examples/"];
++const FIRST_PARTY: &[&str] = &["crates/", "xtask/", "docs/", ".github/", "nix/"];
+ 
+ /// The path a backticked token CITES, if it cites one at all.
+ ///
