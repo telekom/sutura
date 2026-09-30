@@ -628,7 +628,7 @@ tracing-log = "0.2"
 # distribution, which cannot work in a build sandbox with no network and would put an unpinned asset
 # in the artifact. `vendored` takes the archive from a crate that embeds it instead.
 utoipa = { version = "5", features = ["preserve_order"] }
-utoipa-axum = "0.2"
+utoipa-axum = "0.3"
 utoipa-swagger-ui = { version = "9", default-features = false, features = ["axum", "vendored"] }
 
 # The agent-facing transport, and the schema derive the tool surface is generated from.
