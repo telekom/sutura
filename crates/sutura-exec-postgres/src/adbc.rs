@@ -1,11 +1,13 @@
 //! The ADBC transport for PostgreSQL, the second adapter on `sutura-adbc` (`telekom/sutura#913`).
 //!
 //! One certified statement through the self-built driver (`nix/postgres-adbc.nix`), its Arrow
-//! batches handed on as the port's [`ResultBatches`] with no per-cell walk of this crate's own.
+//! batches handed on as the port's [`ResultBatches`](sutura_domain::warehouse::ResultBatches) with
+//! no per-cell walk of this crate's own.
 //!
-//! **Default-off, and wired to nothing.** No composition root constructs [`AdbcPostgres`] and no
-//! `Warehouse` method reaches it: the `tokio-postgres` path in `lib.rs` still answers every
-//! Postgres source. Whether and when that changes is the cutover's decision, not this module's.
+//! **Default-off, and wired to nothing.** No composition root constructs
+//! [`AdbcPostgres`](crate::adbc::AdbcPostgres) and no `Warehouse` method reaches it: the
+//! `tokio-postgres` path in `lib.rs` still answers every Postgres source. Whether and when that
+//! changes is the cutover's decision, not this module's.
 //!
 //! # What holds what
 //!
@@ -14,23 +16,27 @@
 //!   protocol, which runs every statement of a multi-statement string; `execute` asks for a result
 //!   stream and goes through `PQprepare`, where the server refuses a second statement at `Parse`.
 //!   So `LocalTimeout::apply` is the one `execute_update` in this module, its text is a fixed
-//!   literal and a [`NonZeroU32`], and `clippy.toml` bans every other call in the workspace.
+//!   literal and a [`NonZeroU32`](core::num::NonZeroU32), and `clippy.toml` bans every other call
+//!   in the workspace.
 //! - **The per-request deadline is `SET LOCAL statement_timeout`** in the transaction the driver
 //!   opens when autocommit is switched off, clamped to the same connect-time ceiling the
 //!   `tokio-postgres` path uses, and always rolled back. A statement the server cancelled for it
-//!   (`57014`) reads as [`AdbcPostgres::deadline_exceeded`], the same split `deadline.rs` draws.
+//!   (`57014`) reads as
+//!   [`AdbcPostgres::deadline_exceeded`](crate::adbc::AdbcPostgres::deadline_exceeded), the same
+//!   split `deadline.rs` draws.
 //! - **No linked-in driver.** `sutura-adbc` links exactly one archive under one `AdbcDriverInit`
 //!   symbol, and it is the `BigQuery` driver's - so a PostgreSQL transport that took
-//!   `sutura_adbc::linked_driver()` would open the wrong driver. [`MountedDriver`] has no linked
-//!   spelling, which is why this transport takes it rather than a `DriverLocation`.
+//!   `sutura_adbc::linked_driver()` would open the wrong driver.
+//!   [`MountedDriver`](crate::adbc::MountedDriver) has no linked spelling, which is why this
+//!   transport takes it rather than a `DriverLocation`.
 //!
 //! # Limits
 //!
 //! - **`NUMERIC` drifts.** The driver maps `NUMERIC` to Arrow `Utf8` by OID whatever the scale, so
 //!   `SELECT 1::numeric` is `Value::Text("1")` here and `Value::Integer(1)` on the `tokio-postgres`
-//!   path; a fractional value is the same text on both. `tests::a_scale_zero_numeric_is_text_here_where_the_tokio_postgres_path_reads_an_integer`
-//!   pins the pair. The
-//!   parity of every other type with `lib.rs`'s `cell` is unmeasured.
+//!   path; a fractional value is the same text on both. The cell
+//!   `a_scale_zero_numeric_is_text_here_where_the_tokio_postgres_path_reads_an_integer` pins the
+//!   pair. The parity of every other type with `lib.rs`'s `cell` is unmeasured.
 //! - **No run against a real driver.** Every cell here is a fake connection. The server refusing a
 //!   multi-statement string at `Parse`, the driver carrying `57014` in `sqlstate`, its `NUMERIC`
 //!   mapping, its bind types and its `BEGIN` on autocommit-off are read off the driver's source,
