@@ -22,6 +22,10 @@
 { pkgs, lib, config, inputs, ... }:
 
 let
+  # Gate tools use the flake's package set, so shell and CI consume the same versions.
+  baseToolPkgs = import inputs.repo.inputs.nixpkgs { system = pkgs.stdenv.hostPlatform.system; };
+  toolPkgs = baseToolPkgs // import ./nix/dev-tools.nix { pkgs = baseToolPkgs; };
+
   # The single compiler pin is resolved by nix/toolchains.nix, the SAME file flake.nix
   # imports - one code path from a pin to a compiler. Going through
   # `languages.rust.{channel,version}` instead was tried and silently produced a shell with
@@ -169,6 +173,9 @@ in
   # explicitly rather than left to discovery, which is the documented devenv behaviour.
   env.RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
 
+  # devenv puts its stdenv compiler first on PATH, ahead of packages.
+  stdenv = toolPkgs.llvmPackages_latest.stdenv;
+
   # Every one of these was verified present in nixpkgs before being listed: a name that
   # does not resolve fails the WHOLE shell evaluation, not just that package.
   packages = [
@@ -220,7 +227,7 @@ in
     # this package being present is what puts it on the search path. Absent on linux, where glibc
     # provides iconv and adding a second one is how a build finds the wrong symbols.
     pkgs.libiconv
-  ] ++ (with pkgs; [
+  ] ++ (with toolPkgs; [
     # Linking dominates the inner loop; .cargo/config.toml points at these.
     clang
     lld
@@ -257,7 +264,7 @@ in
     pulumi
 
     # For gh-axi (below) and any other npm-delivered tooling.
-    nodejs_22
+    nodejs_26
 
     git
     ripgrep
@@ -272,7 +279,7 @@ in
   # The nix-pinned pulumi version, exported so the dev shell can see it. The pixi `infra` env's
   # SDK is pinned to this SAME version (see pixi.toml) - nix is the authority for the number,
   # and this env var is the readable witness that the two stay equal.
-  env.PULUMI_VERSION = "${pkgs.pulumi.version}";
+  env.PULUMI_VERSION = "${toolPkgs.pulumi.version}";
 
   # A broken pin should take two seconds to diagnose, not a mid-CI failure.
   #

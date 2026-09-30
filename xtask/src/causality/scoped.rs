@@ -253,25 +253,14 @@ impl Scan {
                     }
                 }
             }
-            // `github.com/telekom/sutura#1025`: a test this diff did not ADD but whose item an
-            // added line lands inside - an edited assertion, most often. `github.com/telekom/sutura#1031`
-            // closes the sibling shape - an added line inside a `#[cfg(test)]` helper fn a test
-            // calls, reached by name here. Both are "a test this diff changed without adding it",
-            // so both name the test the same way; each is independent of `named`/`declared`
-            // above, which count only ADDED attribute lines - a body-only edit adds no attribute
-            // at all.
+            // Body edits in an existing test or a helper it calls name that test without
+            // changing the added-attribute count.
             let scope = crate::causality::regions::scope(&file.path, read);
             let called = edited::edited_helper_caller(&lines, &file.added, &scope);
             let touched_helper = !called.is_empty();
-            for name in called {
-                let one = AddedTest::at(&file.path, &at, name);
-                if !runnable.contains(&one) {
-                    runnable.push(one);
-                }
-            }
             let touched = edited::touched_in(&lines, &file.added);
             let touched_any = touched_helper || !touched.is_empty();
-            for one in touched {
+            for one in called.into_iter().chain(touched) {
                 match one {
                     edited::Touched::Ignored(name) => {
                         if !ignored.contains(&name) {

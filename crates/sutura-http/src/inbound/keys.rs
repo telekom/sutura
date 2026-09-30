@@ -940,10 +940,6 @@ fn parse_for(document: &str, family: KeyFamily, pinned: &str) -> Result<KeySet, 
 /// `Weak` and not `Arc`, so the watch cannot be the reason a gate stays alive - the same argument
 /// `crate::middleware::LimiterHandle::watch` makes: a test that builds a gate per test must not
 /// accumulate one task per test.
-#[expect(
-    clippy::integer_division_remainder_used,
-    reason = "the `select!` macro expands through remainder arithmetic to pick a poll order; nothing here does"
-)]
 async fn poll_until_shutdown(watched: Weak<KeySetCache>, interval: Duration, shutdown: Shutdown) {
     loop {
         tokio::select! {

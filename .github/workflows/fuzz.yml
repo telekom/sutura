@@ -120,7 +120,7 @@ jobs:
 
       # BEFORE nix installs, for the reason `ci.yml` states at its own call: the runner ships
       # ~20 GB of SDKs this repository does not use, and a sanitizer build is not small.
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
         with:
           minimum-gb: "25"
 
@@ -182,7 +182,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
         with:
           minimum-gb: "25"
 

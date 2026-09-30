@@ -385,7 +385,10 @@ fn bfs_to_members(start: &Key, reverse: &Reverse, boundaries: &BTreeSet<String>)
 /// failure - `select` then fails `Cargo.lock` closed to `core`.
 pub(super) fn build_locks(root: &Path, base: &str) -> Option<Locks> {
     let head = std::fs::read_to_string(root.join("Cargo.lock")).ok()?;
-    let out = std::process::Command::new("git")
+    let mut command = std::process::Command::new("git");
+    crate::repo::strip_git_env(&mut command);
+    let out = command
+        .current_dir(root)
         .args(["show", &format!("{base}:Cargo.lock")])
         .stderr(std::process::Stdio::null())
         .output()
