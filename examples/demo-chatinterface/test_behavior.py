@@ -134,7 +134,7 @@ def launcher_fakes(
         f"#!/bin/sh\nprintf '%s\\n' {image}\n", encoding="utf-8"
     )
     (fake_bin / "docker").write_text(
-        f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> {root / 'docker.log'}\n",
+        f"#!/bin/sh\nprintf 'PWD=%s\\n' \"$PWD\" >> {root / 'docker.log'}\nprintf '%s\\n' \"$*\" >> {root / 'docker.log'}\n",
         encoding="utf-8",
     )
     (fake_bin / "just").write_text(
@@ -344,14 +344,25 @@ class DemoBehavior(unittest.TestCase):
                     str(ROOT / "examples/demo-chatinterface/start.sh"),
                     "--up-only",
                 ],
-                cwd=ROOT,
+                # Started from OUTSIDE the repository, so only the launcher's own `cd` can put
+                # `docker build`'s relative `-f` and context back at its root.
+                cwd=root,
                 env={**os.environ, **environment},
                 capture_output=True,
                 text=True,
                 check=False,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            docker_args = (root / "docker.log").read_text(encoding="utf-8")
+            docker_log = (root / "docker.log").read_text(encoding="utf-8").splitlines()
+            directories = {
+                line.removeprefix("PWD=")
+                for line in docker_log
+                if line.startswith("PWD=")
+            }
+            self.assertEqual(directories, {str(ROOT)})
+            docker_args = "\n".join(
+                line for line in docker_log if not line.startswith("PWD=")
+            )
             self.assertIn("--build-context sutura-server=", docker_args)
             self.assertIn("/sutura/local-chat-demo:demo-", docker_args)
             self.assertNotIn("sutura:latest", docker_args)

@@ -37,7 +37,7 @@ halves of that path are cheap to decide now and expensive to retrofit: the trans
 subject, and the execution port has to stop being able to run without one. The second half is now
 true. The first is [how a caller proves who it is](0014-how-a-caller-proves-who-it-is.md), and what
 is still absent is an adapter that can carry a per-subject credential - so this record's own
-two-subject test remains unwritable.
+two-subject test remains unwritable. *(No longer true: see the fourth amendment below.)*
 
 **Superseded in one part** by [the plan](0009-the-plan-from-one-source-to-many.md): sutura declares no
 data sensitivity. What a person may see lives in the data catalog and in their own permissions at the
@@ -2063,7 +2063,7 @@ below and still true for the rest.
    `Presented::SubjectPrincipal` are constructed only by tests today, and *the two-subject test at the
    foot of this record is still unwritable* - which is the honest state of leg 2: a question cannot
    execute without a credential, and no credential a broker can mint makes a source evaluate anybody's
-   own authorization.
+   own authorization. *(No longer true of the adapter and the test; leg 2 itself is still built and unproven - see the fourth amendment below.)*
 2. **The FLOOR, and no longer the deadline itself.** This item read *"`Expiry` is carried and nothing
    reads it"*, and a review demonstrated what that costs: a broker returning
    `Expiry::At { unix_seconds: 0 }` had its credential presented to an adapter and the question was
