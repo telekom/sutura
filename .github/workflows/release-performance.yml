@@ -20,7 +20,7 @@
 #
 # | Kind | Where |
 # | --- | --- |
-# | four tarballs, their `.sha256`, both musl image tarballs, the SBOMs, `image-digests.txt` | the `<version>-performance` prerelease |
+# | four tarballs, their `.sha256`, both musl image tarballs, the SBOMs, `image-digests.txt` | the `v<version>-performance` prerelease |
 # | a Sigstore bundle per asset, SLSA provenance over all of them | the same prerelease |
 # | four leaves `<version>-performance-<triple>` | the registry, signed, each with its SBOM attested |
 # | lists `<version>-performance` (glibc) and `<version>-performance-musl` | the registry, signed, with provenance |
@@ -78,7 +78,7 @@ on:
         required: true
         type: string
       publish:
-        description: "Push the images and create the <version>-performance release (requires a tag ref)"
+        description: "Push the images and create the v<version>-performance release (requires a tag ref)"
         required: false
         default: false
         type: boolean
@@ -246,7 +246,7 @@ jobs:
     runs-on: rust-mcp-32core
     timeout-minutes: 60
     permissions:
-      contents: write # create the <version>-performance release
+      contents: write # create the v<version>-performance release
       packages: write # push to GHCR, and the signatures and attestations that sit beside it
       id-token: write # mint the OIDC token Fulcio signs a certificate against
       attestations: write # store the SLSA provenance against this repository
