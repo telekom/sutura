@@ -1,12 +1,13 @@
 //! The kill worktree's own tier, over real cargo: a fixture workspace whose `dev/src/provisioned.rs`
 //! fails with the requirement's sentence unless the worktree publishes an endpoint matching the
-//! credential the run carries - the two halves `claim::tier` supplies - and a fake tier script.
+//! credential the run carries - the two halves `claim::tier` supplies. A fake tier script for the
+//! arm's own branches, and the real `sutura-postgres-tier` for one cell.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::tier::{TierError, credentials};
+use super::tier::{TierError, command, credentials};
 use super::{Caller, Claim};
 use crate::Verdict;
 use crate::causality::diff::commit_additions;
@@ -32,8 +33,10 @@ impl Fixture {
         ));
         let _swept = std::fs::remove_dir_all(&dir);
         let fixture = Self(dir);
+        // The fake publishes the password itself; the real tier publishes its socket dir as
+        // `host`, with the password in `<host>.cred` beside it.
         let provisioned = format!(
-            "pub fn here() {{\n    let published = std::fs::read_to_string(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../.sutura-dev/endpoints.json\")).unwrap_or_default();\n    if published.trim().is_empty() || std::env::var(\"SUTURA_POSTGRES_TIER_PASSWORD\").ok().as_deref() != Some(published.trim()) {{\n        panic!({:?});\n    }}\n}}\n",
+            "pub fn here() {{\n    let published = std::fs::read_to_string(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../.sutura-dev/endpoints.json\")).unwrap_or_default();\n    let expected = match published.split('\"').skip_while(|field| *field != \"host\").nth(2) {{\n        Some(host) => std::fs::read_to_string(format!(\"{{host}}.cred\")).unwrap_or_default(),\n        None => published,\n    }};\n    if expected.trim().is_empty() || std::env::var(\"SUTURA_POSTGRES_TIER_PASSWORD\").ok().as_deref() != Some(expected.trim()) {{\n        panic!({:?});\n    }}\n}}\n",
             sutura_dev::requirement::REQUIRED
         );
         for (rel, text) in [
@@ -142,6 +145,41 @@ fn a_tier_backed_cell_is_killed_against_the_kill_worktrees_own_tier() {
     assert_eq!(verdict, Verdict::Pass);
     // Stopped, and before the worktree went: a stop in a removed directory never runs.
     assert_eq!(steps, "start\ncredentials\nstop\n");
+}
+
+#[test]
+fn a_tier_backed_cell_is_killed_against_the_real_postgres_tier() {
+    // Where nothing provisioned a tier, the binary may be absent: skip loudly, as every tier cell does.
+    if !sutura_dev::requirement::Requirement::from_env().is_required() {
+        eprintln!("skipped: no tier is required here, so `sutura-postgres-tier` may be absent");
+        return;
+    }
+    let fixture = Fixture::new(KILLS, WORKS);
+    let tests = [String::from("tests/t.rs")];
+    let claim = Claim::synthetic(["tier_cell"].into_iter()).unwrap();
+    let verdict = super::run(&fixture.repo(), &fixture.scoped(), &tests, &claim, Caller::TEST_CAUSALITY);
+    assert_eq!(verdict, Verdict::Pass, "the real tier served the kill run its own credential");
+}
+
+#[test]
+fn the_kill_tier_keys_on_the_kill_worktree_inside_a_nix_sandbox_too() {
+    // `NIX_BUILD_TOP` would key it on the sandbox, whose cluster is the suite's own: `stop` then
+    // deleted that cluster mid-suite.
+    let tier = command(Path::new("tier"), Path::new("/tmp/kill-wt"), "start");
+    assert_eq!(tier.get_current_dir(), Some(Path::new("/tmp/kill-wt")));
+    assert!(
+        tier.get_envs()
+            .any(|(name, value)| name == "NIX_BUILD_TOP" && value.is_none()),
+        "the sandbox's key must not reach the kill tier"
+    );
+}
+
+#[test]
+fn a_failed_tier_step_does_not_print_the_password() {
+    let said = String::from("ERROR:  unrecognized role option \"logn\"\nLINE 1: CREATE ROLE \"x\" LOGN PASSWORD 'deadbeef00'\n");
+    let shown = TierError::Exited { step: "start", said }.to_string();
+    assert!(!shown.contains("deadbeef00"), "{shown}");
+    assert!(shown.contains("PASSWORD '<redacted>'"), "{shown}");
 }
 
 #[test]

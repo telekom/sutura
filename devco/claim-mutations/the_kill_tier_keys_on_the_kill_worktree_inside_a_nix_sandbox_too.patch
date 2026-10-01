@@ -1,0 +1,13 @@
+diff --git a/xtask/src/causality/claim/tier.rs b/xtask/src/causality/claim/tier.rs
+index b386f1da1..f2331838b 100644
+--- a/xtask/src/causality/claim/tier.rs
++++ b/xtask/src/causality/claim/tier.rs
+@@ -113,7 +113,7 @@ impl Drop for KillTier {
+ /// `program step`, run in `wt` and keyed on it whatever `NIX_BUILD_TOP` says.
+ pub(super) fn command(program: &Path, wt: &Path, step: &str) -> Command {
+     let mut command = Command::new(program);
+-    command.current_dir(wt).env_remove("NIX_BUILD_TOP").arg(step);
++    command.current_dir(wt).arg(step);
+     command
+ }
+ 

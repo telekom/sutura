@@ -81,8 +81,8 @@ pub(super) enum Tree<'a> {
     Provisioned,
     /// The base worktree under `target/`, which no provisioner has ever seen.
     Reconstructed,
-    /// The claim arm's kill worktree, provisioned its OWN Postgres tier (`claim::tier`), whose
-    /// credential this carries - empty when it did not start. A skip there would pass as a mutation
+    /// The claim arm's kill worktree, provisioned its OWN Postgres tier keyed on that worktree's
+    /// path (`claim::tier`), whose credential this carries - empty when it did not start. A skip there would pass as a mutation
     /// the cell survived, so the requirement is FORCED and an absent tier fails loudly.
     Mutated(&'a [(String, String)]),
 }
@@ -118,7 +118,7 @@ pub(super) enum Tree<'a> {
 /// THE CLAIM ARM'S KILL RUN IS THE EXCEPTION, `Tree::Mutated`: there a skip reads as a mutation
 /// the cell survived, which is a false verdict rather than a false alarm. So the requirement is
 /// forced, and the kill worktree starts its OWN Postgres tier and passes its credential here, so a
-/// Postgres-backed claim cell is killed for real. Where that tier did not start - or the cell needs
+/// Postgres-backed claim cell runs against it. Where that tier did not start - or the cell needs
 /// another tier - `claim::kill::attest` reads the tier failure as INCONCLUSIVE.
 ///
 /// `--no-fail-fast` IS AFFORDABLE ONLY BECAUSE THE RUN IS SCOPED, and it is what makes the verdict

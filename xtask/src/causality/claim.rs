@@ -240,9 +240,9 @@ pub(super) enum Cause {
     /// against, so it is not a verdict about the declaration at all.
     BuildFailed { cell: String, why: String },
     /// The cell ended at its service-tier lookup, so it never ran. The kill worktree starts its OWN
-    /// Postgres tier ([`tier`]) - never the root's, which a mutated fixture could write state into
-    /// that the root's own run reads afterwards - so this is that tier failing to start, or a cell
-    /// needing a tier it does not provision.
+    /// Postgres tier ([`tier`]), keyed on the kill worktree's path - not the root's, which a mutated
+    /// fixture could write state into that the root's own run reads afterwards - so this is that
+    /// tier failing to start, or a cell needing a tier it does not provision.
     NoTier { cell: String },
 }
 
