@@ -208,10 +208,6 @@ fn run_dispatches_to_the_claim_arm() {
 /// kill, AND `the_ordinary_one` must be red against the reverted base (`g` returns 1 there,
 /// and the test asserts 2). The fixture is the separable shape `f14e8a3a` landed on `main`:
 /// an added test file, one declared cell, one undeclared test, all in one commit.
-///
-/// And the AND is not the claim arm alone: the same shape with the undeclared test pinning `f`
-/// (which the diff never touched - green on base AND head) must be `Fail`. The claim arm answers
-/// `Pass` for either shape, so only the ordinary half running over the leftovers refuses it.
 #[test]
 fn a_claim_cell_and_an_ordinary_test_are_both_proven() {
     // `set_current_dir` is process-global - see `falsifier`'s own use of this guard.
@@ -225,14 +221,9 @@ fn a_claim_cell_and_an_ordinary_test_are_both_proven() {
         Verdict::Pass,
         "the claim cell's mutation must kill AND the undeclared test must be red on base"
     );
-    assert_eq!(
-        composite("fn the_laundered_one() { assert_eq!(f(), 1); }"),
-        Verdict::Fail,
-        "an undeclared test green on base must not ride on a beside-it claim cell's kill"
-    );
 }
 
-/// [`a_claim_cell_and_an_ordinary_test_are_both_proven`]'s fixture: a claimed cell plus `beside`,
+/// The fixture both halves of the composite share: a claimed cell plus `beside`,
 /// one undeclared `#[test]` fn in the same added file, run through `causality::run`.
 fn composite(beside: &str) -> Verdict {
     let dir = std::env::temp_dir().join(format!(
@@ -316,6 +307,25 @@ fn composite(beside: &str) -> Verdict {
     std::env::set_current_dir(&original).expect("restore the current directory");
     drop(std::fs::remove_dir_all(&dir));
     verdict
+}
+
+/// The other half of [`a_claim_cell_and_an_ordinary_test_are_both_proven`]'s AND, and it is not
+/// the claim arm alone: the same shape with the undeclared test pinning `f` (which the diff never
+/// touched - green on base AND head) must be `Fail`. The claim arm answers `Pass` for either shape,
+/// so only the ordinary half running over the leftovers refuses it.
+#[test]
+fn an_undeclared_test_green_on_base_does_not_ride_on_a_claim_cells_kill() {
+    // `set_current_dir` is process-global - see `falsifier`'s own use of this guard.
+    assert!(
+        std::env::var_os("NEXTEST").is_some(),
+        "this test moves the process's current directory, so it must have the process to \
+             itself: run it under `just test`."
+    );
+    assert_eq!(
+        composite("fn the_laundered_one() { assert_eq!(f(), 1); }"),
+        Verdict::Fail,
+        "an undeclared test green on base must not ride on a beside-it claim cell's kill"
+    );
 }
 
 /// Which patch, if any, `tests_only_claim_case` commits for `the_pinned_one`.
