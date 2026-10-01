@@ -2384,11 +2384,10 @@ changes is the cutover's decision, not this module's.</p>
   (<code>57014</code>) reads as
   <code>AdbcPostgres::deadline_exceeded</code>, the same
   split <code>deadline.rs</code> draws.</li>
-<li><strong>No linked-in driver.</strong> <code>sutura-adbc</code> links exactly one archive under one <code>AdbcDriverInit</code>
-  symbol, and it is the <code>BigQuery</code> driver's - so a PostgreSQL transport that took
-  <code>sutura_adbc::linked_driver()</code> would open the wrong driver.
-  <code>MountedDriver</code> has no linked spelling, which is why this
-  transport takes it rather than a <code>DriverLocation</code>.</li>
+<li><strong>No linked-in driver, yet.</strong> <code>sutura_adbc::linked_postgres_driver()</code> opens the PostgreSQL
+  archive under its own init symbol, but only a test build links that archive (<code>nix/shipped.nix</code>'s
+  <code>linkedDriversTests</code>), so <code>MountedDriver</code> still has no linked
+  spelling and this transport takes it rather than a <code>DriverLocation</code>.</li>
 </ul>
 <h1 id="limits_1">Limits<a class="headerlink" href="#limits_1" title="Permanent link">&para;</a></h1>
 <ul>
@@ -2409,9 +2408,9 @@ changes is the cutover's decision, not this module's.</p>
 <li><strong>Only <code>execute</code>'s shape</strong>: no <code>dry_run</code>, no raw statement, no boot-path call.</li>
 <li><strong>Nothing on the two static musl triples.</strong> A <code>MountedDriver</code>
   is always opened with <code>load_dynamic_from_filename</code>, which a static binary cannot do
-  (<code>sutura-adbc</code>'s <code>linked.rs</code>), so there this transport can only answer <code>AdbcError::Load</code> -
-  although <code>nix/postgres-adbc.nix</code> already builds the static archive. How musl gets a
-  PostgreSQL driver is not decided here.</li>
+  (<code>sutura-adbc</code>'s <code>linked.rs</code>), so there this transport can only answer <code>AdbcError::Load</code>.
+  The static link itself is built and run in a musl test binary; a release carries it once a
+  shipped path constructs this transport.</li>
 </ul>
 <h3 id="enum-adbcerror"><code>enum AdbcError</code><a class="headerlink" href="#enum-adbcerror" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">AdbcError</span>

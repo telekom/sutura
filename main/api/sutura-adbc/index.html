@@ -2004,8 +2004,8 @@
 <p>The public API of <code>sutura-adbc</code>, rendered from rustdoc JSON.</p>
 <p>The linked-driver FFI and the shared helpers every ADBC adapter needs.</p>
 <p>This crate exists so the workspace's one <code>unsafe</code> declaration has one home
-rather than one per adapter. <code>linked</code> declares the <code>AdbcDriverInit</code> C ABI
-entrypoint a statically linked driver exports, and <code>ManagedDriver::load_static</code>
+rather than one per adapter. <code>linked</code> declares the per-driver C ABI init function
+each statically linked driver exports, and <code>ManagedDriver::load_static</code>
 opens it through that pointer - the only route a STATIC musl artefact has, because
 it has no dynamic loader. The <code>#[expect(unsafe_code)]</code> on that declaration is the
 one lowering <code>cargo xtask check-unsafe</code> excepts, and this crate's root is the one
@@ -2033,7 +2033,7 @@ default-off feature, the way <code>sutura-exec-postgres</code> depends on <code>
 <h2 id="fn-linked_driver"><code>fn linked_driver</code><a class="headerlink" href="#fn-linked_driver" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">linked_driver</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">adbc_driver_manager</span><span class="p">::</span><span class="n">ManagedDriver</span><span class="p">,</span><span class="w"> </span><span class="n">adbc_core</span><span class="p">::</span><span class="n">error</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>The driver this artefact's own link carries, or an error where it carries none.</p>
+<p>The <code>BigQuery</code> driver this artefact's own link carries, or an error where it carries none.</p>
 <p><strong>The one route a STATIC musl binary has</strong>, because it has no dynamic loader at all:
 <code>linked</code>'s header carries what makes the declaration sound. A build that linked no
 archive gets an <code>Err</code> here, which a caller renders rather than panicking on - the two
@@ -2042,6 +2042,15 @@ archive gets an <code>Err</code> here, which a caller renders rather than panick
 <p><code>CoreError</code> where a linked-in driver's own initialisation refused, and where this
 build linked no archive at all - the same error type <code>ManagedDriver::load_dynamic_from_filename</code>
 returns, so a caller cannot tell the two routes apart and does not have to.</p>
+<h2 id="fn-linked_postgres_driver"><code>fn linked_postgres_driver</code><a class="headerlink" href="#fn-linked_postgres_driver" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">linked_postgres_driver</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">adbc_driver_manager</span><span class="p">::</span><span class="n">ManagedDriver</span><span class="p">,</span><span class="w"> </span><span class="n">adbc_core</span><span class="p">::</span><span class="n">error</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The PostgreSQL driver this artefact's own link carries - <code>linked_driver</code>'s contract, for the
+archive <code>nix/postgres-adbc.nix</code> builds.</p>
+<p>A build that linked only the <code>BigQuery</code> archive gets an <code>Err</code> here and never that driver: the two
+are separate symbols, so no build can hand one out under the other's name.</p>
+<h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
+<p>As <code>linked_driver</code>.</p>
 <h2 id="use-parameter_batch"><code>use parameter_batch</code><a class="headerlink" href="#use-parameter_batch" title="Permanent link">&para;</a></h2>
 <p>One question's values, as the batch this driver binds from - or <code>None</code> where there are none.</p>
 <p><strong><code>None</code> rather than an empty batch, and the driver decides that too:</strong> <code>newRecordReader</code> takes
@@ -2049,7 +2058,7 @@ the <code>runPlainQuery</code> path when nothing is bound, and an empty-schema b
 instead take the parameter path and set <code>query.Parameters</code> to an empty slice. The two are not the
 same request. Every boot-path call - <code>verify_anchor</code>, the identity read, a fixture load - carries
 no values and must take the plain path.</p>
-<h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
+<h1 id="errors_2">Errors<a class="headerlink" href="#errors_2" title="Permanent link">&para;</a></h1>
 <p><code>ArrowError</code> where Arrow refuses the batch. Unreachable as written - the schema and
 the columns are built from one walk of one slice, so their lengths and types agree by
 construction - and answered for rather than unwrapped, because <code>unwrap_used</code> is denied and a
