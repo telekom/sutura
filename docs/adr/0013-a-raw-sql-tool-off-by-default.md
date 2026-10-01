@@ -628,17 +628,3 @@ process's own heap rather than the server's work; and the wait for `execution_lo
 the deadline - a caller queued behind a slow statement can arrive already spent, refused locally as
 `DeadlineSpent` rather than sent to the server, the identical limit `run_with_deadline` already
 carries. `telekom/sutura#1144` is closed by this change; nothing else this record tracks moved.
-
-## Fourth amendment, 2026-10-01: sentences in the Second amendment about the raw path's deadline are now outdated
-
-The Second amendment's bullet 2 (lines 583-589) records the state when `#160` closed: PR4 delivered the
-per-request deadline for the CERTIFIED path, but the RAW path `execute_raw` still carried no per-request
-deadline. That sentence captured the state accurately at 2026-09-27; the Third amendment's own landing
-date (2026-09-28) and this record's closure of `#1144` mean it is now stale.
-
-Specifically, lines 583-584 and 588-589 assert that `execute_raw` carries no per-request deadline and
-nothing tracks one. The Third amendment documents that both assertions are now false: `#1144` landed,
-`execute_raw` now carries a `Deadline` parameter threaded from the transport, and both HTTP (`422`) and
-MCP wire transports carry `DeadlineExceeded` status. The Second amendment's own closing prose (line
-598) is unchanged: the interim decision to ship on the connect-time ceiling was the right call then;
-the decision stands because it was an interim one, and `#1144` has now closed the gap it named.

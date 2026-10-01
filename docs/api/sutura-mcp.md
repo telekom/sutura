@@ -444,11 +444,11 @@ all, because it reads as a control.
 
 **This defines the response to running out of admission and nothing about stopping work.** A
 shed call is answered on the third channel above, inside the bounded admission window. What
-neither this nor the bound does is cancel a question that is already executing: the `Warehouse`
-port is synchronous and carries no deadline, so a question inside the pool runs to completion
-whatever the peer is told - and it keeps its slot until it does, which is exactly why the
-backlog is a number somebody chose rather than memory. Making running work stoppable is #160's
-subject, on the port rather than on either transport.
+neither this nor the bound does is cancel a question that is already executing. The `Warehouse`
+port methods (`dry_run`, `execute`, `execute_raw`) each take a `Deadline` parameter that controls
+how long the data system works; where a deadline is honored is the adapter's decision. A question
+keeps its slot until the data system answers it, which is exactly why the backlog is a number
+somebody chose rather than memory. The port methods' deadline support reached `main` in `#1144`.
 
 # How long a peer waits for a reply, and what happens when that runs out
 
@@ -493,7 +493,8 @@ bound has:** it does not stop the question. The permit is owned by the blocking 
 question whose reply deadline fired keeps its slot until the data system answers it - the
 deadline bounds the peer's wait and nothing else. That is deliberate and it is why the sentence
 the peer gets does not say *try again*: repeating the question would take a second slot while
-the first is still running. Making running work stoppable is #160's subject, on the port.
+the first is still running. Where a question is stoppable is the data system's decision, not the
+transport's - each adapter honours the port's `Deadline` parameter differently.
 
 **Peer cancellation ends this transport's wait and nothing below it.** rmcp delivers
 `notifications/cancelled` through `RequestContext::ct`, and `ServerHandler::call_tool` selects
