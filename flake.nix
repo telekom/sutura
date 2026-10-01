@@ -1105,8 +1105,9 @@
         apps.causality = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-causality" ''
-            # The gate shells out to nextest, and its falsifier test runs the pinned jscpd.
-            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:${jscpd}/bin:$PATH"
+            # The gate shells out to nextest, its falsifier test runs the pinned jscpd, and the claim
+            # arm starts the kill worktree's own Postgres tier.
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:${jscpd}/bin:${postgresTier.tier}/bin:$PATH"
 
             ${cargoLinkEnv}
             # The warm start carries the baked-`OUT_DIR` sweep itself, for the whole of #346:

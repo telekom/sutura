@@ -1,0 +1,19 @@
+diff --git a/xtask/src/causality/claim.rs b/xtask/src/causality/claim.rs
+index 8b53b7a19..58338aba5 100644
+--- a/xtask/src/causality/claim.rs
++++ b/xtask/src/causality/claim.rs
+@@ -822,10 +822,10 @@ fn refused_lines(causes: &[Cause], unmeasured: bool, caller: Caller) -> Vec<Stri
+     if unmeasured && causes.iter().all(|cause| matches!(cause, Cause::NoTier { .. })) {
+         lines.extend([
+             String::new(),
+-            String::from("The kill worktree starts its own Postgres tier, and this cell never reached one:"),
+-            String::from("that tier did not start (the reason is printed above), or the cell needs a tier"),
+-            String::from("the kill worktree does not provision. Prove it by hand - apply the patch, run the"),
+-            String::from("cell against a provisioned tier, and put the red run in the handoff."),
++            String::from("A tier-backed claim cell cannot be killed by this gate, and re-running changes"),
++            String::from("nothing: the kill worktree shares no service tier with the root. Prove it by hand -"),
++            String::from("apply the patch, run the cell against a provisioned tier, and put the red run in"),
++            String::from("the handoff."),
+         ]);
+     } else if unmeasured {
+         lines.extend([

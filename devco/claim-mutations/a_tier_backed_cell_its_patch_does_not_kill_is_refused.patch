@@ -1,0 +1,13 @@
+diff --git a/xtask/src/causality/runner.rs b/xtask/src/causality/runner.rs
+index 6c56e697f..53aef851c 100644
+--- a/xtask/src/causality/runner.rs
++++ b/xtask/src/causality/runner.rs
+@@ -171,7 +171,7 @@ pub(super) fn nextest(isolated: &Isolated, only: &str, tree: Tree<'_>) -> Comman
+         Tree::Mutated(tier) => {
+             command
+                 .env(sutura_dev::requirement::FORCE, "1")
+-                .envs(tier.iter().map(|(k, v)| (k, v)));
++                .envs(tier.iter().filter(|_| false).map(|(k, v)| (k, v)));
+         }
+     }
+     command

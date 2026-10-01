@@ -424,9 +424,9 @@ fn a_cell_that_never_reached_its_tier_is_not_a_verdict_about_the_mutation() {
     );
     let causes = [attest(false, tier_absent, "the_added_one", &cell(), &reader()).expect_err("it never ran")];
     assert_eq!(report_refused(&causes, Caller::TEST_CAUSALITY), Verdict::Inconclusive);
-    // A tier cell, not a build that "may recur": a re-run cannot give it a tier.
+    // A tier cell, not a build that "may recur": the remedy is a hand proof, not a re-run.
     let lines = refused_lines(&causes, true, Caller::TEST_CAUSALITY).join("\n");
-    assert!(lines.contains("shares no service tier"), "{lines}");
+    assert!(lines.contains("does not provision"), "{lines}");
     assert!(!lines.contains("re-run it"), "{lines}");
 }
 
@@ -880,7 +880,7 @@ fn restore_puts_a_mutated_file_back_at_head() {
 fn kill_cell_refuses_a_cell_with_no_patch() {
     let repo = Repo::with("crates/x/src/lib.rs", "pub fn f() -> u8 { 1 }\n");
     let scoped = one_added_test("the_cell");
-    let err = super::kill_cell(&repo.dir, &repo.dir.join("target"), &scoped, "the_cell").expect_err("no patch");
+    let err = super::kill_cell(&repo.dir, &repo.dir.join("target"), &scoped, "the_cell", &[]).expect_err("no patch");
     assert_eq!(err, Cause::MissingPatch(String::from("the_cell")));
 }
 
@@ -894,7 +894,7 @@ fn kill_cell_refuses_a_restore_failure() {
     repo.write("devco/claim-mutations/the_cell.patch", PATCH_NEWFILE);
     repo.commit("patches");
     let scoped = one_added_test("the_cell");
-    let err = super::kill_cell(&repo.dir, &repo.dir.join("target"), &scoped, "the_cell").expect_err("restore fails");
+    let err = super::kill_cell(&repo.dir, &repo.dir.join("target"), &scoped, "the_cell", &[]).expect_err("restore fails");
     assert!(
         matches!(&err, Cause::RestoreFailed { cell, why } if cell == "the_cell" && !why.is_empty()),
         "{err:?}"
