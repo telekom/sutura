@@ -2089,7 +2089,7 @@ by construction), so this type carries no partial state either.</p>
 <li><code>SystemStoreEmpty</code> - The explicitly selected host trust store held no roots.</li>
 <li><code>IdentityRead</code> - The declared client identity could not be read.</li>
 <li><code>IdentityIncomplete</code> - The declared client certificate parsed to no certificate, or the key to no key.</li>
-<li><code>IdentityKey</code> - The client key was not an RSA/EC key this build can present.</li>
+<li><code>IdentityKey</code> - The client key file held no readable plaintext PEM private-key section.</li>
 </ul>
 <h3 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
