@@ -107,7 +107,7 @@ def model_endpoint_is_reachable() -> None:
         )
 
 
-def webui_tools_are_registered(port: int) -> None:
+def webui_tools_are_registered(port: int, tool_id: str = "server:sutura") -> None:
     """Require Open WebUI's persisted tool registry to expose the sutura server."""
     token = webui_session_token(port)
     try:
@@ -117,11 +117,11 @@ def webui_tools_are_registered(port: int) -> None:
             f"the chat client's tool registry did not answer: {type(problem).__name__}"
         )
     if not any(
-        tool.get("id") == "server:sutura" or tool.get("name") == "server:sutura"
+        tool.get("id") == tool_id or tool.get("name") == tool_id
         for tool in tools
         if isinstance(tool, dict)
     ):
-        fail("the chat client's tool registry does not list server:sutura")
+        fail(f"the chat client's tool registry does not list {tool_id}")
 
 
 def _ask(
@@ -166,6 +166,58 @@ def refuses_an_unanswerable_question(sutura_port: int, token: str) -> None:
         )
 
 
+def _mcp(sutura_port: int, token: str | None, method: str) -> tuple[int, dict]:
+    """One JSON-RPC call to `/mcp`, with the `Accept` the streamable-HTTP transport requires."""
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+    if token is not None:
+        headers["Authorization"] = f"Bearer {token}"
+    params = (
+        {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name": "sutura-demo-healthcheck", "version": "0"},
+        }
+        if method == "initialize"
+        else {}
+    )
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{sutura_port}/mcp",
+        data=json.dumps(
+            {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+        ).encode(),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with NO_REDIRECT.open(request, timeout=4) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as problem:
+        return problem.code, {}
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as problem:
+        fail(f"/mcp did not answer from the container: {type(problem).__name__}")
+
+
+def mcp_refuses_a_call_without_a_token(sutura_port: int) -> None:
+    """Leg 1 on the agent surface: a call carrying no token is refused, not answered."""
+    status, _body = _mcp(sutura_port, None, "tools/list")
+    if status != 401:
+        fail(f"/mcp answered a call that carried no token with {status}, not 401")
+
+
+def mcp_lists_tools_for_the_token(sutura_port: int, token: str) -> None:
+    """The issuer's token is accepted: the surface initializes and lists at least one tool."""
+    status, _body = _mcp(sutura_port, token, "initialize")
+    if status != 200:
+        fail(f"/mcp refused to initialize for the issuer's token: {status}")
+    status, body = _mcp(sutura_port, token, "tools/list")
+    tools = (body.get("result") or {}).get("tools") if isinstance(body, dict) else None
+    if status != 200 or not tools:
+        fail(f"/mcp listed no tools for the issuer's token: {status}")
+
+
 def main() -> None:
     sutura_port = int(os.environ.get("SUTURA_DEMO_SUTURA_PORT", "9000"))
     webui_port = int(os.environ.get("SUTURA_DEMO_WEBUI_PORT", "8080"))
@@ -181,6 +233,7 @@ def main() -> None:
 
     # The tool surface: the document the chat client reads, carrying both operations. This is the
     # half that separates "a process is running" from "the demo can answer a question".
+    surface = os.environ.get("SUTURA_DEMO_SURFACE", "openapi")
     try:
         with open(os.path.join(run_dir, "token"), encoding="utf-8") as handle:
             token = handle.read().strip()
@@ -197,6 +250,21 @@ def main() -> None:
     # token; this file cannot change that and does not try to.
     if not token:
         fail("the deployment token file is empty, so this demo holds no credential")
+    if surface == "mcp":
+        # `just demo-mcp`: the refusal is per probe because it needs no credential, and the token's
+        # own answer is latched because the token expires and the demo outlives it.
+        mcp_refuses_a_call_without_a_token(sutura_port)
+        latch = os.path.join(run_dir, "external-readiness-ok")
+        if not os.path.exists(latch):
+            model_endpoint_is_reachable()
+            webui_tools_are_registered(webui_port, "server:mcp:sutura")
+            mcp_lists_tools_for_the_token(sutura_port, token)
+            with open(latch, "a", encoding="ascii") as marker:
+                marker.write("ok\n")
+        print(
+            "healthcheck: the sutura server, its /mcp surface and the chat client are all up"
+        )
+        return
     try:
         document = json.loads(
             fetch(f"http://127.0.0.1:{sutura_port}/openapi.json", token)

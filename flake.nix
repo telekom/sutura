@@ -671,7 +671,9 @@
             # not done here, so what is left is this comment: recall, not a mechanism.
             # The shared falsifier test must reach check-jscpd's clone finding, not its
             # missing-binary refusal. Hygiene already uses this same pinned scanner.
-            nativeCheckInputs = [ postgresTier.tier clickhouseTier.tier pkgs.git pkgs.python3 jscpd ];
+            # `openssl` mints the throwaway CA `examples/demo-chatinterface/test_mcp.py` serves its
+            # `https://` issuer fake under, so the minting helper's CA-pinned arm runs here.
+            nativeCheckInputs = [ postgresTier.tier clickhouseTier.tier pkgs.git pkgs.python3 pkgs.openssl jscpd ];
             # A real Postgres, provisioned from nixpkgs inside this sandbox over a unix socket, so
             # the postgres corpus and differential cells run HERE (in this single sandboxed test
             # pass) rather than in a separate `nix develop` job. `ciArtifacts` - the expensive
@@ -690,7 +692,7 @@
             # `examples/demo-chatinterface` has a hyphen, so `-m unittest examples.demo-chatinterface.test_behavior`
             # cannot be a dotted module path at all - the subshell `cd` makes it the top-level `test_behavior`
             # module instead, which `-m` finds via the cwd it puts at the front of `sys.path`.
-            preCheck = "(cd examples/demo-chatinterface && ${pkgs.python3}/bin/python3 -m unittest test_behavior -v) && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\" && ${clickhouseTier.tier}/bin/sutura-clickhouse-tier start && eval \"$(${clickhouseTier.tier}/bin/sutura-clickhouse-tier credentials)\"";
+            preCheck = "(cd examples/demo-chatinterface && ${pkgs.python3}/bin/python3 -m unittest test_behavior test_mcp -v) && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\" && ${clickhouseTier.tier}/bin/sutura-clickhouse-tier start && eval \"$(${clickhouseTier.tier}/bin/sutura-clickhouse-tier credentials)\"";
             postCheck = "${clickhouseTier.tier}/bin/sutura-clickhouse-tier stop && ${postgresTier.tier}/bin/sutura-postgres-tier stop";
             SUTURA_DEV_REQUIRE_TIER = "1";
           });
