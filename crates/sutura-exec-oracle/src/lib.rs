@@ -389,12 +389,12 @@ impl OracleWarehouse {
             cause: cause.into(),
         };
         let db_type = column.db_type();
-        if *db_type == oracledb::DB_TYPE_BOOLEAN {
+        if db_type == oracledb::DB_TYPE_BOOLEAN {
             Ok(row
                 .get::<Option<bool>>(index)
                 .map_err(decode_err)?
                 .map_or(Value::Null, |v| Value::Integer(i64::from(v))))
-        } else if *db_type == oracledb::DB_TYPE_NUMBER {
+        } else if db_type == oracledb::DB_TYPE_NUMBER {
             Ok(row
                 .get::<Option<oracledb::OracleNumber>>(index)
                 .map_err(decode_err)?
@@ -408,7 +408,7 @@ impl OracleWarehouse {
             row.get::<Option<oracledb::OracleTimestamp>>(index)
                 .map_err(decode_err)?
                 .map_or(Ok(Value::Null), |ts| date_cell(&ts))
-        } else if *db_type == oracledb::DB_TYPE_BINARY_DOUBLE {
+        } else if db_type == oracledb::DB_TYPE_BINARY_DOUBLE {
             row.get::<Option<f64>>(index).map_err(decode_err)?.map_or_else(
                 || Ok(Value::Null),
                 |v| {
@@ -418,7 +418,7 @@ impl OracleWarehouse {
                     })
                 },
             )
-        } else if *db_type == oracledb::DB_TYPE_BINARY_FLOAT {
+        } else if db_type == oracledb::DB_TYPE_BINARY_FLOAT {
             Err(OracleError::UnsupportedType {
                 column: String::from(label),
                 oracle_type: "BINARY_FLOAT; a 32-bit float has no exact 64-bit rendering",
@@ -472,15 +472,14 @@ impl core::fmt::Display for DriverError {
 impl std::error::Error for DriverError {}
 
 impl DriverError {
-    /// Whether the server's own error message names `code` (`"ORA-01476"`, say).
+    /// Whether the server refused with Oracle error number `code` (`1476` for `ORA-01476`, say).
     ///
-    /// **Measured, not the `main` branch's shape:** at the pinned `26.0.0-beta.3`,
-    /// `oracledb::ErrorKind::DbError` carries the server's message as a bare `String`, not a
-    /// structured type with its own error-number accessor - so this is a substring match on
-    /// Oracle's own `ORA-NNNNN:` prefix rather than a typed comparison. A future driver release
-    /// that structures this is a strictly easier match to write, not a compatibility break.
-    fn names_ora_code(&self, code: &str) -> bool {
-        matches!(self.0.kind(), oracledb::ErrorKind::DbError(message) if message.contains(code))
+    /// The driver's `DbError` carries the number the server sent as its own field, so this is a
+    /// typed comparison rather than a substring match on the message. Limit: it is the TOP error
+    /// of a stack - an `ORA-01476` the server nests under another code no longer matches, where
+    /// the old substring match did. Not measured against a server.
+    fn has_ora_code(&self, code: usize) -> bool {
+        matches!(self.0.kind(), oracledb::ErrorKind::DbError(db_error) if db_error.code() == code)
     }
 
     /// Whether this is the driver's own `CallTimeoutExceeded` - the per-read idle timeout firing,
@@ -564,7 +563,7 @@ fn rows_from_cursor(
     budget: sutura_domain::warehouse::ResultBudget,
     most_rows: Option<usize>,
 ) -> Result<RowSet, OracleError> {
-    let columns: Vec<oracledb::Metadata> = cursor.columns().clone();
+    let columns: Vec<oracledb::Metadata> = cursor.columns().to_vec();
     let labels: Vec<String> = columns.iter().map(|c| c.name().to_owned()).collect();
     let values = cursor.map(|row| {
         let row = row.map_err(execute_err_mapped)?;
@@ -605,7 +604,7 @@ fn collect_rows(
 /// documented error number for this condition.
 fn execute_err_mapped(cause: oracledb::Error) -> OracleError {
     let cause = DriverError::from(cause);
-    if cause.names_ora_code("ORA-01476") {
+    if cause.has_ora_code(1476) {
         OracleError::DivisionByZero { cause }
     } else {
         OracleError::Execute { cause }
@@ -665,15 +664,13 @@ impl Warehouse for OracleWarehouse {
 
     /// **Takes the trait's own default** (`Ok(PreFlight::NotAsked)`) rather than an override.
     ///
-    /// **Measured, not assumed:** the pinned `oracledb` `26.0.0-beta.3` has no parse-only round
-    /// trip at all - `Statement`'s only ways to reach the server are `execute`/`query`, which RUN
-    /// the statement. The `main` branch this crate first read gained
-    /// `Statement::ensure_fully_parsed` after that version was published; pinning to a released
-    /// version rather than a `git` dependency means this adapter does not have it yet. Overriding
-    /// `dry_run` with a real `execute`/`query` call would violate the port's own contract - "an
-    /// adapter that overrides it must not read data" - so the honest thing this adapter can do
-    /// today is nothing, exactly the trait's own documented escape hatch for "checking is not
-    /// cheaper than running here".
+    /// The pinned `oracledb` does have a parse-only round trip, `Statement::ensure_fully_parsed`,
+    /// and this adapter does not call it: adopting it is a separate change, not made here. Its own
+    /// doc says a DDL statement is executed by it, and whether it reads data for every statement
+    /// this adapter sends is unmeasured. Overriding `dry_run` with `execute`/`query`, which RUN the
+    /// statement, would break the port's contract - "an adapter that overrides it must not read
+    /// data" - so until that is measured the trait's own escape hatch for "checking is not cheaper
+    /// than running here" is the honest answer.
     fn execute(
         &self,
         executable: Executable<'_>,
@@ -709,7 +706,7 @@ impl Warehouse for OracleWarehouse {
     /// `ORA-01031: insufficient privileges` - the server refusing an identity at the permission
     /// level, the same class `PostgresWarehouse::source_refused` reads off `42501`.
     fn source_refused(&self, error: &Self::Error) -> bool {
-        matches!(*error, OracleError::Execute { ref cause } if cause.names_ora_code("ORA-01031"))
+        matches!(*error, OracleError::Execute { ref cause } if cause.has_ora_code(1031))
     }
 
     /// Answers for the MATERIALISATION BUDGET alone: `rows_from_cursor` collects against this

@@ -176,7 +176,7 @@ thiserror = "2"
 # not follow a symlink (O_NOFOLLOW) and does not block on a FIFO (O_NONBLOCK) - a swap of a
 # listed document between the walk and the read is refused at the open, not followed or
 # waited on (`telekom/sutura#1008`).
-rustix = { version = "0.38", features = ["fs"] }
+rustix = { version = "1.1", features = ["fs"] }
 # The exchanged-credential cache's own lock, `docs/adr/0031` - `clippy.toml` denies both
 # `std::sync::Mutex` and `std::sync::RwLock` outright (the async-executor deadlock the ban is for
 # does not apply to a synchronous broker's `mint`, called from inside one `block_on` and never held
@@ -262,7 +262,7 @@ rustls-native-certs = "0.8.4"
 # whole resolve graph - so depending on this crate at all is what brings `aws-lc-rs`/`aws-lc-sys`
 # into any build that also links this adapter; both are already in `Cargo.lock` via other paths, so
 # this adds no new package, only a new feature activation on the one already there.
-oracledb = "26.0.0-beta.3"
+oracledb = "26.0.0-beta.4"
 
 # YAML, for the frontmatter of a catalog document. A maintained fork of `serde_yaml`, which
 # was archived by its author: the original still resolves and still parses, and it is exactly
@@ -298,7 +298,7 @@ serde_norway = "0.9"
 #     wrong under a feature we said we do not compile. `crate::dialect::DateTruncShape` covers Oracle
 #     the same way it already covers `BigQuery`'s argument order: `bucket_expression` builds the
 #     correct call directly, with no dialect-layer rewrite in between.
-polyglot-sql = { version = "0.12.0", default-features = false, features = [
+polyglot-sql = { version = "0.13.1", default-features = false, features = [
   "generate",
   "builder",
   "stacker",

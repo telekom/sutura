@@ -5,6 +5,8 @@
 //! [`super::column_metadata`] are their own files.
 
 use super::*;
+use crate::calendar::{Date, TimeRange};
+use crate::catalog::{Anchor, AnchorValue};
 
 /// `orders`, `customers` and `calendar`, all local: `orders` and `customers` each reach
 /// `calendar` through their own relationship, in addition to the `orders`-`customers` link
@@ -105,6 +107,15 @@ fn a_shared_calendar_the_metric_s_own_model_cannot_reach_is_refused() {
 /// `revenue_per_customer`: `orders`' `amount_cents` over a count of `customers`' `id`, bucketed
 /// through the shared `calendar`.
 fn ratio_over_two_facts() -> Metric {
+    ratio_over_two_facts_anchored(None)
+}
+
+fn ratio_over_two_facts_anchored(anchor: Option<Anchor>) -> Metric {
+    ratio_over_two_facts_without_a_calendar(anchor).with_shared_calendar(model_name("calendar"))
+}
+
+/// The shape a cube document or a non-local catalog produces: neither can declare a calendar.
+fn ratio_over_two_facts_without_a_calendar(anchor: Option<Anchor>) -> Metric {
     Metric::new(
         metric_name("revenue_per_customer"),
         model_name("orders"),
@@ -121,12 +132,46 @@ fn ratio_over_two_facts() -> Metric {
         column("order_date"),
         BTreeSet::from([Grain::Month]),
         Vec::new(),
-        None,
+        anchor,
         Description::default(),
         Audience::Open,
     )
     .expect("no dimensions to duplicate")
-    .with_shared_calendar(model_name("calendar"))
+}
+
+fn june_anchor() -> Anchor {
+    let june = TimeRange::new(
+        Date::parse("2026-06-01").expect("a test date is a date"),
+        Date::parse("2026-07-01").expect("a test date is a date"),
+    )
+    .expect("June is a range");
+    Anchor::new(june, AnchorValue::parse("12").expect("a test anchor value is a value"))
+}
+
+#[test]
+fn an_anchor_on_a_cross_model_ratio_is_refused_at_load_by_name() {
+    // The boot check runs an anchor as one statement over the metric's own model, so it cannot
+    // certify a two-fact ratio; the same catalog without the anchor assembles (the next cell).
+    let anchored = ratio_over_two_facts_anchored(Some(june_anchor()));
+    let (models, relationships) = three_models_with_calendar();
+    assert_eq!(
+        Definitions::assemble(models, relationships, vec![anchored]).unwrap_err(),
+        InconsistentDefinitions::AnchorOnCrossModelRatio {
+            metric: metric_name("revenue_per_customer"),
+        }
+    );
+}
+
+#[test]
+fn an_anchor_on_a_cross_model_ratio_without_a_calendar_is_refused_at_load_by_name() {
+    let anchored = ratio_over_two_facts_without_a_calendar(Some(june_anchor()));
+    let (models, relationships) = three_models_with_calendar();
+    assert_eq!(
+        Definitions::assemble(models, relationships, vec![anchored]).unwrap_err(),
+        InconsistentDefinitions::AnchorOnCrossModelRatio {
+            metric: metric_name("revenue_per_customer"),
+        }
+    );
 }
 
 #[test]
@@ -138,6 +183,37 @@ fn a_shared_calendar_reachable_from_both_a_ratio_s_fact_models_assembles() {
     let definitions = Definitions::assemble(models, relationships, vec![ratio_over_two_facts()])
         .expect("both fact models reach the declared calendar");
     assert!(definitions.metric(&metric_name("revenue_per_customer")).is_some());
+}
+
+#[test]
+fn a_one_model_ratio_with_an_anchor_and_a_calendar_assembles() {
+    // Cross-model is a term naming another model, not a declared calendar: both terms here read
+    // `orders`, so its anchor is the one-statement number the boot check certifies.
+    let one_model = Metric::new(
+        metric_name("revenue_per_order"),
+        model_name("orders"),
+        Measure::Ratio {
+            numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+            denominator: Term::Aggregate(AggregatedColumn::new(Aggregate::Count, column("customer_id"))),
+            zero_denominator: crate::measure::ZeroDenominator::Null,
+        },
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        Some(june_anchor()),
+        Description::default(),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate")
+    .with_shared_calendar(model_name("calendar"));
+    let (models, relationships) = three_models_with_calendar();
+    let definitions = Definitions::assemble(models, relationships, vec![one_model]).expect("a one-model ratio may be anchored");
+    assert!(
+        definitions
+            .metric(&metric_name("revenue_per_order"))
+            .is_some_and(|metric| metric.anchor().is_some())
+    );
 }
 
 /// The same catalog with one relationship replaced - by name - or dropped, and the refusal it

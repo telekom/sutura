@@ -1385,3 +1385,19 @@ deployment*. `describes_identity()` is now an instance method:
 inbound identity issuer. `sutura-runtime/src/banner.rs:283` records this change. The bearer token
 still authenticates the deployment; what changed is that a deployment can now declare it has
 per-caller identity, and the startup log prints that declaration.
+
+## Tenth amendment, 2026-10-01: Oracle's row limit is rendered by upstream, and the pin moved
+
+Three statements above are historical. *What enabling a dialect costs, verified* says `polyglot-sql`
+is pinned at `0.12.0`; the pin is `0.13.1`. The dead-config table's `limit_fetch_style` row says
+nothing reads that field; from `0.13.1` the generator reads it, so Oracle's `FetchFirst` setting
+renders a `Limit` node as `FETCH FIRST n ROWS ONLY` (`tobilg/polyglot#480`). The other two rows of
+that table are unchanged by this. The seventh amendment says `sutura-sql::generate` moves Oracle's
+limit to a `Fetch` node; that rewrite is deleted, and `generate` emits the same `Limit` node for every
+dialect.
+
+What holds the rendering: the Oracle goldens, unchanged by the deletion;
+`polyglot_renders_an_oracle_limit_as_fetch_first`, which pins upstream's half with no sutura code
+in between; and `a_quoted_identifier_names_the_object_the_dictionary_stores`, run by
+`just oracle-acceptance`, which executes a whole plan ending in `FETCH FIRST` against a provisioned
+Oracle. Limit: that is one plan shape on one server, not every shape the goldens pin.
