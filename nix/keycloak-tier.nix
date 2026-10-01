@@ -104,6 +104,8 @@ let
   # only exercised by the probe script that answers the blocking unknown.
   # RFC 2606 `.example.com`, non-secret, not a real host.
   idTokenAudience = "https://workforce-pool.example.com";
+  # Seconds a token lives, up from Keycloak's 300: `just demo-mcp` hands its chat client ONE token.
+  accessTokenLifespan = 3600;
 in
 # `rec` so `check` can drive `tier`: the check exists to run this exact script, and a second
 # reference to it through `flake.nix` would be a second thing to keep pointing here.
@@ -307,7 +309,7 @@ rec {
         done
 
         kcadm.sh create realms --config "$admincfg" -s realm="$realm" -s enabled=true \
-          "''${kcadm_trust[@]}" >/dev/null
+          -s accessTokenLifespan=${toString accessTokenLifespan} "''${kcadm_trust[@]}" >/dev/null
         # Confidential, with the direct access grant: that is the flow a test uses to obtain a
         # token for a named subject without a browser. `standardFlowEnabled=false` because nothing
         # here redirects, and a client offering a flow nobody uses is surface for free.
@@ -357,14 +359,11 @@ rec {
             "$base/realms/$realm/protocol/openid-connect/token" \
             -d grant_type=password -d client_id="$client" -d client_secret="$client_secret" \
             -d username="$subject" -d "password=$(subject_password "$subject")")"
-          case "$token" in
-            *access_token*) ;;
-            *)
-              echo "keycloak tier: $subject could not obtain a token from $realm" >&2
-              echo "$token" >&2
-              exit 1
-              ;;
-          esac
+          if ! printf '%s' "$token" | jq -e '.access_token and .expires_in >= ${toString accessTokenLifespan}' >/dev/null; then
+            echo "keycloak tier: $subject could not obtain a ${toString accessTokenLifespan} s token from $realm" >&2
+            printf '%s' "$token" | jq -c '{error, error_description, expires_in}' >&2 || echo "$token" >&2
+            exit 1
+          fi
         done
 
         # The realm's own credentials, for a reader that needs a token. `umask` first: the file

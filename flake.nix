@@ -671,7 +671,9 @@
             # not done here, so what is left is this comment: recall, not a mechanism.
             # The shared falsifier test must reach check-jscpd's clone finding, not its
             # missing-binary refusal. Hygiene already uses this same pinned scanner.
-            nativeCheckInputs = [ postgresTier.tier clickhouseTier.tier pkgs.git pkgs.python3 jscpd ];
+            # `openssl` mints the throwaway CA `examples/demo-chatinterface/test_mcp.py` serves its
+            # `https://` issuer fake under, so the minting helper's CA-pinned arm runs here.
+            nativeCheckInputs = [ postgresTier.tier clickhouseTier.tier pkgs.git pkgs.python3 pkgs.openssl jscpd ];
             # A real Postgres, provisioned from nixpkgs inside this sandbox over a unix socket, so
             # the postgres corpus and differential cells run HERE (in this single sandboxed test
             # pass) rather than in a separate `nix develop` job. `ciArtifacts` - the expensive

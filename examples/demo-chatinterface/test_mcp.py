@@ -10,6 +10,7 @@ import json
 import os
 import pathlib
 import secrets
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -93,8 +94,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
 
 @contextlib.contextmanager
-def fake(mode: str = "honest", minted: str = TOKEN):
+def fake(mode: str = "honest", minted: str = TOKEN, tls: tuple[str, str] | None = None):
     instance = _Server(("127.0.0.1", 0), _Handler)
+    if tls is not None:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(*tls)
+        instance.socket = context.wrap_socket(instance.socket, server_side=True)
     instance.mode = mode
     instance.minted = minted
     instance.mcp_authorization = []
@@ -128,6 +133,78 @@ def mcp_environment(run_dir: pathlib.Path, **override: str) -> dict[str, str]:
     }
 
 
+def certificate_authority(root: pathlib.Path) -> tuple[str, str, str]:
+    """A CA and the 127.0.0.1 leaf it signs, shaped like the tier's own pair: (ca, leaf, leaf key)."""
+    root.mkdir()
+
+    def openssl(*arguments: str) -> None:
+        subprocess.run(
+            ["openssl", *arguments], cwd=root, check=True, capture_output=True
+        )
+
+    (root / "ca.cnf").write_text(
+        "[req]\nprompt=no\ndistinguished_name=dn\nx509_extensions=ext\n[dn]\nCN=demo-ca\n"
+        "[ext]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,cRLSign\n"
+        "subjectKeyIdentifier=hash\n",
+        encoding="utf-8",
+    )
+    (root / "leaf.cnf").write_text(
+        "[req]\nprompt=no\ndistinguished_name=dn\n[dn]\nCN=127.0.0.1\n",
+        encoding="utf-8",
+    )
+    (root / "leaf.ext").write_text(
+        "basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\n"
+        "extendedKeyUsage=serverAuth\nsubjectAltName=IP:127.0.0.1\n"
+        "authorityKeyIdentifier=keyid\nsubjectKeyIdentifier=hash\n",
+        encoding="utf-8",
+    )
+    openssl(
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-days",
+        "1",
+        "-config",
+        "ca.cnf",
+        "-keyout",
+        "ca.key",
+        "-out",
+        "ca.pem",
+    )
+    openssl(
+        "req",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-config",
+        "leaf.cnf",
+        "-keyout",
+        "leaf.key",
+        "-out",
+        "leaf.csr",
+    )
+    openssl(
+        "x509",
+        "-req",
+        "-in",
+        "leaf.csr",
+        "-CA",
+        "ca.pem",
+        "-CAkey",
+        "ca.key",
+        "-CAcreateserial",
+        "-days",
+        "1",
+        "-extfile",
+        "leaf.ext",
+        "-out",
+        "leaf.pem",
+    )
+    return str(root / "ca.pem"), str(root / "leaf.pem"), str(root / "leaf.key")
+
+
 def jwt(claims: dict[str, object]) -> str:
     payload = (
         base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b"=").decode()
@@ -137,9 +214,11 @@ def jwt(claims: dict[str, object]) -> str:
 
 class DemoMcp(unittest.TestCase):
     def _supervise(self, root: pathlib.Path, environment: dict[str, str]):
+        # A server that runs until TERMed, so `wait -n` returns on the chat client's exit and the
+        # client is never TERMed before it has written what it was handed.
         instrumented = supervised_children(
             root,
-            "#!/bin/sh\nexit 0\n",
+            "#!/bin/sh\ntrap 'exit 0' TERM\nwhile :; do sleep 1; done\n",
             '#!/bin/sh\nprintf \'%s\' "$TOOL_SERVER_CONNECTIONS" > "$SUTURA_DEMO_RUN_DIR/connections"\nexit 0\n',
         )
         return subprocess.run(
@@ -161,12 +240,17 @@ class DemoMcp(unittest.TestCase):
             self.assertNotIn(TOKEN, result.stdout + result.stderr)
             deployment = (run_dir / "base.yaml").read_text(encoding="utf-8")
             self.assertIn("  agent_surface:\n    enabled: true\n", deployment)
-            self.assertIn(f'    authorization_server: "{ISSUER}"\n', deployment)
-            self.assertIn(f'    resource: "{RESOURCE}"\n', deployment)
             self.assertIn(
-                f'    key_set_file: "{run_dir}/keycloak-jwks.json"\n', deployment
+                "  inbound:\n"
+                '    mode: "direct"\n'
+                f'    resource: "{RESOURCE}"\n'
+                f'    authorization_server: "{ISSUER}"\n'
+                f'    key_set_file: "{run_dir}/keycloak-jwks.json"\n'
+                '    algorithms: ["RS256"]\n'
+                '    token_type: "any"\n'
+                "    accept_any_token_type: true\n",
+                deployment,
             )
-            self.assertIn('    mode: "direct"\n', deployment)
             self.assertNotIn("access_token", deployment)
             self.assertEqual(
                 (run_dir / "keycloak-jwks.json").read_text(encoding="utf-8"), KEY_SET
@@ -202,7 +286,7 @@ class DemoMcp(unittest.TestCase):
                 self.assertFalse((run_dir / "base.yaml").exists())
                 self.assertFalse((run_dir / "connections").exists())
 
-    def _launch(self, arguments: list[str], **override: str):
+    def _launch(self, arguments: list[str], tier_status: int = 0, **override: str):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         root = pathlib.Path(directory.name)
@@ -210,7 +294,8 @@ class DemoMcp(unittest.TestCase):
         # `nix` logs what it was asked, `cargo` records what `dev-up` would hand compose, and
         # `python3` stands in for the minting helper so no realm is read off this checkout.
         (fake_bin / "nix").write_text(
-            f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> {root / 'nix.log'}\nprintf '/nix/store/fake\\n'\n",
+            f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> {root / 'nix.log'}\n"
+            f"case \"$*\" in *'-- status'*) exit {tier_status} ;; esac\nprintf '/nix/store/fake\\n'\n",
             encoding="utf-8",
         )
         (fake_bin / "cargo").write_text(
@@ -262,6 +347,18 @@ class DemoMcp(unittest.TestCase):
         self.assertIn(f"SUTURA_DEMO_MCP_KEY_SET={KEY_SET}\n", compose_env)
         self.assertNotIn(TOKEN, result.stdout + result.stderr)
 
+    def test_demo_mcp_stops_on_exit_only_a_tier_it_started(self) -> None:
+        # The full lifecycle: the fake endpoint has no listener, so supervision ends at once and
+        # the EXIT trap runs - `status` 1 is "not running", 0 is somebody else's live tier.
+        for tier_status, stopped in ((1, True), (0, False)):
+            with self.subTest(tier_status=tier_status):
+                result, nix_log, _compose_env = self._launch(["--mcp"], tier_status)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("run .#keycloak-tier -- start", nix_log)
+                self.assertEqual(
+                    "run .#keycloak-tier -- stop" in nix_log, stopped, nix_log
+                )
+
     def test_plain_demo_stays_openapi_whatever_the_environment_says(self) -> None:
         result, nix_log, compose_env = self._launch(
             ["--up-only"], SUTURA_DEMO_SURFACE="mcp"
@@ -270,12 +367,14 @@ class DemoMcp(unittest.TestCase):
         self.assertNotIn("keycloak-tier", nix_log)
         self.assertIn("SUTURA_DEMO_SURFACE=openapi\n", compose_env)
 
-    def _probe(self, mode: str) -> subprocess.CompletedProcess:
+    def _probe(self, mode: str, latched: bool = False) -> subprocess.CompletedProcess:
         with (
             fake(mode) as (port, _instance),
             tempfile.TemporaryDirectory() as directory,
         ):
             pathlib.Path(directory, "token").write_text(TOKEN, encoding="utf-8")
+            if latched:
+                pathlib.Path(directory, "external-readiness-ok").write_text("ok\n")
             return subprocess.run(
                 [sys.executable, str(DEMO / "healthcheck.py")],
                 env={
@@ -306,24 +405,34 @@ class DemoMcp(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("no token", result.stderr)
 
+    def test_a_latched_probe_still_fails_when_mcp_answers_without_a_token(self) -> None:
+        result = self._probe("mcp-open", latched=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no token", result.stderr)
+
     def test_readiness_fails_when_mcp_lists_nothing_for_the_issuers_token(self) -> None:
         result = self._probe("mcp-lists-nothing")
         self.assertEqual(result.returncode, 1)
         self.assertIn("listed no tools", result.stderr)
 
     def _mint(
-        self, mode: str, minted: str
+        self,
+        mode: str,
+        minted: str,
+        tls: tuple[str, str] | None = None,
+        trusted: str | None = None,
     ) -> tuple[subprocess.CompletedProcess, list[str]]:
         with (
-            fake(mode, minted) as (port, instance),
+            fake(mode, minted, tls) as (port, instance),
             tempfile.TemporaryDirectory() as directory,
         ):
             realm = pathlib.Path(directory, "realm.json")
+            scheme = "http" if tls is None else "https"
             realm.write_text(
                 json.dumps(
                     {
-                        "issuer": f"http://127.0.0.1:{port}/realms/sutura-dev",
-                        "tls_certificate_file": str(realm),
+                        "issuer": f"{scheme}://127.0.0.1:{port}/realms/sutura-dev",
+                        "tls_certificate_file": trusted or str(realm),
                         "client": {"id": "sutura-dev-cli", "secret": CLIENT_SECRET},
                         "subjects": [
                             {"username": "subject-a", "password": SUBJECT_PASSWORD}
@@ -355,6 +464,23 @@ class DemoMcp(unittest.TestCase):
         )
         self.assertIn("grant_type=password", grants[0])
         self.assertIn("username=subject-a", grants[0])
+
+    def test_the_minting_helper_trusts_the_tiers_own_ca_and_no_other(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tier_ca, leaf, key = certificate_authority(pathlib.Path(directory, "tier"))
+            other_ca, _leaf, _key = certificate_authority(
+                pathlib.Path(directory, "other")
+            )
+            token = jwt({"aud": RESOURCE})
+            result, grants = self._mint("honest", token, (leaf, key), tier_ca)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(result.stdout.startswith("https://127.0.0.1:"))
+            self.assertEqual(len(grants), 1)
+            # A server the tier's CA did not sign never receives the client secret or a password.
+            result, grants = self._mint("honest", token, (leaf, key), other_ca)
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual((result.stdout, grants), ("", []))
+            self.assertIn("did not mint", result.stderr)
 
     def test_the_minting_helper_refuses_without_echoing_a_credential(self) -> None:
         for mode, minted, reason in (

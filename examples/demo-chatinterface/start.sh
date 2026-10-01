@@ -230,8 +230,8 @@ cargo run -q -p xtask -- dev-up --only demo
 endpoint_hostport="$(just dev-endpoint demo)"
 printf '\ndemo: open http://%s in a browser\n' "$endpoint_hostport"
 if [ "$surface" = mcp ]; then
-    printf 'demo: /mcp verifies a keycloak-tier token; the MCP connection holds one that expires with\n'
-    printf 'demo: the realm access-token lifespan - run just demo-mcp again for a fresh one\n'
+    printf 'demo: /mcp verifies a keycloak-tier token; the MCP connection holds one that expires in\n'
+    printf 'demo: the realm access-token lifespan (an hour) - run just demo-mcp again for a fresh one\n'
 fi
 printf 'demo: the tool server is REGISTERED but NOT selected - in the chat input open Integrations,\n'
 printf 'demo: choose Tools, and turn on sutura before asking a question (docs/demo.md has the steps)\n'
@@ -242,7 +242,11 @@ if [ "$mode" = up-only ]; then
 fi
 
 printf 'demo: the chat client is UNGOVERNED - it renders what the runtime already decided\n'
-printf 'demo: single-user; it proves neither caller identity nor source impersonation\n'
+if [ "$surface" = mcp ]; then
+    printf 'demo: /mcp verifies the caller, but the source still reads as one service user - no impersonation\n'
+else
+    printf 'demo: single-user; it proves neither caller identity nor source impersonation\n'
+fi
 printf 'demo: press Ctrl-C to stop and remove it\n\n'
 
 # Block while the demo answers, so Ctrl-C tears it down. A Ctrl-C interrupts the loop, runs the EXIT

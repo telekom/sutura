@@ -116,13 +116,24 @@ Keycloak tier (`just keycloak-tier`). It takes the same four variables and adds,
    to initialize and list tools for the minted token once.
 
 The server never contacts the issuer: it verifies against the key set it was handed, which is why
-the tier's loopback `https://` issuer works from inside a container whose loopback is its own.
+the tier's loopback `https://` issuer verifies inside a container whose loopback is its own.
 
 Its limits, beside the claims:
 
-- **The token expires and nothing refreshes it.** It lives for the realm's access-token lifespan
-  (Keycloak's default is five minutes); after that the MCP connection is refused. Run
-  `just demo-mcp` again for a fresh one. Readiness latched its token check and stays healthy.
+- **Run end to end once, by hand, and by no gate.** On 2026-10-01, `just demo-mcp` on one
+  developer machine brought the tier and the container up healthy. `/mcp` refused a call with no
+  token, a malformed token and a token whose signature had been altered, each with `401`, and listed
+  three tools for the minted one. Open WebUI's registry listed `server:mcp:sutura`, and one chat
+  question went through Open WebUI's MCP client to `ask_metric`, which answered `202121` for June
+  2026. Teardown left no container and stopped the tier. The model was a local deterministic stub
+  that always picks that tool, so the run shows the plumbing, not a model choosing it. The
+  demo-container workflow drives only `just demo`, and `just validate` runs this mode's launcher,
+  supervisor, probe and minting helper against fakes.
+- **One token, no renewal.** The tier's realm mints access tokens for an hour (Keycloak's default is
+  five minutes, raised in `nix/keycloak-tier.nix`, whose start refuses a realm that mints less).
+  Nothing refreshes the one token the launcher fetched, so after that hour the MCP connection is
+  refused; run `just demo-mcp` again for a fresh one. Readiness latched its token check and stays
+  healthy.
 - **One subject, chosen by the launcher.** The chat client does not log in; every chat presents the
   same subject's token. It shows a real issuer's token verified on `/mcp`, not a person signing in.
 - **Still a single shared source identity.** The verified caller does not change who reads the

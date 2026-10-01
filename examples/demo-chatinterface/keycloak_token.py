@@ -7,9 +7,9 @@ its first subject over the tier's own CA, and fetches the realm's key set. Print
 token, and the key set as one line of JSON - and nothing else. A failure names its step on stderr
 and never a credential, a response body or a password.
 
-THE LIMIT: the token lives for the realm's access-token lifespan and nothing refreshes it, so the
-chat client's MCP connection stops being accepted when it expires; running the demo again mints a
-new one.
+THE LIMIT: the token lives for the realm's access-token lifespan (an hour, `nix/keycloak-tier.nix`)
+and nothing refreshes it, so the chat client's MCP connection stops being accepted when it expires;
+running the demo again mints a new one.
 """
 
 from __future__ import annotations
