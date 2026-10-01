@@ -11,15 +11,14 @@
 //! has nothing to agree with and passes. A drifted first-party `sutura*` pin is refused here and
 //! by [`super::version_gaps`] alike.
 //!
-//! **The cost: a one-lock Dependabot PR is refused.** `.github/dependabot.yml`'s `patch-level` and
-//! `arrow` groups have no `group-by`, and Dependabot opens a grouped update once per directory
-//! (its options reference, quoted there; no run observed), so each of the two PRs moves a crate
-//! in one lock only. This gate reds either one whenever it moves a crate both locks pin - usually
-//! so for the root PR, through the `sutura-*` path dependencies' closure, while `fuzz/` depends on
-//! few shared crates directly (`serde_json` is one). No Dependabot run is observed. Land them as
-//! one: run the same `cargo update -p <name> --precise <version>` in the other directory on either
-//! PR. `group-by: dependency-name` would pair the directories, but splits a group into one PR per
-//! dependency - the grouping those two exist for.
+//! **The cost: a Dependabot PR that moves one lock is refused.** Dependabot resolves each directory
+//! on its own even when one PR covers both: #1187, grouped by `group-by: dependency-name`, carried
+//! both locks yet took a newer `rustix` patch in `fuzz/` than the root kept. This gate reds such a PR
+//! whenever it moves a crate both locks pin. Fix it on the PR: run the same
+//! `cargo update -p <name> --precise <version>` in the other directory. `.github/dependabot.yml`'s
+//! groups without `group-by` (`patch-level`, `arrow`, `utoipa`) also span both directories in one
+//! PR - read from dependabot-core's source, the limit being that no grouped PR covering two
+//! directories is observed yet.
 //!
 //! **Not a hole: an absent root lock.** It reads as empty here, shares nothing and passes, but
 //! `check-boundaries`' `cargo metadata --locked` refuses it in the same hygiene sweep.
