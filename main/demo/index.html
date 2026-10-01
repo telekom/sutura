@@ -693,6 +693,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#over-mcp-behind-a-real-issuer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Over MCP, behind a real issuer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#stop-it" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2107,6 +2118,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#over-mcp-behind-a-real-issuer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Over MCP, behind a real issuer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#stop-it" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2264,6 +2286,45 @@ metric - because a question the catalog cannot express is a RESULT, not an error
 only render it. Repeating the question does not change the answer.</p>
 <p>Some models answer from their own knowledge instead of calling a tool. That is the client being
 ungoverned: if it did not call <code>ask_metric</code>, no certified number was involved.</p>
+<h2 id="over-mcp-behind-a-real-issuer">Over MCP, behind a real issuer<a class="headerlink" href="#over-mcp-behind-a-real-issuer" title="Permanent link">&para;</a></h2>
+<p><code>just demo-mcp</code> is the same demo with the chat client on Open WebUI's native <strong>MCP</strong> connection
+instead of OpenAPI, and the server's <code>/mcp</code> mounted behind inbound verification against the nix
+Keycloak tier (<code>just keycloak-tier</code>). It takes the same four variables and adds, in order:</p>
+<ol>
+<li>It starts the Keycloak tier - and stops it on exit if this run started it.</li>
+<li><code>examples/demo-chatinterface/keycloak_token.py</code> asks the realm for an access token as its first
+   subject, over the tier's own CA, and fetches the realm's key set. Nothing it reads is printed.</li>
+<li>The container's deployment declares <code>security.inbound</code> in <code>direct</code> mode over that issuer, its
+   audience and that key set, with no deployment token; the MCP connection presents the minted token.</li>
+<li>Readiness requires <code>/mcp</code> to refuse a call that carries no token with <code>401</code>, on every probe, and
+   to initialize and list tools for the minted token once.</li>
+</ol>
+<p>The server never contacts the issuer: it verifies against the key set it was handed, which is why
+the tier's loopback <code>https://</code> issuer verifies inside a container whose loopback is its own.</p>
+<p>Its limits, beside the claims:</p>
+<ul>
+<li><strong>Run end to end once, by hand, and by no gate.</strong> On 2026-10-01, <code>just demo-mcp</code> on one
+  developer machine brought the tier and the container up healthy. <code>/mcp</code> refused a call with no
+  token, a malformed token and a token whose signature had been altered, each with <code>401</code>, and listed
+  three tools for the minted one. Open WebUI's registry listed <code>server:mcp:sutura</code>, and one chat
+  question went through Open WebUI's MCP client to <code>ask_metric</code>, which answered <code>202121</code> for June</li>
+<li>Teardown left no container and stopped the tier. The model was a local deterministic stub
+  that always picks that tool, so the run shows the plumbing, not a model choosing it. The
+  demo-container workflow drives only <code>just demo</code>, and <code>just validate</code> runs this mode's launcher,
+  supervisor, probe and minting helper against fakes.</li>
+<li><strong>One token, no renewal.</strong> The tier's realm mints access tokens for an hour (Keycloak's default is
+  five minutes, raised in <code>nix/keycloak-tier.nix</code>, whose start refuses a realm that mints less).
+  Nothing refreshes the one token the launcher fetched, so after that hour the MCP connection is
+  refused; run <code>just demo-mcp</code> again for a fresh one. Readiness latched its token check and stays
+  healthy.</li>
+<li><strong>One subject, chosen by the launcher.</strong> The chat client does not log in; every chat presents the
+  same subject's token. It shows a real issuer's token verified on <code>/mcp</code>, not a person signing in.</li>
+<li><strong>Still a single shared source identity.</strong> The verified caller does not change who reads the
+  example - this is not source impersonation, and this demo is not a venue
+  <a href="../where-identity-is-proven/">where identity is proven</a> records.</li>
+<li><strong>The token travels in the container's environment</strong>, the way the model key does, so anyone who
+  can inspect the container can read it until it expires.</li>
+</ul>
 <h2 id="stop-it">Stop it<a class="headerlink" href="#stop-it" title="Permanent link">&para;</a></h2>
 <p>Ctrl-C removes the demo's container and its named volume. <code>examples/demo-chatinterface/start.sh</code> runs the
 tier's own scoped teardown through <code>xtask dev-down</code>, so only this worktree's demo goes - the chat
