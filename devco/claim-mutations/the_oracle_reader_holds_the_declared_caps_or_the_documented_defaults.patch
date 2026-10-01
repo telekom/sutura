@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-rdbms/src/oracle_reader.rs b/crates/sutura-catalog-rdbms/src/oracle_reader.rs
+index 6f0b61d54..f63d7b48e 100644
+--- a/crates/sutura-catalog-rdbms/src/oracle_reader.rs
++++ b/crates/sutura-catalog-rdbms/src/oracle_reader.rs
+@@ -102,7 +102,7 @@ impl OracleReader {
+         row_cap: Option<NonZeroU64>,
+         byte_cap: Option<NonZeroU64>,
+     ) -> Result<Self, InvalidReaderConfig> {
+-        let bounds = checked_bounds(documentation_schema, &predicate, row_cap, byte_cap)?;
++        let bounds = checked_bounds(documentation_schema, &predicate, byte_cap, row_cap)?;
+         Ok(Self {
+             login,
+             statement: statement(documentation_schema, &predicate),

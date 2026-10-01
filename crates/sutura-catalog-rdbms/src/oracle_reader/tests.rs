@@ -1,7 +1,10 @@
+use std::num::NonZeroU64;
+
 use sutura_domain::identity::Secret;
 
-use super::{OracleLogin, OracleReader, flag, statement};
-use crate::postgres_reader::{InvalidReaderConfig, RowPredicate};
+use super::{OracleLogin, OracleReader, assemble, decode, flag, statement};
+use crate::postgres_reader::{DEFAULT_MAX_DICTIONARY_BYTES, DEFAULT_MAX_DICTIONARY_ROWS, InvalidReaderConfig, RowPredicate};
+use crate::{ColumnMetadata, Dictionary, DictionaryBounds, RdbmsError, Table, TableAddress};
 
 fn login() -> OracleLogin {
     login_at("127.0.0.1")
@@ -79,4 +82,118 @@ fn the_reader_binds_the_environment_and_the_equals_value_in_placeholder_order() 
 fn an_ipv6_login_is_bracketed_in_the_connect_string() {
     assert_eq!(login_at("::1").address(), "[::1]:1521/FREEPDB1");
     assert_eq!(login_at("127.0.0.1").address(), "127.0.0.1:1521/FREEPDB1");
+}
+
+fn cap(value: u64) -> NonZeroU64 {
+    NonZeroU64::new(value).expect("a nonzero test cap")
+}
+
+#[test]
+fn the_oracle_reader_holds_the_declared_caps_or_the_documented_defaults() {
+    let reader = |rows, bytes| {
+        OracleReader::new(login(), "dictionary", String::from("prod"), RowPredicate::None, rows, bytes).expect("a valid reader")
+    };
+    assert_eq!(
+        reader(Some(cap(500)), Some(cap(64_000))).bounds(),
+        DictionaryBounds::new(cap(500), cap(64_000))
+    );
+    assert_eq!(
+        reader(None, None).bounds(),
+        DictionaryBounds::new(cap(DEFAULT_MAX_DICTIONARY_ROWS), cap(DEFAULT_MAX_DICTIONARY_BYTES))
+    );
+}
+
+/// One row as the driver yields it, in [`statement`]'s `SELECT` order; the tenth cell is the
+/// `NUMBER(1)` key flag.
+type DriverRow = [Option<&'static str>; 10];
+
+const ROWS: [DriverRow; 3] = [
+    [
+        Some("prod"),
+        Some("FREEPDB1"),
+        Some("SALES"),
+        Some("ORDERS"),
+        Some("orders"),
+        Some("One row per order"),
+        Some("ID"),
+        Some("NUMBER(10)"),
+        Some("The order key"),
+        Some("1"),
+    ],
+    [
+        Some("prod"),
+        Some("FREEPDB1"),
+        Some("SALES"),
+        Some("ORDERS"),
+        Some("orders"),
+        Some("One row per order"),
+        Some("TOTAL"),
+        Some("NUMBER(12,2)"),
+        None,
+        Some("0"),
+    ],
+    [
+        Some("prod"),
+        None,
+        Some("SALES"),
+        Some("CUSTOMERS"),
+        None,
+        None,
+        Some("ID"),
+        None,
+        None,
+        Some("1"),
+    ],
+];
+
+fn read(rows: &[DriverRow], bounds: DictionaryBounds) -> Result<Dictionary, RdbmsError> {
+    assemble(
+        "prod",
+        bounds,
+        rows.iter().map(|cells| {
+            decode(
+                |index| Ok(cells[index].map(String::from)),
+                |index| Ok(cells[index].map(|cell| cell.parse().expect("a NUMBER cell"))),
+            )
+        }),
+    )
+}
+
+#[test]
+fn the_oracle_decoder_assembles_positional_values_into_this_dictionary() {
+    let text = |value: &str| String::from(value);
+    let customers = Table::new(
+        text("CUSTOMERS"),
+        TableAddress::new(None, text("SALES"), text("CUSTOMERS")),
+        vec![text("ID")],
+        None,
+    )
+    .with_primary_key(vec![text("ID")]);
+    let orders = Table::new(
+        text("orders"),
+        TableAddress::new(Some(text("FREEPDB1")), text("SALES"), text("ORDERS")),
+        vec![text("ID"), text("TOTAL")],
+        Some(text("One row per order")),
+    )
+    .with_column_metadata([
+        (
+            text("ID"),
+            ColumnMetadata::new(Some(text("NUMBER(10)")), Some(text("The order key"))),
+        ),
+        (text("TOTAL"), ColumnMetadata::new(Some(text("NUMBER(12,2)")), None)),
+    ])
+    .with_primary_key(vec![text("ID")]);
+    assert_eq!(
+        read(&ROWS, DictionaryBounds::new(cap(10), cap(10_000))).expect("the rows assemble"),
+        Dictionary::new(vec![customers, orders], Vec::new())
+    );
+}
+
+#[test]
+fn the_oracle_assembly_refuses_the_row_past_the_declared_row_cap() {
+    let refused = read(&ROWS, DictionaryBounds::new(cap(2), cap(10_000))).expect_err("the third row crosses the cap");
+    assert_eq!(
+        std::error::Error::source(&refused).map(ToString::to_string).as_deref(),
+        Some("the dictionary stream reached the declared maximum of 2 rows")
+    );
 }

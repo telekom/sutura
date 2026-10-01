@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-rdbms/src/oracle_reader.rs b/crates/sutura-catalog-rdbms/src/oracle_reader.rs
+index 6f0b61d54..9119887a2 100644
+--- a/crates/sutura-catalog-rdbms/src/oracle_reader.rs
++++ b/crates/sutura-catalog-rdbms/src/oracle_reader.rs
+@@ -169,7 +169,7 @@ fn assemble(
+     let mut assembly = Assembly::new(environment, bounds);
+     for row in rows {
+         let row = row?;
+-        assembly.admit(row.decoded_len())?;
++        assembly.admit(row.decoded_len()).or(Ok::<(), RdbmsError>(()))?;
+         assembly.push(row)?;
+     }
+     Ok(assembly.finish())
