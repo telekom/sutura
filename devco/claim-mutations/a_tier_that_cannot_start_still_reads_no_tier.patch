@@ -1,0 +1,14 @@
+diff --git a/xtask/src/causality/claim.rs b/xtask/src/causality/claim.rs
+index 8b53b7a19..aad0588b0 100644
+--- a/xtask/src/causality/claim.rs
++++ b/xtask/src/causality/claim.rs
+@@ -751,6 +751,9 @@ fn run_with_tier(root: &Path, scoped: &Scoped, test_files: &[String], claim: &Cl
+     let tier = KillTier::start(tier, &wt)
+         .inspect_err(|why| eprintln!("xtask {}: the kill worktree has no Postgres tier: {why}", caller.task))
+         .ok();
++    if tier.is_none() {
++        return Verdict::Fail;
++    }
+     let env = tier.as_ref().map_or(&[][..], KillTier::env);
+ 
+     // The range scope excludes tests sharing a file with implementation. A declared cell still

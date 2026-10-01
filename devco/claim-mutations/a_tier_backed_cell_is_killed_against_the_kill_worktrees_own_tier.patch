@@ -1,0 +1,14 @@
+diff --git a/xtask/src/causality/claim.rs b/xtask/src/causality/claim.rs
+index 8b53b7a19..832003ac6 100644
+--- a/xtask/src/causality/claim.rs
++++ b/xtask/src/causality/claim.rs
+@@ -776,8 +776,8 @@ fn run_with_tier(root: &Path, scoped: &Scoped, test_files: &[String], claim: &Cl
+         .iter()
+         .find_map(|cell| kill_cell(&wt, &target, kill_scope, cell, env).err());
+     // Stopped BEFORE the worktree goes: the tier finds its own state by the worktree's path.
+-    drop(tier);
+     worktree::remove_worktree(root, &wt);
++    drop(tier);
+     refused.map_or_else(
+         || report_accepted(declared, declared),
+         |cause| report_refused(&[cause], caller),
