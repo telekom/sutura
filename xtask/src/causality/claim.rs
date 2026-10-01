@@ -10,7 +10,7 @@
 //! the test to redden. That proof existed but this gate could not consume it.
 //!
 //! WHAT THE TRAILER IS AND IS NOT. `Claim-Cell: <test-fn-name>` in a commit message says *this
-//! added test pins behaviour that already exists, and the killing mutation for it lives at
+//! added or modified test pins behaviour that already exists, and the killing mutation for it lives at
 //! `devco/claim-mutations/<test-fn-name>.patch`*. It is **not** the permission: a trailer
 //! nothing checks is the gate that has quietly stopped gating, because anyone can bypass
 //! red-before-green by typing a word. So the trailer NARROWS what may pass and never disables the
@@ -55,10 +55,10 @@
 //! does not apply, touches a test line or test region, creates a file, or leaves the cell green is
 //! refused by name.
 //!
-//! **THE COST**: each mutated run pays the same ~68 s isolated rebuild every base/head run pays
-//! (the patch forces this workspace's own crates to recompile), so a declared diff costs `+N`
-//! runs per gate invocation. Stated, not hidden: this is the price of the evidence the arm is
-//! here to consume.
+//! **THE COST**: the first mutated run pays the isolated rebuild every base/head run pays; each
+//! later cell reuses the kill worktree's own artifacts (`super::isolation` skips the removal for
+//! the pair it just cleaned) and recompiles what its patch and the previous restore touched, plus
+//! their dependents - so a declared diff costs `+N` runs per gate invocation, not `+N` rebuilds.
 //!
 //! **WHAT AN ACCEPTED ARM DOES AND DOES NOT PROVE.** It proves each declared cell DIES under its
 //! compiled mutation - the assertion the cell carries really does fail when its subject is broken.
@@ -86,6 +86,7 @@ use crate::causality::scoped::Scoped;
 use crate::causality::worktree;
 
 mod kill;
+pub(super) mod undeclared;
 use kill::attest;
 #[cfg(test)]
 use kill::{MutationKill, classify_mutation};
@@ -196,7 +197,9 @@ impl Claim {
 /// One reason a declared claim cell is not one.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Cause {
-    /// The trailer names a test the diff did not ADD.
+    /// The trailer names a test its declaring commit neither ADDED nor MODIFIED - an added line
+    /// inside that test's own item or a same-file helper it calls (`super::edited`), never merely
+    /// its file.
     NotAdded(String),
     /// No mutation patch lives at `devco/claim-mutations/<cell>.patch`.
     MissingPatch(String),
@@ -234,6 +237,10 @@ pub(super) enum Cause {
     /// ran and the cell survived it, this is a build the gate never got a chance to run the cell
     /// against, so it is not a verdict about the declaration at all.
     BuildFailed { cell: String, why: String },
+    /// The cell ended at its service-tier lookup, so it never ran. The kill worktree is provisioned
+    /// no tier ON PURPOSE: sharing the root's would let a mutated fixture write state the root's own
+    /// run reads afterwards. So a re-run cannot change this answer, and the remedy says so.
+    NoTier { cell: String },
 }
 
 impl Cause {
@@ -246,7 +253,7 @@ impl Cause {
     /// is the same non-verdict shape as `Verdict::Inconclusive` elsewhere in this gate - a subject
     /// it did not reach, not a subject it read and rejected.
     const fn unmeasured(&self) -> bool {
-        matches!(self, Self::BuildFailed { .. })
+        matches!(self, Self::BuildFailed { .. } | Self::NoTier { .. })
     }
 }
 
@@ -551,6 +558,12 @@ fn validate(wt: &Path, claim: &Claim, test_files: &[String]) -> Vec<Cause> {
 
 /// The tests ONE commit's own diff added, including their executable locations.
 ///
+/// MODIFIED COUNTS AS ADDED HERE, and by the same scan rather than a second one: `Scan::of` also
+/// names a PRE-existing test whose own item - or a same-file `#[cfg(test)]` helper it calls - an
+/// added line lands inside (`super::edited`), so a commit that edits a test pinning base behaviour
+/// may declare it. A test merely sharing the edited file is not named, and a pure deletion is
+/// `super::weakens`', never a claim.
+///
 /// The single-commit diff numbers its `AddedLine`s in THAT commit's post-image, so they resolve
 /// against the commit's own tree, never HEAD's: a later commit in the range that shifts or deletes
 /// lines above the test would otherwise read it as absent, or name a test it did not add
@@ -792,7 +805,15 @@ fn refused_lines(causes: &[Cause], unmeasured: bool, caller: Caller) -> Vec<Stri
         format!("xtask {}: FAILED - a `{TRAILER}` declaration did not hold", caller.task)
     }];
     lines.extend(causes.iter().map(cause_line));
-    if unmeasured {
+    if unmeasured && causes.iter().all(|cause| matches!(cause, Cause::NoTier { .. })) {
+        lines.extend([
+            String::new(),
+            String::from("A tier-backed claim cell cannot be killed by this gate, and re-running changes"),
+            String::from("nothing: the kill worktree shares no service tier with the root. Prove it by hand -"),
+            String::from("apply the patch, run the cell against a provisioned tier, and put the red run in"),
+            String::from("the handoff."),
+        ]);
+    } else if unmeasured {
         lines.extend([
             String::new(),
             String::from("The gate could not attest either way: the nested build under the mutation never"),
@@ -810,7 +831,7 @@ fn refused_lines(causes: &[Cause], unmeasured: bool, caller: Caller) -> Vec<Stri
 fn cause_line(cause: &Cause) -> String {
     match cause {
         Cause::NotAdded(cell) => {
-            format!("  not added:   {cell}  (the trailer names it; the diff added no such test)")
+            format!("  not added:   {cell}  (the trailer names it; its commit added or modified no such test)")
         }
         Cause::MissingPatch(cell) => {
             format!("  no patch:    {MUTATIONS_DIR}/{cell}.patch  (a claim cell needs a killing mutation)")
@@ -839,6 +860,9 @@ fn cause_line(cause: &Cause) -> String {
         }
         Cause::NotKilled { cell } => {
             format!("  not killed:  {cell}  (applied, run, and the cell did not fail - the mutation does not kill it)")
+        }
+        Cause::NoTier { cell } => {
+            format!("  no tier:     {cell}  (it ended at its service-tier lookup - the kill worktree provisions none)")
         }
         Cause::BuildFailed { cell, why } => {
             format!(

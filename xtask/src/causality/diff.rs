@@ -138,6 +138,20 @@ fn parse_diff(text: &str) -> Vec<ChangedFile> {
             before = Some(String::from(rest));
             continue;
         }
+        // A `-diff` file - `Cargo.lock`, by `.gitattributes` - gets this line and no `+++` header,
+        // so it used to vanish from the diff, and from every build-input decision with it.
+        if let Some((old, new)) = (!in_hunk).then(|| binary_paths(line)).flatten() {
+            if let Some(done) = current.take() {
+                files.push(done);
+            }
+            current = Some(ChangedFile {
+                path: String::from(new),
+                before: String::from(old.strip_prefix("a/").unwrap_or(new)),
+                added: Vec::new(),
+                removed: Vec::new(),
+            });
+            continue;
+        }
         // Guarded by `in_hunk` for the same reason: an ADDED line spelling `++ b/x` arrives here
         // as `+++ b/x` and would otherwise open a file entry of its own.
         if let Some(rest) = (!in_hunk).then(|| line.strip_prefix("+++ b/")).flatten() {
@@ -192,6 +206,14 @@ fn parse_diff(text: &str) -> Vec<ChangedFile> {
     files
 }
 
+/// The old and new path of git's `Binary files <old> and b/<new> differ` line. `None` for a
+/// deletion (`and /dev/null`), which has no post-image - the same as a deleted text file.
+fn binary_paths(line: &str) -> Option<(&str, &str)> {
+    line.strip_prefix("Binary files ")?
+        .strip_suffix(" differ")?
+        .split_once(" and b/")
+}
+
 /// The old-side and new-side starting lines of a hunk header, `@@ -a,b +c,d @@`.
 ///
 /// BOTH, because a removed line and an added one are numbered in different images, and only the
@@ -208,6 +230,28 @@ fn hunk_bounds(line: &str) -> Option<(usize, usize)> {
 #[cfg(test)]
 mod tests {
     use super::parse_diff;
+
+    #[test]
+    fn a_lockfile_git_will_not_diff_is_still_a_changed_file() {
+        let files = parse_diff(concat!(
+            "diff --git a/Cargo.lock b/Cargo.lock\n",
+            "index 697ecff74..bd8768c62 100644\n",
+            "Binary files a/Cargo.lock and b/Cargo.lock differ\n",
+            "diff --git a/gone.png b/gone.png\n",
+            "Binary files a/gone.png and /dev/null differ\n",
+            "diff --git a/src/x.rs b/src/x.rs\n",
+            "--- a/src/x.rs\n",
+            "+++ b/src/x.rs\n",
+            "@@ -1 +1 @@\n",
+            "-a\n",
+            "+b\n",
+        ));
+        let shape: Vec<String> = files
+            .iter()
+            .map(|file| format!("{} <- {}: {} added", file.path, file.before, file.added.len()))
+            .collect();
+        assert_eq!(shape, ["Cargo.lock <- Cargo.lock: 0 added", "src/x.rs <- src/x.rs: 1 added"]);
+    }
 
     #[test]
     fn a_diff_carries_the_post_image_line_number_of_every_added_line() {

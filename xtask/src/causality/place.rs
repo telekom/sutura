@@ -40,7 +40,7 @@ use crate::causality::regions::{PostImage, item_head, module_name};
 use crate::changes::package_name;
 
 /// One test the diff added, as a key that identifies it in a run's output.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub(crate) struct AddedTest {
     /// The repository-relative path of the file that declares this test - carried so a claim
     /// cell's own assertion can be required to live in its OWN file, never a sibling's.
@@ -48,7 +48,19 @@ pub(crate) struct AddedTest {
     binary: Binary,
     within: Module,
     name: Ident,
+    gate: Option<String>,
+    /// Named through `super::edited` - an added line inside a test base already has - so a green
+    /// base run over it is a pin of base behaviour, never a move.
+    edited: bool,
 }
+
+impl PartialEq for AddedTest {
+    fn eq(&self, other: &Self) -> bool {
+        self.file == other.file && self.binary == other.binary && self.within == other.within && self.name == other.name
+    }
+}
+
+impl Eq for AddedTest {}
 
 impl AddedTest {
     /// The test `name` declares, in the file at `path`, as its tests land at `at`.
@@ -58,7 +70,27 @@ impl AddedTest {
             binary: at.binary.clone(),
             within: at.within.clone(),
             name,
+            gate: None,
+            edited: false,
         }
+    }
+
+    pub(super) const fn edited(mut self) -> Self {
+        self.edited = true;
+        self
+    }
+
+    pub(crate) const fn is_edited(&self) -> bool {
+        self.edited
+    }
+
+    pub(super) fn with_gate(mut self, gate: Option<String>) -> Self {
+        self.gate = gate;
+        self
+    }
+
+    pub(crate) fn gate(&self) -> Option<&str> {
+        self.gate.as_deref()
     }
 
     /// The function name, for a line a PERSON reads.

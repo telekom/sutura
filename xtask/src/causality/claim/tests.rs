@@ -422,13 +422,12 @@ fn a_cell_that_never_reached_its_tier_is_not_a_verdict_about_the_mutation() {
         "  This run requires a provisioned service tier, so an absent one is a failure rather than a\n",
         "error: test run failed\n",
     );
-    assert_eq!(
-        attest(false, tier_absent, "the_added_one", &cell(), &reader()),
-        Err(Cause::BuildFailed {
-            cell: String::from("the_added_one"),
-            why: String::from("the cell needs a service tier the kill worktree does not provision - it never ran"),
-        })
-    );
+    let causes = [attest(false, tier_absent, "the_added_one", &cell(), &reader()).expect_err("it never ran")];
+    assert_eq!(report_refused(&causes, Caller::TEST_CAUSALITY), Verdict::Inconclusive);
+    // A tier cell, not a build that "may recur": a re-run cannot give it a tier.
+    let lines = refused_lines(&causes, true, Caller::TEST_CAUSALITY).join("\n");
+    assert!(lines.contains("shares no service tier"), "{lines}");
+    assert!(!lines.contains("re-run it"), "{lines}");
 }
 
 // A run that PASSED survived the mutation, even when its text echoes the tier sentence: only the

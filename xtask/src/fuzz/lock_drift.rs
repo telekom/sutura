@@ -13,11 +13,13 @@
 //!
 //! **The cost: a one-lock Dependabot PR is refused.** `.github/dependabot.yml`'s `patch-level` and
 //! `arrow` groups have no `group-by`, and Dependabot opens a grouped update once per directory
-//! (its options reference, quoted there; no run observed), so each of the two PRs moves a shared
-//! crate in one lock only and this gate reds both. Land them as one: run the same `cargo update
-//! -p <name> --precise <version>` in the other directory on either PR. `group-by:
-//! dependency-name` would pair the directories, but splits a group into one PR per dependency -
-//! the grouping those two exist for.
+//! (its options reference, quoted there; no run observed), so each of the two PRs moves a crate
+//! in one lock only. This gate reds either one whenever it moves a crate both locks pin - usually
+//! so for the root PR, through the `sutura-*` path dependencies' closure, while `fuzz/` depends on
+//! few shared crates directly (`serde_json` is one). No Dependabot run is observed. Land them as
+//! one: run the same `cargo update -p <name> --precise <version>` in the other directory on either
+//! PR. `group-by: dependency-name` would pair the directories, but splits a group into one PR per
+//! dependency - the grouping those two exist for.
 //!
 //! **Not a hole: an absent root lock.** It reads as empty here, shares nothing and passes, but
 //! `check-boundaries`' `cargo metadata --locked` refuses it in the same hygiene sweep.

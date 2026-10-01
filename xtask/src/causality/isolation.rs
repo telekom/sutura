@@ -74,14 +74,19 @@
 //! `super::base::PerTestResults`, for the same reason: an invariant a caller has to remember is one
 //! the compiler is not holding.
 //!
-//! WHAT IT DOES NOT REACH. Cleaning is UNCONDITIONAL, on purpose: a marker recording which tree owns
-//! the directory would save one removal per retry and would make the invariant depend on a file this
-//! gate writes - and a stale marker is a silent false green, which is the class of defect this module
-//! is about. It is bounded to what cargo calls a workspace MEMBER at that one profile, so anything
-//! else in the directory - a build script's output for a third-party crate, another profile someone
-//! else built there - is outside it, which is why `super::remedies` still offers removing the
-//! directory as the last resort. Two runs of one tree still share artifacts, which is cargo's
-//! ordinary mtime path and is what the whole optimisation is for.
+//! WHAT IT DOES NOT REACH. The removal is skipped for exactly one shape: the previous call ON THIS
+//! THREAD cleaned the same `(dir, target)` pair and nothing has asked for another since - the claim
+//! arm's cell loop, one worktree and one target for every declared cell, which paid a full
+//! first-party rebuild per cell (a 33-cell run measured 2 h 40 m). No second tree is in play there,
+//! so it is cargo's ordinary mtime path: every patch and restore between two cells is a real write at
+//! "now". The record is a thread-local and dies with the process, never in a file, because a marker
+//! this gate writes can outlive the run that wrote it - and a stale marker is a silent false green,
+//! the class of defect this module is about. **The limit:** it trusts that every build into `target`
+//! goes through [`Isolated::of`]; a build from another tree that bypasses it between two calls is not
+//! seen. The removal is bounded to what cargo calls a workspace MEMBER at that one profile, so
+//! anything else in the directory - a build script's output for a third-party crate, another profile
+//! someone else built there - is outside it, which is why `super::remedies` still offers removing the
+//! directory as the last resort.
 //!
 //! AND AN `Ok` FROM A SUBPROCESS IS NOT EVIDENCE THAT ANYTHING WENT - `sutura/gates` states that
 //! rule for `file`, `echo` and `grep -c`, and a removal that silently removed nothing is the same
@@ -93,10 +98,28 @@
 //! summary line is the only place the count exists, and this reads it back from the very command
 //! that did the removal rather than asking a second one.
 
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::warm_start::WARM_PROFILE;
+
+/// A tree and the target directory it was cleaned in.
+type Pair = (PathBuf, PathBuf);
+
+thread_local! {
+    /// The pair the last successful removal on this thread cleaned, or `None` while a removal is in
+    /// flight or none has succeeded. Never persisted - see the header.
+    static LAST_CLEANED: RefCell<Option<Pair>> = const { RefCell::new(None) };
+}
+
+/// May the removal for `(dir, target)` be skipped, given the pair `last` cleaned?
+///
+/// BOTH halves or neither: a match on `dir` alone lets one tree's clean license another target, and
+/// a match on `target` alone is the aliasing hole itself - a second tree building into it.
+fn already_isolated(last: Option<&Pair>, dir: &Path, target: &Path) -> bool {
+    last.is_some_and(|(cleaned, into)| cleaned == dir && into == target)
+}
 
 /// Evidence that one target directory holds no first-party artifact built from another tree.
 ///
@@ -106,7 +129,7 @@ use crate::warm_start::WARM_PROFILE;
 /// the two together. A witness that names no directory, no tree and no profile cannot support a
 /// sentence about any of them - so it names all three and `super::runner::nextest` reads them out of
 /// it. `Isolated::of` is the only thing that returns one, and it returns one only after cargo has
-/// reported what it removed.
+/// reported what it removed, or after [`already_isolated`] found the pair cleaned by the call before.
 #[derive(Debug)]
 pub(crate) struct Isolated {
     /// The tree the removal resolved the workspace from, and the tree the run happens in.
@@ -115,13 +138,13 @@ pub(crate) struct Isolated {
     target: PathBuf,
     /// The profile they were removed at, and the profile the run builds at.
     profile: &'static str,
-    /// How many files cargo said it removed.
+    /// How many files cargo said it removed, or `None` when the removal was skipped.
     ///
     /// Read back from the removal's own summary line, because `status.success()` says the command
     /// ran and says nothing about whether it did anything - and the first version of this module
     /// removed nothing while exiting 0. A zero is legitimate on a directory nothing has built in,
-    /// so it is printed rather than refused.
-    removed: usize,
+    /// so it is printed rather than refused; a skip is printed as a skip, never as a zero.
+    removed: Option<usize>,
 }
 
 impl Isolated {
@@ -140,7 +163,19 @@ impl Isolated {
     /// A failure to clean is an ERROR rather than a warning, because the run that follows it is
     /// exactly the run whose verdict cannot be trusted. `super::runner::cargo_test` turns it into
     /// the run's own failure text, which is where every other subprocess failure in this gate goes.
+    ///
+    /// The record is cleared BEFORE the removal and set only after it succeeded, so a failed or
+    /// interrupted removal can never license the next call's skip.
     pub(crate) fn of(dir: &Path, target: &Path) -> Result<Self, String> {
+        if LAST_CLEANED.with_borrow(|last| already_isolated(last.as_ref(), dir, target)) {
+            return Ok(Self {
+                dir: dir.to_path_buf(),
+                target: target.to_path_buf(),
+                profile: WARM_PROFILE,
+                removed: None,
+            });
+        }
+        LAST_CLEANED.set(None);
         let removal = clean(dir, target)
             .output()
             .map_err(|e| format!("could not run cargo clean in {}: {e}", dir.display()))?;
@@ -153,11 +188,12 @@ impl Isolated {
                 said.trim()
             ));
         }
+        LAST_CLEANED.set(Some((dir.to_path_buf(), target.to_path_buf())));
         Ok(Self {
             dir: dir.to_path_buf(),
             target: target.to_path_buf(),
             profile: WARM_PROFILE,
-            removed: counted(&said).unwrap_or_default(),
+            removed: Some(counted(&said).unwrap_or_default()),
         })
     }
 
@@ -176,15 +212,6 @@ impl Isolated {
         self.profile
     }
 
-    /// What the removal said it removed, for the line the gate prints.
-    ///
-    /// A COUNT AND NOT A GUARANTEE: it is cargo's own number for the files it took out of this
-    /// directory at this profile. Zero on a cold directory is right; zero on a warm one is the tell
-    /// that this removal is not reaching what the run reuses, which is the defect that shipped.
-    pub(crate) const fn removed(&self) -> usize {
-        self.removed
-    }
-
     /// A witness for a test that reads a COMMAND rather than running one.
     ///
     /// `super::runner`'s wiring assertions build the nextest invocation and inspect its arguments;
@@ -198,7 +225,30 @@ impl Isolated {
             dir: dir.to_path_buf(),
             target: target.to_path_buf(),
             profile: WARM_PROFILE,
-            removed: 0,
+            removed: Some(0),
+        }
+    }
+}
+
+/// The line the gate prints for a witness: what the removal said it did.
+///
+/// A COUNT AND NOT A GUARANTEE: cargo's own number for the files it took out of this directory at
+/// this profile. Zero on a cold directory is right; zero on a warm one is the tell that the removal
+/// is not reaching what the run reuses, which is the defect that shipped.
+impl std::fmt::Display for Isolated {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.removed {
+            Some(count) => write!(
+                f,
+                "isolated: removed {count} first-party {} artifact(s) from {}",
+                self.profile,
+                self.target.display()
+            ),
+            None => write!(
+                f,
+                "isolated: {} was cleaned for this same tree by the previous run - removal skipped",
+                self.target.display()
+            ),
         }
     }
 }
@@ -269,9 +319,28 @@ fn removed_by_a_dry_run(dir: &Path, target: &Path) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
-    use super::{Isolated, WARM_PROFILE, clean, counted, removed_by_a_dry_run};
+    use super::{Isolated, WARM_PROFILE, already_isolated, clean, counted, removed_by_a_dry_run};
+
+    #[test]
+    fn only_the_pair_the_last_removal_cleaned_skips_the_next_one() {
+        let last = (PathBuf::from("/tmp/tree"), PathBuf::from("/tmp/target"));
+        assert!(already_isolated(
+            Some(&last),
+            Path::new("/tmp/tree"),
+            Path::new("/tmp/target")
+        ));
+        assert!(
+            !already_isolated(Some(&last), Path::new("/tmp/other"), Path::new("/tmp/target")),
+            "another tree building into the same target is the aliasing hole itself"
+        );
+        assert!(
+            !already_isolated(Some(&last), Path::new("/tmp/tree"), Path::new("/tmp/elsewhere")),
+            "a clean of one target says nothing about another"
+        );
+        assert!(!already_isolated(None, Path::new("/tmp/tree"), Path::new("/tmp/target")));
+    }
 
     #[test]
     fn the_removal_names_the_profile_the_gate_builds_at() {
@@ -321,6 +390,11 @@ mod tests {
         assert_eq!(one.dir(), Path::new("/tmp/tree"));
         assert_eq!(one.target(), Path::new("/tmp/target"));
         assert_eq!(one.profile(), WARM_PROFILE);
+        assert_eq!(
+            one.to_string(),
+            format!("isolated: removed 0 first-party {WARM_PROFILE} artifact(s) from /tmp/target"),
+            "a wiring witness is a removal of nothing, never a skip"
+        );
     }
 
     #[test]
@@ -370,6 +444,26 @@ mod tests {
         let witness = Isolated::of(&root, &target);
         let after = removed_by_a_dry_run(&root, &target);
         let dev_survived = target.join("debug").join("libm.rlib").is_file();
+
+        // The claim arm's cell loop: the same pair again, over a rebuild the skip must leave alone.
+        let build_ci = || {
+            std::process::Command::new("cargo")
+                .current_dir(&root)
+                .env("CARGO_TARGET_DIR", &target)
+                .args(["build", "--workspace", "--profile", WARM_PROFILE, "--quiet"])
+                .status()
+                .is_ok_and(|s| s.success())
+        };
+        let rebuilt = build_ci();
+        let again = Isolated::of(&root, &target);
+        let kept = removed_by_a_dry_run(&root, &target);
+        // A removal that FAILS in between must not leave the old record licensing a skip: the next
+        // call for the first pair removes for real.
+        let failed = Isolated::of(&root.join("absent"), &target).is_err();
+        // Nor may the failed pair record ITSELF: its own retry removes (and fails) again.
+        let failed_again = Isolated::of(&root.join("absent"), &target).is_err();
+        let rebuilt_again = build_ci();
+        let after_failure = Isolated::of(&root, &target).map(|isolated| isolated.removed);
         let _swept = std::fs::remove_dir_all(&root);
 
         assert!(witness.is_ok(), "the removal ran: {witness:?}");
@@ -379,5 +473,22 @@ mod tests {
         );
         assert_eq!(after, Some(0), "and they are gone");
         assert!(dev_survived, "the removal does not reach a profile no run here builds");
+        assert!(rebuilt && rebuilt_again, "the rebuilds between the calls succeeded");
+        assert_eq!(
+            again.as_ref().map(|isolated| isolated.removed),
+            Ok(None),
+            "the same pair right after is skipped"
+        );
+        assert!(
+            again.is_ok_and(|isolated| isolated.to_string().ends_with("- removal skipped")),
+            "and the skip is printed as a skip, never as a zero"
+        );
+        assert!(kept.is_some_and(|n| n > 0), "and the rebuild survived it: {kept:?}");
+        assert!(failed, "a directory that does not exist cannot be cleaned");
+        assert!(failed_again, "a failed removal records nothing, not even its own pair");
+        assert!(
+            after_failure.as_ref().is_ok_and(|removed| removed.is_some_and(|n| n > 0)),
+            "a failed removal in between forces a real one: {after_failure:?}"
+        );
     }
 }
