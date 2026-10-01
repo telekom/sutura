@@ -1,0 +1,13 @@
+diff --git a/xtask/src/causality/claim/tier.rs b/xtask/src/causality/claim/tier.rs
+index b386f1da1..a5457b23f 100644
+--- a/xtask/src/causality/claim/tier.rs
++++ b/xtask/src/causality/claim/tier.rs
+@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
+ use std::process::Command;
+ 
+ /// The nix-built tier `nix/postgres-tier.nix` packages, resolved on `PATH`.
+-pub(super) const POSTGRES: &str = "sutura-postgres-tier";
++pub(super) const POSTGRES: &str = "sutura-postgres-tier-absent";
+ 
+ /// One `NAME=value` the kill run is given.
+ type Var = (String, String);

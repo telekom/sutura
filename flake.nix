@@ -428,7 +428,7 @@
         # check POINTS AT, never the declaration.
         shipped = import ./nix/shipped.nix {
           inherit pkgs nixpkgs system crane rust-overlay craneLib commonArgs
-            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers;
+            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers;
           inherit (commonArgs) version;
         };
 
@@ -482,7 +482,7 @@
         # are the entries here that are NOT shipped artifacts - see `probeFeatures`.
         packages = crossPackages // shipped.ociImages // shipped.nativeBinaries
           // shipped.localImages // shipped.featurePackages // shipped.probeManifests
-          // shipped.allFeaturesProbes // {
+          // shipped.allFeaturesProbes // shipped.linkedDriversTests // {
           default = shipped.nativeBinaries.sutura;
 
           # The Pulumi CLI, as a package as well as an app, so `nix build .#pulumi` works from CI.
@@ -592,8 +592,8 @@
           # The self-built ADBC PostgreSQL driver: `adbc-driver-bigquery`'s gate, and its limit,
           # for the second driver - the four triples' `.so` and self-contained `.a` exist, against
           # a literal four. `nix/postgres-adbc.nix` also LINKS a probe against the archive, so a
-          # member missing from it fails the build; nothing loads or runs the driver, and no Rust
-          # code reads it yet.
+          # member missing from it fails the build. Loading and running it is
+          # `nix/shipped.nix`'s `linkedDriversTests`, which links `crates/sutura-adbc` against these.
           adbc-driver-postgresql = pkgs.runCommand "adbc-driver-postgresql-check" {
             buildInputs = builtins.attrValues postgresAdbcDrivers;
           } ''
@@ -1105,8 +1105,9 @@
         apps.causality = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-causality" ''
-            # The gate shells out to nextest, and its falsifier test runs the pinned jscpd.
-            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:${jscpd}/bin:$PATH"
+            # The gate shells out to nextest, its falsifier test runs the pinned jscpd, and the claim
+            # arm starts the kill worktree's own Postgres tier.
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:${jscpd}/bin:${postgresTier.tier}/bin:$PATH"
 
             ${cargoLinkEnv}
             # The warm start carries the baked-`OUT_DIR` sweep itself, for the whole of #346:

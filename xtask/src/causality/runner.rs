@@ -53,7 +53,7 @@ use super::isolation::Isolated;
 ///
 /// `--cargo-profile` and not `--profile`: nextest reserves `--profile` for its own profiles,
 /// and passing the cargo profile there would select a nextest profile that does not exist.
-pub(super) fn cargo_test(dir: &Path, target: &Path, only: &str, tree: Tree) -> (bool, String) {
+pub(super) fn cargo_test(dir: &Path, target: &Path, only: &str, tree: Tree<'_>) -> (bool, String) {
     // The removal comes FIRST and its failure is the run's failure: the run that would follow a
     // failed clean is exactly the one whose verdict cannot be trusted.
     let isolated = match Isolated::of(dir, target) {
@@ -76,14 +76,15 @@ pub(super) fn cargo_test(dir: &Path, target: &Path, only: &str, tree: Tree) -> (
 
 /// Which tree a run happens in - which is a question about SERVICES, not about sources.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Tree {
+pub(super) enum Tree<'a> {
     /// The repo root: the tree whose service tier something provisioned before invoking the gate.
     Provisioned,
     /// The base worktree under `target/`, which no provisioner has ever seen.
     Reconstructed,
-    /// The claim arm's kill worktree, also unprovisioned - but there a skip would pass as a
-    /// mutation the cell survived, so the requirement is FORCED and an absent tier fails loudly.
-    Mutated,
+    /// The claim arm's kill worktree, provisioned its OWN Postgres tier keyed on that worktree's
+    /// path (`claim::tier`), whose credential this carries - empty when it did not start. A skip there would pass as a mutation
+    /// the cell survived, so the requirement is FORCED and an absent tier fails loudly.
+    Mutated(&'a [(String, String)]),
 }
 
 /// The nextest invocation for one run.
@@ -116,8 +117,9 @@ pub(super) enum Tree {
 ///
 /// THE CLAIM ARM'S KILL RUN IS THE EXCEPTION, `Tree::Mutated`: there a skip reads as a mutation
 /// the cell survived, which is a false verdict rather than a false alarm. So the requirement is
-/// forced and `claim::kill::attest` reads the resulting tier failure as INCONCLUSIVE. A
-/// tier-backed claim cell is still not provable here; it is no longer misreported.
+/// forced, and the kill worktree starts its OWN Postgres tier and passes its credential here, so a
+/// Postgres-backed claim cell runs against it. Where that tier did not start - or the cell needs
+/// another tier - `claim::kill::attest` reads the tier failure as INCONCLUSIVE.
 ///
 /// `--no-fail-fast` IS AFFORDABLE ONLY BECAUSE THE RUN IS SCOPED, and it is what makes the verdict
 /// the same twice. Over the whole suite it would be a long bill for output nobody reads; over the
@@ -152,7 +154,7 @@ pub(super) enum Tree {
 /// `NEXTEST_RETRIES` and `NEXTEST_TEST_THREADS` perturb a run rather than killing it, so nothing
 /// measured here settles whether this should be an `env_clear` - which would also take
 /// `CARGO_TARGET_DIR` and the toolchain's own variables with it.
-pub(super) fn nextest(isolated: &Isolated, only: &str, tree: Tree) -> Command {
+pub(super) fn nextest(isolated: &Isolated, only: &str, tree: Tree<'_>) -> Command {
     let mut command = Command::new("cargo");
     command
         .current_dir(isolated.dir())
@@ -166,8 +168,10 @@ pub(super) fn nextest(isolated: &Isolated, only: &str, tree: Tree) -> Command {
         Tree::Reconstructed => {
             command.env_remove(sutura_dev::requirement::FORCE);
         }
-        Tree::Mutated => {
-            command.env(sutura_dev::requirement::FORCE, "1");
+        Tree::Mutated(tier) => {
+            command
+                .env(sutura_dev::requirement::FORCE, "1")
+                .envs(tier.iter().map(|(k, v)| (k, v)));
         }
     }
     command
@@ -304,7 +308,7 @@ mod tests {
             "the root keeps it: that is the tree whose endpoint was published"
         );
         assert!(
-            nextest(&isolated, "test(=t)", Tree::Mutated)
+            nextest(&isolated, "test(=t)", Tree::Mutated(&[]))
                 .get_envs()
                 .any(|(name, value)| name == requirement && value == Some(OsStr::new("1"))),
             "the kill worktree forces it, so a tier-gated cell cannot skip into a survived mutation"

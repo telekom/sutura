@@ -98,7 +98,8 @@
         { "name": "region_shout", "expression": "upper(region_code)", "type": "VARCHAR" }
       ],
       "timeDimensions": [
-        { "name": "order_date", "expression": "order_date", "type": "DATE" }
+        { "name": "order_date", "expression": "order_date", "type": "DATE" },
+        { "name": "shipped_on", "expression": "shipped_date", "type": "DATE" }
       ],
       "hierarchies": { "calendar": ["order_date"] }
     }

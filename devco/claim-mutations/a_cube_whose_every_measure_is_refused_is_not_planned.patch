@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-wren/src/convert.rs b/crates/sutura-catalog-wren/src/convert.rs
+--- a/crates/sutura-catalog-wren/src/convert.rs
++++ b/crates/sutura-catalog-wren/src/convert.rs
+@@ -414,7 +414,7 @@
+             }
+             measures.push(PlannedMeasure { name, computation });
+         }
+-        if !measures.is_empty() {
++        if !measures.is_empty() || true {
+             out.cubes.push(PlannedCube {
+                 name: cube_name,
+                 model: base_model.clone(),

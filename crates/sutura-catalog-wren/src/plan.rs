@@ -2,8 +2,8 @@
 //!
 //! Every name-shaped field here already parsed - a [`sutura_domain::model::ModelName`], not a `String`
 //! a render function might quote wrong - so [`super::render`] only has to spell YAML, never decide
-//! whether a name is one. The raw wren text fields (`table`, `data_type`, `cube`, `measure`) are
-//! written through unquoted as-is.
+//! whether a name is one. The raw wren text fields (`table`, `data_type`) are written through
+//! unquoted as-is.
 
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, MetricName, ModelName, RelationshipName};
 
@@ -49,19 +49,25 @@ pub(crate) struct PlannedRelationship {
     pub(crate) join_type: &'static str,
 }
 
-#[derive(Clone)]
 pub(crate) struct PlannedDimension {
     pub(crate) name: DimensionName,
     pub(crate) column: ColumnName,
 }
 
-pub(crate) struct PlannedMetric {
+/// One measure of a [`PlannedCube`], under its own name. Its `<cube>_<measure>` join already
+/// parsed and is unique in this import, so the loader's join cannot fail over it.
+pub(crate) struct PlannedMeasure {
+    pub(crate) name: MetricName,
+    pub(crate) computation: PlannedComputation,
+}
+
+/// A wren cube as one `kind: cube` document: the model, time column and dimensions its measures
+/// share. `convert_cubes` plans none whose every measure was refused: the loader refuses
+/// `measures: []`.
+pub(crate) struct PlannedCube {
     pub(crate) name: MetricName,
     pub(crate) model: ModelName,
-    pub(crate) computation: PlannedComputation,
     pub(crate) time_column: ColumnName,
     pub(crate) dimensions: Vec<PlannedDimension>,
-    /// The wren cube and measure this metric came from, for the document's own prose.
-    pub(crate) cube: String,
-    pub(crate) measure: String,
+    pub(crate) measures: Vec<PlannedMeasure>,
 }

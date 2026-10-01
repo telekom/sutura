@@ -186,11 +186,10 @@ changes is the cutover's decision, not this module's.
   (`57014`) reads as
   `AdbcPostgres::deadline_exceeded`, the same
   split `deadline.rs` draws.
-- **No linked-in driver.** `sutura-adbc` links exactly one archive under one `AdbcDriverInit`
-  symbol, and it is the `BigQuery` driver's - so a PostgreSQL transport that took
-  `sutura_adbc::linked_driver()` would open the wrong driver.
-  `MountedDriver` has no linked spelling, which is why this
-  transport takes it rather than a `DriverLocation`.
+- **No linked-in driver, yet.** `sutura_adbc::linked_postgres_driver()` opens the PostgreSQL
+  archive under its own init symbol, but only a test build links that archive (`nix/shipped.nix`'s
+  `linkedDriversTests`), so `MountedDriver` still has no linked
+  spelling and this transport takes it rather than a `DriverLocation`.
 
 # Limits
 
@@ -211,9 +210,9 @@ changes is the cutover's decision, not this module's.
 - **Only `execute`'s shape**: no `dry_run`, no raw statement, no boot-path call.
 - **Nothing on the two static musl triples.** A `MountedDriver`
   is always opened with `load_dynamic_from_filename`, which a static binary cannot do
-  (`sutura-adbc`'s `linked.rs`), so there this transport can only answer `AdbcError::Load` -
-  although `nix/postgres-adbc.nix` already builds the static archive. How musl gets a
-  PostgreSQL driver is not decided here.
+  (`sutura-adbc`'s `linked.rs`), so there this transport can only answer `AdbcError::Load`.
+  The static link itself is built and run in a musl test binary; a release carries it once a
+  shipped path constructs this transport.
 
 ### `enum AdbcError`
 

@@ -86,10 +86,12 @@ use crate::causality::scoped::Scoped;
 use crate::causality::worktree;
 
 mod kill;
+pub(super) mod tier;
 pub(super) mod undeclared;
 use kill::attest;
 #[cfg(test)]
 use kill::{MutationKill, classify_mutation};
+use tier::KillTier;
 
 /// The repository-relative directory every committed mutation patch lives in.
 pub(super) const MUTATIONS_DIR: &str = "devco/claim-mutations";
@@ -237,9 +239,10 @@ pub(super) enum Cause {
     /// ran and the cell survived it, this is a build the gate never got a chance to run the cell
     /// against, so it is not a verdict about the declaration at all.
     BuildFailed { cell: String, why: String },
-    /// The cell ended at its service-tier lookup, so it never ran. The kill worktree is provisioned
-    /// no tier ON PURPOSE: sharing the root's would let a mutated fixture write state the root's own
-    /// run reads afterwards. So a re-run cannot change this answer, and the remedy says so.
+    /// The cell ended at its service-tier lookup, so it never ran. The kill worktree starts its OWN
+    /// Postgres tier ([`tier`]), keyed on the kill worktree's path - not the root's, which a mutated
+    /// fixture could write state into that the root's own run reads afterwards - so this is that
+    /// tier failing to start, or a cell needing a tier it does not provision.
     NoTier { cell: String },
 }
 
@@ -624,7 +627,7 @@ fn commit_added_names(wt: &Path, commit: &str) -> Option<Vec<String>> {
 /// leftover mutation would leak into the next cell's run or into a later base run sharing the
 /// target. The isolation (`super::isolation::Isolated`) is what stops the mutated build reusing
 /// the unmutated one's artifacts, which is the same witness the base/head runs use.
-fn kill_cell(wt: &Path, target: &Path, scoped: &Scoped, cell: &str) -> Result<(), Cause> {
+fn kill_cell(wt: &Path, target: &Path, scoped: &Scoped, cell: &str, tier: &[(String, String)]) -> Result<(), Cause> {
     let Some(added) = scoped.tests().iter().find(|one| one.name() == cell) else {
         return Err(Cause::NotAdded(cell.to_owned()));
     };
@@ -650,7 +653,7 @@ fn kill_cell(wt: &Path, target: &Path, scoped: &Scoped, cell: &str) -> Result<()
     // The isolation clean runs INSIDE `cargo_test` on the same witness (dir, target, profile);
     // there is no second call here whose failure would read as a misleading "does not apply".
     let term = added.term();
-    let (ok, text) = cargo_test(wt, target, &term, Tree::Mutated);
+    let (ok, text) = cargo_test(wt, target, &term, Tree::Mutated(tier));
     // ATTEST BEFORE RESTORE: the region the panic site is judged against must be the cell's
     // post-mutation file, because a mixed-file patch shifts its own test region's line numbers -
     // reading the HEAD image would compare a mutated `panicked at <line>` against the wrong region.
@@ -723,8 +726,14 @@ impl Caller {
     };
 }
 
-/// Run the whole claim arm: create the worktree, validate, kill every cell, verdict.
+/// [`run_with_tier`] against the nix-built Postgres tier on `PATH`.
 pub(super) fn run(root: &Path, scoped: &Scoped, test_files: &[String], claim: &Claim, caller: Caller) -> Verdict {
+    run_with_tier(root, scoped, test_files, claim, caller, Path::new(tier::POSTGRES))
+}
+
+/// Run the whole claim arm: create the worktree, validate, start its own `tier` program, kill
+/// every cell, verdict.
+fn run_with_tier(root: &Path, scoped: &Scoped, test_files: &[String], claim: &Claim, caller: Caller, tier: &Path) -> Verdict {
     let target = root.join("target").join("causality-target");
     let wt = root.join("target").join("causality-claim-worktree");
     worktree::remove_worktree(root, &wt);
@@ -737,6 +746,12 @@ pub(super) fn run(root: &Path, scoped: &Scoped, test_files: &[String], claim: &C
         worktree::remove_worktree(root, &wt);
         return report_refused(&causes, caller);
     }
+    // A tier that does not start is not a defect in the declaration: its cells end at the lookup
+    // and read `NoTier`, which is INCONCLUSIVE.
+    let tier = KillTier::start(tier, &wt)
+        .inspect_err(|why| eprintln!("xtask {}: the kill worktree has no Postgres tier: {why}", caller.task))
+        .ok();
+    let env = tier.as_ref().map_or(&[][..], KillTier::env);
 
     // The range scope excludes tests sharing a file with implementation. A declared cell still
     // belongs to its own commit's added set, which `validate` checked above. The synthetic
@@ -756,18 +771,17 @@ pub(super) fn run(root: &Path, scoped: &Scoped, test_files: &[String], claim: &C
     });
     let kill_scope = commit_scope.as_ref().unwrap_or(scoped);
     let declared = claim.cells().len();
-    let mut killed = 0_usize;
-    for cell in claim.cells() {
-        match kill_cell(&wt, &target, kill_scope, cell) {
-            Ok(()) => killed += 1,
-            Err(cause) => {
-                worktree::remove_worktree(root, &wt);
-                return report_refused(&[cause], caller);
-            }
-        }
-    }
+    let refused = claim
+        .cells()
+        .iter()
+        .find_map(|cell| kill_cell(&wt, &target, kill_scope, cell, env).err());
+    // Stopped BEFORE the worktree goes: the tier finds its own state by the worktree's path.
+    drop(tier);
     worktree::remove_worktree(root, &wt);
-    report_accepted(declared, killed)
+    refused.map_or_else(
+        || report_accepted(declared, declared),
+        |cause| report_refused(&[cause], caller),
+    )
 }
 
 /// The arm refused: print every reason, then what the trailer does and does not do.
@@ -808,10 +822,10 @@ fn refused_lines(causes: &[Cause], unmeasured: bool, caller: Caller) -> Vec<Stri
     if unmeasured && causes.iter().all(|cause| matches!(cause, Cause::NoTier { .. })) {
         lines.extend([
             String::new(),
-            String::from("A tier-backed claim cell cannot be killed by this gate, and re-running changes"),
-            String::from("nothing: the kill worktree shares no service tier with the root. Prove it by hand -"),
-            String::from("apply the patch, run the cell against a provisioned tier, and put the red run in"),
-            String::from("the handoff."),
+            String::from("The kill worktree starts its own Postgres tier, and this cell never reached one:"),
+            String::from("that tier did not start (the reason is printed above), or the cell needs a tier"),
+            String::from("the kill worktree does not provision. Prove it by hand - apply the patch, run the"),
+            String::from("cell against a provisioned tier, and put the red run in the handoff."),
         ]);
     } else if unmeasured {
         lines.extend([
@@ -862,7 +876,9 @@ fn cause_line(cause: &Cause) -> String {
             format!("  not killed:  {cell}  (applied, run, and the cell did not fail - the mutation does not kill it)")
         }
         Cause::NoTier { cell } => {
-            format!("  no tier:     {cell}  (it ended at its service-tier lookup - the kill worktree provisions none)")
+            format!(
+                "  no tier:     {cell}  (it ended at its service-tier lookup - the kill worktree's own Postgres tier did not start, or it needs another)"
+            )
         }
         Cause::BuildFailed { cell, why } => {
             format!(
@@ -887,3 +903,5 @@ fn accepted_lines(declared: usize, killed: usize) -> Vec<String> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tier_tests;

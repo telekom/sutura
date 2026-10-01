@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-wren/src/convert.rs b/crates/sutura-catalog-wren/src/convert.rs
+--- a/crates/sutura-catalog-wren/src/convert.rs
++++ b/crates/sutura-catalog-wren/src/convert.rs
+@@ -398,7 +398,7 @@
+             // fails the whole catalog over either - so both are refused here, as this measure alone.
+             let Some((name, metric)) = parsed(
+                 MetricName::parse(&measure.name)
+-                    .and_then(|name| MetricName::parse(format!("{cube_name}_{name}")).map(|metric| (name, metric))),
++                    .map(|name| (name.clone(), name)),
+                 || full_name.clone(),
+                 &mut out.refusals,
+             ) else {

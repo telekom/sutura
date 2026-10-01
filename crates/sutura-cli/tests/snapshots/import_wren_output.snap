@@ -1,43 +1,32 @@
 ---
 source: crates/sutura-cli/tests/import_wren.rs
-assertion_line: 105
 expression: snapshot
 ---
-=== metrics/sales_summary_average_order_value.md ===
+=== metrics/sales_summary.md ===
 ---
-kind: metric
-name: sales_summary_average_order_value
+kind: cube
+name: sales_summary
 model: orders
-measure:
-  ratio:
-    numerator: { aggregate: sum, column: amount_cents }
-    denominator: { aggregate: count_distinct, column: customer_id }
-    zero_denominator: yields_null
 time_column: order_date
 grains: [day]
 dimensions:
   - name: status
     column: status
-audience: open
+measures:
+  - name: total_revenue
+    measure:
+      simple: { aggregate: sum, column: amount_cents }
+    audience: open
+  - name: average_order_value
+    measure:
+      ratio:
+        numerator: { aggregate: sum, column: amount_cents }
+        denominator: { aggregate: count_distinct, column: customer_id }
+        zero_denominator: yields_null
+    audience: open
 ---
 
-Imported from the WrenAI cube `sales_summary`'s measure `average_order_value`. The grain and the ratio's zero-denominator policy are this converter's own defaults - wren declares neither - and are the first two things to review before committing.
-=== metrics/sales_summary_total_revenue.md ===
----
-kind: metric
-name: sales_summary_total_revenue
-model: orders
-measure:
-  simple: { aggregate: sum, column: amount_cents }
-time_column: order_date
-grains: [day]
-dimensions:
-  - name: status
-    column: status
-audience: open
----
-
-Imported from the WrenAI cube `sales_summary`'s measure `total_revenue`. The grain and the ratio's zero-denominator policy are this converter's own defaults - wren declares neither - and are the first two things to review before committing.
+Imported from the WrenAI cube `sales_summary`. The grain and the ratio's zero-denominator policy are this converter's own defaults - wren declares neither - and are the first two things to review before committing.
 === models/customers.md ===
 ---
 kind: model
@@ -104,9 +93,10 @@ sutura import wren
 mapped
   models         2
   relationships  1
+  cubes          1
   metrics        2
 
-refused 10
+refused 11
   row_access_control           orders.regional_only           a row-level access control has no sutura equivalent
   calculated_column            orders.amount_dollars          a calculated column carries a SQL expression sutura's column metadata cannot hold
   column_access_control        orders.notes                   a column-level access control has no sutura equivalent
@@ -116,6 +106,7 @@ refused 10
   sql_view                     recent_orders_view             a wren view is a named SQL statement; conversion never parses foreign SQL
   cube_hierarchy               sales_summary: calendar        a cube hierarchy has no sutura equivalent
   free_sql_dimension           sales_summary.region_shout     the expression is not a bare column name
+  cube_extra_time_dimension    sales_summary.shipped_on       a metric has one `time_column`, and this cube's is `order_date`
   free_sql_measure             sales_summary.inflated_revenue the expression is not one of the closed-vocabulary shapes
 
 notes

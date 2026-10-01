@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-adbc/src/lib.rs b/crates/sutura-adbc/src/lib.rs
+index 70275f887..245e44881 100644
+--- a/crates/sutura-adbc/src/lib.rs
++++ b/crates/sutura-adbc/src/lib.rs
+@@ -83,9 +83,6 @@ pub fn linked_postgres_driver() -> Result<ManagedDriver, CoreError> {
+     }
+     #[cfg(not(adbc_postgres_driver_linked))]
+     {
+-        Err(CoreError::with_message_and_status(
+-            "this build linked no PostgreSQL ADBC driver",
+-            adbc_core::error::Status::NotFound,
+-        ))
++        linked_driver()
+     }
+ }

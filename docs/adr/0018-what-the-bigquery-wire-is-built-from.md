@@ -1528,3 +1528,43 @@ mechanism holds the sentences in this amendment**: that the `WARN` is the only s
 re-asks, and that readiness ignores it are properties of code that no gate reads as prose. A change
 that started re-asking, or that escalated the `WARN`, would leave this amendment wrong and green.
 Stated here rather than asserted as enforced.
+
+## Thirteenth amendment, 2026-10-01: OpenSSL on musl, statically, for the linked PostgreSQL driver
+
+**What moved.** This record once counted *pulls `openssl` into a workspace whose musl targets have
+no system OpenSSL* against a crate. The owner's `telekom/sutura#913` decision - link the PostgreSQL
+ADBC driver archive beside the `BigQuery` one so the static musl triples can run it - reverses that
+for one consumer: the archive needs libpq, and libpq's only TLS backend is OpenSSL. The owner's
+ruling was *"cant we use rusttls? and if not possible yes static openssl! ensure the nix/cachix
+caching works then it is not too painful"*.
+
+**Why not rustls, measured.** libpq 18.6, the pinned one, offers `ssl` = `none` or `openssl` and
+nothing else (`meson_options.txt`; `configure.ac` errors on any other `--with-ssl`).
+`rustls-openssl-compat` reimplements libssl only - its README says libcrypto *"is still
+required"* - and libpq calls 59 libcrypto symbols beside its 41 libssl ones (SCRAM included). Its
+entry list covers all 41, three as no-op stubs (`SSL_CTX_set_default_passwd_cb` among them, which an
+encrypted client key needs), it builds only as a `cdylib` a static binary cannot load, and it calls
+itself experimental. So it would replace half of OpenSSL with a patched shim, not remove it.
+
+**What is linked.** `nix/postgres-adbc.nix` builds the archive with
+`ADBC_DEFINE_COMMON_ENTRYPOINTS=OFF`, so it defines one ADBC name, `AdbcDriverPostgresqlInit`:
+upstream's default also defines the whole C API, 55 names the `BigQuery` Go archive defines too
+(`nm`, x86_64-musl). On a musl triple it also ships the static link set: libpq, libpgcommon,
+libpgport and OpenSSL 3's libssl/libcrypto - no symbol shared between any of them and the Go
+archive, measured. `crates/sutura-adbc` links it under `cfg(adbc_postgres_driver_linked)` and
+declares both drivers' own init symbols, so the shared `AdbcDriverInit` is called by nothing.
+
+**What it costs, as limits.** **OpenSSL 3 (libssl and libcrypto) ships in every musl release**, as a
+second TLS and crypto stack beside rustls, and its CVE cadence is a flake bump of `nixpkgs`. That is
+the owner's 2026-10-01 decision on `telekom/sutura#913` (issuecomment-5931110864): ship it now, in
+two stages with no opt-in key - stage 1 compiles the ADBC transport into the shipped `postgres`
+feature with the declared transport posture enforced, stage 2 makes it the default for every
+PostgreSQL source after a real-driver run on a musl triple. This amendment's change is the stage
+before both: `nix/shipped.nix`'s `linkedDriversTests` builds and runs both drivers in one static
+x86_64-musl test binary, and the published artefacts of this change still link only the `BigQuery`
+archive. That test reaches libpq's connect path and no server, so no TLS handshake through the
+static OpenSSL is observed. The linked libpq is built without GSSAPI and without libcurl, so the
+linked driver offers neither Kerberos nor OAuth sign-in - a mounted driver library keeps both.
+
+**Caching.** The static libpq and OpenSSL are build inputs of `checks.adbc-driver-postgresql`, which
+`.github/workflows/cachix-push.yml`'s `push` job already realises, so they publish with the driver.
