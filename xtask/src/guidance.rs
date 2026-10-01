@@ -51,9 +51,9 @@
 //!
 //! **Every listed file is read once, by [`inspect_listing`]**, and every check handed its `read`
 //! judges those bytes, so a listed file that vanished or cannot be opened refuses the gate rather
-//! than dropping out of the scan while the verdict still counts it. What that does NOT cover, next
-//! to the claim: `absence_problems` still opens listed files itself, strictly as UTF-8, and pushes
-//! a finding for each one it cannot read, so it fails closed outside the census. A file the listing never
+//! than dropping out of the scan while the verdict still counts it. `absence_problems` reads through
+//! the same census-held bytes `read` provides rather than opening listed files itself, so a file in
+//! scope the census refused is a failure before any check reads it. A file the listing never
 //! offered - `remedy_problems`' evidence, `recipe_names`' justfile, `leg_two_citable`'s claims
 //! matrix - is read from disk and is not held at all.
 
@@ -425,7 +425,7 @@ fn tree_problems(
     // `problems.extend(refuted)` in `run` with a discard left 1023 tests green and printed a verdict
     // byte-identical to a clean run over a planted refutation. The CALL was covered by nothing,
     // exactly as `page_problems`' was.
-    let (refuted, absence_read) = absence_problems(root, files);
+    let (refuted, absence_read) = absence_problems(read, files);
     problems.extend(refuted);
     // The Markdown half, and the only check here that judges a page's SHAPE rather than a sentence
     // in it: `text_files` again, because a page is where an ordinal and a table are written.
