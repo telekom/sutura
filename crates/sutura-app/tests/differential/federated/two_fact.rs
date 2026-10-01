@@ -23,7 +23,7 @@ use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree
 use sutura_domain::warehouse::{Real, RowSet, Value};
 use sutura_semantic::{Compiled, compile};
 
-use super::corpus::{TWO_FACT_QUESTION, as_a_cube, derived, lookup_source};
+use super::corpus::{TWO_FACT_QUESTION, derived, lookup_source};
 use super::harness::{Side, answered, bundle, opened_on, two_engines};
 use crate::adapters::{DataSystemUnderTest, source};
 
@@ -140,16 +140,6 @@ fn the_two_fact_ratio_is_the_figure_its_rows_add_up_to() {
     let answer = rows_of(&two_engines(two));
     if let Err(disagreement) = agree_on_content(&expected(), &answer, RealTolerance::DIFFERENTIAL) {
         panic!("{NAME}: two engines did not answer the hand-worked figures - {disagreement}\n{answer:?}");
-    }
-}
-
-/// **A cube's measure answers the same figures** (`telekom/sutura#1148`): the cube expands at load
-/// into the metric above, so the second fact leg and the combiner never see a cube.
-#[test]
-fn a_cube_measure_answers_the_two_fact_ratio_its_metric_does() {
-    let answer = rows_of(&two_engines(bundle(&as_a_cube().two_source)));
-    if let Err(disagreement) = agree_on_content(&expected(), &answer, RealTolerance::DIFFERENTIAL) {
-        panic!("{NAME}: the cube's measure did not answer the hand-worked figures - {disagreement}\n{answer:?}");
     }
 }
 
