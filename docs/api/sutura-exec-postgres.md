@@ -156,6 +156,162 @@ it was handed whenever nothing was set. There is no unconfigured state to substi
 
 `Debug`, `Warehouse`
 
+## Module `adbc`
+
+The ADBC transport for PostgreSQL, the second adapter on `sutura-adbc` (`telekom/sutura#913`).
+
+One certified statement through the self-built driver (`nix/postgres-adbc.nix`), its Arrow
+batches handed on as the port's `ResultBatches` with
+no per-cell walk of this crate's own.
+
+**Default-off, and wired to nothing.** No composition root constructs
+`AdbcPostgres` and no `Warehouse` method reaches it: the
+`tokio-postgres` path in `lib.rs` still answers every Postgres source. Whether and when that
+changes is the cutover's decision, not this module's.
+
+# What holds what
+
+- **Caller text reaches the driver only through `execute`.** The pinned driver
+  (`apache-arrow-adbc-24`) sends a parameterless `execute_update` through `PQexec`, the simple
+  protocol, which runs every statement of a multi-statement string; `execute` asks for a result
+  stream and goes through `PQprepare`, where the server refuses a second statement at `Parse`.
+  So `LocalTimeout::apply` is the one `execute_update` in this module, its text is a fixed
+  literal and a `NonZeroU32`, and `clippy.toml` bans every other call
+  in the workspace - except one written inside an existing `disallowed_methods` expectation's
+  scope, which that expectation covers too (the ban's own entry states it).
+- **The per-request deadline is `SET LOCAL statement_timeout`** in the transaction the driver
+  opens when autocommit is switched off, clamped to the same connect-time ceiling the
+  `tokio-postgres` path uses, and always rolled back. A statement the server cancelled for it
+  (`57014`) reads as
+  `AdbcPostgres::deadline_exceeded`, the same
+  split `deadline.rs` draws.
+- **No linked-in driver.** `sutura-adbc` links exactly one archive under one `AdbcDriverInit`
+  symbol, and it is the `BigQuery` driver's - so a PostgreSQL transport that took
+  `sutura_adbc::linked_driver()` would open the wrong driver.
+  `MountedDriver` has no linked spelling, which is why this
+  transport takes it rather than a `DriverLocation`.
+
+# Limits
+
+- **`NUMERIC` drifts.** The driver maps `NUMERIC` to Arrow `Utf8` by OID whatever the scale, so
+  `SELECT 1::numeric` is `Value::Text("1")` here and `Value::Integer(1)` on the `tokio-postgres`
+  path; a fractional value is the same text on both. The cell
+  `a_scale_zero_numeric_is_text_here_where_the_tokio_postgres_path_reads_an_integer` pins the
+  pair. The parity of every other type with `lib.rs`'s `cell` is unmeasured.
+- **No run against a real driver.** Every cell here is a fake connection. The server refusing a
+  multi-statement string at `Parse`, the driver carrying `57014` in `sqlstate`, its `NUMERIC`
+  mapping, its bind types and its `BEGIN` on autocommit-off are read off the driver's source,
+  not observed.
+- **Loading and connecting are outside the deadline**: the driver is loaded and a connection
+  opened per call, and only the statement runs under `SET LOCAL`.
+- **The channel is whatever the URI says.** libpq reads `sslmode` and friends from it; the
+  declared `SourceTransport` a composition root turns into a `rustls::ClientConfig` for the
+  `tokio-postgres` path is not applied here.
+- **Only `execute`'s shape**: no `dry_run`, no raw statement, no boot-path call.
+- **Nothing on the two static musl triples.** A `MountedDriver`
+  is always opened with `load_dynamic_from_filename`, which a static binary cannot do
+  (`sutura-adbc`'s `linked.rs`), so there this transport can only answer `AdbcError::Load` -
+  although `nix/postgres-adbc.nix` already builds the static archive. How musl gets a
+  PostgreSQL driver is not decided here.
+
+### `enum AdbcError`
+
+```rust
+pub enum AdbcError
+```
+
+Why this transport could not answer.
+
+#### Variants
+
+- `Load`
+- `Adbc`
+- `Batch`
+- `Unannounced`
+- `Parameters`
+- `DeadlineSpent` - Spent before anything was sent - refused locally, the `tokio-postgres` path's `DeadlineSpent`.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `struct MountedDriver`
+
+```rust
+pub struct MountedDriver
+```
+
+A driver this deployment mounted, at an absolute path - and never the linked-in route.
+
+Parsed by `sutura_adbc::DriverLocation::parse`, so an empty or relative path is refused exactly
+as it is for every ADBC adapter; kept as a path because the only other thing a `DriverLocation`
+can be is the `BigQuery` archive this module's header describes.
+
+#### Methods
+
+```rust
+pub fn parse(named: &str) -> Result<Self, UnusableDriverPath>
+```
+
+Parses a mounted driver's path.
+
+# Errors
+
+`UnusableDriverPath` for an empty or relative path. Whether a driver is there is the
+load's question, asked by the first call.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `struct AdbcPostgres`
+
+```rust
+pub struct AdbcPostgres
+```
+
+A PostgreSQL source reached through its ADBC driver.
+
+#### Methods
+
+```rust
+pub fn deadline_exceeded(error: &AdbcError) -> bool
+```
+
+Whether `error` is the deadline: spent before sending, or the server's `57014`.
+
+`57014` is also what a manual `pg_cancel_backend` produces, which this cannot tell apart -
+`deadline.rs`'s limit, unchanged.
+
+```rust
+pub fn execute(&self, query: &GeneratedQuery, deadline: Deadline) -> Result<ResultBatches, AdbcError>
+```
+
+Runs one rendered statement and hands its batches on.
+
+# Errors
+
+`AdbcError`; `Self::deadline_exceeded` says which of them is the deadline.
+
+```rust
+pub fn new(driver: MountedDriver, uri: Secret) -> Result<Self, PostgresError>
+```
+
+Takes the driver and the libpq URI it connects with.
+
+Reads the connect-time ceiling the `tokio-postgres` path reads
+(`SUTURA_DEV_STATEMENT_TIMEOUT_MS`).
+
+# Errors
+
+`PostgresError::InvalidStatementTimeout` where that tuning value is not a millisecond count.
+
+#### Implements
+
+`Debug`
+
+### `use UnusableDriverPath`
+
 ## Module `connection`
 
 The driver configuration for one declared PostgreSQL connection.
