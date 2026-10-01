@@ -30,13 +30,21 @@ fail() {
 
 # `--check` validates and stops; `--up-only` brings the profile up and leaves it running; the default
 # is the full lifecycle: print the URL, supervise, and remove the demo's own resources on exit.
+# `--mcp` (`just demo-mcp`) serves `/mcp` behind the nix Keycloak tier instead of the OpenAPI route.
+# An argument rather than an environment switch, so a stray export cannot turn `just demo` into it.
 mode=full
+surface=openapi
+if [ "${1:-}" = --mcp ]; then
+    surface=mcp
+    shift
+fi
 case "${1:-}" in
     --check) mode=check ;;
     --up-only) mode=up-only ;;
     "") ;;
     *) fail "unknown argument: $1 - just demo takes none, and the profile-only form is just dev-up-demo" ;;
 esac
+export SUTURA_DEMO_SURFACE="$surface"
 
 # ---------------------------------------------------------------- configuration ---
 #
@@ -186,12 +194,45 @@ if [ "$mode" = full ]; then
     trap cleanup EXIT
 fi
 
+# ------------------------------------------------------------------ issuer ---
+#
+# `--mcp` only: the nix Keycloak tier is the issuer, and the chat client's MCP connection presents a
+# token it minted. The server inside the container never reaches the tier - it verifies against the
+# key set handed to it here - which is why the tier's `https://127.0.0.1` issuer works from a
+# container whose loopback is its own. The tier is stopped on exit only if THIS run started it.
+if [ "$surface" = mcp ]; then
+    tier_running=0
+    nix run .#keycloak-tier -- status >/dev/null 2>&1 || tier_running=$?
+    if [ "$mode" = full ] && [ "$tier_running" = 1 ]; then
+        trap 'cleanup; nix run .#keycloak-tier -- stop || true' EXIT
+    fi
+    printf 'demo: starting the keycloak tier\n' >&2
+    nix run .#keycloak-tier -- start >&2
+    minted="$(python3 examples/demo-chatinterface/keycloak_token.py .sutura-dev/keycloak-realm.json)" \
+        || fail "the keycloak tier did not mint a token for the MCP connection"
+    {
+        read -r issuer
+        read -r resource
+        read -r mcp_token
+        read -r key_set
+    } <<<"$minted"
+    [ -n "${key_set:-}" ] || fail "the keycloak tier's answer was incomplete"
+    export SUTURA_DEMO_MCP_ISSUER="$issuer"
+    export SUTURA_DEMO_MCP_RESOURCE="$resource"
+    export SUTURA_DEMO_MCP_TOKEN="$mcp_token"
+    export SUTURA_DEMO_MCP_KEY_SET="$key_set"
+fi
+
 printf 'demo: starting the demo profile\n' >&2
 cargo run -q -p xtask -- dev-up --only demo
 
 # ------------------------------------------------------------------- run ---
 endpoint_hostport="$(just dev-endpoint demo)"
 printf '\ndemo: open http://%s in a browser\n' "$endpoint_hostport"
+if [ "$surface" = mcp ]; then
+    printf 'demo: /mcp verifies a keycloak-tier token; the MCP connection holds one that expires with\n'
+    printf 'demo: the realm access-token lifespan - run just demo-mcp again for a fresh one\n'
+fi
 printf 'demo: the tool server is REGISTERED but NOT selected - in the chat input open Integrations,\n'
 printf 'demo: choose Tools, and turn on sutura before asking a question (docs/demo.md has the steps)\n'
 

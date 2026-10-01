@@ -101,6 +101,36 @@ only render it. Repeating the question does not change the answer.
 Some models answer from their own knowledge instead of calling a tool. That is the client being
 ungoverned: if it did not call `ask_metric`, no certified number was involved.
 
+## Over MCP, behind a real issuer
+
+`just demo-mcp` is the same demo with the chat client on Open WebUI's native **MCP** connection
+instead of OpenAPI, and the server's `/mcp` mounted behind inbound verification against the nix
+Keycloak tier (`just keycloak-tier`). It takes the same four variables and adds, in order:
+
+1. It starts the Keycloak tier - and stops it on exit if this run started it.
+2. `examples/demo-chatinterface/keycloak_token.py` asks the realm for an access token as its first
+   subject, over the tier's own CA, and fetches the realm's key set. Nothing it reads is printed.
+3. The container's deployment declares `security.inbound` in `direct` mode over that issuer, its
+   audience and that key set, with no deployment token; the MCP connection presents the minted token.
+4. Readiness requires `/mcp` to refuse a call that carries no token with `401`, on every probe, and
+   to initialize and list tools for the minted token once.
+
+The server never contacts the issuer: it verifies against the key set it was handed, which is why
+the tier's loopback `https://` issuer works from inside a container whose loopback is its own.
+
+Its limits, beside the claims:
+
+- **The token expires and nothing refreshes it.** It lives for the realm's access-token lifespan
+  (Keycloak's default is five minutes); after that the MCP connection is refused. Run
+  `just demo-mcp` again for a fresh one. Readiness latched its token check and stays healthy.
+- **One subject, chosen by the launcher.** The chat client does not log in; every chat presents the
+  same subject's token. It shows a real issuer's token verified on `/mcp`, not a person signing in.
+- **Still a single shared source identity.** The verified caller does not change who reads the
+  example - this is not source impersonation, and this demo is not a venue
+  [where identity is proven](where-identity-is-proven.md) records.
+- **The token travels in the container's environment**, the way the model key does, so anyone who
+  can inspect the container can read it until it expires.
+
 ## Stop it
 
 Ctrl-C removes the demo's container and its named volume. `examples/demo-chatinterface/start.sh` runs the

@@ -874,3 +874,8 @@ demo-check:
 # The local chat demo: the sutura server and a chat client over `examples/single-player`.
 demo:
     bash examples/demo-chatinterface/start.sh
+
+# The same demo over `/mcp` instead of OpenAPI, verified against the nix Keycloak tier as issuer: the
+# chat client's MCP connection presents a token the tier minted. Not a gate, for `demo`'s reason.
+demo-mcp:
+    bash examples/demo-chatinterface/start.sh --mcp

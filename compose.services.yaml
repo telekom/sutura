@@ -599,6 +599,14 @@ services:
       # The operator's own sentence for why one identity reading one example is correct, which
       # `security.single_user_because` carries into the deployment.
       - SUTURA_DEMO_ACKNOWLEDGE
+      # `openapi` for `just demo`, `mcp` for `just demo-mcp` - `examples/demo-chatinterface/start.sh`
+      # always sets it - and, for `mcp` only, what it read from the Keycloak tier: the issuer, its
+      # audience, its key set and the token the chat client's MCP connection presents.
+      - SUTURA_DEMO_SURFACE
+      - SUTURA_DEMO_MCP_ISSUER
+      - SUTURA_DEMO_MCP_RESOURCE
+      - SUTURA_DEMO_MCP_KEY_SET
+      - SUTURA_DEMO_MCP_TOKEN
     ports:
       - target: 8080
         host_ip: 127.0.0.1
