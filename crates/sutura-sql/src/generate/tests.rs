@@ -612,3 +612,19 @@ fn a_numbered_statement_that_reuses_one_parameter_for_a_guarded_ratio_is_accepte
         "a Numbered statement reusing $1 for one parameter must be accepted, got {result:?}"
     );
 }
+
+/// Pins the upstream half `generate` relies on: polyglot's own Oracle generator config renders a
+/// limited `Select` as `FETCH FIRST n ROWS ONLY` (`ORA-03049` refuses `LIMIT`). Red on a release
+/// whose generator ignores `limit_fetch_style` (`tobilg/polyglot#480`).
+#[test]
+fn polyglot_renders_an_oracle_limit_as_fetch_first() {
+    let ast = builder::select(vec![builder::col("amount")]).from("orders").limit(7).build();
+    let config = polyglot_sql::dialects::Dialect::get(polyglot_sql::DialectType::Oracle)
+        .generator_config()
+        .clone();
+    let sql = polyglot_sql::Generator::with_config(config)
+        .generate(&ast)
+        .expect("a limited select renders for Oracle");
+    assert!(sql.ends_with("FETCH FIRST 7 ROWS ONLY"), "Oracle takes FETCH FIRST:\n{sql}");
+    assert!(!sql.contains("LIMIT"), "Oracle refuses LIMIT:\n{sql}");
+}

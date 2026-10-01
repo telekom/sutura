@@ -291,6 +291,13 @@ pub enum InconsistentDefinitions {
     /// legs, so the definition could never be answered; refused at declaration rather than when asked.
     #[error("metric {metric} is a cross-model ratio with a {aggregate} term, which cannot be re-aggregated across two facts")]
     CrossModelTermDoesNotReaggregate { metric: MetricName, aggregate: Aggregate },
+    /// A cross-model ratio declaring an anchor (`telekom/sutura#780`, `docs/adr/0002`'s fourth
+    /// amendment). The boot check executes an anchor as one statement over the metric's own model,
+    /// and a cross-model ratio is two fact statements combined above the port, so no anchor on one
+    /// is certified. Refused at load, naming the metric, rather than failing the boot check for the
+    /// whole bundle.
+    #[error("metric {metric} declares an anchor, which is not certified on a cross-model ratio")]
+    AnchorOnCrossModelRatio { metric: MetricName },
 }
 
 impl Definitions {
@@ -491,9 +498,9 @@ impl Definitions {
         }
     }
 
-    /// `telekom/sutura#780`'s load checks for a cross-model ratio: every term has a value over no
-    /// rows, and the shared calendar is one each fact can join. Split from [`Self::check_metric`] to
-    /// keep that function under the CRAP threshold.
+    /// `telekom/sutura#780`'s load checks for a cross-model ratio: it declares no anchor, every term
+    /// has a value over no rows, and the shared calendar is one each fact can join. Split from
+    /// [`Self::check_metric`] to keep that function under the CRAP threshold.
     fn check_cross_model(
         models: &BTreeMap<ModelName, Model>,
         relationships: &BTreeMap<RelationshipName, Relationship>,
@@ -508,6 +515,11 @@ impl Definitions {
         if let Some(measure) = metric.computation.measure()
             && measure.models().into_iter().flatten().any(|named| named != &metric.model)
         {
+            if metric.anchor.is_some() {
+                return Err(InconsistentDefinitions::AnchorOnCrossModelRatio {
+                    metric: metric.name.clone(),
+                });
+            }
             for term in measure.terms() {
                 if let Term::Aggregate(inner) = term {
                     Self::check_cross_model_aggregate(metric, inner.aggregate())?;
