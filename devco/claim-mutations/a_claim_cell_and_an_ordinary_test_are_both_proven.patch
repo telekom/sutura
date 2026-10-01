@@ -1,0 +1,12 @@
+diff --git a/xtask/src/causality/gas_tests.rs b/xtask/src/causality/gas_tests.rs
+index 94efbfc5b..b9546546b 100644
+--- a/xtask/src/causality/gas_tests.rs
++++ b/xtask/src/causality/gas_tests.rs
+@@ -267,7 +267,6 @@ fn composite(beside: &str) -> Verdict {
+     // Both `f` and `g` live in lib.rs so an integration test can `use wired::{f, g}`.
+     std::fs::write(dir.join("src/lib.rs"), "pub fn f() -> u8 { 1 }\npub fn g() -> u8 { 1 }\n").unwrap();
+     std::fs::create_dir_all(dir.join("devco/claim-mutations")).unwrap();
+-    std::fs::write(dir.join("devco/claim-mutations/the_claimed_one.patch"), &patch).unwrap();
+     // `repo::root` requires flake.nix ALONGSIDE Cargo.toml to stop its walk (see the wiring
+     // test's note).
+     std::fs::write(dir.join("flake.nix"), "{ }\n").unwrap();
