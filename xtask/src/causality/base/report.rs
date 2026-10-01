@@ -334,9 +334,10 @@ pub(crate) fn tail(text: &str, n: usize) -> String {
 mod tests {
     use super::{BaseOutcome, Coverage, Moved, Reverted, Verdict, earned, missing_module_file, report_base, state_the_gap, tail};
     use crate::causality::base::classify_base;
+    use crate::causality::diff::ChangedFile;
     use crate::causality::fixtures::{changed, manifest, named, scoped, tree};
     use crate::causality::place::AddedTest;
-    use crate::causality::scoped::Scan;
+    use crate::causality::scoped::{Scan, Scoped};
 
     /// The classifier over a scope whose every test is new here and a revert that reaches them -
     /// the same wrapper `super::tests` uses, duplicated because a submodule's own tests read
@@ -492,17 +493,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_partial_base_run_names_an_attached_cfg_as_the_missing_tests_cause() {
+    /// `state_the_gap` for the scope `files` names in `source`, over a base run in which only `ran` ran.
+    fn gap_over(source: &str, files: &[ChangedFile]) -> (Scoped, String) {
         let path = "pa/src/lib.rs";
-        let source = concat!(
-            "#[test]\nfn ran() {}\n",
-            "#[cfg(not(feature = \"rdbms\"))]\n#[test]\nfn omitted() {}\n",
-        );
-        let files = vec![changed(path, 1, &source.lines().collect::<Vec<_>>())];
         let read = tree(&[(path, source), ("pa/Cargo.toml", &manifest("pa"))]);
-        let Scan::Runnable(scope) = Scan::of(&files, &[String::from(path)], &read) else {
-            panic!("both test names must reach the scope");
+        let Scan::Runnable(scope) = Scan::of(files, &[String::from(path)], &read) else {
+            panic!("the test names must reach the scope");
         };
         let coverage = Coverage::Measured {
             measured: 2,
@@ -525,9 +521,41 @@ mod tests {
             scope.tests(),
             &moved,
         );
+        (scope, stated)
+    }
+
+    /// The gate is named, never the generic "may be cfg-gated" sentence.
+    fn names_the_gate(stated: &str) {
         assert!(stated.contains("not run at base: omitted in pa/src/lib.rs"), "{stated}");
         assert!(stated.contains("#[cfg(not(feature = \"rdbms\"))]"), "{stated}");
         assert!(!stated.contains("a cfg gate or module move may explain it"), "{stated}");
+    }
+
+    #[test]
+    fn a_partial_base_run_names_an_attached_cfg_as_the_missing_tests_cause() {
+        let source = concat!(
+            "#[test]\nfn ran() {}\n",
+            "#[cfg(not(feature = \"rdbms\"))]\n#[test]\nfn omitted() {}\n",
+        );
+        let (_, stated) = gap_over(source, &[changed("pa/src/lib.rs", 1, &source.lines().collect::<Vec<_>>())]);
+        names_the_gate(&stated);
+    }
+
+    /// The EDITED route carries the gate too: both tests existed, and only a line inside each is new.
+    #[test]
+    fn an_edited_cfg_gated_test_missing_at_base_names_its_gate() {
+        let source = concat!(
+            "#[test]\nfn ran() {\n    let _kept = 0;\n}\n",
+            "#[cfg(not(feature = \"rdbms\"))]\n#[test]\nfn omitted() {\n    let _kept = 1;\n}\n",
+        );
+        let mut file = changed("pa/src/lib.rs", 3, &["    let _kept = 0;"]);
+        file.added.extend(changed("pa/src/lib.rs", 8, &["    let _kept = 1;"]).added);
+        let (scope, stated) = gap_over(source, &[file]);
+        assert!(
+            scope.tests().iter().all(AddedTest::is_edited),
+            "named through `super::edited`"
+        );
+        names_the_gate(&stated);
     }
 
     #[test]
