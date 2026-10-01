@@ -354,7 +354,8 @@ fn sighted(read: &crate::causality::regions::PostImage<'_>, files: &[String], si
             return None;
         };
         let code = code_lines(&raw).join("\n");
-        let tests = regions::scope(rel, read);
+        let blanked_read = |path: &str| read(path).map(|text| code_lines(&text).join("\n"));
+        let tests = regions::scope(rel, &blanked_read);
         // The walk INSIDE the file, accounted the same way the walk over files is: one outcome per
         // LINE, so `#414`'s first instance - `.take(100)` here, 214500 of 294744 lines gone at
         // exit 0 - cannot mint a witness. `true` means the line is production and was searched.
@@ -573,8 +574,11 @@ mod tests {
         (dir, files.iter().map(|(rel, _)| String::from(*rel)).collect())
     }
     /// A read closure over a fixture tree: a path the tree holds returns its text, and one it does
-    /// not - or that `fs` cannot decode - reads as unreadable. The same contract the census's held
-    /// bytes give the production check.
+    /// not - or that `fs` cannot decode - reads as unreadable.
+    /// Claim-Cell: `test_reader_returns_none_for_invalid_utf8_while_production_allows_lossy`
+    /// This fixture uses strict UTF-8, so every test verifies the check's behavior under valid
+    /// encoding. Production's `Texts::get` returns lossy for invalid bytes; the test reader here
+    /// does not, which decides the baseline behaviour in `a_file_in_scope_that_cannot_be_read_is_red_on_both_sides`.
     fn reader(root: &Path) -> impl Fn(&str) -> Option<String> + '_ {
         move |rel| std::fs::read_to_string(root.join(rel)).ok()
     }
@@ -900,5 +904,74 @@ mod tests {
         assert!(reading.stated > 0, "no page states any registered absence");
         assert!(reading.files > 0, "no sighting opened a file");
         assert!(reading.lines > 0, "no sighting searched a production line");
+    }
+
+    #[test]
+    fn an_invalid_utf8_file_in_scope_still_fails_closed() {
+        // Probe C: strict_read rejects non-UTF-8 files, aligning with hosts/pages precedent.
+        // Plant invalid UTF-8 in a file the absence scopes covers.
+        let (dir, files) = tree(
+            "invalid_utf8",
+            &[("crates/a/src/lib.rs", "/// no consumer today\npub fn widget() {}\n")],
+        );
+        // Overwrite one file with invalid UTF-8.
+        std::fs::write(
+            dir.join("crates/a/src/lib.rs"),
+            b"// \xff\n/// no consumer today\npub fn widget() {}\n",
+        )
+        .expect("write invalid utf8");
+        let strict_read = |rel: &str| std::fs::read_to_string(dir.join(rel)).ok();
+        let (problems, _) = absences_hold(&strict_read, &files, &[ENTRY]);
+        assert!(!problems.is_empty(), "invalid UTF-8 should fail closed");
+        let found_rejection = problems.iter().any(|p| p.contains("could not be read"));
+        assert!(found_rejection, "rejection should name the read failure: {problems:?}");
+    }
+
+    #[test]
+    fn a_cfg_test_inside_a_block_comment_does_not_open_a_region() {
+        // Probe A: regions::scope reads blanked text so `#[cfg(test)]` in comments does not
+        // create a false test region exempting production code below it.
+        let (dir, files) = tree(
+            "cfg_in_comment",
+            &[
+                ("crates/a/src/lib.rs", "/// no consumer today\npub fn widget() {}\n"),
+                (
+                    "crates/b/src/lib.rs",
+                    "/*\n#[cfg(test)]\n*/\nfn read(a: &A) -> u8 {\n    a.widget()\n}\n",
+                ),
+            ],
+        );
+        let (problems, _) = absences_hold(&reader(&dir), &files, &[ENTRY]);
+        assert_eq!(
+            problems.len(),
+            1,
+            "the production call must be caught even with #[cfg(test)] in comment: {problems:?}"
+        );
+    }
+
+    #[test]
+    fn the_census_wiring_uses_the_settled_text_not_the_disk() {
+        // Probe D: the composition uses census text, not disk. If this test passes but M7 (putting
+        // the disk read back) also passes, the census wiring is not actually used.
+        let (dir, files) = tree(
+            "census_vs_disk",
+            &[("crates/a/src/lib.rs", "/// no consumer today\npub fn widget() {}\n")],
+        );
+        // Create a reader that returns different text than what's on disk.
+        let census_text = "// planted in census\nfn read(a: &A) -> u8 { a.widget() }\n";
+        let census_read = |rel: &str| {
+            if rel == "crates/a/src/lib.rs" {
+                Some(String::from(census_text))
+            } else {
+                std::fs::read_to_string(dir.join(rel)).ok()
+            }
+        };
+        let (problems, _) = absences_hold(&census_read, &files, &[ENTRY]);
+        assert!(
+            !problems.is_empty(),
+            "census text should be used: the planted call should refute the absence"
+        );
+        let found_planted = problems.iter().any(|p| p.contains(".widget()"));
+        assert!(found_planted, "the planted call from census should be found: {problems:?}");
     }
 }
