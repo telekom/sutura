@@ -1110,12 +1110,14 @@ calls in the same file (`edited_helper_caller`) - never merely a test in a chang
 deletion is `Weakens-Test:`'s. It is the added-test path itself, held through `causality::run` by
 `gas_tests`' four edited-assertion cells on the tests-only arm (no claim refused, no patch refused,
 a non-killing patch refused, claim plus killing patch accepted). Undeclared, a modified test green
-on base REFUSES on the tests-only and the separable arm: `AddedTest::is_edited` keeps it out of
-`provenance::Moved`, so it is a pin, never a move
-(`a_modified_test_green_on_base_beside_an_implementation_change_is_refused`). In an INSEPARABLE file
-it gets the same non-verdict pass an added test does - no base run exists there to redden either.
-The gate resolves each cell to a committed mutation at `devco/claim-mutations/<test-fn-name>.patch`,
-applies it in the isolated causality
+on base REFUSES on the tests-only arm, and on the separable arm when no other scoped test is red on
+base: `AddedTest::is_edited` keeps it out of `provenance::Moved`, so it is a pin, never a move
+(`a_modified_test_green_on_base_beside_an_implementation_change_is_refused`). Two limits, for added
+and modified tests alike. The base check is per RUN, not per test: `classify_base` answers
+`RedByAssertion` once ANY scoped test failed, so a pin beside one test that is genuinely red on base
+passes `ok`. And in an INSEPARABLE file either gets the same non-verdict pass - no base run exists
+there to redden it. The gate resolves each cell to a committed mutation at
+`devco/claim-mutations/<test-fn-name>.patch`, applies it in the isolated causality
 target, runs the named cell, and requires it to FAIL *naming that cell* by its OWN ASSERTION - the
 mutation kills it. The composite half of #954: the reverse direction - an added test no declaration
 names - is NOT the claim arm's to refuse; it lands the ordinary base/head proof, so a branch that
