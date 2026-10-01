@@ -589,6 +589,50 @@ Sales over the order fact.
         assert_ne!(cube.digest(), reworded.digest());
     }
 
+    /// A second fact and a calendar both facts reach: what a cross-model ratio needs to load.
+    const TWO_FACTS: [(&str, &str); 5] = [
+        ("orders.md", MODEL),
+        (
+            "invoices.md",
+            "---\nkind: model\nname: invoices\nsource: local\ntable: fct_invoice\ncolumns: [invoice_key, order_date]\n---\nOne row per invoice.\n",
+        ),
+        (
+            "calendar.md",
+            "---\nkind: model\nname: calendar\nsource: local\ntable: dim_calendar\ncolumns: [order_date]\nprimary_key: [order_date]\n---\nOne row per day.\n",
+        ),
+        (
+            "order_calendar.md",
+            "---\nkind: relationship\nname: order_calendar\norigin: { model: orders, column: order_date }\ntarget: { model: calendar, column: order_date }\njoin_type: many_to_one\n---\nThe first fact's hop.\n",
+        ),
+        (
+            "invoice_calendar.md",
+            "---\nkind: relationship\nname: invoice_calendar\norigin: { model: invoices, column: order_date }\ntarget: { model: calendar, column: order_date }\njoin_type: many_to_one\n---\nThe second fact's hop.\n",
+        ),
+    ];
+
+    const RATIO_CUBE: &str = "---\nkind: cube\nname: sales\nmodel: orders\ntime_column: order_date\ngrains: [month]\nmeasures:\n  - name: per_invoice\n    measure:\n      ratio:\n        numerator: { aggregate: sum, column: amount_cents }\n        denominator: { aggregate: count, column: invoice_key, model: invoices }\n        zero_denominator: yields_null\n    shared_calendar: calendar\n    audience: open\n---\nRevenue per invoice.\n";
+    const FLAT_RATIO: &str = "---\nkind: metric\nname: sales_per_invoice\nmodel: orders\nmeasure:\n  ratio:\n    numerator: { aggregate: sum, column: amount_cents }\n    denominator: { aggregate: count, column: invoice_key, model: invoices }\n    zero_denominator: yields_null\ntime_column: order_date\ngrains: [month]\nshared_calendar: calendar\naudience: open\n---\nRevenue per invoice.\n";
+
+    fn two_facts_and(case: &str, file: &str, document: &str) -> PinnedDefinitions {
+        let mut documents = TWO_FACTS.to_vec();
+        documents.push((file, document));
+        pinned(case, &documents)
+    }
+
+    #[test]
+    fn a_cube_s_cross_model_ratio_pins_its_hand_written_metric_s_digest() {
+        let cube = two_facts_and("cube-ratio", "sales.md", RATIO_CUBE);
+        let flat = two_facts_and("cube-ratio-flat", "ratio.md", FLAT_RATIO);
+        assert_eq!(cube.digest(), flat.digest());
+        // The twin: the digest sees the calendar, so a cube dropping it could not pass as equal.
+        let uncalendared = two_facts_and(
+            "cube-ratio-uncalendared",
+            "ratio.md",
+            &FLAT_RATIO.replace("shared_calendar: calendar\n", ""),
+        );
+        assert_ne!(cube.digest(), uncalendared.digest());
+    }
+
     #[test]
     fn a_measure_declaring_dimensions_of_its_own_is_refused() {
         let cube = CUBE.replace(

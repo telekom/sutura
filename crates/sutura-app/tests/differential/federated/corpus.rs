@@ -459,6 +459,19 @@ pub(crate) fn with_null_keys() -> &'static Derived {
 /// rather than merely a larger equal pair.
 pub(crate) const NULL_DIMENSION_KEYS: (&str, &str) = ("dim_customer.csv", ",C9001,consumer,south\n,C9002,consumer,south\n");
 
+/// **The same corpus with `tickets_per_subscription` written as a cube's one measure**
+/// (`telekom/sutura#1148`): cube `tickets`, measure `per_subscription`, which expand to that name.
+pub(crate) fn as_a_cube() -> &'static Derived {
+    static ONCE: OnceLock<Derived> = OnceLock::new();
+    ONCE.get_or_init(|| {
+        let derived = derive_into("federated-differential-cube");
+        write(&derived.two_source.join("metrics/tickets_per_subscription.md"), TWO_FACT_CUBE);
+        derived
+    })
+}
+
+const TWO_FACT_CUBE: &str = "---\nkind: cube\nname: tickets\nmodel: subscriptions\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\nmeasures:\n  - name: per_subscription\n    measure:\n      ratio:\n        numerator: { aggregate: sum, column: tickets, model: tickets }\n        denominator: { aggregate: count, column: subscription_key }\n        zero_denominator: yields_null\n    shared_calendar: calendar\n    audience: open\n---\nSupport tickets opened per subscription-month, declared as a cube's measure.\n";
+
 /// One data directory and two catalogs over it, derived under `stem`.
 ///
 /// Per PROCESS because the runner gives each test its own: two processes deriving into one
