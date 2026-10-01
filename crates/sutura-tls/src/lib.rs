@@ -170,9 +170,9 @@ pub enum LoadError {
     /// The declared client certificate parsed to no certificate, or the key to no key.
     #[error("the client identity pair is incomplete: expected a certificate and a key, and found {what} at {path}")]
     IdentityIncomplete { path: String, what: &'static str },
-    /// The client key was not an RSA/EC key this build can present.
-    #[error("the client private key at {path} is not a private key this build can present")]
-    IdentityKey { path: String, what: &'static str },
+    /// The client key file held no readable plaintext PEM private-key section.
+    #[error("the client key at {path} holds no readable `PRIVATE KEY`, `RSA PRIVATE KEY` or `EC PRIVATE KEY` PEM section")]
+    IdentityKey { path: String },
 }
 
 /// Loads the declared trust anchors as raw certificate DER, refusing an empty or unreadable store.
@@ -411,7 +411,6 @@ fn load_private_key(path: &Path) -> Result<PrivateKeyDer<'static>, LoadError> {
     })?;
     PrivateKeyDer::from_pem_slice(&bytes).map_err(|_cause| LoadError::IdentityKey {
         path: path.display().to_string(),
-        what: "not a private key this build can present",
     })
 }
 
@@ -588,6 +587,23 @@ mod tests {
         std::fs::write(&bad_key, "not a private key\n").expect("a bad key writes");
         let identity = Identity::new(certificate, bad_key);
         assert!(matches!(load_identity(&identity), Err(LoadError::IdentityKey { .. })));
+    }
+
+    #[test]
+    fn a_refused_identity_key_names_the_pem_sections_it_reads() {
+        let scratch = Scratch::new("bad-key-formats");
+        let (certificate, _) = scratch.pair("client");
+        let bad_key = scratch.directory.join("key.pem");
+        std::fs::write(&bad_key, "not a private key\n").expect("a bad key writes");
+        let expected = format!(
+            "the client key at {} holds no readable `PRIVATE KEY`, `RSA PRIVATE KEY` or `EC PRIVATE KEY` PEM section",
+            bad_key.display()
+        );
+        let identity = Identity::new(certificate, bad_key);
+        let Err(error) = load_identity(&identity) else {
+            panic!("a non-key file is refused");
+        };
+        assert_eq!(error.to_string(), expected);
     }
 
     /// `pem` repeated whole, then `#` filler, to exactly `size` bytes; the filler is not PEM.

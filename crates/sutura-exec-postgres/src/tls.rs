@@ -22,7 +22,9 @@
 //! * a `system` store that cannot be read completely or contains no usable roots
 //!   ([`PostgresError::SystemStoreRead`], [`PostgresError::SystemStoreEmpty`]);
 //! * an identity half that cannot be read ([`PostgresError::IdentityRead`]) or parses to the wrong
-//!   kind ([`PostgresError::IdentityIncomplete`], [`PostgresError::IdentityKey`]).
+//!   kind ([`PostgresError::IdentityIncomplete`], [`PostgresError::IdentityKey`]);
+//! * a certificate and key rustls will not present together ([`PostgresError::IdentityRefused`],
+//!   which names no path: the pair is already loaded by then).
 //!
 //! An untrusted-issuer chain is not refused HERE: verification is the handshake's job, and a
 //! `ClientConfig` built over the declared roots is exactly the thing that refuses it. The
@@ -111,7 +113,8 @@ impl TlsIdentity {
 /// `SystemStoreRead`/`SystemStoreEmpty` for a host store that cannot supply a complete non-empty
 /// root set; `AnchorsRead` for a bundle that cannot be read; `AnchorsEmpty` for a bundle that parses
 /// to no certificates; `IdentityRead`/`IdentityIncomplete`/`IdentityKey` for an identity half that
-/// cannot be read or does not hold its kind.
+/// cannot be read or does not hold its kind; `IdentityRefused` for a key that does not load or does
+/// not match its certificate.
 pub fn client_config(anchors: &TlsAnchors, identity: Option<&TlsIdentity>) -> Result<rustls::ClientConfig, PostgresError> {
     let loaded = sutura_tls::load_anchors(&resolved_anchors(anchors)).map_err(convert_load_error)?;
     let identity_loaded = identity
@@ -156,10 +159,7 @@ fn from_loaded(
             let (chain, key) = loaded.into_parts();
             builder
                 .with_client_auth_cert(chain, key)
-                .map_err(|_cause| PostgresError::IdentityKey {
-                    path: String::new(),
-                    what: "not a private key this build can present",
-                })
+                .map_err(|cause| PostgresError::IdentityRefused { cause })
         }
     }
 }
@@ -225,7 +225,7 @@ fn convert_load_error(cause: sutura_tls::LoadError) -> PostgresError {
         sutura_tls::LoadError::SystemStoreEmpty => PostgresError::SystemStoreEmpty,
         sutura_tls::LoadError::IdentityRead { path, cause } => PostgresError::IdentityRead { path, cause },
         sutura_tls::LoadError::IdentityIncomplete { path, what } => PostgresError::IdentityIncomplete { path, what },
-        sutura_tls::LoadError::IdentityKey { path, what } => PostgresError::IdentityKey { path, what },
+        sutura_tls::LoadError::IdentityKey { path } => PostgresError::IdentityKey { path },
     }
 }
 
@@ -368,6 +368,21 @@ mod tests {
         assert!(matches!(
             client_config(&TlsAnchors::Bundle(anchors), Some(&identity)),
             Err(PostgresError::IdentityKey { .. })
+        ));
+    }
+
+    #[test]
+    fn a_key_that_does_not_match_its_certificate_is_refused_as_identity_refused() {
+        let scratch = Scratch::new("mismatched-pair");
+        let anchors = scratch.cert("root");
+        let (certificate, _) = scratch.pair("a");
+        let (_, key) = scratch.pair("b");
+        let identity = TlsIdentity { certificate, key };
+        assert!(matches!(
+            client_config(&TlsAnchors::Bundle(anchors), Some(&identity)),
+            Err(PostgresError::IdentityRefused {
+                cause: rustls::Error::InconsistentKeys(rustls::InconsistentKeys::KeyMismatch)
+            })
         ));
     }
 

@@ -75,7 +75,8 @@ Why this data system could not answer.
 - `AnchorsEmpty` - The declared trust anchors parsed to no certificates.
 - `IdentityRead` - The declared client identity could not be read.
 - `IdentityIncomplete` - The declared client certificate parsed to no certificate, or the key to no key.
-- `IdentityKey` - The client key was not an RSA/EC key this build can present.
+- `IdentityKey` - The client key file held no readable plaintext PEM private-key section.
+- `IdentityRefused` - rustls refused the loaded certificate and key as one identity: the `ring` provider could not load the key, or the key does not match the certificate. The cause says which.
 - `SystemStoreRead` - The explicitly selected host trust store could not be read completely.
 - `SystemStoreEmpty` - The explicitly selected host trust store held no roots.
 - `SystemStoreCertificate` - A certificate returned by the host trust-store reader was not a usable root.
@@ -535,7 +536,9 @@ a TLS implementation can answer - and each refusal is fail-closed and names the 
 * a `system` store that cannot be read completely or contains no usable roots
   (`PostgresError::SystemStoreRead`, `PostgresError::SystemStoreEmpty`);
 * an identity half that cannot be read (`PostgresError::IdentityRead`) or parses to the wrong
-  kind (`PostgresError::IdentityIncomplete`, `PostgresError::IdentityKey`).
+  kind (`PostgresError::IdentityIncomplete`, `PostgresError::IdentityKey`);
+* a certificate and key rustls will not present together (`PostgresError::IdentityRefused`,
+  which names no path: the pair is already loaded by then).
 
 An untrusted-issuer chain is not refused HERE: verification is the handshake's job, and a
 `ClientConfig` built over the declared roots is exactly the thing that refuses it. The
@@ -626,7 +629,8 @@ with, from the resolved anchor material and an optional client identity.
 `SystemStoreRead`/`SystemStoreEmpty` for a host store that cannot supply a complete non-empty
 root set; `AnchorsRead` for a bundle that cannot be read; `AnchorsEmpty` for a bundle that parses
 to no certificates; `IdentityRead`/`IdentityIncomplete`/`IdentityKey` for an identity half that
-cannot be read or does not hold its kind.
+cannot be read or does not hold its kind; `IdentityRefused` for a key that does not load or does
+not match its certificate.
 
 ### `fn rotating_client_config`
 

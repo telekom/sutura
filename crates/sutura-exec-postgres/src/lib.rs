@@ -213,9 +213,16 @@ pub enum PostgresError {
     /// The declared client certificate parsed to no certificate, or the key to no key.
     #[error("the client identity pair is incomplete: expected a certificate and a key, and found {what} at {path}")]
     IdentityIncomplete { path: String, what: &'static str },
-    /// The client key was not an RSA/EC key this build can present.
-    #[error("the client private key at {path} is not a private key this build can present")]
-    IdentityKey { path: String, what: &'static str },
+    /// The client key file held no readable plaintext PEM private-key section.
+    #[error("the client key at {path} holds no readable `PRIVATE KEY`, `RSA PRIVATE KEY` or `EC PRIVATE KEY` PEM section")]
+    IdentityKey { path: String },
+    /// rustls refused the loaded certificate and key as one identity: the `ring` provider could not
+    /// load the key, or the key does not match the certificate. The cause says which.
+    #[error("the client certificate and key could not be combined into one identity this build can present")]
+    IdentityRefused {
+        #[source]
+        cause: rustls::Error,
+    },
     /// The explicitly selected host trust store could not be read completely.
     #[error("the host trust store reported {errors} errors while it was read")]
     SystemStoreRead {

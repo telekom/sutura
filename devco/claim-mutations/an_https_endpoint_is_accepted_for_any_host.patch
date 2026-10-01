@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-http-client/src/endpoint.rs b/crates/sutura-http-client/src/endpoint.rs
+--- a/crates/sutura-http-client/src/endpoint.rs
++++ b/crates/sutura-http-client/src/endpoint.rs
+@@ -95,7 +95,7 @@ impl Endpoint {
+         if !root_only {
+             return Err(InvalidEndpoint::PathBeyondRoot { given: raw.to_owned() });
+         }
+-        if scheme == "http" {
++        if scheme == "http" || authority.host().trim_start_matches('[').trim_end_matches(']').parse::<std::net::IpAddr>().is_ok() {
+             // `Authority::host` already resolves past any userinfo (to the text after the LAST
+             // `@`), and keeps IPv6 brackets - stripped here because `host_is_loopback` parses an
+             // `IpAddr`, which does not accept them.

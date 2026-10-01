@@ -204,6 +204,22 @@ mod tests {
         std::fs::write(&path, body).expect("a document is writable");
         let text = super::read_document(&root, &path, 0).expect("an in-budget regular file reads");
         assert_eq!(text, body);
+        // The name promises "within the budget" but `total_bytes = 0` never stresses it: drive the
+        // aggregate bound with a running total near the cap so the remaining budget is the thing
+        // that decides, not the file's own size.
+        let near = root.join("near.yaml");
+        std::fs::write(&near, "12345").expect("a document is writable");
+        let err =
+            super::read_document(&root, &near, MAX_CATALOG_BYTES - 4).expect_err("a 5-byte body at 4 bytes of headroom refuses");
+        assert!(
+            matches!(err, ReadError::TooLarge { found, limit, .. } if found == MAX_CATALOG_BYTES + 1 && limit == MAX_CATALOG_BYTES),
+            "{err:?}"
+        );
+        let exact = root.join("exact.yaml");
+        std::fs::write(&exact, "1234").expect("a document is writable");
+        let text =
+            super::read_document(&root, &exact, MAX_CATALOG_BYTES - 4).expect("a 4-byte body at 4 bytes of headroom still reads");
+        assert_eq!(text, "1234");
         drop(std::fs::remove_dir_all(&root));
     }
 
@@ -216,7 +232,10 @@ mod tests {
         let path = root.join("doc.yaml");
         std::fs::write(&path, &bytes).expect("a document is writable");
         let err = super::read_document(&root, &path, 0).expect_err("an oversized file refuses");
-        assert!(matches!(err, ReadError::TooLarge { .. }), "{err:?}");
+        assert!(
+            matches!(err, ReadError::TooLarge { found, limit, .. } if found == MAX_CATALOG_BYTES + 1 && limit == MAX_CATALOG_BYTES),
+            "{err:?}"
+        );
         drop(std::fs::remove_dir_all(&root));
     }
 
@@ -229,7 +248,10 @@ mod tests {
         std::fs::write(&path, body).expect("a document is writable");
         let err =
             super::read_document(&root, &path, MAX_CATALOG_BYTES).expect_err("a file after the budget is exhausted refuses");
-        assert!(matches!(err, ReadError::TooLarge { .. }), "{err:?}");
+        assert!(
+            matches!(err, ReadError::TooLarge { found, limit, .. } if found == MAX_CATALOG_BYTES + 4 && limit == MAX_CATALOG_BYTES),
+            "{err:?}"
+        );
         drop(std::fs::remove_dir_all(&root));
     }
 

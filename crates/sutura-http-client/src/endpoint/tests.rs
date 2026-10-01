@@ -44,10 +44,27 @@ fn a_plaintext_endpoint_to_an_ip_loopback_literal_is_accepted() {
 
 #[test]
 fn an_https_endpoint_is_accepted_for_any_host() {
-    assert_eq!(
-        Endpoint::parse("https://catalog.example.internal").map(|e| e.as_str().to_owned()),
-        Ok(String::from("https://catalog.example.internal"))
-    );
+    // "any host" is the universal property this cell names, so it is witnessed across the
+    // host shapes a regression could split on: a dotted name, a non-loopback IPv4 literal and a
+    // non-loopback bracketed IPv6 literal, each with and without an explicit port. A guard that
+    // applied the plaintext loopback rule to any of them over https would refuse it here.
+    for (given, stored) in [
+        ("https://catalog.example.internal", "https://catalog.example.internal"),
+        (
+            "https://catalog.example.internal:8443",
+            "https://catalog.example.internal:8443",
+        ),
+        ("https://10.0.0.5", "https://10.0.0.5"),
+        ("https://10.0.0.5:8443", "https://10.0.0.5:8443"),
+        ("https://[2001:db8::1]", "https://[2001:db8::1]"),
+        ("https://[2001:db8::1]:8443", "https://[2001:db8::1]:8443"),
+    ] {
+        assert_eq!(
+            Endpoint::parse(given).map(|e| e.as_str().to_owned()),
+            Ok(String::from(stored)),
+            "https endpoint for {given:?} should be accepted and stored as {stored:?}"
+        );
+    }
 }
 
 #[test]
