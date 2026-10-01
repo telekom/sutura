@@ -13,15 +13,15 @@
 use std::fmt::Write as _;
 
 use super::convert::Converted;
-use super::plan::{PlannedComputation, PlannedMetric, PlannedModel, PlannedRelationship};
+use super::plan::{PlannedComputation, PlannedCube, PlannedModel, PlannedRelationship};
 
 /// The audience every imported metric is written with.
 ///
 /// Wren has no concept of who may see a metric - `docs/adr/0028` is a sutura-only channel - so
 /// every imported metric defaults to the least restrictive value a person reviewing the output can
-/// then narrow. Never widened silently the other way: `open` is `MetricDoc::audience`'s own
-/// required key, and there is no default this converter could pick that hides a metric a wren
-/// project made visible.
+/// then narrow. Never widened silently the other way: `audience` is a cube measure's own required
+/// key, and there is no default this converter could pick that hides a metric a wren project made
+/// visible.
 const AUDIENCE: &str = "open";
 
 /// The grain every imported metric is written with, for the reason [`AUDIENCE`] gives: a `WrenAI`
@@ -84,57 +84,62 @@ pub(crate) fn relationship_document(relationship: &PlannedRelationship) -> Strin
     out
 }
 
-/// `measure:` written the way `MetricDoc` reads it - `{ aggregate: sum, column: x }`, or the ratio
-/// shape with both terms plus a `zero_denominator`.
+/// A cube measure's `measure:` - `{ aggregate: sum, column: x }`, or the ratio shape with both
+/// terms plus a `zero_denominator`.
 fn write_computation(computation: &PlannedComputation, out: &mut String) -> core::fmt::Result {
     match computation {
         PlannedComputation::Simple(term) => {
             writeln!(
                 out,
-                "measure:\n  simple: {{ aggregate: {}, column: {} }}",
+                "    measure:\n      simple: {{ aggregate: {}, column: {} }}",
                 term.aggregate, term.column
             )
         }
         PlannedComputation::Ratio { numerator, denominator } => writeln!(
             out,
-            "measure:\n  ratio:\n    numerator: {{ aggregate: {}, column: {} }}\n    denominator: {{ aggregate: {}, column: {} \
-             }}\n    zero_denominator: yields_null",
+            "    measure:\n      ratio:\n        numerator: {{ aggregate: {}, column: {} }}\n        denominator: {{ aggregate: {}, \
+             column: {} }}\n        zero_denominator: yields_null",
             numerator.aggregate, numerator.column, denominator.aggregate, denominator.column
         ),
     }
 }
 
-fn write_metric(metric: &PlannedMetric, out: &mut String) -> core::fmt::Result {
+fn write_cube(cube: &PlannedCube, out: &mut String) -> core::fmt::Result {
     writeln!(out, "---")?;
-    writeln!(out, "kind: metric")?;
-    writeln!(out, "name: {}", metric.name)?;
-    writeln!(out, "model: {}", metric.model)?;
-    write_computation(&metric.computation, out)?;
-    writeln!(out, "time_column: {}", metric.time_column)?;
+    writeln!(out, "kind: cube")?;
+    writeln!(out, "name: {}", cube.name)?;
+    writeln!(out, "model: {}", cube.model)?;
+    writeln!(out, "time_column: {}", cube.time_column)?;
     writeln!(out, "grains: [{GRAIN}]")?;
-    if !metric.dimensions.is_empty() {
+    if !cube.dimensions.is_empty() {
         writeln!(out, "dimensions:")?;
-        for dimension in &metric.dimensions {
+        for dimension in &cube.dimensions {
             writeln!(out, "  - name: {}", dimension.name)?;
             writeln!(out, "    column: {}", dimension.column)?;
         }
     }
-    writeln!(out, "audience: {AUDIENCE}")?;
+    writeln!(out, "measures:")?;
+    for measure in &cube.measures {
+        writeln!(out, "  - name: {}", measure.name)?;
+        write_computation(&measure.computation, out)?;
+        writeln!(out, "    audience: {AUDIENCE}")?;
+    }
     writeln!(out, "---")?;
     writeln!(out)?;
     writeln!(
         out,
-        "Imported from the WrenAI cube `{}`'s measure `{}`. The grain and the ratio's zero-denominator policy are this \
-         converter's own defaults - wren declares neither - and are the first two things to review before committing.",
-        metric.cube, metric.measure
+        "Imported from the WrenAI cube `{}`. The grain and the ratio's zero-denominator policy are this converter's own \
+         defaults - wren declares neither - and are the first two things to review before committing.",
+        cube.name
     )
 }
 
-/// `kind: metric` document text.
-pub(crate) fn metric_document(metric: &PlannedMetric) -> String {
+/// `kind: cube` document text: one document per wren cube, which `sutura-catalog-local` expands
+/// into one metric per measure. The body is every measure's description, since none is written.
+pub(crate) fn cube_document(cube: &PlannedCube) -> String {
     let mut out = String::new();
     #[expect(clippy::expect_used, reason = "writing to a String cannot fail")]
-    write_metric(metric, &mut out).expect("writing to a String cannot fail");
+    write_cube(cube, &mut out).expect("writing to a String cannot fail");
     out
 }
 
@@ -144,7 +149,8 @@ fn write_report_body(converted: &Converted, out: &mut String) -> core::fmt::Resu
     writeln!(out, "mapped")?;
     writeln!(out, "  models         {}", converted.models.len())?;
     writeln!(out, "  relationships  {}", converted.relationships.len())?;
-    writeln!(out, "  metrics        {}", converted.metrics.len())?;
+    writeln!(out, "  cubes          {}", converted.cubes.len())?;
+    writeln!(out, "  metrics        {}", converted.metrics())?;
     writeln!(out)?;
     writeln!(out, "refused {}", converted.refusals.len())?;
     for refusal in &converted.refusals {

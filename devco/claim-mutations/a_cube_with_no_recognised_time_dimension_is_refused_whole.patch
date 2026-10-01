@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-wren/src/convert.rs b/crates/sutura-catalog-wren/src/convert.rs
+--- a/crates/sutura-catalog-wren/src/convert.rs
++++ b/crates/sutura-catalog-wren/src/convert.rs
+@@ -348,7 +348,7 @@ fn convert_cubes(manifest: &Manifest, models: &BTreeMap<String, ModelName>, out:
+             time_column = Some(column);
+         }
+         let Some(time_column) = time_column else {
+-            out.refusals.push(Refusal::new(
++            drop(Refusal::new(
+                 "cube_without_time_dimension",
+                 &cube.name,
+                 "no `timeDimensions` entry recognised as a bare column; a metric needs one `time_column`",

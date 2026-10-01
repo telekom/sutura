@@ -19,7 +19,8 @@ use std::collections::BTreeMap;
 use sutura_domain::model::{ColumnName, DimensionName, MetricName, ModelName, RelationshipName};
 
 use super::plan::{
-    PlannedColumn, PlannedComputation, PlannedDimension, PlannedMetric, PlannedModel, PlannedRelationship, PlannedTerm,
+    PlannedColumn, PlannedComputation, PlannedCube, PlannedDimension, PlannedMeasure, PlannedModel, PlannedRelationship,
+    PlannedTerm,
 };
 use super::wire::{JoinType, Manifest};
 use super::{recognize, wire};
@@ -47,11 +48,18 @@ impl Refusal {
 pub(crate) struct Converted {
     pub(crate) models: Vec<PlannedModel>,
     pub(crate) relationships: Vec<PlannedRelationship>,
-    pub(crate) metrics: Vec<PlannedMetric>,
+    pub(crate) cubes: Vec<PlannedCube>,
     pub(crate) refusals: Vec<Refusal>,
     /// Something represented, but not the way its own wren entry looked - a relationship-navigation
     /// column, or a default this converter picked that wren declares no opinion about.
     pub(crate) notes: Vec<String>,
+}
+
+impl Converted {
+    /// The metrics the written cubes expand into at load: one per measure.
+    pub(crate) fn metrics(&self) -> usize {
+        self.cubes.iter().map(|cube| cube.measures.len()).sum()
+    }
 }
 
 /// Records a parse failure as a named refusal and returns `None`, so every caller can fall through
@@ -285,6 +293,9 @@ fn convert_cubes(manifest: &Manifest, models: &BTreeMap<String, ModelName>, out:
             ));
             continue;
         };
+        let Some(cube_name) = parsed(MetricName::parse(&cube.name), || cube.name.clone(), &mut out.refusals) else {
+            continue;
+        };
         if !cube.hierarchies.is_empty() {
             let keys: Vec<&str> = cube.hierarchies.keys().map(String::as_str).collect();
             out.refusals.push(Refusal::new(
@@ -312,7 +323,7 @@ fn convert_cubes(manifest: &Manifest, models: &BTreeMap<String, ModelName>, out:
             };
             dimensions.push(PlannedDimension { name, column });
         }
-        let mut time_columns = Vec::with_capacity(cube.time_dimensions.len());
+        let mut time_column: Option<ColumnName> = None;
         for time_dimension in &cube.time_dimensions {
             let full_name = format!("{}.{}", cube.name, time_dimension.name);
             let Some(bare) = recognize::bare_column(&time_dimension.expression) else {
@@ -326,9 +337,17 @@ fn convert_cubes(manifest: &Manifest, models: &BTreeMap<String, ModelName>, out:
             let Some(column) = parsed(ColumnName::parse(bare), || full_name.clone(), &mut out.refusals) else {
                 continue;
             };
-            time_columns.push(column);
+            if let Some(kept) = &time_column {
+                out.refusals.push(Refusal::new(
+                    "cube_extra_time_dimension",
+                    &full_name,
+                    format!("a metric has one `time_column`, and this cube's is `{kept}`"),
+                ));
+                continue;
+            }
+            time_column = Some(column);
         }
-        let Some(time_column) = time_columns.into_iter().next() else {
+        let Some(time_column) = time_column else {
             out.refusals.push(Refusal::new(
                 "cube_without_time_dimension",
                 &cube.name,
@@ -336,6 +355,7 @@ fn convert_cubes(manifest: &Manifest, models: &BTreeMap<String, ModelName>, out:
             ));
             continue;
         };
+        let mut measures = Vec::with_capacity(cube.measures.len());
         for measure in &cube.measures {
             let full_name = format!("{}.{}", cube.name, measure.name);
             let Some(recognised) = recognize::measure(&measure.expression) else {
@@ -363,21 +383,24 @@ fn convert_cubes(manifest: &Manifest, models: &BTreeMap<String, ModelName>, out:
                     PlannedComputation::Ratio { numerator, denominator }
                 }
             };
+            // The loader parses the measure's own name and then the `<cube>_<measure>` join, and
+            // refuses the whole cube over either - so both are refused here, as this measure alone.
             let Some(name) = parsed(
-                MetricName::parse(format!("{}_{}", cube.name, measure.name)),
+                MetricName::parse(&measure.name).and_then(|name| MetricName::parse(format!("{cube_name}_{name}")).map(|_| name)),
                 || full_name.clone(),
                 &mut out.refusals,
             ) else {
                 continue;
             };
-            out.metrics.push(PlannedMetric {
-                name,
+            measures.push(PlannedMeasure { name, computation });
+        }
+        if !measures.is_empty() {
+            out.cubes.push(PlannedCube {
+                name: cube_name,
                 model: base_model.clone(),
-                computation,
-                time_column: time_column.clone(),
-                dimensions: dimensions.clone(),
-                cube: cube.name.clone(),
-                measure: measure.name.clone(),
+                time_column,
+                dimensions,
+                measures,
             });
         }
     }

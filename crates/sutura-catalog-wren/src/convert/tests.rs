@@ -1,8 +1,8 @@
 use super::convert;
 use crate::wire::Manifest;
 
-/// A manifest naming one instance of every refusal kind alongside one mapped model,
-/// relationship and pair of metrics - the unit-level twin of the golden fixture under
+/// A manifest naming one instance of every refusal kind alongside two mapped models, one
+/// relationship and one cube of two measures - the unit-level twin of the golden fixture under
 /// `crates/sutura-cli/tests/fixtures/wren-import`, small enough to read in one sitting.
 const MANIFEST: &str = r#"{
   "catalog": "c",
@@ -61,7 +61,8 @@ const MANIFEST: &str = r#"{
         { "name": "region_shout", "expression": "upper(region_code)", "type": "VARCHAR" }
       ],
       "timeDimensions": [
-        { "name": "order_date", "expression": "order_date", "type": "DATE" }
+        { "name": "order_date", "expression": "order_date", "type": "DATE" },
+        { "name": "shipped_on", "expression": "shipped_date", "type": "DATE" }
       ],
       "hierarchies": { "calendar": ["order_date"] }
     }
@@ -83,11 +84,16 @@ fn every_named_refusal_kind_fires_once_over_the_fixture_manifest() {
         "orders and customers map; recent_orders is a named refusal"
     );
     assert_eq!(converted.relationships.len(), 1, "only orders_customer recognises");
+    let [cube] = converted.cubes.as_slice() else {
+        panic!("one cube, not {}", converted.cubes.len());
+    };
+    let measures: Vec<&str> = cube.measures.iter().map(|measure| measure.name.as_str()).collect();
     assert_eq!(
-        converted.metrics.len(),
-        2,
-        "total_revenue and average_order_value recognise; inflated_revenue does not"
+        measures,
+        ["total_revenue", "average_order_value"],
+        "inflated_revenue refuses only itself"
     );
+    assert_eq!(cube.time_column.as_str(), "order_date", "the first time dimension is kept");
 
     let refusals: Vec<(&str, &str)> = converted.refusals.iter().map(|r| (r.kind, r.name.as_str())).collect();
 
@@ -100,6 +106,7 @@ fn every_named_refusal_kind_fires_once_over_the_fixture_manifest() {
     assert!(refused(&refusals, "unrecognised_join_condition", "orders_customer_legacy"));
     assert!(refused(&refusals, "free_sql_dimension", "sales_summary.region_shout"));
     assert!(refused(&refusals, "free_sql_measure", "sales_summary.inflated_revenue"));
+    assert!(refused(&refusals, "cube_extra_time_dimension", "sales_summary.shipped_on"));
     assert!(
         refusals
             .iter()
@@ -130,11 +137,44 @@ fn a_cube_with_no_recognised_time_dimension_is_refused_whole() {
     )
     .expect("valid JSON");
     let converted = convert(&manifest);
-    assert!(converted.metrics.is_empty());
+    assert!(converted.cubes.is_empty());
     assert!(
         converted
             .refusals
             .iter()
             .any(|r| r.kind == "cube_without_time_dimension" && r.name == "sales")
+    );
+}
+
+/// The loader refuses a whole cube over a measure name that is not a metric name, or whose
+/// `<cube>_<measure>` join is past the identifier cap - so each is refused here as itself alone.
+#[test]
+fn a_measure_name_the_cube_document_cannot_hold_refuses_only_that_measure() {
+    let long = "a".repeat(60);
+    let manifest: Manifest = serde_json::from_str(&format!(
+        r#"{{
+        "catalog": "c", "schema": "s",
+        "models": [{{ "name": "orders", "tableReference": {{ "table": "orders" }}, "columns": [] }}],
+        "cubes": [{{ "name": "sales", "baseObject": "orders",
+            "measures": [
+              {{ "name": "total", "expression": "SUM(amount_cents)", "type": "INTEGER" }},
+              {{ "name": "1st", "expression": "SUM(amount_cents)", "type": "INTEGER" }},
+              {{ "name": "{long}", "expression": "SUM(amount_cents)", "type": "INTEGER" }}
+            ],
+            "timeDimensions": [{{ "name": "order_date", "expression": "order_date", "type": "DATE" }}] }}]
+    }}"#
+    ))
+    .expect("valid JSON");
+    let converted = convert(&manifest);
+    let [cube] = converted.cubes.as_slice() else {
+        panic!("one cube, not {}", converted.cubes.len());
+    };
+    let measures: Vec<&str> = cube.measures.iter().map(|measure| measure.name.as_str()).collect();
+    assert_eq!(measures, ["total"]);
+    let refusals: Vec<(&str, &str)> = converted.refusals.iter().map(|r| (r.kind, r.name.as_str())).collect();
+    assert!(refused(&refusals, "unusable_identifier", "sales.1st"), "{refusals:?}");
+    assert!(
+        refused(&refusals, "unusable_identifier", &format!("sales.{long}")),
+        "{refusals:?}"
     );
 }
