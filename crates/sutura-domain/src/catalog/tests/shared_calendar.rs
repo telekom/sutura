@@ -111,6 +111,11 @@ fn ratio_over_two_facts() -> Metric {
 }
 
 fn ratio_over_two_facts_anchored(anchor: Option<Anchor>) -> Metric {
+    ratio_over_two_facts_without_a_calendar(anchor).with_shared_calendar(model_name("calendar"))
+}
+
+/// The shape a cube document or a non-local catalog produces: neither can declare a calendar.
+fn ratio_over_two_facts_without_a_calendar(anchor: Option<Anchor>) -> Metric {
     Metric::new(
         metric_name("revenue_per_customer"),
         model_name("orders"),
@@ -132,7 +137,6 @@ fn ratio_over_two_facts_anchored(anchor: Option<Anchor>) -> Metric {
         Audience::Open,
     )
     .expect("no dimensions to duplicate")
-    .with_shared_calendar(model_name("calendar"))
 }
 
 fn june_anchor() -> Anchor {
@@ -149,6 +153,18 @@ fn an_anchor_on_a_cross_model_ratio_is_refused_at_load_by_name() {
     // The boot check runs an anchor as one statement over the metric's own model, so it cannot
     // certify a two-fact ratio; the same catalog without the anchor assembles (the next cell).
     let anchored = ratio_over_two_facts_anchored(Some(june_anchor()));
+    let (models, relationships) = three_models_with_calendar();
+    assert_eq!(
+        Definitions::assemble(models, relationships, vec![anchored]).unwrap_err(),
+        InconsistentDefinitions::AnchorOnCrossModelRatio {
+            metric: metric_name("revenue_per_customer"),
+        }
+    );
+}
+
+#[test]
+fn an_anchor_on_a_cross_model_ratio_without_a_calendar_is_refused_at_load_by_name() {
+    let anchored = ratio_over_two_facts_without_a_calendar(Some(june_anchor()));
     let (models, relationships) = three_models_with_calendar();
     assert_eq!(
         Definitions::assemble(models, relationships, vec![anchored]).unwrap_err(),

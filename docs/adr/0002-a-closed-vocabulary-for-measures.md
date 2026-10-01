@@ -302,15 +302,19 @@ two-fact answer against, and the cell measures that refusal rather than stating 
 
 ## Fourth amendment, 2026-10-01: an anchor on a cross-model ratio is refused at load
 
-`telekom/sutura#780`, continued. The issue's decision listed an anchor for the two-fact ratio,
-compared at the coarsest shared grain across two tables, as one of the stack's costs. The owner's
-call is instead **to refuse an anchor on it**: `Definitions::assemble` refuses a cross-model ratio
-that declares `anchor:` as `InconsistentDefinitions::AnchorOnCrossModelRatio`, naming the metric.
+`telekom/sutura#780`, continued. The issue's 2026-09-18 decision listed an anchor for the two-fact
+ratio, compared at the coarsest shared grain across two tables, as one of the stack's costs. The
+decision of 2026-10-01, recorded on the issue
+(`github.com/telekom/sutura/issues/780#issuecomment-5928013858`), supersedes that: **an anchor on a
+cross-model ratio is refused at load, by name**. `Definitions::assemble` refuses a cross-model ratio
+that declares `anchor:` as `InconsistentDefinitions::AnchorOnCrossModelRatio`, naming the metric,
+whether or not it declares a `shared_calendar`.
 
 Why refuse rather than build: the boot check asks an anchor as one question with no dimensions and
 executes one statement over the metric's own model (`AnchorPlan`). A cross-model ratio is two fact
 statements joined above the port on a dimension both facts link to, and a question with no
-dimensions has none, so `plan()` refuses it (`CrossModelRatioWithoutSharedDimension`). Before this
+dimensions has none, so `plan()` refuses it (`CrossModelRatioWithoutSharedDimension`, or
+`CrossModelRatioWithoutSharedCalendar` one check earlier when no calendar is declared). Before this
 amendment such an anchor loaded, was refused at boot as `NotValidated::AnchorNotExecuted`, and took
 every other metric in the bundle down with it; now the catalog author is told which metric, at
 load, whichever catalog adapter read it, because the check sits in `assemble` rather than in one
