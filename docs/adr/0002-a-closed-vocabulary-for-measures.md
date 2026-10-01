@@ -195,7 +195,8 @@ boot, and one on a cross-model ratio reaches this same refusal through
 `NotValidated::AnchorNotExecuted` instead - which takes the WHOLE bundle down, not only that
 metric. That fails closed, so it is not a safety defect, but it is a sharper cost than "refused
 when asked" states on its own: a catalog author who anchors such a metric loses every other metric
-in the deployment at boot, not a question at query time.
+in the deployment at boot, not a question at query time. **Superseded by the fourth amendment
+below**, which refuses that anchor at load instead.
 
 ## Second amendment, 2026-09-28: a shared calendar lifts the refusal
 
@@ -298,6 +299,27 @@ shape and no differential executed it. Both now exist, and each carries its own 
 on one source, because a calendar per source is not built. The one-source catalog refuses the
 question (`CrossModelRatioWithoutSharedDimension`), so there is no whole-answer side to compare a
 two-fact answer against, and the cell measures that refusal rather than stating it.
+
+## Fourth amendment, 2026-10-01: an anchor on a cross-model ratio is refused at load
+
+`telekom/sutura#780`, continued. The issue's decision listed an anchor for the two-fact ratio,
+compared at the coarsest shared grain across two tables, as one of the stack's costs. The owner's
+call is instead **to refuse an anchor on it**: `Definitions::assemble` refuses a cross-model ratio
+that declares `anchor:` as `InconsistentDefinitions::AnchorOnCrossModelRatio`, naming the metric.
+
+Why refuse rather than build: the boot check asks an anchor as one question with no dimensions and
+executes one statement over the metric's own model (`AnchorPlan`). A cross-model ratio is two fact
+statements joined above the port on a dimension both facts link to, and a question with no
+dimensions has none, so `plan()` refuses it (`CrossModelRatioWithoutSharedDimension`). Before this
+amendment such an anchor loaded, was refused at boot as `NotValidated::AnchorNotExecuted`, and took
+every other metric in the bundle down with it; now the catalog author is told which metric, at
+load, whichever catalog adapter read it, because the check sits in `assemble` rather than in one
+adapter's reader.
+
+**The limit stated next to the claim.** A cross-model ratio has no anchor, so nothing at boot holds
+its number against a certified value; the third amendment's cells hold the combiner over a derived
+catalog, not any deployment's figure. A ratio whose every term names the metric's own model is not
+cross-model, so its anchor still loads and is still checked at boot.
 
 ## What does not change
 
