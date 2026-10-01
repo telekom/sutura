@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-wren/src/convert.rs b/crates/sutura-catalog-wren/src/convert.rs
+--- a/crates/sutura-catalog-wren/src/convert.rs
++++ b/crates/sutura-catalog-wren/src/convert.rs
+@@ -404,7 +404,7 @@
+             ) else {
+                 continue;
+             };
+-            if !metrics.insert(metric) {
++            if !metrics.insert(metric) && false {
+                 out.refusals.push(Refusal::new(
+                     "duplicate_metric",
+                     &full_name,

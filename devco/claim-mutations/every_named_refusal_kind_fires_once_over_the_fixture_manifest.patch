@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-wren/src/convert.rs b/crates/sutura-catalog-wren/src/convert.rs
+--- a/crates/sutura-catalog-wren/src/convert.rs
++++ b/crates/sutura-catalog-wren/src/convert.rs
+@@ -348,7 +348,7 @@
+             let Some(column) = parsed(ColumnName::parse(bare), || full_name.clone(), &mut out.refusals) else {
+                 continue;
+             };
+-            if let Some(kept) = &time_column {
++            if let Some(kept) = &time_column && false {
+                 out.refusals.push(Refusal::new(
+                     "cube_extra_time_dimension",
+                     &full_name,

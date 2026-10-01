@@ -109,15 +109,15 @@ pub fn import(source: &Path, destination: &Path) -> Result<Summary, ImportError>
             &render::relationship_document(relationship),
         )?;
     }
-    for metric in &converted.metrics {
-        write_document(destination, "metrics", metric.name.as_str(), &render::metric_document(metric))?;
+    for cube in &converted.cubes {
+        write_document(destination, "metrics", cube.name.as_str(), &render::cube_document(cube))?;
     }
     write_report(destination, &converted)?;
 
     Ok(Summary {
         models: converted.models.len(),
         relationships: converted.relationships.len(),
-        metrics: converted.metrics.len(),
+        metrics: converted.metrics(),
         refusals: converted.refusals.len(),
     })
 }

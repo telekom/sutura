@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-wren/src/convert.rs b/crates/sutura-catalog-wren/src/convert.rs
+--- a/crates/sutura-catalog-wren/src/convert.rs
++++ b/crates/sutura-catalog-wren/src/convert.rs
+@@ -299,7 +299,7 @@
+         let Some(cube_name) = parsed(MetricName::parse(&cube.name), || cube.name.clone(), &mut out.refusals) else {
+             continue;
+         };
+-        if out.cubes.iter().any(|planned| planned.name == cube_name) {
++        if out.cubes.iter().any(|planned| planned.name == cube_name) && false {
+             out.refusals.push(Refusal::new(
+                 "duplicate_cube",
+                 &cube.name,
