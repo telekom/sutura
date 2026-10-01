@@ -273,6 +273,26 @@ mod tests {
         drop(std::fs::remove_dir_all(&root));
     }
 
+    /// A symlink at a document path - what a swap between the walk's listing and the open leaves
+    /// behind - is refused at the open with `ELOOP` and never followed to its target, which is
+    /// outside the walk.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_at_a_document_path_is_refused_at_the_open_not_followed() {
+        let root = scratch("symlink");
+        let target = root.join("outside.yaml");
+        std::fs::write(&target, "a document the walk never listed").expect("a target is writable");
+        let path = root.join("doc.yaml");
+        std::os::unix::fs::symlink(&target, &path).expect("a symlink is creatable");
+        let err = super::read_document(&root, &path, 0).expect_err("a symlink is not followed");
+        assert!(
+            matches!(err, ReadError::Open { path: ref p, cause } if *p == path && cause == rustix::io::Errno::LOOP),
+            "expected Open(ELOOP) naming {}, got {err:?}",
+            path.display(),
+        );
+        drop(std::fs::remove_dir_all(&root));
+    }
+
     /// Non-UTF-8 bytes pass the size and regular-file checks and are refused as `Io` naming the path.
     #[test]
     fn a_document_with_non_utf8_bytes_is_refused_as_read_io() {
