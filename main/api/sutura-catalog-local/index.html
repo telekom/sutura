@@ -4750,9 +4750,10 @@ never sees a cube. A cube and its hand-flattened equivalent are the same bundle,
 <code>InconsistentDefinitions::DuplicateMetric</code>, which names neither cube nor file. Nor can a
 metric's name say which cube, if any, it came from - that grouping is not recorded anywhere.</p>
 <p>What a measure cannot say is held by <code>deny_unknown_fields</code> on <code>MeasureDoc</code>: no <code>dimensions:</code>
-of its own (the cube's list is the only one), no <code>model:</code>, <code>time_column:</code> or <code>grains:</code>, and no
-<code>shared_calendar:</code> - a measure needing one is a metric document for now. <code>hierarchies:</code> is
-refused by name on <code>CubeDoc</code> the same way: a roll-up order has no domain representation.</p>
+of its own (the cube's list is the only one), no <code>model:</code>, <code>time_column:</code> or <code>grains:</code>.
+<code>hierarchies:</code> is refused by name on <code>CubeDoc</code> the same way: a roll-up order has no domain
+representation. A measure's <code>shared_calendar:</code> is its own, so a cross-model ratio can sit beside
+one-model siblings whose metrics do not change.</p>
 <h4 id="struct-cubedoc"><code>struct CubeDoc</code><a class="headerlink" href="#struct-cubedoc" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CubeDoc</span>
 </span></code></pre></div>
