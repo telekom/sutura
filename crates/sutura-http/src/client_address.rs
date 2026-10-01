@@ -37,7 +37,6 @@
 //! appends a second one would otherwise have theirs read.
 
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Arc;
 
 use axum::extract::ConnectInfo;
 use axum::http::{HeaderMap, Request};
@@ -50,18 +49,20 @@ const X_FORWARDED_FOR: &str = "x-forwarded-for";
 
 /// Where a bucket's key comes from, as a value the limiter layer is built with.
 ///
-/// `Clone` because [`KeyExtractor`] requires it and the layer clones it per connection; the trusted
-/// list is behind an `Arc` so that clone is a pointer bump rather than a copy of every block.
+/// `Clone` because [`KeyExtractor`] requires it and the layer clones it per connection. The trusted
+/// list is owned by value rather than shared through an `Arc`: it is a short startup-config list, so
+/// the copy each clone makes is a single small allocation - cheaper than the `Arc` indirection and
+/// the per-call `Arc` every constructor and fixture had to spell.
 #[derive(Debug, Clone)]
 pub struct ClientAddress {
     source: ClientAddressSource,
-    trusted: Arc<TrustedProxies>,
+    trusted: TrustedProxies,
 }
 
 impl ClientAddress {
     /// Builds the extractor the configuration describes.
     #[must_use]
-    pub const fn new(source: ClientAddressSource, trusted: Arc<TrustedProxies>) -> Self {
+    pub const fn new(source: ClientAddressSource, trusted: TrustedProxies) -> Self {
         Self { source, trusted }
     }
 
@@ -69,7 +70,7 @@ impl ClientAddress {
     /// list.
     #[must_use]
     pub fn from_settings(limits: &sutura_config::RateLimitSettings) -> Self {
-        Self::new(limits.client_address(), Arc::new(limits.trusted_proxies().clone()))
+        Self::new(limits.client_address(), limits.trusted_proxies().clone())
     }
 
     /// The address this request is attributed to.
@@ -132,7 +133,6 @@ impl KeyExtractor for ClientAddress {
 #[cfg(test)]
 mod tests {
     use std::net::IpAddr;
-    use std::sync::Arc;
 
     use axum::http::{HeaderMap, HeaderValue};
     use sutura_config::{ClientAddressSource, TrustedProxies};
@@ -160,13 +160,13 @@ mod tests {
     }
 
     fn peer_keyed() -> ClientAddress {
-        ClientAddress::new(ClientAddressSource::Peer, Arc::new(TrustedProxies::default()))
+        ClientAddress::new(ClientAddressSource::Peer, TrustedProxies::default())
     }
 
     fn forwarded_behind(blocks: &[&str]) -> ClientAddress {
         ClientAddress::new(
             ClientAddressSource::Forwarded,
-            Arc::new(TrustedProxies::parse(blocks).expect("test blocks parse")),
+            TrustedProxies::parse(blocks).expect("test blocks parse"),
         )
     }
 

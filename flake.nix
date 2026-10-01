@@ -185,11 +185,12 @@
         # the same tree.
         #
         # That mattered because a build script may bake an absolute path into generated code, and
-        # one here does - `utoipa-swagger-ui`, whose generated `rust-embed` `#[folder]` names its
-        # own `$OUT_DIR`, which arrives in these checks by decompressing `sutura-deps`. Under one
-        # source-root name a linux check reuses that literal successfully; under two it did not,
-        # and `checks.nextest` failed in a THIRD-PARTY crate while `checks.clippy` passed on the
-        # same tree. `nix/purge-baked-out-dirs.sh` carries the whole failure and both build roots.
+        # one here does - `utoipa-swagger-ui`, whose generated `embed.rs` names its own `$OUT_DIR`
+        # in `include_bytes!` literals (a `rust-embed` `#[folder]` up to v9), which arrives in
+        # these checks by decompressing `sutura-deps`. Under one source-root name a linux check
+        # reuses that literal successfully; under two it did not, and `checks.nextest` failed in a
+        # THIRD-PARTY crate while `checks.clippy` passed on the same tree.
+        # `nix/purge-baked-out-dirs.sh` carries the whole failure and both build roots.
         #
         # `filter` is the trivial one, so nothing is dropped - the whole point of these four is
         # that nothing is. But **agreement is no longer the mechanism**: see the two limits.

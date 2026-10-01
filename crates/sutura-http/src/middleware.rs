@@ -485,7 +485,6 @@ fn replenishment_nanoseconds(quota: Quota) -> u64 {
 mod tests {
     use core::num::NonZeroU32;
     use std::net::IpAddr;
-    use std::sync::Arc;
     use std::time::{Duration, Instant};
 
     use axum::body::Body;
@@ -500,7 +499,7 @@ mod tests {
     }
 
     fn peer_keyed() -> ClientAddress {
-        ClientAddress::new(ClientAddressSource::Peer, Arc::new(TrustedProxies::default()))
+        ClientAddress::new(ClientAddressSource::Peer, TrustedProxies::default())
     }
 
     /// A transport metrics handle over a throwaway builder, for limiter-layer tests that do not
