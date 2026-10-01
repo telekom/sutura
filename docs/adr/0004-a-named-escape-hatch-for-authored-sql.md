@@ -684,3 +684,9 @@ four claims above are stale.
 What survives unamended: the boot-time refusal - `Warehouse::EXECUTES_AUTHORED_SQL` and
 `sutura_app::verify_and_validate` - is the mechanism this whole record's *Consequences* rest on, and
 neither the fold nor the now-moot artifact ban touches it.
+
+## Second amendment, 2026-10-01: the `polyglot-sql` pin is `0.13.1`
+
+The `NonAscii` removal condition above names `polyglot-sql` 0.12.0 as this workspace's pin. The pin
+is `0.13.1` now. The condition itself is unchanged: the guard stays until its removal is verified
+under `just fuzz-smoke`, and this bump did not attempt that.

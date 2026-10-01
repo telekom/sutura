@@ -57,7 +57,7 @@
 
 use polyglot_sql::DialectType;
 use polyglot_sql::builder::{self, Expr, SelectBuilder};
-use polyglot_sql::expressions::{Expression, Fetch, Literal, Ordered, Parameter, ParameterStyle, Placeholder, Raw, Tuple};
+use polyglot_sql::expressions::{Expression, Ordered, Parameter, ParameterStyle, Placeholder, Raw, Tuple};
 use sutura_domain::model::{Aggregate, ColumnName, Grain, JoinType, Qualification, QualifiedTable, TableName};
 use sutura_domain::plan::{LegPlan, PlanBucket, PlanColumn, PlanJoin, PlanJoinKey, PlanPredicate, QueryPlan};
 use sutura_domain::warehouse::ParamValue;
@@ -523,6 +523,9 @@ fn ordered(expr: Expr, desc: bool) -> Expr {
         nulls_first: Some(false),
         explicit_asc: false,
         with_fill: None,
+        // Vertica's `NULLS AUTO`. `true` would hand null placement back to the target, and no
+        // dialect here renders it.
+        nulls_auto: false,
     })))
 }
 
@@ -702,7 +705,7 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
         ),
         None => (tiebreak, usize::try_from(plan.row_limit()).unwrap_or(usize::MAX)),
     };
-    let mut ast = statement
+    let ast = statement
         .where_(where_clause)
         .group_by(grouping)
         // Ordered by what it groups by, so two runs of one question return rows in one order.
@@ -712,27 +715,9 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
         .order_by(ordering)
         .limit(limit)
         .build();
-    // Oracle refuses `LIMIT n` (`ORA-03049`) and takes `FETCH FIRST n ROWS ONLY`. The dialect
-    // layer's `generate_limit` writes `LIMIT` for every target - its `limit_fetch_style` setting is
-    // read by neither `generate_limit` nor `generate_fetch` in the pinned release - so for Oracle the
-    // limit moves onto the `Fetch` node, which that layer renders as `FETCH FIRST`. Every other
-    // dialect keeps the `Limit` node. `github.com/telekom/sutura#127`
-    if dialect == Dialect::Oracle
-        && let Expression::Select(select) = &mut ast
-    {
-        select.limit = None;
-        select.fetch = Some(Fetch {
-            direction: "FIRST".to_owned(),
-            count: Some(Expression::Literal(Box::new(Literal::Number(limit.to_string())))),
-            percent: false,
-            rows: true,
-            with_ties: false,
-        });
-    }
-
     // `Question` and `Colon` both bind a plain statement by occurrence - the oracledb driver's
     // `add_bind` pushes one `BindInfo` per placeholder it sees rather than per distinct name
-    // (`oracledb-26.0.0-beta.3/src/statement/mod.rs:72-86`), and `bind_params.rs:99-104` refuses
+    // (`oracledb-26.0.0-beta.4/src/statement/mod.rs:72-86`), and `bind_params.rs:99-104` refuses
     // when the bound row's length does not match that occurrence count - so a guard embedded more
     // than once needs its value repeated that many times for Oracle exactly as it does for the
     // bare-`?` dialects. `emitted` is exactly that, built alongside the tree above, in text order.
