@@ -153,7 +153,8 @@ refactor!: rename the Warehouse port's execute method
 ```
 
 The body is not checked. Use it for *why*. The subject also decides the next version: `feat` a
-minor, `fix` and the rest a patch, `!` or a `BREAKING CHANGE` footer a major.
+minor, `fix` and the rest a patch, `!` or a `BREAKING CHANGE` footer a major - a minor while the
+version is 0.x (`breaking_always_bump_major = false` in `cliff.toml`).
 
 ## Testing
 
@@ -170,12 +171,15 @@ that passes both ways proves nothing and is worse than no test, because it looks
 `just causality` checks that mechanically. Where the change is not separable - impl and test in one
 file, a rename with no behavioural difference, or every added test `#[ignore]`d so no run here
 reaches one - the gate says so and asks for evidence instead: the command you ran, the failure
-before the fix, the pass after. That goes in the pull request. **Do not skip it silently.** A test
-PINNING behaviour the base tree already provides is the one shape the base run can never redden, so
-its place is a declared claim cell: add a `Claim-Cell: <test-fn-name>` commit trailer AND a
-committed killing mutation at `devco/claim-mutations/<test-fn-name>.patch`, and the gate applies
-the mutation, requires the cell to fail, and accepts `ok - claim cells: N declared, N killed` - a
-declared cell with no killing mutation is refused.
+before the fix, the pass after. That goes in the pull request. **Do not skip it silently.** An
+added or modified test PINNING behaviour the base tree already provides is the one shape the base
+run can never redden, so its place is a declared claim cell: add a `Claim-Cell: <test-fn-name>`
+commit trailer AND a committed killing mutation at `devco/claim-mutations/<test-fn-name>.patch`,
+and the gate applies the mutation, requires the cell to fail, and accepts
+`ok - claim cells: N declared, N killed` - a declared cell with no killing mutation is refused.
+Two limits: in the not-separable case above an undeclared pin passes like any other test, because
+no base run exists to redden it; and the base check is per RUN, not per test, so an undeclared pin
+also passes beside any scoped test that is red on base.
 
 **Exit 3 means the gate measured nothing**, and it is neither a pass nor a violation: the base tree
 did not build, the base run named no failure, or every test in scope was one the base tree already
@@ -233,7 +237,7 @@ git-derived copy of the tree - so `git add -N` a new file immediately, or it com
 does not exist in the sandbox. It does not run `check-default-features` or
 `check-default-feature-tests`, though - `just gates` does, per `github.com/telekom/sutura#866`'s
 option 2, chosen 2026-09-18: those two close the compile-and-lint gap on the default feature set,
-not the link gap, since neither links - the four `cross` builds stay the authority on a musl link.
+not the link gap, since neither links - the `cross` matrix legs stay the authority on a musl link.
 Gate stages, what each one covers and where a green run means less than it looks are all in
 [the `gates` skill](https://github.com/telekom/sutura/blob/main/.agents/skills/sutura/gates/SKILL.md).
 
@@ -311,9 +315,12 @@ what a consumer of the artifacts reads.
   mechanically fixable.
 - **No em dashes.** Plain hyphens, in prose and in comments. A gate rather than a request, because
   the convention was stated from the start and one shipped anyway.
-- **No first-party `unsafe`.** `forbid` in the workspace lint table, so a crate cannot re-allow it
-  locally.
-- **`#[expect(.., reason = "..")]`, never `#[allow]`**, so a suppression cannot outlive its cause.
+- **No first-party `unsafe`.** `deny` in the workspace lint table and `#![forbid(unsafe_code)]` at
+  every crate root but `sutura-adbc`'s, held by `check-unsafe`, so a crate cannot re-allow it locally.
+- **`#[expect(.., reason = "..")]` over `#[allow]`**, so a suppression cannot outlive its cause -
+  except on the three count-threshold lints, where `check-expect-thresholds` refuses an `#[expect]`:
+  split the function or raise the threshold in `clippy.toml`. A workspace-wide exception is an
+  `= "allow"` row in the workspace lint table instead.
 - **No file over 1000 lines**, and no exemption under `crates/` or `xtask/` - the only way past it
   is to split the file.
 - **No dependency declared and unused.** Declaring one to satisfy a document is what that gate

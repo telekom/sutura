@@ -9,8 +9,9 @@ description: Forces the laziest solution that actually works - YAGNI, stdlib bef
 
 - Upstream: `github.com/DietrichGebert/ponytail`, `.openclaw/skills/ponytail/SKILL.md`
 - Licence: MIT. Commit `2ed6c52c9d7e5e56942508591085fd45dea277d3`, 2026-08-07
-- Local status: **adapted** - the ladder and persistence model are upstream's; the
-  interaction with this repo's invariants is not, and is the section that matters most here
+- Local status: **adapted** - the persistence model and the ladder are upstream's, less the
+  ladder's *already in this codebase?* rung; the interaction with this repo's invariants is not,
+  and is the section that matters most here
 
 Lazy means efficient, not careless. The best code is the code never written.
 

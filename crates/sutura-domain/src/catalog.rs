@@ -84,19 +84,18 @@ pub const MAX_VALUES_PER_DIMENSION: usize = 64;
 /// applied to the catalog that bundle is checked against.
 ///
 /// **Measured before it was chosen, and re-measured for issue #966's column type and column
-/// description, which this bound did not cover before either existed.** This repository's shipped
-/// `single-player` catalog - the larger of the two example catalogs - is the reference: its widest
-/// model (`subscriptions`) declares 8 columns, no metric declares more than one required filter, and
-/// its columns (now including one declared type), required filters and dimension values together
-/// sum to 922 bytes - one column (`subscriptions.mrr_cents`) carries a declared type and a
-/// description, and that is what moved this half from the earlier column-blind measurement's
-/// under-1-KiB figure at all, not past any round number. Descriptions are the rest of it, at 24053
-/// bytes (~23.5 KiB) across eleven metrics and five models - each individually inside
-/// [`MAX_DESCRIPTION_BYTES`], and it is their COUNT that was uncapped. Counting the five model names
-/// and table paths adds 120 bytes; `Definitions::authored_bytes` over the loaded corpus reads 25095
-/// bytes, ~24.5 KiB in total.
+/// description, which this bound did not cover before either existed, and again once every column
+/// in the shipped corpus carried both.** This repository's shipped `single-player` catalog - the
+/// larger of the two example catalogs - is the reference: its widest model (`subscriptions`)
+/// declares 8 columns, no metric declares more than one required filter, and all 21 of its columns
+/// carry a declared type and a description. Its column names and types, relationship keys, required
+/// filters and dimension values together sum to 1127 bytes (~1.1 KiB), and the five model names and
+/// table paths add 120. Descriptions are the rest of it, at 26056 bytes (~25.4 KiB) across eleven
+/// metrics, five models and their columns - each individually inside [`MAX_DESCRIPTION_BYTES`], and
+/// it is their COUNT that was uncapped. `Definitions::authored_bytes` over the loaded corpus reads
+/// 27303 bytes, ~26.7 KiB in total.
 ///
-/// [`MAX_DEFINITIONS_BYTES`] is 128 KiB: about 5.2 times that reference catalog's ~24.5 KiB, less
+/// [`MAX_DEFINITIONS_BYTES`] is 128 KiB: about 4.8 times that reference catalog's ~26.7 KiB, less
 /// headroom than the ~6.5 times an earlier, column-blind measurement claimed - restated here rather
 /// than left to say a smaller bundle than the corpus now is. Still more than
 /// [`crate::knowledge::MAX_KNOWLEDGE_BYTES`]'s five times its own reference, because a definitions
@@ -755,6 +754,19 @@ pub struct Metric {
     /// Who may see this metric - `docs/adr/0028`. Under the digest, like everything else here: a
     /// classification change moves it exactly as a rename would.
     audience: Audience,
+    /// The conformed time dimension both fact models of a cross-model ratio reach through a
+    /// `via`, so both facts bucket through the SAME calendar column (`telekom/sutura#780`).
+    ///
+    /// `None` for every metric written before #780's second leg - a one-model metric has one fact
+    /// and buckets through its own `time_column`. `Some` names a calendar model that BOTH the
+    /// metric's own model and every cross-model ratio term's model reach through a declared
+    /// relationship; the consistency check at load refuses a name no model reaches. The bucket
+    /// column is the metric's own `time_column` resolved against the calendar model's table, so a
+    /// `month`-grain question over two fact tables joined to one `dim_calendar` groups both legs
+    /// by the calendar's `day` truncated to a month, and the combiner joins them on the link AND
+    /// the bucket.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shared_calendar: Option<ModelName>,
 }
 
 impl Metric {
@@ -859,6 +871,7 @@ impl Metric {
             anchor,
             description,
             audience,
+            shared_calendar: None,
         })
     }
 
@@ -928,6 +941,30 @@ impl Metric {
     #[inline]
     pub fn dimension(&self, name: &DimensionName) -> Option<&Dimension> {
         self.dimensions.get(name)
+    }
+
+    /// Declares the conformed calendar model both fact models of a cross-model ratio reach
+    /// through a `via` (`telekom/sutura#780`). A builder rather than a constructor argument,
+    /// so every existing caller of [`Metric::new`] compiles unchanged - a one-model metric has
+    /// no shared calendar, and its on-disk shape and digest do not move the day this field ships.
+    ///
+    /// The name is checked at load by [`Definitions::assemble`]
+    /// ([`InconsistentDefinitions::SharedCalendarNotReachable`]): the calendar model must exist,
+    /// and both the metric's own model and every cross-model ratio term's model must reach it
+    /// through a declared relationship. The builder does not check, because the relationships
+    /// are cross-references only the assembled [`Definitions`] can see.
+    #[inline]
+    #[must_use]
+    pub fn with_shared_calendar(mut self, calendar: ModelName) -> Self {
+        self.shared_calendar = Some(calendar);
+        self
+    }
+
+    /// The conformed calendar model both fact models of a cross-model ratio reach through a
+    /// `via`, or `None` for a one-model metric that buckets through its own `time_column`.
+    #[inline]
+    pub const fn shared_calendar(&self) -> Option<&ModelName> {
+        self.shared_calendar.as_ref()
     }
 }
 

@@ -42,6 +42,8 @@ const REQUIRED: &[(&str, &str)] = &[
     ("BQ_SELECTED", "ci"),
     ("E2E_RESULT", "e2e-datahub-adbc"),
     ("E2E_REQUIRED", "ci"),
+    ("ORACLE_RESULT", "oracle-tier"),
+    ("ORACLE_SELECTED", "ci"),
 ];
 
 /// The job key of the aggregate.
@@ -252,7 +254,7 @@ mod tests {
         out.push('\n');
         writeln!(out, "  {AGGREGATE}:").expect("writing into a String cannot fail");
         out.push_str("    runs-on: ubuntu-latest\n");
-        out.push_str("    needs: [ci, keycloak-served-test, bigquery-driver-check, e2e-datahub-adbc]\n");
+        out.push_str("    needs: [ci, keycloak-served-test, bigquery-driver-check, e2e-datahub-adbc, oracle-tier]\n");
         out.push_str("    if: ${{ !cancelled() }}\n");
         out.push_str("    steps:\n");
         out.push_str("      - name: Aggregate the category-gated legs\n");
@@ -275,6 +277,8 @@ mod tests {
             "          BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery }}",
             "          E2E_RESULT: ${{ needs.e2e-datahub-adbc.result }}",
             "          E2E_REQUIRED: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.catalog_datahub == 'true' || needs.ci.outputs.identity == 'true') }}",
+            "          ORACLE_RESULT: ${{ needs.oracle-tier.result }}",
+            "          ORACLE_SELECTED: ${{ needs.ci.outputs.data_source_oracle }}",
         ]
         .join("\n")
     }

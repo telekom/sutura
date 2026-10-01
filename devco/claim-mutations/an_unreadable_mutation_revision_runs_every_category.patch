@@ -1,0 +1,11 @@
+--- a/xtask/src/affected/claim_mutation.rs
++++ b/xtask/src/affected/claim_mutation.rs
+@@ -55,7 +55,7 @@
+     }
+     let head = std::fs::read(root.join(path)).map_err(|error| format!("read head mutation: {error}"))?;
+     let mut paths = patch_targets(root, &head)?;
+-    if let Some(before) = base_patch(root, base, path)? {
++    if let Some(before) = base_patch(root, base, path).ok().flatten() {
+         paths.extend(patch_targets(root, &before)?);
+     }
+     Ok(paths)

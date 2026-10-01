@@ -82,11 +82,11 @@
 name: fuzz
 
 on:
-  # THE RELEASE TAG, the same `v*` `release.yml` triggers on - a separate run over the same tree,
-  # which is what keeps the release ungated by it. See the header for the two triggers this
-  # replaced and what was measured about them.
+  # THE RELEASE TAG, the same `v*` less `v*-performance` that `release.yml` triggers on - a
+  # separate run over the same tree, which is what keeps the release ungated by it. See the header
+  # for the two triggers this replaced and what was measured about them.
   push:
-    tags: ["v*"]
+    tags: ["v*", "!v*-performance"]
   # KEPT, deliberately. A manual trigger costs nothing while nobody invokes it, and without it the
   # only way to reach these targets between releases is a local `just fuzz seconds="300" target=""`
   # on somebody's machine.
@@ -120,7 +120,7 @@ jobs:
 
       # BEFORE nix installs, for the reason `ci.yml` states at its own call: the runner ships
       # ~20 GB of SDKs this repository does not use, and a sanitizer build is not small.
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
         with:
           minimum-gb: "25"
 
@@ -155,7 +155,7 @@ jobs:
       - name: Replay the committed corpus
         run: bash nix/run-fuzz.sh smoke
 
-  # The half that finds things. One leg per target so six budgets run in parallel rather than in
+  # The half that finds things. One leg per target so the budgets run in parallel rather than in
   # series, and so a crash names its target in the job list.
   fuzz:
     # No `if:` any more. It read `github.event_name != 'pull_request'`, which kept the expensive
@@ -182,7 +182,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
         with:
           minimum-gb: "25"
 

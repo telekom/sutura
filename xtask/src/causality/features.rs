@@ -52,8 +52,10 @@
 //! WHAT MAY NOT HAPPEN. Every changed manifest the diff carries lands in exactly one place: a
 //! resolved pair of tables, or [`Unread`]. So *nothing was enabled* cannot be said about a manifest
 //! whose base table was never read, it cannot be said about a package whose sources came back empty
-//! either - an empty subject set is [`Unread::Sources`] rather than a pass - and it cannot be said
-//! about a file the listing DID name and this could not read, which is [`Unread::Listed`].
+//! either - an empty subject set is [`Unread::Sources`] rather than a pass - it cannot be said about
+//! a census of the working tree's sources that was itself refused, which is [`Unread::Census`], and
+//! it cannot be said about a file the listing DID name and this could not read, which is
+//! [`Unread::Listed`].
 //!
 //! **What holds that, at the strength it actually has**, because *the types* would be an
 //! overstatement: `Activation::one` returns `Result<_, Unread>` and every path in it that has not
@@ -115,7 +117,7 @@ pub(crate) enum Because {
 
 /// A changed manifest's own inputs that this scan could not read.
 ///
-/// A refusal rather than a skip in all three cases, which is the property the header states: an
+/// A refusal rather than a skip in all five cases, which is the property the header states: an
 /// answer of *nothing was enabled* is a claim about tables and sources, so it may not be given
 /// when one of those did not come back.
 #[derive(Debug, PartialEq, Eq)]
@@ -134,6 +136,10 @@ pub(crate) enum Unread {
     /// working tree's own, so the path exists and the read failed - unlike a module candidate,
     /// where `None` legitimately means *cargo would not find the source here*.
     Listed(String),
+    /// The census of the working tree's sources refused the listing while this manifest's package
+    /// was being resolved - a refused or vanished source, named by the census's own cause rather
+    /// than reworded: `report_unread_manifests` prints what the census said.
+    Census { manifest: String, why: String },
 }
 
 /// A file's content at the base commit, with *absent* and *unreadable* kept apart.
@@ -152,7 +158,14 @@ pub(crate) enum BaseText {
 pub(crate) type BaseImage<'reader> = dyn Fn(&str) -> BaseText + 'reader;
 
 /// A reader for the source files under a package directory.
-pub(crate) type Sources<'reader> = dyn Fn(&str) -> Vec<String> + 'reader;
+///
+/// Fallible: an error here is the census of the working tree's own refusal - the discovery of
+/// the listing failed, and a refusal is not a listing. An empty `Vec` is a different answer:
+/// the census was taken and no `.rs` file sits under the directory.
+pub(crate) type Sources<'reader> = dyn Fn(&str) -> Listing + 'reader;
+
+/// The source files under a package directory, or the census's refusal to list them.
+pub(crate) type Listing = Result<Vec<String>, String>;
 
 /// What this scan needs of the two trees, so the classification is assertable without a repository.
 pub(crate) struct Trees<'a> {
@@ -227,7 +240,15 @@ impl Activation {
             return Ok(Vec::new());
         }
         let dir = manifest.rsplit_once('/').map_or("", |(parent, _)| parent);
-        let sources = (trees.sources)(dir);
+        let sources = match (trees.sources)(dir) {
+            Err(why) => {
+                return Err(Unread::Census {
+                    manifest: String::from(manifest),
+                    why,
+                });
+            }
+            Ok(listing) => listing,
+        };
         if sources.is_empty() {
             return Err(Unread::Sources {
                 manifest: String::from(manifest),
@@ -426,14 +447,14 @@ mod tests {
     }
 
     /// The `.rs` files a fixed head tree carries under `dir`.
-    fn sources_of(paths: &[&str]) -> impl Fn(&str) -> Vec<String> + use<> {
+    fn sources_of(paths: &[&str]) -> impl Fn(&str) -> super::Listing + use<> {
         let owned: Vec<String> = paths.iter().map(|path| String::from(*path)).collect();
         move |dir: &str| {
-            owned
+            Ok(owned
                 .iter()
                 .filter(|path| path.starts_with(dir) && Reach::of(path) == Reach::Compiled)
                 .cloned()
-                .collect()
+                .collect())
         }
     }
 
@@ -645,6 +666,37 @@ mod tests {
                 }
             ),
             Activation::Nothing
+        );
+    }
+
+    /// A census that refused while discovering a package's sources is a refusal here, not an
+    /// empty listing: the discovery failed, and a refusal is not a subject set. The killing
+    /// mutation reintroduces the old skip - `unwrap_or_default` on the `Sources` call - which
+    /// turns the error into an empty `Vec` and lets *nothing was enabled* be said over a package
+    /// whose sources this gate never saw.
+    #[test]
+    fn a_census_refusal_over_a_manifests_sources_refuses_the_run() {
+        let files = vec![changed("crates/x/Cargo.toml", 5, &["legacy = []"])];
+        let head = crate::causality::fixtures::tree(&[("crates/x/Cargo.toml", &with_features("x", &["legacy"]))]);
+        let base = at_base(&[("crates/x/Cargo.toml", "[package]\nname = \"x\"\n")]);
+        let refused = |_: &str| {
+            Err(String::from(
+                "1 source file(s) the working tree's listing named are no longer on disk",
+            ))
+        };
+        assert_eq!(
+            Activation::of(
+                &files,
+                &Trees {
+                    head: &head,
+                    base: &base,
+                    sources: &refused,
+                }
+            ),
+            Activation::Unread(vec![Unread::Census {
+                manifest: String::from("crates/x/Cargo.toml"),
+                why: String::from("1 source file(s) the working tree's listing named are no longer on disk"),
+            }])
         );
     }
 

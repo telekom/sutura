@@ -37,8 +37,16 @@
 //! `''` too - so it agrees the skip was allowed. `every_emitted_category_is_republished_as_a_ci_job_output`
 //! holds the two lists together; nothing else does.
 
+#[path = "affected/claim_mutation.rs"]
+mod claim_mutation;
 #[path = "affected/lockfile.rs"]
 mod lockfile;
+#[cfg(test)]
+#[path = "affected/mutation_tests.rs"]
+mod mutation_tests;
+#[cfg(test)]
+#[path = "affected/oracle_aggregate.rs"]
+mod oracle_aggregate;
 
 use std::collections::BTreeSet;
 use std::io::Write as _;
@@ -155,7 +163,9 @@ fn derive_from(paths: &[String], registry: Result<BTreeSet<String>, String>, roo
     } else {
         None
     };
-    let (mut core, selected, mut reasons) = select(paths, registry.as_ref().ok(), locks.as_ref());
+    let (paths, patch_reasons) = claim_mutation::expand(paths, root, base);
+    let (mut core, selected, mut reasons) = select(&paths, registry.as_ref().ok(), locks.as_ref());
+    reasons.extend(patch_reasons);
     let declared = match registry {
         Ok(mut set) => {
             set.insert(String::from(IDENTITY));
@@ -786,7 +796,7 @@ macro_rules! registered {
     /// above cannot see the release-commit skip (a skipped `ci` implies a skipped `bigquery` leg,
     /// an event shape the two-axis model has no vocabulary for) - so these tests extract and run
     /// the script the workflow actually ships.
-    mod shell_simulation {
+    pub(super) mod shell_simulation {
         /// The `ci-aggregate` job's `run: |` block, extracted from `.github/workflows/ci.yml` and
         /// de-indented, so the simulation exercises the exact script `bash` runs in CI.
         fn aggregator_shell() -> String {
@@ -829,14 +839,13 @@ macro_rules! registered {
         }
 
         /// Run the aggregator shell with the given environment; returns (exit ok, combined output).
-        fn run_aggregator(envs: &[(&str, &str)]) -> (bool, String) {
+        pub(in super::super) fn run_aggregator(envs: &[(&str, &str)]) -> (bool, String) {
             let script = aggregator_shell();
             let mut cmd = std::process::Command::new("bash");
             cmd.arg("-c").arg(&script);
             cmd.env("E2E_RESULT", "skipped").env("E2E_REQUIRED", "false");
-            for (k, v) in envs {
-                cmd.env(k, v);
-            }
+            cmd.env("ORACLE_RESULT", "skipped").env("ORACLE_SELECTED", "false");
+            cmd.envs(envs.iter().copied());
             let out = cmd.output().expect("bash runs the ci-aggregate shell");
             let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
             text.push_str(&String::from_utf8_lossy(&out.stderr));

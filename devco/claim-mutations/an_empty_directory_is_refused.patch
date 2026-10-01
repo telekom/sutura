@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-bounded-read/src/walk.rs b/crates/sutura-bounded-read/src/walk.rs
+--- a/crates/sutura-bounded-read/src/walk.rs
++++ b/crates/sutura-bounded-read/src/walk.rs
+@@ -133,7 +133,7 @@
+     }
+     if found.is_empty() {
+         return Err(WalkError::Empty {
+-            path: root.to_path_buf(),
++            path: PathBuf::new(),
+         });
+     }
+     Ok(found.into_iter().collect())

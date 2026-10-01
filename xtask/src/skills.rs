@@ -111,7 +111,7 @@ fn intent_targets(text: &str) -> Vec<String> {
     value
         .get("intents")
         .and_then(serde_json::Value::as_array)
-        .map(|items| {
+        .map_or_default(|items| {
             items
                 .iter()
                 .filter_map(|i| {
@@ -121,7 +121,6 @@ fn intent_targets(text: &str) -> Vec<String> {
                 })
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// Every locked skill whose file no longer hashes to what the lock recorded.
@@ -261,9 +260,7 @@ fn link_problems(root: &Path) -> Vec<String> {
                 "`{link}` is a regular file, not a symlink - `git add -A` on a checkout without symlink support does this"
             )),
             Ok(_) => {
-                let target = std::fs::read_link(&path)
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_default();
+                let target = std::fs::read_link(&path).map_or_default(|p| p.to_string_lossy().into_owned());
                 if target.trim() != LINK_TARGET {
                     problems.push(format!("`{link}` points at `{}`, not `{LINK_TARGET}`", target.trim()));
                 } else if std::fs::metadata(&path).is_err() {

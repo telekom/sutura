@@ -520,21 +520,22 @@ services:
     #   proprietary, unlike `postgresql_18` - so there is no `nix/oracle-tier.nix` this could take
     #   the shape of. A `checks.*` derivation has no docker socket and no network, so there is
     #   nothing there for it to bring up.
-    # Converges: never, for the reason above - `docs/adr/0010`'s neighbours (`postgresql_18`,
-    #   Keycloak) converge because nixpkgs carries the server; this one cannot. So NO nix check
-    #   covers it: a green `just validate` says nothing about a real Oracle answering a
-    #   question. And NO Rust cell reaches it either, whichever venue it is in: the matrix's
-    #   `DataSystemUnderTest for OracleWarehouse` answers `available()` FALSE unconditionally and
-    #   reads no discovery at all - unlike `sutura-exec-postgres`, which does. That is deliberate
-    #   and `crates/sutura-app/tests/adapters/adapters.rs` carries the two reasons beside the
-    #   `impl`: `SUTURA_DEV_REQUIRE_TIER` is per PROCESS rather than per service, so a discovery
-    #   read here would go fatal the moment the unrelated Postgres tier came up, and no CSV-fixture
-    #   importer exists for this adapter to load the corpus with. So bringing this tier up changes
-    #   what a developer can drive by hand and changes no cell's verdict. The render cells in
-    #   `crates/sutura-app/tests/golden/dialects.rs` are the whole of this adapter's suite coverage.
+    # Converges: the `oracle-tier` CI job (`ci.yml`), through `nix run .#oracle-acceptance`, which
+    #   runs the one `#[ignore]`d acceptance cell against this service. A green `just validate`
+    #   says nothing about a live Oracle: its nix sandbox has no docker socket. NO golden-matrix
+    #   cell reaches it either: `DataSystemUnderTest for OracleWarehouse` answers `available()`
+    #   FALSE unconditionally, and `crates/sutura-app/tests/adapters/adapters.rs` carries the two
+    #   reasons beside the `impl` - `SUTURA_DEV_REQUIRE_TIER` is per PROCESS rather than per
+    #   service, and no CSV-fixture importer exists for this adapter. The render cells in
+    #   `crates/sutura-app/tests/golden/dialects.rs` are its suite coverage; the acceptance cell is
+    #   its only executed coverage.
     # `-faststart`: the database is pre-built in the image rather than created on first boot, which
     # is the difference between a usable job and a slow one for a tier that comes up on every run.
-    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/gvenzl/oracle-free:23.26.3-faststart
+    # PINNED BY DIGEST, unlike every other service here (by tag), by owner decision (#127): a
+    # permanent CI job over a proprietary image under the Oracle Free licence earns a pin a
+    # development fixture does not, because the tag is mutable. The digest is Docker Hub's manifest
+    # digest for the tag; re-pin when the tag moves.
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/gvenzl/oracle-free:23.26.3-faststart@sha256:33322969a450d72c507b08d7f690d9e1d9b60aebaebc35a75b7c0b8ab4baac77
     profiles:
       - oracle
     environment:
@@ -631,12 +632,11 @@ services:
 # reason that is about this tier's job rather than about effort. That job is to stand up the source an
 # adapter is tested against - so a service with no adapter to test is cost with no coverage.
 #
-#   * **Oracle.** The vendor's own image is not on Docker Hub - checked, `oracle/database-free` is a
-#     404 there - so it comes from the vendor's registry behind a licence click-through, which cannot
-#     be pulled unattended in CI and cannot come through the one registry variable above. The only
-#     Docker Hub option is a community rebuild, which is not what a governance boundary should be
-#     certified against. And `docs/adr/0008` records Oracle's impersonation as DEFERRED anyway: the
-#     capability is in the database and no Rust driver exposes it, so there is nothing to test yet.
+#   * **Oracle has LEFT this list**: the `oracle` service is above and the `oracle-tier` CI job
+#     converges it. The vendor's own `oracle/database-free` is not on Docker Hub; the community
+#     `gvenzl/oracle-free` rebuild is, under the Oracle Free licence - the `oracle-tier` job's
+#     comment in `ci.yml` carries the licence note and its limit. `docs/adr/0008` still records
+#     Oracle's per-subject impersonation as DEFERRED; this tier serves the shared fixture user only.
 #   * **OpenMetadata.** Not one image: a stack - its own store, a search index, a scheduler. There
 #     is no OpenMetadata crate at all, so nothing would read from it, and the cost is real for zero
 #     coverage gained.

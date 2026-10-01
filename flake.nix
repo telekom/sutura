@@ -35,7 +35,7 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    jscpd-src.url = "github:kucherenko/jscpd/v5.2.0";
+    jscpd-src.url = "github:kucherenko/jscpd/v5.3.2";
     jscpd-src.flake = false;
     # The ADBC BigQuery driver, self-built from source so every release triple -
     # including the two static musl ones - gets a hermetic, reproducible native
@@ -52,10 +52,11 @@
   outputs = { self, nixpkgs, flake-utils, crane, rust-overlay, jscpd-src, bigquery-adbc-src, arrow-adbc-src, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs {
+        basePkgs = import nixpkgs {
           inherit system;
           overlays = [ (import rust-overlay) ];
         };
+        pkgs = basePkgs // import ./nix/dev-tools.nix { pkgs = basePkgs; };
 
         # The source root as a string, so the filter below can match a REPO-RELATIVE path.
         # `./.` is the flake source, and in every build that is a store path - which is the
@@ -232,8 +233,7 @@
         # The one crane lib, over the one pinned nightly toolchain: the native build, the cross
         # builds, every gate and every shipped artifact all run the same compiler.
         craneLibFor = sys:
-          (crane.mkLib pkgs).overrideToolchain
-            (p: p.rust-bin.fromRustupToolchainFile ./devco/rust-toolchain-nightly.toml);
+          (crane.mkLib pkgs).overrideToolchain toolchain;
 
         # Native build: what `nix build` and `nix flake check` use.
         craneLib = craneLibFor system;
@@ -491,7 +491,7 @@
           # The copy/paste detector, as a package as well as an app. This is the SAME derivation
           # `checks.hygiene` carries on `nativeBuildInputs` and `apps.jscpd` points at, so CI, the
           # `nix run .#jscpd` route and the dev shell all see one jscpd - the pinned `jscpd-src`
-          # v5.2.0 build from `nix/jscpd.nix`. The devenv module references this attribute so the
+          # build from `nix/jscpd.nix`. The devenv module references this attribute so the
           # local shell cannot resolve a different engine than the sandbox attests with.
           jscpd = jscpd;
 
@@ -644,10 +644,11 @@
             # The disposable demo's fake-child contract is stdlib-only and runs from the same
             # unfiltered source tree as the Rust tests, before the tier is provisioned. One
             # exception: `test_dev_down_only_demo_scopes_the_docker_teardown_it_issues` runs the real
-            # `xtask` CLI against a faked `docker`, so THIS check now also builds `xtask` and
-            # whatever it pulls in before the `cargoNextest` build below does - cargo's own cache
-            # makes that a scheduling change, not a second build, but it moves real wall time ahead
-            # of `preCheck` rather than eliminating it.
+            # `xtask` CLI against a faked `docker`, so THIS check now also builds `xtask` before the
+            # `cargoNextest` build below does. The test reads the exported `CARGO_PROFILE` and builds
+            # `--workspace --all-features --bin xtask` under it, so that build lands in the warm `ci`
+            # closure: a bare `cargo run -p xtask` built the dev profile, whose 37 third-party units
+            # the closure does not hold, cold, ahead of every Rust cell.
             #
             # `pkgs.git` is NOT only for that faked `docker` contract. `xtask`'s own causality gate
             # shells to a real `git` (`causality::worktree::git`, called from `causality::claim`,
@@ -1060,6 +1061,28 @@
               exec cargo nextest run --cargo-profile ci -p sutura-cli --all-features \
                 --run-ignored only -E 'test(served_datahub_metric_executes_through_adbc_bigquery)' "$@"
             )
+          '');
+        };
+
+        # The Oracle venue (#127): starts the compose `oracle` profile and runs its one `#[ignore]`d
+        # acceptance cell - the only venue that executes a statement against a live Oracle, since a
+        # nix check has no docker socket. The `oracle-tier` CI job runs it; `just oracle-acceptance`
+        # is the by-hand twin. No teardown: the CI runner is ephemeral, and a tier a developer
+        # started by hand is neither adopted nor stopped.
+        apps.oracle-acceptance = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-oracle-acceptance" ''
+            set -euo pipefail
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            cargo run -q -p xtask -- dev-up --with oracle
+            export SUTURA_DEV_REQUIRE_TIER=1
+            export SUTURA_DEV_USER="''${SUTURA_DEV_USER:-sutura}"
+            export SUTURA_DEV_PASSWORD="''${SUTURA_DEV_PASSWORD:-sutura}"
+            exec cargo nextest run --cargo-profile ci -p sutura-exec-oracle --all-features \
+              --run-ignored only -E 'test(/^acceptance::/)' "$@"
           '');
         };
 

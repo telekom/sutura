@@ -1,0 +1,12 @@
+diff --git a/xtask/src/causality/edited.rs b/xtask/src/causality/edited.rs
+--- a/xtask/src/causality/edited.rs
++++ b/xtask/src/causality/edited.rs
+@@ -370,7 +370,7 @@
+                 Touched::Runs(test_name)
+             };
+             if !out.contains(&caller) {
+-                out.push(caller);
++                out.clear();
+             }
+         }
+     }

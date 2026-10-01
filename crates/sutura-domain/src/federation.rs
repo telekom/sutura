@@ -264,8 +264,8 @@ impl Carried {
     /// `None` for every term written before `telekom/sutura#780`'s vocabulary (`AggregatedColumn::new`
     /// sets no model). A term that names a model explicitly - including the metric's own - carries
     /// `Some`, because `descend` has no metric to compare against and copies the field. The combiner
-    /// reads a `Some` leaf off the second fact leg only when the plan carries one; a splitter that
-    /// builds a second fact leg must first erase the metric's own model to `None`, and none does yet.
+    /// reads a `Some` leaf off the second fact leg only when the plan carries one, so a splitter
+    /// builds its federation with [`Federation::of_metric`], which erases the metric's own model.
     pub const fn model(&self) -> Option<&ModelName> {
         match *self {
             Self::Aggregated { ref model, .. } | Self::CountIf { ref model, .. } | Self::Keys { ref model, .. } => model.as_ref(),
@@ -350,6 +350,18 @@ impl Federation {
         Self { above }
     }
 
+    /// [`Self::of`] for a metric over `own`, with every leaf that names `own` erased to `None`.
+    ///
+    /// A term may spell the metric's own model explicitly, and it is the same question as one that
+    /// names none (`telekom/sutura#780`). The splitter, `FederatedPlan::new`'s D9 split and the
+    /// combiner all route a leaf by [`Carried::model`] off this one tree, so erasing here is what
+    /// keeps an own-model leaf on the first fact leg in all three.
+    pub fn of_metric(measure: &Measure, own: &ModelName) -> Self {
+        let mut federation = Self::of(measure);
+        erase_own(&mut federation.above, own);
+        federation
+    }
+
     /// What happens once, above the legs.
     #[inline]
     pub const fn above(&self) -> &Above {
@@ -421,6 +433,29 @@ pub fn descend(term: &Term) -> Above {
                 model: inner.model().cloned(),
             }),
         },
+    }
+}
+
+/// Erases every leaf's model that names `own` - see [`Federation::of_metric`].
+fn erase_own(above: &mut Above, own: &ModelName) {
+    match *above {
+        Above::Total(
+            Carried::Aggregated { ref mut model, .. }
+            | Carried::CountIf { ref mut model, .. }
+            | Carried::Keys { ref mut model, .. },
+        ) => {
+            if model.as_ref() == Some(own) {
+                *model = None;
+            }
+        }
+        Above::Quotient {
+            ref mut numerator,
+            ref mut denominator,
+            ..
+        } => {
+            erase_own(numerator, own);
+            erase_own(denominator, own);
+        }
     }
 }
 

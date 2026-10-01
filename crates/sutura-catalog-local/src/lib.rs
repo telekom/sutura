@@ -40,6 +40,7 @@ use sutura_domain::pinned::{
     CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
 };
 
+use crate::document::cube::{CubeDoc, InvalidCubeDocument};
 use crate::document::knowledge::{CaveatDoc, ExampleDoc, GlossaryDoc, NotDefinedDoc};
 use crate::document::{
     DocumentKind, InvalidMetricDocument, InvalidModelDocument, InvalidRelationshipDocument, KindProbe, MetricDoc, ModelDoc,
@@ -92,7 +93,7 @@ pub enum LocalCatalogError {
     },
     /// An open, stat or read of a document through its descriptor failed in a way the OS
     /// described but [`Self::Io`]'s wording does not: a swapped symlink refuses with `ELOOP`
-    /// and a swapped FIFO with `ENXIO`, and neither is "could not read".
+    /// at open, and the OS reports the refusal rather than the read's generic "could not read".
     #[error("could not open {path}: {cause}")]
     Open {
         path: PathBuf,
@@ -134,6 +135,15 @@ pub enum LocalCatalogError {
         path: PathBuf,
         #[source]
         cause: InvalidMetricDocument,
+    },
+    /// A cube document did not expand: no measure, a measure declared twice, a `<cube>_<measure>`
+    /// join over the identifier length cap, or a measure's metric refused the way a metric
+    /// document's would be.
+    #[error("{path} is not a usable cube")]
+    Cube {
+        path: PathBuf,
+        #[source]
+        cause: InvalidCubeDocument,
     },
     /// A model's own column or its `primary_key:` is not usable.
     #[error("{path} is not a usable model")]
@@ -324,8 +334,8 @@ impl LocalCatalog {
             // actually read - the read, the regular-file check, the byte budget and the post-read
             // recheck all live in `sutura_bounded_read::read_document`, on the ONE handle that was
             // opened. The refusal half, the `O_NOFOLLOW` / `O_NONBLOCK` / `O_CLOEXEC` flags, is that
-            // crate's open. See its `read.rs` for why a document swapped for a symlink or a FIFO is
-            // refused at open, and why the budget is enforced on the read itself.
+            // crate's open. See its `read.rs` for why a swapped symlink is refused at open, a swapped
+            // FIFO by the handle's `fstat`, and why the budget is enforced on the read itself.
             //
             // "Opened once" is held by `cargo xtask check-catalog-opened-once`, a static gate that
             // refuses any path-based `std::fs` read in this crate's non-test source: a hand
@@ -448,7 +458,9 @@ impl Collected {
     /// One document, into whichever half it belongs to.
     fn absorb(&mut self, path: &Path, split: &Split<'_>, kind: DocumentKind) -> Result<(), LocalCatalogError> {
         match kind {
-            DocumentKind::Model | DocumentKind::Relationship | DocumentKind::Metric => self.absorb_definition(path, split, kind),
+            DocumentKind::Model | DocumentKind::Relationship | DocumentKind::Metric | DocumentKind::Cube => {
+                self.absorb_definition(path, split, kind)
+            }
             DocumentKind::Glossary | DocumentKind::Caveat | DocumentKind::NotDefined | DocumentKind::Example => {
                 self.absorb_note(path, split, kind)
             }
@@ -484,6 +496,14 @@ impl Collected {
                 let doc: RelationshipDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
                 self.relationships
                     .push(doc.into_domain().map_err(|cause| LocalCatalogError::Relationship {
+                        path: PathBuf::from(path),
+                        cause,
+                    })?);
+            }
+            DocumentKind::Cube => {
+                let doc: CubeDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
+                self.metrics
+                    .extend(doc.into_domain(&description).map_err(|cause| LocalCatalogError::Cube {
                         path: PathBuf::from(path),
                         cause,
                     })?);

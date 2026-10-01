@@ -172,7 +172,7 @@ pub fn walk(root: &Path, extensions: &[&str], max_documents: usize) -> Result<Ve
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use super::WalkError;
 
@@ -211,7 +211,10 @@ mod tests {
     fn an_empty_directory_is_refused() {
         let root = scratch("empty");
         let err = super::walk(&root, &["yaml"], super::MAX_CATALOG_DOCUMENTS).expect_err("an empty root refuses");
-        assert!(matches!(err, WalkError::Empty { .. }), "{err:?}");
+        assert!(
+            matches!(err, WalkError::Empty { ref path } if path.as_path() == root.as_path()),
+            "{err:?}"
+        );
         drop(std::fs::remove_dir_all(&root));
     }
 
@@ -223,7 +226,50 @@ mod tests {
             super::MAX_CATALOG_DOCUMENTS,
         )
         .expect_err("a missing root refuses");
-        assert!(matches!(err, WalkError::NotADirectory { .. }), "{err:?}");
+        assert!(
+            matches!(err, WalkError::NotADirectory { ref path } if path.as_path() == Path::new("/nonexistent/definitely")),
+            "{err:?}"
+        );
+    }
+
+    /// A mode-000 subdirectory is refused as `Io` naming that subdirectory. Holds only for an
+    /// unprivileged runner: root reads a mode-000 directory.
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_subdirectory_is_refused_as_walk_io() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let root = scratch("unreadable-subdir");
+        let subdir = root.join("subdir");
+        std::fs::create_dir_all(&subdir).expect("a subdirectory is creatable");
+        std::fs::set_permissions(&subdir, std::fs::Permissions::from_mode(0o000)).expect("permissions are settable");
+        let err = super::walk(&root, &["yaml"], super::MAX_CATALOG_DOCUMENTS).expect_err("an unreadable subdirectory refuses");
+        drop(std::fs::set_permissions(&subdir, std::fs::Permissions::from_mode(0o755)));
+        drop(std::fs::remove_dir_all(&root));
+        assert!(
+            matches!(err, WalkError::Io { ref path, .. } if *path == subdir),
+            "expected Io naming {}, got {err:?}",
+            subdir.display(),
+        );
+    }
+
+    /// One document past `max_documents` is refused as `TooManyDocuments` naming the root, the
+    /// count found and the limit.
+    #[test]
+    fn a_directory_with_more_documents_than_the_cap_is_refused_naming_found_and_limit() {
+        let root = scratch("too-many-docs");
+        let cap = 4;
+        for i in 0..=cap {
+            std::fs::write(root.join(format!("doc-{i}.yaml")), "x").expect("a document is writable");
+        }
+        let err = super::walk(&root, &["yaml"], cap).expect_err("an over-cap directory refuses");
+        assert!(
+            matches!(err, WalkError::TooManyDocuments { ref path, found, limit }
+                if *path == root && found == cap + 1 && limit == cap),
+            "expected TooManyDocuments naming {}, found={} and limit={cap}, got {err:?}",
+            root.display(),
+            cap + 1,
+        );
+        drop(std::fs::remove_dir_all(&root));
     }
 }
 

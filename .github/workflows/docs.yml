@@ -58,8 +58,9 @@ on:
     branches: [main]
     # A `v*` tag publishes that release's own directory. "Path filters are not evaluated for
     # pushes of tags" - documented GitHub behaviour - so `paths` below narrows branch pushes only
-    # and a tag always builds, which is what a release needs.
-    tags: ["v*"]
+    # and a tag always builds, which is what a release needs. Not `v*-performance`: the optimised
+    # build's prerelease has no docs of its own, and a run from one would move `latest` to it.
+    tags: ["v*", "!v*-performance"]
     paths:
       - "**/*.md"
       # THE SEMANTIC CATALOGS ARE MARKDOWN AND ARE NOT PROSE. `ci.yml` re-includes them so that a
@@ -121,7 +122,7 @@ jobs:
       # Before nix installs: /nix/store is what fills. See
       # `.github/actions/reclaim-disk` for why this is local and why it cannot
       # affect the Nix cache.
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           # The flag that makes nix honour settings from flake.nix itself is deliberately
@@ -239,6 +240,7 @@ jobs:
           set -eu
           if [ "$REF_TYPE" = tag ]; then
             case "$REF_NAME" in
+              *-performance) echo "::error::$REF_NAME is an optimised build's prerelease, which publishes no docs"; exit 1 ;;
               v*) ;;
               *) echo "::error::docs publishes tags matching v*; got $REF_NAME"; exit 1 ;;
             esac

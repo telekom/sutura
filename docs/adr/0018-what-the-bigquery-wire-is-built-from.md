@@ -47,6 +47,17 @@ it.
 | **Arrow**            | `cargo xtask check-arrow` fails when the `arrow-*` family spans more than one major without a dated, reasoned entry in `devco/arrow-majors-allow`. The engine sets the type vocabulary and adapters conform                                                                                                                                                                                            |
 | **`anyhow`**         | Not on the issue's list and it is the one that decides this. `AGENTS.md` states that *`anyhow` appears nowhere in this workspace - `Cargo.lock` included, so not even transitively*, and `cargo xtask check-boundaries` fails a dynamic-error crate in a library. A dependency that pulls it transitively spends a claim this repository makes in writing                                              |
 
+**Corrected: the release row's `flake.nix` attribution is stale.** The `cargoExtraArgs` that pins a
+single package is in `nix/shipped.nix`, as `--package ${binary.package}` - a variable over the list
+of shipped binaries, not a literal `--package sutura-cli` in `flake.nix`. `flake.nix`'s own
+`ciArtifacts` builds `--workspace --all-features`, and the release derivations are in `nix/shipped.nix`.
+
+**Corrected: the `anyhow` row attributes the claim to the wrong source.** `AGENTS.md` contains no
+occurrence of the word "anyhow"; the claim lives in `docs/architecture.md` and is enforced by
+`cargo xtask check-boundaries`, which fails a dynamic-error crate in a library - the gate the row
+goes on to name. The claim itself holds: no `Cargo.toml` names `anyhow` and `Cargo.lock` holds no
+`anyhow` package.
+
 ## The options, priced
 
 There is **no stable official Google `BigQuery` SDK for Rust.** There is an official repository -
@@ -171,8 +182,7 @@ Four parts, each with its own reason:
 than asserted.
 
 **Corrected: that overstates the manifest side.** `sutura-cli`'s own manifest declares the edge -
-`Cargo.toml:55`'s `bigquery` feature and `:87`'s `sutura-exec-bigquery = { workspace = true, optional
-= true }` - and `nix/shipped.nix:161-164` packages `sutura-serve` as a release artifact, published as
+`Cargo.toml:55`'s `bigquery` feature and `:87`'s `sutura-exec-bigquery = { workspace = true, optional = true }` - and `nix/shipped.nix:161-164` packages `sutura-serve` as a release artifact, published as
 the tarball `.github/workflows/release.yml:447` uploads. What holds is narrower than "none of them
 link either half":
 no artifact in the table below LINKS `sutura-exec-bigquery` or `ureq` in its DEFAULT build, because

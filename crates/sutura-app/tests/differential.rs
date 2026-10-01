@@ -405,6 +405,33 @@ mod tests {
         );
     }
 
+    /// **The two-fact ratio (`telekom/sutura#780`), over the whole registry at once.**
+    ///
+    /// Each entry that is available here holds both fact legs and the lookup, on two sources of its
+    /// own, and must answer what two engines answer - or, declaring no leg execution, be refused by
+    /// name before anything runs. The engine's own entry is compared against itself, a determinism
+    /// check; an entry with no venue here (`BigQuery`, Oracle, or a tier that is not up) is skipped,
+    /// so `ClickHouse`'s refusal is asserted only where its tier is up.
+    /// One cell over the registry rather than one per entry, and one assertion in it:
+    /// `federated::two_fact::disagreement` says what each entry did, and the two engines it compares
+    /// against are held to hand-worked figures by that file's own cell. **The first finding stops the
+    /// walk**, in registry order, so a later entry is not even asked whether it is available - which
+    /// is what lets this cell's claim mutation kill it on `DuckDB` in a venue with no tier up, where
+    /// asking `Postgres` would refuse the run instead.
+    #[test]
+    fn leg_executing_data_systems_agree_with_the_engines_and_a_legless_one_is_refused() {
+        let mut found: Option<String> = None;
+        macro_rules! two_fact {
+            ($name:ident, $adapter:ty) => {
+                if found.is_none() {
+                    found = crate::federated::two_fact::disagreement::<$adapter>();
+                }
+            };
+        }
+        crate::adapters::registered!(data_systems: two_fact);
+        assert!(found.is_none(), "{}", found.unwrap_or_default());
+    }
+
     /// One cell of the comparison.
     macro_rules! cell {
         ($name:ident, $adapter:ty) => {

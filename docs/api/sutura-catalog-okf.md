@@ -102,7 +102,7 @@ them.
 
 - `NotADirectory`
 - `Io`
-- `Open` - An open or `fstat` of a descriptor failed in a way the OS described but `Self::Io`'s wording does not: a swapped symlink refuses with `ELOOP` and a swapped FIFO with `ENXIO`, and neither is "could not read".
+- `Open` - An open or `fstat` of a descriptor failed in a way the OS described but `Self::Io`'s wording does not: a swapped symlink refuses with `ELOOP` at open, and the OS reports the refusal rather than the read's generic "could not read".
 - `Malformed`
 - `Unnamed`
 - `InvalidName`

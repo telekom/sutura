@@ -40,13 +40,8 @@
 //! [`Scan::Enabled`], it refuses, and `super::place::declared_module_files` is what resolves the
 //! declaration instead of asserting it.
 //!
-//! AN `#[ignore]`d TEST IS NAMED AND DROPPED, because a filterset naming only ignored tests
-//! matches nothing and nextest exits 4 with *error: no tests to run* - a false RED on legitimate
-//! work, and the acceptance suites here are full of them
-//! (`git grep -c -E '^[[:space:]]*#\[ignore' -- '*.rs'` counts the attributes; the same command
-//! WITHOUT the anchor answers roughly twice as many across twice as many files, because most
-//! `#[ignore` in this tree is a doc comment ABOUT one - no number is written down, because the
-//! argument holds at any count above zero and a figure would rot within a PR).
+//! AN `#[ignore]`d TEST IS NAMED AND DROPPED: a filterset naming only ignored tests matches
+//! nothing, and nextest exits 4 with *error: no tests to run* over legitimate work.
 //! Running them is the wrong direction for the reason a tier-backed cell is not required in the
 //! reconstructed worktree (see [`super::runner::nextest`]): they are ignored because this venue lacks what
 //! they need, so forcing them in a tree nothing provisioned fails CLOSED and reads as
@@ -72,7 +67,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::causality::attributes::{attached, declares_a_test, item_below};
+use crate::causality::attributes::{attached, decides_a_run_unevaluably, declares_a_test, item_below};
 use crate::causality::diff::ChangedFile;
 use crate::causality::edited;
 use crate::causality::features::{Because, Enabled};
@@ -245,33 +240,22 @@ impl Scan {
                             ignored.push(name);
                         }
                     }
-                    Declared::Runs(name) => {
-                        let one = AddedTest::at(&file.path, &at, name);
+                    Declared::Runs(name, gate) => {
+                        let one = AddedTest::at(&file.path, &at, name).with_gate(gate);
                         if !runnable.contains(&one) {
                             runnable.push(one);
                         }
                     }
                 }
             }
-            // `github.com/telekom/sutura#1025`: a test this diff did not ADD but whose item an
-            // added line lands inside - an edited assertion, most often. `github.com/telekom/sutura#1031`
-            // closes the sibling shape - an added line inside a `#[cfg(test)]` helper fn a test
-            // calls, reached by name here. Both are "a test this diff changed without adding it",
-            // so both name the test the same way; each is independent of `named`/`declared`
-            // above, which count only ADDED attribute lines - a body-only edit adds no attribute
-            // at all.
+            // Body edits in an existing test or a helper it calls name that test without
+            // changing the added-attribute count.
             let scope = crate::causality::regions::scope(&file.path, read);
             let called = edited::edited_helper_caller(&lines, &file.added, &scope);
             let touched_helper = !called.is_empty();
-            for name in called {
-                let one = AddedTest::at(&file.path, &at, name);
-                if !runnable.contains(&one) {
-                    runnable.push(one);
-                }
-            }
             let touched = edited::touched_in(&lines, &file.added);
             let touched_any = touched_helper || !touched.is_empty();
-            for one in touched {
+            for one in called.into_iter().chain(touched) {
                 match one {
                     edited::Touched::Ignored(name) => {
                         if !ignored.contains(&name) {
@@ -279,7 +263,8 @@ impl Scan {
                         }
                     }
                     edited::Touched::Runs(name) => {
-                        let one = AddedTest::at(&file.path, &at, name);
+                        let gate = gate_named(&lines, &name);
+                        let one = AddedTest::at(&file.path, &at, name).with_gate(gate).edited();
                         if !runnable.contains(&one) {
                             runnable.push(one);
                         }
@@ -353,7 +338,7 @@ impl Scan {
 /// A test an added attribute declares, and whether a run in this venue reaches it.
 enum Declared {
     /// A test that runs here.
-    Runs(Ident),
+    Runs(Ident, Option<String>),
     /// `#[ignore]`d, so no filter can make it run and naming it in one matches nothing.
     Ignored(Ident),
 }
@@ -373,8 +358,21 @@ fn declared_under(lines: &[&str], added: &AddedLine) -> Option<Declared> {
     Some(if is_ignored(lines, index) {
         Declared::Ignored(name)
     } else {
-        Declared::Runs(name)
+        Declared::Runs(name, gate_at(lines, index))
     })
+}
+
+/// The attached build condition over the fn at `index` that this venue cannot evaluate, if any.
+fn gate_at(lines: &[&str], index: usize) -> Option<String> {
+    let mut block = attached(lines, index).into_iter().map(|(_, opening)| opening);
+    block.find(|opening| decides_a_run_unevaluably(opening)).map(String::from)
+}
+
+/// [`gate_at`] for an EDITED test, which only its name locates.
+// ponytail: the first fn of that name in the file; a same-named fn in a sibling module can lend its gate.
+fn gate_named(lines: &[&str], name: &Ident) -> Option<String> {
+    let index = lines.iter().position(|line| function_name(line).as_ref() == Some(name))?;
+    gate_at(lines, index)
 }
 
 /// Does the attribute block attached to the function at `index` carry an `#[ignore]`?

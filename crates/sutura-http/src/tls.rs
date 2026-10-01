@@ -528,12 +528,6 @@ impl Renewal {
 
 /// The renewal watch's body.
 ///
-/// A named function rather than an inline block so the lint exemption below has something to sit on
-/// and a reason a reader can check.
-#[expect(
-    clippy::integer_division_remainder_used,
-    reason = "the `select!` macro expands through remainder arithmetic to pick a poll order; nothing here does"
-)]
 async fn poll_until_shutdown(mut renewal: Renewal, interval: Duration, shutdown: Shutdown) {
     loop {
         tokio::select! {
@@ -876,10 +870,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(
-        clippy::integer_division_remainder_used,
-        reason = "the `select!` macro expands through remainder arithmetic to pick a poll order, the same reason `poll_until_shutdown` carries this; `biased` is what decides the order here"
-    )]
     fn a_look_at_the_files_runs_off_the_executor_so_another_task_keeps_making_progress() {
         // A current-thread runtime, so the executor is exactly this thread, and a blocking pool of
         // exactly ONE thread, which this test holds. A look handed to that pool therefore cannot

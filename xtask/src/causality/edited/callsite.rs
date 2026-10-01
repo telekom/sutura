@@ -124,7 +124,7 @@ fn touched(file: &ChangedFile, read: &PostImage<'_>) -> Vec<String> {
     let names: BTreeSet<String> = direct
         .iter()
         .map(|test| String::from(test.name().as_str()))
-        .chain(callers.iter().map(|name| String::from(name.as_str())))
+        .chain(callers.iter().map(|caller| String::from(caller.name().as_str())))
         .collect();
     names.into_iter().collect()
 }
@@ -388,4 +388,22 @@ fn leaves(item: &[TokenTree]) -> Option<Vec<String>> {
         }
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Edited;
+
+    #[test]
+    fn a_range_of_only_wrapped_call_sites_reports_inconclusive() {
+        let edited = vec![Edited {
+            path: String::from("crates/x/tests/a.rs"),
+            tests: vec![String::from("renders")],
+        }];
+        assert_eq!(
+            super::report(&edited),
+            crate::Verdict::Inconclusive,
+            "an all-edited range must report INCONCLUSIVE, never a pass"
+        );
+    }
 }

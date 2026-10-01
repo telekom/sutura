@@ -210,15 +210,18 @@ pub(crate) fn classify_base(
 
 /// Did cargo fail to resolve the manifest, never reaching the compiler?
 fn failed_to_resolve(text: &str) -> bool {
-    text.contains("failed to parse manifest") || text.contains("no targets specified in the manifest")
+    outer_lines(text)
+        .any(|line| line.contains("failed to parse manifest") || line.contains("no targets specified in the manifest"))
 }
 
 /// Did the tree fail to build?
 fn did_not_compile(text: &str) -> bool {
-    text.contains("could not compile")
-        || text.contains("error[E")
-        || text.contains("error: cannot find")
-        || text.contains("unresolved import")
+    outer_lines(text).any(|line| {
+        line.contains("could not compile")
+            || line.contains("error[E")
+            || line.contains("error: cannot find")
+            || line.contains("unresolved import")
+    })
 }
 
 /// Why a run's own text says it never reached a test at all - cargo could not resolve the
@@ -246,7 +249,12 @@ pub(super) fn could_not_attest(text: &str) -> Option<&'static str> {
 /// the tests it named are absent: measured on 0.9.143, a filter matching nothing prints this and
 /// exits 4 rather than reporting a green run over zero tests.
 pub(crate) fn names_no_tests(text: &str) -> bool {
-    text.contains("error: no tests to run")
+    outer_lines(text).any(|line| line.contains("error: no tests to run"))
+}
+
+/// Ignore nextest's indented captured output when recognizing outer diagnostics.
+fn outer_lines(text: &str) -> impl Iterator<Item = &str> {
+    text.lines().filter(|line| !line.starts_with(char::is_whitespace))
 }
 
 /// The failing tests a run reported.
@@ -285,7 +293,7 @@ fn collect(text: &str, read: ReadFailure) -> Vec<String> {
 ///
 /// `ABORT` is the WINDOWS spelling and never matches on this platform, which is the whole reason
 /// this list is measured rather than read off a status table: it was carried alone while an
-/// aborting base parsed to zero failures. Measured side by side on 0.9.143:
+/// aborting base parsed to zero failures. The captured output is:
 ///
 /// ```text
 ///     SIGSEGV [   0.282s] (3/4) pa tests::segfaults
@@ -297,16 +305,16 @@ fn collect(text: &str, read: ReadFailure) -> Vec<String> {
 /// The two this tree cannot provoke on demand - `FAIL + LEAK` and `LEAK-FAIL`, one for a failing
 /// test that also leaked and one for a leak the profile fails on - are read off the pinned
 /// binary's own string table rather than guessed, alongside `ABORT` and `XFAIL`. `XFAIL` is
-/// deliberately absent: an expected failure that failed is a PASS.
+/// deliberately absent: it means the test process failed to launch, so it is not assertion evidence.
 const FAILING_STATUSES: &[&str] = &["FAIL", "FAIL + LEAK", "TIMEOUT", "ABORT", "LEAK-FAIL"];
 
 /// Is this status one that a test did not pass under?
 ///
 /// Abnormal termination is one status PER SIGNAL, so the rule for those is the SHAPE rather than
-/// a list that goes stale on the next platform or the next signal. `PASS`, `LEAK` and `XFAIL` are
-/// the statuses 0.9.143 prints that are not failures, and the direction of a status this does not
-/// recognise is [`BaseOutcome::Unattributed`] - no proof claimed - rather than a red attributed
-/// to whichever test the line happened to name.
+/// a list that goes stale on the next platform or the next signal. `PASS` and `LEAK` are not
+/// assertion failures; `XFAIL` means the test process failed to launch. A status this does not
+/// recognise remains [`BaseOutcome::Unattributed`] - no proof claimed - rather than a red
+/// attributed to whichever test the line happened to name.
 fn is_failing(status: &str) -> bool {
     status.starts_with("SIG") || FAILING_STATUSES.contains(&status)
 }
@@ -434,7 +442,8 @@ pub(super) const fn reported_per_test(outcome: &BaseOutcome) -> bool {
 }
 
 /// How many tests nextest's own `Summary` line says it RAN in this text - not skipped, not merely
-/// named by the filter, but the count whose bodies actually executed.
+/// named by the filter, but the count whose bodies actually executed - reading the LAST such line,
+/// when a nested fixture prints its own earlier summary that would otherwise be counted instead.
 ///
 /// **Why this number is safe to compare against what the filter NAMED.** The gate's filterset is a
 /// whole-name match ([`super::scoped::Scoped::filterset`]), so a scoped name absent from the base
@@ -685,6 +694,32 @@ mod tests {
         let both = "error[E0433]: failed to resolve\nerror: could not compile\nerror: test run failed";
         let under_test = scoped("pa", "pa/src/lib.rs", &["t"]);
         assert_eq!(classified(both, false, &under_test), BaseOutcome::DidNotCompile);
+    }
+
+    #[test]
+    fn captured_diagnostics_do_not_claim_that_the_outer_run_failed_to_start() {
+        let build = "the tree did not compile";
+        let manifest = "cargo could not resolve the manifest";
+        let absent = "the filter matched no test - orphaned by the patch, not killed by it";
+        for stream in ["stdout", "stderr"] {
+            for (diagnostic, expected) in [
+                ("error[E0583]", build),
+                ("error: could not compile `sample`", build),
+                ("error: cannot find type `Missing`", build),
+                ("unresolved import `sample`", build),
+                ("error: failed to parse manifest at `Cargo.toml`", manifest),
+                ("no targets specified in the manifest", manifest),
+                ("error: no tests to run", absent),
+            ] {
+                let output = format!(
+                    "  {stream} ───\n\n    {diagnostic}\n\n\
+                     \x20       FAIL [   0.115s] (1/1) pa tests::t\nerror: test run failed\n"
+                );
+                assert_eq!(super::could_not_attest(&output), None, "captured {stream}: {diagnostic}");
+                let real_build_failure = format!("{diagnostic}\n{output}");
+                assert_eq!(super::could_not_attest(&real_build_failure), Some(expected));
+            }
+        }
     }
 
     #[test]

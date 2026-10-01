@@ -1,13 +1,15 @@
 #![forbid(unsafe_code)]
-//! Every reachable `DataContractError` refusal `src/tests.rs` does not provoke, each driven through
-//! the public [`SemanticCatalog::load`] port over a scratch directory of real contract files and
-//! asserted by variant, the contract a caller matches on.
+//! `DataContractError` refusals `src/tests.rs` does not provoke, each driven through the public
+//! [`SemanticCatalog::load`] port over a scratch directory of real contract files and asserted by
+//! variant, the contract a caller matches on.
 //!
 //! Not provoked, because no input reaches them: `RelationshipName` (the name is fitted to the
 //! identifier limit by construction), `UncheckableKnowledge` (this adapter supplies
-//! `KnowledgeInput::none()`), `NotARegularFile` (the walk yields only regular files; the swap
-//! between walk and open is a race) and `Digest`. `Io` is provoked on its read arm only; its walk
-//! arm is a `read_dir` failure no fixture produces deterministically.
+//! `KnowledgeInput::none()`) and `Digest`. **Reachable but not re-provoked here:** the walk arm of
+//! `Io` (a mode-000 subdirectory) and `NotARegularFile` (a FIFO swapped in during the read
+//! window). This adapter reaches both through the same `sutura_bounded_read::walk` and
+//! `read_document` that `sutura-bounded-read`'s and `sutura-catalog-okf`'s cells provoke; no cell
+//! in this crate holds its mapping of them. `Io` is provoked here on its read arm only.
 //!
 //! Wrapped in `#[cfg(test)] mod tests` so `allow-expect-in-tests` reaches the helpers, the shape
 //! `tests/bounds.rs` uses.
@@ -203,6 +205,35 @@ mod tests {
                 })
             ),
             "a directory past the document cap is refused: {outcome:?}"
+        );
+    }
+
+    /// The entry cap bounds the tree, not the documents: a wide directory of skipped non-document
+    /// files is refused here rather than walked without end. Ten thousand and one `.txt` files -
+    /// entries the walk counts but does not collect - trip `MAX_CATALOG_ENTRIES` before the document
+    /// cap `TooManyDocuments` ever could, because the entry count is checked on every entry and the
+    /// document count only on each document inserted. The one `.yaml` has no role: the walk refuses
+    /// on entry 10,001, before its `Empty` check after the loop runs.
+    #[test]
+    fn a_directory_with_more_than_ten_thousand_entries_is_refused() {
+        let root = scratch("too-many-entries");
+        for i in 0..=10_000 {
+            std::fs::write(root.join(format!("skip-{i}.txt")), "not a document").expect("a scratch file is writable");
+        }
+        let document = contract("x", "  - name: m\n    properties:\n      - name: id\n");
+        std::fs::write(root.join("contract.yaml"), document).expect("a contract is writable");
+        let outcome = catalog(root.clone()).load();
+        drop(std::fs::remove_dir_all(&root));
+        assert!(
+            matches!(
+                outcome,
+                Err(DataContractError::TooManyEntries {
+                    found: 10_001,
+                    limit: 10_000,
+                    ..
+                })
+            ),
+            "a directory past the entry cap is refused: {outcome:?}"
         );
     }
 }

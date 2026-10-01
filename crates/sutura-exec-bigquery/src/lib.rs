@@ -739,8 +739,8 @@ where
     /// **The port's `Deadline` becomes the job's `jobTimeoutMs`.** `JobDeadline::Port(deadline)`
     /// reaches [`transport::JobRequest`], and the ADBC transport sends what is left of it as the
     /// driver's `bigquery.query.job_timeout` - or refuses a spent one before anything is sent.
-    /// **The limit:** that is a server-side, best-effort stop; this process cancels nothing itself,
-    /// and the ADBC transport declines the dry run this method exists for (see below).
+    /// **The limit:** that is a server-side, best-effort stop, and the ADBC transport declines the
+    /// dry run this method exists for (see below).
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = self.render(executable)?;
@@ -772,7 +772,8 @@ where
     /// job's `jobTimeoutMs` - what is left of it, rounded up, or a refusal once it is spent.
     ///
     /// **The limit:** the service stops a job that outlives it on a best-effort basis, and this
-    /// process cancels nothing itself. `docs/adr/0029`'s second amendment is the record.
+    /// process also asks the driver to cancel at the deadline (`adbc::run_to_deadline`), queued
+    /// behind the driver's statement lock. `docs/adr/0029`'s third `##` amendment is the record.
     fn execute(
         &self,
         executable: Executable<'_>,

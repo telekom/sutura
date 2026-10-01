@@ -9,5 +9,10 @@
 # every gate and every shipped artifact are built from.
 { rustPkgs }:
 {
-  nightly = rustPkgs.rust-bin.fromRustupToolchainFile ../devco/rust-toolchain-nightly.toml;
+  # The aggregate propagates a C compiler for build scripts and crate linking. Match the
+  # selected LLVM tools, or that propagated compiler wins PATH before the explicit package.
+  nightly = (rustPkgs.rust-bin.fromRustupToolchainFile ../devco/rust-toolchain-nightly.toml).overrideAttrs {
+    depsHostHostPropagated = [ rustPkgs.llvmPackages_latest.clang ];
+    propagatedBuildInputs = [ rustPkgs.llvmPackages_latest.clang ];
+  };
 }

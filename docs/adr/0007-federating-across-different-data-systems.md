@@ -14,9 +14,9 @@ chain; *Fourth amendment, 2026-09-21* retires the working-set and deadline figur
 records that now carry them; *Fifth amendment, 2026-09-22* is the one that closes the largest absence
 this record carried - **the second driven port designed below is BUILT**). Oracle now has a linked
 adapter; the seventh amendment records its evidence limit. The code this decision led to is cited
-beside each amendment. **Read
+beside each amendment. __Read
 *Amendment, 2026-09-16* before citing the `feat/source-registry` bullet under *The order, by
-branch*** - it names an absence that has since become false.
+branch*__ - it names an absence that has since become false.
 [Several databases behind one data system](0006-several-databases-behind-one-data-system.md) declined
 both a federation crate and attaching several databases below the port. This record decides
 what is built instead, for the systems that are three separate logins: BigQuery, Postgres and Oracle.
@@ -196,6 +196,9 @@ enum, and its own doc comment states the rule this record leans on:
 > A closed set rather than a passthrough of the dialect layer's thirty-three, because each entry here
 > is a claim that we generate correct SQL for it and have a golden that says so.
 
+**Corrected:** the root `Cargo.toml` now compiles **five** dialect features - `dialect-bigquery` and
+`dialect-oracle` beside those three.
+
 **BigQuery and Oracle are not compiled.** So track 1 for either is not "write an adapter"; it is
 "make the claim, with the golden behind it", and the adapter comes after.
 
@@ -204,6 +207,8 @@ enum, and its own doc comment states the rule this record leans on:
 `polyglot-sql` 0.9.2 declares 33 dialect features, `dialect-oracle` and `dialect-bigquery` among
 them, and both have real implementation modules. Checked in the registry source and again in the
 upstream checkout, which is the same version.
+
+**Corrected:** `polyglot-sql` is now pinned at `0.12.0`.
 
 **Each feature is `[]` - an empty feature list.** It gates a module and pulls no dependency, so
 enabling one adds no crate, no licence, no `deny.toml` entry and nothing for `check-boundaries` to

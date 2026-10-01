@@ -143,6 +143,12 @@ pub enum CompileFailure {
         dimension: sutura_domain::model::DimensionName,
         hop: usize,
     },
+    /// The splitter carried a cross-model ratio's second-fact leaves with no second fact model or
+    /// calendar model resolved for them. Same limit as `NoRemoteJoin`: `plan` dispatches such a
+    /// ratio only once `resolve` has already looked up both, so nothing provokes this either -
+    /// see `crate::plan::PlanError::NoSecondFactModel`'s own doc for the construction that holds it.
+    #[error("the federated splitter carried a second fact's leaves with no second fact model or calendar model")]
+    NoSecondFactModel,
 }
 
 /// Resolves and plans. It does not render.
@@ -207,5 +213,6 @@ pub fn compile(
         Err(PlanError::ChainLeavesItsSource { metric, dimension, hop }) => {
             Err(CompileFailure::ChainLeavesItsSource { metric, dimension, hop })
         }
+        Err(PlanError::NoSecondFactModel) => Err(CompileFailure::NoSecondFactModel),
     }
 }

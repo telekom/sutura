@@ -134,7 +134,7 @@ def launcher_fakes(
         f"#!/bin/sh\nprintf '%s\\n' {image}\n", encoding="utf-8"
     )
     (fake_bin / "docker").write_text(
-        f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> {root / 'docker.log'}\n",
+        f"#!/bin/sh\nprintf 'PWD=%s\\n' \"$PWD\" >> {root / 'docker.log'}\nprintf '%s\\n' \"$*\" >> {root / 'docker.log'}\n",
         encoding="utf-8",
     )
     (fake_bin / "just").write_text(
@@ -188,11 +188,25 @@ def supervisor_environment(run_dir: pathlib.Path) -> dict[str, str]:
     }
 
 
-def _wait_for(path: pathlib.Path, seconds: float = 15.0) -> None:
+# The ceiling on every wait here that ENDS ON AN EVENT - a child's exit, a marker file. On the pass
+# path it is never reached, so it costs nothing; it only turns a hang into a red, later. 300s is the
+# bar `.config/nextest.toml` sets for every Rust cell (`github.com/telekom/sutura#692`). The 5-30s
+# ceilings it replaces were reached by children that were running correctly: one loaded
+# `checks.nextest` run timed out `run.sh` after 5s and after 20s. What it costs: a supervisor that
+# orphans a child holding its pipes now goes red after 300s instead of 20s.
+HANG_CEILING_S = 300
+
+
+def _wait_for(path: pathlib.Path, process: subprocess.Popen) -> None:
     """Poll for a file rather than sleep a fixed guess - a freshly written script's first exec can
-    take longer than any short sleep on a loaded host, and a blind sleep just makes that flaky."""
-    deadline = time.monotonic() + seconds
+    take longer than any short sleep on a loaded host. The supervisor exiting first ends the wait at
+    once, so a ceiling is left only for a supervisor that is alive and never starts its child."""
+    deadline = time.monotonic() + HANG_CEILING_S
     while not path.exists():
+        if process.poll() is not None:
+            raise AssertionError(
+                f"{path} never appeared: the supervisor exited {process.returncode}"
+            )
         if time.monotonic() > deadline:
             raise AssertionError(f"{path} never appeared")
         time.sleep(0.02)
@@ -344,14 +358,25 @@ class DemoBehavior(unittest.TestCase):
                     str(ROOT / "examples/demo-chatinterface/start.sh"),
                     "--up-only",
                 ],
-                cwd=ROOT,
+                # Started from OUTSIDE the repository, so only the launcher's own `cd` can put
+                # `docker build`'s relative `-f` and context back at its root.
+                cwd=root,
                 env={**os.environ, **environment},
                 capture_output=True,
                 text=True,
                 check=False,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            docker_args = (root / "docker.log").read_text(encoding="utf-8")
+            docker_log = (root / "docker.log").read_text(encoding="utf-8").splitlines()
+            directories = {
+                line.removeprefix("PWD=")
+                for line in docker_log
+                if line.startswith("PWD=")
+            }
+            self.assertEqual(directories, {str(ROOT)})
+            docker_args = "\n".join(
+                line for line in docker_log if not line.startswith("PWD=")
+            )
             self.assertIn("--build-context sutura-server=", docker_args)
             self.assertIn("/sutura/local-chat-demo:demo-", docker_args)
             self.assertNotIn("sutura:latest", docker_args)
@@ -377,24 +402,49 @@ class DemoBehavior(unittest.TestCase):
                 f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> {docker_log}\n", encoding="utf-8"
             )
             (fake_bin / "docker").chmod(0o755)
-            result = subprocess.run(
+            # The profile and feature set `checks.nextest` built its closure under, so this is a
+            # warm build there. A bare `cargo run -p xtask` built the dev profile with xtask's own
+            # feature resolution: 37 third-party units, none of them in the `ci` closure (`cargo
+            # build --unit-graph`), compiled cold ahead of the Rust tests. `--profile ci -p xtask`
+            # still left 13 outside it; `--workspace --all-features --bin xtask` leaves 0.
+            profile = os.environ.get("CARGO_PROFILE", "dev")
+            subprocess.run(
                 [
                     "cargo",
-                    "run",
+                    "build",
                     "-q",
-                    "-p",
+                    "--profile",
+                    profile,
+                    "--workspace",
+                    "--all-features",
+                    "--bin",
                     "xtask",
-                    "--",
-                    "dev-down",
-                    "--only",
-                    "demo",
                 ],
                 cwd=ROOT,
-                env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"},
+                check=True,
+                timeout=300,
+            )
+            target = ROOT / os.environ.get("CARGO_TARGET_DIR", "target")
+            xtask = target / ("debug" if profile == "dev" else profile) / "xtask"
+            result = subprocess.run(
+                [str(xtask), "dev-down", "--only", "demo"],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    # The stub answers at once, so each call returns on its exit and these are never
+                    # reached. A stub stalled past the 10s probe default reproduces the observed
+                    # `no container runtime (Cli)` red, so the red is CONSISTENT with that cause, not
+                    # proven: `Cli` also covers a probe that failed to spawn or exited non-zero,
+                    # which this does not touch. The query budget is lifted for the same stall; it
+                    # reports a wedged daemon rather than `Cli`.
+                    "SUTURA_DOCKER_PROBE_TIMEOUT_SECS": str(HANG_CEILING_S),
+                    "SUTURA_DOCKER_QUERY_TIMEOUT_SECS": str(HANG_CEILING_S),
+                },
                 capture_output=True,
                 text=True,
                 check=False,
-                timeout=300,
+                timeout=HANG_CEILING_S,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             calls = [
@@ -660,7 +710,7 @@ class DemoBehavior(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 check=False,
-                timeout=5,
+                timeout=HANG_CEILING_S,
             )
             self.assertNotEqual(refused.returncode, 0)
             self.assertFalse((refused_dir / "key").exists())
@@ -686,7 +736,7 @@ class DemoBehavior(unittest.TestCase):
                     capture_output=True,
                     text=True,
                     check=False,
-                    timeout=5,
+                    timeout=HANG_CEILING_S,
                 )
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(
@@ -717,7 +767,7 @@ class DemoBehavior(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 check=False,
-                timeout=10,
+                timeout=HANG_CEILING_S,
             )
             self.assertEqual(result.returncode, 1, result.stderr)
 
@@ -747,7 +797,7 @@ class DemoBehavior(unittest.TestCase):
                     capture_output=True,
                     text=True,
                     check=False,
-                    timeout=20,
+                    timeout=HANG_CEILING_S,
                 )
                 self.assertEqual(result.returncode, 7, result.stderr)
                 self.assertEqual(marker.read_text(encoding="utf-8"), "terminated")
@@ -777,10 +827,10 @@ class DemoBehavior(unittest.TestCase):
                 text=True,
             )
             try:
-                _wait_for(serve_ready)
-                _wait_for(backend_ready)
+                _wait_for(serve_ready, process)
+                _wait_for(backend_ready, process)
                 process.send_signal(signal.SIGTERM)
-                _stdout, stderr = process.communicate(timeout=20)
+                _stdout, stderr = process.communicate(timeout=HANG_CEILING_S)
             except subprocess.TimeoutExpired:
                 process.kill()
                 raise
@@ -877,7 +927,7 @@ class DemoBehavior(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 check=False,
-                timeout=30,
+                timeout=HANG_CEILING_S,
             )
             output = result.stdout + result.stderr
             self.assertNotEqual(result.returncode, 0)

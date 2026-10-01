@@ -23,18 +23,23 @@ tokio-postgres = { workspace = true, optional = true }
 tokio-postgres-rustls = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
+# The LIVE Oracle dictionary reader (`src/oracle_reader.rs`), behind the same `live` feature. Oracle's
+# own pure-Rust driver; it takes `rustls` with its default features, `aws-lc-rs` among them, so a
+# `live` build compiles two rustls providers - the hazard `clippy.toml`'s rustls rows ban the auto-detecting builders for.
+oracledb = { workspace = true, optional = true }
 
 [features]
-# The live Postgres dictionary reader, compatible with a provisioned tier. Default-off: a build
-# that does not ask for it links no `tokio-postgres`/`rustls`/`ring` stack, which is what keeps the
+# The live Postgres and Oracle dictionary readers. Default-off: a build that does not ask for it
+# links no `tokio-postgres`/`oracledb`/`rustls` stack, which is what keeps the
 # musl cross builds and every published artefact free of it. `sutura-cli`'s `rdbms` feature turns
-# this on and composes the reader.
+# this on and composes the readers.
 live = [
   "dep:tokio",
   "dep:tokio-postgres",
   "dep:tokio-postgres-rustls",
   "dep:rustls",
   "dep:futures-util",
+  "dep:oracledb",
 ]
 
 [dev-dependencies]

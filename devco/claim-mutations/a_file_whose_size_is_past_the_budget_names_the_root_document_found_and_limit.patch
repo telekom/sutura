@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-bounded-read/src/read.rs b/crates/sutura-bounded-read/src/read.rs
+index 5705d35df..d653f6774 100644
+--- a/crates/sutura-bounded-read/src/read.rs
++++ b/crates/sutura-bounded-read/src/read.rs
+@@ -119,7 +119,7 @@ pub fn read_document(root: &Path, path: &Path, total_bytes: u64) -> Result<Strin
+     }
+     let remaining = MAX_CATALOG_BYTES - total_bytes.min(MAX_CATALOG_BYTES);
+     if stat.st_size.cast_unsigned() > remaining {
+-        let found = total_bytes.saturating_add(stat.st_size.cast_unsigned());
++        let found = 0;
+         return Err(ReadError::TooLarge {
+             root: root.to_path_buf(),
+             document: path.to_path_buf(),

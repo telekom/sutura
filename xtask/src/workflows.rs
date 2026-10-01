@@ -100,6 +100,10 @@ mod codegen;
 // holds nothing about resolution, cache writes or badges. See its header for what it cannot hold.
 mod cross_link;
 
+// DOES THE OPTIMISED BUILD PUBLISH WHAT THE RELEASE DOES, SIGNED? It once built four binaries and
+// discarded them. Its own file: it reads which shared actions one workflow calls, and in what order.
+mod performance_release;
+
 // IS A `with:` KEY AN INPUT THE ACTION DECLARES? A key an action does not declare is a log
 // warning and then the action's DEFAULT - `path:` to an action whose input is `paths:` cached
 // `/nix` on twenty-one runs with every gate green. Its own file for `sast`'s reason, and the seam
@@ -215,8 +219,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             eprintln!("  {found}");
         }
         eprintln!("Release outputs belong to the tag-triggered release workflow, not ordinary CI -");
-        eprintln!("and ordinary CI is every pull-request workflow plus everything they call:");
-        eprintln!("  {}", walked.join(", "));
+        eprintln!("and ordinary CI is every pull-request workflow plus everything they call,");
+        eprintln!("plus the cache-publish workflow, read directly:");
+        eprintln!("  {}, cachix-push.yml", walked.join(", "));
         return Verdict::Fail;
     }
 
@@ -270,7 +275,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // refusal that walked four files from one that walked one. So the walked set is printed
         // too, which is the property `the_committed_tree_reaches_past_ci_yml` asserts.
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no codegen-backend env variable set in CI, every reader of the image-record file anchored on its record kind, {} step obligation(s) held to the `if:` each needs rather than to a position, {} release-skip obligation(s) held on the jobs that repeat the clause, {} ci-aggregate env input(s) held to their committed source job, no release output in the {} file(s) ordinary CI runs: {}",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no codegen-backend env variable set in CI, every reader of the image-record file anchored on its record kind, {} step obligation(s) held to the `if:` each needs rather than to a position, {} release-skip obligation(s) held on the jobs that repeat the clause, {} ci-aggregate env input(s) held to their committed source job, no release output in the {} file(s) ordinary CI runs or in cachix-push.yml (read directly): {}",
             references.len(),
             obligations::held(),
             obligations::release_skip_held(),
@@ -468,21 +473,19 @@ fn check_gates(
     // pull request and four on `main` with nothing holding it - every gate stayed green on a
     // 4-on-PR regression. `#477`'s own review rated that M1 gap compute-only, not blocking, but
     // called it a claim no mechanism held. This pins the ternary.
-    let cross = cross_link::problems(root);
-    if !cross.is_empty() {
-        eprintln!(
-            "xtask check-workflows: FAILED - {} cross-matrix rule(s) broken\n",
-            cross.len()
-        );
-        for problem in &cross {
-            eprintln!("  {problem}");
-        }
-        eprintln!();
-        eprintln!("A pull request proves the two aarch64 triples the native ci job never compiles,");
-        eprintln!("and a push to `main` builds all four; that split lives in one inline ternary in");
-        eprintln!("cross-link.yml. A gate that holds it keeps `cannot silently run 4 on a PR` true");
-        eprintln!("instead of merely written beside it - see xtask/src/workflows/cross_link.rs.");
-        return Some(Verdict::Fail);
+    if let Some(failed) = refuse(
+        &cross_link::problems(root),
+        "cross-matrix rule(s) broken",
+        "each venue builds one fixed set of triples - see xtask/src/workflows/cross_link.rs for which and why",
+    ) {
+        return Some(failed);
+    }
+    if let Some(failed) = refuse(
+        &performance_release::problems(root),
+        "optimised-release rule(s) broken",
+        "see xtask/src/workflows/performance_release.rs for what each rule holds and what it cannot",
+    ) {
+        return Some(failed);
     }
 
     // DOES EVERY READER OF THE IMAGE-RECORD FILE ANCHOR ON THE RECORD KIND? Beside the rules

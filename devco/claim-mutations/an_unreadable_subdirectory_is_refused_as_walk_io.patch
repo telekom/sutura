@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-bounded-read/src/walk.rs b/crates/sutura-bounded-read/src/walk.rs
+index 14ca768b0..69d6b2b1f 100644
+--- a/crates/sutura-bounded-read/src/walk.rs
++++ b/crates/sutura-bounded-read/src/walk.rs
+@@ -104,9 +104,8 @@ pub fn walk(root: &Path, extensions: &[&str], max_documents: usize) -> Result<Ve
+     let mut entries_seen = 0usize;
+     let mut pending = vec![root.to_path_buf()];
+     while let Some(directory) = pending.pop() {
+-        let entries = std::fs::read_dir(&directory).map_err(|cause| WalkError::Io {
++        let entries = std::fs::read_dir(&directory).map_err(|_cause| WalkError::NotADirectory {
+             path: directory.clone(),
+-            cause,
+         })?;
+         for entry in entries {
+             let entry = entry.map_err(|cause| WalkError::Io {

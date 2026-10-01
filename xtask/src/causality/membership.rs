@@ -52,9 +52,17 @@
 //! asked to keep. And what was measured is that the reconstructed workspace RESOLVES - `cargo
 //! metadata` at exit 0 - which is the boundary the old rule failed at. Whether it then COMPILES is
 //! the retry's own arm and is not claimed here.
+//!
+//! **THE RETRY PUTS EVERY CHANGED MANIFEST AND LOCKFILE AT BASE**, crate added or not. A dependency
+//! bump whose code change is reverted leaves base code compiling against the HEAD version of the
+//! dependency - measured on a `polyglot-sql` bump whose base `generate.rs` hit E0063 against the new
+//! struct, and the gate answered *the base does not compile with nothing held back*. The FIRST
+//! attempt still keeps them at HEAD, because a test file kept there may need a dependency this
+//! branch added; only a first attempt that did not compile reaches the coherent-at-base retry.
 
 use std::path::Path;
 
+use super::plan::Separable;
 use super::provenance::Commit;
 
 /// What this branch ADDED to the workspace, asked of git once and answered per attempt.
@@ -100,6 +108,20 @@ impl Membership {
         }
         out
     }
+
+    /// Both attempts' file lists: the first reverts the implementation, the retry adds what the
+    /// first kept at HEAD - the held files, and every changed manifest and lockfile.
+    pub(super) fn attempts(&self, separable: &Separable) -> [Vec<String>; 2] {
+        let inputs = &separable.build_inputs;
+        let first = self.reverting(&separable.revert, inputs, &separable.at_head_first_attempt());
+        let mut retry = self.reverting(&separable.held(), inputs, &separable.test_files);
+        for path in inputs.iter().filter(|path| resolves_membership(path)) {
+            if !retry.contains(path) {
+                retry.push(path.clone());
+            }
+        }
+        [first, retry]
+    }
 }
 
 /// Is `path` a workspace member's own manifest, rather than the root one?
@@ -115,7 +137,7 @@ fn member_manifest(path: &str) -> bool {
 /// Named by what they decide rather than by extension: `rust-toolchain.toml` and `.cargo/config.toml`
 /// are build inputs too and say nothing about membership, so they stay held at HEAD.
 fn resolves_membership(path: &str) -> bool {
-    path == "Cargo.lock" || path == "Cargo.toml" || member_manifest(path)
+    path == "Cargo.lock" || path.ends_with("/Cargo.lock") || path == "Cargo.toml" || member_manifest(path)
 }
 
 /// The paths an attempt must put at base so a withdrawn crate's absence is a resolvable workspace.
@@ -146,7 +168,7 @@ fn withdrawn(added: &[String], inputs: &[String], at_head: &[String]) -> Vec<Str
 
 #[cfg(test)]
 mod tests {
-    use super::withdrawn;
+    use super::{Membership, Separable, withdrawn};
 
     fn paths(of: &[&str]) -> Vec<String> {
         of.iter().map(|p| String::from(*p)).collect()
@@ -218,6 +240,35 @@ mod tests {
         assert_eq!(
             withdrawn(&added, &inputs, &[]),
             paths(&["Cargo.lock", "Cargo.toml", "crates/sutura-exec-oracle/Cargo.toml"])
+        );
+    }
+
+    /// The dependency bump the module header measured: the first attempt keeps the manifests and
+    /// lockfiles at HEAD, the retry takes all of them to base - and nothing else a build reads.
+    #[test]
+    fn the_retry_takes_every_changed_manifest_and_lockfile_to_base() {
+        let separable = Separable {
+            revert: paths(&["crates/sutura-sql/src/generate.rs"]),
+            test_files: paths(&["crates/sutura-sql/src/expression/tests.rs"]),
+            inseparable: Vec::new(),
+            held_back: Vec::new(),
+            test_only: Vec::new(),
+            build_inputs: paths(&[
+                ".cargo/config.toml",
+                "Cargo.lock",
+                "Cargo.toml",
+                "crates/sutura-sql/Cargo.toml",
+                "fuzz/Cargo.lock",
+                "rust-toolchain.toml",
+            ]),
+            edited: Vec::new(),
+        };
+        let [first, retry] = Membership { added: Vec::new() }.attempts(&separable);
+
+        assert_eq!(first, separable.revert);
+        assert_eq!(
+            retry,
+            paths(&["Cargo.lock", "Cargo.toml", "crates/sutura-sql/Cargo.toml", "fuzz/Cargo.lock"])
         );
     }
 

@@ -28,19 +28,24 @@
 //!
 //! So they differ by whether a cancelled run still owes the obligation:
 //!
-//! * `Secrets` takes `always()`. A committed credential is **already disclosed** by the time any
-//!   gate runs, so there is nothing to defer to the next push, and `always()` is the only form
-//!   with a step-level witness of surviving a cancellation. The usual argument against it does not
-//!   reach here: `!cancelled()` is preferred for `pr-cache` because that job takes a **paid
-//!   runner** and `always()` would start it after somebody pressed cancel. This is a two-second
-//!   step inside a runner already held, so defeating a cancel costs two seconds.
-//! * `Licensing` takes `!cancelled()`. It is a `nix build`, so `always()` would extend a cancelled
-//!   job by a real amount, and its value is **merge-blocking**: a licence violation cannot merge
-//!   whatever this run says, so deferring it to the next push costs a round trip and not a
-//!   guarantee. Cancel should mean cancel here.
-//! * `Chart` takes `!cancelled()`, for `Licensing`'s own reason: a `nix build` over
-//!   `charts/sutura` (#149 branch 1), merge-blocking, and cheap enough that `always()` buys
-//!   nothing a cancelled run would rather skip.
+//! * `Secrets` takes `always() && github.event_name != 'push'`. A committed credential is
+//!   **already disclosed** by the time any gate runs, so there is nothing to defer to the next
+//!   push, and `always()` is the only form with a step-level witness of surviving a
+//!   cancellation. The `!= 'push'` conjunct is #985 D2: the merge queue already ran the same
+//!   tree, so push `ci` is reduced to its 3 unique outputs and the secret scan runs only on
+//!   pull request and merge group. The usual argument against `always()` does not reach here:
+//!   `!cancelled()` is preferred for `pr-cache` because that job takes a **paid runner** and
+//!   `always()` would start it after somebody pressed cancel. This is a two-second step inside
+//!   a runner already held, so defeating a cancel costs two seconds.
+//! * `Licensing` takes `!cancelled() && github.event_name != 'push'`. It is a `nix build`, so
+//!   `always()` would extend a cancelled job by a real amount, and its value is
+//!   **merge-blocking**: a licence violation cannot merge whatever this run says, so deferring
+//!   it to the next push costs a round trip and not a guarantee. Cancel should mean cancel
+//!   here. The `!= 'push'` conjunct is #985 D2, for the same reason as `Secrets`.
+//! * `Chart` takes `!cancelled() && github.event_name != 'push'`, for `Licensing`'s own reason:
+//!   a `nix build` over `charts/sutura` (#149 branch 1), merge-blocking, and cheap enough that
+//!   `always()` buys nothing a cancelled run would rather skip. The `!= 'push'` conjunct is
+//!   #985 D2.
 //!
 //! **The limit, next to the claim.** This rule holds the condition on the steps named in
 //! [`REQUIRED`] and nothing wider. It does not require any OTHER step to stay reachable - adding
@@ -110,17 +115,17 @@ enum Kind {
 const REQUIRED: &[Obligation] = &[
     Obligation {
         step: "Secrets",
-        condition: "always()",
+        condition: "always() && github.event_name != 'push'",
         kind: Kind::Reachability,
     },
     Obligation {
         step: "Licensing",
-        condition: "!cancelled()",
+        condition: "!cancelled() && github.event_name != 'push'",
         kind: Kind::Reachability,
     },
     Obligation {
         step: "Chart",
-        condition: "!cancelled()",
+        condition: "!cancelled() && github.event_name != 'push'",
         kind: Kind::Reachability,
     },
     Obligation {
@@ -493,7 +498,9 @@ mod tests {
     #[test]
     fn the_chart_step_is_a_required_obligation() {
         assert!(
-            REQUIRED.iter().any(|o| o.step == "Chart" && o.condition == "!cancelled()"),
+            REQUIRED
+                .iter()
+                .any(|o| o.step == "Chart" && o.condition == "!cancelled() && github.event_name != 'push'"),
             "the chart's step obligation is missing or holds the wrong condition"
         );
     }
@@ -504,8 +511,8 @@ mod tests {
     fn a_tree_missing_the_chart_step_names_it_rather_than_a_count() {
         let found = check(concat!(
             "jobs:\n  ci:\n    steps:\n",
-            "      - name: Secrets\n        if: ${{ always() }}\n        run: true\n",
-            "      - name: Licensing\n        if: ${{ !cancelled() }}\n        run: true\n",
+            "      - name: Secrets\n        if: ${{ always() && github.event_name != 'push' }}\n        run: true\n",
+            "      - name: Licensing\n        if: ${{ !cancelled() && github.event_name != 'push' }}\n        run: true\n",
         ));
         assert!(
             found.iter().any(|problem| problem.contains("declares no step named `Chart`")),

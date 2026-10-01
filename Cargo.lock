@@ -4365,6 +4365,7 @@ name = "sutura-catalog-rdbms"
 version = "0.6.1"
 dependencies = [
  "futures-util",
+ "oracledb",
  "rustls",
  "sutura-dev",
  "sutura-domain",
@@ -4551,6 +4552,7 @@ dependencies = [
  "oracledb",
  "parking_lot",
  "sutura-conformance",
+ "sutura-dev",
  "sutura-domain",
  "sutura-sql",
  "thiserror 2.0.21",
@@ -4560,12 +4562,17 @@ dependencies = [
 name = "sutura-exec-postgres"
 version = "0.6.1"
 dependencies = [
+ "adbc_core",
+ "adbc_driver_manager",
+ "arrow-array 59.2.0",
+ "arrow-schema 59.2.0",
  "bytes",
  "divan",
  "futures-util",
  "rcgen",
  "rustls",
  "rustls-native-certs",
+ "sutura-adbc",
  "sutura-conformance",
  "sutura-dev",
  "sutura-domain",

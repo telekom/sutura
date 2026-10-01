@@ -10,12 +10,16 @@ Status: accepted. It widens the measure vocabulary of
 argument. That record is still right that no free-text SQL may reach a statement. This one is a
 correction about which sentence in it was load-bearing.
 
-Amended twice, and each amendment is recorded rather than rewritten away. The first made a
+Amended four times, and each amendment is recorded rather than rewritten away. The first made a
 conditional count a *sibling* of a ratio, which left the seventh of the seven metrics below
 unsayable - [Two levels, not three siblings](#two-levels-not-three-siblings) is the correction. The
 second lets a ratio's term carry a model other than the metric's own - the section below titled
-*Amendment, 2026-09-25* is the record, and `telekom/sutura#780` is why. The rest of this record
-stands.
+*Amendment, 2026-09-25* is the record. The third declares a shared calendar and lifts the refusal
+for the case that one left refused - the section below titled *Second amendment, 2026-09-28* is
+the record. The fourth renders that shape per dialect and executes it - *Third amendment,
+2026-09-30* is the record - and `telekom/sutura#780` is why for the last three. The headings number
+only the dated sections, which is why the third amendment is headed the second and the fourth the
+third. The rest of this record stands.
 
 ## Context
 
@@ -177,12 +181,14 @@ shapes today - one statement against the metric's own model, and a fact-plus-loo
 across two data systems - and neither reads a second FACT model's own rows, aggregated on its own
 and joined above on a shared dimension, which is the mechanism the issue's own decision names for
 combining two facts without ever letting them share one `FROM`. So a metric using this vocabulary
-loads, is addressable by name, and a plain question about it is refused with a named, typed reason
-(`RefusalReason::CrossModelRatioNotExecutable`) the moment it is asked - a caller told plainly that
-the definition exists and this deployment cannot answer it yet, never a wrong number resolved
-against the wrong table. The plan's second fact leg, the combiner caller, the anchor at the
-coarsest shared grain and the differential's two-fact axis are the rest of the stack the issue's own
-decision names, and they are not this amendment's claim.
+loads, is addressable by name, and a plain question about it was refused with a named, typed reason
+the moment it was asked - a caller told plainly that the definition exists and this deployment
+cannot answer it yet, never a wrong number resolved against the wrong table. The plan's second fact
+leg, the combiner caller, the anchor at the coarsest shared grain and the differential's two-fact
+axis are the rest of the stack the issue's own decision names, and they are not this amendment's
+claim. **Superseded by the second amendment below**, which is where that refusal stopped firing for
+the case the owner chose to build toward, and the reason string it used
+(`RefusalReason::CrossModelRatioNotExecutable`) was retired rather than kept unreachable.
 
 **The limit "loads, is addressable by name" carries: without an anchor.** An anchor is executed at
 boot, and one on a cross-model ratio reaches this same refusal through
@@ -190,6 +196,108 @@ boot, and one on a cross-model ratio reaches this same refusal through
 metric. That fails closed, so it is not a safety defect, but it is a sharper cost than "refused
 when asked" states on its own: a catalog author who anchors such a metric loses every other metric
 in the deployment at boot, not a question at query time.
+
+## Second amendment, 2026-09-28: a shared calendar lifts the refusal
+
+`telekom/sutura#780`, continued. The 2026-09-25 amendment let a ratio's term name a model other than
+the metric's own and refused every such ratio under one name
+(`RefusalReason::CrossModelRatioNotExecutable`). The open question it left was Q2 of the issue:
+*which column buckets the second fact?* Four shapes were on the table; the owner's call is **(B)
+a shared calendar** - a conformed time dimension both fact models reach through a declared `via`,
+so both facts bucket through the SAME calendar column rather than each keeping its own notion of
+"the" time column. Refusing forever was explicitly not the accepted outcome of that question -
+this amendment builds toward the chosen shape rather than leaving it undocumented.
+
+The amendment is one more field, again on the metric rather than on the term: `shared_calendar:
+Option<ModelName>`, `None` for every metric that predates it (so a one-model metric's on-disk shape
+and digest still do not move) and `Some` naming the calendar model a `Metric::with_shared_calendar`
+builder call - or a local catalog's `shared_calendar:` key - declares. `Definitions::assemble`
+checks it at load (`InconsistentDefinitions::SharedCalendarNotReachable`): the calendar model must
+exist, BOTH the metric's own model and every cross-model ratio term's model must declare a
+relationship FROM itself TO it (the hop each fact leg joins), and the calendar must declare the
+metric's `time_column` (`UnknownTimeColumn`), the column both legs bucket by - a calendar one fact
+cannot join is a definition whose ratio could never be bucketed through it, refused at declaration
+time rather than surfacing as a query-time failure to plan.
+
+With a shared calendar declared, `plan()` builds the ratio as **two fact statements**: the first
+over the metric's own table, the second over the other term's model, each joining the calendar
+through its own relationship inside its own statement, each bucketed AND bounded by the question's
+range on the calendar's column, and each carrying only the leaves of its own model. The second fact
+links to the lookup through ITS OWN relationship into the model the first fact crosses into, on the
+same lookup column. The combiner joins the two above on the link and the bucket - FULL, the
+drill-across join, so a customer-period only one fact carried still counts on its own side - then
+divides once and applies `zero_denominator` once.
+
+**The empty-set rule, the owner's decision (2026-09-29).** A fact with no rows for a group reads each
+of its leaves as the aggregate's value over NO rows: 0 for a sum, a count or a conditional count.
+Nothing is NULL-padded. So revenue with no visits is x/0, and `zero_denominator` applies as declared:
+`Fail` refuses it exactly as it refuses an explicit zero row, and `Null` answers null. Visits with no
+revenue is 0/x = 0. An aggregate with no value over no rows - an average, a minimum or a maximum -
+cannot take part: a cross-model ratio using one on either side is refused at load
+(`InconsistentDefinitions::CrossModelTermHasNoEmptyValue`), and so is a distinct count, which cannot be
+re-aggregated across two legs (`CrossModelTermDoesNotReaggregate`). The combiner also refuses a minimum
+or maximum leaf in a two-fact plan; an average reaches it as a sum leaf and a count leaf, so for an
+average the load check is the only refusal. `FederatedPlan::new` also refuses a two-fact plan whose fact legs group by any key
+but the link (`FactKeyNotShared`): a key only one fact carries would fan the other out across it and
+null-pad a dimension, the shape `CrossModelRatioWithoutSharedDimension` refuses at plan time. `FederatedPlan::new` holds the two halves of that by type: both fact
+legs must carry the plan's bucket (`BucketMismatch`), and a leaf naming another model can only ride a
+second fact leg (`TermsDoNotMatchFederation`) - so no producer can fold two fact tables into one
+statement. **The chasm trap is impossible because the two facts are two statements that never share a
+`FROM`, not because they read two sources**: `FactsOnSameSource`, which demanded two sources, is
+deleted - two statements on one source are still two statements, and they are the only shape this
+amendment builds.
+
+Every other shape is refused by name rather than planned: a metric with no calendar
+(`CrossModelRatioWithoutSharedCalendar` - a caller told the declaration is missing, not that the
+capability is absent), a second fact or calendar on another source than the metric's
+(`CrossModelRatioSpansSources`, because a statement reads one source), and a question grouped or
+filtered by anything but dimensions on the one remote model both facts link to, or whose second fact
+has no link of its own into it (`CrossModelRatioWithoutSharedDimension`). `CrossModelRatioNotExecutable`
+is retired rather than kept as a variant nothing can construct any more.
+
+**The limit stated next to the claim.** The plan is built and held by cells over an assembled catalog
+through `compile`, and nothing more: no golden SQL fixture renders the two-fact shape per dialect and
+no differential run executes it, so nothing here claims the statements run against a real data
+system. Only a local catalog can declare `shared_calendar:`; no other catalog adapter reads it yet,
+so a metric from any other adapter keeps the no-calendar refusal. A metric's required filters bind
+only the first fact's statement - they name the metric's own model's columns - and the second fact
+is not filtered by them. A calendar declared once per source, which would let the two facts sit on
+two sources, is not built; the golden per dialect and the differential's two-fact axis are the next
+PR the issue's own decision already named.
+**Partly superseded by the third amendment below**, which renders the two statements per dialect
+and executes them.
+
+## Third amendment, 2026-09-30: the two-fact shape rendered per dialect and executed
+
+`telekom/sutura#780`, continued. The second amendment's limit said no golden rendered the two-fact
+shape and no differential executed it. Both now exist, and each carries its own limit:
+
+- **The golden per dialect.** `crates/sutura-app/tests/golden/legs.rs` pins the two fact statements
+  of `tickets_per_subscription by region` - `two-fact-first` over the metric's own model and
+  `two-fact-second` over the other term's - rendered through `sutura_sql::generate_leg` and
+  parse-checked in each dialect the renderer writes. Each joins the calendar inside its own
+  statement and is bucketed and bounded on the calendar's column; the second carries the range and
+  nothing else. **Limit:** the fixtures are hand-built, as every leg fixture there is, so nothing
+  holds them against what `sutura_semantic::plan` emits, and a parse check says nothing about a
+  service.
+- **The differential's two-fact axis.** `crates/sutura-app/tests/differential/federated/two_fact.rs`
+  asks one two-fact question over a derived catalog (a ticket fact, a calendar and the customer
+  dimension on a second data system) and answers it on two engines, held to figures worked out by
+  hand from the derived tables - the combiner is shared by every side, so only a literal catches a
+  defect in it - and `crates/sutura-app/tests/differential.rs` then has each registered data system
+  hold every leg on both sources, compared against the engines row for row. `DuckDB` always runs,
+  and `Postgres` where its tier is up; the engine's own entry is compared against itself, so it
+  checks determinism and nothing more. `ClickHouse`, where its tier is up, declares no leg
+  execution and is asserted refused as `FederationNotExecutable` before anything runs; with no tier
+  it is skipped and that refusal is not asserted here. `just test` and the nix test check both
+  provision both tiers. `BigQuery` and Oracle have no venue here and are skipped. The literal covers both halves of the empty-set rule: a group only
+  the second fact reaches is x/0 and answers null under `yields_null`, a group only the first reaches
+  is 0/x.
+
+**What is still not claimed.** Every leg runs under one operating-system identity. Both facts sit
+on one source, because a calendar per source is not built. The one-source catalog refuses the
+question (`CrossModelRatioWithoutSharedDimension`), so there is no whole-answer side to compare a
+two-fact answer against, and the cell measures that refusal rather than stating it.
 
 ## What does not change
 

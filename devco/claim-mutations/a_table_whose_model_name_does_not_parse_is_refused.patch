@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-catalog-rdbms/src/lib.rs b/crates/sutura-catalog-rdbms/src/lib.rs
+index f2e6bf539..4c5801c4c 100644
+--- a/crates/sutura-catalog-rdbms/src/lib.rs
++++ b/crates/sutura-catalog-rdbms/src/lib.rs
+@@ -338,9 +338,8 @@
+     /// A table record into a [`Model`].
+     fn convert_model(&self, table: &Table) -> Result<ConvertedModel, RdbmsError> {
+         let physical_table = Self::convert_table_address(table.address())?;
+-        let name = ModelName::parse(table.model()).map_err(|cause| RdbmsError::ModelName {
++        let name = ModelName::parse(table.model()).map_err(|cause| RdbmsError::TableName {
+             table: physical_table.to_string(),
+-            model: table.model().to_owned(),
+             cause,
+         })?;
+         let mut columns = Vec::with_capacity(table.columns.len());

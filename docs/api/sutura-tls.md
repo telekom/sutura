@@ -126,7 +126,7 @@ Why a declared anchor or identity could not be loaded.
 - `SystemStoreEmpty` - The explicitly selected host trust store held no roots.
 - `IdentityRead` - The declared client identity could not be read.
 - `IdentityIncomplete` - The declared client certificate parsed to no certificate, or the key to no key.
-- `IdentityKey` - The client key was not an RSA/EC key this build can present.
+- `IdentityKey` - The client key file held no readable plaintext PEM private-key section.
 
 ### Implements
 

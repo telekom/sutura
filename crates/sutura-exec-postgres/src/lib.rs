@@ -14,14 +14,16 @@
 //!   ([`tls::client_config`]). Which source gets which is `sutura_config::sources::transport`'s
 //!   decision and never this adapter's, so a caller that builds no config gets a cleartext
 //!   connection - including to a server that offers TLS.
-//! - **`dry_run` and `execute` stop at the port's deadline**, with `SET LOCAL statement_timeout` -
+//! - **`dry_run`, `execute` and `execute_raw` all stop at the port's per-request deadline**
+//!   (`telekom/sutura#1144` threaded this onto the raw path too), with `SET LOCAL statement_timeout` -
 //!   `docs/adr/0029`'s Postgres row. The wait for `execution_lock` is itself outside the deadline;
 //!   a caller already spent once the lock is held is refused locally as `DeadlineSpent`. `57014
 //!   query_canceled` is also what a manual `pg_cancel_backend` produces - indistinguishable to
-//!   `deadline_exceeded`. The raw SQL tool's own path (`execute_raw`) carries no per-request
-//!   deadline; it is stopped by the connect-time `SET statement_timeout` that already existed, and
-//!   this record adds only classifying that stop.
+//!   `deadline_exceeded`. The connect-time `SET statement_timeout` remains the outer ceiling a
+//!   request's own budget may only narrow, never widen, on every path including the raw one.
 
+#[cfg(feature = "adbc")]
+pub mod adbc;
 pub mod connection;
 /// The fixture tier's credential - a value that cannot exist unconfigured.
 ///
@@ -211,9 +213,16 @@ pub enum PostgresError {
     /// The declared client certificate parsed to no certificate, or the key to no key.
     #[error("the client identity pair is incomplete: expected a certificate and a key, and found {what} at {path}")]
     IdentityIncomplete { path: String, what: &'static str },
-    /// The client key was not an RSA/EC key this build can present.
-    #[error("the client private key at {path} is not a private key this build can present")]
-    IdentityKey { path: String, what: &'static str },
+    /// The client key file held no readable plaintext PEM private-key section.
+    #[error("the client key at {path} holds no readable `PRIVATE KEY`, `RSA PRIVATE KEY` or `EC PRIVATE KEY` PEM section")]
+    IdentityKey { path: String },
+    /// rustls refused the loaded certificate and key as one identity: the `ring` provider could not
+    /// load the key, or the key does not match the certificate. The cause says which.
+    #[error("the client certificate and key could not be combined into one identity this build can present")]
+    IdentityRefused {
+        #[source]
+        cause: rustls::Error,
+    },
     /// The explicitly selected host trust store could not be read completely.
     #[error("the host trust store reported {errors} errors while it was read")]
     SystemStoreRead {
@@ -806,8 +815,9 @@ impl Warehouse for PostgresWarehouse {
         &self,
         statement: &sutura_domain::raw::RawStatement,
         presented: &Presented,
+        deadline: Deadline,
     ) -> sutura_domain::warehouse::RawExecution<Self::Error> {
-        Some(self.run_raw(statement, presented))
+        Some(self.run_raw(statement, presented, deadline))
     }
 
     /// Refuses `25006 read_only_sql_transaction`/`42501 insufficient_privilege` as the data system

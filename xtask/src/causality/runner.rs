@@ -29,9 +29,10 @@ use super::isolation::Isolated;
 /// COMPILERS in one directory invalidates every artifact in it; alternating our own sources
 /// does not, because cargo fingerprints them and the dependency graph below them is identical.
 ///
-/// WHAT SHARING IT DID NOT KEEP APART, and the removal that now precedes every run. The two trees
-/// are one unit as far as cargo is concerned - same package names, same relative paths, so the same
-/// artifact - and freshness is decided by mtime, so a build in either tree satisfied the other.
+/// WHAT SHARING IT DID NOT KEEP APART, and the removal that now precedes every run in a tree other
+/// than the one the previous removal cleaned. The two trees are one unit as far as cargo is
+/// concerned - same package names, same relative paths, so the same artifact - and freshness is
+/// decided by mtime, so a build in either tree satisfied the other.
 /// Reproduced in the gate's own sequence, with the root at `f() -> 1` and the worktree at
 /// `f() -> 999`: the base run printed `Finished in 0.01s`, compiled nothing, and answered `ok` over
 /// source that says 999; and a warning present only in the worktree was re-emitted by the next run
@@ -62,12 +63,7 @@ pub(super) fn cargo_test(dir: &Path, target: &Path, only: &str, tree: Tree) -> (
     // WHAT THE REMOVAL SAID IT DID, because an exit status says only that it ran - and the first
     // version of this ran fine while removing nothing at all. A zero here on a directory the gate
     // has built in before is the tell that the removal has stopped reaching what the run reuses.
-    println!(
-        "  isolated: removed {} first-party {} artifact(s) from {}",
-        isolated.removed(),
-        isolated.profile(),
-        isolated.target().display()
-    );
+    println!("  {isolated}");
     match nextest(&isolated, only, tree).output() {
         Ok(o) => {
             let mut text = String::from_utf8_lossy(&o.stdout).into_owned();

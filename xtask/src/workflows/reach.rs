@@ -78,6 +78,9 @@
 use std::collections::{BTreeSet, VecDeque};
 use std::path::Path;
 
+// `cachix-push.yml`, outside the walk and read directly: its own file for the 1000-line cap.
+mod cache_publish;
+
 /// Where a reusable workflow lives, relative to the repository root.
 const WORKFLOWS: &str = ".github/workflows/";
 
@@ -362,6 +365,7 @@ fn deps_is_the_dependency_closure(root: &Path) -> bool {
 ///
 /// Over the whole closure and not over one file name, which is the widening this module exists
 /// for: the refusal has to reach wherever a step can move, and a line cap moves steps.
+/// `cachix-push.yml` is outside that closure and read directly, by [`cache_publish`].
 pub(super) fn release_outputs(root: &Path, closure: &Closure) -> Vec<String> {
     let deps_exempt = deps_is_the_dependency_closure(root);
     let mut out = Vec::new();
@@ -370,6 +374,7 @@ pub(super) fn release_outputs(root: &Path, closure: &Closure) -> Vec<String> {
             out.push(format!("{}:{line}  {output}", file.label));
         }
     }
+    out.extend(cache_publish::outputs(root, deps_exempt));
     out
 }
 
@@ -378,17 +383,28 @@ pub(super) fn release_outputs(root: &Path, closure: &Closure) -> Vec<String> {
 /// **Every `.#` TOKEN on the line, not just the first one** - #980 review: reading only the first
 /// non-flag token let `nix build --print-build-logs .#deps .#sutura` report `ok`, because the
 /// exempt token at the head of the line hid every real release output written after it on the
-/// SAME line. A continuation line (`nix build … \` then `.#x` below) is still not read - that gap
-/// predates this change and is not fixed here.
+/// SAME line. A `\` continuation is one command, so the installables on the lines it continues onto
+/// are read too and reported at the `nix build` line. An interpolated name (`.#${bin}-…`) is not
+/// read: it parses to no output.
 fn literal_release_builds(text: &str, deps_exempt: bool) -> Vec<(usize, String)> {
+    let lines: Vec<&str> = text.lines().collect();
     let mut found = Vec::new();
-    for (index, line) in text.lines().enumerate() {
+    for (index, line) in lines.iter().enumerate() {
         if line.trim_start().starts_with('#') {
             continue;
         }
-        let Some((_, after)) = line.split_once("nix build ") else {
+        let Some((_, first)) = line.split_once("nix build ") else {
             continue;
         };
+        let mut after = String::from(first);
+        let mut next = index;
+        while let Some(open) = after.trim_end().strip_suffix('\\') {
+            next = next.saturating_add(1);
+            let Some(more) = lines.get(next) else {
+                break;
+            };
+            after = format!("{open} {more}");
+        }
         // SKIP LEADING FLAGS. This used to require the installable to be the very next token, so
         // `nix build -L .#sutura-serve` - an ordinary spelling - walked past the refusal at exit 0.
         // That it did not bite was a property of this tree's text (flags written after the
@@ -429,7 +445,7 @@ fn literal_release_builds(text: &str, deps_exempt: bool) -> Vec<(usize, String)>
 /// runs only on lines the pass examined, so the block-scalar boundary is held constant between the
 /// two rather than being a floor a shell body can raise.
 fn plainly_a_call(trimmed: &str) -> bool {
-    trimmed.contains("uses:") && trimmed.contains("./")
+    trimmed.contains("uses:") && (trimmed.contains("./") || trimmed.contains("$/"))
 }
 
 /// Every `uses:` edge one file declares, and every examined line that plainly named a call.
@@ -512,7 +528,7 @@ fn scan(file: &Reached) -> Scan {
 /// Which kind of edge a `uses:` value is, or `None` for a step's remote action - which has no body
 /// in this repository and is not a call this walk is about.
 fn classify(value: &str, job_level: bool) -> Option<Edge> {
-    if let Some(path) = value.strip_prefix("./") {
+    if let Some(path) = local_path(value) {
         return Some(if path.starts_with(WORKFLOWS) {
             Edge::Workflow
         } else {
@@ -520,6 +536,10 @@ fn classify(value: &str, job_level: bool) -> Option<Edge> {
         });
     }
     job_level.then_some(Edge::Elsewhere)
+}
+
+fn local_path(value: &str) -> Option<&str> {
+    value.strip_prefix("./").or_else(|| value.strip_prefix("$/"))
 }
 
 /// Does this value open a block scalar? `|`, `>` and every indicator YAML allows after them.
@@ -535,7 +555,7 @@ fn open(root: &Path, call: &Call) -> Result<Reached, String> {
             "it is a call outside this repository, and its steps are in no tree this gate reads",
         )),
         Edge::Workflow => {
-            let path = call.target.trim_start_matches("./");
+            let path = local_path(&call.target).unwrap_or(&call.target);
             let file = path.trim_start_matches(WORKFLOWS);
             read(root, path).map(|text| Reached {
                 label: String::from(file),
@@ -546,7 +566,7 @@ fn open(root: &Path, call: &Call) -> Result<Reached, String> {
             })
         }
         Edge::Action => {
-            let dir = call.target.trim_start_matches("./").trim_end_matches('/');
+            let dir = local_path(&call.target).unwrap_or(&call.target).trim_end_matches('/');
             let named = dir.rsplit('/').next().unwrap_or(dir);
             let mut refusals = Vec::new();
             for manifest in MANIFESTS {
@@ -612,6 +632,44 @@ mod tests {
     fn walk(at: &std::path::Path, caller: &str) -> Closure {
         std::fs::write(at.join(".github/workflows/ci.yml"), caller).expect("the caller");
         Closure::from_roots(at, vec![Reached::workflow("ci.yml", String::from(caller))])
+    }
+
+    #[test]
+    fn self_repository_calls_reach_workflows_and_nested_actions() {
+        let at = scratch("self-repository");
+        std::fs::write(
+            at.join(".github/workflows/leg.yml"),
+            "on:\n  workflow_call:\njobs:\n  build:\n    steps:\n      - uses: $/.github/actions/tidy\n",
+        )
+        .expect("the leg");
+        std::fs::create_dir_all(at.join(".github/actions/leaf")).expect("the nested action directory");
+        std::fs::write(at.join(".github/actions/leaf/action.yaml"), "runs:\n  using: composite\n").expect("the nested action");
+        std::fs::write(
+            at.join(".github/actions/tidy/action.yml"),
+            "runs:\n  using: composite\n  steps:\n    - uses: $/.github/actions/leaf\n",
+        )
+        .expect("the composite caller");
+        let caller = "on: push\njobs:\n  called:\n    uses: $/.github/workflows/leg.yml\n";
+        let closure = walk(&at, caller);
+        let mut labels: Vec<&str> = closure.inspected().iter().map(Reached::label).collect();
+        labels.sort_unstable();
+        assert_eq!(labels, vec!["actions/leaf", "actions/tidy", "ci.yml", "leg.yml"]);
+        assert!(closure.drift().is_empty(), "{:?}", closure.drift());
+        std::fs::remove_dir_all(&at).expect("the scratch tree");
+    }
+
+    #[test]
+    fn self_repository_flow_calls_the_key_reader_misses_are_refused() {
+        let at = scratch("self-repository-flow");
+        let caller = "on: push\njobs:\n  called: { uses: $/.github/workflows/leg.yml }\n";
+        let closure = walk(&at, caller);
+        let drift = closure.drift();
+        assert_eq!(drift.len(), 1, "{drift:?}");
+        assert!(
+            drift.first().is_some_and(|line| line.starts_with("UNSIGHTED SHAPE:")),
+            "{drift:?}"
+        );
+        std::fs::remove_dir_all(&at).expect("the scratch tree");
     }
 
     #[test]

@@ -60,7 +60,12 @@ jobs:
         run: |
           set -eu
           next_raw="$(nix run .#git-cliff -- --bumped-version 2>/dev/null || true)"
-          prev_raw="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          # `--exclude`: `release-performance.yml` tags `v<version>-performance` on a released
+          # commit, and `v[0-9]*` matches it too. Measured on a scratch repository: an annotated
+          # one wins an unmatched describe over the release's own tag, and loses with the exclude.
+          # The release API makes it lightweight, which the release's annotated tag outranks anyway,
+          # so this is the guard for the shape nothing makes today. `check-version-bump` holds it.
+          prev_raw="$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude 'v*-performance' 2>/dev/null || true)"
           next="v${next_raw#v}"
           prev="v${prev_raw#v}"
           echo "previous: ${prev_raw:-none}"

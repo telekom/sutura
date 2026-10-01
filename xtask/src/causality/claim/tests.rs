@@ -1,11 +1,7 @@
 //! The `claim` arm's fixture cells.
 //!
-//! For `just causality` to MEASURE this diff the assertions live in a dedicated test file
-//! (`#[cfg(test)] mod tests;` in `claim.rs`, assertions here) - the same split `relocation.rs` /
-//! `relocation/probe.rs` makes - so the added tests are a separable target the base run can keep
-//! at HEAD and run. `probe.rs` keeps the string fixtures the pure cells read; this file builds
-//! REAL throwaway git repos for the git-backed arms (`--numstat`, `git apply`, `git checkout`),
-//! which a pure parser over `diff --git` headers could never reach.
+//! Assertions stay here so `just causality` keeps them while reverting production. `probe.rs`
+//! holds pure fixtures; git-backed cells use real throwaway repositories.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -364,10 +360,7 @@ fn a_filter_matching_nothing_is_not_a_verdict_about_the_cell_either() {
     );
 }
 
-// The `!ok` half of the guard, held: a run that reports SUCCESS (`ok = true`) is never read as a
-// build failure, whatever its text contains - `cargo_test`'s own exit status already means the
-// run completed, so text alone must not override it. Catches a mutant that drops the `!ok`
-// conjunct and reads `could_not_attest` unconditionally.
+// Successful process status takes precedence over compiler-looking output.
 #[test]
 fn a_successful_run_is_never_read_as_a_build_failure() {
     assert_eq!(
@@ -378,10 +371,23 @@ fn a_successful_run_is_never_read_as_a_build_failure() {
     );
 }
 
-// Negative control for the same guard: `ok` is ALSO false here (nextest exits non-zero on any
-// failure), but the text is an ordinary completed run naming a different test - not a compile
-// failure - so the build-failure guard must stay out of the way and the normal classification
-// (`NotAsserted`, unchanged) still applies.
+#[test]
+fn a_successful_run_cannot_borrow_a_captured_failure() {
+    let survived = concat!(
+        "        PASS [   0.020s] (1/1) sutura-cli::bin/sutura audit::tests::the_added_one\n",
+        "  stdout ───\n\n",
+        "            FAIL [   0.021s] (2/3) sutura-cli::bin/sutura audit::tests::the_added_one\n",
+        "    thread 'audit::tests::the_added_one' panicked at crates/sutura-cli/src/audit.rs:7:9:\n",
+        "     Summary [   0.040s] 1 test run: 1 passed\n",
+        "        PASS [   0.020s] sutura-cli::bin/sutura audit::tests::the_added_one\n",
+    );
+    let not_killed = Err(Cause::NotKilled {
+        cell: String::from("the_added_one"),
+    });
+    assert_eq!(attest(true, survived, "the_added_one", &cell(), &reader()), not_killed);
+}
+
+// A completed run naming an unrelated failure still reaches ordinary classification.
 #[test]
 fn an_ordinary_run_failure_still_reaches_the_normal_classification() {
     assert_eq!(
@@ -416,13 +422,12 @@ fn a_cell_that_never_reached_its_tier_is_not_a_verdict_about_the_mutation() {
         "  This run requires a provisioned service tier, so an absent one is a failure rather than a\n",
         "error: test run failed\n",
     );
-    assert_eq!(
-        attest(false, tier_absent, "the_added_one", &cell(), &reader()),
-        Err(Cause::BuildFailed {
-            cell: String::from("the_added_one"),
-            why: String::from("the cell needs a service tier the kill worktree does not provision - it never ran"),
-        })
-    );
+    let causes = [attest(false, tier_absent, "the_added_one", &cell(), &reader()).expect_err("it never ran")];
+    assert_eq!(report_refused(&causes, Caller::TEST_CAUSALITY), Verdict::Inconclusive);
+    // A tier cell, not a build that "may recur": a re-run cannot give it a tier.
+    let lines = refused_lines(&causes, true, Caller::TEST_CAUSALITY).join("\n");
+    assert!(lines.contains("shares no service tier"), "{lines}");
+    assert!(!lines.contains("re-run it"), "{lines}");
 }
 
 // A run that PASSED survived the mutation, even when its text echoes the tier sentence: only the

@@ -1663,12 +1663,34 @@ pub fn required_filters(&self) -> &[RequiredFilter]
 The predicates every question about this metric carries, whether the caller asked or not.
 
 ```rust
+pub const fn shared_calendar(&self) -> Option<&ModelName>
+```
+
+The conformed calendar model both fact models of a cross-model ratio reach through a
+`via`, or `None` for a one-model metric that buckets through its own `time_column`.
+
+```rust
 pub fn supports_grain(&self, grain: Grain) -> bool
 ```
 
 ```rust
 pub const fn time_column(&self) -> &ColumnName
 ```
+
+```rust
+pub fn with_shared_calendar(self, calendar: ModelName) -> Self
+```
+
+Declares the conformed calendar model both fact models of a cross-model ratio reach
+through a `via` (`telekom/sutura#780`). A builder rather than a constructor argument,
+so every existing caller of `Metric::new` compiles unchanged - a one-model metric has
+no shared calendar, and its on-disk shape and digest do not move the day this field ships.
+
+The name is checked at load by `Definitions::assemble`
+(`InconsistentDefinitions::SharedCalendarNotReachable`): the calendar model must exist,
+and both the metric's own model and every cross-model ratio term's model must reach it
+through a declared relationship. The builder does not check, because the relationships
+are cross-references only the assembled `Definitions` can see.
 
 #### Implements
 
@@ -1998,19 +2020,18 @@ cannot, the same argument `crate::knowledge::MAX_KNOWLEDGE_BYTES` makes for a bu
 applied to the catalog that bundle is checked against.
 
 **Measured before it was chosen, and re-measured for issue #966's column type and column
-description, which this bound did not cover before either existed.** This repository's shipped
-`single-player` catalog - the larger of the two example catalogs - is the reference: its widest
-model (`subscriptions`) declares 8 columns, no metric declares more than one required filter, and
-its columns (now including one declared type), required filters and dimension values together
-sum to 922 bytes - one column (`subscriptions.mrr_cents`) carries a declared type and a
-description, and that is what moved this half from the earlier column-blind measurement's
-under-1-KiB figure at all, not past any round number. Descriptions are the rest of it, at 24053
-bytes (~23.5 KiB) across eleven metrics and five models - each individually inside
-`MAX_DESCRIPTION_BYTES`, and it is their COUNT that was uncapped. Counting the five model names
-and table paths adds 120 bytes; `Definitions::authored_bytes` over the loaded corpus reads 25095
-bytes, ~24.5 KiB in total.
+description, which this bound did not cover before either existed, and again once every column
+in the shipped corpus carried both.** This repository's shipped `single-player` catalog - the
+larger of the two example catalogs - is the reference: its widest model (`subscriptions`)
+declares 8 columns, no metric declares more than one required filter, and all 21 of its columns
+carry a declared type and a description. Its column names and types, relationship keys, required
+filters and dimension values together sum to 1127 bytes (~1.1 KiB), and the five model names and
+table paths add 120. Descriptions are the rest of it, at 26056 bytes (~25.4 KiB) across eleven
+metrics, five models and their columns - each individually inside `MAX_DESCRIPTION_BYTES`, and
+it is their COUNT that was uncapped. `Definitions::authored_bytes` over the loaded corpus reads
+27303 bytes, ~26.7 KiB in total.
 
-`MAX_DEFINITIONS_BYTES` is 128 KiB: about 5.2 times that reference catalog's ~24.5 KiB, less
+`MAX_DEFINITIONS_BYTES` is 128 KiB: about 4.8 times that reference catalog's ~26.7 KiB, less
 headroom than the ~6.5 times an earlier, column-blind measurement claimed - restated here rather
 than left to say a smaller bundle than the corpus now is. Still more than
 `crate::knowledge::MAX_KNOWLEDGE_BYTES`'s five times its own reference, because a definitions
@@ -2341,10 +2362,10 @@ the workspace denies outright, or an `Err` arm that would write the same field b
 route and prove nothing.
 
 So the two agreeing is pinned by a test instead of by the type - see
-`portable_is_the_word_parse_would_have_produced`. What that test catches is the reachable
-mistake: a future tightening of `parse` - a shorter length bound, a narrower character set -
-that would refuse `portable` while this constructor kept minting it, leaving a value in a map
-key position that no catalog file could ever have written.
+`portable_is_the_word_parse_would_have_produced_and_display_prints_it`. What that test
+catches is the reachable mistake: a future tightening of `parse` - a shorter length bound, a
+narrower character set - that would refuse `portable` while this constructor kept minting it,
+leaving a value in a map key position that no catalog file could ever have written.
 
 #### Implements
 
@@ -2796,8 +2817,8 @@ The model this leaf reads, copied from the term by `descend`.
 `None` for every term written before `telekom/sutura#780`'s vocabulary (`AggregatedColumn::new`
 sets no model). A term that names a model explicitly - including the metric's own - carries
 `Some`, because `descend` has no metric to compare against and copies the field. The combiner
-reads a `Some` leaf off the second fact leg only when the plan carries one; a splitter that
-builds a second fact leg must first erase the metric's own model to `None`, and none does yet.
+reads a `Some` leaf off the second fact leg only when the plan carries one, so a splitter
+builds its federation with `Federation::of_metric`, which erases the metric's own model.
 
 #### Implements
 
@@ -2866,6 +2887,17 @@ Classifies one measure.
 Exhaustive over `Measure`'s shapes, and over `Term`'s terms through `descend`. A ratio
 becomes an `Above::Quotient` whose halves are pushed separately, which is the rule stated
 as the only tree this function can build.
+
+```rust
+pub fn of_metric(measure: &Measure, own: &ModelName) -> Self
+```
+
+`Self::of` for a metric over `own`, with every leaf that names `own` erased to `None`.
+
+A term may spell the metric's own model explicitly, and it is the same question as one that
+names none (`telekom/sutura#780`). The splitter, `FederatedPlan::new`'s D9 split and the
+combiner all route a leaf by `Carried::model` off this one tree, so erasing here is what
+keeps an own-model leaf on the first fact leg in all three.
 
 ```rust
 pub fn pulls_up_rows(&self) -> bool
@@ -7357,8 +7389,7 @@ Both legs' results, which cannot hold two of one side and cannot be built with t
 
 A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a third result
 from a second fact model, joined above on the link and the time bucket. The combiner reads it
-through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names. No
-question produces a second fact yet: `plan()` refuses a cross-model ratio before dispatching.
+through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names.
 
 Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
@@ -8114,8 +8145,7 @@ Every leg, in execution order: the fact leg, the second fact leg if present, the
 lookup leg.
 
 A two-fact plan (`telekom/sutura#780`) carries a third leg; the combiner joins it on the
-link and the time bucket above the port. No question produces one yet: `plan()` refuses a
-cross-model ratio before dispatching, so only a hand-built plan reaches this.
+link and the time bucket above the port.
 
 ```rust
 pub const fn lookup(&self) -> &LegPlan
@@ -8177,8 +8207,6 @@ pub const fn second_fact(&self) -> Option<&LegPlan>
 ```
 
 The second fact leg, when the measure's ratio terms name two fact models.
-
-`None` for every plan a question produces today - see `FederatedPlanError::FactsShareNoKey`.
 
 ```rust
 pub fn sources(&self) -> impl Iterator<Item> + '_
@@ -8291,21 +8319,17 @@ Why a federated plan could not be built.
 
   Same reason as `BucketMismatch`: the one production splitter derives
   both from `labels(&federation)` in one pass.
-- `FactsOnSameSource` - The second fact leg names the same data system as the first, so it is a no-op second leg rather than a second fact over a different model.
-
-  `telekom/sutura#780`: a cross-model ratio's two facts must read two sources, because each
-  source is a separate identity to satisfy and the chasm trap is impossible only when the two
-  facts never share a `FROM`. Same reachability limit as
-  `FactsShareNoKey`: no question reaches this guard yet.
 - `FactsShareNoKey` - Two fact legs share no key label, so the join above them is impossible.
 
   The chasm-trap guard as a type refusal: without a shared dimension key to join on, a
   combined answer is not a certified number but two unrelated row sets, so the plan does not
-  exist rather than producing one. **Reachability limit, stated next to the claim:** no
-  question reaches this guard yet. `plan()` refuses a cross-model ratio before dispatching to
-  `federated_plan`, and `federated_plan` passes `None` for `second_fact`; the guard is
-  exercised only by direct construction. A splitter that builds a second fact leg is what
-  makes it reachable from a question.
+  exist rather than producing one. **Reached only by direct construction:** the one
+  production splitter projects `InternalLabel::Link` on both fact legs unconditionally.
+- `FactKeyNotShared` - A two-fact plan whose fact legs group by a key besides the link (`telekom/sutura#780`).
+
+  Reached only by direct construction: `plan()` refuses a question grouped by a dimension
+  only one fact reaches as `CrossModelRatioWithoutSharedDimension`, and this holds the same
+  shape as a type.
 
 ##### Implements
 
@@ -8365,8 +8389,7 @@ Both legs' results, which cannot hold two of one side and cannot be built with t
 
 A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a third result
 from a second fact model, joined above on the link and the time bucket. The combiner reads it
-through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names. No
-question produces a second fact yet: `plan()` refuses a cross-model ratio before dispatching.
+through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names.
 
 Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
@@ -8635,8 +8658,7 @@ Both legs' results, which cannot hold two of one side and cannot be built with t
 
 A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a third result
 from a second fact model, joined above on the link and the time bucket. The combiner reads it
-through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names. No
-question produces a second fact yet: `plan()` refuses a cross-model ratio before dispatching.
+through `Self::second_fact` and routes each `Carried` leaf to the fact leg its model names.
 
 Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
@@ -9500,6 +9522,16 @@ pub const fn table_name(&self) -> &TableName
 
 The table's own name, which is what this leg's columns are qualified by.
 
+```rust
+pub fn terms(&self) -> &[LegTerm]
+```
+
+The aggregated terms this fact leg computes, in projection order.
+
+Empty for a `Lookup` leg (no aggregation) and for the distinct-key fact leg
+(no measure), which is the whole of that shape. At most four entries on a fact leg, because a
+`Measure` is one term or a ratio of two and `Avg` expands one.
+
 ##### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
@@ -10188,35 +10220,32 @@ somebody else's input.
   operator - the one who can raise `crate::plan::RowCeiling`, which is a configured value and
   not `crate::plan::MAX_ROWS` the compiled constant. Naming a compiled constant here would be
   advice nobody addressed could act on.**
-- `CrossModelRatioNotExecutable` - A ratio term names a model other than the metric's own, and this workspace does not yet build the second fact leg such a term needs.
+- `CrossModelRatioWithoutSharedCalendar` - A cross-model ratio whose two fact models share no conformed calendar (`telekom/sutura#780`). The metric's terms name two fact models, and the metric declares no `shared_calendar` - so both facts cannot be bucketed through the same time dimension, and the combiner cannot join them on the link AND the bucket. The ratio is refused rather than bucketed on the first fact's time column, which would misalign the two facts.
 
-  **`telekom/sutura#780`'s vocabulary, and the plan half of its first slice.** The catalog
-  admits the definition - `Definitions::assemble` proves the named model is declared and the
-  term's column exists on it - so a metric with a cross-model ratio loads and is addressable
-  by name, PROVIDED it declares no anchor: an anchor is executed at boot, and one on such a
-  metric reaches this refusal through `NotValidated::AnchorNotExecuted` instead, which takes
-  the whole bundle down rather than only that metric - fails closed, and stated here rather
-  than left for a reviewer to find by asking. Asking a plain question about it is refused
-  rather than mis-planned against the metric's own table: the splitter has one plan shape per
-  data system today, `QueryPlan` and
-  `FederatedPlan`, and neither reads a second FACT model's rows,
-  aggregated on its own and joined above - which is what a certified answer over two facts
-  needs, per the issue's own decision record.
+  **Retires, and replaces, `CrossModelRatioNotExecutable`** - the reason a cross-model ratio
+  used before this variant existed, which refused EVERY such ratio under one name regardless
+  of what a catalog author could do about it. This one names the missing declaration
+  specifically: a metric that DOES declare a reachable `shared_calendar` no longer reaches
+  this variant at all (`docs/adr/0002`'s second amendment). The retired variant is not kept
+  unreachable - `xtask/src/refusals/registry.rs` records the straight substitution, the same
+  mechanism `TopNotFederated` → `TopOverUncertifiedRows` already used.
 
-  **Distinct from `MeasureDoesNotFederate` and
-  `FederationNotExecutable` on purpose.** Neither reason
-  applies here: the aggregate is additive (a `sum` or a `count_distinct` federates fine when
-  the second leg is a lookup), and a build's adapter capability is not what is missing - the
-  plan SHAPE for two aggregated fact legs does not exist yet, on any adapter. Reusing either
-  variant would misreport why the question is refused.
+  Narrowable in principle: a catalog author who declares the shared calendar makes the ratio
+  executable. Only a local catalog can declare one (its `shared_calendar:` key); no other
+  catalog adapter reads the field yet. Not narrowable by the caller: the `shared_calendar` is
+  part of the metric's definition, not of the question.
+- `CrossModelRatioSpansSources` - A cross-model ratio whose second fact model or shared calendar sits on another data system than the metric's own (`telekom/sutura#780`); `model` names the one that does.
 
-  A `RefusalReason` rather than a wiring defect, for
-  `FederationNotExecutable`'s own reason: this variant
-  means the capability and nothing else. It is NOT narrowable the way
-  most of this enum's questions are - the cross-model term is part of the metric's
-  definition, `Query` has no field that reaches it, and every caller-facing text this
-  variant produces says so ("nothing you can change in the question"). What changes the
-  answer is this workspace building the second fact leg, not a different question.
+  Each fact leg joins the calendar inside its OWN statement, and a statement reads one source,
+  so both facts and the calendar share the metric's. Not narrowable by the caller: where a
+  model lives is the catalog's, not the question's. A calendar declared once per source is
+  the shape that would lift this, and it is not built.
+- `CrossModelRatioWithoutSharedDimension` - A cross-model ratio asked by no dimension both fact models link to (`telekom/sutura#780`).
+
+  The two facts are aggregated in two statements and joined above on ONE link into a remote
+  dimension's model, so the question groups and filters by that model's dimensions and nothing
+  else, and the second fact `model` declares its own relationship into it on the column the
+  first fact links through. Narrowable: group by a dimension both facts link to.
 
 #### Methods
 
@@ -10980,7 +11009,7 @@ merely undone by a rule somebody remembers to apply.
 `docs/adr/0013`'s amendment gives: `crate::query::RefusalReason` is keyed to a compiled plan -
 dimensions, grains, federation - and a raw statement has none of those to refuse. What it can be
 refused for is a bound this deployment applies before or after execution, or the data system's own
-answer about the statement, and this module's four variants are exactly that list.
+answer about the statement, and this module's five variants are exactly that list.
 
 # What this module does not decide
 
@@ -11076,13 +11105,13 @@ answer about the statement once it ran.
   rows plus one off a STREAMED result (`Client::query_raw`) before refusing, rather than by
   materialising the whole result first and counting afterward. What this does NOT bound: the
   statement's own execution time or the SERVER's memory while it produces those rows - both
-  are the connect-time `statement_timeout`'s job, a coarser and unrelated ceiling.
+  are bounded by the per-request deadline and the connect-time `statement_timeout`, the finer and coarser ceilings.
 - `ResultTooLarge` - The data system would not hand this result back in one piece.
 
   Carries no number, for the reason `crate::query::ResultBound::Volume` carries none: the bound
   belongs to the data system, and a figure borrowed from wherever the statement failed would be
   a certified-looking number for a bound that is not the one that fired.
-- `StatementFailed` - The statement did not complete: a syntax error the data system's own parser found, a constraint it enforced, or the connection's own statement timeout firing before it returned.
+- `StatementFailed` - The statement did not complete: a syntax error the data system's own parser found, or a constraint it enforced.
 
   **No text from the driver is carried**, and that is the whole point of the variant rather than
   a field left unfilled. Whoever controls the statement controls part of the message a database
@@ -11098,6 +11127,7 @@ answer about the statement once it ran.
   `docs/adr/0013`'s amendment is explicit that the read-only transaction is a real, server-
   enforced boundary for statement-shaped writes and not for a VOLATILE function's own side
   effects - see that record for the limit stated with the claim.
+- `DeadlineExceeded` - The asker's own per-request deadline ran out. `execute_raw` carries the same bound `execute` does, and the same `Warehouse::deadline_exceeded` predicate classifies the stop - including one by an adapter's own ceiling that fired before the budget did. Carries the configured budget in seconds, for `crate::query::RefusalReason::DeadlineExceeded`'s own reason: a number an operator configured, safe in a log, not how long the statement ran.
 
 #### Methods
 

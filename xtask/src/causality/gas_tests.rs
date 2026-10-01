@@ -759,6 +759,24 @@ fn editing_a_called_test_helper_is_refused_without_a_claim() {
     assert_eq!(changed_test_shape(base, &head), Verdict::Fail);
 }
 
+/// A MODIFIED test beside an implementation change, green on base, no `Claim-Cell:`: an edited test
+/// is at base by construction, so this pins base behaviour and refuses. It used to read as a MOVE
+/// and answer INCONCLUSIVE - exit 3, which CI turns into a green step.
+#[test]
+fn a_modified_test_green_on_base_beside_an_implementation_change_is_refused() {
+    let test = "#[test]\nfn the_existing_one() {\n    assert_eq!(wired::f(), 1);\n}\n";
+    let base = [
+        ("src/lib.rs", "pub fn f() -> u8 { 1 }\npub fn g() -> u8 { 2 }\n"),
+        ("tests/t.rs", test),
+    ];
+    let edited = test.replacen("}\n", "    assert_ne!(wired::f(), 0);\n}\n", 1);
+    let head = [
+        ("src/lib.rs", "pub fn f() -> u8 { 1 }\npub fn g() -> u8 { 3 }\n"),
+        ("tests/t.rs", &*edited),
+    ];
+    assert_eq!(changed_tree(&base, &head), Verdict::Fail);
+}
+
 #[test]
 fn deleting_a_called_test_helpers_assertion_is_refused() {
     let base = "#[cfg(test)]\nmod tests {\n    fn helper() {\n        assert_eq!(2 + 2, 4);\n    }\n    #[test]\n    fn existing() {\n        helper();\n    }\n}\n";

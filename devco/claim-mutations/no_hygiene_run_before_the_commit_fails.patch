@@ -1,13 +1,13 @@
 diff --git a/xtask/src/workflows/version_bump.rs b/xtask/src/workflows/version_bump.rs
-index e4cb27e97..c0336f25f 100644
+index cd3a84afd..30965c621 100644
 --- a/xtask/src/workflows/version_bump.rs
 +++ b/xtask/src/workflows/version_bump.rs
-@@ -46,7 +46,7 @@ const DPRINT_MARKER: &str = "dprint";
+@@ -56,7 +56,7 @@ const DPRINT_MARKER: &str = "dprint";
  const FUZZ_LOCK_UPDATE_MARKER: &str = "--manifest-path fuzz/Cargo.toml";
  const FUZZ_LOCK_PATH: &str = "fuzz/Cargo.lock";
  const GIT_ADD_MARKER: &str = "git add ";
 -const HYGIENE_MARKERS: [&str; 2] = ["xtask -- hygiene", "xtask hygiene"];
 +const HYGIENE_MARKERS: [&str; 2] = ["", ""];
- 
- /// The four rules, over one job's lines. Empty is a pass.
- pub(crate) fn check(workflow: &str) -> Vec<String> {
+ const DESCRIBE_MARKER: &str = "git describe";
+ const PERFORMANCE_EXCLUDE: &str = "--exclude 'v*-performance'";
+ const CLIFF: &str = "cliff.toml";

@@ -1,0 +1,18 @@
+diff --git a/xtask/src/causality/rot.rs b/xtask/src/causality/rot.rs
+index 1c5919527..962c9f64c 100644
+--- a/xtask/src/causality/rot.rs
++++ b/xtask/src/causality/rot.rs
+@@ -247,11 +247,11 @@ fn unlocated(cells: &[String], located: &Placement) -> Split {
+             Some(Located::Gone) => causes.push(format!(
+                 "{cell}: no test fn by this name exists in the tree any more - the cell it names is gone"
+             )),
+-            Some(Located::Ambiguous(files)) => causes.push(format!(
++            Some(Located::Ambiguous(files)) => eprintln!(
+                 "{cell}: declared in more than one file ({}) - refusing rather than guessing which one \
+                  the patch means",
+                 files.join(", ")
+-            )),
++            ),
+             None => causes.push(format!("{cell}: not scanned - this gate's own bookkeeping lost it")),
+         }
+     }

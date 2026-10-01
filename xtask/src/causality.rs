@@ -196,11 +196,8 @@ fn prove(
     // so a provable test inside the new crate keeps the crate in the workspace on both attempts.
     // Withdrawing it there would leave that test in a directory cargo no longer reads, and nextest
     // failing an empty filterset is a red about this partition rather than about the change.
-    let inputs = &separable.build_inputs;
-    let membership = membership::Membership::of(root, base, inputs);
-    let at_head = separable.at_head_first_attempt();
-    let reverting = membership.reverting(&separable.revert, inputs, &at_head);
-    let holding = membership.reverting(&separable.held(), inputs, &separable.test_files);
+    // The retry also takes every changed manifest and lockfile to base: `membership::Membership::attempts`.
+    let [reverting, holding] = membership::Membership::of(root, base, &separable.build_inputs).attempts(separable);
     let first = base_state(root, base, &reverting);
     let held = base_state(root, base, &holding);
     let unreverted = separable.unreverted_from(&reverting);
@@ -252,7 +249,7 @@ fn prove(
     // *green on base* MEANS. A diff cannot tell a moved test from an added one, and the gate's
     // premise is about tests that were added: `provenance::Moved` asks the base commit instead.
     let named: Vec<&str> = scoped.tests().iter().map(AddedTest::name).collect();
-    let moved = already_there(root, base, &named);
+    let moved = already_there(root, base, &named, scoped.tests());
     report_moved(&moved);
     let (head_ok, head_out) = cargo_test(root, &shared_target, &only, Tree::Provisioned);
     if !head_ok {
@@ -293,13 +290,14 @@ fn prove(
 /// those lines, so it is in the diff. Asking the whole tree instead would let one of this tree's
 /// duplicated test names answer yes about a genuinely new test. `provenance` owns both the patterns
 /// and the classification, so the direction it fails in is stated where it is decided.
-fn already_there(root: &Path, base: &Commit, named: &[&str]) -> Moved {
+fn already_there(root: &Path, base: &Commit, named: &[&str], scoped: &[AddedTest]) -> Moved {
     let paths: Vec<String> = worktree::touched(root, base)
         .into_iter()
         .filter(|path| is_compiled_rust(path))
         .collect();
     let found = worktree::search(root, base, &provenance::needles(named), &paths);
-    Moved::of(named, &found)
+    let edited: Vec<&str> = scoped.iter().filter(|test| test.is_edited()).map(AddedTest::name).collect();
+    Moved::of(named, &edited, &found)
 }
 
 /// Put the worktree into the base state for the implementation, then run the tests.
@@ -426,8 +424,16 @@ fn stack_parent(root: &Path, asked_for: &Commit) -> Option<Parent> {
 /// separate calls so those two are separate answers.
 ///
 /// The source listing is behind a `OnceCell` because most runs never need it: it is consulted only
-/// for a manifest that declares a feature name the base did not, which is rare, and
-/// `repo::all_files` shells out to git twice.
+/// for a manifest that declares a feature name the base did not, which is rare, and the census it
+/// consults is taken with [`repo::Census::inspect`], which opens every compiled source in the tree.
+/// The read is the census's own, so a listed source that vanished before it is a refusal here, not
+/// an empty answer.
+///
+/// **The limit, next to the claim.** Only [`sources_under`] - a refusal carried through rather
+/// than turned into an empty listing - has a cell. The rest of this function has none: neither the
+/// census-to-refusal conversion inside the `OnceCell` (an `all_files` refusal, an `inspect`
+/// refusal, a source gone from disk) nor the call that hands its result to [`sources_under`]. Both
+/// read the real repository, and no cell injects a census.
 fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], read: &regions::PostImage<'_>) -> Activation {
     let base = |path: &str| {
         if worktree::base_has(root, at, path) {
@@ -436,27 +442,26 @@ fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], rea
             BaseText::Absent
         }
     };
-    let listing: std::cell::OnceCell<Vec<String>> = std::cell::OnceCell::new();
-    let sources = |dir: &str| {
-        listing
-            // FAIL OPEN, unchanged and now visible: a refusal yields an EMPTY listing and the
-            // feature-activation walk proceeds over nothing. Narrow - this is consulted only for a
-            // manifest declaring a feature name the base did not - and it is
-            // `github.com/telekom/sutura#414`'s own finding on this file, left to the PR that owns
-            // this gate rather than folded into a mechanical one.
-            .get_or_init(|| {
-                repo::all_files()
-                    .and_then(|census| census.into_listing(repo::Unmigrated::Causality))
-                    .map(|(_root, files)| files)
-                    .unwrap_or_default()
-            })
-            .iter()
+    let listing: std::cell::OnceCell<features::Listing> = std::cell::OnceCell::new();
+    let census_listing = || {
+        listing.get_or_init(|| {
+            let census = repo::all_files().map_err(|why| why.describe())?;
+            let mut listing = Vec::new();
             // `is_compiled_rust` rather than an extension test, so the one rule that decides
             // what this workspace compiles decides here too - a vendored path is excluded by it.
-            .filter(|path| is_compiled_rust(path) && (dir.is_empty() || path.starts_with(&format!("{dir}/"))))
-            .cloned()
-            .collect()
+            match census.inspect(&[], is_compiled_rust, |rel, _| {
+                listing.push(String::from(rel));
+            }) {
+                Ok(inspected) if inspected.absent() == 0 => Ok(listing),
+                Ok(inspected) => Err(format!(
+                    "{} source file(s) the working tree's listing named are no longer on disk",
+                    inspected.absent()
+                )),
+                Err(why) => Err(why.describe()),
+            }
+        })
     };
+    let sources = |dir: &str| sources_under(census_listing(), dir);
     Activation::of(
         files,
         &Trees {
@@ -465,6 +470,18 @@ fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], rea
             sources: &sources,
         },
     )
+}
+
+/// The compiled sources under `dir`, or the census's refusal carried through: a refusal is never
+/// an empty listing, which would let *nothing was enabled* be said over sources never read.
+fn sources_under(listing: &features::Listing, dir: &str) -> features::Listing {
+    listing.as_ref().map_err(String::clone).map(|listing| {
+        listing
+            .iter()
+            .filter(|path| dir.is_empty() || path.starts_with(&format!("{dir}/")))
+            .cloned()
+            .collect()
+    })
 }
 
 /// The tests-only shape of a separable plan: `separable.revert` is empty, so nothing here differs
@@ -569,6 +586,16 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     // happen.
     println!("{}", measured.measured(&base));
 
+    // An added claim mutation no trailer declares is never applied - the fail-open of #970.
+    let touched = worktree::touched(&root, &at);
+    let undeclared =
+        claim::undeclared::undeclared(&touched, claim::Claim::of(&worktree::messages(&root, &at)).as_ref(), |path| {
+            worktree::base_has(&root, &at, path)
+        });
+    if !undeclared.is_empty() {
+        return claim::undeclared::report(&undeclared);
+    }
+
     // The POST-IMAGE of a changed file is what says which of its lines are test code, and
     // `git diff <base> --` compares base against the WORKING TREE - so the working tree is the
     // post-image, and reading it needs no second git call.
@@ -617,7 +644,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         Claim::of(&worktree::messages(&root, &at).replace('\0', "\n")).as_ref(),
         &relocation::Changed {
             files: &files,
-            touched: &worktree::touched(&root, &at),
+            touched: &touched,
         },
         &Images {
             head: &working_tree,
@@ -739,8 +766,8 @@ fn separable_verdict(
             // those are the ordinary base/head proof's to run - the old range-wide
             // `Undeclared` refusal reddened them, and that refusal is gone. The verdict
             // is the AND: the declared cells' mutations must kill AND the undeclared
-            // additions must be red against the base behaviour. Nothing, declared or
-            // not, rides along unproven.
+            // additions must be red against the base behaviour - per RUN, not per test,
+            // so an undeclared pin still rides along beside one that is red on base.
             //
             // After feature-activation and relocation and nowhere before, for the same
             // reason both were: a manifest in the diff or a conflicting trailer is a
@@ -819,6 +846,26 @@ mod tests {
     use super::{BaseState, retry_with_held_back};
     use crate::Verdict;
 
+    /// `github.com/telekom/sutura#414`: `sources_under`, the step between the census and the
+    /// feature scan, carries a refusal through rather than an empty listing that would let
+    /// *nothing was enabled* pass unread. The scan itself reads the real repository and has no cell.
+    #[test]
+    fn sources_under_carries_a_census_refusal_through_and_keeps_only_that_directory() {
+        let refused: super::features::Listing = Err(String::from("the census refused"));
+        assert_eq!(
+            super::sources_under(&refused, "crates/x"),
+            Err(String::from("the census refused"))
+        );
+        let listed: super::features::Listing = Ok(vec![
+            String::from("crates/x/src/lib.rs"),
+            String::from("crates/xy/src/lib.rs"),
+        ]);
+        assert_eq!(
+            super::sources_under(&listed, "crates/x"),
+            Ok(vec![String::from("crates/x/src/lib.rs")])
+        );
+    }
+
     /// `github.com/telekom/sutura#837` direction 2, half one: a complete declaration on an
     /// inseparable diff is EVALUATED, and a mutation that kills by the cell's own assertion is
     /// accepted.
@@ -883,6 +930,13 @@ mod tests {
             Verdict::Fail,
             "the claimed mutation cannot prove a neighbouring ordinary test in the same inseparable file"
         );
+    }
+
+    /// `github.com/telekom/sutura#970`: the patch is committed and no trailer declares it, so no
+    /// run would ever apply it - refused, where the base answered the NOT MECHANICALLY SEPARABLE pass.
+    #[test]
+    fn a_committed_mutation_no_trailer_declares_is_refused() {
+        assert_eq!(inseparable_claim_case(false, Mutation::Kills, None), Verdict::Fail);
     }
 
     /// Half two, and UNCHANGED behaviour: with no `Claim-Cell:` trailer at all, an inseparable

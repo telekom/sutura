@@ -594,37 +594,40 @@ pub enum RefusalReason {
     /// not [`crate::plan::MAX_ROWS`] the compiled constant. Naming a compiled constant here would be
     /// advice nobody addressed could act on.**
     TopOverUncertifiedRows { ceiling: u32 },
-    /// A ratio term names a model other than the metric's own, and this workspace does not yet
-    /// build the second fact leg such a term needs.
+    /// A cross-model ratio whose two fact models share no conformed calendar
+    /// (`telekom/sutura#780`). The metric's terms name two fact models, and the metric declares no
+    /// `shared_calendar` - so both facts cannot be bucketed through the same time dimension, and
+    /// the combiner cannot join them on the link AND the bucket. The ratio is refused rather than
+    /// bucketed on the first fact's time column, which would misalign the two facts.
     ///
-    /// **`telekom/sutura#780`'s vocabulary, and the plan half of its first slice.** The catalog
-    /// admits the definition - `Definitions::assemble` proves the named model is declared and the
-    /// term's column exists on it - so a metric with a cross-model ratio loads and is addressable
-    /// by name, PROVIDED it declares no anchor: an anchor is executed at boot, and one on such a
-    /// metric reaches this refusal through `NotValidated::AnchorNotExecuted` instead, which takes
-    /// the whole bundle down rather than only that metric - fails closed, and stated here rather
-    /// than left for a reviewer to find by asking. Asking a plain question about it is refused
-    /// rather than mis-planned against the metric's own table: the splitter has one plan shape per
-    /// data system today, [`QueryPlan`](crate::plan::QueryPlan) and
-    /// [`FederatedPlan`](crate::plan::FederatedPlan), and neither reads a second FACT model's rows,
-    /// aggregated on its own and joined above - which is what a certified answer over two facts
-    /// needs, per the issue's own decision record.
+    /// **Retires, and replaces, `CrossModelRatioNotExecutable`** - the reason a cross-model ratio
+    /// used before this variant existed, which refused EVERY such ratio under one name regardless
+    /// of what a catalog author could do about it. This one names the missing declaration
+    /// specifically: a metric that DOES declare a reachable `shared_calendar` no longer reaches
+    /// this variant at all (`docs/adr/0002`'s second amendment). The retired variant is not kept
+    /// unreachable - `xtask/src/refusals/registry.rs` records the straight substitution, the same
+    /// mechanism `TopNotFederated` → `TopOverUncertifiedRows` already used.
     ///
-    /// **Distinct from [`MeasureDoesNotFederate`](Self::MeasureDoesNotFederate) and
-    /// [`FederationNotExecutable`](Self::FederationNotExecutable) on purpose.** Neither reason
-    /// applies here: the aggregate is additive (a `sum` or a `count_distinct` federates fine when
-    /// the second leg is a lookup), and a build's adapter capability is not what is missing - the
-    /// plan SHAPE for two aggregated fact legs does not exist yet, on any adapter. Reusing either
-    /// variant would misreport why the question is refused.
+    /// Narrowable in principle: a catalog author who declares the shared calendar makes the ratio
+    /// executable. Only a local catalog can declare one (its `shared_calendar:` key); no other
+    /// catalog adapter reads the field yet. Not narrowable by the caller: the `shared_calendar` is
+    /// part of the metric's definition, not of the question.
+    CrossModelRatioWithoutSharedCalendar { metric: MetricName, model: ModelName },
+    /// A cross-model ratio whose second fact model or shared calendar sits on another data system
+    /// than the metric's own (`telekom/sutura#780`); `model` names the one that does.
     ///
-    /// A [`RefusalReason`] rather than a wiring defect, for
-    /// [`FederationNotExecutable`](Self::FederationNotExecutable)'s own reason: this variant
-    /// means the capability and nothing else. It is NOT narrowable the way
-    /// most of this enum's questions are - the cross-model term is part of the metric's
-    /// definition, `Query` has no field that reaches it, and every caller-facing text this
-    /// variant produces says so ("nothing you can change in the question"). What changes the
-    /// answer is this workspace building the second fact leg, not a different question.
-    CrossModelRatioNotExecutable { metric: MetricName, model: ModelName },
+    /// Each fact leg joins the calendar inside its OWN statement, and a statement reads one source,
+    /// so both facts and the calendar share the metric's. Not narrowable by the caller: where a
+    /// model lives is the catalog's, not the question's. A calendar declared once per source is
+    /// the shape that would lift this, and it is not built.
+    CrossModelRatioSpansSources { metric: MetricName, model: ModelName },
+    /// A cross-model ratio asked by no dimension both fact models link to (`telekom/sutura#780`).
+    ///
+    /// The two facts are aggregated in two statements and joined above on ONE link into a remote
+    /// dimension's model, so the question groups and filters by that model's dimensions and nothing
+    /// else, and the second fact `model` declares its own relationship into it on the column the
+    /// first fact links through. Narrowable: group by a dimension both facts link to.
+    CrossModelRatioWithoutSharedDimension { metric: MetricName, model: ModelName },
 }
 
 impl RefusalReason {
@@ -673,7 +676,9 @@ impl RefusalReason {
             Self::DeadlineExceeded { .. } => "deadline_exceeded",
             Self::BudgetExhausted { .. } => "budget_exhausted",
             Self::TopOverUncertifiedRows { .. } => "top_over_uncertified_rows",
-            Self::CrossModelRatioNotExecutable { .. } => "cross_model_ratio_not_executable",
+            Self::CrossModelRatioWithoutSharedCalendar { .. } => "cross_model_ratio_without_shared_calendar",
+            Self::CrossModelRatioSpansSources { .. } => "cross_model_ratio_spans_sources",
+            Self::CrossModelRatioWithoutSharedDimension { .. } => "cross_model_ratio_without_shared_dimension",
         }
     }
 }
@@ -913,7 +918,15 @@ mod tests {
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },
             RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
             RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
-            RefusalReason::CrossModelRatioNotExecutable {
+            RefusalReason::CrossModelRatioWithoutSharedCalendar {
+                metric: MetricName::parse("revenue_per_customer").expect("a test metric"),
+                model: ModelName::parse("customers").expect("a test model"),
+            },
+            RefusalReason::CrossModelRatioSpansSources {
+                metric: MetricName::parse("revenue_per_customer").expect("a test metric"),
+                model: ModelName::parse("customers").expect("a test model"),
+            },
+            RefusalReason::CrossModelRatioWithoutSharedDimension {
                 metric: MetricName::parse("revenue_per_customer").expect("a test metric"),
                 model: ModelName::parse("customers").expect("a test model"),
             },

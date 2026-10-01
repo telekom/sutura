@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine.rs b/crates/sutura-exec-datafusion/src/combine.rs
+--- a/crates/sutura-exec-datafusion/src/combine.rs
++++ b/crates/sutura-exec-datafusion/src/combine.rs
+@@ -585,7 +585,7 @@
+         let leaf_labels: Vec<&str> = leaves.iter().map(|leaf| leaf.0.as_str()).collect();
+         let mut columns = vec![
+             coalesce(vec![qualified(FACT_TABLE, link), qualified(table, link)]).alias(link),
+-            coalesce(vec![qualified(FACT_TABLE, bucket), qualified(table, bucket)]).alias(bucket),
++            coalesce(vec![qualified(FACT_TABLE, bucket), qualified(FACT_TABLE, bucket)]).alias(bucket),
+         ];
+         for (qualifier, field) in joined.schema().iter() {
+             if field.name() == link || field.name() == bucket {

@@ -211,40 +211,100 @@ pub(crate) const CATALOG_CASES: &[(&str, Edit)] = &[
             "---\nkind: metric\nname: products_in_use\nmodel: subscriptions\nmeasure:\n  simple: { aggregate: count_distinct, column: product_key }\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\naudience: open\n---\nHow many distinct products the period had subscriptions to.\n\nHere because the distinct value spans the join key: one product is subscribed to by several\ncustomers, so no re-aggregation above two legs can recover the count. A two-source question\nover it is refused rather than answered, and the refusal is the assertion.\n",
         ),
     ),
+    // **The two-fact ratio (`telekom/sutura#780`)**: a second fact model and a shared calendar,
+    // both on the metric's own data system - which is where `CrossModelRatioSpansSources` keeps
+    // them - and a ratio whose numerator reads the second fact. Six documents and two tables,
+    // derived rather than committed for this file's header reason: the shape needs its dimension on
+    // a second data system, which the quickstart cannot state. `two_fact.rs` asks the question.
+    (
+        "models/calendar.md",
+        Edit::Added(
+            "---\nkind: model\nname: calendar\nsource: local\ntable: dim_calendar\ncolumns:\n  - name: month\n    type: DATE\n    description: The first day of the month.\n    nullable: false\nprimary_key: [month]\n---\nOne row per month: the conformed calendar both facts of `tickets_per_subscription` bucket through.\n",
+        ),
+    ),
+    (
+        "models/tickets.md",
+        Edit::Added(
+            "---\nkind: model\nname: tickets\nsource: local\ntable: fct_ticket_monthly\ncolumns:\n  - name: month\n    type: DATE\n    description: The first day of the month the tickets were opened in.\n    nullable: false\n  - name: customer_key\n    type: BIGINT\n    description: The customer who opened them, reached through ticket_customer.\n    nullable: false\n  - name: tickets\n    type: BIGINT\n    description: How many support tickets the customer opened that month.\n    nullable: false\n---\nThe second fact: one row per customer per month in which that customer opened a ticket.\n",
+        ),
+    ),
+    (
+        "relationships/subscription_calendar.md",
+        Edit::Added(
+            "---\nkind: relationship\nname: subscription_calendar\norigin:\n  model: subscriptions\n  column: month\ntarget:\n  model: calendar\n  column: month\njoin_type: many_to_one\n---\nThe first fact's hop to the shared calendar.\n",
+        ),
+    ),
+    (
+        "relationships/ticket_calendar.md",
+        Edit::Added(
+            "---\nkind: relationship\nname: ticket_calendar\norigin:\n  model: tickets\n  column: month\ntarget:\n  model: calendar\n  column: month\njoin_type: many_to_one\n---\nThe second fact's hop to the same calendar.\n",
+        ),
+    ),
+    (
+        "relationships/ticket_customer.md",
+        Edit::Added(
+            "---\nkind: relationship\nname: ticket_customer\norigin:\n  model: tickets\n  column: customer_key\ntarget:\n  model: customers\n  column: customer_key\njoin_type: many_to_one\n---\nThe second fact's own link into the dimension the first fact crosses into.\n",
+        ),
+    ),
+    (
+        "metrics/tickets_per_subscription.md",
+        Edit::Added(
+            "---\nkind: metric\nname: tickets_per_subscription\nmodel: subscriptions\nmeasure:\n  ratio:\n    numerator: { aggregate: sum, column: tickets, model: tickets }\n    denominator: { aggregate: count, column: subscription_key }\n    zero_denominator: yields_null\ntime_column: month\ngrains: [month]\nshared_calendar: calendar\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\naudience: open\n---\nSupport tickets opened per subscription-month.\n\nA cross-model ratio: the tickets are summed over their own fact, the subscription-months\ncounted over theirs, each in its own statement, and the two are joined above on the customer and\nthe calendar month before the one division. Both terms are additive, so a group only one fact\ncarries reads the other as zero.\n",
+        ),
+    ),
 ];
 
 /// The rows the shared corpus does not carry, derived into the ONE data directory both sides read.
 ///
-/// July 2026: outside every anchor range and outside every question in the shared corpus, both
-/// of which stop at `2026-07-01` exclusive. So these rows change no certified number and no
+/// July 2026 in a shared table, or any month in a table the shared corpus does not have: outside
+/// every anchor range and every question in the shared corpus, both of which stop at `2026-07-01`
+/// exclusive and read none of the added tables. So these rows change no certified number and no
 /// existing snapshot - they are only visible to the questions below that ask for them.
-pub(crate) const DATA_CASES: &[(&str, Edit)] = &[(
-    "fct_subscription_monthly.csv",
-    // F1: the first row's join key is ABSENT, which is the case the corpus has none of. A null
-    // link matches nothing, so under LEFT semantics the row is unmatched by construction and
-    // must keep its measure under null remote keys; the combiner used to drop it before
-    // `include_unmatched` was consulted, losing the measure entirely. The second row's key is
-    // present and matches nothing (the corpus's own orphan customer), so the two arrive at one
-    // answer group and a defect in either is a wrong number rather than a missing row.
-    //
-    // **The last row's `product_key` 99 is a SAME-SOURCE orphan, and it exists because the shared
-    // join decision was otherwise observed by nothing.** Every other orphan in this corpus is a
-    // REMOTE one - `customer_key` 41, which the derivation puts on the second data system, so the
-    // combiner's `include_unmatched` covers it and the fact leg's own `JOIN` never sees an unmatched
-    // row. Measured: with the leg path taking `EngineJoin::Inner` for its own same-source hops and
-    // the shared definition untouched, the whole suite was 2640 of 2640 passed. `dim_product.csv`
-    // stops at 8, so 99 matches nothing on the source the fact leg reads, and
-    // `two-source-a-same-source-orphan-beside-a-remote-one` groups by a column of that table -
-    // which is what makes LEFT-versus-INNER *inside a leg* a wrong number instead of an
-    // unobservable preference.
-    Edit::Appended(
-        "2026-07-01,1901,,3,active,1000,false,monthly\n\
+pub(crate) const DATA_CASES: &[(&str, Edit)] = &[
+    // The two-fact ratio's calendar and second fact. Customer 42 has no `dim_customer` row, so its
+    // May tickets land in the null-region group beside no subscription at all - the empty-set rule's
+    // x/0 - while June's null group is customer 41's one subscription and no ticket, its 0/x. The
+    // April and July rows sit outside the question's range, so they reach the answer only if the
+    // second fact's own statement drops the bound.
+    (
+        "dim_calendar.csv",
+        Edit::Added("month\n2026-01-01\n2026-02-01\n2026-03-01\n2026-04-01\n2026-05-01\n2026-06-01\n2026-07-01\n2026-08-01\n"),
+    ),
+    (
+        "fct_ticket_monthly.csv",
+        Edit::Added(
+            "month,customer_key,tickets\n2026-04-01,5,50\n2026-05-01,2,4\n2026-05-01,5,3\n2026-05-01,42,5\n\
+             2026-06-01,1,2\n2026-06-01,2,3\n2026-06-01,11,1\n2026-06-01,20,6\n2026-07-01,2,100\n",
+        ),
+    ),
+    (
+        "fct_subscription_monthly.csv",
+        // F1: the first row's join key is ABSENT, which is the case the corpus has none of. A null
+        // link matches nothing, so under LEFT semantics the row is unmatched by construction and
+        // must keep its measure under null remote keys; the combiner used to drop it before
+        // `include_unmatched` was consulted, losing the measure entirely. The second row's key is
+        // present and matches nothing (the corpus's own orphan customer), so the two arrive at one
+        // answer group and a defect in either is a wrong number rather than a missing row.
+        //
+        // **The last row's `product_key` 99 is a SAME-SOURCE orphan, and it exists because the shared
+        // join decision was otherwise observed by nothing.** Every other orphan in this corpus is a
+        // REMOTE one - `customer_key` 41, which the derivation puts on the second data system, so the
+        // combiner's `include_unmatched` covers it and the fact leg's own `JOIN` never sees an unmatched
+        // row. Measured: with the leg path taking `EngineJoin::Inner` for its own same-source hops and
+        // the shared definition untouched, the whole suite was 2640 of 2640 passed. `dim_product.csv`
+        // stops at 8, so 99 matches nothing on the source the fact leg reads, and
+        // `two-source-a-same-source-orphan-beside-a-remote-one` groups by a column of that table -
+        // which is what makes LEFT-versus-INNER *inside a leg* a wrong number instead of an
+        // unobservable preference.
+        Edit::Appended(
+            "2026-07-01,1901,,3,active,1000,false,monthly\n\
          2026-07-01,1902,41,3,active,2000,false,monthly\n\
          2026-07-01,1903,2,3,active,3000,true,monthly\n\
          2026-07-01,1904,1,4,active,4000,false,annual\n\
          2026-07-01,1905,1,99,active,5000,false,monthly\n",
+        ),
     ),
-)];
+];
 
 /// Questions the shared corpus does not ask, each reaching a case above.
 ///
@@ -314,6 +374,12 @@ pub(crate) const DERIVED_QUESTIONS: &[(&str, &str)] = &[
         "metrics: [recurring_revenue]\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region]\ntop: { n: 3, by: metric, direction: desc }\n",
     ),
 ];
+
+/// The two-fact ratio's question, asked by `two_fact.rs` rather than listed in [`DERIVED_QUESTIONS`]:
+/// the one-source catalog refuses it (a two-fact plan needs its dimension on a second data system),
+/// so it has no one-source answer for [`every_question`]'s differential to compare against.
+pub(crate) const TWO_FACT_QUESTION: &str =
+    "metrics: [tickets_per_subscription]\ngrain: month\nrange:\n  start: 2026-05-01\n  end: 2026-07-01\ndimensions: [region]\n";
 
 /// The derived corpus: one data directory, two catalogs over it.
 pub(crate) struct Derived {

@@ -37,7 +37,8 @@
 //! The mutation this cell is meant to catch: drop every table description the reader decodes
 //! (the killing patch at
 //! `devco/claim-mutations/an_rdbms_catalog_boots_and_lists_from_the_served_binary.patch` filters
-//! `table_description` to `None` in `PostgresReader::decode_row`), so the deployment boots and
+//! `table_description` to `None` in the shared `documentation::Assembly::decode` the Postgres reader
+//! hands every row to), so the deployment boots and
 //! `/catalog` responds but the served digest no longer matches the digest [`expected`] builds
 //! independently from the same fixture rows - the cell's own `assert_eq!` fires, RED. GREEN is
 //! this file as written. The implementation is already on main (#1105), so this is a claim cell:
@@ -46,27 +47,14 @@
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-    use sutura_domain::catalog::{Column, Definitions, Description, Model};
-    use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
-    use sutura_domain::model::{ColumnName, ModelName, QualifiedTable, SourceName};
-    use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
+    use sutura_domain::pinned::PinnedDefinitions;
 
+    use crate::common::{CATALOG, ENVIRONMENT, SOURCE, install_documentation_schema};
     use crate::harness::{
         DiscoveredTier, LOOPBACK, SINGLE_USER, TOKEN, VERSION, config_path, derived_beside, discover_tier, source_entry,
         start_configured, v1,
     };
-
-    /// The catalog's declared name.
-    const CATALOG: &str = "dictionary";
-
-    /// The source alias the dictionary rows' models bind to - the `postgres` source's own name.
-    const SOURCE: &str = "warehouse";
-
-    /// The declared environment key the fixture rows carry.
-    const ENVIRONMENT: &str = "test";
 
     /// A directory this test owns and removes on every path out - see `served/okf.rs`'s `CatalogDir`
     /// for why it is a sibling of the settings directory (`written()` clears the settings directory).
@@ -85,65 +73,6 @@ mod tests {
         fn drop(&mut self) {
             drop(std::fs::remove_dir_all(&self.0));
         }
-    }
-
-    /// Installs the documentation-schema fixture: a per-run schema with a `columns` table whose
-    /// rows describe `public.orders` (model `orders`, one primary-key column and one `amount`
-    /// column), bound to `ENVIRONMENT` and not soft-deleted.
-    fn install_documentation_schema(config: &tokio_postgres::Config) -> String {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("the clock is after the epoch")
-            .as_nanos();
-        let schema = format!("sutura_dictionary_{nonce}_{}", std::process::id());
-        let statement = format!(
-            "CREATE SCHEMA {schema}; \
-             CREATE TABLE {schema}.columns ( \
-               environment text NOT NULL, \
-               catalog_name text, \
-               schema_name text NOT NULL, \
-               table_name text NOT NULL, \
-               model_name text NOT NULL, \
-               table_description text, \
-               column_name text NOT NULL, \
-               column_ordinal int NOT NULL, \
-               column_type text, \
-               column_description text, \
-               is_primary_key boolean, \
-               is_deleted boolean NOT NULL \
-             ); \
-             INSERT INTO {schema}.columns \
-               (environment, schema_name, table_name, model_name, table_description, \
-                column_name, column_ordinal, column_type, column_description, is_primary_key, is_deleted) \
-             VALUES \
-               ('{ENVIRONMENT}', 'public', 'orders', 'orders', 'Customer orders.', \
-                'order_id', 1, 'bigint', 'The order key.', true, false), \
-               ('{ENVIRONMENT}', 'public', 'orders', 'orders', 'Customer orders.', \
-                'amount', 2, 'numeric', 'The order total.', false, false)"
-        );
-        run_sql(config, &statement);
-        schema
-    }
-
-    fn run_sql(config: &tokio_postgres::Config, statement: &str) {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("a runtime builds");
-        let (client, connection) = runtime
-            .block_on(config.connect(tokio_postgres::NoTls))
-            .expect("the tier opens");
-        runtime.spawn(async move {
-            #[expect(
-                clippy::let_underscore_must_use,
-                clippy::let_underscore_untyped,
-                reason = "the connection driver task's own error has no caller in this setup path"
-            )]
-            let _ = connection.await;
-        });
-        runtime
-            .block_on(client.batch_execute(statement))
-            .expect("the documentation-schema fixture installs");
     }
 
     /// The settings an `rdbms`-kind deployment needs: one `catalog.kind: rdbms` entry reading the
@@ -186,54 +115,9 @@ mod tests {
         )
     }
 
-    /// The bundle this cell expects, built independently of the served binary from the same
-    /// documentation-schema fixture [`install_documentation_schema`] writes - never from the served
-    /// reply itself, so a reader that silently drops or corrupts what it measures (a description, a
-    /// column, a type, the primary key) reddens this comparison, not only the "the field is present"
-    /// checks a lone non-empty-digest assertion left standing.
+    /// The bundle this cell expects - see [`crate::common::expected`].
     fn expected() -> PinnedDefinitions {
-        let columns = [
-            ("order_id", "bigint", "The order key."),
-            ("amount", "numeric", "The order total."),
-        ]
-        .into_iter()
-        .map(|(name, data_type, description)| {
-            Column::from_metadata(
-                ColumnName::parse(name).expect("a fixture column name parses"),
-                Some(data_type),
-                Some(description),
-                None,
-            )
-            .expect("a fixture column description parses")
-        });
-        let model = Model::new(
-            ModelName::parse("orders").expect("the fixture model name parses"),
-            SourceName::parse(SOURCE).expect("the fixture source alias parses"),
-            QualifiedTable::parse("public.orders").expect("the fixture table parses"),
-            columns,
-            Description::parse("Customer orders.").expect("the fixture description parses"),
-        )
-        .with_primary_key([ColumnName::parse("order_id").expect("the fixture primary-key column name parses")])
-        .expect("the fixture primary key names one of the model's own columns");
-        let declared = MetadataCapabilities::of(
-            DefinitionCapabilities::of([DefinitionKind::Structure]).and_may_provide([
-                DefinitionKind::Descriptions,
-                DefinitionKind::Relationships,
-                DefinitionKind::ColumnTypes,
-                DefinitionKind::ColumnDescriptions,
-            ]),
-            KnowledgeCapabilities::none(),
-        );
-        PinnedDefinitions::pin(
-            DefinitionVersion::parse(VERSION).expect("the served version parses"),
-            Definitions::assemble(vec![model], vec![], vec![]).expect("the fixture definitions assemble"),
-            Knowledge::none(),
-            ContributionManifest::single(
-                SourceName::parse(CATALOG).expect("the catalog name parses"),
-                Contribution::of(declared),
-            ),
-        )
-        .expect("the expected bundle hashes")
+        crate::common::expected(VERSION)
     }
 
     /// An `rdbms`-kind deployment boots from the served binary and lists the bundle it measures:

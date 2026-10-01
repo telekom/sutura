@@ -334,7 +334,7 @@ impl Cells {
 /// the healthy one at exit 0. `super::scoped` tolerates the same gap for a reason that does not
 /// transfer: there a missed `#[ignore]` is a loud `no tests to run`, and in `crate::examples` it
 /// is a silent exit 0.
-fn decides_a_run_unevaluably(opening: &str) -> bool {
+pub(super) fn decides_a_run_unevaluably(opening: &str) -> bool {
     (opening.starts_with("#[cfg(") && opening != "#[cfg(test)]") || opening.starts_with("#[cfg_attr(")
 }
 
@@ -365,8 +365,8 @@ pub(crate) fn cells(text: &str, code: &str) -> Cells {
     let blanked: Vec<&str> = code.lines().collect();
     let mut found = Cells::default();
     for index in 0..lines.len() {
-        let written = lines.get(index).map(|line| line.trim()).unwrap_or_default();
-        let visible = blanked.get(index).map(|line| line.trim()).unwrap_or_default();
+        let written = lines.get(index).map_or_default(|line| line.trim());
+        let visible = blanked.get(index).map_or_default(|line| line.trim());
         if !declares_a_test(written) || !declares_a_test(visible) {
             continue;
         }

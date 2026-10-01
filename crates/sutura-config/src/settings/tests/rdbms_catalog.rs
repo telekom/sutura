@@ -3,8 +3,9 @@
 //! that is neutralised, or reached by a different one, reddens exactly its cell.
 
 use std::error::Error as _;
+use std::path::Path;
 
-use crate::catalog::InvalidCatalogSettings;
+use crate::catalog::{CatalogConnection, DictionarySource, InvalidCatalogSettings, RdbmsSettings};
 use crate::settings::{Environment, Settings, SettingsError, Sources};
 
 /// A complete rdbms entry's own keys. A cell edits one line with [`edit`].
@@ -52,9 +53,7 @@ fn edit<'a>(base: &[&'a str], changes: &[&'a str]) -> Vec<&'a str> {
 
 fn overlay(kind: &str, entry: &[&str], connection: Option<&[&str]>) -> String {
     let indent = |lines: &[&str], by: &str| lines.iter().flat_map(|line| [by, line, "\n"]).collect::<String>();
-    let connection = connection
-        .map(|lines| format!("    connection:\n{}", indent(lines, "      ")))
-        .unwrap_or_default();
+    let connection = connection.map_or_default(|lines| format!("    connection:\n{}", indent(lines, "      ")));
     format!(
         "security:\n  identity: single-user\n  single_user_because: a test\nsources:\n  warehouse:\n    kind: files\n    data_dir: /srv/data\n    posture: shared-service-user\n\
          catalogs:\n  - name: dict\n    kind: {kind}\n    dir: /nowhere\n    data_dir: /nowhere\n    version: dict-1\n{}{connection}",
@@ -92,13 +91,10 @@ fn oracle_refusal(connection: &[&str]) -> String {
     refusal(&overlay("rdbms", ENTRY, Some(&edit(ORACLE_CONNECTION, connection))))
 }
 
-/// The loaded entry's rdbms settings as `Debug` renders them: every parsed value, reached without an
-/// accessor the base tree lacks, so a cell reading it compiles - and reddens - against that tree.
 #[track_caller]
-fn rendered(overlay: &str) -> String {
-    let settings = load(overlay).expect("the entry loads");
+fn rdbms(settings: &Settings) -> &RdbmsSettings {
     let catalog = settings.catalogs().each().next().expect("one catalog");
-    format!("{:?}", catalog.rdbms().expect("an rdbms entry carries its rdbms settings"))
+    catalog.rdbms().expect("an rdbms entry carries its rdbms settings")
 }
 
 #[track_caller]
@@ -298,13 +294,17 @@ fn a_zero_dictionary_bound_is_refused() {
 
 #[test]
 fn a_complete_oracle_catalog_loads() {
-    let shown = rendered(&overlay("rdbms", ENTRY, Some(ORACLE_CONNECTION)));
-    assert_names(
-        &shown,
-        "connection: Oracle(OracleCatalogConnection { host: HostName(\"127.0.0.1\"), port: 1521, \
-         service_name: OracleServiceName(\"FREEPDB1\"), user: \"reader\", password_file: \"/run/secrets/dictionary\" })",
-    );
-    assert_names(&shown, "dictionary_source: DocumentationSchema");
+    let settings = load(&overlay("rdbms", ENTRY, Some(ORACLE_CONNECTION))).expect("the entry loads");
+    let rdbms = rdbms(&settings);
+    let CatalogConnection::Oracle(connection) = rdbms.connection() else {
+        panic!("`dialect: oracle` parses as an Oracle connection: {:?}", rdbms.connection());
+    };
+    assert_eq!(connection.host().as_str(), "127.0.0.1");
+    assert_eq!(connection.port(), 1521);
+    assert_eq!(connection.service_name().as_str(), "FREEPDB1");
+    assert_eq!(connection.user(), "reader");
+    assert_eq!(connection.password_file(), Path::new("/run/secrets/dictionary"));
+    assert_eq!(rdbms.dictionary_source(), DictionarySource::DocumentationSchema);
 }
 
 #[test]
@@ -342,10 +342,8 @@ fn an_unknown_connection_dialect_is_refused() {
 #[test]
 fn a_native_dictionary_source_is_parsed_as_written() {
     let entry = edit(ENTRY, &["dictionary_source: native_dictionary"]);
-    assert_names(
-        &rendered(&overlay("rdbms", &entry, Some(CONNECTION))),
-        "dictionary_source: NativeDictionary",
-    );
+    let settings = load(&overlay("rdbms", &entry, Some(CONNECTION))).expect("the entry loads");
+    assert_eq!(rdbms(&settings).dictionary_source(), DictionarySource::NativeDictionary);
 }
 
 #[test]

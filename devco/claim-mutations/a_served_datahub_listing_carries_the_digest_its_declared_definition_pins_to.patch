@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http/src/wire.rs b/crates/sutura-http/src/wire.rs
+index 862b0193e..4e1e934bf 100644
+--- a/crates/sutura-http/src/wire.rs
++++ b/crates/sutura-http/src/wire.rs
+@@ -465,7 +465,7 @@ fn provenance_body(provenance: &Provenance) -> ProvenanceBody {
+ pub(crate) fn bundle_body(pinned: &PinnedDefinitions) -> ProvenanceBody {
+     ProvenanceBody {
+         definition_version: String::from(pinned.version().as_str()),
+-        definition_digest: String::from(pinned.digest().as_str()),
++        definition_digest: "0".repeat(64),
+         // Nothing executed against this bundle, so there are no metrics whose numbers to certify.
+         metric_digests: Vec::new(),
+     }

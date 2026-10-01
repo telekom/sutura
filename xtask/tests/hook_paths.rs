@@ -46,11 +46,12 @@ fn probe_source(crate_name: &str) -> String {
     )
 }
 
-fn observe(case: &str, target_crate: &str) -> std::process::Output {
+fn observe(case: &str, target_crate: &str, root_lock: &str, fuzz_lock: &str) -> std::process::Output {
     let tree = scratch_tree::Tree::of(
         &format!("hook-paths-{case}"),
         &[
             ("Cargo.toml", b"[workspace]\n" as &[u8]),
+            ("Cargo.lock", root_lock.as_bytes()),
             ("flake.nix", DENY),
             ("justfile", DENY),
             ("nix/run-gate.sh", DENY),
@@ -59,7 +60,7 @@ fn observe(case: &str, target_crate: &str) -> std::process::Output {
                 "fuzz/Cargo.toml",
                 b"[package]\nname = \"fuzz\"\n\n[[bin]]\nname = \"probe\"\npath = \"fuzz_targets/probe.rs\"\n\n[profile.release]\npanic = \"abort\"\n",
             ),
-            ("fuzz/Cargo.lock", b""),
+            ("fuzz/Cargo.lock", fuzz_lock.as_bytes()),
             ("fuzz/fuzz_targets/probe.rs", probe_source(target_crate).as_bytes()),
             ("fuzz/seeds/probe/seed", b"seed"),
             (".github/workflows/fuzz.yml", FUZZ_YAML.as_bytes()),
@@ -80,7 +81,7 @@ fn observe(case: &str, target_crate: &str) -> std::process::Output {
 
 #[test]
 fn a_target_importing_a_crate_neither_hook_surface_claims_is_refused() {
-    let output = observe("unlisted", UNLISTED_CRATE);
+    let output = observe("unlisted", UNLISTED_CRATE, "", "");
     assert_eq!(output.status.code(), Some(1), "{output:?}");
     let stderr = String::from_utf8(output.stderr).expect("gate diagnostics");
     assert!(
@@ -99,10 +100,24 @@ fn a_target_importing_a_crate_neither_hook_surface_claims_is_refused() {
 
 #[test]
 fn a_target_importing_no_crate_at_all_is_unaffected_by_the_correlation() {
-    let output = observe("no-import", "std");
+    let output = observe("no-import", "std", "", "");
     // `std` never matches `sutura_[a-z_]+`, so there is nothing to correlate and every other
     // requirement this fixture satisfies (declared, seeded, in the matrix, locked, aborting)
     // carries the gate to a clean pass.
     let stderr = String::from_utf8(output.stderr.clone()).expect("gate diagnostics");
     assert_eq!(output.status.code(), Some(0), "{stderr}");
+}
+
+/// The `yoke-derive` drift that reddened every pull request once crates.io yanked 0.8.3, refused
+/// by the real binary - so the wiring into `check-fuzz` is held, not only `lock_drift::gaps`.
+#[test]
+fn a_fuzz_lock_pin_the_root_lock_does_not_hold_is_refused() {
+    let pin = |version: &str| format!("[[package]]\nname = \"yoke-derive\"\nversion = \"{version}\"\n");
+    let output = observe("lock-drift", "std", &pin("0.8.2"), &pin("0.8.3"));
+    let stderr = String::from_utf8(output.stderr.clone()).expect("gate diagnostics");
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains("fuzz/Cargo.lock pins yoke-derive at \"0.8.3\", but Cargo.lock pins it at \"0.8.2\""),
+        "the refusal must name the package and both versions: {stderr}"
+    );
 }

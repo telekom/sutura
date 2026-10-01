@@ -289,17 +289,22 @@ fn state_the_gap(
     }
     for test in scoped {
         if !reported.iter().any(|one| super::is_scoped(one, std::slice::from_ref(test))) {
-            let reason = if moved.names().iter().any(|name| name.as_str() == test.name()) {
-                "base has this name, but no result matched its filter key; a cfg gate or module move may explain it"
-            } else {
-                "no matching base result; this test may be new, cfg-gated, or under another module path"
-            };
             stated.push_str("\n  not run at base: ");
             stated.push_str(test.name());
             stated.push_str(" in ");
             stated.push_str(test.file());
             stated.push_str(" (");
-            stated.push_str(reason);
+            if let Some(gate) = test.gate() {
+                stated.push_str("declared under ");
+                stated.push_str(gate);
+                stated.push_str("; this build condition may exclude it, so the missing result cannot prove red or green");
+            } else if moved.names().iter().any(|name| name.as_str() == test.name()) {
+                stated.push_str(
+                    "base has this name, but no result matched its filter key; a cfg gate or module move may explain it",
+                );
+            } else {
+                stated.push_str("no matching base result; this test may be new, cfg-gated, or under another module path");
+            }
             stated.push(')');
         }
     }
@@ -329,8 +334,10 @@ pub(crate) fn tail(text: &str, n: usize) -> String {
 mod tests {
     use super::{BaseOutcome, Coverage, Moved, Reverted, Verdict, earned, missing_module_file, report_base, state_the_gap, tail};
     use crate::causality::base::classify_base;
-    use crate::causality::fixtures::{named, scoped};
+    use crate::causality::diff::ChangedFile;
+    use crate::causality::fixtures::{changed, manifest, named, scoped, tree};
     use crate::causality::place::AddedTest;
+    use crate::causality::scoped::{Scan, Scoped};
 
     /// The classifier over a scope whose every test is new here and a revert that reaches them -
     /// the same wrapper `super::tests` uses, duplicated because a submodule's own tests read
@@ -484,6 +491,71 @@ mod tests {
             stated.contains("base has this name, but no result matched its filter key"),
             "{stated}"
         );
+    }
+
+    /// `state_the_gap` for the scope `files` names in `source`, over a base run in which only `ran` ran.
+    fn gap_over(source: &str, files: &[ChangedFile]) -> (Scoped, String) {
+        let path = "pa/src/lib.rs";
+        let read = tree(&[(path, source), ("pa/Cargo.toml", &manifest("pa"))]);
+        let Scan::Runnable(scope) = Scan::of(files, &[String::from(path)], &read) else {
+            panic!("the test names must reach the scope");
+        };
+        let coverage = Coverage::Measured {
+            measured: 2,
+            unmeasured: Vec::new(),
+            not_runnable: Vec::new(),
+        };
+        let moved = Moved::Wholly(vec![String::from("omitted"), String::from("ran")]);
+        let outcome = BaseOutcome::GreenAfterAMove {
+            moved: moved.names().to_vec(),
+        };
+        let output = concat!(
+            "        PASS [   0.021s] (1/1) pa tests::ran\n",
+            "     Summary [   0.4s] 1 test run: 1 passed, 1 skipped\n",
+        );
+        let stated = state_the_gap(
+            earned(&outcome, &coverage),
+            &outcome,
+            &coverage,
+            output,
+            scope.tests(),
+            &moved,
+        );
+        (scope, stated)
+    }
+
+    /// The gate is named, never the generic "may be cfg-gated" sentence.
+    fn names_the_gate(stated: &str) {
+        assert!(stated.contains("not run at base: omitted in pa/src/lib.rs"), "{stated}");
+        assert!(stated.contains("#[cfg(not(feature = \"rdbms\"))]"), "{stated}");
+        assert!(!stated.contains("a cfg gate or module move may explain it"), "{stated}");
+    }
+
+    #[test]
+    fn a_partial_base_run_names_an_attached_cfg_as_the_missing_tests_cause() {
+        let source = concat!(
+            "#[test]\nfn ran() {}\n",
+            "#[cfg(not(feature = \"rdbms\"))]\n#[test]\nfn omitted() {}\n",
+        );
+        let (_, stated) = gap_over(source, &[changed("pa/src/lib.rs", 1, &source.lines().collect::<Vec<_>>())]);
+        names_the_gate(&stated);
+    }
+
+    /// The EDITED route carries the gate too: both tests existed, and only a line inside each is new.
+    #[test]
+    fn an_edited_cfg_gated_test_missing_at_base_names_its_gate() {
+        let source = concat!(
+            "#[test]\nfn ran() {\n    let _kept = 0;\n}\n",
+            "#[cfg(not(feature = \"rdbms\"))]\n#[test]\nfn omitted() {\n    let _kept = 1;\n}\n",
+        );
+        let mut file = changed("pa/src/lib.rs", 3, &["    let _kept = 0;"]);
+        file.added.extend(changed("pa/src/lib.rs", 8, &["    let _kept = 1;"]).added);
+        let (scope, stated) = gap_over(source, &[file]);
+        assert!(
+            scope.tests().iter().all(AddedTest::is_edited),
+            "named through `super::edited`"
+        );
+        names_the_gate(&stated);
     }
 
     #[test]

@@ -546,6 +546,13 @@ that statement* - not an infrastructure outage this deployment must page for. Wh
 `Err` is only what happens before the statement ever reaches the data system: the broker not
 answering, or credentials that do not fit.
 
+# The deadline is opened by the transport, before this call - `crate::answer`'s own shape
+
+`deadline` is checked once here, before the port is ever called (`telekom/sutura#1144`): a
+budget already spent refuses the statement before it reaches the data system at all, the same
+pre-call check `crate::answer` makes before `Warehouse::execute`. What an adapter does with the
+deadline once it is handed to `Warehouse::execute_raw` is the adapter's own business.
+
 ## `use grains_coarsest_first`
 
 The grains a metric declares, coarsest first.
