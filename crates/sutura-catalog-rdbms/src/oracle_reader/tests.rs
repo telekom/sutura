@@ -2,7 +2,7 @@ use std::num::NonZeroU64;
 
 use sutura_domain::identity::Secret;
 
-use super::{OracleLogin, OracleReader, assemble, decode, flag, statement};
+use super::{DriverError, OracleLogin, OracleReader, assemble, decode, flag, statement};
 use crate::postgres_reader::{DEFAULT_MAX_DICTIONARY_BYTES, DEFAULT_MAX_DICTIONARY_ROWS, InvalidReaderConfig, RowPredicate};
 use crate::{ColumnMetadata, Dictionary, DictionaryBounds, RdbmsError, Table, TableAddress};
 
@@ -191,9 +191,35 @@ fn the_oracle_decoder_assembles_positional_values_into_this_dictionary() {
 
 #[test]
 fn the_oracle_assembly_refuses_the_row_past_the_declared_row_cap() {
+    read(&ROWS[..2], DictionaryBounds::new(cap(2), cap(10_000))).expect("the row at the cap is admitted");
     let refused = read(&ROWS, DictionaryBounds::new(cap(2), cap(10_000))).expect_err("the third row crosses the cap");
     assert_eq!(
         std::error::Error::source(&refused).map(ToString::to_string).as_deref(),
         Some("the dictionary stream reached the declared maximum of 2 rows")
     );
+}
+
+#[test]
+fn the_oracle_assembly_stops_at_the_first_row_the_driver_fails() {
+    let pulled = std::cell::Cell::new(0);
+    let rows = ROWS.iter().enumerate().map(|(at, cells)| {
+        pulled.set(pulled.get() + 1);
+        decode(
+            |index| {
+                if at == 1 && index == 8 {
+                    Err(oracledb::Error::from(std::io::Error::other("a driver fault")))
+                } else {
+                    Ok(cells[index].map(String::from))
+                }
+            },
+            |index| Ok(cells[index].map(|cell| cell.parse().expect("a NUMBER cell"))),
+        )
+    });
+    let refused =
+        assemble("prod", DictionaryBounds::new(cap(10), cap(10_000)), rows).expect_err("the driver's fault refuses the read");
+    assert!(
+        matches!(std::error::Error::source(&refused), Some(cause) if cause.is::<DriverError>()),
+        "{refused:?}"
+    );
+    assert_eq!(pulled.get(), 2, "the cursor is abandoned at the refused row");
 }
