@@ -309,13 +309,14 @@ let
     { inherit crossLib args; };
 
   # BOTH LINKED DRIVERS IN ONE STATIC MUSL BINARY, RUN - `github.com/telekom/sutura#913`'s musl
-  # decision, in a TEST build and deliberately not in a release: `adbcArchiveFor` still links only
-  # the BigQuery archive into a published artefact, because no shipped path constructs the
-  # PostgreSQL ADBC transport yet. This builds `crates/sutura-adbc/tests/linked.rs` for
+  # decision, in a TEST build and not yet in a release: `adbcArchiveFor` still links only the
+  # BigQuery archive into a published artefact, until the stage that compiles the PostgreSQL ADBC
+  # transport into the shipped `postgres` feature (`docs/adr/0018`'s Thirteenth amendment). This builds `crates/sutura-adbc/tests/linked.rs` for
   # x86_64-unknown-linux-musl with both archive directories and RUNS it, which only an x86_64-linux
-  # builder can, so the attribute exists there alone. Fail closed: the log has to show the cell's
-  # LINKED arm running and the cell passing, so a build that stopped linking the archive (whose
-  # unlinked arm passes) is red here. `nix/bigquery-driver-check.sh` realises it in CI.
+  # builder can, so the attribute exists there alone. A failing cell fails the build; the rest of
+  # the verdict - that the cell's LINKED arm is what ran, since a build that stopped linking the
+  # archive passes the unlinked arm - is `nix/bigquery-driver-check.sh`'s `linked_verdict` over the
+  # `linked.log` this installs, and that script self-checks the function before it reads a log. `nix/bigquery-driver-check.sh` realises it in CI.
   linkedDriversTests = pkgs.lib.optionalAttrs (system == "x86_64-linux") (
     let
       target = "x86_64-unknown-linux-musl";
@@ -333,8 +334,6 @@ let
         buildPhaseCargoCommand = ''
           set -o pipefail
           cargoWithProfile test ${testArgs.cargoExtraArgs} --test linked -- --exact ${cell} --nocapture 2>&1 | tee linked.log
-          grep -q 'linked-postgres-driver-ran-libpq' linked.log
-          grep -q 'test result: ok\. 1 passed' linked.log
         '';
         installPhaseCommand = "install -Dm644 linked.log $out/linked.log";
       });

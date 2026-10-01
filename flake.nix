@@ -592,8 +592,8 @@
           # The self-built ADBC PostgreSQL driver: `adbc-driver-bigquery`'s gate, and its limit,
           # for the second driver - the four triples' `.so` and self-contained `.a` exist, against
           # a literal four. `nix/postgres-adbc.nix` also LINKS a probe against the archive, so a
-          # member missing from it fails the build; nothing loads or runs the driver, and no Rust
-          # code reads it yet.
+          # member missing from it fails the build. Loading and running it is
+          # `nix/shipped.nix`'s `linkedDriversTests`, which links `crates/sutura-adbc` against these.
           adbc-driver-postgresql = pkgs.runCommand "adbc-driver-postgresql-check" {
             buildInputs = builtins.attrValues postgresAdbcDrivers;
           } ''

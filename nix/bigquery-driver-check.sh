@@ -17,7 +17,8 @@
 # answer that the driver they initialised is the one they carry.
 #
 # Two artefacts, one assertion each, and the musl one is the reason the mechanism exists: a static
-# binary has no dynamic loader, so a carried driver is the only route it can ever have.
+# binary has no dynamic loader, so a carried driver is the only route it can ever have. A third leg
+# at the end runs the linked PostgreSQL driver in a test build, judged by `linked_verdict`.
 #
 # FAIL CLOSED, AND PROVEN SO IN THIS SCRIPT. `verdict` is run first over three lines whose right
 # answer is known - including the line a build with NO driver prints - so a matcher that accepted
@@ -90,6 +91,36 @@ stopped printing this one|0|sutura 0.1.0
 REASONS
     echo "bigquery-driver-check: diagnosis ok - a signal death, a non-zero exit, a silent start and a"
     echo "  changed command are four different reports, and only the last one blames \`doctor\`."
+    # And the third leg's: a log whose cell passed by its UNLINKED arm (an artefact that stopped
+    # linking the archive), one where no test ran, and one where the cell failed are refusals.
+    while IFS='|' read -r expected log; do
+        [ -n "$expected" ] || continue
+        got="$(linked_verdict "$(printf '%b' "$log")")"
+        if [ "$got" != "$expected" ]; then
+            echo "bigquery-driver-check: FAILED its own linked-driver matcher - expected $expected for '$log', got $got" >&2
+            exit 1
+        fi
+    done <<'LOGS'
+ok|running 1 test\nlinked-postgres-driver-ran-libpq\ntest tests::cell ... ok\n\ntest result: ok. 1 passed; 0 failed
+no|running 1 test\ntest tests::cell ... ok\n\ntest result: ok. 1 passed; 0 failed
+no|running 0 tests\n\ntest result: ok. 0 passed; 0 failed
+no|running 1 test\nlinked-postgres-driver-ran-libpq\ntest tests::cell ... FAILED\n\ntest result: FAILED. 0 passed; 1 failed
+LOGS
+    echo "bigquery-driver-check: linked-driver matcher ok - only a log whose cell passed by its linked"
+    echo "  arm passes."
+}
+
+# Did the linked-drivers test log come from the cell's LINKED arm, passing? Prints `ok` or `no`.
+# The marker is printed by that arm only (`crates/sutura-adbc/tests/linked.rs`), and the result line
+# says the one selected cell passed - neither implies the other.
+linked_verdict() {
+    local log="$1"
+    if printf '%s\n' "$log" | grep -qx 'linked-postgres-driver-ran-libpq' \
+        && printf '%s\n' "$log" | grep -q '^test result: ok\. 1 passed'; then
+        printf 'ok'
+    else
+        printf 'no'
+    fi
 }
 
 # WHY a binary printed no `bq driver` line, as one sentence. The three causes are not one finding.
@@ -211,11 +242,16 @@ echo "  c-archive exists; neither artefact reads a path."
 
 # THE SECOND LINKED DRIVER, in a TEST build (`github.com/telekom/sutura#913`): the PostgreSQL archive
 # and its static libpq/OpenSSL beside the BigQuery one in one static musl binary, run. No release
-# artefact carries it yet - `nix/shipped.nix`'s `linkedDriversTests` says why - so a release-profile
-# run of this script has nothing of its own to ask and skips it. The derivation fails unless its
-# one linked cell ran and passed; what that cell does not reach is in its own doc comment.
+# artefact carries it at this stage, so a release-profile run of this script skips it. The
+# derivation fails if the cell fails; `linked_verdict` decides that the LINKED arm is what passed.
+# What that cell does not reach is in its own doc comment.
 if [ "${SUTURA_DRIVER_CHECK_PROFILE:-ci}" = ci ]; then
-    nix build --no-link --print-build-logs .#adbc-drivers-linked-x86_64-unknown-linux-musl-test
+    linked="$(nix build --no-link --print-build-logs --print-out-paths .#adbc-drivers-linked-x86_64-unknown-linux-musl-test)"
+    if [ "$(linked_verdict "$(cat "$linked/linked.log")")" != ok ]; then
+        echo "bigquery-driver-check: FAILED - the linked-drivers test did not pass by its linked arm. Its log:" >&2
+        sed 's/^/    /' "$linked/linked.log" >&2
+        exit 1
+    fi
     echo "bigquery-driver-check: ok - the linked PostgreSQL driver ran libpq beside the linked BigQuery"
     echo "  driver in one static x86_64-musl test binary."
 fi

@@ -1554,14 +1554,17 @@ libpgport and OpenSSL 3's libssl/libcrypto - no symbol shared between any of the
 archive, measured. `crates/sutura-adbc` links it under `cfg(adbc_postgres_driver_linked)` and
 declares both drivers' own init symbols, so the shared `AdbcDriverInit` is called by nothing.
 
-**What it costs, as limits.** OpenSSL becomes a second TLS and crypto stack beside rustls in any
-binary that links this archive; its CVE cadence is a flake bump of `nixpkgs`. That libpq is built
-without GSSAPI and without libcurl, so the linked driver offers neither Kerberos nor OAuth sign-in -
-the mounted `.so` keeps both. And **no release carries it yet**: `nix/shipped.nix`'s
-`linkedDriversTests` builds and runs both drivers in one static x86_64-musl test binary, and
-published artefacts still link only the `BigQuery` archive, until a shipped path constructs the
-PostgreSQL ADBC transport. That test reaches libpq's connect path and no server, so no TLS handshake
-through the static OpenSSL is observed.
+**What it costs, as limits.** **OpenSSL 3 (libssl and libcrypto) ships in every musl release**, as a
+second TLS and crypto stack beside rustls, and its CVE cadence is a flake bump of `nixpkgs`. That is
+the owner's 2026-10-01 decision on `telekom/sutura#913` (issuecomment-5931110864): ship it now, in
+two stages with no opt-in key - stage 1 compiles the ADBC transport into the shipped `postgres`
+feature with the declared transport posture enforced, stage 2 makes it the default for every
+PostgreSQL source after a real-driver run on a musl triple. This amendment's change is the stage
+before both: `nix/shipped.nix`'s `linkedDriversTests` builds and runs both drivers in one static
+x86_64-musl test binary, and the published artefacts of this change still link only the `BigQuery`
+archive. That test reaches libpq's connect path and no server, so no TLS handshake through the
+static OpenSSL is observed. The linked libpq is built without GSSAPI and without libcurl, so the
+linked driver offers neither Kerberos nor OAuth sign-in - a mounted driver library keeps both.
 
 **Caching.** The static libpq and OpenSSL are build inputs of `checks.adbc-driver-postgresql`, which
 `.github/workflows/cachix-push.yml`'s `push` job already realises, so they publish with the driver.

@@ -41,6 +41,9 @@ mod tests {
                 };
                 assert_eq!(refused.status, Status::IO, "{refused:?}");
                 assert!(refused.message.contains("[libpq] Failed to connect"), "{refused:?}");
+                // The prefix alone is the driver's for ANY refusal, a rejected option included; this
+                // is libpq's own text for a socket it opened and was refused on.
+                assert!(refused.message.contains("port 1 failed"), "{refused:?}");
                 println!("linked-postgres-driver-ran-libpq");
             }
             (linked, other) => panic!("archive linked: {linked}, yet the driver is {other:?}"),
