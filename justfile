@@ -699,7 +699,7 @@ keycloak-served-test:
     nix run .#keycloak-tier -- start
     if [ "$rc" = 1 ]; then trap 'nix run .#keycloak-tier -- stop' EXIT; fi
     cargo nextest run -p sutura-cli --run-ignored only \
-      -E 'test(a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused) | test(a_real_idp_mints_an_id_token_whose_aud_is_a_third_partys)'
+      -E 'test(a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused) | test(a_real_idp_mints_an_id_token_whose_aud_is_a_third_partys) | test(a_real_idp_exchanges_each_subjects_own_token_for_the_pool_audience)'
 # ------------------------------------------------------------------ dev flow ---
 
 # This worktree's service ports and compose project.

@@ -512,3 +512,47 @@ that holds unconditionally. It does not, and the row is amended rather than the 
 as where the key set is read before the listener opens. `sutura-serve` folded into `sutura-cli`'s
 `serve` module (`github.com/telekom/sutura#685` step 2); the mechanism the row describes is unmoved,
 and the crate it runs in is `sutura-cli`.
+
+## Fourth amendment, 2026-10-01: which document each inbound mode retains
+
+**Status of the amendment: accepted.** This amendment settles the question Decision 3 left open:
+which document each inbound mode retains to fill the leg's credential.
+
+| Mode             | Leg 1 reads                                                    | What the source's STS exchange receives                                                                                    |
+| ---------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `direct`         | the inbound token, aud = this deployment's resource identifier | the token the delegation exchange returns, aud = the pool provider's client ID; the inbound token never reaches the source |
+| `behind_gateway` | the gateway-issued assertion                                   | that same assertion - no delegation exchange                                                                               |
+
+**Where the port sits, and why "beside `StsExchange`" no longer applies.** `StsExchange` was deleted
+by `docs/adr/0018`'s eighth amendment and the STS hop now runs inside the ADBC driver, from the
+credential document. So `sutura_exec_bigquery::delegation::DelegationExchange` is called by
+`DeclaredPrincipalBroker` for a source declared through `impersonating_delegated`, and what that
+source presents - and the document serves - is the exchanged token. It also retires
+`docs/adr/0023`'s *nothing in this tree exchanges a token at all now* for the tree; it stays true of
+every served build, below.
+
+**No cache, and the refusal-before-exchange order.** Nothing caches an exchanged token - one exchange
+per source per request - and every refusal is decided before any exchange runs, so a plan refused at any source sends nothing to
+the IdP. The presented lifetime is the earlier of the inbound and the exchanged token's.
+
+**The client credential is the most sensitive value.** It is a `Secret`; only `client_secret_post` is
+built, and the client-assertion form Decision 2 prefers is not. Whoever holds it, together with a
+subject's inbound token, can obtain that subject's pool-audience token; it never reaches a log, an
+error or a `Debug`.
+
+**The IdP is a hard runtime dependency.** An exchange failure is `DeclaredPrincipalsUnusable::
+Delegation` -> `503 identity_unavailable`, distinguishable from a dead data system by its code while
+sharing its status.
+
+**Keycloak measurement.** On the nix Keycloak tier (Keycloak 26.7.4, standard token exchange) the
+requester client must sit in the subject token's `aud` and the pool's client must be exposed by an
+audience mapper, else `invalid_request: Requested audience not available`. The tier provisions both,
+and `a_real_idp_exchanges_each_subjects_own_token_for_the_pool_audience` runs the real exchange under
+`just keycloak-served-test` - each subject's token comes back with the pool audience and its own
+`sub`. No hosted run of it is observed yet; `docs/where-identity-is-proven.md` records it `wired`.
+
+**Not built, stated beside the claim.** `sutura serve` declares no settings for the IdP token endpoint
+or client credential, so no served deployment reaches the port; no check that `direct` mode attaches a
+delegation; the real HTTP implementation is behind the default-off `wire` feature using
+`client_secret_post` only; the returned JWT is decoded, not signature-verified; Entra is unmeasured;
+and no pool has been shown accepting an exchanged token.

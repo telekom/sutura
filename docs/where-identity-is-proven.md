@@ -192,7 +192,7 @@ The two rows are that split and not a duplication.
 | **A real IdP's own signature and JWKS verify through the composed binary - not #105's third-party-audience question** | - | no - it cannot generate an RSA key, so it is not a real provider for this claim either | - | **yes** | **yes** - the same run and the same tier, because the tier IS a real enterprise provider: this is the OIDC contract, and the five provider-specific deviations this venue's own section lists are what it does NOT reach | - | - |
 | **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | **yes - a password grant with `scope=openid` mints an ID token whose `aud` carries a third-party audience (`nix/keycloak-tier.nix`'s `id-token-audience` mapper), read off the realm file the tier wrote; password grant, RFC-2606 placeholder audience, not browser-delegated** | **yes** - the same cell, restated here because *only here* was this column's answer while the tier beside it already said `yes`: a contradiction inside one row, corrected rather than left to a reader to spot. What a hosted tenant would add is a browser-delegated grant and a vendor's own `aud`/`azp` shape, not this claim | - | - |
 | Whether a statement we generate is accepted by a real data system | - | - | **yes** | - | - | - | - |
-| Whether a token exchange endpoint accepts what we send it | - | - | - | - | - | - | - |
+| Whether a token exchange endpoint accepts what we send it | **yes**, for the request half - the RFC 8693 form `delegation::http::OverHttp` sends, captured at a loopback fake by `the_request_is_an_rfc_8693_exchange_of_the_callers_token_for_the_requested_audience` | - | - | **wired** - a real IdP's standard token exchange of each subject's own token for the pool audience (#1208); the IdP half only, no pool is reachable from the tier | - | - | - |
 | **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - the adapter is `NoPlaceForASubject`, so there is no per-subject credential to obtain | - | no | **wired** - this is the row below in other words: a per-subject `external_account` document is built and the pool resolves it, and no run has been observed | - |
 | **Whether two subjects read two different row sets** | no | no | no - one database role is one identity | - | no | no - it reads one identity per question and no rows at all; the row half needs the served surface | - |
 | **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - the connection presents a password or a certificate, never a subject's bearer | - | no | no - the cells here read `SESSION_USER()` and no rows. `test-infra/pulumi/google`'s row access policies grant `serviceAccount:` members, which since `telekom/sutura#929` F3 IS the identity each subject executes as - so the grants are provisioned and the missing half is a dispatch and a served surface, not a resource | - |
@@ -400,7 +400,7 @@ about the vocabulary rather than to this row.
 
 `nix/keycloak-tier.nix` stands up a real Keycloak - a realm, one confidential client and two
 subjects, every credential generated at `start` and written nowhere else - and
-`just keycloak-served-test` starts it, runs the two cells that need it, and stops it whatever the
+`just keycloak-served-test` starts it, runs the three cells that need it, and stops it whatever the
 cells do. The wave-one hosted job (`e2e-datahub-bigquery`, removed with the wire) verified the
 SAME realm over HTTP on its own composed deployment - a second, wider `Reached by` for the same
 venue, not a second row: its three asks all ride Keycloak-minted tokens.
@@ -447,6 +447,15 @@ cannot answer" below: it is a password grant against a hardcoded audience mapper
 browser-delegated flow, and the audience is an RFC-2606 placeholder. This cell passed on `main` on
 2026-09-25, in the `keycloak-served-test` job of run
 https://github.com/telekom/sutura/actions/runs/36143472617.
+
+**The third cell is `wired`, and answers the token-exchange row.**
+`a_real_idp_exchanges_each_subjects_own_token_for_the_pool_audience` (#1208) exchanges each
+provisioned subject's own access token at the realm's standard token exchange, as the exchanging
+client `nix/keycloak-tier.nix` provisions, for the pool audience: the issued token carries that
+audience and THAT subject's `sub`, and an audience the realm has no client for is refused with
+`invalid_client`. No hosted run of it has been observed, which is why the row says `wired`. It is
+the IdP half only - no pool is reachable from this tier, so nothing here shows a pool accepting an
+exchanged token - and a hosted tenant's exchange (Entra) is unmeasured.
 
 **What "a different subject" means, exactly.** The audit record masks every `sub` to its first
 character plus `***`, and Keycloak subjects are UUIDs, so two different `sub`s' masked forms

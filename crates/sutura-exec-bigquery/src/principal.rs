@@ -61,6 +61,8 @@ use sutura_domain::identity::{
 use sutura_domain::model::SourceName;
 use sutura_domain::source::SharedIdentityDeclared;
 
+use crate::delegation::{Delegation, DelegationFailed};
+
 /// Why a declared impersonation map is not one a source can be served under.
 ///
 /// Two variants, and the second one is the reason the enum was one from the start: an empty
@@ -204,7 +206,20 @@ pub enum DeclaredPrincipalsUnusable {
         #[source]
         cause: CredentialsDoNotCoverThePlan,
     },
+    /// The delegation exchange a `direct` source needs produced no usable token - the identity provider is a hard
+    /// runtime dependency, so this is `503 identity_unavailable` and never an answer as anybody.
+    #[error("the delegation exchange for `{source}` failed")]
+    Delegation {
+        /// The source whose exchange failed.
+        source: SourceName,
+        #[source]
+        cause: DelegationFailed,
+    },
 }
+
+/// One impersonating source's declared subjects, and the exchange its callers' tokens go through
+/// in `direct` mode - `None` presents the inbound assertion itself.
+type Impersonating = (DeclaredPrincipals, Option<Delegation>);
 
 /// Presents the asking subject's own verified assertion at a source that declares it, beside the
 /// account declared for that subject - and the operator's witness for a shared one.
@@ -219,7 +234,7 @@ pub enum DeclaredPrincipalsUnusable {
 #[derive(Debug, Clone, Default)]
 pub struct DeclaredPrincipalBroker {
     shared: BTreeMap<SourceName, SharedIdentityDeclared>,
-    impersonating: BTreeMap<SourceName, DeclaredPrincipals>,
+    impersonating: BTreeMap<SourceName, Impersonating>,
 }
 
 impl DeclaredPrincipalBroker {
@@ -242,7 +257,15 @@ impl DeclaredPrincipalBroker {
     /// Declares one impersonating source and the subjects it may be asked as.
     #[must_use]
     pub fn impersonating(mut self, at: SourceName, declared: DeclaredPrincipals) -> Self {
-        drop(self.impersonating.insert(at, declared));
+        drop(self.impersonating.insert(at, (declared, None)));
+        self
+    }
+
+    /// Declares one impersonating source whose callers arrive in `direct` mode: their inbound token
+    /// serves leg 1 only, and what this source presents is the token `delegation` exchanges it for.
+    #[must_use]
+    pub fn impersonating_delegated(mut self, at: SourceName, declared: DeclaredPrincipals, delegation: Delegation) -> Self {
+        drop(self.impersonating.insert(at, (declared, Some(delegation))));
         self
     }
 
@@ -288,6 +311,7 @@ impl CredentialBroker for DeclaredPrincipalBroker {
         // broker did not mint and does not age with the caller, so giving a shared-only plan the
         // caller's expiry would refuse answers for a lifetime that does not apply to them.
         let mut deadlines = Vec::new();
+        let mut exchanges = Vec::new();
         for source in sources.iter() {
             if let Some(declared) = self.shared.get(source) {
                 drop(presented.insert(
@@ -301,7 +325,7 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             }
             // Unreachable: the pass above established that every source has one of the two halves.
             // Answered rather than unwrapped, because `unwrap_used` is denied.
-            let Some(principals) = self.impersonating.get(source) else {
+            let Some((principals, delegation)) = self.impersonating.get(source) else {
                 return Ok(Minted::Refused { source: source.clone() });
             };
             // **The authorization decision, and both ways out of it are refusals.** A caller with no
@@ -345,10 +369,31 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             let Some(expires) = assertion_expires else {
                 return Ok(Minted::Refused { source: source.clone() });
             };
+            exchanges.push((source, target, delegation.as_ref(), assertion, expires));
+        }
+        // **Every refusal above is decided before any exchange below**, so a plan refused at its
+        // second source sends nothing to the IdP for its first. And no store: each exchange's token
+        // lives in this request's credentials alone, so two subjects cannot share one.
+        for (source, target, delegation, assertion, expires) in exchanges {
+            let (material, expires) = match delegation {
+                None => (assertion.clone(), expires),
+                Some(delegation) => {
+                    let delegated = delegation
+                        .exchange(assertion)
+                        .map_err(|cause| DeclaredPrincipalsUnusable::Delegation {
+                            source: source.clone(),
+                            cause,
+                        })?;
+                    let until = Expiry::At {
+                        unix_seconds: delegated.not_after_unix_seconds(),
+                    };
+                    (delegated.into_token(), expires.earlier_of(until))
+                }
+            };
             drop(presented.insert(
                 source.clone(),
                 Presented::SubjectToken {
-                    material: assertion.clone(),
+                    material,
                     impersonate: Some(target.clone()),
                 },
             ));

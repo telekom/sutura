@@ -142,6 +142,7 @@ mod importer;
 #[cfg(feature = "fixtures")]
 pub use crate::importer::{Dropped, FixtureNotLoaded, FixtureNotUsable, Loaded};
 
+pub mod delegation;
 /// The broker a served impersonating `BigQuery` source is answered through, and now the only one
 /// this crate carries: the exchanging `WorkloadIdentityBroker` was deleted with its HTTP hops
 /// (`docs/adr/0018`, eighth amendment), since the ADBC path federates the asker's own assertion at

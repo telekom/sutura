@@ -278,8 +278,10 @@ mimalloc = { workspace = true }
 # converter to `sutura-catalog-wren`, so nothing in the shipped binary's own code names it.
 serde_json = { workspace = true }
 # The hosted served acceptance loads its own BigQuery tables through the adapter's fixture-only
-# importer. This feature is absent from the shipped binary.
-sutura-exec-bigquery = { workspace = true, features = ["fixtures"] }
+# importer. This feature is absent from the shipped binary. `wire` is the real delegation exchange
+# the Keycloak tier cell drives (#1208), over `sutura-http-client`'s bounded agent.
+sutura-exec-bigquery = { workspace = true, features = ["fixtures", "wire"] }
+sutura-http-client = { workspace = true }
 # The domain's own `fixtures` feature, for `plan::RefusingCombiner` - the fake over
 # `docs/adr/0007`'s second driven port. The served root builds the REAL combiner; this crate's own
 # suite composes services that answer single-source questions, where a combiner that answered would

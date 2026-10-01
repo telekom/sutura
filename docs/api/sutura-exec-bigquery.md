@@ -1358,3 +1358,279 @@ every one of its implementors, fake and real; a name spares each of those sites 
 says what the value MEANS at the read site, which the bare composed type would not. It does not
 cross this workspace's `clippy::type-complexity` threshold - it is well under it - so the alias
 earns its place on readability alone, not on a lint that does not fire either way.
+
+## Module `delegation`
+
+The delegation exchange a `direct` deployment needs before a workload pool will accept its
+caller (`docs/adr/0014` Decision 3 and its fourth amendment).
+
+In `direct` the inbound token's `aud` is this deployment's own resource identifier, which leg 1
+requires, and the pool provider requires its own. One token cannot carry both, so the caller's
+IdP is asked - RFC 8693, subject token = the inbound token - for a token whose audience is the
+pool provider's. The inbound token then serves leg 1 only, and the exchanged one is what the
+credential document hands Google's token service.
+
+**Nothing here caches.** One exchange per source per request, and the result lives in that
+request's `sutura_domain::identity::LegCredentials` and nowhere else, so two subjects cannot
+share an exchanged token through this module: there is no store for them to share.
+`docs/adr/0014`'s *Caching exchanged tokens is where this gets dangerous* is why the first
+version has none.
+
+# The limits, beside the claim
+
+- **The IdP is a hard runtime dependency.** No exchange, no question - a failure is
+  `DelegationFailed` and reaches a caller as `503 identity_unavailable`, never as an answer
+  under the deployment.
+- **The client credential is the most sensitive value in the deployment**: whoever holds it can
+  obtain a pool-audience token for any subject whose inbound token they also hold. It is a
+  `Secret` (redacted `Debug`, no `Display`, zeroized on drop - with the copy limits that type
+  states).
+- **Nothing composes it yet.** `sutura serve` declares no settings for an IdP token endpoint or a
+  client credential, so a served deployment never reaches this port; the cells and the Keycloak
+  tier cell do.
+
+### `struct RequestedAudience`
+
+```rust
+pub struct RequestedAudience
+```
+
+The audience the exchanged token must carry: the pool provider's client ID.
+
+**Stored exactly as written**, as `ResourceIdentifier` is: an IdP matches it byte for byte
+against a client it knows, so a normalised spelling would ask for a different audience.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: &str) -> Result<Self, UnusableAudience>
+```
+
+Parses the pool provider's client ID.
+
+# Errors
+
+`UnusableAudience`, carrying a position and never the text.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `enum UnusableAudience`
+
+```rust
+pub enum UnusableAudience
+```
+
+Why a declared requested audience is not one an exchange can ask for.
+
+#### Variants
+
+- `Empty` - There was nothing there.
+- `TooLong` - Longer than `RequestedAudience::MOST`.
+- `Unprintable` - A space or a character outside printable ASCII, at a byte offset.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct Delegated`
+
+```rust
+pub struct Delegated
+```
+
+A token an IdP issued for the requested audience, and the instant it stops being one.
+
+The instant is a number and not an `Expiry`: a delegated token that never expires is not a
+state an exchange can return, so the forever variant is unrepresentable here.
+
+#### Methods
+
+```rust
+pub fn into_token(self) -> Secret
+```
+
+The token, moved out: a leg presents it once and nothing else keeps a copy.
+
+```rust
+pub const fn new(token: Secret, not_after_unix_seconds: u64) -> Self
+```
+
+What an implementor of `DelegationExchange` returns after validating the IdP's answer.
+
+```rust
+pub const fn not_after_unix_seconds(&self) -> u64
+```
+
+#### Implements
+
+`Clone`, `Debug`
+
+### `enum DelegationFailed`
+
+```rust
+pub enum DelegationFailed
+```
+
+Why an exchange produced no usable token.
+
+**No variant carries token material or the IdP's free text.** `error_description` is dropped
+because an IdP may echo its input there; the RFC 6749 `error` code survives only when it is the
+registered shape (`[a-z_]`, at most 64 bytes), which no JWT can be.
+
+#### Variants
+
+- `Unreachable` - The token endpoint could not be reached or its answer not read.
+- `Refused` - The IdP answered with a non-success status.
+- `TooLarge` - The answer was larger than the deployment's cap.
+- `Malformed` - The answer lacked a field this exchange needs, or the token is not a JWT with an `exp`.
+- `WrongTokenType` - The IdP issued something other than an access token.
+- `WrongAudience` - The issued token does not carry the requested audience.
+- `AlreadyExpired` - The issued token's `exp` is not after the instant it was checked at.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `trait DelegationExchange`
+
+```rust
+pub trait DelegationExchange
+```
+
+The port: one RFC 8693 exchange at the caller's own IdP.
+
+**Synchronous**, because `sutura_domain::identity::CredentialBroker::mint` is and every
+served caller of it is already on the blocking pool (`sutura_runtime::spawn_carrying_span`).
+
+### `struct Delegation`
+
+```rust
+pub struct Delegation
+```
+
+What one impersonating source exchanges through.
+
+`Arc` because one IdP client - one TLS agent, one credential - serves every source a deployment
+declares, and the broker is per answer rather than per source.
+
+#### Methods
+
+```rust
+pub fn through(exchange: Arc<dyn DelegationExchange>, audience: RequestedAudience) -> Self
+```
+
+#### Implements
+
+`Clone`, `Debug`
+
+### Module `http`
+
+The real `DelegationExchange`: RFC 8693 over the shared outbound client, behind the
+default-off `wire` feature so a lean build links no exchange at all.
+
+What is checked on the answer, and what is not:
+
+- `issued_token_type` is the access token this asked for and `token_type` is `Bearer`;
+- the token is a compact JWT whose payload `aud` carries the requested audience and whose `exp`
+  lies after the instant of the check.
+
+**The payload is decoded, not verified.** It arrived over TLS from the endpoint the deployment
+declared, and the signature is the pool's to verify - Google's token service does, against the
+provider's own keys. So the claim checks catch an IdP configured to issue the wrong audience;
+they are not a defence against the IdP itself.
+
+#### `struct TokenEndpoint`
+
+```rust
+pub struct TokenEndpoint
+```
+
+The IdP's token endpoint: `https://` to any host, `http://` to an IP loopback literal only.
+
+The origin is held to `Endpoint::parse`'s rule, so a client secret never travels in clear text
+beyond loopback; unlike an `Endpoint` it keeps its path, and it refuses a query, a fragment and
+a `user[:pass]@` authority.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: &str) -> Result<Self, InvalidEndpoint>
+```
+
+# Errors
+
+`InvalidEndpoint`, the shared client's own refusal.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum UnusableClientId`
+
+```rust
+pub enum UnusableClientId
+```
+
+Why a declared client identifier is unusable.
+
+##### Variants
+
+- `Unusable` - Empty, over 255 bytes, or carrying a space or a non-printable byte.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `struct ExchangeClient`
+
+```rust
+pub struct ExchangeClient
+```
+
+This deployment's client at the IdP and its secret (`client_secret_post`).
+
+**The most sensitive value in the deployment** - see the module header of
+`crate::delegation`. `Debug` prints the identifier and `Secret`'s redaction; there is no
+`Display`.
+
+##### Methods
+
+```rust
+pub fn new(id: &str, secret: Secret) -> Result<Self, UnusableClientId>
+```
+
+# Errors
+
+`UnusableClientId` for an identifier no form can carry unambiguously.
+
+##### Implements
+
+`Clone`, `Debug`
+
+#### `struct OverHttp`
+
+```rust
+pub struct OverHttp
+```
+
+`DelegationExchange` over HTTP.
+
+##### Methods
+
+```rust
+pub const fn new(endpoint: TokenEndpoint, client: ExchangeClient, agent: sutura_tls::Rotating<ureq::Agent>, bounds: ReadBounds) -> Self
+```
+
+##### Implements
+
+`Debug`, `DelegationExchange`

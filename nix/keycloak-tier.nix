@@ -98,11 +98,8 @@ let
   # granted client scope's own NAME in the `scope` claim it mints, which is what makes this the
   # right mechanism rather than a hardcoded-claim mapper synthesizing a value nothing granted.
   capabilityScopes = [ "sutura:catalog.read" "sutura:metrics.ask" "sutura:sql.run" ];
-  # A third-party audience (an OIDC workforce pool identity provider) for the
-  # `#105` ID-token probe: this mapper puts it into the `aud` claim when the
-  # password grant requests `scope=openid`. Not cited by any harness test -
-  # only exercised by the probe script that answers the blocking unknown.
-  # RFC 2606 `.example.com`, non-secret, not a real host.
+  # A third-party audience (a workforce pool provider's client ID), RFC 2606, not a real host: the
+  # `aud` of an ID token minted with `scope=openid` (#105), and the audience `delegation` exchanges for (#1208).
   idTokenAudience = "https://workforce-pool.example.com";
   # Seconds a token lives, up from Keycloak's 300: `just demo-mcp` hands its chat client ONE token.
   accessTokenLifespan = 3600;
@@ -310,14 +307,10 @@ rec {
 
         kcadm.sh create realms --config "$admincfg" -s realm="$realm" -s enabled=true \
           -s accessTokenLifespan=${toString accessTokenLifespan} "''${kcadm_trust[@]}" >/dev/null
-        # Confidential, with the direct access grant: that is the flow a test uses to obtain a
-        # token for a named subject without a browser. `standardFlowEnabled=false` because nothing
-        # here redirects, and a client offering a flow nobody uses is surface for free.
-        # The `protocolMappers` entry is the fix for the gap `resourceAudience`'s own comment
-        # states: with no mapper, a token's `aud` is the realm-wide built-in `account` client
-        # scope, not a resource identifier `security.inbound.resource` will accept. A hardcoded
-        # `oidc-audience-mapper`, added at creation rather than as a second `kcadm.sh update`
-        # call, puts the fixed value on every access token this client's grants mint.
+        # Confidential, with the direct access grant a test mints a named subject's token by, and no
+        # redirect flow nobody uses. The hardcoded `oidc-audience-mapper` closes the gap
+        # `resourceAudience`'s comment states (with none, `aud` is the built-in `account`), added at
+        # creation rather than by a second `kcadm.sh update`.
         client_uuid="$(kcadm.sh create clients --config "$admincfg" -r "$realm" \
           -s clientId="$client" -s enabled=true -s publicClient=false \
           -s directAccessGrantsEnabled=true -s standardFlowEnabled=false \
@@ -325,9 +318,18 @@ rec {
           -s 'protocolMappers=[{"name":"resource-audience","protocol":"openid-connect","protocolMapper":"oidc-audience-mapper","consentRequired":false,"config":{"included.custom.audience":"'"$resourceAudience"'","id.token.claim":"false","access.token.claim":"true","introspection.token.claim":"true"}},{"name":"id-token-audience","protocol":"openid-connect","protocolMapper":"oidc-audience-mapper","consentRequired":false,"config":{"included.custom.audience":"'"$idTokenAudience"'","id.token.claim":"true","access.token.claim":"false","introspection.token.claim":"false"}}]' \
           "''${kcadm_trust[@]}" -i)"
 
-        # One client scope PER CAPABILITY, DEFAULT (auto-granted, no consent screen) - see
-        # `capabilityScopes`'s own comment above for why this is a client scope per name rather
-        # than a mapper synthesizing the `scope` claim's value.
+        # #1208, measured on 26.7.4: the exchanging client's ID IS the resource audience (standard token
+        # exchange wants the requester in the subject's `aud`); no mapper = `Requested audience not available`.
+        exchange_secret="$(generated)"
+        kcadm.sh create clients --config "$admincfg" -r "$realm" -s clientId="$idTokenAudience" \
+          -s enabled=true -s publicClient=false -s standardFlowEnabled=false "''${kcadm_trust[@]}" >/dev/null
+        kcadm.sh create clients --config "$admincfg" -r "$realm" -s clientId="$resourceAudience" \
+          -s enabled=true -s publicClient=false -s standardFlowEnabled=false -s secret="$exchange_secret" \
+          -s 'attributes={"standard.token.exchange.enabled":"true"}' \
+          -s 'protocolMappers=[{"name":"pool-audience","protocol":"openid-connect","protocolMapper":"oidc-audience-mapper","config":{"included.client.audience":"'"$idTokenAudience"'","access.token.claim":"true","id.token.claim":"false"}}]' \
+          "''${kcadm_trust[@]}" >/dev/null
+
+        # One DEFAULT (auto-granted) client scope per capability - see `capabilityScopes` above.
         for capability_scope in $capabilityScopes; do
           scope_uuid="$(kcadm.sh create client-scopes --config "$admincfg" -r "$realm" \
             -s name="$capability_scope" -s protocol=openid-connect \
@@ -384,11 +386,10 @@ rec {
             printf '"tls_certificate_file":"%s",' "$cacertfile"
             printf '"realm":"%s","client":{"id":"%s","secret":"%s"},' \
               "$realm" "$client" "$client_secret"
-            # The third-party audience the `id-token-audience` mapper puts in the ID token's `aud`
-            # when the password grant requests `scope=openid` (`nix/keycloak-tier.nix`'s own
-            # `idTokenAudience`). Published here rather than restated in the test, so the value the
-            # tier provisions and the value the cell asserts against are the same document.
+            # Published rather than restated in a test, so what the tier provisions and what a cell
+            # asserts against are one document.
             printf '"id_token_audience":"%s",' "$idTokenAudience"
+            printf '"delegation":{"client":{"id":"%s","secret":"%s"}},' "$resourceAudience" "$exchange_secret"
             printf '"admin":{"username":"%s","password":"%s"},' "$admin_user" "$admin_password"
             printf '"subjects":['
             separator=

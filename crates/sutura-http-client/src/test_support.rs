@@ -100,7 +100,8 @@ impl Scripted {
     }
 }
 
-/// One request this fake server answered: its request line, and its `authorization` header.
+/// One request this fake server answered: its request line, its `authorization` header, and its
+/// body.
 ///
 /// The request LINE (`METHOD /path?query HTTP/1.1`) is the one thing that proves what a reader
 /// actually dialled - `?fields=`, `?limit=`, the exact path - and not only that it dialled
@@ -116,6 +117,7 @@ impl Scripted {
 pub struct CapturedRequest {
     request_line: String,
     authorization: Option<String>,
+    body: String,
 }
 
 impl CapturedRequest {
@@ -131,6 +133,12 @@ impl CapturedRequest {
     pub fn authorization(&self) -> Option<&str> {
         self.authorization.as_deref()
     }
+
+    /// The request body, read to its `Content-Length`; empty when none was sent.
+    #[must_use]
+    pub fn body(&self) -> &str {
+        &self.body
+    }
 }
 
 /// Every request this fake server has answered, in order.
@@ -139,8 +147,8 @@ pub type CapturedAuthorizations = Vec<CapturedRequest>;
 /// A real local HTTP/1.1 server answering one [`Scripted`] response per connection, in order, then
 /// closing.
 ///
-/// Captures each request's line and `authorization` header so a test can assert both the exact
-/// URL dialled and that the bearer was sent.
+/// Captures each request's line, `authorization` header, and body so a test can assert both the
+/// exact URL dialled and that the bearer and payload were sent.
 pub struct FakeServer {
     addr: SocketAddr,
     handle: Option<thread::JoinHandle<CapturedAuthorizations>>,
@@ -197,8 +205,8 @@ impl FakeServer {
     }
 }
 
-/// Reads one HTTP request up to its blank line and returns its request line and `authorization`
-/// header, if any. This reader is never asked to read a GET body, so it does not look for one.
+/// Reads one HTTP request and returns its request line, `authorization` header, and body. A GET
+/// has no body, so an absent `Content-Length` reads none.
 fn read_request(stream: &mut TcpStream) -> CapturedRequest {
     let mut buf = Vec::new();
     let mut chunk = [0_u8; 4096];
@@ -211,15 +219,34 @@ fn read_request(stream: &mut TcpStream) -> CapturedRequest {
             break;
         }
     }
-    let text = String::from_utf8_lossy(&buf);
+    let header_end = buf
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map_or(buf.len(), |pos| pos + 4);
+    let text = String::from_utf8_lossy(&buf[..header_end]);
     let request_line = text.lines().next().unwrap_or_default().to_owned();
     let authorization = text
         .lines()
         .find(|line| line.to_ascii_lowercase().starts_with("authorization:"))
         .map(|line| line.split_once(':').map_or("", |(_, value)| value).trim().to_owned());
+    let content_length = text
+        .lines()
+        .find(|line| line.to_ascii_lowercase().starts_with("content-length:"))
+        .and_then(|line| line.split_once(':').map(|(_, value)| value.trim()))
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0);
+    let mut body_bytes = buf[header_end..].to_vec();
+    while body_bytes.len() < content_length {
+        match stream.read(&mut chunk) {
+            Ok(read) if read > 0 => body_bytes.extend_from_slice(&chunk[..read]),
+            _ => break,
+        }
+    }
+    let body = String::from_utf8_lossy(&body_bytes[..body_bytes.len().min(content_length)]).into_owned();
     CapturedRequest {
         request_line,
         authorization,
+        body,
     }
 }
 
