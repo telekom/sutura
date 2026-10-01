@@ -69,7 +69,7 @@ finer split is a cheap change if a caller ever needs the branch.
 - `MalformedFrontmatter`
 - `IdentifyKind`
 - `Metric`
-- `Cube` - A cube document did not expand: no measure, a measure declared twice, or a measure's metric refused the way a metric document's would be.
+- `Cube` - A cube document did not expand: no measure, a measure declared twice, a `<cube>_<measure>` join over the identifier length cap, or a measure's metric refused the way a metric document's would be.
 - `Model` - A model's own column or its `primary_key:` is not usable.
 - `Relationship`
 - `Description` - The prose of a definition document is not a usable description.
@@ -642,6 +642,11 @@ Authoring sugar and nothing more (`telekom/sutura#1148`). `CubeDoc::into_domain`
 into one `MetricDoc` per measure and converts each through `MetricDoc::into_domain`, so a
 cube's metric is checked by exactly the code a hand-written metric document is, and the domain
 never sees a cube. A cube and its hand-flattened equivalent are the same bundle, digest included.
+
+**The join is not invertible.** `sales`/`net_revenue` and `sales_net`/`revenue` both expand to
+`sales_net_revenue`, and so does a metric document of that name: the load fails closed, as
+`InconsistentDefinitions::DuplicateMetric`, which names neither cube nor file. Nor can a
+metric's name say which cube, if any, it came from - that grouping is not recorded anywhere.
 
 What a measure cannot say is held by `deny_unknown_fields` on `MeasureDoc`: no `dimensions:`
 of its own (the cube's list is the only one), no `model:`, `time_column:` or `grains:`, and no

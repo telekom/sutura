@@ -474,6 +474,11 @@ measures:
   - name: revenue
     measure:
       simple: { aggregate: sum, column: amount_cents }
+    required_filters:
+      - equals: { column: region, value: east }
+    anchor:
+      range: { start: 2026-06-01, end: 2026-07-01 }
+      value: \"202121\"
     audience: open
     description: Net revenue, in minor units.
   - name: orders
@@ -486,7 +491,7 @@ Sales over the order fact.
 ";
 
     /// [`CUBE`], written out by hand as the two metric documents it stands for.
-    const FLAT_REVENUE: &str = "---\nkind: metric\nname: sales_revenue\nmodel: orders\nmeasure:\n  simple: { aggregate: sum, column: amount_cents }\ntime_column: order_date\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    values: [east, west]\naudience: open\n---\nNet revenue, in minor units.\n";
+    const FLAT_REVENUE: &str = "---\nkind: metric\nname: sales_revenue\nmodel: orders\nmeasure:\n  simple: { aggregate: sum, column: amount_cents }\nrequired_filters:\n  - equals: { column: region, value: east }\nanchor:\n  range: { start: 2026-06-01, end: 2026-07-01 }\n  value: \"202121\"\ntime_column: order_date\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    values: [east, west]\naudience: open\n---\nNet revenue, in minor units.\n";
     const FLAT_ORDERS: &str = "---\nkind: metric\nname: sales_orders\nmodel: orders\nmeasure:\n  simple: { aggregate: count_distinct, column: order_key }\ntime_column: order_date\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    values: [east, west]\naudience:\n  restricted: [finance]\n---\nSales over the order fact.\n";
 
     fn name(raw: &str) -> MetricName {
@@ -547,6 +552,12 @@ Sales over the order fact.
             assert_eq!(metric.time_column().as_str(), "order_date");
             assert_eq!(metric.dimensions().keys().collect::<Vec<_>>(), [&region]);
         }
+        assert_eq!(revenue.required_filters().len(), 1, "a measure's required filter is its own");
+        assert_eq!(orders.required_filters().len(), 0);
+        assert!(
+            revenue.anchor().is_some() && orders.anchor().is_none(),
+            "a measure's anchor is its own"
+        );
         assert_eq!(revenue.audience(), &Audience::Open);
         assert_ne!(orders.audience(), &Audience::Open, "a measure's audience is its own");
         assert_eq!(revenue.description(), "Net revenue, in minor units.");
@@ -617,6 +628,18 @@ Sales over the order fact.
             CUBE.split("measures:\n").next().unwrap_or_default()
         );
         assert_eq!(cube_refusal("cube-no-measures", &empty), "cube sales declares no measure");
+    }
+
+    #[test]
+    fn a_measure_its_metric_refuses_refuses_the_cube_rather_than_vanishing() {
+        let cube = CUBE.replace(
+            "    measure:\n      simple: { aggregate: count_distinct, column: order_key }\n",
+            "",
+        );
+        assert_eq!(
+            cube_refusal("cube-measure-refused", &cube),
+            "a metric must say what it computes: write `measure`, or `authored_sql` for SQL the vocabulary cannot express"
+        );
     }
 
     #[test]

@@ -136,8 +136,9 @@ pub enum LocalCatalogError {
         #[source]
         cause: InvalidMetricDocument,
     },
-    /// A cube document did not expand: no measure, a measure declared twice, or a measure's metric
-    /// refused the way a metric document's would be.
+    /// A cube document did not expand: no measure, a measure declared twice, a `<cube>_<measure>`
+    /// join over the identifier length cap, or a measure's metric refused the way a metric
+    /// document's would be.
     #[error("{path} is not a usable cube")]
     Cube {
         path: PathBuf,

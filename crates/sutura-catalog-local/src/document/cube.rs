@@ -5,6 +5,11 @@
 //! cube's metric is checked by exactly the code a hand-written metric document is, and the domain
 //! never sees a cube. A cube and its hand-flattened equivalent are the same bundle, digest included.
 //!
+//! **The join is not invertible.** `sales`/`net_revenue` and `sales_net`/`revenue` both expand to
+//! `sales_net_revenue`, and so does a metric document of that name: the load fails closed, as
+//! `InconsistentDefinitions::DuplicateMetric`, which names neither cube nor file. Nor can a
+//! metric's name say which cube, if any, it came from - that grouping is not recorded anywhere.
+//!
 //! What a measure cannot say is held by `deny_unknown_fields` on [`MeasureDoc`]: no `dimensions:`
 //! of its own (the cube's list is the only one), no `model:`, `time_column:` or `grains:`, and no
 //! `shared_calendar:` - a measure needing one is a metric document for now. `hierarchies:` is
