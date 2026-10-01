@@ -298,7 +298,7 @@ serde_norway = "0.9"
 #     wrong under a feature we said we do not compile. `crate::dialect::DateTruncShape` covers Oracle
 #     the same way it already covers `BigQuery`'s argument order: `bucket_expression` builds the
 #     correct call directly, with no dialect-layer rewrite in between.
-polyglot-sql = { version = "0.13", default-features = false, features = [
+polyglot-sql = { version = "0.13.1", default-features = false, features = [
   "generate",
   "builder",
   "stacker",
