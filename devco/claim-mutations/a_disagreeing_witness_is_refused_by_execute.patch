@@ -1,15 +1,16 @@
 diff --git a/crates/sutura-exec-postgres/src/lib.rs b/crates/sutura-exec-postgres/src/lib.rs
-index e98c6fc5d..2fde1a246 100644
+index 62e907960..58fd1dc34 100644
 --- a/crates/sutura-exec-postgres/src/lib.rs
 +++ b/crates/sutura-exec-postgres/src/lib.rs
-@@ -499,9 +499,7 @@ impl PostgresWarehouse {
-                 });
-             }
+@@ -737,9 +737,8 @@ pub(crate) fn deliverable(
+             });
          }
--        presented
--            .agrees_with(&self.posture, &self.source)
--            .map_err(|cause| PostgresError::PresentedDisagreesWithPosture { cause })
-+        Ok(())
      }
+-    presented
+-        .agrees_with(posture, source)
+-        .map_err(|cause| PostgresError::PresentedDisagreesWithPosture { cause })
++    drop(presented.agrees_with(posture, source));
++    Ok(())
+ }
  
-     fn render(executable: Executable<'_>) -> Result<GeneratedQuery, PostgresError> {
+ impl Warehouse for PostgresWarehouse {

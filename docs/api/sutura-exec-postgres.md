@@ -69,6 +69,7 @@ Why this data system could not answer.
 - `RawTransaction` - The raw SQL tool's own `BEGIN READ ONLY` or `ROLLBACK` did not run - sutura's own fixed text on the simple query protocol (`docs/adr/0013`), never the caller's.
 - `Transaction` - The certified path's own per-statement transaction (`docs/adr/0029`) did not open - sutura's own fixed literal text, never the caller's, the same as `Self::RawTransaction`.
 - `DeadlineSpent` - The deadline was already spent once `PostgresWarehouse::execution_lock` was acquired - refused locally, no round trip: that unbounded wait is outside `sutura_app`'s own pre-call check.
+- `Adbc` - The ADBC transport's own failure; its refusals before any SQL are the variants above.
 - `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
 - `PresentedDisagreesWithPosture`
 - `AnchorsRead` - The declared trust anchors could not be read or parsed.
@@ -161,15 +162,16 @@ it was handed whenever nothing was set. There is no unconfigured state to substi
 
 The ADBC transport for PostgreSQL, the second adapter on `sutura-adbc` (`telekom/sutura#913`).
 
-One certified statement through the self-built driver (`nix/postgres-adbc.nix`), its Arrow
-batches handed on as the port's `ResultBatches` with
-no per-cell walk of this crate's own.
+The `Warehouse` port over the self-built driver
+(`nix/postgres-adbc.nix`), answering with the same `PostgresError`
+variants the `tokio-postgres` path refuses with. A certified answer's Arrow batches are handed on
+as they arrive, except a `NUMERIC` column, which `numeric` re-reads per cell.
 
 **Shipped, and answering nothing.** `sutura-cli`'s `postgres` feature compiles this module into
 every release, and every musl release links the static driver (`nix/shipped.nix`). No
-composition root constructs `AdbcPostgres` and no `Warehouse`
-method reaches it: the `tokio-postgres` path in `lib.rs` still answers every Postgres source, and
-no settings key selects this one. `sutura doctor` probes the linked driver; tests reach the rest.
+composition root constructs `AdbcPostgres`: the `tokio-postgres`
+path in `lib.rs` still answers every Postgres source, and no settings key selects this one.
+`sutura doctor` probes the linked driver; tests reach the rest.
 
 # What holds what
 
@@ -177,16 +179,14 @@ no settings key selects this one. `sutura doctor` probes the linked driver; test
   (`apache-arrow-adbc-24`) sends a parameterless `execute_update` through `PQexec`, the simple
   protocol, which runs every statement of a multi-statement string; `execute` asks for a result
   stream and goes through `PQprepare`, where the server refuses a second statement at `Parse`.
-  So `LocalTimeout::apply` is the one `execute_update` in this module, its text is a fixed
-  literal and a `NonZeroU32`, and `clippy.toml` bans every other call
+  So `session`'s `Setting::apply` is the one `execute_update` here, its text is fixed literals
+  and a `NonZeroU32`, and `clippy.toml` bans every other call
   in the workspace - except one written inside an existing `disallowed_methods` expectation's
   scope, which that expectation covers too (the ban's own entry states it).
 - **The per-request deadline is `SET LOCAL statement_timeout`** in the transaction the driver
   opens when autocommit is switched off, clamped to the same connect-time ceiling the
   `tokio-postgres` path uses, and always rolled back. A statement the server cancelled for it
-  (`57014`) reads as
-  `AdbcPostgres::deadline_exceeded`, the same
-  split `deadline.rs` draws.
+  (`57014`) is the deadline to `Warehouse::deadline_exceeded`, the split `deadline.rs` draws.
 - **The channel is the declared one.** `Conninfo` builds the libpq
   connection string from the declaration and pins every key the environment could weaken; its
   own header carries the table and what it refuses.
@@ -196,18 +196,17 @@ no settings key selects this one. `sutura doctor` probes the linked driver; test
 
 # Limits
 
-- **`NUMERIC` drifts.** The driver maps `NUMERIC` to Arrow `Utf8` by OID whatever the scale, so
-  `SELECT 1::numeric` is `Value::Text("1")` here and `Value::Integer(1)` on the `tokio-postgres`
-  path; a fractional value is the same text on both. The cell
-  `a_scale_zero_numeric_is_text_here_where_the_tokio_postgres_path_reads_an_integer` pins the
-  pair. The parity of every other type with `lib.rs`'s `cell` is unmeasured.
+- **`NUMERIC` is read as `tokio-postgres` reads it** (`numeric`). The parity of every other type
+  is held per case by `parity` against the tier.
 - **No run against a real driver.** Every cell here is a fake connection. The server refusing a
   multi-statement string at `Parse`, the driver carrying `57014` in `sqlstate`, its `NUMERIC`
   mapping, its bind types and its `BEGIN` on autocommit-off are read off the driver's source,
   not observed.
 - **Loading and connecting are outside the deadline**: the driver is loaded and a connection
   opened per call, and only the statement runs under `SET LOCAL`.
-- **Only `execute`'s shape**: no `dry_run`, no raw statement, no boot-path call.
+- **Every port method, read off the driver's source.** `session`'s header says what each sends;
+  `numeric` closes the one value drift the two transports had. No cell has run them against a
+  server.
 - **The linked driver signs in less.** Its libpq is built without Kerberos/GSSAPI and without
   OAuth; a mounted driver's keeps both, and `Conninfo` refuses GSSAPI,
   SSPI and OAuth sign-in on either route, because a declaration can name none of them.
@@ -227,6 +226,7 @@ Why this transport could not answer.
 - `Batch`
 - `Unannounced`
 - `Parameters`
+- `Unreadable`
 - `DeadlineSpent` - Spent before anything was sent - refused locally, the `tokio-postgres` path's `DeadlineSpent`.
 
 #### Implements
@@ -283,34 +283,16 @@ Loads and initialises the driver, opening no database - what `sutura doctor` ask
 pub struct AdbcPostgres
 ```
 
-A PostgreSQL source reached through its ADBC driver.
+A PostgreSQL source reached through its ADBC driver, behind the same `Warehouse` port and the
+same `PostgresError` the `tokio-postgres` path answers with.
 
 #### Methods
 
 ```rust
-pub fn deadline_exceeded(error: &AdbcError) -> bool
+pub fn new(source: SourceName, posture: SourcePosture, driver: PostgresDriver, conninfo: Conninfo) -> Result<Self, PostgresError>
 ```
 
-Whether `error` is the deadline: spent before sending, or the server's `57014`.
-
-`57014` is also what a manual `pg_cancel_backend` produces, which this cannot tell apart -
-`deadline.rs`'s limit, unchanged.
-
-```rust
-pub fn execute(&self, query: &GeneratedQuery, deadline: Deadline) -> Result<ResultBatches, AdbcError>
-```
-
-Runs one rendered statement and hands its batches on.
-
-# Errors
-
-`AdbcError`; `Self::deadline_exceeded` says which of them is the deadline.
-
-```rust
-pub fn new(driver: PostgresDriver, conninfo: Conninfo) -> Result<Self, PostgresError>
-```
-
-Takes the driver and the connection string it connects with.
+Takes the source, the driver and the connection string it connects with.
 
 Reads the connect-time ceiling the `tokio-postgres` path reads
 (`SUTURA_DEV_STATEMENT_TIMEOUT_MS`).
@@ -321,7 +303,7 @@ Reads the connect-time ceiling the `tokio-postgres` path reads
 
 #### Implements
 
-`Debug`
+`Debug`, `Warehouse`
 
 ### `use Channel`
 
