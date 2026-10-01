@@ -1696,97 +1696,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#module-connection" class="md-nav__link">
+  <a href="#module-adbc" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Module connection
+        Module adbc
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Module connection">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#enum-connectiontarget" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        enum ConnectionTarget
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="enum ConnectionTarget">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#variants_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Variants
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#struct-passwordfileunreadable" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        struct PasswordFileUnreadable
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="struct PasswordFileUnreadable">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#implements_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#fn-config" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        fn config
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -2294,97 +2210,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#module-connection" class="md-nav__link">
+  <a href="#module-adbc" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Module connection
+        Module adbc
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Module connection">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#enum-connectiontarget" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        enum ConnectionTarget
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="enum ConnectionTarget">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#variants_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Variants
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#struct-passwordfileunreadable" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        struct PasswordFileUnreadable
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="struct PasswordFileUnreadable">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#implements_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#fn-config" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        fn config
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -2526,6 +2358,116 @@ it was handed whenever nothing was set. There is no unconfigured state to substi
 - <code>fixture::FixtureCredential</code> cannot hold one - so this stays infallible.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Warehouse</code></p>
+<h2 id="module-adbc">Module <code>adbc</code><a class="headerlink" href="#module-adbc" title="Permanent link">&para;</a></h2>
+<p>The ADBC transport for PostgreSQL, the second adapter on <code>sutura-adbc</code> (<code>telekom/sutura#913</code>).</p>
+<p>One certified statement through the self-built driver (<code>nix/postgres-adbc.nix</code>), its Arrow
+batches handed on as the port's <code>ResultBatches</code> with
+no per-cell walk of this crate's own.</p>
+<p><strong>Default-off, and wired to nothing.</strong> No composition root constructs
+<code>AdbcPostgres</code> and no <code>Warehouse</code> method reaches it: the
+<code>tokio-postgres</code> path in <code>lib.rs</code> still answers every Postgres source. Whether and when that
+changes is the cutover's decision, not this module's.</p>
+<h1 id="what-holds-what">What holds what<a class="headerlink" href="#what-holds-what" title="Permanent link">&para;</a></h1>
+<ul>
+<li><strong>Caller text reaches the driver only through <code>execute</code>.</strong> The pinned driver
+  (<code>apache-arrow-adbc-24</code>) sends a parameterless <code>execute_update</code> through <code>PQexec</code>, the simple
+  protocol, which runs every statement of a multi-statement string; <code>execute</code> asks for a result
+  stream and goes through <code>PQprepare</code>, where the server refuses a second statement at <code>Parse</code>.
+  So <code>LocalTimeout::apply</code> is the one <code>execute_update</code> in this module, its text is a fixed
+  literal and a <code>NonZeroU32</code>, and <code>clippy.toml</code> bans every other call
+  in the workspace - except one written inside an existing <code>disallowed_methods</code> expectation's
+  scope, which that expectation covers too (the ban's own entry states it).</li>
+<li><strong>The per-request deadline is <code>SET LOCAL statement_timeout</code></strong> in the transaction the driver
+  opens when autocommit is switched off, clamped to the same connect-time ceiling the
+  <code>tokio-postgres</code> path uses, and always rolled back. A statement the server cancelled for it
+  (<code>57014</code>) reads as
+  <code>AdbcPostgres::deadline_exceeded</code>, the same
+  split <code>deadline.rs</code> draws.</li>
+<li><strong>No linked-in driver.</strong> <code>sutura-adbc</code> links exactly one archive under one <code>AdbcDriverInit</code>
+  symbol, and it is the <code>BigQuery</code> driver's - so a PostgreSQL transport that took
+  <code>sutura_adbc::linked_driver()</code> would open the wrong driver.
+  <code>MountedDriver</code> has no linked spelling, which is why this
+  transport takes it rather than a <code>DriverLocation</code>.</li>
+</ul>
+<h1 id="limits_1">Limits<a class="headerlink" href="#limits_1" title="Permanent link">&para;</a></h1>
+<ul>
+<li><strong><code>NUMERIC</code> drifts.</strong> The driver maps <code>NUMERIC</code> to Arrow <code>Utf8</code> by OID whatever the scale, so
+  <code>SELECT 1::numeric</code> is <code>Value::Text("1")</code> here and <code>Value::Integer(1)</code> on the <code>tokio-postgres</code>
+  path; a fractional value is the same text on both. The cell
+  <code>a_scale_zero_numeric_is_text_here_where_the_tokio_postgres_path_reads_an_integer</code> pins the
+  pair. The parity of every other type with <code>lib.rs</code>'s <code>cell</code> is unmeasured.</li>
+<li><strong>No run against a real driver.</strong> Every cell here is a fake connection. The server refusing a
+  multi-statement string at <code>Parse</code>, the driver carrying <code>57014</code> in <code>sqlstate</code>, its <code>NUMERIC</code>
+  mapping, its bind types and its <code>BEGIN</code> on autocommit-off are read off the driver's source,
+  not observed.</li>
+<li><strong>Loading and connecting are outside the deadline</strong>: the driver is loaded and a connection
+  opened per call, and only the statement runs under <code>SET LOCAL</code>.</li>
+<li><strong>The channel is whatever the URI says.</strong> libpq reads <code>sslmode</code> and friends from it; the
+  declared <code>SourceTransport</code> a composition root turns into a <code>rustls::ClientConfig</code> for the
+  <code>tokio-postgres</code> path is not applied here.</li>
+<li><strong>Only <code>execute</code>'s shape</strong>: no <code>dry_run</code>, no raw statement, no boot-path call.</li>
+<li><strong>Nothing on the two static musl triples.</strong> A <code>MountedDriver</code>
+  is always opened with <code>load_dynamic_from_filename</code>, which a static binary cannot do
+  (<code>sutura-adbc</code>'s <code>linked.rs</code>), so there this transport can only answer <code>AdbcError::Load</code> -
+  although <code>nix/postgres-adbc.nix</code> already builds the static archive. How musl gets a
+  PostgreSQL driver is not decided here.</li>
+</ul>
+<h3 id="enum-adbcerror"><code>enum AdbcError</code><a class="headerlink" href="#enum-adbcerror" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">AdbcError</span>
+</span></code></pre></div>
+<p>Why this transport could not answer.</p>
+<h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Load</code></li>
+<li><code>Adbc</code></li>
+<li><code>Batch</code></li>
+<li><code>Unannounced</code></li>
+<li><code>Parameters</code></li>
+<li><code>DeadlineSpent</code> - Spent before anything was sent - refused locally, the <code>tokio-postgres</code> path's <code>DeadlineSpent</code>.</li>
+</ul>
+<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="struct-mounteddriver"><code>struct MountedDriver</code><a class="headerlink" href="#struct-mounteddriver" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MountedDriver</span>
+</span></code></pre></div>
+<p>A driver this deployment mounted, at an absolute path - and never the linked-in route.</p>
+<p>Parsed by <code>sutura_adbc::DriverLocation::parse</code>, so an empty or relative path is refused exactly
+as it is for every ADBC adapter; kept as a path because the only other thing a <code>DriverLocation</code>
+can be is the <code>BigQuery</code> archive this module's header describes.</p>
+<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">named</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnusableDriverPath</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Parses a mounted driver's path.</p>
+<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<p><code>UnusableDriverPath</code> for an empty or relative path. Whether a driver is there is the
+load's question, asked by the first call.</p>
+<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-adbcpostgres"><code>struct AdbcPostgres</code><a class="headerlink" href="#struct-adbcpostgres" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AdbcPostgres</span>
+</span></code></pre></div>
+<p>A PostgreSQL source reached through its ADBC driver.</p>
+<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">deadline_exceeded</span><span class="p">(</span><span class="n">error</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">AdbcError</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Whether <code>error</code> is the deadline: spent before sending, or the server's <code>57014</code>.</p>
+<p><code>57014</code> is also what a manual <code>pg_cancel_backend</code> produces, which this cannot tell apart -
+<code>deadline.rs</code>'s limit, unchanged.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">query</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">GeneratedQuery</span><span class="p">,</span><span class="w"> </span><span class="n">deadline</span><span class="p">:</span><span class="w"> </span><span class="nc">Deadline</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">ResultBatches</span><span class="p">,</span><span class="w"> </span><span class="n">AdbcError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Runs one rendered statement and hands its batches on.</p>
+<h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
+<p><code>AdbcError</code>; <code>Self::deadline_exceeded</code> says which of them is the deadline.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">driver</span><span class="p">:</span><span class="w"> </span><span class="nc">MountedDriver</span><span class="p">,</span><span class="w"> </span><span class="n">uri</span><span class="p">:</span><span class="w"> </span><span class="nc">Secret</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">PostgresError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Takes the driver and the libpq URI it connects with.</p>
+<p>Reads the connect-time ceiling the <code>tokio-postgres</code> path reads
+(<code>SUTURA_DEV_STATEMENT_TIMEOUT_MS</code>).</p>
+<h1 id="errors_2">Errors<a class="headerlink" href="#errors_2" title="Permanent link">&para;</a></h1>
+<p><code>PostgresError::InvalidStatementTimeout</code> where that tuning value is not a millisecond count.</p>
+<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code></p>
+<h3 id="use-unusabledriverpath"><code>use UnusableDriverPath</code><a class="headerlink" href="#use-unusabledriverpath" title="Permanent link">&para;</a></h3>
 <h2 id="module-connection">Module <code>connection</code><a class="headerlink" href="#module-connection" title="Permanent link">&para;</a></h2>
 <p>The driver configuration for one declared PostgreSQL connection.</p>
 <p>A composition root owns mapping its source declaration into these values. This module owns the
@@ -2533,24 +2475,24 @@ driver-specific half: how TCP and unix-socket targets are represented to <code>t
 reading the password file once at boot. Keeping that here means both shipped composition roots
 reach the same driver behaviour without depending on each other.</p>
 <h3 id="enum-connectiontarget"><code>enum ConnectionTarget</code><a class="headerlink" href="#enum-connectiontarget" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ConnectionTarget</span><span class="o">&lt;'</span><span class="na">a</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ConnectionTarget</span><span class="o">&lt;'</span><span class="na">a</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The address a PostgreSQL source is dialled through.</p>
-<h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
+<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Host</code> - A TCP host name or address.</li>
 <li><code>UnixSocket</code> - A unix socket directory.</li>
 </ul>
-<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code></p>
 <h3 id="struct-passwordfileunreadable"><code>struct PasswordFileUnreadable</code><a class="headerlink" href="#struct-passwordfileunreadable" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PasswordFileUnreadable</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PasswordFileUnreadable</span>
 </span></code></pre></div>
 <p>The declared password file could not be read while the connection was built.</p>
-<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
+<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="fn-config"><code>fn config</code><a class="headerlink" href="#fn-config" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">config</span><span class="p">(</span><span class="n">target</span><span class="p">:</span><span class="w"> </span><span class="nc">ConnectionTarget</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="n">database</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">user</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">password_file</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">tokio_postgres</span><span class="p">::</span><span class="n">Config</span><span class="p">,</span><span class="w"> </span><span class="n">PasswordFileUnreadable</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">config</span><span class="p">(</span><span class="n">target</span><span class="p">:</span><span class="w"> </span><span class="nc">ConnectionTarget</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="n">database</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">user</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">password_file</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">tokio_postgres</span><span class="p">::</span><span class="n">Config</span><span class="p">,</span><span class="w"> </span><span class="n">PasswordFileUnreadable</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Builds the driver configuration for one declared PostgreSQL connection.</p>
 <p>The password is trimmed exactly once after reading, so a trailing newline from a mounted secret
@@ -2558,7 +2500,7 @@ is not part of the credential, then parsed into <code>Secret</code>. The read <c
 that <code>Secret</code>, not dropped - it is not zeroised, and it lives unzeroised until this function
 returns. The returned config does not select TLS; <code>crate::PostgresWarehouse::connect_secured</code>
 makes a supplied TLS client mandatory before it dials.</p>
-<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<h1 id="errors_3">Errors<a class="headerlink" href="#errors_3" title="Permanent link">&para;</a></h1>
 <p>Returns <code>PasswordFileUnreadable</code> when <code>password_file</code> cannot be read.</p>
 <h2 id="module-fixture">Module <code>fixture</code><a class="headerlink" href="#module-fixture" title="Permanent link">&para;</a></h2>
 <p>The fixture tier's credential - a value that cannot exist unconfigured.</p>
@@ -2610,54 +2552,54 @@ their own argument.</p>
   distinction this module is about. Only the password is generated.</li>
 </ul>
 <h3 id="enum-fixturevariable"><code>enum FixtureVariable</code><a class="headerlink" href="#enum-fixturevariable" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">FixtureVariable</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">FixtureVariable</span>
 </span></code></pre></div>
 <p>One of the three values the Postgres fixture tier publishes into the environment.</p>
 <p>An enum rather than a <code>&amp;'static str</code>, because a refusal has to carry WHICH value was missing as
 data: a caller that read the variable's name out of the message would be matching on prose.</p>
-<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<h4 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>User</code> - The login role the tier created.</li>
 <li><code>Password</code> - That role's password, generated per worktree by <code>nix/postgres-tier.nix</code>.</li>
 <li><code>Database</code> - The database the tier created and owns.</li>
 </ul>
-<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The environment variable's name, spelled once.</p>
 <p>One definition, because a refusal that tells somebody to set a name the reader spells
 differently is a fix that does not work and looks like it should.</p>
-<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
+<h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Hash</code>, <code>PartialEq</code></p>
 <h3 id="enum-unconfiguredfixture"><code>enum UnconfiguredFixture</code><a class="headerlink" href="#enum-unconfiguredfixture" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">UnconfiguredFixture</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">UnconfiguredFixture</span>
 </span></code></pre></div>
 <p>Why there is no fixture credential to connect with.</p>
 <p><strong>Two variants, and no third that carries a substitute.</strong> The failure is that this process was
 not told the credential, and the only honest answers to it are <em>say which variable</em> and <em>stop</em> -
 so there is nowhere in this type for a default to be returned from.</p>
-<h4 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h4>
+<h4 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Unset</code> - The variable is not in the environment at all.</li>
 <li><code>Blank</code> - The variable is set to nothing, which a shell script exporting <code>""</code> is the ordinary way to reach. Read as a credential it is a login attempt as the empty user, so it is refused here rather than at the server.</li>
 </ul>
-<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
+<h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-fixturecredential"><code>struct FixtureCredential</code><a class="headerlink" href="#struct-fixturecredential" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureCredential</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureCredential</span>
 </span></code></pre></div>
 <p>The fixture tier's credential.</p>
 <p>Exists only if all three values were present, so nothing downstream asks again. No <code>Display</code>,
 no <code>PartialEq</code>, no public field and no public accessor: the password is a
 <code>sutura_domain::identity::Secret</code>, which has neither <code>Display</code> nor <code>==</code>, and the two names
 leave this crate only as arguments to <code>PostgresWarehouse::local_config</code>.</p>
-<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnconfiguredFixture</span><span class="o">&gt;</span>
+<h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnconfiguredFixture</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>This process's credential, as the tier exported it.</p>
 <p>The production entry point, and a one-line adapter over <code>FixtureCredential::parse</code> on
 purpose - see that function for why the seam is there.</p>
-<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
+<h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code></p>
 <h2 id="module-tls">Module <code>tls</code><a class="headerlink" href="#module-tls" title="Permanent link">&para;</a></h2>
 <p>Building the <code>rustls::ClientConfig</code> a TLS <code>postgres</code> source channel verifies with.</p>
@@ -2703,46 +2645,46 @@ entry, <code>PostgresError::SystemStoreCertificate</code> for a system-store one
 the extraction) and building the <code>ring</code>-backed <code>rustls::ClientConfig</code> <code>tokio-postgres-rustls</code>
 wants. Every error variant this module can produce is unchanged; only where the read happens did.</p>
 <h3 id="enum-tlsanchors"><code>enum TlsAnchors</code><a class="headerlink" href="#enum-tlsanchors" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">TlsAnchors</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">TlsAnchors</span>
 </span></code></pre></div>
 <p>The trust anchors a TLS source channel verifies against, resolved from the declaration.</p>
-<h4 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h4>
+<h4 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Bundle</code> - A PEM bundle at this absolute path. Read by <code>client_config</code> once, at boot.</li>
 <li><code>System</code> - The host's own trust store, read once by <code>client_config</code>. This is reached only when the deployment explicitly wrote <code>transport_anchors: system</code>; it is never a fallback.</li>
 </ul>
-<h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
+<h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-tlsidentity"><code>struct TlsIdentity</code><a class="headerlink" href="#struct-tlsidentity" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TlsIdentity</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TlsIdentity</span>
 </span></code></pre></div>
 <p>The client certificate and key a <code>mutual</code> channel presents, resolved from the declaration.</p>
 <p>A pair - configuration already refused a partial one at load; this module reads both paths and
 refuses a file that does not hold its half.</p>
-<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">certificate</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+<h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">certificate</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
 </span></code></pre></div>
 <p>The declared client certificate path.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
 </span></code></pre></div>
 <p>The declared client key path.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">certificate</span><span class="p">:</span><span class="w"> </span><span class="nc">PathBuf</span><span class="p">,</span><span class="w"> </span><span class="n">key</span><span class="p">:</span><span class="w"> </span><span class="nc">PathBuf</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">certificate</span><span class="p">:</span><span class="w"> </span><span class="nc">PathBuf</span><span class="p">,</span><span class="w"> </span><span class="n">key</span><span class="p">:</span><span class="w"> </span><span class="nc">PathBuf</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>A client identity from its declared paths.</p>
-<h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
+<h4 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="fn-client_config"><code>fn client_config</code><a class="headerlink" href="#fn-client_config" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">client_config</span><span class="p">(</span><span class="n">anchors</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TlsAnchors</span><span class="p">,</span><span class="w"> </span><span class="n">identity</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">TlsIdentity</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">rustls</span><span class="p">::</span><span class="n">ClientConfig</span><span class="p">,</span><span class="w"> </span><span class="k">crate</span><span class="p">::</span><span class="n">PostgresError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">client_config</span><span class="p">(</span><span class="n">anchors</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TlsAnchors</span><span class="p">,</span><span class="w"> </span><span class="n">identity</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">TlsIdentity</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">rustls</span><span class="p">::</span><span class="n">ClientConfig</span><span class="p">,</span><span class="w"> </span><span class="k">crate</span><span class="p">::</span><span class="n">PostgresError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Builds the <code>rustls::ClientConfig</code> a TLS source channel verifies (and, for <code>mutual</code>, presents)
 with, from the resolved anchor material and an optional client identity.</p>
-<h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
+<h1 id="errors_4">Errors<a class="headerlink" href="#errors_4" title="Permanent link">&para;</a></h1>
 <p><code>SystemStoreRead</code>/<code>SystemStoreEmpty</code> for a host store that cannot supply a complete non-empty
 root set; <code>AnchorsRead</code> for a bundle that cannot be read; <code>AnchorsEmpty</code> for a bundle that parses
 to no certificates; <code>IdentityRead</code>/<code>IdentityIncomplete</code>/<code>IdentityKey</code> for an identity half that
 cannot be read or does not hold its kind.</p>
 <h3 id="fn-rotating_client_config"><code>fn rotating_client_config</code><a class="headerlink" href="#fn-rotating_client_config" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rotating_client_config</span><span class="p">(</span><span class="n">anchors</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TlsAnchors</span><span class="p">,</span><span class="w"> </span><span class="n">identity</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">TlsIdentity</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Rotating</span><span class="o">&lt;</span><span class="n">rustls</span><span class="p">::</span><span class="n">ClientConfig</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Rotator</span><span class="o">&lt;</span><span class="n">rustls</span><span class="p">::</span><span class="n">ClientConfig</span><span class="p">,</span><span class="w"> </span><span class="k">crate</span><span class="p">::</span><span class="n">PostgresError</span><span class="o">&gt;</span><span class="p">),</span><span class="w"> </span><span class="k">crate</span><span class="p">::</span><span class="n">PostgresError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rotating_client_config</span><span class="p">(</span><span class="n">anchors</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TlsAnchors</span><span class="p">,</span><span class="w"> </span><span class="n">identity</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">TlsIdentity</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Rotating</span><span class="o">&lt;</span><span class="n">rustls</span><span class="p">::</span><span class="n">ClientConfig</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Rotator</span><span class="o">&lt;</span><span class="n">rustls</span><span class="p">::</span><span class="n">ClientConfig</span><span class="p">,</span><span class="w"> </span><span class="k">crate</span><span class="p">::</span><span class="n">PostgresError</span><span class="o">&gt;</span><span class="p">),</span><span class="w"> </span><span class="k">crate</span><span class="p">::</span><span class="n">PostgresError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Builds a rotating <code>rustls::ClientConfig</code> handle (and the poll handle that keeps it current) for a
 TLS source channel, from the resolved anchor material and an optional client identity.</p>
@@ -2752,7 +2694,7 @@ A NEW connection calls <code>sutura_tls::Rotating::current</code> at connect tim
 the adapter's life; a live connection is left until it closes. <strong>Not drained</strong> - there is no
 connection pool today, so draining would close a live connection with nothing to retire to
 (<code>docs/adr/0010</code>; <code>github.com/telekom/sutura#125</code> item 3).</p>
-<h1 id="errors_2">Errors<a class="headerlink" href="#errors_2" title="Permanent link">&para;</a></h1>
+<h1 id="errors_5">Errors<a class="headerlink" href="#errors_5" title="Permanent link">&para;</a></h1>
 <p>The same refusals as <code>client_config</code> when the declared material cannot be loaded or built at
 boot.</p>
 
