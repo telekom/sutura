@@ -428,7 +428,7 @@
         # check POINTS AT, never the declaration.
         shipped = import ./nix/shipped.nix {
           inherit pkgs nixpkgs system crane rust-overlay craneLib commonArgs
-            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers;
+            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers;
           inherit (commonArgs) version;
         };
 
@@ -482,7 +482,7 @@
         # are the entries here that are NOT shipped artifacts - see `probeFeatures`.
         packages = crossPackages // shipped.ociImages // shipped.nativeBinaries
           // shipped.localImages // shipped.featurePackages // shipped.probeManifests
-          // shipped.allFeaturesProbes // {
+          // shipped.allFeaturesProbes // shipped.linkedDriversTests // {
           default = shipped.nativeBinaries.sutura;
 
           # The Pulumi CLI, as a package as well as an app, so `nix build .#pulumi` works from CI.

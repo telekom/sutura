@@ -31,6 +31,8 @@
 # The per-triple ADBC BigQuery driver derivations, from `nix/bigquery-adbc-drivers.nix`. Read for
 # their `c-archive` half only - see `adbcArchiveFor`.
 , adbcDrivers
+# The per-triple ADBC PostgreSQL derivations, read by `linkedDriversTests` only.
+, postgresAdbcDrivers
 , version
 }:
 
@@ -244,6 +246,26 @@ let
   # cross linker comes from pkgsCross, so no developer needs a local cross setup.
   crossFor = { binary, target, profile, features ? [ ] }:
     let
+      inherit (crossEnv { inherit target profile; }) crossLib args;
+    in
+    # `crossEnv`'s `args` already carry `doCheck = false`; restated where `buildDepsOnly` reads it.
+    crossLib.buildPackage (args // inheritedArtifacts (crossLib.buildDepsOnly (args // { doCheck = false; })) // {
+      # Same reasoning as `nativeFor`; crane appends the target itself.
+      pname = binary.bin;
+      # One package, and the target. Same reasoning as `nativeFor`.
+      cargoExtraArgs = "--package ${binary.package} --target ${target}${featureArg features}";
+      # The embedded dependency list, per target. Same reasoning as `nativeFor`, and
+      # `cargo-auditable` comes from `pkgs` rather than `crossPkgs` because it is a tool
+      # that RUNS during the build - `strictDeps = true` above makes that distinction
+      # load-bearing rather than stylistic.
+    } // adbcArchiveFor target // auditable.toolFor args // {
+      cargoBuildCommand = auditable.buildCommand profile;
+    });
+
+  # The cross toolchain and build environment for one target, shared by `crossFor` and
+  # `linkedDriversTests`.
+  crossEnv = { target, profile }:
+    let
       isMusl = pkgs.lib.hasSuffix "-linux-musl" target;
       crossPkgs = import nixpkgs {
         inherit system;
@@ -284,17 +306,38 @@ let
         "CFLAGS_${builtins.replaceStrings [ "-" ] [ "_" ] target}" = "-DMI_LIBC_MUSL=1";
       };
     in
-    crossLib.buildPackage (args // inheritedArtifacts (crossLib.buildDepsOnly args) // {
-      # Same reasoning as `nativeFor`; crane appends the target itself.
-      pname = binary.bin;
-      # One package, and the target. Same reasoning as `nativeFor`.
-      cargoExtraArgs = "--package ${binary.package} --target ${target}${featureArg features}";
-      # The embedded dependency list, per target. Same reasoning as `nativeFor`, and
-      # `cargo-auditable` comes from `pkgs` rather than `crossPkgs` because it is a tool
-      # that RUNS during the build - `strictDeps = true` above makes that distinction
-      # load-bearing rather than stylistic.
-    } // adbcArchiveFor target // auditable.toolFor args // {
-      cargoBuildCommand = auditable.buildCommand profile;
+    { inherit crossLib args; };
+
+  # BOTH LINKED DRIVERS IN ONE STATIC MUSL BINARY, RUN - `github.com/telekom/sutura#913`'s musl
+  # decision, in a TEST build and deliberately not in a release: `adbcArchiveFor` still links only
+  # the BigQuery archive into a published artefact, because no shipped path constructs the
+  # PostgreSQL ADBC transport yet. This builds `crates/sutura-adbc/tests/linked.rs` for
+  # x86_64-unknown-linux-musl with both archive directories and RUNS it, which only an x86_64-linux
+  # builder can, so the attribute exists there alone. Fail closed: the log has to show the cell's
+  # LINKED arm running and the cell passing, so a build that stopped linking the archive (whose
+  # unlinked arm passes) is red here. `nix/bigquery-driver-check.sh` realises it in CI.
+  linkedDriversTests = pkgs.lib.optionalAttrs (system == "x86_64-linux") (
+    let
+      target = "x86_64-unknown-linux-musl";
+      cell = "tests::the_postgres_driver_is_there_exactly_where_its_archive_is_linked";
+      inherit (crossEnv { inherit target; profile = "ci"; }) crossLib args;
+      testArgs = args // adbcArchiveFor target // {
+        pname = "sutura-adbc-linked";
+        cargoExtraArgs = "--package sutura-adbc --target ${target}";
+        SUTURA_ADBC_POSTGRES_ARCHIVE_DIR = "${postgresAdbcDrivers."adbc-driver-postgresql-${target}"}/lib";
+      };
+    in
+    {
+      "adbc-drivers-linked-${target}-test" = crossLib.mkCargoDerivation (testArgs // inheritedArtifacts (crossLib.buildDepsOnly (testArgs // { doCheck = true; })) // {
+        doInstallCargoArtifacts = false;
+        buildPhaseCargoCommand = ''
+          set -o pipefail
+          cargoWithProfile test ${testArgs.cargoExtraArgs} --test linked -- --exact ${cell} --nocapture 2>&1 | tee linked.log
+          grep -q 'linked-postgres-driver-ran-libpq' linked.log
+          grep -q 'test result: ok\. 1 passed' linked.log
+        '';
+        installPhaseCommand = "install -Dm644 linked.log $out/linked.log";
+      });
     });
 
   # Nix system -> Rust target triple. Needed because the alias below must be named
@@ -725,6 +768,7 @@ in
     featurePackages
     hostRustTarget
     imageTargets
+    linkedDriversTests
     keyFor
     nativeBinaries
     localImages

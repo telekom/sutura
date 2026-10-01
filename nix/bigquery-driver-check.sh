@@ -208,3 +208,14 @@ assert_carries musl "$musl"
 echo "bigquery-driver-check: ok (${SUTURA_DRIVER_CHECK_PROFILE:-ci} profile) - both binaries carry their own ADBC BigQuery driver and its"
 echo "  Go runtime started inside them. The static musl one has no other route, which is why the"
 echo "  c-archive exists; neither artefact reads a path."
+
+# THE SECOND LINKED DRIVER, in a TEST build (`github.com/telekom/sutura#913`): the PostgreSQL archive
+# and its static libpq/OpenSSL beside the BigQuery one in one static musl binary, run. No release
+# artefact carries it yet - `nix/shipped.nix`'s `linkedDriversTests` says why - so a release-profile
+# run of this script has nothing of its own to ask and skips it. The derivation fails unless its
+# one linked cell ran and passed; what that cell does not reach is in its own doc comment.
+if [ "${SUTURA_DRIVER_CHECK_PROFILE:-ci}" = ci ]; then
+    nix build --no-link --print-build-logs .#adbc-drivers-linked-x86_64-unknown-linux-musl-test
+    echo "bigquery-driver-check: ok - the linked PostgreSQL driver ran libpq beside the linked BigQuery"
+    echo "  driver in one static x86_64-musl test binary."
+fi
