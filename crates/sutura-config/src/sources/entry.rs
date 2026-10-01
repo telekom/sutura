@@ -145,15 +145,13 @@ pub(super) fn parse_placement(
                     crate::sources::placement::PostgresDial::Tcp { host, port }
                 }
                 (false, true) => {
-                    let text = entry.unix_socket.map_or_default(str::trim);
-                    let directory = PathBuf::from(text);
-                    if directory.is_relative() {
-                        return Err(InvalidSourceRegistry::RelativePath {
-                            alias: alias.clone(),
-                            key: "unix_socket",
-                            path: directory,
-                        });
-                    }
+                    let directory = crate::sources::placement::SocketDirectory::parse(
+                        entry.unix_socket.map_or_default(str::trim),
+                    )
+                    .map_err(|cause| InvalidSourceRegistry::UnixSocket {
+                        alias: alias.clone(),
+                        cause,
+                    })?;
                     crate::sources::placement::PostgresDial::UnixSocket { directory, port }
                 }
             };

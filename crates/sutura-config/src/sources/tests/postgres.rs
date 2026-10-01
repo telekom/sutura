@@ -48,7 +48,7 @@ fn a_postgres_source_declares_its_connection_and_its_plaintext_choice() {
             assert_eq!(
                 *dial,
                 super::placement::PostgresDial::UnixSocket {
-                    directory: std::path::PathBuf::from("/tmp/sutura-pg"),
+                    directory: super::placement::SocketDirectory::parse("/tmp/sutura-pg").expect("an absolute directory"),
                     port: 5432,
                 }
             );
@@ -172,10 +172,10 @@ fn a_relative_password_file_or_unix_socket_is_refused_naming_the_key() {
     }];
     let error = SourceRegistry::parse(&entries, Some(&single_user())).expect_err("a relative unix socket is refused");
     match error {
-        InvalidSourceRegistry::RelativePath { key, ref path, .. } => {
-            assert_eq!(key, "unix_socket");
-            assert_eq!(path, std::path::Path::new("relative/pg"));
-        }
+        InvalidSourceRegistry::UnixSocket {
+            cause: super::placement::InvalidSocketDirectory::Relative { ref path },
+            ..
+        } => assert_eq!(path, std::path::Path::new("relative/pg")),
         other => panic!("expected a relative-path refusal, got {other:?}"),
     }
 }

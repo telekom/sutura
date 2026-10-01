@@ -460,7 +460,7 @@ fn postgres_dictionary_reader(
     let (target, port) = match connection.dial() {
         sutura_config::sources::placement::PostgresDial::Tcp { host, port } => (ConnectionTarget::Host(host.as_str()), *port),
         sutura_config::sources::placement::PostgresDial::UnixSocket { directory, port } => {
-            (ConnectionTarget::UnixSocket(directory), *port)
+            (ConnectionTarget::UnixSocket(directory.as_path()), *port)
         }
     };
     let config = pg_config(

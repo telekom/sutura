@@ -11,7 +11,7 @@
 //! argument that is **ours rather than the provider's format rules restated** - see
 //! [`BillingProject`].
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::SourceKind;
 use super::transport::SourceTransport;
@@ -202,10 +202,10 @@ impl DatasetId {
 /// `unix_socket` was a check in that function, but the FIELD still admitted whatever text was
 /// there, so [`crate::sources::placement::PostgresDial`] existed only as a `match` two composition
 /// roots each wrote by hand. Refuses only shapes that cannot be a host at all - empty, embedded
-/// whitespace, a URL scheme, a path separator - and nothing about reachability: a value that parses
-/// may still fail to resolve, or fail the TLS name check at connect time, and neither is this
-/// type's question. [`crate::sources::transport::host_is_loopback`] still does the loopback test on
-/// the parsed text.
+/// whitespace, a URL scheme, a path separator, a list separator - and nothing about reachability:
+/// a value that parses may still fail to resolve, or fail the TLS name check at connect time, and
+/// neither is this type's question. [`crate::sources::transport::host_is_loopback`] still does the
+/// loopback test on the parsed text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostName(String);
 
@@ -225,6 +225,9 @@ pub enum InvalidHostName {
     /// A `/` is a path separator, not a character a host or an address ever carries.
     #[error("it contains `/`, and a host is not a path")]
     PathSeparator,
+    /// libpq reads `host` as a list of hosts.
+    #[error("it contains `,`, which a driver reads as a list of hosts rather than one")]
+    List,
 }
 
 impl HostName {
@@ -241,6 +244,9 @@ impl HostName {
         }
         if trimmed.contains('/') {
             return Err(InvalidHostName::PathSeparator);
+        }
+        if trimmed.contains(',') {
+            return Err(InvalidHostName::List);
         }
         if trimmed.chars().any(char::is_whitespace) {
             return Err(InvalidHostName::Whitespace);
@@ -259,6 +265,45 @@ impl HostName {
 impl core::fmt::Display for HostName {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(&self.0)
+    }
+}
+
+/// A `postgres` source's unix socket directory: absolute, and one directory.
+///
+/// libpq reads the `host` this becomes as a list, so a list separator is refused like a relative path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SocketDirectory(PathBuf);
+
+/// Why a declared socket directory cannot be dialled as one.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidSocketDirectory {
+    /// A relative path resolves against the process's working directory, a different one per host.
+    #[error("`{}` is relative - write an absolute path", path.display())]
+    Relative { path: PathBuf },
+    /// See [`InvalidHostName::List`].
+    #[error("it contains `,`, which a driver reads as a list of hosts rather than one directory")]
+    List,
+}
+
+impl SocketDirectory {
+    /// Parses a declared socket directory.
+    pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidSocketDirectory> {
+        let trimmed = raw.as_ref().trim();
+        let path = PathBuf::from(trimmed);
+        if path.is_relative() {
+            return Err(InvalidSocketDirectory::Relative { path });
+        }
+        if trimmed.contains(',') {
+            return Err(InvalidSocketDirectory::List);
+        }
+        Ok(Self(path))
+    }
+
+    /// The directory, for dialling.
+    #[inline]
+    #[must_use]
+    pub fn as_path(&self) -> &Path {
+        &self.0
     }
 }
 
@@ -328,8 +373,8 @@ pub enum PostgresDial {
     },
     /// A unix domain socket dial.
     UnixSocket {
-        /// The socket directory. Absolute - checked at parse.
-        directory: PathBuf,
+        /// The socket directory.
+        directory: SocketDirectory,
         /// The port, which the driver still needs to name the socket file it connects to.
         port: u16,
     },
@@ -509,7 +554,10 @@ impl SourcePlacement {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{BillingProject, DatasetId, HostName, InvalidHostName, InvalidResourceName, SourcePlacement};
+    use super::{
+        BillingProject, DatasetId, HostName, InvalidHostName, InvalidResourceName, InvalidSocketDirectory, SocketDirectory,
+        SourcePlacement,
+    };
     use crate::sources::SourceKind;
 
     #[test]
@@ -529,6 +577,8 @@ mod tests {
             ),
             ("db/x", InvalidHostName::PathSeparator),
             ("db host", InvalidHostName::Whitespace),
+            ("db.example,", InvalidHostName::List),
+            ("db.example,@pg", InvalidHostName::List),
         ] {
             assert_eq!(
                 HostName::parse(raw).expect_err("each of these is refused"),
@@ -536,6 +586,25 @@ mod tests {
                 "{raw:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_socket_directory_is_one_absolute_directory() {
+        assert_eq!(
+            SocketDirectory::parse("/run/pg,db.example"),
+            Err(InvalidSocketDirectory::List)
+        );
+        assert_eq!(SocketDirectory::parse("/run/pg,"), Err(InvalidSocketDirectory::List));
+        assert_eq!(
+            SocketDirectory::parse("run/pg"),
+            Err(InvalidSocketDirectory::Relative {
+                path: PathBuf::from("run/pg")
+            })
+        );
+        assert_eq!(
+            SocketDirectory::parse(" /run/pg ").map(|directory| directory.as_path().to_owned()),
+            Ok(PathBuf::from("/run/pg"))
+        );
     }
 
     #[test]

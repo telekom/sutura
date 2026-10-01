@@ -594,9 +594,21 @@
           # a literal four. `nix/postgres-adbc.nix` also LINKS a probe against the archive, so a
           # member missing from it fails the build. Loading and running it is
           # `nix/shipped.nix`'s `linkedDriversTests`, which links `crates/sutura-adbc` against these.
+          # It also holds `conninfo.rs`'s `KEYWORDS` to this libpq's `PQconninfoOptions`, row for
+          # row, so a libpq that adds a connection keyword fails here until the keyword is classified.
+          # Textual on both sides: a row written another way is a mismatch, never a pass.
           adbc-driver-postgresql = pkgs.runCommand "adbc-driver-postgresql-check" {
             buildInputs = builtins.attrValues postgresAdbcDrivers;
           } ''
+            libpq=$(sed -n '/^static const internalPQconninfoOption PQconninfoOptions\[\] = {/,/^};/p' \
+              ${pkgs.libpq.src}/src/interfaces/libpq/fe-connect.c | grep -oE '^[[:space:]]*\{"[a-z_]+",' | tr -d ' \t{",')
+            table=$(sed -n '/^const KEYWORDS/,/^];/p' ${./crates/sutura-exec-postgres/src/adbc/conninfo.rs} \
+              | grep -oE '(^|\()[[:space:]]*"[a-z_]+",' | tr -d ' \t(",')
+            test "$(printf '%s\n' "$libpq" | wc -l)" -gt 40 \
+              || { echo "read no PQconninfoOptions table from libpq ${pkgs.libpq.version}" >&2; exit 1; }
+            test "$libpq" = "$table" \
+              || { echo "conninfo.rs KEYWORDS is not libpq ${pkgs.libpq.version}'s keyword list:" >&2;
+                   diff <(printf '%s\n' "$libpq") <(printf '%s\n' "$table") >&2; exit 1; }
             found=0
             for d in $buildInputs; do
               for shape in so a; do

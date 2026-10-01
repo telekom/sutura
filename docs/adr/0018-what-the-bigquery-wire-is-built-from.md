@@ -1572,28 +1572,41 @@ linked driver offers neither Kerberos nor OAuth sign-in - a mounted driver libra
 ## Fourteenth amendment, 2026-10-01: the ADBC PostgreSQL transport ships, holding the declared channel, and answers nothing yet
 
 **What moved.** The owner's `telekom/sutura#913` decisions (issuecomment-5931110864) are two stages
-with no opt-in. Stage 1 is this change: `sutura-cli`'s `postgres` feature compiles the ADBC
-transport, and `nix/shipped.nix`'s `adbcArchiveFor` links the static PostgreSQL archive into every
-musl build. So every musl release carries the Thirteenth amendment's OpenSSL 3 from here, and its
-fixes arrive through a `nixpkgs` flake bump, not through cargo. `tokio-postgres` still answers every
+with no opt-in. Stage 1 is two stacked changes, and this is the first: `sutura-cli`'s `postgres`
+feature compiles the ADBC transport, and `nix/shipped.nix`'s `adbcArchiveFor` links the static
+PostgreSQL archive into every musl build. So every musl release carries the Thirteenth amendment's
+OpenSSL 3 from here. Its fixes arrive only through a `nixpkgs` flake bump, and that is a route, not
+the cadence the Thirteenth amendment calls it: nothing watches OpenSSL or libpq advisories -
+`cargo deny` reads `Cargo.lock` and Dependabot covers `github-actions` and `cargo` - so a fix lands
+when somebody bumps `nixpkgs`. `tokio-postgres` still answers every
 `kind: postgres` source and no settings key selects ADBC. `sutura doctor` prints a `pg driver` line,
 and `nix/bigquery-driver-check.sh` requires the x86_64 musl artefact's to read linked and
 initialised.
 
 **The declared channel is enforced, not inherited.** The transport takes no connection string:
-`Conninfo` builds libpq's from the declaration and writes every key the process environment or a
-`PGSERVICE` file would otherwise fill - `verify-full` against the declared bundle, the declared
-client pair or none, a TLS 1.2 floor, GSSAPI encryption off, and sign-in limited to the methods a
-declaration can carry. Refused when it is built, by name: TLS over a unix socket, which libpq drops
-there, and `transport_anchors: system`, which libpq reads as OpenSSL's compiled-in store rather than
-the host's. Its own header carries the table and the libpq 18.6 lines each key rests on.
+`Conninfo` builds libpq's from the declaration - `verify-full` against the declared bundle, the
+declared client pair or none, a TLS 1.2 floor, GSSAPI encryption off, and sign-in limited to the
+methods a declaration can carry. Its `KEYWORDS` table classifies each of libpq 18.6's 50 keywords as
+written, read only in a refused case, or left to libpq for a stated reason; a cell holds the written
+rows to the strings built, and the `adbc-driver-postgresql` check holds the keywords to the pinned
+libpq's own list. Refused when it is built, by name: a target libpq would not read as exactly one
+host or directory; an empty password, which libpq would look up in a password file; TLS over a unix
+socket, which libpq drops there; `transport_anchors: system`, which libpq reads as OpenSSL's
+compiled-in store rather than the host's; and TLS while `OPENSSL_CONF` is set, because libpq has no
+cipher knob and that file can lower the channel. `sutura-config`'s `HostName` and `SocketDirectory`
+refuse a list separator too, so a declaration fails at load before it reaches the transport.
 
-**Stage 2, in order.** Parity of every port method on this transport; a CI run against a real
-driver and server; the default flip for every postgres source; then deleting the `tokio-postgres`
-path and the rustls source-channel code the flip leaves unused.
+**The rest of stage 1, the second stacked change.** Parity with the `tokio-postgres` path: dry run,
+raw SQL, the boot path, and scale-0 `NUMERIC` read as an integer.
+
+**Stage 2, in order.** A CI run against a real driver and server on a musl triple; the default flip
+for every postgres source; then deleting the `tokio-postgres` path and the rustls source-channel code
+the flip leaves unused.
 
 **Limits.** No cell has run this transport against a server, so every statement above about libpq
-is read from its source. aarch64-musl links the archive and nothing executes it. `doctor`
+is read from its source. OpenSSL still reads its compiled-in default configuration when
+`OPENSSL_CONF` is unset, and what the static musl artefact's copy holds is unmeasured. `PGTZ`,
+`PGDATESTYLE` and `PGGEQO` have no keyword and reach the server as session settings. aarch64-musl links the archive and nothing executes it. `doctor`
 initialises the driver and opens nothing, so libpq itself runs only in `linkedDriversTests`. And
 `bigquery-driver-check` runs for the `data_source_bigquery` category, which a change confined to
 `sutura-exec-postgres` does not select.

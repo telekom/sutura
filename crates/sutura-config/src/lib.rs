@@ -157,8 +157,8 @@ pub use crate::settings::{
     environment_from_process,
 };
 pub use crate::sources::placement::{
-    BillingProject, DatasetId, HostName, InvalidHostName, InvalidOracleServiceName, InvalidResourceName, OracleServiceName,
-    PostgresDial, SourcePlacement,
+    BillingProject, DatasetId, HostName, InvalidHostName, InvalidOracleServiceName, InvalidResourceName, InvalidSocketDirectory,
+    OracleServiceName, PostgresDial, SocketDirectory, SourcePlacement,
 };
 pub use crate::sources::{
     ConfiguredSource, InvalidSourceRegistry, SourceKind, SourceRegistry, UnknownPosture, UnknownSourceKind,

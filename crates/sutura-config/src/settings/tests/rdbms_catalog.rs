@@ -208,7 +208,8 @@ fn a_relative_connection_path_is_refused() {
     let chain = rdbms_refusal(&[], &["password_file: secrets/dictionary"]);
     assert_names(&chain, "`connection.password_file` is relative");
     let chain = rdbms_refusal(&[], &["-host", "unix_socket: run/postgresql"]);
-    assert_names(&chain, "`connection.unix_socket` is relative");
+    assert_names(&chain, "`connection.unix_socket` is not a socket directory");
+    assert_names(&chain, "`run/postgresql` is relative");
 }
 
 #[test]
