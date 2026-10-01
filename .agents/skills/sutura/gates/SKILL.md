@@ -33,9 +33,10 @@ all: crane synthesises that from the manifests, so it does not move whatever the
 **A check can also fail on an unmodified tree with nothing lost, and it cost a session before it
 was named.** The checks decompress one dependency closure for their `target/`, and a build script
 may have baked the absolute `$OUT_DIR` it ran in into the code it generated - `utoipa-swagger-ui`
-does, into a `rust-embed` `#[folder]`. A linux build directory is `/build` for every derivation so
-the literal still resolves; a darwin one is `/nix/var/nix/builds/nix-<pid>-<random>/`, so it
-resolves nowhere and a THIRD-PARTY crate fails to compile in a check that changed nothing -
+does, into `include_bytes!` literals (a `rust-embed` `#[folder]` up to v9). A linux build
+directory is `/build` for every derivation so the literal still resolves; a darwin one is
+`/nix/var/nix/builds/nix-<pid>-<random>/`, so it resolves nowhere and a THIRD-PARTY crate fails to
+compile in a check that changed nothing -
 `just validate` red at `checks.nextest` before running a test, on `main`. `flake.nix`'s
 `inheritedArtifacts` pairs every `cargoArtifacts` with `nix/purge-baked-out-dirs.sh`, which
 regenerates output naming a directory it no longer sits in. **What it does not reach:** a generated
