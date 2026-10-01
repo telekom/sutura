@@ -2201,7 +2201,7 @@ worth checking. This block corrects them; the lines above it are older than the 
 per-subject credential - so this record's own two-subject test remains unwritable*. That is no
 longer true. `crates/sutura-exec-bigquery/src/lib.rs` declares
 `BigQueryWarehouse::IMPERSONATION = ImpersonationCapability::PerSubjectCredential`
-(`crates/sutura-exec-bigquery/src/lib.rs:665`), and the ADBC transport federates the caller's own
+(`crates/sutura-exec-bigquery/src/lib.rs:666`), and the ADBC transport federates the caller's own
 verified assertion through the source's declared per-subject account map. So a published build
 links an adapter that carries one, and the record's own two-subject test is no longer unwritable:
 `crates/sutura-exec-bigquery/tests/declared_principal.rs` is it.
@@ -2234,7 +2234,7 @@ corrects them; the lines above it are older than the code.
 **Item 3's own amendment block** (line 2097) said *no shipped adapter yet has anywhere for a
 per-subject credential to arrive*. That stopped being true when the BigQuery adapter declared
 `ImpersonationCapability::PerSubjectCredential`
-(`crates/sutura-exec-bigquery/src/lib.rs:665`), and `Presented::SubjectToken` is constructed by the
+(`crates/sutura-exec-bigquery/src/lib.rs:666`), and `Presented::SubjectToken` is constructed by the
 broker that ships rather than only by tests. The correction is to the amendment, not to the original
 item: the original said *nothing constructs a second leg*, which was true when written; the
 amendment corrected it to *no shipped adapter has a place for a per-subject credential*, and that
