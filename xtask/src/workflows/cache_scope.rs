@@ -816,6 +816,13 @@ pub(super) mod tests {
             "the clean PR write job is the permitted shape"
         );
 
+        // Deleting ONLY the Dependabot-author conjunct drops the pairing too.
+        let dependabot = pr.replace(" && github.event.pull_request.user.login != 'dependabot[bot]'", "");
+        assert!(
+            !super::retired::in_pr_publish_job(&dependabot, marker(&dependabot)),
+            "a job that admits a Dependabot-authored pull request is not the write half"
+        );
+
         // Deleting ONLY the job-level `if:` (leaving the step `if:`) drops the gate.
         let no_job_gate = pr.replace(
             "    if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'\n    environment: cachix-push-pr\n",
@@ -854,6 +861,14 @@ pub(super) mod tests {
                 .iter()
                 .any(|problem| problem.contains("job `pr-cache`") && problem.contains("[\"sutura\"]")),
             "the PR writer must not target the shared cache: {found:#?}"
+        );
+        // Without the Dependabot-author conjunct it is no PR writer at all: refused as a publisher
+        // outside the pairing, before its target is read.
+        let dependabot = pr.replace(" && github.event.pull_request.user.login != 'dependabot[bot]'", "");
+        let found = super::retired::retired(&[(".github/workflows/ci.yml".into(), dependabot)]);
+        assert!(
+            found.iter().any(|problem| problem.contains("publishes to a store outside")),
+            "{found:#?}"
         );
     }
 
