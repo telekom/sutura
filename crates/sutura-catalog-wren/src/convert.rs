@@ -14,7 +14,7 @@
 //! `sutura-catalog-local`'s own document types stop at: parse what was written, refuse what does not
 //! parse, leave consistency to the load a human then reviews.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::model::{ColumnName, DimensionName, MetricName, ModelName, RelationshipName};
 
@@ -284,6 +284,9 @@ fn planned_term(term: &recognize::Term, describe: impl FnOnce() -> String, refus
 }
 
 fn convert_cubes(manifest: &Manifest, models: &BTreeMap<String, ModelName>, out: &mut Converted) {
+    // Every `<cube>_<measure>` planned so far, across the manifest: the loader fails the whole
+    // catalog over a metric declared twice.
+    let mut metrics = BTreeSet::new();
     for cube in &manifest.cubes {
         let Some(base_model) = models.get(&cube.base_object) else {
             out.refusals.push(Refusal::new(
@@ -296,6 +299,14 @@ fn convert_cubes(manifest: &Manifest, models: &BTreeMap<String, ModelName>, out:
         let Some(cube_name) = parsed(MetricName::parse(&cube.name), || cube.name.clone(), &mut out.refusals) else {
             continue;
         };
+        if out.cubes.iter().any(|planned| planned.name == cube_name) {
+            out.refusals.push(Refusal::new(
+                "duplicate_cube",
+                &cube.name,
+                "an earlier cube of this name is already written as `metrics/<cube>.md`",
+            ));
+            continue;
+        }
         if !cube.hierarchies.is_empty() {
             let keys: Vec<&str> = cube.hierarchies.keys().map(String::as_str).collect();
             out.refusals.push(Refusal::new(
@@ -384,14 +395,23 @@ fn convert_cubes(manifest: &Manifest, models: &BTreeMap<String, ModelName>, out:
                 }
             };
             // The loader parses the measure's own name and then the `<cube>_<measure>` join, and
-            // refuses the whole cube over either - so both are refused here, as this measure alone.
-            let Some(name) = parsed(
-                MetricName::parse(&measure.name).and_then(|name| MetricName::parse(format!("{cube_name}_{name}")).map(|_| name)),
+            // fails the whole catalog over either - so both are refused here, as this measure alone.
+            let Some((name, metric)) = parsed(
+                MetricName::parse(&measure.name)
+                    .and_then(|name| MetricName::parse(format!("{cube_name}_{name}")).map(|metric| (name, metric))),
                 || full_name.clone(),
                 &mut out.refusals,
             ) else {
                 continue;
             };
+            if !metrics.insert(metric) {
+                out.refusals.push(Refusal::new(
+                    "duplicate_metric",
+                    &full_name,
+                    "an earlier measure already converts to this `<cube>_<measure>` metric",
+                ));
+                continue;
+            }
             measures.push(PlannedMeasure { name, computation });
         }
         if !measures.is_empty() {

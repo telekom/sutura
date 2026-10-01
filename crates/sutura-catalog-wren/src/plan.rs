@@ -54,8 +54,8 @@ pub(crate) struct PlannedDimension {
     pub(crate) column: ColumnName,
 }
 
-/// One measure of a [`PlannedCube`]. Its name already joined with the cube's into a metric name, so
-/// the loader's `<cube>_<measure>` join cannot fail over it.
+/// One measure of a [`PlannedCube`], under its own name. Its `<cube>_<measure>` join already
+/// parsed and is unique in this import, so the loader's join cannot fail over it.
 pub(crate) struct PlannedMeasure {
     pub(crate) name: MetricName,
     pub(crate) computation: PlannedComputation,
