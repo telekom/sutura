@@ -105,6 +105,13 @@ mod leg_evidence;
 #[path = "federated/harness.rs"]
 mod harness;
 
+// The two-fact ratio (`telekom/sutura#780`). `#[cfg(test)]` on the declaration so `xtask
+// test-causality` reads it as a test module and keeps this file beside it; `pub(crate)` because
+// `tests/differential.rs`'s registry-wide cell calls into it.
+#[cfg(test)]
+#[path = "federated/two_fact.rs"]
+pub(crate) mod two_fact;
+
 use corpus::{
     A_DUPLICATED_KEY, LOOKUP_SOURCE, NULL_DIMENSION_KEYS, derived, derived_question, remote_products, violated, with_null_keys,
 };

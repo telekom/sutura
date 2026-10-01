@@ -13,7 +13,7 @@ use sutura_domain::warehouse::RowSet;
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
 use sutura_semantic::{Compiled, compile};
 
-use crate::adapters::{a_caller, deadline, posture, result_budget, shared_credential, source, version};
+use crate::adapters::{DataSystemUnderTest, a_caller, deadline, posture, shared_credential, source, version};
 
 use super::corpus::{LOOKUP_SOURCE, derived, every_question, lookup_source};
 
@@ -128,37 +128,25 @@ pub(super) fn validating_on_two_engines(
     data: &Path,
     pinned: PinnedDefinitions,
 ) -> Attempted<sutura_exec_datafusion::DataFusionWarehouse> {
-    let warehouses = sutura_app::Warehouses::of(engine_on(data, &source(), &pinned))
-        .and(engine_on(data, &lookup_source(), &pinned))
+    let warehouses = sutura_app::Warehouses::of(opened_on(data, &source(), &pinned))
+        .and(opened_on(data, &lookup_source(), &pinned))
         .expect("two sources, one registry");
     let validated = sutura_app::verify_and_validate(pinned, &warehouses);
     (validated, warehouses)
 }
 
-/// One engine holding one source's tables and nothing else.
+/// One data system of kind `W` holding one source's tables and nothing else.
 ///
-/// [`duckdb_on`]'s twin, and it asserts the same non-empty precondition for the same reason: an
-/// engine with no table attached would answer nothing and the failure would name the question.
-pub(super) fn engine_on(
-    data: &Path,
-    name: &SourceName,
-    pinned: &PinnedDefinitions,
-) -> sutura_exec_datafusion::DataFusionWarehouse {
-    let ceiling = core::num::NonZeroUsize::new(1024 * 1024 * 1024).expect("a gibibyte is positive");
-    let engine = sutura_exec_datafusion::DataFusionWarehouse::new(
-        name.clone(),
-        posture(),
-        sutura_exec_datafusion::WorkingSet::of_bytes(ceiling),
-    )
-    .expect("an in-process engine starts");
+/// Opened through the registry's own [`DataSystemUnderTest::open_on`], so a side here is the same
+/// adapter, opened the same way, as the corpus cells. It asserts a non-empty table set: a data
+/// system with no table attached would answer nothing and the failure would name the question.
+pub(super) fn opened_on<W>(data: &Path, name: &SourceName, pinned: &PinnedDefinitions) -> W
+where
+    W: DataSystemUnderTest,
+{
     let attached = tables_on(data, name, pinned);
     assert!(!attached.is_empty(), "no model in the derived bundle sits on {name}");
-    for (table, csv) in attached {
-        engine
-            .attach_csv(&table, &csv)
-            .unwrap_or_else(|e| panic!("the engine could not attach {}: {e}", csv.display()));
-    }
-    engine
+    W::open_on(name.clone(), attached)
 }
 
 /// The two-source registry, and whatever the bundle validated to. [`validating_on_one_source`]'s
@@ -167,8 +155,8 @@ pub(super) fn validating_on_two_sources(
     data: &Path,
     pinned: PinnedDefinitions,
 ) -> Attempted<sutura_exec_duckdb::DuckDbWarehouse> {
-    let warehouses = sutura_app::Warehouses::of(duckdb_on(data, &source(), &pinned))
-        .and(duckdb_on(data, &lookup_source(), &pinned))
+    let warehouses = sutura_app::Warehouses::of(opened_on(data, &source(), &pinned))
+        .and(opened_on(data, &lookup_source(), &pinned))
         .expect("two sources, one registry");
     let validated = sutura_app::verify_and_validate(pinned, &warehouses);
     (validated, warehouses)
@@ -178,19 +166,6 @@ pub(super) fn validating_on_two_sources(
 pub(super) struct Side<W> {
     pub(super) bundle: Validated<PinnedDefinitions>,
     pub(super) warehouses: sutura_app::Warehouses<W>,
-}
-
-pub(super) fn duckdb_on(data: &Path, name: &SourceName, pinned: &PinnedDefinitions) -> sutura_exec_duckdb::DuckDbWarehouse {
-    let warehouse = sutura_exec_duckdb::DuckDbWarehouse::in_memory(name.clone(), posture(), result_budget())
-        .expect("an in-memory database opens");
-    let attached = tables_on(data, name, pinned);
-    assert!(!attached.is_empty(), "no model in the derived bundle sits on {name}");
-    for (table, csv) in attached {
-        warehouse
-            .attach_csv(&table, &csv)
-            .unwrap_or_else(|e| panic!("duckdb could not attach {}: {e}", csv.display()));
-    }
-    warehouse
 }
 
 /// Every table on one data system, and the CSV behind it.

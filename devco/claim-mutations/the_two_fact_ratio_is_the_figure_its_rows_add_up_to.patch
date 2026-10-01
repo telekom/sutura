@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine.rs b/crates/sutura-exec-datafusion/src/combine.rs
+index 6eb25c777..457e34971 100644
+--- a/crates/sutura-exec-datafusion/src/combine.rs
++++ b/crates/sutura-exec-datafusion/src/combine.rs
+@@ -588,7 +588,7 @@ async fn combine_plan(
+             return Err(CombineError::UnsupportedAggregate { aggregate });
+         }
+         let joined = builder
+-            .join_on(second, JoinType::Full, on)
++            .join_on(second, JoinType::Inner, on)
+             .map_err(|cause| CombineError::Build { cause })?;
+         let leaf_labels: Vec<&str> = leaves.iter().map(|leaf| leaf.0.as_str()).collect();
+         let mut columns = vec![

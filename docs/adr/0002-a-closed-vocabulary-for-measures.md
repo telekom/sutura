@@ -10,14 +10,16 @@ Status: accepted. It widens the measure vocabulary of
 argument. That record is still right that no free-text SQL may reach a statement. This one is a
 correction about which sentence in it was load-bearing.
 
-Amended three times, and each amendment is recorded rather than rewritten away. The first made a
+Amended four times, and each amendment is recorded rather than rewritten away. The first made a
 conditional count a *sibling* of a ratio, which left the seventh of the seven metrics below
 unsayable - [Two levels, not three siblings](#two-levels-not-three-siblings) is the correction. The
 second lets a ratio's term carry a model other than the metric's own - the section below titled
 *Amendment, 2026-09-25* is the record. The third declares a shared calendar and lifts the refusal
 for the case that one left refused - the section below titled *Second amendment, 2026-09-28* is
-the record, and `telekom/sutura#780` is why for both. The headings number only the dated sections,
-which is why the third amendment is headed the second. The rest of this record stands.
+the record. The fourth renders that shape per dialect and executes it - *Third amendment,
+2026-09-30* is the record - and `telekom/sutura#780` is why for the last three. The headings number
+only the dated sections, which is why the third amendment is headed the second and the fourth the
+third. The rest of this record stands.
 
 ## Context
 
@@ -262,6 +264,40 @@ only the first fact's statement - they name the metric's own model's columns - a
 is not filtered by them. A calendar declared once per source, which would let the two facts sit on
 two sources, is not built; the golden per dialect and the differential's two-fact axis are the next
 PR the issue's own decision already named.
+**Partly superseded by the third amendment below**, which renders the two statements per dialect
+and executes them.
+
+## Third amendment, 2026-09-30: the two-fact shape rendered per dialect and executed
+
+`telekom/sutura#780`, continued. The second amendment's limit said no golden rendered the two-fact
+shape and no differential executed it. Both now exist, and each carries its own limit:
+
+- **The golden per dialect.** `crates/sutura-app/tests/golden/legs.rs` pins the two fact statements
+  of `tickets_per_subscription by region` - `two-fact-first` over the metric's own model and
+  `two-fact-second` over the other term's - rendered through `sutura_sql::generate_leg` and
+  parse-checked in each dialect the renderer writes. Each joins the calendar inside its own
+  statement and is bucketed and bounded on the calendar's column; the second carries the range and
+  nothing else. **Limit:** the fixtures are hand-built, as every leg fixture there is, so nothing
+  holds them against what `sutura_semantic::plan` emits, and a parse check says nothing about a
+  service.
+- **The differential's two-fact axis.** `crates/sutura-app/tests/differential/federated/two_fact.rs`
+  asks one two-fact question over a derived catalog (a ticket fact, a calendar and the customer
+  dimension on a second data system) and answers it on two engines, held to figures worked out by
+  hand from the derived tables - the combiner is shared by every side, so only a literal catches a
+  defect in it - and `crates/sutura-app/tests/differential.rs` then has each registered data system
+  hold every leg on both sources, compared against the engines row for row. `DuckDB` always runs,
+  and `Postgres` where its tier is up; the engine's own entry is compared against itself, so it
+  checks determinism and nothing more. `ClickHouse`, where its tier is up, declares no leg
+  execution and is asserted refused as `FederationNotExecutable` before anything runs; with no tier
+  it is skipped and that refusal is not asserted here. `just test` and the nix test check both
+  provision both tiers. `BigQuery` and Oracle have no venue here and are skipped. The literal covers both halves of the empty-set rule: a group only
+  the second fact reaches is x/0 and answers null under `yields_null`, a group only the first reaches
+  is 0/x.
+
+**What is still not claimed.** Every leg runs under one operating-system identity. Both facts sit
+on one source, because a calendar per source is not built. The one-source catalog refuses the
+question (`CrossModelRatioWithoutSharedDimension`), so there is no whole-answer side to compare a
+two-fact answer against, and the cell measures that refusal rather than stating it.
 
 ## What does not change
 
