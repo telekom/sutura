@@ -10,8 +10,8 @@ The public API of `sutura-adbc`, rendered from rustdoc JSON.
 The linked-driver FFI and the shared helpers every ADBC adapter needs.
 
 This crate exists so the workspace's one `unsafe` declaration has one home
-rather than one per adapter. `linked` declares the `AdbcDriverInit` C ABI
-entrypoint a statically linked driver exports, and `ManagedDriver::load_static`
+rather than one per adapter. `linked` declares the per-driver C ABI init function
+each statically linked driver exports, and `ManagedDriver::load_static`
 opens it through that pointer - the only route a STATIC musl artefact has, because
 it has no dynamic loader. The `#[expect(unsafe_code)]` on that declaration is the
 one lowering `cargo xtask check-unsafe` excepts, and this crate's root is the one
@@ -45,7 +45,7 @@ default-off feature, the way `sutura-exec-postgres` depends on `sutura-tls`.
 pub fn linked_driver() -> Result<adbc_driver_manager::ManagedDriver, adbc_core::error::Error>
 ```
 
-The driver this artefact's own link carries, or an error where it carries none.
+The `BigQuery` driver this artefact's own link carries, or an error where it carries none.
 
 **The one route a STATIC musl binary has**, because it has no dynamic loader at all:
 `linked`'s header carries what makes the declaration sound. A build that linked no
@@ -57,6 +57,22 @@ archive gets an `Err` here, which a caller renders rather than panicking on - th
 `CoreError` where a linked-in driver's own initialisation refused, and where this
 build linked no archive at all - the same error type `ManagedDriver::load_dynamic_from_filename`
 returns, so a caller cannot tell the two routes apart and does not have to.
+
+## `fn linked_postgres_driver`
+
+```rust
+pub fn linked_postgres_driver() -> Result<adbc_driver_manager::ManagedDriver, adbc_core::error::Error>
+```
+
+The PostgreSQL driver this artefact's own link carries - `linked_driver`'s contract, for the
+archive `nix/postgres-adbc.nix` builds.
+
+A build that linked only the `BigQuery` archive gets an `Err` here and never that driver: the two
+are separate symbols, so no build can hand one out under the other's name.
+
+# Errors
+
+As `linked_driver`.
 
 ## `use parameter_batch`
 

@@ -25,37 +25,56 @@
 //! architecture built from a different driver revision would link and is held by the flake lock
 //! alone.
 //!
-//! **One driver per artefact, not one driver per crate.** `src/linked.rs` declares exactly one
-//! `AdbcDriverInit` symbol, so linking a second archive that exports the same symbol name would
-//! silently make it the wrong driver - there is no per-driver entrypoint here, and this crate does
-//! not make that generic. A second linked driver in the same binary needs its own entry symbol and
-//! its own route; today's one caller (`crates/sutura-cli/src/bigquery_driver.rs`) is the only one
-//! `DriverLocation::linked_in()` can mean.
+//! **Two drivers, one archive directory each.** `SUTURA_ADBC_ARCHIVE_DIR` names the `BigQuery`
+//! archive and `SUTURA_ADBC_POSTGRES_ARCHIVE_DIR` the PostgreSQL one; each turns on its own `cfg`
+//! and `src/linked.rs` declares each driver's own init symbol (`AdbcDriverBigqueryInit`,
+//! `AdbcDriverPostgresqlInit`), so no name is shared between the two archives -
+//! `nix/postgres-adbc.nix` says how the PostgreSQL one stopped defining the ADBC C API. The
+//! PostgreSQL directory also holds that archive's static link set (libpq and OpenSSL), linked here
+//! in dependency order with the C++ runtime after it, so the directory is the whole contract.
 
 fn main() {
-    println!("cargo::rerun-if-env-changed={ARCHIVE_DIR}");
-    println!("cargo::rustc-check-cfg=cfg(adbc_driver_linked)");
-    let Some(dir) = std::env::var_os(ARCHIVE_DIR) else {
-        return;
+    link(ARCHIVE_DIR, &[ARCHIVE_NAME], "adbc_driver_linked");
+    if link(POSTGRES_ARCHIVE_DIR, POSTGRES_ARCHIVES, "adbc_postgres_driver_linked") {
+        // The driver is C++; a static link has no shared runtime to find it in.
+        println!("cargo::rustc-link-lib=stdc++");
+    }
+}
+
+/// Links every archive in `names` from the directory `var` names, in order, and sets `cfg`.
+/// Returns whether it did. Panics where the directory lacks one, for the reason above.
+fn link(var: &str, names: &[&str], cfg: &str) -> bool {
+    println!("cargo::rerun-if-env-changed={var}");
+    println!("cargo::rustc-check-cfg=cfg({cfg})");
+    let Some(dir) = std::env::var_os(var) else {
+        return false;
     };
     let dir = std::path::PathBuf::from(dir);
-    let archive = dir.join(format!("lib{ARCHIVE_NAME}.a"));
-    assert!(
-        archive.is_file(),
-        "{ARCHIVE_DIR} names {}, which holds no lib{ARCHIVE_NAME}.a - refusing to build an \
-         artefact that would fall back to a mounted driver",
-        dir.display()
-    );
+    for name in names {
+        assert!(
+            dir.join(format!("lib{name}.a")).is_file(),
+            "{var} names {}, which holds no lib{name}.a - refusing to build an artefact that \
+             would fall back to a mounted driver",
+            dir.display()
+        );
+    }
     println!("cargo::rustc-link-search=native={}", dir.display());
-    println!("cargo::rustc-link-lib=static={ARCHIVE_NAME}");
-    println!("cargo::rustc-cfg=adbc_driver_linked");
+    for name in names {
+        println!("cargo::rustc-link-lib=static={name}");
+    }
+    println!("cargo::rustc-cfg={cfg}");
+    true
 }
 
 /// The directory a build names to have the driver linked in, holding `lib<name>.a`.
 const ARCHIVE_DIR: &str = "SUTURA_ADBC_ARCHIVE_DIR";
 
-/// The archive's link name (without `lib`/`.a`), which is the `BigQuery` driver's - the only
-/// driver this crate's one [`crate::linked`] entrypoint can be. No env-var override: a second name
-/// here would not link a second driver, only a wrong one under the same `AdbcDriverInit` symbol, so
-/// there is nothing a build could correctly set it to.
+/// The `BigQuery` archive's link name (without `lib`/`.a`). No env-var override: `src/linked.rs`
+/// declares that driver's own init symbol, so another archive here would only fail to link.
 const ARCHIVE_NAME: &str = "adbc_driver_bigquery";
+
+/// The directory holding the PostgreSQL archive and its static link set (`nix/postgres-adbc.nix`).
+const POSTGRES_ARCHIVE_DIR: &str = "SUTURA_ADBC_POSTGRES_ARCHIVE_DIR";
+
+/// The PostgreSQL archive, then what it needs, in the order a single-pass linker resolves them.
+const POSTGRES_ARCHIVES: &[&str] = &["adbc_driver_postgresql", "pq", "pgcommon", "pgport", "ssl", "crypto"];

@@ -1,8 +1,8 @@
 //! The linked-driver FFI and the shared helpers every ADBC adapter needs.
 //!
 //! This crate exists so the workspace's one `unsafe` declaration has one home
-//! rather than one per adapter. `linked` declares the `AdbcDriverInit` C ABI
-//! entrypoint a statically linked driver exports, and `ManagedDriver::load_static`
+//! rather than one per adapter. `linked` declares the per-driver C ABI init function
+//! each statically linked driver exports, and `ManagedDriver::load_static`
 //! opens it through that pointer - the only route a STATIC musl artefact has, because
 //! it has no dynamic loader. The `#[expect(unsafe_code)]` on that declaration is the
 //! one lowering `cargo xtask check-unsafe` excepts, and this crate's root is the one
@@ -31,7 +31,7 @@
 //!   drain stay in each adapter. This crate names no data system.
 
 mod bind;
-#[cfg(adbc_driver_linked)]
+#[cfg(any(adbc_driver_linked, adbc_postgres_driver_linked))]
 mod linked;
 mod location;
 
@@ -41,7 +41,7 @@ pub use location::{DriverLocation, UnusableDriverPath};
 use adbc_core::error::Error as CoreError;
 use adbc_driver_manager::ManagedDriver;
 
-/// The driver this artefact's own link carries, or an error where it carries none.
+/// The `BigQuery` driver this artefact's own link carries, or an error where it carries none.
 ///
 /// **The one route a STATIC musl binary has**, because it has no dynamic loader at all:
 /// `linked`'s header carries what makes the declaration sound. A build that linked no
@@ -62,6 +62,29 @@ pub fn linked_driver() -> Result<ManagedDriver, CoreError> {
     {
         Err(CoreError::with_message_and_status(
             "this build linked no ADBC driver",
+            adbc_core::error::Status::NotFound,
+        ))
+    }
+}
+
+/// The PostgreSQL driver this artefact's own link carries - [`linked_driver`]'s contract, for the
+/// archive `nix/postgres-adbc.nix` builds.
+///
+/// A build that linked only the `BigQuery` archive gets an `Err` here and never that driver: the two
+/// are separate symbols, so no build can hand one out under the other's name.
+///
+/// # Errors
+///
+/// As [`linked_driver`].
+pub fn linked_postgres_driver() -> Result<ManagedDriver, CoreError> {
+    #[cfg(adbc_postgres_driver_linked)]
+    {
+        linked::postgres_driver()
+    }
+    #[cfg(not(adbc_postgres_driver_linked))]
+    {
+        Err(CoreError::with_message_and_status(
+            "this build linked no PostgreSQL ADBC driver",
             adbc_core::error::Status::NotFound,
         ))
     }

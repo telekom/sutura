@@ -25,7 +25,8 @@
 # module set (libc/arch-independent on linux), so they share one `vendorHash`.
 # That hash was measured from a real aarch64-musl build, not guessed.
 #
-# Output: two files exporting the same ADBC v1 C ABI entrypoint `AdbcDriverInit`.
+# Output: two files exporting the same ADBC v1 C ABI, whose driver-specific entrypoint
+# `AdbcDriverBigqueryInit` is the one this repository calls (beside the generic `AdbcDriverInit`).
 # `$out/lib/libadbc_driver_bigquery.so` is what `adbc_driver_manager` dlopens for a
 # deployment that mounts a driver; `$out/lib/libadbc_driver_bigquery.a` is the
 # `c-archive` `nix/shipped.nix` links into a published artefact, which is the ONLY

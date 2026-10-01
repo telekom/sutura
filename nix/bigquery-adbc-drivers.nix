@@ -8,8 +8,8 @@
 # **The archive is what makes the musl artefacts usable, and it is the whole reason
 # it exists** (`telekom/sutura#929`'s sixth finding, `docs/adr/0018`'s tenth
 # amendment). A static musl binary has no dynamic loader, so `dlopen` of the `.so`
-# is impossible there; `crates/sutura-adbc/src/linked.rs` declares the archive's
-# `AdbcDriverInit` and `ManagedDriver::load_static` opens it. The two gnu triples take the same
+# is impossible there; `crates/sutura-adbc/src/linked.rs` declares the archive's own
+# `AdbcDriverBigqueryInit` and `ManagedDriver::load_static` opens it. The two gnu triples take the same
 # route, so there is one mechanism rather than two and neither is the untested half of the other.
 #
 # What no derivation here establishes is that a driver RUNS.
