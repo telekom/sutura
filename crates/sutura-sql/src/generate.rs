@@ -717,7 +717,7 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
         .build();
     // `Question` and `Colon` both bind a plain statement by occurrence - the oracledb driver's
     // `add_bind` pushes one `BindInfo` per placeholder it sees rather than per distinct name
-    // (`oracledb-26.0.0-beta.3/src/statement/mod.rs:72-86`), and `bind_params.rs:99-104` refuses
+    // (`oracledb-26.0.0-beta.4/src/statement/mod.rs:72-86`), and `bind_params.rs:99-104` refuses
     // when the bound row's length does not match that occurrence count - so a guard embedded more
     // than once needs its value repeated that many times for Oracle exactly as it does for the
     // bare-`?` dialects. `emitted` is exactly that, built alongside the tree above, in text order.

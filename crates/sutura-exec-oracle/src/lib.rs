@@ -664,15 +664,13 @@ impl Warehouse for OracleWarehouse {
 
     /// **Takes the trait's own default** (`Ok(PreFlight::NotAsked)`) rather than an override.
     ///
-    /// **Measured, not assumed:** the pinned `oracledb` `26.0.0-beta.3` has no parse-only round
-    /// trip at all - `Statement`'s only ways to reach the server are `execute`/`query`, which RUN
-    /// the statement. The `main` branch this crate first read gained
-    /// `Statement::ensure_fully_parsed` after that version was published; pinning to a released
-    /// version rather than a `git` dependency means this adapter does not have it yet. Overriding
-    /// `dry_run` with a real `execute`/`query` call would violate the port's own contract - "an
-    /// adapter that overrides it must not read data" - so the honest thing this adapter can do
-    /// today is nothing, exactly the trait's own documented escape hatch for "checking is not
-    /// cheaper than running here".
+    /// The pinned `oracledb` does have a parse-only round trip, `Statement::ensure_fully_parsed`,
+    /// and this adapter does not call it: adopting it is a separate change, not made here. Its own
+    /// doc says a DDL statement is executed by it, and whether it reads data for every statement
+    /// this adapter sends is unmeasured. Overriding `dry_run` with `execute`/`query`, which RUN the
+    /// statement, would break the port's contract - "an adapter that overrides it must not read
+    /// data" - so until that is measured the trait's own escape hatch for "checking is not cheaper
+    /// than running here" is the honest answer.
     fn execute(
         &self,
         executable: Executable<'_>,
