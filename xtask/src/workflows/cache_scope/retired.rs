@@ -25,6 +25,9 @@
 //!   a cachix write is an environment secret, so a job that names no environment cannot hold one -
 //!   and the refusal was pinned on the PR writer alone, which left the three writers in
 //!   `cachix-push.yml` free to drop theirs with the gate green. Measured by mutation, below.
+//! * **No Dependabot-authored pull request reaches the PR write credential.** [`NOT_DEPENDABOT`],
+//!   pinned as a conjunct of the PR write job's `if:` - a dependency bump builds its new closure
+//!   in that job, and a human push to the bot's branch would otherwise hand it the token.
 //! * **A PR publisher names only the PR cache; a main publisher names a shared cache.**
 //!   [`publisher_stores`] reads the action's `with.name`, so changing only that input cannot
 //!   redirect an otherwise permitted write. Credential scope remains a forge setting.
@@ -111,7 +114,8 @@ const PR_STORE: &str = "sutura-prs";
 const SHARED_STORES: [&str; 3] = ["sutura", "sutura-cross-build", "sutura-connectors"];
 
 /// Whether a cachix-action step's JOB in `ci.yml` is the PR publish write-half: it declares
-/// `environment: cachix-push-pr` and its job-level `if:` is PR-only. The job block owns the step;
+/// `environment: cachix-push-pr` and its job-level `if:` is PR-only and not Dependabot-authored
+/// ([`excludes_dependabot`]). The job block owns the step;
 /// a step outside such a job (main `ci`, `crap-comment`, `bigquery-acceptance`, any other workflow)
 /// stays refused by the pairing.
 pub(super) fn in_pr_publish_job(text: &str, step_line: usize) -> bool {
@@ -134,10 +138,43 @@ pub(super) fn in_pr_publish_job(text: &str, step_line: usize) -> bool {
                 && key_of(line).is_some_and(|k| {
                     k.trim_start()
                         .strip_prefix("if:")
-                        .is_some_and(|v| stores::narrower_than_pr(v.trim()))
+                        .is_some_and(|v| stores::narrower_than_pr(v.trim()) && excludes_dependabot(v.trim()))
                 })
         })
     })
+}
+
+/// The conjunct the PR write job's `if:` must carry beside [`stores::narrower_than_pr`], token for
+/// token. It reads the pull request's AUTHOR, not `github.actor`: when a person or an App pushes to
+/// a Dependabot branch the run's actor is the pusher, so the run receives Actions secrets, while
+/// the author stays `dependabot[bot]`. Swapping in `github.actor` re-opens exactly that run, so the
+/// pin refuses it along with a deletion or an inverted `==`.
+///
+/// **The limit:** this holds the TEXT of the gate. That GitHub reports a Dependabot pull request's
+/// `user.login` as exactly `dependabot[bot]` is measured on one pull request, not reproduced here.
+const NOT_DEPENDABOT: &str = "github.event.pull_request.user.login != 'dependabot[bot]'";
+
+/// Is [`NOT_DEPENDABOT`] one of `gate`'s `&&` conjuncts outside every parenthesis and string
+/// literal? A plain split on ` && ` would accept it inside `!(A && NOT_DEPENDABOT && B)`. A `||`
+/// needs no handling here: [`stores::narrower_than_pr`] already refuses one beside the event.
+fn excludes_dependabot(gate: &str) -> bool {
+    let is_pin = |part: Option<&str>| part.is_some_and(|part| part.trim() == NOT_DEPENDABOT);
+    let (mut depth, mut quoted, mut from) = (0_usize, false, 0);
+    for (at, ch) in gate.char_indices() {
+        match ch {
+            '\'' => quoted = !quoted,
+            '(' if !quoted => depth = depth.saturating_add(1),
+            ')' if !quoted => depth = depth.saturating_sub(1),
+            '&' if !quoted && depth == 0 && at >= from && gate.get(at..).is_some_and(|rest| rest.starts_with("&&")) => {
+                if is_pin(gate.get(from..at)) {
+                    return true;
+                }
+                from = at.saturating_add(2);
+            }
+            _ => {}
+        }
+    }
+    is_pin(gate.get(from..))
 }
 
 /// The job block owning `step_line`, as a `start..end` line range over `text`.
@@ -350,7 +387,7 @@ pub(super) fn retired(files: &[(String, String)]) -> Vec<String> {
                     }
                 } else {
                     out.push(format!(
-                        "{label}:{}  {publisher} publishes to a store outside this repository. Only `{}` may, and only in `{}` (or a pull_request ci.yml job declaring environment `{PUBLISH_PRS}`); credential scope is owner-held and not repository-verifiable - see docs/adr/0027",
+                        "{label}:{}  {publisher} publishes to a store outside this repository. Only `{}` may, and only in `{}` (or a pull_request ci.yml job declaring environment `{PUBLISH_PRS}` whose `if:` carries `{NOT_DEPENDABOT}` as a conjunct); credential scope is owner-held and not repository-verifiable - see docs/adr/0027",
                         step.line, PUBLISH.0, PUBLISH.1
                     ));
                 }
@@ -531,7 +568,7 @@ pub(super) mod tests {
             concat!(
                 "  pr-cache:\n",
                 "    needs: [ci]\n",
-                "    if: github.event_name == 'pull_request'\n",
+                "    if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'\n",
                 "    environment: cachix-push-pr\n",
                 "    steps:\n",
                 "      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n",
@@ -622,13 +659,59 @@ pub(super) mod tests {
 
         // And the environment name alone is not enough - no PR gate is refused.
         let ungated_env = pr_job.replace(
-            "    if: github.event_name == 'pull_request'\n    environment: cachix-push-pr\n",
+            "    if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'\n    environment: cachix-push-pr\n",
             "    environment: cachix-push-pr\n",
         );
         assert!(
             !super::retired(&owned(".github/workflows/ci.yml", &ungated_env)).is_empty(),
             "cachix-push-pr with no PR gate is not the PR write half and is refused"
         );
+    }
+
+    /// A Dependabot-authored pull request must not reach the PR write job: the live gate passes,
+    /// and each way of losing the author test re-opens the refusal.
+    #[test]
+    fn a_pr_write_job_that_admits_a_dependabot_authored_pull_request_is_refused() {
+        let job = |gate: &str| {
+            format!(
+                "  pr-cache:\n    needs: [ci]\n    if: {gate}\n    environment: cachix-push-pr\n    steps:\n      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n        with:\n          name: sutura-prs\n      - name: Realise this PR's shared closure\n        run: nix build .#deps\n"
+            )
+        };
+        let live = "github.event_name == 'pull_request' && !cancelled() && github.event.pull_request.user.login != 'dependabot[bot]' && needs.ci.outputs.deps_closure == 'true'";
+        assert_eq!(
+            super::retired(&owned(".github/workflows/ci.yml", &job(live))),
+            Vec::<String>::new(),
+            "the live pr-cache gate is the permitted shape"
+        );
+        for (why, gate) in [
+            (
+                "deleted",
+                "github.event_name == 'pull_request' && !cancelled() && needs.ci.outputs.deps_closure == 'true'",
+            ),
+            (
+                "inverted",
+                "github.event_name == 'pull_request' && !cancelled() && github.event.pull_request.user.login == 'dependabot[bot]'",
+            ),
+            (
+                "the run's actor, not the author",
+                "github.event_name == 'pull_request' && !cancelled() && github.actor != 'dependabot[bot]'",
+            ),
+            (
+                "inside a negated group",
+                "github.event_name == 'pull_request' && !(!cancelled() && github.event.pull_request.user.login != 'dependabot[bot]' && true)",
+            ),
+            (
+                "behind a quoted parenthesis",
+                "github.event_name == 'pull_request' && !(format(')') != '' && github.event.pull_request.user.login != 'dependabot[bot]' && true)",
+            ),
+        ] {
+            let found = super::retired(&owned(".github/workflows/ci.yml", &job(gate)));
+            assert!(
+                found.iter().any(|problem| problem.contains("publishes to a store outside")
+                    && problem.contains("github.event.pull_request.user.login != 'dependabot[bot]'")),
+                "{why}: {found:#?}"
+            );
+        }
     }
 
     #[test]

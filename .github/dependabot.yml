@@ -43,8 +43,9 @@ updates:
         patterns: ["arrow*", "parquet", "datafusion*", "adbc*"]
       # utoipa and utoipa-axum (and utoipa-swagger-ui) resolve as separate updates in a minor or
       # major bump; pairing them with `group-by: dependency-name` does not work because they have
-      # different names. This group catches them by pattern and groups across directories, so both
-      # arrive in one PR. Placed before `each-across-directories` so the first-match rule applies.
+      # different names. This group catches them by pattern, and a group spans both directories
+      # in one PR - read from dependabot-core's source; no such PR is observed yet. Placed before
+      # `each-across-directories` so the first-match rule applies.
       utoipa:
         patterns: ["utoipa*"]
       # Everything left - a minor, a major, oracledb - in one PR per dependency across both

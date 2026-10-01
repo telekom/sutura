@@ -1436,12 +1436,12 @@ jobs:
     # with `github.event_name == 'pull_request'` as a pinned PREFIX and refuses the reversed
     # spelling and a `${{ }}` wrapping alike.
     #
-    # `&& github.event.pull_request.user.login != 'dependabot[bot]'`: skip on Dependabot PRs once
-    # the push actor is no longer Dependabot (e.g., a human push to a Dependabot branch or an
-    # automated commit in a workflow). This prevents pr-cache from receiving CACHIX_AUTH_TOKEN
-    # while building a dependency closure under the new PR head. Keep this before
-    # `needs.ci.outputs.deps_closure` so the check is fast (no prior output), and maintain the
-    # order: it is a gate check (xtask/src/gates/check_workflows.rs) that verifies this prefix.
+    # `&& github.event.pull_request.user.login != 'dependabot[bot]'`: skip every Dependabot-AUTHORED
+    # pull request, whoever pushed to it. It reads the author, not `github.actor`: a person or an
+    # App pushing to a Dependabot branch makes the pusher the run's actor, so the run receives
+    # Actions secrets and this job would hold CACHIX_AUTH_TOKEN while it builds the bumped
+    # dependency closure. `cache_scope`'s PR-writer pairing refuses this job's cachix step unless
+    # the clause is a top-level conjunct here, token for token.
     #
     # `&& needs.ci.outputs.deps_closure == 'true'` (#980, corrected in review): the realise below
     # now publishes the dependency closure ONLY, and only a commit moving one of
