@@ -13,12 +13,13 @@
 #
 # Read the two roots: `nix-74462-...` is where `sutura-deps` built, `nix-47928-...` is where
 # `checks.nextest` ran. `utoipa-swagger-ui`'s build script unzips its VENDORED asset bundle into
-# `$OUT_DIR` and writes a `rust-embed` `#[folder = "..."]` naming that directory as an absolute
-# literal. Every check decompresses `sutura-deps` for its `target/`, so the literal arrives naming
-# the DEPENDENCY derivation's build directory. A linux build root is `/build` for every derivation,
-# so it happens to resolve; a darwin build root is `/nix/var/nix/builds/nix-<pid>-<random>/`,
-# unique per derivation, so it resolves nowhere and the derive expands to a struct with no `Embed`
-# impl. Nothing is wrong with the tree or the tests - only with a path that outlived its directory.
+# `$OUT_DIR` and writes `include_bytes!` literals naming that directory absolutely (a `rust-embed`
+# `#[folder = "..."]` up to v9, which the error above is). Every check decompresses `sutura-deps`
+# for its `target/`, so the literal arrives naming the DEPENDENCY derivation's build directory. A
+# linux build root is `/build` for every derivation, so it happens to resolve; a darwin build root
+# is `/nix/var/nix/builds/nix-<pid>-<random>/`, unique per derivation, so it resolves nowhere and
+# the crate fails to compile. Nothing is wrong with the tree or the tests - only with a path that
+# outlived its directory.
 #
 # WHY A REGENERATION AND NOT AN AGREEMENT. `flake.nix`'s `wholeTree` gives every check's source
 # root the same NAME so the roots agree, and says at that binding that a name cannot make two
