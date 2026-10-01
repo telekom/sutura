@@ -206,6 +206,7 @@ exclude_docs: |
   adr/0040-a-cross-posture-federated-answer-is-disclosed-per-leg.md
   adr/20260924093457-knowledge-channels-for-rules-glossary-and-caveats.md
   adr/20260926112245-opt-in-physical-schema-listing.md
+  adr/20261001045714-cube-documents.md
   crap.md
   what-a-bpmn-file-actually-carries.md
   what-an-rdf-graph-can-carry.md
