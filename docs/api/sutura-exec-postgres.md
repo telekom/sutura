@@ -165,10 +165,11 @@ One certified statement through the self-built driver (`nix/postgres-adbc.nix`),
 batches handed on as the port's `ResultBatches` with
 no per-cell walk of this crate's own.
 
-**Default-off, and wired to nothing.** No composition root constructs
-`AdbcPostgres` and no `Warehouse` method reaches it: the
-`tokio-postgres` path in `lib.rs` still answers every Postgres source. Whether and when that
-changes is the cutover's decision, not this module's.
+**Shipped, and answering nothing.** `sutura-cli`'s `postgres` feature compiles this module into
+every release, and every musl release links the static driver (`nix/shipped.nix`). No
+composition root constructs `AdbcPostgres` and no `Warehouse`
+method reaches it: the `tokio-postgres` path in `lib.rs` still answers every Postgres source, and
+no settings key selects this one. `sutura doctor` probes the linked driver; tests reach the rest.
 
 # What holds what
 
@@ -186,10 +187,12 @@ changes is the cutover's decision, not this module's.
   (`57014`) reads as
   `AdbcPostgres::deadline_exceeded`, the same
   split `deadline.rs` draws.
-- **No linked-in driver, yet.** `sutura_adbc::linked_postgres_driver()` opens the PostgreSQL
-  archive under its own init symbol, but only a test build links that archive (`nix/shipped.nix`'s
-  `linkedDriversTests`), so `MountedDriver` still has no linked
-  spelling and this transport takes it rather than a `DriverLocation`.
+- **The channel is the declared one.** `Conninfo` builds the libpq
+  connection string from the declaration and pins every key the environment could weaken; its
+  own header carries the table and what it refuses.
+- **The driver is the linked one where there is one.**
+  `PostgresDriver` is the archive this artefact links (both musl
+  triples) or a mounted `.so` (every other build).
 
 # Limits
 
@@ -204,15 +207,10 @@ changes is the cutover's decision, not this module's.
   not observed.
 - **Loading and connecting are outside the deadline**: the driver is loaded and a connection
   opened per call, and only the statement runs under `SET LOCAL`.
-- **The channel is whatever the URI says.** libpq reads `sslmode` and friends from it; the
-  declared `SourceTransport` a composition root turns into a `rustls::ClientConfig` for the
-  `tokio-postgres` path is not applied here.
 - **Only `execute`'s shape**: no `dry_run`, no raw statement, no boot-path call.
-- **Nothing on the two static musl triples.** A `MountedDriver`
-  is always opened with `load_dynamic_from_filename`, which a static binary cannot do
-  (`sutura-adbc`'s `linked.rs`), so there this transport can only answer `AdbcError::Load`.
-  The static link itself is built and run in a musl test binary; a release carries it once a
-  shipped path constructs this transport.
+- **The linked driver signs in less.** Its libpq is built without Kerberos/GSSAPI and without
+  OAuth; a mounted driver's keeps both, and `Conninfo` refuses GSSAPI,
+  SSPI and OAuth sign-in on either route, because a declaration can name none of them.
 
 ### `enum AdbcError`
 
@@ -235,19 +233,24 @@ Why this transport could not answer.
 
 `Debug`, `Display`, `Error`
 
-### `struct MountedDriver`
+### `struct PostgresDriver`
 
 ```rust
-pub struct MountedDriver
+pub struct PostgresDriver
 ```
 
-A driver this deployment mounted, at an absolute path - and never the linked-in route.
+Where the PostgreSQL driver comes from: this artefact's own link, or a mounted `.so`.
 
-Parsed by `sutura_adbc::DriverLocation::parse`, so an empty or relative path is refused exactly
-as it is for every ADBC adapter; kept as a path because the only other thing a `DriverLocation`
-can be is the `BigQuery` archive this module's header describes.
+Not `sutura_adbc::DriverLocation`, whose linked route is the `BigQuery` archive; a mounted path is
+parsed by it, so an empty or relative one is refused exactly as for every ADBC adapter.
 
 #### Methods
+
+```rust
+pub fn linked_in() -> Option<Self>
+```
+
+The driver this artefact links, or `None` where it links none.
 
 ```rust
 pub fn parse(named: &str) -> Result<Self, UnusableDriverPath>
@@ -260,9 +263,19 @@ Parses a mounted driver's path.
 `UnusableDriverPath` for an empty or relative path. Whether a driver is there is the
 load's question, asked by the first call.
 
+```rust
+pub fn probe(&self) -> Result<(), AdbcError>
+```
+
+Loads and initialises the driver, opening no database - what `sutura doctor` asks.
+
+# Errors
+
+`AdbcError::Load`, from either route.
+
 #### Implements
 
-`Clone`, `Debug`, `Eq`, `PartialEq`
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
 
 ### `struct AdbcPostgres`
 
@@ -294,10 +307,10 @@ Runs one rendered statement and hands its batches on.
 `AdbcError`; `Self::deadline_exceeded` says which of them is the deadline.
 
 ```rust
-pub fn new(driver: MountedDriver, uri: Secret) -> Result<Self, PostgresError>
+pub fn new(driver: PostgresDriver, conninfo: Conninfo) -> Result<Self, PostgresError>
 ```
 
-Takes the driver and the libpq URI it connects with.
+Takes the driver and the connection string it connects with.
 
 Reads the connect-time ceiling the `tokio-postgres` path reads
 (`SUTURA_DEV_STATEMENT_TIMEOUT_MS`).
@@ -309,6 +322,19 @@ Reads the connect-time ceiling the `tokio-postgres` path reads
 #### Implements
 
 `Debug`
+
+### `use Channel`
+
+How the channel to the source is secured, as the composition root resolved the declaration.
+
+### `use Conninfo`
+
+The connection string for one source. Only `Conninfo::new` makes one, and its `Debug` is the
+`Secret`'s, so the password it carries is never printed.
+
+### `use UnusableChannel`
+
+A declared channel the ADBC transport cannot hold to, refused before anything dials.
 
 ### `use UnusableDriverPath`
 

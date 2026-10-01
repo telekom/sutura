@@ -17,8 +17,10 @@
 # answer that the driver they initialised is the one they carry.
 #
 # Two artefacts, one assertion each, and the musl one is the reason the mechanism exists: a static
-# binary has no dynamic loader, so a carried driver is the only route it can ever have. A third leg
-# at the end runs the linked PostgreSQL driver in a test build, judged by `linked_verdict`.
+# binary has no dynamic loader, so a carried driver is the only route it can ever have. A musl
+# artefact with the PostgreSQL adapter is asked a third question, for the same reason: does it link
+# that driver too, and does it initialise (`assert_links_postgres`). A last leg runs the linked
+# PostgreSQL driver in a test build, judged by `linked_verdict`.
 #
 # FAIL CLOSED, AND PROVEN SO IN THIS SCRIPT. `verdict` is run first over three lines whose right
 # answer is known - including the line a build with NO driver prints - so a matcher that accepted
@@ -45,6 +47,35 @@ verdict() {
     *"loaded and initialised"*"linked into this binary"*) printf 'ok' ;;
     *) printf 'no' ;;
     esac
+}
+
+# Is one `pg driver` line the sentence a linked, initialised PostgreSQL driver prints? `ok` or `no`.
+# Every musl release links it (`nix/shipped.nix`'s `adbcArchiveFor`); a gnu build mounts one.
+pg_verdict() {
+    case "$1" in
+    *"pg driver"*": loaded and initialised, linked into this binary"*) printf 'ok' ;;
+    *) printf 'no' ;;
+    esac
+}
+
+# The `pg driver` lines whose right answer is known, asserted the way `self_check` asserts its own.
+pg_self_check() {
+    local expected line got
+    while IFS='|' read -r expected line; do
+        [ -n "$expected" ] || continue
+        got="$(pg_verdict "$line")"
+        if [ "$got" != "$expected" ]; then
+            echo "bigquery-driver-check: FAILED its own PostgreSQL matcher - expected $expected for '$line', got $got" >&2
+            exit 1
+        fi
+    done <<'CASES'
+ok|  pg driver    : loaded and initialised, linked into this binary - its libpq has no Kerberos/GSSAPI or OAuth sign-in
+no|  pg driver    : not linked into this binary - a source build would mount libadbc_driver_postgresql.so
+no|  pg driver    : NOT usable: linked into this binary: could not load the PostgreSQL ADBC driver
+no|  pg driver    : not linked - this build has no PostgreSQL adapter to load one for
+no|  bq driver    : loaded and initialised, linked into this binary
+CASES
+    echo "bigquery-driver-check: PostgreSQL matcher ok - only a linked driver that initialised passes."
 }
 
 # The three lines whose right answer is known, asserted before any artefact is read.
@@ -165,11 +196,11 @@ why_no_line() {
 # That last part is held by review only: `self_check` classifies a status and an output it is given
 # and never runs a binary, so capturing stdout alone would pass it.
 line_for() {
-    local binary="$1" output line status=0
+    local binary="$1" label="${2:-bq driver}" output line status=0
     output="$(env -u SUTURA_BIGQUERY_ADBC_DRIVER "$binary" doctor 2>&1)" || status=$?
-    line="$(printf '%s\n' "$output" | grep 'bq driver' || true)"
+    line="$(printf '%s\n' "$output" | grep "$label" || true)"
     if [ -z "$line" ]; then
-        echo "bigquery-driver-check: $binary printed no \`bq driver\` line - $(why_no_line "$status" "$output")." >&2
+        echo "bigquery-driver-check: $binary printed no \`$label\` line - $(why_no_line "$status" "$output")." >&2
         echo "  Its whole output follows, because nothing else in this job records it:" >&2
         printf '%s\n' "$output" | sed 's/^/    /' >&2
         exit 1
@@ -192,6 +223,20 @@ assert_carries() {
     fi
 }
 
+# The musl artefact with the PostgreSQL adapter, refused by name unless it links a driver that starts.
+# A gnu one mounts its driver, so it is not asked.
+assert_links_postgres() {
+    local binary="$1" line
+    line="$(line_for "$binary" 'pg driver')"
+    echo "  musl postgres: ${line#*: }"
+    if [ "$(pg_verdict "$line")" != ok ]; then
+        echo "bigquery-driver-check: FAILED - the musl artefact does not link a working PostgreSQL ADBC" >&2
+        echo "  driver. nix/shipped.nix's adbcArchiveFor stopped linking the static archive for this" >&2
+        echo "  triple, or the driver linked and did not initialise." >&2
+        exit 1
+    fi
+}
+
 system="${SUTURA_NIX_SYSTEM:-$(nix eval --raw --impure --expr builtins.currentSystem)}"
 if [ "$system" != "x86_64-linux" ]; then
     echo "bigquery-driver-check: this EXECUTES two linux binaries, so it runs on x86_64-linux" >&2
@@ -200,6 +245,7 @@ if [ "$system" != "x86_64-linux" ]; then
 fi
 
 self_check
+pg_self_check
 
 # WHICH BUILD, and why a pull request does not get the release one. A release build is two full
 # optimised compiles (~9 min of a 16-core runner per PR run, measured on run 35861034001) for a
@@ -212,10 +258,13 @@ case "${SUTURA_DRIVER_CHECK_PROFILE:-ci}" in
 ci)
     gnu_attr=sutura-bigquery-x86_64-unknown-linux-gnu-ci
     musl_attr=sutura-bigquery-x86_64-unknown-linux-musl-ci
+    # The `postgres` probe: the `-ci` BigQuery one carries no PostgreSQL adapter to print the line.
+    pg_musl_attr=sutura-postgres-x86_64-unknown-linux-musl-ci
     ;;
 release)
     gnu_attr=sutura
     musl_attr=sutura-x86_64-unknown-linux-musl
+    pg_musl_attr="$musl_attr"
     ;;
 *)
     echo "bigquery-driver-check: SUTURA_DRIVER_CHECK_PROFILE is '${SUTURA_DRIVER_CHECK_PROFILE}' - it is ci or release" >&2
@@ -227,24 +276,26 @@ esac
 # gnu one instead of after it. The two resolutions below are the lines that always stood here and
 # now find both outputs present; resolving by name rather than by the order `--print-out-paths`
 # prints in is what keeps a gnu path from ever being asked the musl question.
-nix build --no-link ".#${gnu_attr}" ".#${musl_attr}"
+nix build --no-link ".#${gnu_attr}" ".#${musl_attr}" ".#${pg_musl_attr}"
 gnu="$(nix build --no-link --print-out-paths ".#${gnu_attr}")/bin/sutura"
 musl="$(nix build --no-link --print-out-paths ".#${musl_attr}")/bin/sutura"
+pg_musl="$(nix build --no-link --print-out-paths ".#${pg_musl_attr}")/bin/sutura"
 echo "bigquery-driver-check: scope - .#${gnu_attr} and the static .#${musl_attr}, each asked with"
 echo "  the mounted-driver variable cleared. No project, no credential, no question."
 
 assert_carries gnu "$gnu"
 assert_carries musl "$musl"
+assert_links_postgres "$pg_musl"
 
 echo "bigquery-driver-check: ok (${SUTURA_DRIVER_CHECK_PROFILE:-ci} profile) - both binaries carry their own ADBC BigQuery driver and its"
 echo "  Go runtime started inside them. The static musl one has no other route, which is why the"
 echo "  c-archive exists; neither artefact reads a path."
 
-# THE SECOND LINKED DRIVER, in a TEST build (`github.com/telekom/sutura#913`): the PostgreSQL archive
-# and its static libpq/OpenSSL beside the BigQuery one in one static musl binary, run. No release
-# artefact carries it at this stage, so a release-profile run of this script skips it. The
-# derivation fails if the cell fails; `linked_verdict` decides that the LINKED arm is what passed.
-# What that cell does not reach is in its own doc comment.
+# THE SECOND LINKED DRIVER'S libpq, RUN, in a TEST build (`github.com/telekom/sutura#913`): `doctor`
+# above only initialises it, so this static musl binary is where its libpq executes beside the
+# BigQuery driver. A test build, so a release-profile run of this script skips it. The derivation
+# fails if the cell fails; `linked_verdict` decides that the LINKED arm is what passed. What that
+# cell does not reach is in its own doc comment.
 if [ "${SUTURA_DRIVER_CHECK_PROFILE:-ci}" = ci ]; then
     linked="$(nix build --no-link --print-build-logs --print-out-paths .#adbc-drivers-linked-x86_64-unknown-linux-musl-test)"
     if [ "$(linked_verdict "$(cat "$linked/linked.log")")" != ok ]; then

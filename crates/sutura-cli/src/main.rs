@@ -409,6 +409,9 @@ fn doctor() {
     // whether a driver is present, which is exactly the gap the previous version of this command
     // left - it named a transport and said nothing about whether it could be reached.
     println!("  bq driver    : {}", bigquery_driver_line());
+    // The PostgreSQL ADBC driver, which every musl release links and `nix/bigquery-driver-check.sh`
+    // requires that line of. Initialised and never connected: no source is answered over it yet.
+    println!("  pg driver    : {}", postgres_driver_line());
     // Proves the redaction invariant holds in the shipped binary, not only under test.
     let probe = Secret::new("must-not-appear");
     println!("  redaction    : {probe:?}");
@@ -442,6 +445,32 @@ fn bigquery_driver_line() -> String {
 #[cfg(not(feature = "bigquery"))]
 fn bigquery_driver_line() -> String {
     String::from("not linked - this build has no BigQuery adapter to load one for")
+}
+
+/// What `doctor` can find out about the PostgreSQL ADBC driver: whether this artefact links one,
+/// and whether it initialises. The linked one's libpq signs in with fewer methods, which is said
+/// here because this line is where a holder of the binary learns which driver they have.
+#[cfg(feature = "postgres")]
+fn postgres_driver_line() -> String {
+    let Some(linked) = sutura_exec_postgres::adbc::PostgresDriver::linked_in() else {
+        return String::from(
+            "not linked into this binary - a source build would mount libadbc_driver_postgresql.so; \
+             no source is answered over ADBC yet",
+        );
+    };
+    match linked.probe() {
+        Ok(()) => format!(
+            "loaded and initialised, {linked} - its libpq has no Kerberos/GSSAPI or OAuth sign-in \
+             (a mounted driver's has both); no source is answered over ADBC yet"
+        ),
+        Err(cause) => format!("NOT usable: {linked}: {cause}"),
+    }
+}
+
+/// The same line for a build with no Postgres adapter.
+#[cfg(not(feature = "postgres"))]
+fn postgres_driver_line() -> String {
+    String::from("not linked - this build has no PostgreSQL adapter to load one for")
 }
 
 #[cfg(test)]

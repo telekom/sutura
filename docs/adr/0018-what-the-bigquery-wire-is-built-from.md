@@ -1568,3 +1568,32 @@ linked driver offers neither Kerberos nor OAuth sign-in - a mounted driver libra
 
 **Caching.** The static libpq and OpenSSL are build inputs of `checks.adbc-driver-postgresql`, which
 `.github/workflows/cachix-push.yml`'s `push` job already realises, so they publish with the driver.
+
+## Fourteenth amendment, 2026-10-01: the ADBC PostgreSQL transport ships, holding the declared channel, and answers nothing yet
+
+**What moved.** The owner's `telekom/sutura#913` decisions (issuecomment-5931110864) are two stages
+with no opt-in. Stage 1 is this change: `sutura-cli`'s `postgres` feature compiles the ADBC
+transport, and `nix/shipped.nix`'s `adbcArchiveFor` links the static PostgreSQL archive into every
+musl build. So every musl release carries the Thirteenth amendment's OpenSSL 3 from here, and its
+fixes arrive through a `nixpkgs` flake bump, not through cargo. `tokio-postgres` still answers every
+`kind: postgres` source and no settings key selects ADBC. `sutura doctor` prints a `pg driver` line,
+and `nix/bigquery-driver-check.sh` requires the x86_64 musl artefact's to read linked and
+initialised.
+
+**The declared channel is enforced, not inherited.** The transport takes no connection string:
+`Conninfo` builds libpq's from the declaration and writes every key the process environment or a
+`PGSERVICE` file would otherwise fill - `verify-full` against the declared bundle, the declared
+client pair or none, a TLS 1.2 floor, GSSAPI encryption off, and sign-in limited to the methods a
+declaration can carry. Refused when it is built, by name: TLS over a unix socket, which libpq drops
+there, and `transport_anchors: system`, which libpq reads as OpenSSL's compiled-in store rather than
+the host's. Its own header carries the table and the libpq 18.6 lines each key rests on.
+
+**Stage 2, in order.** Parity of every port method on this transport; a CI run against a real
+driver and server; the default flip for every postgres source; then deleting the `tokio-postgres`
+path and the rustls source-channel code the flip leaves unused.
+
+**Limits.** No cell has run this transport against a server, so every statement above about libpq
+is read from its source. aarch64-musl links the archive and nothing executes it. `doctor`
+initialises the driver and opens nothing, so libpq itself runs only in `linkedDriversTests`. And
+`bigquery-driver-check` runs for the `data_source_bigquery` category, which a change confined to
+`sutura-exec-postgres` does not select.

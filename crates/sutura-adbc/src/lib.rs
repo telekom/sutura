@@ -67,6 +67,9 @@ pub fn linked_driver() -> Result<ManagedDriver, CoreError> {
     }
 }
 
+/// Whether this artefact's own link carries the PostgreSQL driver, asked without initialising it.
+pub const LINKS_POSTGRES_DRIVER: bool = cfg!(adbc_postgres_driver_linked);
+
 /// The PostgreSQL driver this artefact's own link carries - [`linked_driver`]'s contract, for the
 /// archive `nix/postgres-adbc.nix` builds.
 ///

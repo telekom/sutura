@@ -42,6 +42,11 @@ and `nix build .#checks.x86_64-linux.shipped-features` is what asserts it, out o
 binary's own embedded dependency list rather than out of a manifest - including that `ring` and
 `ureq`, the crates the earlier default-off decision existed to keep out, are now genuinely present.
 
+**The musl pair also carries OpenSSL 3**, statically, inside the PostgreSQL ADBC driver they link -
+libpq has no other TLS backend. Its fixes arrive with a `nixpkgs` bump, not with rustls'. That libpq
+has no Kerberos/GSSAPI or OAuth sign-in. `sutura doctor` prints a `pg driver` line saying whether the
+binary links that driver and whether it initialises; no source is answered through it yet.
+
 **The optimised build is a separate prerelease, `v<version>-performance`**, never `latest`,
 published only when a maintainer dispatches `release-performance.yml` on a release tag whose tree
 contains that workflow's publishing steps; a dispatch runs the workflow as the tag holds it, so no

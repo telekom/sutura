@@ -73,6 +73,15 @@ question involving a ClickHouse source is still refused by the capability gate. 
 `NoPlaceForASubject`, so an `impersonation-at-source` declaration on this kind is refused at the
 composition root with the reason that no build delivers it.
 
+**Postgres has a second transport, shipped and answering nothing.** Every release compiles the ADBC
+PostgreSQL transport beside `tokio-postgres`, and every musl release links its driver statically,
+with libpq and OpenSSL 3. No settings key selects it: `tokio-postgres` answers every `kind: postgres`
+source, and `sutura doctor`'s `pg driver` line only says whether the driver is linked and
+initialises. **That linked libpq is built without Kerberos/GSSAPI and without OAuth**, which a
+mounted driver's libpq keeps; the connection string the transport builds refuses GSSAPI, SSPI and
+OAuth sign-in on either route, because a declaration can name none of them. It also refuses `transport_anchors:
+system` and TLS over a unix socket, which libpq cannot hold to. No cell has run it against a server.
+
 ## Identity: what "impersonation" does and does not mean here
 
 `Warehouse::IMPERSONATION` says whether there is **a place in an adapter's path** for a subject's own

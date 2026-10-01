@@ -31,7 +31,7 @@
 # The per-triple ADBC BigQuery driver derivations, from `nix/bigquery-adbc-drivers.nix`. Read for
 # their `c-archive` half only - see `adbcArchiveFor`.
 , adbcDrivers
-# The per-triple ADBC PostgreSQL derivations, read by `linkedDriversTests` only.
+# The per-triple ADBC PostgreSQL derivations - their musl static archives, see `adbcArchiveFor`.
 , postgresAdbcDrivers
 , version
 }:
@@ -56,10 +56,19 @@ let
   # `buildDepsOnly`, and the deps derivation compiles third-party code that has no business
   # relinking because a driver revision moved. The build script that reads this belongs to a
   # workspace member, which only the real build compiles.
+  #
+  # **The PostgreSQL archive on the two musl triples only** (`telekom/sutura#913` stage 1): a static
+  # binary has no other route to a driver, and every other build mounts the `.so`. Its directory
+  # carries libpq and static OpenSSL 3, so every musl release ships OpenSSL (`docs/adr/0018`).
   adbcArchiveFor = target:
-    let drv = adbcDrivers."adbc-driver-bigquery-${target}" or null;
-    in pkgs.lib.optionalAttrs (drv != null) {
+    let
+      drv = adbcDrivers."adbc-driver-bigquery-${target}" or null;
+      postgres = postgresAdbcDrivers."adbc-driver-postgresql-${target}" or null;
+    in
+    pkgs.lib.optionalAttrs (drv != null) {
       SUTURA_ADBC_ARCHIVE_DIR = "${drv}/lib";
+    } // pkgs.lib.optionalAttrs (postgres != null && pkgs.lib.hasSuffix "-linux-musl" target) {
+      SUTURA_ADBC_POSTGRES_ARCHIVE_DIR = "${postgres}/lib";
     };
 
   # Targets we CROSS-build. Deliberately excludes the host architecture: on an x86_64 builder
@@ -309,9 +318,9 @@ let
     { inherit crossLib args; };
 
   # BOTH LINKED DRIVERS IN ONE STATIC MUSL BINARY, RUN - `github.com/telekom/sutura#913`'s musl
-  # decision, in a TEST build and not yet in a release: `adbcArchiveFor` still links only the
-  # BigQuery archive into a published artefact, until the stage that compiles the PostgreSQL ADBC
-  # transport into the shipped `postgres` feature (`docs/adr/0018`'s Thirteenth amendment). This builds `crates/sutura-adbc/tests/linked.rs` for
+  # decision, in a TEST build: the release links the same two archives (`adbcArchiveFor`) and
+  # `sutura doctor` only initialises the PostgreSQL one, so this is where its libpq RUNS. It builds
+  # `crates/sutura-adbc/tests/linked.rs` for
   # x86_64-unknown-linux-musl with both archive directories and RUNS it, which only an x86_64-linux
   # builder can, so the attribute exists there alone. A failing cell fails the build; the rest of
   # the verdict - that the cell's LINKED arm is what ran, since a build that stopped linking the
@@ -325,7 +334,6 @@ let
       testArgs = args // adbcArchiveFor target // {
         pname = "sutura-adbc-linked";
         cargoExtraArgs = "--package sutura-adbc --target ${target}";
-        SUTURA_ADBC_POSTGRES_ARCHIVE_DIR = "${postgresAdbcDrivers."adbc-driver-postgresql-${target}"}/lib";
       };
     in
     {
