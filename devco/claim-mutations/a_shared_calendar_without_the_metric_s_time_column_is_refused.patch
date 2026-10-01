@@ -1,0 +1,22 @@
+diff --git a/crates/sutura-domain/src/catalog/consistency.rs b/crates/sutura-domain/src/catalog/consistency.rs
+index d95464a2e..e54ff2547 100644
+--- a/crates/sutura-domain/src/catalog/consistency.rs
++++ b/crates/sutura-domain/src/catalog/consistency.rs
+@@ -558,17 +558,6 @@ impl Definitions {
+                     });
+                 }
+             }
+-            // The column both legs bucket and bound by is the metric's time column on the calendar.
+-            if models
+-                .get(calendar)
+-                .is_some_and(|model| !model.has_column(&metric.time_column))
+-            {
+-                return Err(InconsistentDefinitions::UnknownTimeColumn {
+-                    metric: metric.name.clone(),
+-                    model: calendar.clone(),
+-                    column: metric.time_column.clone(),
+-                });
+-            }
+         }
+         Ok(())
+     }

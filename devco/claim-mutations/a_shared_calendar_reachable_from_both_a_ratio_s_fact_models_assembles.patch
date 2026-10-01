@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/catalog/consistency.rs b/crates/sutura-domain/src/catalog/consistency.rs
+index d95464a2e..cdc24428c 100644
+--- a/crates/sutura-domain/src/catalog/consistency.rs
++++ b/crates/sutura-domain/src/catalog/consistency.rs
+@@ -515,7 +515,7 @@ impl Definitions {
+         if let Some(measure) = metric.computation.measure()
+             && measure.models().into_iter().flatten().any(|named| named != &metric.model)
+         {
+-            if metric.anchor.is_some() {
++            if metric.anchor.is_none() {
+                 return Err(InconsistentDefinitions::AnchorOnCrossModelRatio {
+                     metric: metric.name.clone(),
+                 });
