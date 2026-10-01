@@ -4490,7 +4490,7 @@ dependencies = [
  "adbc_driver_manager",
  "arrow-array 59.2.0",
  "arrow-schema 59.2.0",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "serde_json",
  "sutura-adbc",
  "sutura-conformance",
