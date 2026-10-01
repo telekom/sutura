@@ -4292,7 +4292,7 @@ dependencies = [
 name = "sutura-bounded-read"
 version = "0.6.1"
 dependencies = [
- "rustix 0.38.44",
+ "rustix 1.1.4",
  "thiserror 2.0.21",
 ]
 
@@ -4300,7 +4300,7 @@ dependencies = [
 name = "sutura-catalog-datacontract"
 version = "0.6.1"
 dependencies = [
- "rustix 0.38.44",
+ "rustix 1.1.4",
  "serde",
  "serde_norway",
  "sutura-bounded-read",
@@ -4327,7 +4327,7 @@ dependencies = [
 name = "sutura-catalog-local"
 version = "0.6.1"
 dependencies = [
- "rustix 0.38.44",
+ "rustix 1.1.4",
  "serde",
  "serde_norway",
  "sutura-bounded-read",
@@ -4339,7 +4339,7 @@ dependencies = [
 name = "sutura-catalog-okf"
 version = "0.6.1"
 dependencies = [
- "rustix 0.38.44",
+ "rustix 1.1.4",
  "serde",
  "serde_norway",
  "sutura-bounded-read",
