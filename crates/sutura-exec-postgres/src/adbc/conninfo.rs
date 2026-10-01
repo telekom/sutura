@@ -36,9 +36,8 @@
 //! what the static musl artefact's copy holds is unmeasured. `PGTZ`, `PGDATESTYLE` and `PGGEQO` have
 //! no keyword, so the string cannot pin them: each reaches the server as a session setting. The
 //! `OPENSSL_CONF` cell hands the variable's state in; that [`Conninfo::new`] reads the process's own
-//! is held by review, because a cell cannot set it under `forbid(unsafe_code)`. And no cell here
-//! observes a handshake: the strings below are what libpq is told, read against its source, not what
-//! it did.
+//! is not held by a cell here. And no cell here observes a handshake: the strings below are what
+//! libpq is told, read against its source, not what it did.
 
 use sutura_domain::identity::Secret;
 use sutura_domain::model::SourceName;
@@ -108,7 +107,10 @@ const KEYWORDS: [(&str, Held); 50] = [
         "sslnegotiation",
         Held::Harmless("changes how TLS starts, not what it verifies"),
     ),
-    ("sslcompression", Held::Harmless("stored and never read by libpq 18")),
+    (
+        "sslcompression",
+        Held::Harmless("libpq reads it, but the static OpenSSL has no zlib and servers since 14 refuse it"),
+    ),
     (
         "sslcert",
         Held::Written("on mutual; otherwise a certificate found on disk could be presented"),
