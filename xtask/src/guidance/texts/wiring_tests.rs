@@ -1,8 +1,8 @@
 //! The wiring between the census and the checks, in a file of its own so causality can measure it:
-//! an inline test in an implementation file is never measured. Each test drives
-//! [`crate::guidance::inspect_listing`] and [`crate::guidance::texts::tree_problems_from_texts`]
-//! from a fixture tree - the seam that holds the settled-text and fail-closed behaviour: what the
-//! checks read is the census's `Texts`, not the disk twice.
+//! an inline test in an implementation file is never measured. The tests drive
+//! [`crate::guidance::texts::tree_problems_from_texts`] from a fixture tree, two of them through
+//! [`crate::guidance::inspect_listing`] - the seam that holds the settled-text and fail-closed
+//! behaviour: what the checks read is the census's `Texts`, not the disk twice.
 
 #[test]
 fn an_invalid_utf8_file_in_scope_still_fails_closed() {

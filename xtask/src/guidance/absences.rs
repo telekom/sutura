@@ -575,9 +575,8 @@ mod tests {
     }
     /// A read closure over a fixture tree: a path the tree holds returns its text, and one it does
     /// not - or that `fs` cannot decode - reads as unreadable.
-    /// This fixture uses strict UTF-8, so every test verifies the check's behavior under valid
-    /// encoding. Production's `Texts::get` returns strict for invalid bytes, matching the test
-    /// reader's contract: both fail closed on encoding errors.
+    /// Like production, which reads through `Texts::strict` (`Texts::get` is the lossy text), this
+    /// reader fails closed on bytes that are not UTF-8.
     fn reader(root: &Path) -> impl Fn(&str) -> Option<String> + '_ {
         move |rel| std::fs::read_to_string(root.join(rel)).ok()
     }
