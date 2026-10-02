@@ -74,6 +74,36 @@ are separate symbols, so no build can hand one out under the other's name.
 
 As `linked_driver`.
 
+## `fn linked_duckdb_driver`
+
+```rust
+pub fn linked_duckdb_driver() -> Result<adbc_driver_manager::ManagedDriver, adbc_core::error::Error>
+```
+
+The `DuckDB` driver this artefact's own link carries - `linked_driver`'s contract, for the
+archive `nix/duckdb-adbc.nix` builds.
+
+# Errors
+
+As `linked_driver`.
+
+## `fn mounted_duckdb_driver`
+
+```rust
+pub fn mounted_duckdb_driver(path: &std::path::Path) -> Result<adbc_driver_manager::ManagedDriver, adbc_core::error::Error>
+```
+
+The `DuckDB` library a deployment mounted at `path`, opened as an ADBC driver.
+
+**The entrypoint is passed, never derived.** Given none, the driver manager derives
+`AdbcDuckdbInit` from `libduckdb.so` and falls back to `AdbcDriverInit`, and `DuckDB` defines
+neither: `duckdb_adbc_init` is its one C-linkage ADBC name, the symbol the linked route declares
+too.
+
+# Errors
+
+`CoreError` where the library does not load or its initialisation refused.
+
 ## `use parameter_batch`
 
 One question's values, as the batch this driver binds from - or `None` where there are none.
