@@ -31,7 +31,7 @@
 //!   drain stay in each adapter. This crate names no data system.
 
 mod bind;
-#[cfg(any(adbc_driver_linked, adbc_postgres_driver_linked))]
+#[cfg(any(adbc_driver_linked, adbc_postgres_driver_linked, adbc_duckdb_driver_linked))]
 mod linked;
 mod location;
 
@@ -39,7 +39,9 @@ pub use bind::parameter_batch;
 pub use location::{DriverLocation, UnusableDriverPath};
 
 use adbc_core::error::Error as CoreError;
+use adbc_core::options::AdbcVersion;
 use adbc_driver_manager::ManagedDriver;
+use std::path::Path;
 
 /// The `BigQuery` driver this artefact's own link carries, or an error where it carries none.
 ///
@@ -91,4 +93,38 @@ pub fn linked_postgres_driver() -> Result<ManagedDriver, CoreError> {
             adbc_core::error::Status::NotFound,
         ))
     }
+}
+
+/// The `DuckDB` driver this artefact's own link carries - [`linked_driver`]'s contract, for the
+/// archive `nix/duckdb-adbc.nix` builds.
+///
+/// # Errors
+///
+/// As [`linked_driver`].
+pub fn linked_duckdb_driver() -> Result<ManagedDriver, CoreError> {
+    #[cfg(adbc_duckdb_driver_linked)]
+    {
+        linked::duckdb_driver()
+    }
+    #[cfg(not(adbc_duckdb_driver_linked))]
+    {
+        Err(CoreError::with_message_and_status(
+            "this build linked no DuckDB ADBC driver",
+            adbc_core::error::Status::NotFound,
+        ))
+    }
+}
+
+/// The `DuckDB` library a deployment mounted at `path`, opened as an ADBC driver.
+///
+/// **The entrypoint is passed, never derived.** Given none, the driver manager derives
+/// `AdbcDuckdbInit` from `libduckdb.so` and falls back to `AdbcDriverInit`, and `DuckDB` defines
+/// neither: `duckdb_adbc_init` is its one C-linkage ADBC name, the symbol the linked route declares
+/// too.
+///
+/// # Errors
+///
+/// [`CoreError`] where the library does not load or its initialisation refused.
+pub fn mounted_duckdb_driver(path: &Path) -> Result<ManagedDriver, CoreError> {
+    ManagedDriver::load_dynamic_from_filename(path, Some(b"duckdb_adbc_init"), AdbcVersion::default())
 }
