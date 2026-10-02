@@ -100,7 +100,7 @@ sutura-adbc = { workspace = true, optional = true }
 # It adds no package to `Cargo.lock`: `getrandom` is already in the closure
 # three times over through the TLS and UUID stacks. Behind the `adbc` feature,
 # because only that transport serves a subject token.
-getrandom = { version = "0.3", optional = true }
+getrandom = { version = "0.4", optional = true }
 
 # The driver's own result vocabulary. The major is the ENGINE's, which is also
 # `sutura-domain`'s since `docs/adr/0039`, and the ADBC driver manager resolves the same
