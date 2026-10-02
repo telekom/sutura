@@ -589,6 +589,75 @@ Sales over the order fact.
         assert_ne!(cube.digest(), reworded.digest());
     }
 
+    /// A second fact and a calendar both facts reach: what a cross-model ratio needs to load.
+    const TWO_FACTS: [(&str, &str); 5] = [
+        ("orders.md", MODEL),
+        (
+            "invoices.md",
+            "---\nkind: model\nname: invoices\nsource: local\ntable: fct_invoice\ncolumns: [invoice_key, order_date]\n---\nOne row per invoice.\n",
+        ),
+        (
+            "calendar.md",
+            "---\nkind: model\nname: calendar\nsource: local\ntable: dim_calendar\ncolumns: [order_date]\nprimary_key: [order_date]\n---\nOne row per day.\n",
+        ),
+        (
+            "order_calendar.md",
+            "---\nkind: relationship\nname: order_calendar\norigin: { model: orders, column: order_date }\ntarget: { model: calendar, column: order_date }\njoin_type: many_to_one\n---\nThe first fact's hop.\n",
+        ),
+        (
+            "invoice_calendar.md",
+            "---\nkind: relationship\nname: invoice_calendar\norigin: { model: invoices, column: order_date }\ntarget: { model: calendar, column: order_date }\njoin_type: many_to_one\n---\nThe second fact's hop.\n",
+        ),
+    ];
+
+    /// A cross-model ratio beside a one-model sibling, which declares no calendar.
+    const RATIO_CUBE: &str = "---\nkind: cube\nname: sales\nmodel: orders\ntime_column: order_date\ngrains: [month]\nmeasures:\n  - name: per_invoice\n    measure:\n      ratio:\n        numerator: { aggregate: sum, column: amount_cents }\n        denominator: { aggregate: count, column: invoice_key, model: invoices }\n        zero_denominator: yields_null\n    shared_calendar: calendar\n    audience: open\n  - name: revenue\n    measure:\n      simple: { aggregate: sum, column: amount_cents }\n    audience: open\n    description: Gross revenue, in minor units.\n---\nRevenue per invoice.\n";
+    const FLAT_RATIO: &str = "---\nkind: metric\nname: sales_per_invoice\nmodel: orders\nmeasure:\n  ratio:\n    numerator: { aggregate: sum, column: amount_cents }\n    denominator: { aggregate: count, column: invoice_key, model: invoices }\n    zero_denominator: yields_null\ntime_column: order_date\ngrains: [month]\nshared_calendar: calendar\naudience: open\n---\nRevenue per invoice.\n";
+    const FLAT_SIBLING: &str = "---\nkind: metric\nname: sales_revenue\nmodel: orders\nmeasure:\n  simple: { aggregate: sum, column: amount_cents }\ntime_column: order_date\ngrains: [month]\naudience: open\n---\nGross revenue, in minor units.\n";
+
+    fn two_facts_and<'a>(documents: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
+        TWO_FACTS.iter().chain(documents).copied().collect()
+    }
+
+    /// The sibling is on the flat side without a calendar, so a calendar copied to every measure of
+    /// the cube moves the cube's digest away from it.
+    #[test]
+    fn a_cube_s_cross_model_ratio_pins_its_hand_written_metric_s_digest() {
+        let cube = pinned("cube-ratio", &two_facts_and(&[("sales.md", RATIO_CUBE)]));
+        let flat = pinned(
+            "cube-ratio-flat",
+            &two_facts_and(&[("ratio.md", FLAT_RATIO), ("revenue.md", FLAT_SIBLING)]),
+        );
+        assert_eq!(cube.digest(), flat.digest());
+        // The twin: the digest sees the calendar, so a cube dropping it could not pass as equal.
+        let uncalendared = FLAT_RATIO.replace("shared_calendar: calendar\n", "");
+        let uncalendared = pinned(
+            "cube-ratio-uncalendared",
+            &two_facts_and(&[("ratio.md", &uncalendared), ("revenue.md", FLAT_SIBLING)]),
+        );
+        assert_ne!(cube.digest(), uncalendared.digest());
+    }
+
+    /// `telekom/sutura#1194`'s refusal, reached through the cube's expansion rather than around it.
+    #[test]
+    fn an_anchor_on_a_cube_s_cross_model_ratio_is_refused_naming_its_metric() {
+        let anchored = RATIO_CUBE.replace(
+            "    shared_calendar: calendar\n",
+            "    shared_calendar: calendar\n    anchor:\n      range: { start: 2026-06-01, end: 2026-07-01 }\n      value: \"1\"\n",
+        );
+        let err = outcome_of("cube-ratio-anchor", &two_facts_and(&[("sales.md", &anchored)]))
+            .expect_err("an anchor on a cross-model ratio is refused at load");
+        assert!(
+            matches!(
+                &err,
+                LocalCatalogError::Inconsistent {
+                    cause: InconsistentDefinitions::AnchorOnCrossModelRatio { metric },
+                } if *metric == name("sales_per_invoice")
+            ),
+            "{err:?}"
+        );
+    }
+
     #[test]
     fn a_measure_declaring_dimensions_of_its_own_is_refused() {
         let cube = CUBE.replace(

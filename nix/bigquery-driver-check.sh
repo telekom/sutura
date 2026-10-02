@@ -70,6 +70,7 @@ pg_self_check() {
         fi
     done <<'CASES'
 ok|  pg driver    : loaded and initialised, linked into this binary - its libpq has no Kerberos/GSSAPI or OAuth sign-in
+no|  pg driver    : loaded and initialised, mounted at /opt/sutura/lib/libadbc_driver_postgresql.so
 no|  pg driver    : not linked into this binary - a source build would mount libadbc_driver_postgresql.so
 no|  pg driver    : NOT usable: linked into this binary: could not load the PostgreSQL ADBC driver
 no|  pg driver    : not linked - this build has no PostgreSQL adapter to load one for

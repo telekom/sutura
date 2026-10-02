@@ -122,7 +122,7 @@ fn build_postgres(
     let (target, port) = match dial {
         sutura_config::sources::placement::PostgresDial::Tcp { host, port } => (ConnectionTarget::Host(host.as_str()), *port),
         sutura_config::sources::placement::PostgresDial::UnixSocket { directory, port } => {
-            (ConnectionTarget::UnixSocket(directory), *port)
+            (ConnectionTarget::UnixSocket(directory.as_path()), *port)
         }
     };
     let config = config(target, port, database, user, password_file)

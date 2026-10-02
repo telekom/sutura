@@ -11,9 +11,10 @@
 //! metric's name say which cube, if any, it came from - that grouping is not recorded anywhere.
 //!
 //! What a measure cannot say is held by `deny_unknown_fields` on [`MeasureDoc`]: no `dimensions:`
-//! of its own (the cube's list is the only one), no `model:`, `time_column:` or `grains:`, and no
-//! `shared_calendar:` - a measure needing one is a metric document for now. `hierarchies:` is
-//! refused by name on [`CubeDoc`] the same way: a roll-up order has no domain representation.
+//! of its own (the cube's list is the only one), no `model:`, `time_column:` or `grains:`.
+//! `hierarchies:` is refused by name on [`CubeDoc`] the same way: a roll-up order has no domain
+//! representation. A measure's `shared_calendar:` is its own, so a cross-model ratio can sit beside
+//! one-model siblings whose metrics do not change.
 
 use std::collections::BTreeSet;
 
@@ -64,6 +65,9 @@ struct MeasureDoc {
     /// This measure's own prose. Absent means the cube document's body.
     #[serde(default)]
     description: Option<Description>,
+    /// [`MetricDoc`]'s `shared_calendar`, per measure: a cross-model ratio's conformed calendar.
+    #[serde(default)]
+    shared_calendar: Option<ModelName>,
 }
 
 /// Why a cube document cannot become metrics.
@@ -125,7 +129,7 @@ impl CubeDoc {
                 dimensions: self.dimensions.clone(),
                 anchor: measure.anchor,
                 audience: measure.audience,
-                shared_calendar: None,
+                shared_calendar: measure.shared_calendar,
             };
             metrics.push(doc.into_domain(description).map_err(InvalidCubeDocument::Metric)?);
         }

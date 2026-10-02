@@ -1436,6 +1436,13 @@ jobs:
     # with `github.event_name == 'pull_request'` as a pinned PREFIX and refuses the reversed
     # spelling and a `${{ }}` wrapping alike.
     #
+    # `&& github.event.pull_request.user.login != 'dependabot[bot]'`: skip every Dependabot-AUTHORED
+    # pull request, whoever pushed to it. It reads the author, not `github.actor`: a person or an
+    # App pushing to a Dependabot branch makes the pusher the run's actor, so the run receives
+    # Actions secrets and this job would hold CACHIX_AUTH_TOKEN while it builds the bumped
+    # dependency closure. `cache_scope`'s PR-writer pairing refuses this job's cachix step unless
+    # the clause is a top-level conjunct here, token for token.
+    #
     # `&& needs.ci.outputs.deps_closure == 'true'` (#980, corrected in review): the realise below
     # now publishes the dependency closure ONLY, and only a commit moving one of
     # `crate::changes::DEPS_CLOSURE_INPUTS` - the exact set `nix-store-cache`'s own `primary-key`
@@ -1446,7 +1453,7 @@ jobs:
     # defect surviving for that whole class. A commit that moves none of those inputs has nothing
     # this job can usefully build, so it skips rather than spending a runner on a restore that
     # finds its own write already there.
-    if: github.event_name == 'pull_request' && !cancelled() && needs.ci.outputs.deps_closure == 'true'
+    if: github.event_name == 'pull_request' && !cancelled() && github.event.pull_request.user.login != 'dependabot[bot]' && needs.ci.outputs.deps_closure == 'true'
     runs-on: rust-mcp-16core
     environment: cachix-push-pr
     steps:

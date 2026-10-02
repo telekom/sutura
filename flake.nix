@@ -185,11 +185,12 @@
         # the same tree.
         #
         # That mattered because a build script may bake an absolute path into generated code, and
-        # one here does - `utoipa-swagger-ui`, whose generated `rust-embed` `#[folder]` names its
-        # own `$OUT_DIR`, which arrives in these checks by decompressing `sutura-deps`. Under one
-        # source-root name a linux check reuses that literal successfully; under two it did not,
-        # and `checks.nextest` failed in a THIRD-PARTY crate while `checks.clippy` passed on the
-        # same tree. `nix/purge-baked-out-dirs.sh` carries the whole failure and both build roots.
+        # one here does - `utoipa-swagger-ui`, whose generated `embed.rs` names its own `$OUT_DIR`
+        # in `include_bytes!` literals (a `rust-embed` `#[folder]` up to v9), which arrives in
+        # these checks by decompressing `sutura-deps`. Under one source-root name a linux check
+        # reuses that literal successfully; under two it did not, and `checks.nextest` failed in a
+        # THIRD-PARTY crate while `checks.clippy` passed on the same tree.
+        # `nix/purge-baked-out-dirs.sh` carries the whole failure and both build roots.
         #
         # `filter` is the trivial one, so nothing is dropped - the whole point of these four is
         # that nothing is. But **agreement is no longer the mechanism**: see the two limits.
@@ -594,9 +595,21 @@
           # a literal four. `nix/postgres-adbc.nix` also LINKS a probe against the archive, so a
           # member missing from it fails the build. Loading and running it is
           # `nix/shipped.nix`'s `linkedDriversTests`, which links `crates/sutura-adbc` against these.
+          # It also holds `conninfo.rs`'s `KEYWORDS` to this libpq's `PQconninfoOptions`, row for
+          # row, so a libpq that adds a connection keyword fails here until the keyword is classified.
+          # Textual on both sides: a row written another way is a mismatch, never a pass.
           adbc-driver-postgresql = pkgs.runCommand "adbc-driver-postgresql-check" {
             buildInputs = builtins.attrValues postgresAdbcDrivers;
           } ''
+            libpq=$(sed -n '/^static const internalPQconninfoOption PQconninfoOptions\[\] = {/,/^};/p' \
+              ${pkgs.libpq.src}/src/interfaces/libpq/fe-connect.c | grep -oE '^[[:space:]]*\{"[a-z_]+",' | tr -d ' \t{",')
+            table=$(sed -n '/^const KEYWORDS/,/^];/p' ${./crates/sutura-exec-postgres/src/adbc/conninfo.rs} \
+              | grep -oE '(^|\()[[:space:]]*"[a-z_]+",' | tr -d ' \t(",')
+            test "$(printf '%s\n' "$libpq" | wc -l)" -gt 40 \
+              || { echo "read no PQconninfoOptions table from libpq ${pkgs.libpq.version}" >&2; exit 1; }
+            test "$libpq" = "$table" \
+              || { echo "conninfo.rs KEYWORDS is not libpq ${pkgs.libpq.version}'s keyword list:" >&2;
+                   diff <(printf '%s\n' "$libpq") <(printf '%s\n' "$table") >&2; exit 1; }
             found=0
             for d in $buildInputs; do
               for shape in so a; do
@@ -671,7 +684,9 @@
             # not done here, so what is left is this comment: recall, not a mechanism.
             # The shared falsifier test must reach check-jscpd's clone finding, not its
             # missing-binary refusal. Hygiene already uses this same pinned scanner.
-            nativeCheckInputs = [ postgresTier.tier clickhouseTier.tier pkgs.git pkgs.python3 jscpd ];
+            # `openssl` mints the throwaway CA `examples/demo-chatinterface/test_mcp.py` serves its
+            # `https://` issuer fake under, so the minting helper's CA-pinned arm runs here.
+            nativeCheckInputs = [ postgresTier.tier clickhouseTier.tier pkgs.git pkgs.python3 pkgs.openssl jscpd ];
             # A real Postgres, provisioned from nixpkgs inside this sandbox over a unix socket, so
             # the postgres corpus and differential cells run HERE (in this single sandboxed test
             # pass) rather than in a separate `nix develop` job. `ciArtifacts` - the expensive
@@ -690,7 +705,7 @@
             # `examples/demo-chatinterface` has a hyphen, so `-m unittest examples.demo-chatinterface.test_behavior`
             # cannot be a dotted module path at all - the subshell `cd` makes it the top-level `test_behavior`
             # module instead, which `-m` finds via the cwd it puts at the front of `sys.path`.
-            preCheck = "(cd examples/demo-chatinterface && ${pkgs.python3}/bin/python3 -m unittest test_behavior -v) && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\" && ${clickhouseTier.tier}/bin/sutura-clickhouse-tier start && eval \"$(${clickhouseTier.tier}/bin/sutura-clickhouse-tier credentials)\"";
+            preCheck = "(cd examples/demo-chatinterface && ${pkgs.python3}/bin/python3 -m unittest test_behavior test_mcp -v) && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\" && ${clickhouseTier.tier}/bin/sutura-clickhouse-tier start && eval \"$(${clickhouseTier.tier}/bin/sutura-clickhouse-tier credentials)\"";
             postCheck = "${clickhouseTier.tier}/bin/sutura-clickhouse-tier stop && ${postgresTier.tier}/bin/sutura-postgres-tier stop";
             SUTURA_DEV_REQUIRE_TIER = "1";
           });

@@ -71,12 +71,46 @@ case "$endpoint" in
         ;;
 esac
 
+# `openapi` (`just demo`) or `mcp` (`just demo-mcp`); anything else is refused rather than defaulted.
+surface="${SUTURA_DEMO_SURFACE:-openapi}"
+case "$surface" in
+    openapi | mcp) ;;
+    *)
+        printf 'sutura-demo: SUTURA_DEMO_SURFACE must be openapi or mcp\n' >&2
+        exit 1
+        ;;
+esac
+
 mkdir -p "$run_dir"
 chmod 0700 "$run_dir"
 
-# The bearer token that authenticates the chat client to the server. Generated per start, written
-# 0600 under `run_dir`, and read back by the probe - never printed, never in an image layer.
-token="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+# The bearer token that authenticates the chat client to the server, written 0600 under `run_dir`
+# and read back by the probe - never printed, never in an image layer. For `openapi` it is generated
+# per start; for `mcp` it is the one the host minted from the Keycloak tier, so the server verifies
+# a token a real issuer signed rather than one this script made up.
+if [ "$surface" = mcp ]; then
+    token="${SUTURA_DEMO_MCP_TOKEN:-}"
+    # Each of the first three lands inside a double-quoted YAML or JSON string, so a quote, a
+    # backslash or a line break would end the string and write a key of its own.
+    for name in SUTURA_DEMO_MCP_TOKEN SUTURA_DEMO_MCP_ISSUER SUTURA_DEMO_MCP_RESOURCE SUTURA_DEMO_MCP_KEY_SET; do
+        value="${!name:-}"
+        case "$name:$value" in
+            *:)
+                printf 'sutura-demo: %s is required for the MCP surface\n' "$name" >&2
+                exit 1
+                ;;
+            SUTURA_DEMO_MCP_KEY_SET:*) ;;
+            *'"'* | *\\* | *[[:cntrl:]]*)
+                printf 'sutura-demo: %s must be one line without a double quote or a backslash\n' "$name" >&2
+                exit 1
+                ;;
+        esac
+    done
+    printf '%s' "$SUTURA_DEMO_MCP_KEY_SET" > "$run_dir/keycloak-jwks.json"
+    chmod 0600 "$run_dir/keycloak-jwks.json"
+else
+    token="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+fi
 # `fail` is not a function in this script, and the refusal must not rest on `set -e` either: with
 # `-e` removed this guard wrote a zero-byte token file and `access_token: ""` into the deployment,
 # which the server reads as NO credential and serves anyway on a loopback development bind. Refuse
@@ -92,15 +126,36 @@ chmod 0600 "$run_dir/token"
 # this demo has: one identity reads the example, and pretending otherwise is what the walkthrough
 # warns against. `development` keeps the generated interface description on, which the OpenAPI
 # connection needs.
+#
+# `mcp` swaps the generated deployment token for leg 1 over the Keycloak tier - `direct` mode against
+# the key set the host fetched, the realm's own issuer and audience - and mounts `/mcp`. The source
+# still reads as one service user, so this verifies WHO asks; it does not make the source run as them.
+# `token_type: any` because the realm mints `typ: JWT`, not the RFC 9068 `at+jwt` the default requires.
+if [ "$surface" = mcp ]; then
+    agent_surface='  agent_surface:
+    enabled: true'
+    credential="  inbound:
+    mode: \"direct\"
+    resource: \"${SUTURA_DEMO_MCP_RESOURCE}\"
+    authorization_server: \"${SUTURA_DEMO_MCP_ISSUER}\"
+    key_set_file: \"${run_dir}/keycloak-jwks.json\"
+    algorithms: [\"RS256\"]
+    token_type: \"any\"
+    accept_any_token_type: true"
+else
+    agent_surface=''
+    credential="  access_token: \"${token}\""
+fi
 {
     printf '%s\n' \
         'server:' \
         '  host: "127.0.0.1"' \
         "  port: ${sutura_port}" \
+        ${agent_surface:+"$agent_surface"} \
         'security:' \
         '  identity: "single-user"' \
         "  single_user_because: \"${acknowledged}\"" \
-        "  access_token: \"${token}\"" \
+        "$credential" \
         'catalogs:' \
         '  - name: "model"' \
         '    kind: "markdown"' \
@@ -137,7 +192,13 @@ export ENABLE_SIGNUP="false"
 # `examples/demo-chatinterface/healthcheck.py` proves the server answers a real question and refuses one it cannot, by
 # calling it directly - it does NOT prove the chat client selected the tool and asked either one;
 # that half stays a human clicking through the walkthrough.
-export TOOL_SERVER_CONNECTIONS="[{\"type\": \"openapi\", \"url\": \"http://127.0.0.1:${sutura_port}\", \"spec_type\": \"url\", \"spec\": \"\", \"path\": \"openapi.json\", \"auth_type\": \"bearer\", \"key\": \"${token}\", \"config\": {\"enable\": true}, \"info\": {\"id\": \"sutura\", \"name\": \"sutura\", \"description\": \"Certified metric questions\"}}]"
+# `mcp` registers Open WebUI's native MCP connection instead: streamable HTTP at `/mcp`, the same
+# bearer key, listed as `server:mcp:sutura` (the id its own tool registry derives from `info.id`).
+if [ "$surface" = mcp ]; then
+    export TOOL_SERVER_CONNECTIONS="[{\"type\": \"mcp\", \"url\": \"http://127.0.0.1:${sutura_port}/mcp\", \"auth_type\": \"bearer\", \"key\": \"${token}\", \"config\": {\"enable\": true}, \"info\": {\"id\": \"sutura\", \"name\": \"sutura\", \"description\": \"Certified metric questions\"}}]"
+else
+    export TOOL_SERVER_CONNECTIONS="[{\"type\": \"openapi\", \"url\": \"http://127.0.0.1:${sutura_port}\", \"spec_type\": \"url\", \"spec\": \"\", \"path\": \"openapi.json\", \"auth_type\": \"bearer\", \"key\": \"${token}\", \"config\": {\"enable\": true}, \"info\": {\"id\": \"sutura\", \"name\": \"sutura\", \"description\": \"Certified metric questions\"}}]"
+fi
 
 printf 'sutura-demo: starting the server on 127.0.0.1:%s and the chat client on 127.0.0.1:%s\n' \
     "$sutura_port" "$webui_port" >&2

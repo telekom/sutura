@@ -606,8 +606,10 @@ name is not. The environment and an `equals` value are bound as `:1`/`:2`, never
 
 - **No live Oracle run is observed or cited.** No venue that runs `just validate` reaches an
   Oracle server (`compose.services.yaml`'s `oracle` row says why, and why no Rust cell reaches
-  that tier). The unit cells prove the constructor refusals, the rendered statement and the
-  flag decode - never a read. Nothing here is golden-pinned.
+  that tier). The unit cells prove the constructor refusals, the rendered statement, the flag
+  decode, and a golden of the dictionary assembled from positional values handed to the
+  decoder - never a read. The driver cannot build a row outside a session, so the cursor, the
+  transaction and the driver's own type conversion stay unexercised.
 - **Read-only by statement, not by driver flag.** The pinned driver has no read-only option;
   the reader issues `SET TRANSACTION READ ONLY` before its one `SELECT` and rolls back after it.
   Unobserved against a server, like every other line of the read path.

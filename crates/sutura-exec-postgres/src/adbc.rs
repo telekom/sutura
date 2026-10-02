@@ -26,8 +26,8 @@
 //!   `tokio-postgres` path uses, and always rolled back. A statement the server cancelled for it
 //!   (`57014`) is the deadline to `Warehouse::deadline_exceeded`, the split `deadline.rs` draws.
 //! - **The channel is the declared one.** [`Conninfo`](crate::adbc::Conninfo) builds the libpq
-//!   connection string from the declaration and pins every key the environment could weaken; its
-//!   own header carries the table and what it refuses.
+//!   connection string from the declaration and classifies every libpq keyword, pinning each one the
+//!   environment could weaken; its own header carries what it refuses and what it cannot pin.
 //! - **The driver is the linked one where there is one.**
 //!   [`PostgresDriver`](crate::adbc::PostgresDriver) is the archive this artefact links (both musl
 //!   triples) or a mounted `.so` (every other build).

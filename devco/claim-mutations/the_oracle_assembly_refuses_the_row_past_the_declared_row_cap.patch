@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-rdbms/src/oracle_reader.rs b/crates/sutura-catalog-rdbms/src/oracle_reader.rs
+index 6f0b61d54..df3c4a7e9 100644
+--- a/crates/sutura-catalog-rdbms/src/oracle_reader.rs
++++ b/crates/sutura-catalog-rdbms/src/oracle_reader.rs
+@@ -170,6 +170,7 @@ fn assemble(
+     for row in rows {
+         let row = row?;
+         assembly.admit(row.decoded_len())?;
++        assembly.admit(0)?;
+         assembly.push(row)?;
+     }
+     Ok(assembly.finish())

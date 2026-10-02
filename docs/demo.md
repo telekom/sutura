@@ -101,6 +101,47 @@ only render it. Repeating the question does not change the answer.
 Some models answer from their own knowledge instead of calling a tool. That is the client being
 ungoverned: if it did not call `ask_metric`, no certified number was involved.
 
+## Over MCP, behind a real issuer
+
+`just demo-mcp` is the same demo with the chat client on Open WebUI's native **MCP** connection
+instead of OpenAPI, and the server's `/mcp` mounted behind inbound verification against the nix
+Keycloak tier (`just keycloak-tier`). It takes the same four variables and adds, in order:
+
+1. It starts the Keycloak tier - and stops it on exit if this run started it.
+2. `examples/demo-chatinterface/keycloak_token.py` asks the realm for an access token as its first
+   subject, over the tier's own CA, and fetches the realm's key set. Nothing it reads is printed.
+3. The container's deployment declares `security.inbound` in `direct` mode over that issuer, its
+   audience and that key set, with no deployment token; the MCP connection presents the minted token.
+4. Readiness requires `/mcp` to refuse a call that carries no token with `401`, on every probe, and
+   to initialize and list tools for the minted token once.
+
+The server never contacts the issuer: it verifies against the key set it was handed, which is why
+the tier's loopback `https://` issuer verifies inside a container whose loopback is its own.
+
+Its limits, beside the claims:
+
+- **Run end to end once, by hand, and by no gate.** On 2026-10-01, `just demo-mcp` on one
+  developer machine brought the tier and the container up healthy. `/mcp` refused a call with no
+  token, a malformed token and a token whose signature had been altered, each with `401`, and listed
+  three tools for the minted one. Open WebUI's registry listed `server:mcp:sutura`, and one chat
+  question went through Open WebUI's MCP client to `ask_metric`, which answered `202121` for June
+  2026. Teardown left no container and stopped the tier. The model was a local deterministic stub
+  that always picks that tool, so the run shows the plumbing, not a model choosing it. The
+  demo-container workflow drives only `just demo`, and `just validate` runs this mode's launcher,
+  supervisor, probe and minting helper against fakes.
+- **One token, no renewal.** The tier's realm mints access tokens for an hour (Keycloak's default is
+  five minutes, raised in `nix/keycloak-tier.nix`, whose start refuses a realm that mints less).
+  Nothing refreshes the one token the launcher fetched, so after that hour the MCP connection is
+  refused; run `just demo-mcp` again for a fresh one. Readiness latched its token check and stays
+  healthy.
+- **One subject, chosen by the launcher.** The chat client does not log in; every chat presents the
+  same subject's token. It shows a real issuer's token verified on `/mcp`, not a person signing in.
+- **Still a single shared source identity.** The verified caller does not change who reads the
+  example - this is not source impersonation, and this demo is not a venue
+  [where identity is proven](where-identity-is-proven.md) records.
+- **The token travels in the container's environment**, the way the model key does, so anyone who
+  can inspect the container can read it until it expires.
+
 ## Stop it
 
 Ctrl-C removes the demo's container and its named volume. `examples/demo-chatinterface/start.sh` runs the

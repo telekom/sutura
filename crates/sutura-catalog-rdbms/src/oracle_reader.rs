@@ -18,8 +18,10 @@
 //!
 //! - **No live Oracle run is observed or cited.** No venue that runs `just validate` reaches an
 //!   Oracle server (`compose.services.yaml`'s `oracle` row says why, and why no Rust cell reaches
-//!   that tier). The unit cells prove the constructor refusals, the rendered statement and the
-//!   flag decode - never a read. Nothing here is golden-pinned.
+//!   that tier). The unit cells prove the constructor refusals, the rendered statement, the flag
+//!   decode, and a golden of the dictionary assembled from positional values handed to the
+//!   decoder - never a read. The driver cannot build a row outside a session, so the cursor, the
+//!   transaction and the driver's own type conversion stay unexercised.
 //! - **Read-only by statement, not by driver flag.** The pinned driver has no read-only option;
 //!   the reader issues `SET TRANSACTION READ ONLY` before its one `SELECT` and rolls back after it.
 //!   Unobserved against a server, like every other line of the read path.
@@ -146,15 +148,31 @@ impl DictionaryReader for OracleReader {
         connection.execute("SET TRANSACTION READ ONLY", &[]).map_err(read_err)?;
         let binds = self.binds();
         let params: Vec<&dyn oracledb::ToDbValue> = binds.iter().map(|value| value as &dyn oracledb::ToDbValue).collect();
-        let mut assembly = Assembly::new(&self.environment, self.bounds);
-        for row in connection.query(&self.statement, &params).map_err(read_err)? {
-            let row = decode_row(&row.map_err(read_err)?)?;
-            assembly.admit(row.decoded_len())?;
-            assembly.push(row)?;
-        }
+        let rows = connection.query(&self.statement, &params).map_err(read_err)?;
+        let dictionary = assemble(
+            &self.environment,
+            self.bounds,
+            rows.map(|row| decode_row(&row.map_err(read_err)?)),
+        )?;
         connection.rollback().map_err(read_err)?;
-        Ok(assembly.finish())
+        Ok(dictionary)
     }
+}
+
+/// Gathers decoded rows under `bounds`, refusing at the first row that fails to decode or crosses
+/// a cap - so the read abandons its cursor there rather than after it.
+fn assemble(
+    environment: &str,
+    bounds: DictionaryBounds,
+    rows: impl Iterator<Item = Result<DocumentationRow, RdbmsError>>,
+) -> Result<Dictionary, RdbmsError> {
+    let mut assembly = Assembly::new(environment, bounds);
+    for row in rows {
+        let row = row?;
+        assembly.admit(row.decoded_len())?;
+        assembly.push(row)?;
+    }
+    Ok(assembly.finish())
 }
 
 fn quoted(identifier: &str) -> String {
@@ -190,7 +208,16 @@ const fn flag(value: Option<i64>) -> Option<bool> {
 
 /// Reads one row's columns by position, in [`statement`]'s `SELECT` order.
 fn decode_row(row: &oracledb::Row) -> Result<DocumentationRow, RdbmsError> {
-    let text = |index: usize| row.get::<Option<String>>(index).map_err(read_err);
+    decode(|index| row.get(index), |index| row.get(index))
+}
+
+/// [`decode_row`] over any positional source of the driver's values: the driver cannot build a
+/// row outside a session, so this is the seam a cell reaches without a server.
+fn decode(
+    text_at: impl Fn(usize) -> Result<Option<String>, oracledb::Error>,
+    number_at: impl Fn(usize) -> Result<Option<i64>, oracledb::Error>,
+) -> Result<DocumentationRow, RdbmsError> {
+    let text = |index| text_at(index).map_err(read_err);
     Ok(DocumentationRow {
         environment: text(0)?,
         catalog_name: text(1)?,
@@ -201,7 +228,7 @@ fn decode_row(row: &oracledb::Row) -> Result<DocumentationRow, RdbmsError> {
         column_name: text(6)?,
         column_type: text(7)?,
         column_description: text(8)?,
-        is_primary_key: flag(row.get::<Option<i64>>(9).map_err(read_err)?),
+        is_primary_key: flag(number_at(9).map_err(read_err)?),
     })
 }
 

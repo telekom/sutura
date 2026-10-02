@@ -24,8 +24,10 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use sutura_domain::model::SourceName;
-use sutura_domain::query::Query;
+use sutura_domain::query::{Query, ToolOutcome};
+use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
 
+use super::harness::{answered, bundle, two_engines};
 use crate::adapters::{CatalogUnderTest, questions, read_question, stem};
 
 /// The data system the derived two-source catalog puts the dimension model on.
@@ -458,6 +460,39 @@ pub(crate) fn with_null_keys() -> &'static Derived {
 /// The rows [`with_null_keys`] appends. Two, not one, so counting nulls would produce a difference
 /// rather than merely a larger equal pair.
 pub(crate) const NULL_DIMENSION_KEYS: (&str, &str) = ("dim_customer.csv", ",C9001,consumer,south\n,C9002,consumer,south\n");
+
+/// **The same corpus with `tickets_per_subscription` written as a cube's one measure**
+/// (`telekom/sutura#1148`): cube `tickets`, measure `per_subscription`, which expand to that name.
+pub(crate) fn as_a_cube() -> &'static Derived {
+    static ONCE: OnceLock<Derived> = OnceLock::new();
+    ONCE.get_or_init(|| {
+        let derived = derive_into("federated-differential-cube");
+        write(&derived.two_source.join("metrics/tickets_per_subscription.md"), TWO_FACT_CUBE);
+        derived
+    })
+}
+
+/// **[`as_a_cube`] answers what the metric it stands for does**, which `two_fact.rs` holds to the
+/// hand-worked figures: the cube expands at load, so the second fact leg and the combiner see no cube.
+#[test]
+fn a_cube_measure_answers_the_two_fact_ratio_its_metric_does() {
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
+    let question: Query = serde_norway::from_str(TWO_FACT_QUESTION).expect("the two-fact question is a question");
+    let answer = |catalog: &Path| match answered(&two_engines(bundle(catalog)), &question, "two-fact", &combiner) {
+        Ok(ToolOutcome::Answer { rows, .. }) => rows,
+        other => panic!("{}: a two-fact question is answered, not {other:?}", catalog.display()),
+    };
+    let metric = answer(&derived().two_source);
+    let cube = answer(&as_a_cube().two_source);
+    if let Err(d) = agree_on_content(&metric, &cube, RealTolerance::DIFFERENTIAL) {
+        panic!("the cube's measure and its metric answered different rows - {d}");
+    }
+    if let Err(d) = agree_on_order(&metric, &cube, RealTolerance::DIFFERENTIAL) {
+        panic!("the cube's measure and its metric answered in different orders - {d}");
+    }
+}
+
+const TWO_FACT_CUBE: &str = "---\nkind: cube\nname: tickets\nmodel: subscriptions\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\nmeasures:\n  - name: per_subscription\n    measure:\n      ratio:\n        numerator: { aggregate: sum, column: tickets, model: tickets }\n        denominator: { aggregate: count, column: subscription_key }\n        zero_denominator: yields_null\n    shared_calendar: calendar\n    audience: open\n---\nSupport tickets opened per subscription-month, declared as a cube's measure.\n";
 
 /// One data directory and two catalogs over it, derived under `stem`.
 ///

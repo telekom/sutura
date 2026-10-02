@@ -801,7 +801,7 @@ pub(super) mod tests {
         // `if:` at the job-scope column (four), a cachix-action step's `if:` deeper (eight).
         // The realised step after cachix-action keeps the partner rule (#560) green on this
         // permitted shape, exactly as the live `pr-cache` job is shaped after that fix lands.
-        let pr = "  pr-cache:\n    needs: [ci]\n    if: github.event_name == 'pull_request'\n    environment: cachix-push-pr\n    steps:\n      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n        if: github.event_name == 'pull_request'\n        with:\n          name: sutura-prs\n      - name: Realise this PR's shared closure\n        run: nix build .#checks.x86_64-linux.nextest\n";
+        let pr = "  pr-cache:\n    needs: [ci]\n    if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'\n    environment: cachix-push-pr\n    steps:\n      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n        if: github.event_name == 'pull_request'\n        with:\n          name: sutura-prs\n      - name: Realise this PR's shared closure\n        run: nix build .#checks.x86_64-linux.nextest\n";
         let marker = |text: &str| {
             text.lines()
                 .position(|l| l.contains("cachix/cachix-action@"))
@@ -816,9 +816,16 @@ pub(super) mod tests {
             "the clean PR write job is the permitted shape"
         );
 
+        // Deleting ONLY the Dependabot-author conjunct drops the pairing too.
+        let dependabot = pr.replace(" && github.event.pull_request.user.login != 'dependabot[bot]'", "");
+        assert!(
+            !super::retired::in_pr_publish_job(&dependabot, marker(&dependabot)),
+            "a job that admits a Dependabot-authored pull request is not the write half"
+        );
+
         // Deleting ONLY the job-level `if:` (leaving the step `if:`) drops the gate.
         let no_job_gate = pr.replace(
-            "    if: github.event_name == 'pull_request'\n    environment: cachix-push-pr\n",
+            "    if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'\n    environment: cachix-push-pr\n",
             "    environment: cachix-push-pr\n",
         );
         assert!(
@@ -847,13 +854,21 @@ pub(super) mod tests {
 
     #[test]
     fn a_pr_writer_targeting_the_shared_cache_is_refused() {
-        let pr = "jobs:\n  pr-cache:\n    if: github.event_name == 'pull_request'\n    environment: cachix-push-pr\n    steps:\n      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n        with:\n          name: sutura\n      - name: Realise this PR's closure\n        run: nix build .#checks.x86_64-linux.nextest\n";
+        let pr = "jobs:\n  pr-cache:\n    if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'\n    environment: cachix-push-pr\n    steps:\n      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n        with:\n          name: sutura\n      - name: Realise this PR's closure\n        run: nix build .#checks.x86_64-linux.nextest\n";
         let found = super::retired::retired(&[(".github/workflows/ci.yml".into(), pr.into())]);
         assert!(
             found
                 .iter()
                 .any(|problem| problem.contains("job `pr-cache`") && problem.contains("[\"sutura\"]")),
             "the PR writer must not target the shared cache: {found:#?}"
+        );
+        // Without the Dependabot-author conjunct it is no PR writer at all: refused as a publisher
+        // outside the pairing, before its target is read.
+        let dependabot = pr.replace(" && github.event.pull_request.user.login != 'dependabot[bot]'", "");
+        let found = super::retired::retired(&[(".github/workflows/ci.yml".into(), dependabot)]);
+        assert!(
+            found.iter().any(|problem| problem.contains("publishes to a store outside")),
+            "{found:#?}"
         );
     }
 

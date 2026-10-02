@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-catalog-rdbms/src/oracle_reader.rs b/crates/sutura-catalog-rdbms/src/oracle_reader.rs
+index 6f0b61d54..d8a1344b9 100644
+--- a/crates/sutura-catalog-rdbms/src/oracle_reader.rs
++++ b/crates/sutura-catalog-rdbms/src/oracle_reader.rs
+@@ -226,8 +226,8 @@ fn decode(
+         model_name: text(4)?,
+         table_description: text(5)?,
+         column_name: text(6)?,
+-        column_type: text(7)?,
+-        column_description: text(8)?,
++        column_type: text(8)?,
++        column_description: text(7)?,
+         is_primary_key: flag(number_at(9).map_err(read_err)?),
+     })
+ }
