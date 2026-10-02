@@ -13,13 +13,13 @@
   <a href="https://scorecard.dev/viewer/?uri=github.com/telekom/sutura"><img src="https://api.scorecard.dev/projects/github.com/telekom/sutura/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
-sutura is an identity-aware, semantics-first data runtime. Its design goal is to answer questions
-about data **as the person or agent asking**, from metric definitions somebody certified, and to
-refuse when it cannot do either - but that asking-caller identity is not what runs today. Per
-`AGENTS.md`, Leg 2 (a source executing *as* the caller) is **built and unproven**: the single-player
-demo answers under one **shared source identity**, not the caller's. The [introduction](docs/index.md)
-states the design up front; this page is what is built today, and it is deliberately shorter than
-the vision.
+sutura is an identity-aware, semantics-first data runtime. It is built to answer questions about
+data **as the person or agent asking**, from metric definitions somebody certified, and to refuse
+when it cannot do either. Leg 1 (knowing who is asking) is built; leg 2 (a source executing as the
+caller) is **built and unproven** - see [Where each identity claim is
+proven](docs/where-identity-is-proven.md). The single-player demo answers under one shared source
+identity. The [introduction](docs/index.md) states the design up front; this page is what is built
+today, and it is deliberately shorter than the vision.
 
 ## What it is
 
@@ -63,8 +63,9 @@ Saying what is absent is as important as what is here:
 
 The query path is built and proven for the local corpus - metadata from a catalogue of markdown
 documents with YAML frontmatter in git, executed by the in-process engine over the CSV or Parquet
-files the deployment points it at. That is the end-to-end-proven combination; the wider adapter
-surface is built to varying depths, not all proven. [Integrations](docs/integrations.md) lists six
+files the deployment points it at. That is an end-to-end-proven combination; the served suite also answers
+over the provisioned Postgres source. The wider adapter surface is built to varying depths, not all
+proven. [Integrations](docs/integrations.md) lists six
 data sources and five metadata adapters, and the inventory in
 [What exists today](docs/architecture.md#what-exists-today) records what each built option actually
 links. A named metric's declared anchors re-execute before the bundle is served, and every outcome
