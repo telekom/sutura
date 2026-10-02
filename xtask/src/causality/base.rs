@@ -118,6 +118,12 @@ pub(crate) enum BaseOutcome {
     /// A test the diff added failed an assertion. The evidence the gate exists to collect, and
     /// it carries the names so the printed verdict says what it measured.
     RedByAssertion { failed: Vec<String> },
+    /// A test the diff added failed an assertion while a SIBLING added test passed on base. The
+    /// red one is the evidence; the green one - which the whole-run verdict used to let ride
+    /// along unmentioned on the red one's strength - is a second added test that PASSES with the
+    /// change reverted and so proves nothing on its own. FAILS, and names the green sibling so
+    /// the per-test rule can see it.
+    RedWithGreenSibling { red: Vec<String>, green: Vec<String> },
     /// The base run failed, and none of the failures is a test this diff added. Red, and about
     /// something else.
     RedOutsideTheDiff { failed: Vec<String> },
@@ -204,7 +210,21 @@ pub(crate) fn classify_base(
     if under_test.is_empty() {
         BaseOutcome::RedOutsideTheDiff { failed: outside }
     } else {
-        BaseOutcome::RedByAssertion { failed: under_test }
+        // SIBLINGS. The whole-run verdict used to answer from the red names alone, so an added
+        // test that PASSED without the change rode along unmentioned beside the one that failed:
+        // the run is red, the gate reports the red name, and the second added test's false green
+        // went unreported. A scoped name this run reported a RESULT for - `results` reads passes
+        // too - that is not among the failures ran and passed, so name it and let the per-test
+        // rule see it rather than the whole-run one.
+        let green: Vec<String> = results(text)
+            .into_iter()
+            .filter(|one| is_scoped(one, scoped) && !under_test.iter().any(|red| red == one))
+            .collect();
+        if green.is_empty() {
+            BaseOutcome::RedByAssertion { failed: under_test }
+        } else {
+            BaseOutcome::RedWithGreenSibling { red: under_test, green }
+        }
     }
 }
 
@@ -395,9 +415,11 @@ pub(super) fn is_scoped(failure: &str, scoped: &[AddedTest]) -> bool {
 /// half of #307, and it was one `.ratio()` at the call site: pure and in one place here, so a test
 /// can read the CHOICE rather than a synthetic [`Coverage`].
 ///
-/// Six of the ten print it: [`BaseOutcome::RedByAssertion`] in its verdict line, all three
-/// always-inconclusive arms in theirs ([`BaseOutcome::Unattributed`], [`BaseOutcome::DidNotResolve`],
-/// [`BaseOutcome::DidNotCompile`]), and the two green arms that are not the defect
+/// Seven of the eleven print it: [`BaseOutcome::RedByAssertion`] and its sibling that also
+/// reported (and names) a run's per-test results ([`BaseOutcome::RedWithGreenSibling`]) in their
+/// verdict lines, all three always-inconclusive arms in theirs ([`BaseOutcome::Unattributed`],
+/// [`BaseOutcome::DidNotResolve`], [`BaseOutcome::DidNotCompile`]), and the two green arms that
+/// are not the defect
 /// ([`BaseOutcome::GreenAfterAMove`], [`BaseOutcome::GreenOverAnUnreachableRevert`]) - whose tests
 /// DID run in both trees, so the measurement is real there and what it is not is evidence about
 /// the change. The other four are asserted anyway, because the mapping is what a mutation moves
@@ -438,6 +460,7 @@ pub(super) const fn reported_per_test(outcome: &BaseOutcome) -> bool {
             | BaseOutcome::GreenAfterAMove { .. }
             | BaseOutcome::GreenOverAnUnreachableRevert { .. }
             | BaseOutcome::RedByAssertion { .. }
+            | BaseOutcome::RedWithGreenSibling { .. }
     )
 }
 
@@ -546,6 +569,28 @@ mod tests {
                 assert!(failed.iter().all(|one| one.ends_with("audit::tests::the_added_one")));
             }
             other => panic!("expected RedByAssertion, got {other:?}"),
+        }
+    }
+    #[test]
+    fn a_green_sibling_is_not_hidden_by_a_red_added_test() {
+        // THE DEFECT THIS CLOSES. Two added tests in one diff, one red and one green on base:
+        // the old whole-run classifier answered from the failure alone, so the green sibling - a
+        // second added test that PASSES with the change reverted, and so proves nothing of its
+        // own - rode along unmentioned on the red one's strength. The run reports per-test names,
+        // and the per-test rule is the only one that surfaces the green sibling.
+        let text = concat!(
+            "    Starting 2 tests across 1 binary\n",
+            "        FAIL [   0.010s] (1/2) pa tests::the_red_one\n",
+            "        PASS [   0.010s] (2/2) pa tests::the_green_one\n",
+            "error: test run failed\n",
+        );
+        let under_test = scoped("pa", "pa/src/lib.rs", &["the_red_one", "the_green_one"]);
+        match classified(text, false, &under_test) {
+            BaseOutcome::RedWithGreenSibling { ref red, ref green } => {
+                assert_eq!(red, &[String::from("pa tests::the_red_one")], "{red:?}");
+                assert_eq!(green, &[String::from("pa tests::the_green_one")]);
+            }
+            other => panic!("expected RedWithGreenSibling, got {other:?}"),
         }
     }
 
