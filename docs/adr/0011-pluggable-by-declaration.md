@@ -829,3 +829,28 @@ variant is gated: it opens only on a build that links the `rdbms` feature (which
 `sutura-catalog-rdbms`'s `live` reader), and a build without it refuses the kind by name naming the
 feature - the same stand `CatalogKind::Openmetadata` makes. The composition root decides which,
 never the settings parse.
+
+## Sixth amendment, 2026-10-02: the conformance row is built, and `#116`'s corpus-case-as-file question is closed
+
+The 2026-09-25 correction above (lines 278-281) left two present-tense claims standing that are
+now false, and they are left in place because each was the honest state when it was written. This
+block corrects them; the lines above it are older than the code.
+
+**Line 277** said the `feat/conformance-packs` row *is still open*. It is not open in the sense the
+sentence meant: the declaration itself landed (as that correction already recorded), and what has
+closed since is the very item the correction named as the row's remaining open question. **Lines
+280-281** said *what remains open there is `#116`'s corpus-case-as-file question*. `#116` - cases
+become data rather than code - landed, and the corpus is files: the named cases live under
+`crates/sutura-conformance/corpus/cases/*.case`, the federated three included, per
+[0012](0012-conformance-packs-for-inputs-and-adapters.md)'s *Cases the corpus must contain by name*.
+So neither "the row is still open" nor "the question is `#116`" is the current state.
+
+**What is still unbuilt in the conformance work is not the declaration this record is about,** and
+it is the list [0012](0012-conformance-packs-for-inputs-and-adapters.md)'s own status names rather
+than anything counted here: a per-pack timing aggregate, `cargo-insta`'s unreferenced-snapshot
+check, and the three named corpus cases bound on the one `sutura-exec-datafusion` kind rather than
+on every registered data system. None of those was the pack-selecting declaration this bullet's row
+was about. The metadata half this same bullet tracks is not in the 'decided and not built' column:
+the second metadata connector, the assembler and the contribution manifest are built. The catalog
+crates ship, the assembler is application code over `SemanticCatalog` ports, and the first amendment -
+mirrored by this record's status line - records the manifest in `PinnedDefinitions::pin`.
