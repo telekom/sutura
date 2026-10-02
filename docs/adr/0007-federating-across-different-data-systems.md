@@ -1401,3 +1401,12 @@ What holds the rendering: the Oracle goldens, unchanged by the deletion;
 in between; and `a_quoted_identifier_names_the_object_the_dictionary_stores`, run by
 `just oracle-acceptance`, which executes a whole plan ending in `FETCH FIRST` against a provisioned
 Oracle. Limit: that is one plan shape on one server, not every shape the goldens pin.
+
+## Eleventh amendment, 2026-10-02: the missing musl `libduckdb` no longer blocks a native driver
+
+The three things that survive the attach milestone name "the missing musl `libduckdb`" as the
+blocker for which artifact ships a native driver. It is not missing: nixpkgs' `duckdb` cross-builds
+for both musl triples, and `nix/duckdb-adbc.nix` links a `-static` probe against its merged archive,
+which `nix/shipped.nix` hands to every musl link as an ADBC driver. The other two survivors - how a
+serving surface holds a connection, and the multi-source fixture with its refusal tests - are
+unchanged, and so is the question itself: no shipped code calls that driver yet.
