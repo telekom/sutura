@@ -2619,7 +2619,8 @@ closes this the way it should have been closed the first time: <code>Authority::
 resolves past userinfo correctly, and <code>Endpoint::parse</code> additionally refuses any <code>user[:pass]@</code>
 prefix outright rather than trusting that resolution to stay correct.</p>
 <p><code>ureq</code>'s compiled-in default root set (for an <code>https://</code> endpoint), <code>max_redirects(0)</code> and the
-proxy left on (<code>Proxy::try_from_env()</code>) are the other pins; a deployment MAY replace the
+environment's proxy for <code>https://</code> to a remote host only (<code>sutura_http_client::agent</code>) are the
+other pins; a deployment MAY replace the
 compiled-in roots with its own CA via <code>security.outbound.transport_anchors</code> (<code>#125</code>), folded in
 <code>sutura_http_client::tls</code> - anchors only, no client identity.</p>
 <h3 id="enum-httpreadererror"><code>enum HttpReaderError</code><a class="headerlink" href="#enum-httpreadererror" title="Permanent link">&para;</a></h3>

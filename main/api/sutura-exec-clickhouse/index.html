@@ -2201,7 +2201,7 @@ third hand-written copy. What is this crate's own is folding the read bytes into
 build.</p>
 <h1 id="why-this-is-a-fallible-step-separate-from-opening-the-transport">Why this is a fallible step SEPARATE from opening the transport<a class="headerlink" href="#why-this-is-a-fallible-step-separate-from-opening-the-transport" title="Permanent link">&para;</a></h1>
 <p><code>transport::Http::connect</code>/<code>connect_secured</code> take an already-built <code>ureq::tls::TlsConfig</code> and
-cannot fail, because <code>ureq::Agent::new_with_config</code> does no I/O - <code>ureq</code> dials lazily, on the
+cannot fail, because building a <code>ureq::Agent</code> does no I/O - <code>ureq</code> dials lazily, on the
 first request. So <code>TlsError</code> is its own type here rather than a variant folded into
 <code>crate::ClickHouseError</code>: nothing about it can arrive from <code>Warehouse::execute</code>, only from
 whoever resolves a declared channel into a config before opening the adapter.</p>

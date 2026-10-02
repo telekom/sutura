@@ -2036,10 +2036,41 @@ at construction over an already-loaded anchor bundle, or rebuilt on every
 <code>sutura-tls -&gt; ring</code> forbidden edge is what that would reintroduce), so the fold lives here
 instead, the same reasoning <code>sutura-catalog-datahub</code>'s own <code>tls_roots.rs</code> module header gave
 before this crate existed.</p>
+<h2 id="use-agentconfig"><code>use AgentConfig</code><a class="headerlink" href="#use-agentconfig" title="Permanent link">&para;</a></h2>
+<p><code>ureq</code>'s own agent builder, as <code>agent</code>'s <code>configure</code> receives it.</p>
 <h2 id="use-outboundagent"><code>use OutboundAgent</code><a class="headerlink" href="#use-outboundagent" title="Permanent link">&para;</a></h2>
 <p>A reader's rotating agent handle and (when a declaration exists) the poll handle that keeps it
 current - named because the spelled-out pair is over this workspace's <code>type_complexity</code>
 threshold.</p>
+<h2 id="use-agent"><code>use agent</code><a class="headerlink" href="#use-agent" title="Permanent link">&para;</a></h2>
+<p><strong>The one way this workspace builds a <code>ureq::Agent</code></strong> - <code>clippy.toml</code> bans every other
+constructor, so an agent without the two pins below does not pass <code>just lint</code>.</p>
+<p><code>configure</code> starts from <code>ureq</code>'s defaults, which take a proxy from <code>ALL_PROXY</code>, <code>HTTPS_PROXY</code> or
+<code>HTTP_PROXY</code> (either case) unless <code>NO_PROXY</code> names the host. Both pins are set on every request,
+after the agent's and the request's own configuration, so no caller can undo them:</p>
+<ul>
+<li><strong>Only <code>https://</code> to a host that is not loopback may use a proxy.</strong> Every other request is
+  dialled directly, whatever proxy the agent or the request itself carries. Loopback is
+  <code>localhost</code> or a name under it, and any loopback or unspecified address once read the way the
+  resolver reads it (<code>127.1</code>, <code>0x7f000001</code>, <code>[::ffff:127.0.0.1]</code>).</li>
+<li><strong>No redirects.</strong> <code>ureq</code> follows one inside the request, after that decision was made for the
+  original target.</li>
+</ul>
+<p>The pins are a <code>ureq</code> middleware, read from the AGENT's configuration on every request, so a
+request-level configuration cannot remove it. A request the proxy would still carry to a host
+NAME is resolved at connect, and dialled directly to those very addresses when any of them is
+this host's own - the one resolution both decides the route and is dialled; another host's
+address in the same answer is never dialled without the proxy.</p>
+<p><strong>Limits of the name lookup.</strong>
+One local DNS lookup happens per new connection a proxy would carry to an <code>https://</code> host
+name; a pooled connection is reused without a new lookup, and the name now reaches the local
+resolver. A lookup that fails fast (host not found) falls back to the proxy. This is fail-open
+on purpose: failing closed would refuse every proxied request on a network whose local
+resolver cannot see outside names. A lookup that stalls spends the request's own time budget,
+so it fails with a global timeout instead of falling back.</p>
+<h2 id="use-agent_resolving_through"><code>use agent_resolving_through</code><a class="headerlink" href="#use-agent_resolving_through" title="Permanent link">&para;</a></h2>
+<p><code>agent</code>, resolving host names through <code>resolver</code> rather than the system's - the seam a cell
+gives a name a known answer through. Routing and dialling read the same resolution.</p>
 <h2 id="use-fixed"><code>use fixed</code><a class="headerlink" href="#use-fixed" title="Permanent link">&para;</a></h2>
 <p>A fixed agent over an already-loaded anchor bundle, presenting no client identity.</p>
 <p><code>anchors</code> is <code>None</code> for <code>ureq</code>'s compiled-in roots - the constructor-time half of a reader's TLS

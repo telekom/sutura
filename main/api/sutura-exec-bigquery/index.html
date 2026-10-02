@@ -3104,9 +3104,9 @@ they are not a defence against the identity provider itself.</p>
 <p>The identity provider's token endpoint: <code>https://</code> to any host, <code>http://</code> to an IP loopback literal only.</p>
 <p>The origin is held to <code>Endpoint::parse</code>'s scheme rule; unlike an <code>Endpoint</code> it keeps its
 path, and it refuses a query, a fragment and a <code>user[:pass]@</code> authority.</p>
-<p><strong>A loopback endpoint is dialled directly, never through a proxy the agent carries</strong> (the
-shared agent takes one from the environment); nothing on loopback needs one. Any other host keeps
-the agent's proxy, which an identity provider behind an egress proxy needs.</p>
+<p>A loopback endpoint is dialled directly, never through a proxy - <code>sutura_http_client::agent</code>'s
+own pin; <code>https://</code> to any other host keeps the agent's proxy, which an identity provider behind
+an egress proxy needs.</p>
 <h5 id="methods_11">Methods<a class="headerlink" href="#methods_11" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-62-1"><a id="__codelineno-62-1" name="__codelineno-62-1" href="#__codelineno-62-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
