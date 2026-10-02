@@ -382,11 +382,14 @@ point, and erasing it would lose which transport failed.
 
 ## `use DeclaredPrincipalBroker`
 
-Presents the asking subject's own verified assertion at a source that declares it, beside the
-account declared for that subject - and the operator's witness for a shared one.
+Presents the asking subject's own credential at a source that declares it, beside the account
+declared for that subject - and the operator's witness for a shared one.
 
-**The assertion AND the account, because either alone loses the property.** The assertion is
-what the caller possesses and what the pool verifies; the account is what a deployment declared
+**The credential is the verified assertion itself**, or, for a source declared through
+`Self::impersonating_delegated`, the token its `Delegation` returned for that assertion.
+
+**The assertion AND the account, because either alone loses the property.** The assertion (or
+its exchanged token) is what the caller possesses and what the pool verifies; the account is what a deployment declared
 this caller's questions should run as, and a broker that presented only the assertion ran every
 declared caller as one pool principal whatever the map said.
 
@@ -1553,9 +1556,8 @@ pub struct TokenEndpoint
 
 The identity provider's token endpoint: `https://` to any host, `http://` to an IP loopback literal only.
 
-The origin is held to `Endpoint::parse`'s rule, so a client secret never travels in clear text
-beyond loopback; unlike an `Endpoint` it keeps its path, and it refuses a query, a fragment and
-a `user[:pass]@` authority.
+The origin is held to `Endpoint::parse`'s scheme rule; unlike an `Endpoint` it keeps its
+path, and it refuses a query, a fragment and a `user[:pass]@` authority.
 
 ##### Methods
 

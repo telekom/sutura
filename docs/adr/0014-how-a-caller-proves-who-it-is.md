@@ -536,9 +536,16 @@ per source per request - and every refusal is decided before any exchange runs, 
 the IdP. The presented lifetime is the earlier of the inbound and the exchanged token's.
 
 **The client credential is the most sensitive value.** It is a `Secret`; only `client_secret_post` is
-built, and the client-assertion form Decision 2 prefers is not. Whoever holds it, together with a
-subject's inbound token, can obtain that subject's pool-audience token; it never reaches a log, an
-error or a `Debug`.
+built, and the client-assertion form Decision 2 prefers is not. It never reaches a log, an error
+or a `Debug`. What holding it buys is the identity provider's to decide, not sutura's: with only
+standard token exchange granted, the secret plus a subject's inbound token yields that subject's
+pool-audience token; a client also granted impersonation, a `requested_subject` exchange or a
+service account carrying the pool audience makes the secret alone enough - Decision 3's *any
+subject this deployment can impersonate*. sutura configures none of those and cannot see them.
+
+**Rotation, Decision 3's named story, is not built.** `ExchangeClient` is fixed for the life of
+the `OverHttp` that holds it: the TLS agent rotates and nothing reloads the secret, so rotating it
+means restarting whatever composed the exchange - and today nothing does.
 
 **The IdP is a hard runtime dependency.** An exchange failure is `DeclaredPrincipalsUnusable::
 Delegation` -> `503 identity_unavailable`, distinguishable from a dead data system by its code while
@@ -554,5 +561,6 @@ and `a_real_idp_exchanges_each_subjects_own_token_for_the_pool_audience` runs th
 **Not built, stated beside the claim.** `sutura serve` declares no settings for the IdP token endpoint
 or client credential, so no served deployment reaches the port; no check that `direct` mode attaches a
 delegation; the real HTTP implementation is behind the default-off `wire` feature using
-`client_secret_post` only; the returned JWT is decoded, not signature-verified; Entra is unmeasured;
+`client_secret_post` only; no rotation of the client secret; the returned JWT is decoded, not
+signature-verified; Entra is unmeasured;
 and no pool has been shown accepting an exchanged token.

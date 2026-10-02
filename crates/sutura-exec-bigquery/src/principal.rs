@@ -221,11 +221,14 @@ pub enum DeclaredPrincipalsUnusable {
 /// in `direct` mode - `None` presents the inbound assertion itself.
 type Impersonating = (DeclaredPrincipals, Option<Delegation>);
 
-/// Presents the asking subject's own verified assertion at a source that declares it, beside the
-/// account declared for that subject - and the operator's witness for a shared one.
+/// Presents the asking subject's own credential at a source that declares it, beside the account
+/// declared for that subject - and the operator's witness for a shared one.
 ///
-/// **The assertion AND the account, because either alone loses the property.** The assertion is
-/// what the caller possesses and what the pool verifies; the account is what a deployment declared
+/// **The credential is the verified assertion itself**, or, for a source declared through
+/// [`Self::impersonating_delegated`], the token its [`Delegation`] returned for that assertion.
+///
+/// **The assertion AND the account, because either alone loses the property.** The assertion (or
+/// its exchanged token) is what the caller possesses and what the pool verifies; the account is what a deployment declared
 /// this caller's questions should run as, and a broker that presented only the assertion ran every
 /// declared caller as one pool principal whatever the map said.
 ///
@@ -301,7 +304,8 @@ impl CredentialBroker for DeclaredPrincipalBroker {
         // assertion has nothing for Google's token service to verify, and answering as the process
         // is the fallback this whole path exists to remove.
         let assertion = context.assertion();
-        // **The assertion's OWN expiry, and a broker that federates has no other.** An earlier round
+        // **The assertion's OWN expiry** - and for a delegated source the exchanged token's too,
+        // folded below by `Expiry::earlier_of`. An earlier round
         // minted `NothingExpires` here, which was honest while this broker presented a principal's
         // name - a name does not age - and became a check that always answers yes the moment it
         // started presenting credential material. `BoundToTheRequest::still_usable_at` reads this.
@@ -353,9 +357,9 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             let Some(target) = key.and_then(|key| principals.target(key)) else {
                 return Ok(Minted::Refused { source: source.clone() });
             };
-            // **The asking subject's OWN assertion, plus the account declared beside that
-            // subject.** The transport puts the assertion behind a workload-identity credential
-            // document, so Google's token service verifies it and resolves the subject to the
+            // **The asking subject's OWN assertion (or, for a delegated source, the token exchanged
+            // for it below), plus the account declared beside that subject.** The transport puts it
+            // behind a workload-identity credential document, so Google's token service verifies it and resolves the subject to the
             // pool's principal - and that principal then impersonates `target`, which is what makes
             // the map's VALUES decide something. Both halves travel because a transport with only
             // the assertion runs every declared caller as one pool principal, and one with only the
@@ -400,7 +404,8 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             deadlines.push(expires);
         }
         // **The earliest of what was presented, which is what `Expiry::earliest` exists for.** A
-        // federated leg is valid for exactly as long as the caller's own assertion is; a shared leg
+        // federated leg is valid for as long as the caller's own assertion is, or the earlier of that
+        // and its exchanged token for a delegated source; a shared leg
         // carries no lifetime this broker knows, so it contributes the fold's identity rather than
         // a guess. A plan reading one of each is bounded by the assertion, which is the
         // conservative direction and the correct one - the federated leg is the one that stops

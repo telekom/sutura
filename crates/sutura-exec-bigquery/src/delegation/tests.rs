@@ -175,20 +175,22 @@ fn the_presented_lifetime_is_the_earlier_of_the_inbound_and_the_exchanged_token(
 
 #[test]
 fn a_plan_refused_at_one_source_sends_nothing_to_the_idp() {
+    // `yard` sorts AFTER `warehouse`, so the admitted, delegated source clears its own checks first
+    // and only an exchange made before the whole refusal pass ends can reach the fake.
     let (idp, asked) = fake(false);
     let broker = delegated_warehouse(&idp).impersonating_delegated(
-        source("lake"),
+        source("yard"),
         declaring(&["analyst-b@example.com"]),
         Delegation::through(Arc::<FakeIdp>::clone(&idp), pool_audience()),
     );
     let minted = broker
         .mint(
             &asking("analyst-a@example.com"),
-            &SourceSet::of(source("warehouse")).and(source("lake")),
+            &SourceSet::of(source("warehouse")).and(source("yard")),
         )
         .expect("an undeclared caller is a refusal, not an error");
     assert!(
-        matches!(minted, Minted::Refused { ref source } if source.as_str() == "lake"),
+        matches!(minted, Minted::Refused { ref source } if source.as_str() == "yard"),
         "{minted:?}"
     );
     let reached: Vec<Asked> = asked.try_iter().collect();

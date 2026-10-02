@@ -26,9 +26,8 @@ const ACCESS_TOKEN: &str = "urn:ietf:params:oauth:token-type:access_token";
 
 /// The identity provider's token endpoint: `https://` to any host, `http://` to an IP loopback literal only.
 ///
-/// The origin is held to [`Endpoint::parse`]'s rule, so a client secret never travels in clear text
-/// beyond loopback; unlike an [`Endpoint`] it keeps its path, and it refuses a query, a fragment and
-/// a `user[:pass]@` authority.
+/// The origin is held to [`Endpoint::parse`]'s scheme rule; unlike an [`Endpoint`] it keeps its
+/// path, and it refuses a query, a fragment and a `user[:pass]@` authority.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TokenEndpoint(String);
 
