@@ -16,15 +16,20 @@
 //!
 //! # The limits, next to the claims
 //!
-//! - **No live Oracle run is observed or cited.** No venue that runs `just validate` reaches an
-//!   Oracle server (`compose.services.yaml`'s `oracle` row says why, and why no Rust cell reaches
-//!   that tier). The unit cells prove the constructor refusals, the rendered statement, the flag
+//! - **No passing live Oracle run is cited.** No venue that runs `just validate` reaches an
+//!   Oracle server (`compose.services.yaml`'s `oracle` row says why). The live cells in
+//!   `tests/oracle_provisioned.rs` exist and the `oracle-tier` CI job runs them. No run of them is
+//!   cited here yet. The unit cells prove the constructor refusals, the rendered statement, the flag
 //!   decode, and a golden of the dictionary assembled from positional values handed to the
 //!   decoder - never a read. The driver cannot build a row outside a session, so the cursor, the
 //!   transaction and the driver's own type conversion stay unexercised.
 //! - **Read-only by statement, not by driver flag.** The pinned driver has no read-only option;
 //!   the reader issues `SET TRANSACTION READ ONLY` before its one `SELECT` and rolls back after it.
-//!   Unobserved against a server, like every other line of the read path.
+//!   That it makes the transaction read-only is unobserved against a server.
+//! - **A read racing fresh DDL refuses.** For a short window after the documentation table is
+//!   recreated, Oracle refuses the read-only snapshot with `ORA-01466` and the read fails as
+//!   [`RdbmsError::Read`]; the reader does not retry. Measured on the compose tier after a
+//!   `DROP`/`CREATE`, red at about 0.2 s and green at 5 s; the window is not narrowed further.
 //! - **The byte cap is an estimate.** The driver exposes no row's wire size, so a row spends the
 //!   UTF-8 length of its decoded text plus one byte - bounding the decoded payload, not the bytes
 //!   on the wire. Neither cap limits elapsed read time, and neither bounds a fetch: the pinned
