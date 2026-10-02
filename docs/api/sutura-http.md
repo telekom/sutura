@@ -156,8 +156,10 @@ must be absent for every caller when a deployment never turned it on - see `perm
 
 Where a bucket's key comes from, as a value the limiter layer is built with.
 
-`Clone` because `KeyExtractor` requires it and the layer clones it per connection; the trusted
-list is behind an `Arc` so that clone is a pointer bump rather than a copy of every block.
+`Clone` because `KeyExtractor` requires it and the layer clones it per connection. The trusted
+list is owned by value rather than shared through an `Arc`: it is a short startup-config list, so
+the copy each clone makes is a single small allocation - cheaper than the `Arc` indirection and
+the per-call `Arc` every constructor and fixture had to spell.
 
 ## `use CorrelationId`
 
@@ -642,8 +644,10 @@ pub struct ClientAddress
 
 Where a bucket's key comes from, as a value the limiter layer is built with.
 
-`Clone` because `KeyExtractor` requires it and the layer clones it per connection; the trusted
-list is behind an `Arc` so that clone is a pointer bump rather than a copy of every block.
+`Clone` because `KeyExtractor` requires it and the layer clones it per connection. The trusted
+list is owned by value rather than shared through an `Arc`: it is a short startup-config list, so
+the copy each clone makes is a single small allocation - cheaper than the `Arc` indirection and
+the per-call `Arc` every constructor and fixture had to spell.
 
 #### Methods
 
@@ -664,7 +668,7 @@ Reads the configuration's own two values, so a caller cannot pair a source with 
 list.
 
 ```rust
-pub const fn new(source: ClientAddressSource, trusted: Arc<TrustedProxies>) -> Self
+pub const fn new(source: ClientAddressSource, trusted: TrustedProxies) -> Self
 ```
 
 Builds the extractor the configuration describes.
