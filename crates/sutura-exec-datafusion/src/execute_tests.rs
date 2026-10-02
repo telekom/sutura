@@ -795,11 +795,11 @@ mod deadline_tests {
     /// cell that would miss a fix applied only to [`DataFusionWarehouse::new`]. No elapsed-time
     /// ceiling here: the latency bound is the sibling's, under `sutura_dev::tolerance`, and a
     /// second copy of it on this runtime measured only the host (668ms against 500ms on a loaded
-    /// `checks.nextest`). What this cell holds is exact: the call is refused as `DeadlineExceeded`,
-    /// the source is dropped, and it still had rows left - `stop_by` is thirty seconds out, so
-    /// only a deadline that fired can end the call before it. The 200ms budget can still race
-    /// planning on a stalled host, so `stop_by` is a 30s wall-clock bound ensuring the source
-    /// would have rows if the deadline doesn't fire.
+    /// `checks.nextest`). What this cell holds: the call is refused as `DeadlineExceeded`, the
+    /// source is dropped, and it still had rows left. Not exact in one direction: a host that
+    /// stalls planning past the 200ms budget refuses before the source starts, so `dropped` stays
+    /// false and the cell fails after `wait_for_drop`'s 30s cap - a false red under load, never a
+    /// false green. `Instant::now() < stop_by` is a 30s wall-clock bound.
     #[test]
     fn a_question_that_exceeds_its_budget_is_stopped_on_the_wide_runtime_too() {
         let stop_by = Instant::now() + Duration::from_secs(30);
