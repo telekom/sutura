@@ -21,7 +21,7 @@ runtime there, while `ureq` can execute the request directly. `ClickHouse`'s
 own HTTP interface asks for nothing more than one request/response per statement, which is
 `ureq`'s whole job. **A pure-Rust driver either way**: `ureq` with the `rustls` feature links
 no C TLS library, and this crate's own `tls` module (over `sutura-tls`) is what most of
-`sutura_exec_postgres::tls`'s reasoning transfers to.
+`sutura_catalog_rdbms::postgres_channel::client_config`'s reasoning transfers to.
 
 # Why a driver-shaped seam, and not just a hand-rolled client
 
@@ -140,7 +140,7 @@ pub fn connect_in_database(source: SourceName, posture: SourcePosture, endpoint:
 Opens the adapter over `endpoint`, resolving every unqualified table name in `database`.
 
 The database is created here if absent, so several opens can share one server without
-clobbering each other's tables. `sutura_exec_postgres::PostgresWarehouse::connect_in_schema`'s
+clobbering each other's tables. `sutura_exec_postgres::fixture::FixtureCredential::conninfo_in`'s
 shape, over a database because that is `ClickHouse`'s namespace for a table.
 
 ```rust
@@ -275,8 +275,8 @@ This process's fixture credential, as the tier exported it.
 Building the `ureq::tls::TlsConfig` a TLS `clickhouse` source channel verifies with.
 
 This is the TLS half of `sutura_config::sources::transport`, turned into a verifier - the same
-job `sutura_exec_postgres::tls` does for `rustls::ClientConfig`, so that module's own header is
-this one's rather than restated: configuration owns the three-state DECLARATION (`plaintext` /
+job `sutura_catalog_rdbms::postgres_channel::client_config` does for `rustls`, so that module's
+own header is this one's rather than restated: configuration owns the three-state DECLARATION (`plaintext` /
 `verified` / `mutual`), and this module owns turning a declared `verified` or `mutual` channel
 into the thing the client connects with. **The declared-trust-store rule extends rather than
 forks** (`docs/adr/0010`): a PEM bundle or the host's system store, read once by `config` and
@@ -487,8 +487,7 @@ pub struct Http
 
 The real transport: one `ureq::Agent`, built once and kept for this adapter's life.
 
-The same shape `sutura_exec_postgres::PostgresWarehouse` keeps its one connection in. A rotated
-TLS config takes effect on the next agent a composition root builds, never on an agent already
+A rotated TLS config takes effect on the next agent a composition root builds, never on an agent already
 standing - `ureq::Agent`'s configuration is fixed at construction, so this is not a choice made
 here but the shape the client already has.
 
@@ -513,7 +512,7 @@ Opens the transport secured as the caller resolved: `tls` is the `ureq::tls::Tls
 `crate::tls::config` built from the declared channel. Both this and `Self::connect` are
 produced by the composition root, which is the only place that can see the declared
 `sutura_config::sources::transport::SourceTransport` - the same boundary
-`PostgresWarehouse::connect_secured`'s own signature draws. `max_response_bytes` is
+`sutura_exec_postgres::adbc::Conninfo::new` draws. `max_response_bytes` is
 `Self::connect`'s.
 
 #### Implements

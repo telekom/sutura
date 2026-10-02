@@ -424,7 +424,7 @@ impl DataSystemUnderTest for sutura_exec_duckdb::DuckDbWarehouse {
     }
 }
 
-impl DataSystemUnderTest for sutura_exec_postgres::PostgresWarehouse {
+impl DataSystemUnderTest for sutura_exec_postgres::adbc::AdbcPostgres {
     const NAME: &'static str = "postgres";
 
     fn available() -> bool {
@@ -438,12 +438,22 @@ impl DataSystemUnderTest for sutura_exec_postgres::PostgresWarehouse {
         // no published credential is a provisioner that half-ran, and the refusal names the
         // variable rather than trying `sutura` at whatever host discovery answered with.
         let credential = FixtureCredential::from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
-        let config = Self::local_config(endpoint.host(), endpoint.port(), &credential);
         // One PRIVATE schema per open, so parallel corpus cells sharing one server cannot clobber one
         // another's tables - the same per-worktree isolation the compose tier gets, applied per cell.
         let schema = format!("cell_{}_{}", std::process::id(), schema_counter());
-        let warehouse = Self::connect_in_schema(name, posture(), &config, &schema)
-            .unwrap_or_else(|e| panic!("postgres did not open at {endpoint}: {e}"));
+        let conninfo = credential
+            .conninfo_in(&name, endpoint.host(), endpoint.port(), &schema)
+            .unwrap_or_else(|e| panic!("no connection string for the tier at {endpoint}: {e}"));
+        let warehouse = Self::new(
+            name,
+            posture(),
+            sutura_exec_postgres::adbc::PostgresDriver::from_host().expect("the tier is up, so a driver is named"),
+            conninfo,
+        )
+        .unwrap_or_else(|e| panic!("postgres did not open at {endpoint}: {e}"));
+        warehouse
+            .create_schema(&schema)
+            .unwrap_or_else(|e| panic!("postgres could not create {schema}: {e}"));
         for (table, csv) in tables {
             warehouse
                 .load_csv(&table, &csv)
@@ -565,7 +575,7 @@ impl DataSystemUnderTest for sutura_exec_bigquery::BigQueryWarehouse<NoLocalTier
 ///   is a limit of the shared flag, not of this adapter, and it is exactly why `sutura-catalog-
 ///   datahub`'s own `datahub`-tier cell lives behind `#[ignore]` and a named acceptance task instead
 ///   of in this matrix.
-/// - **No CSV-fixture importer exists yet.** `PostgresWarehouse`/`DuckDbWarehouse` both grow a
+/// - **No CSV-fixture importer exists yet.** `AdbcPostgres`/`DuckDbWarehouse` both grow a
 ///   `load_csv`/`attach_csv` that infers a schema from the example corpus's CSVs and loads it;
 ///   `OracleWarehouse` has no such method, because writing one blind - with no live Oracle to
 ///   validate the generated DDL and bulk-insert shape against - is exactly the "looks like coverage,
@@ -800,7 +810,7 @@ macro_rules! registered {
         // A DATA SOURCE, reached over the wire, and likewise a development dependency: it proves the
         // Postgres statement we render is ACCEPTED by a real Postgres, which parse-checking cannot.
         // Its cells run against this worktree's provisioned tier and skip where none is up.
-        $cell!(postgres, sutura_exec_postgres::PostgresWarehouse);
+        $cell!(postgres, sutura_exec_postgres::adbc::AdbcPostgres);
         // A DATA SOURCE over HTTP, likewise a development dependency, and likewise run against this
         // worktree's provisioned tier (`nix/clickhouse-tier.nix`) and skipped where none is up.
         $cell!(

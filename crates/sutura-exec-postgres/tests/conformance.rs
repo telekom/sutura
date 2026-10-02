@@ -55,7 +55,7 @@ mod conformance {
 
     use sutura_conformance::{Fixture, Missing, corpus};
     use sutura_dev::provisioned::{self, Provisioned};
-    use sutura_exec_postgres::PostgresWarehouse;
+    use sutura_exec_postgres::adbc::AdbcPostgres;
     use sutura_exec_postgres::fixture::FixtureCredential;
 
     /// The service the provisioner is asked for.
@@ -71,7 +71,7 @@ mod conformance {
     /// CELL rather than per binding: each open creates its own schema, so cells running in parallel
     /// against one server cannot clobber one another's table. That is the same arrangement the
     /// golden matrix's postgres cells use, for the same reason.
-    fn open() -> Fixture<PostgresWarehouse> {
+    fn open() -> Fixture<AdbcPostgres> {
         let endpoint = match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), SERVICE) {
             Provisioned::At(endpoint) => endpoint,
             // The notice has already reached stderr, and the required direction has already
@@ -82,10 +82,20 @@ mod conformance {
         // nothing: an endpoint with no credential is a half-run provisioner, and the refusal names
         // the variable. See `sutura_exec_postgres::fixture`.
         let credential = FixtureCredential::from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
-        let config = PostgresWarehouse::local_config(endpoint.host(), endpoint.port(), &credential);
         let schema = format!("conformance_{}_{}", std::process::id(), schema_counter());
-        let warehouse = PostgresWarehouse::connect_in_schema(corpus::source(), corpus::posture(), &config, &schema)
-            .unwrap_or_else(|e| panic!("postgres did not open at {endpoint}: {e}"));
+        let conninfo = credential
+            .conninfo_in(&corpus::source(), endpoint.host(), endpoint.port(), &schema)
+            .unwrap_or_else(|e| panic!("no connection string for the tier at {endpoint}: {e}"));
+        let warehouse = AdbcPostgres::new(
+            corpus::source(),
+            corpus::posture(),
+            sutura_exec_postgres::adbc::PostgresDriver::from_host().expect("the tier is up, so a driver is named"),
+            conninfo,
+        )
+        .unwrap_or_else(|e| panic!("postgres did not open at {endpoint}: {e}"));
+        warehouse
+            .create_schema(&schema)
+            .unwrap_or_else(|e| panic!("postgres could not create {schema}: {e}"));
         warehouse
             .load_fixture_csv(&corpus::table(), &corpus::on_disk())
             .unwrap_or_else(|e| panic!("postgres could not load the conformance corpus: {e}"));
@@ -110,7 +120,7 @@ mod conformance {
     // **This is the only executed leg in the workspace whose statement a real SQL parser saw.** The
     // engine's leg builds a logical plan and renders nothing; `DuckDB`'s is a dev-dependency. What it
     // still does not reach is identity. `FederatedPlan::new` refuses two legs on one source and the
-    // composition root opens one `PostgresWarehouse` per declared source, each under its own entry's
+    // composition root opens one `AdbcPostgres` per declared source, each under its own entry's
     // `user`, so the two legs of a Postgres federated answer are two connections as two database
     // roles. `ExecutedAs::uniform` compares posture labels, not identities, and passes them as two
     // `shared-service-user` legs - what makes that acceptable is each source's own acknowledgement,
@@ -120,7 +130,7 @@ mod conformance {
     // tier selectable on its own.
     sutura_conformance::execute_packs! {
         adapter: postgres,
-        warehouse: sutura_exec_postgres::PostgresWarehouse,
+        warehouse: sutura_exec_postgres::adbc::AdbcPostgres,
         open: crate::conformance::open,
         executes_legs,
     }

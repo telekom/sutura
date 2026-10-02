@@ -41,22 +41,17 @@ tls = ["sutura-config/tls", "sutura-http/tls"]
 # check rather than the four `cross` link builds and a developer's memory.
 bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc"]
 
-# The Postgres adapter, and with it the outbound TLS the source channel verifies against.
+# The Postgres adapter: the ADBC transport, over the driver every musl release links
+# (`nix/shipped.nix`) or the one `SUTURA_POSTGRES_ADBC_DRIVER` names elsewhere.
 #
 # Default-off for local Cargo builds; `nix/shipped.nix` enables it in published binaries.
-# `tokio-postgres` is pure Rust, but `tokio-postgres-rustls` pulls in `ring`.
 #
-# **`dep:tokio-postgres` too, arrived from `sutura-serve`'s own `postgres` feature at the fold -
-# a strict superset of what this crate declared before it.** `tokio_postgres::Config` is used only
-# by `tests/served/harness/postgres.rs`, which loads the example corpus into the real tier before
-# starting the composed binary; it is a normal, optional dependency rather than a dev-dependency
-# because Cargo has no way to make a dev-dependency optional, so it sits here unused by anything
-# `sutura serve` itself calls. The adapter owns every driver type `sutura serve` composes with.
-#
-# **`sutura-exec-postgres/adbc` too (`telekom/sutura#913` stage 1)**: the ADBC transport ships so a
-# musl release links the static driver, and `doctor` probes it. `tokio-postgres` still answers every
-# source; nothing selects ADBC.
-postgres = ["dep:sutura-exec-postgres", "dep:tokio-postgres", "sutura-exec-postgres/adbc"]
+# **`dep:tokio-postgres` too, and nothing `sutura serve` calls uses it.** `tests/served/harness/` and
+# `tests/common/fixtures.rs` hold a fixture-install connection (an advisory lock, a documentation
+# schema) through it; it is a normal, optional dependency rather than a dev-dependency because Cargo
+# has no way to make a dev-dependency optional. The adapter owns every driver type `sutura serve`
+# composes with.
+postgres = ["dep:sutura-exec-postgres", "dep:tokio-postgres"]
 
 # The ClickHouse adapter, over its HTTP interface.
 #
@@ -136,11 +131,9 @@ openmetadata = ["dep:sutura-catalog-openmetadata", "sutura-catalog-openmetadata/
 # above: the adapter crate's own `live` feature gates its reader module, and this crate's feature
 # is what an operator building `sutura` types.
 #
-# `dep:sutura-exec-postgres` for the TLS anchor fold and connection-config construction the
-# composition uses to build the reader's verifier and `tokio_postgres::Config` - the same resolver
-# the `postgres` source feature links, shared so the `rdbms` catalog and a declared `postgres`
-# source resolve one driver config.
-rdbms = ["dep:sutura-catalog-rdbms", "sutura-catalog-rdbms/live", "dep:sutura-exec-postgres"]
+# The reader's `tokio_postgres::Config` and `rustls::ClientConfig` are `sutura-catalog-rdbms`'s own
+# (`postgres_channel`), beside the one `tokio-postgres` client left in the workspace.
+rdbms = ["dep:sutura-catalog-rdbms", "sutura-catalog-rdbms/live"]
 
 # The agent surface: `sutura-mcp`'s streamable-HTTP transport, mounted by the composition root at
 # `sutura serve`'s `/mcp`.
@@ -285,6 +278,9 @@ serde_json = { workspace = true }
 # importer. This feature is absent from the shipped binary. `wire` is the real delegation exchange
 # the Keycloak tier cell drives (#1208), over `sutura-http-client`'s bounded agent.
 sutura-exec-bigquery = { workspace = true, features = ["fixtures", "wire"] }
+# The served Postgres cells load the example into the tier through the adapter's fixture-only
+# loader and open it with the fixture's driver. This feature is absent from the shipped binary.
+sutura-exec-postgres = { workspace = true, features = ["fixtures"] }
 sutura-http-client = { workspace = true }
 # The domain's own `fixtures` feature, for `plan::RefusingCombiner` - the fake over
 # `docs/adr/0007`'s second driven port. The served root builds the REAL combiner; this crate's own
@@ -331,7 +327,7 @@ sutura-dev = { workspace = true, features = ["mock-issuer"] }
 # presenting an `rcgen`-issued IP-SAN leaf whose CA a composed `datahub` deployment declares as
 # `security.outbound.transport_anchors`, so the served binary's catalog boot proves the anchored
 # handshake against the same corpus its plaintext sibling serves. Both are already pinned at the
-# workspace root and resolved in `Cargo.lock` via `sutura-exec-postgres`'s rustls closure, so this
+# workspace root and resolved in `Cargo.lock` via `sutura-catalog-rdbms`'s rustls closure, so this
 # adds no new package and dev-edges are exempt from the shipped-features gate. Folded from
 # `sutura-serve`'s manifest by `github.com/telekom/sutura#685` step 2 at #768's merge.
 rcgen = { workspace = true }

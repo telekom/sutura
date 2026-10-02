@@ -10,19 +10,18 @@
 //! - **`Warehouse::dry_run`** - [`described`]: the same setting, then `execute_schema`, which the
 //!   pinned driver implements as `PQprepare` and `PQdescribePrepared` and nothing else
 //!   (`statement.cc:650`, `apache-arrow-adbc-24`): the server parses and plans, and no row is run
-//!   or read - `tokio-postgres`' `prepare`, the other transport's dry run.
+//!   or read.
 //! - **`Warehouse::execute_raw`** - [`raw`]: `SET TRANSACTION READ ONLY` beside the deadline, the
 //!   caller's one statement through `execute` (the server refuses a second at `Parse`), and the
-//!   stream read no further than `MAX_ROWS` plus one - `raw.rs`'s three properties.
-//! - **The boot path** - [`boot`]: no request, so no deadline; the connect-time ceiling alone,
-//!   which the `tokio-postgres` path sets on its session instead.
+//!   stream read no further than `MAX_ROWS` plus one - `docs/adr/0013`'s three properties.
+//! - **The boot path** - [`boot`]: no request, so no deadline; the deployment's ceiling alone.
 //!
 //! **The limit**: `SET TRANSACTION READ ONLY` is sent through the simple protocol after the
 //! driver's own `BEGIN`, read off the driver's source rather than observed; no cell here reaches a
 //! server.
 
 use core::num::{NonZeroU32, NonZeroUsize};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use adbc_core::options::{OptionConnection, OptionValue};
 use adbc_core::{Connection, Statement as _};
@@ -47,12 +46,15 @@ pub(super) const MOST_RESULT_BYTES: NonZeroUsize = match NonZeroUsize::new(256 *
 /// The SQLSTATE a statement cancelled by `statement_timeout` fails with, `query_canceled`.
 const QUERY_CANCELED: [u8; 5] = *b"57014";
 
+/// The SQLSTATE `zero_denominator: fails` arrives as on this source, `division_by_zero`.
+const DIVISION_BY_ZERO: [u8; 5] = *b"22012";
+
 /// The two the raw path reads as the source refusing: `read_only_sql_transaction`,
-/// `insufficient_privilege` - `raw::source_refused`'s pair.
+/// `insufficient_privilege`.
 const SOURCE_REFUSED: [[u8; 5]; 2] = [*b"25006", *b"42501"];
 
 /// The rows a raw statement is read to: one past the cap, so the caller's own check still sees a
-/// result over it rather than a truncated one that looks complete - `raw.rs`'s reason.
+/// result over it rather than a truncated one that looks complete.
 pub(super) const RAW_ROWS: usize = sutura_domain::plan::MAX_ROWS as usize + 1;
 
 /// What the one `execute_update` in this module sends: fixed literals and a [`NonZeroU32`], so
@@ -104,7 +106,7 @@ where
 {
     let timeout = left(ceiling_ms, deadline)?;
     transaction(connection, &Setting::Certified(Some(timeout)), |connection| {
-        stream(connection, sql, bound, None)
+        stream(connection, sql, bound, None, Some(timeout))
     })
 }
 
@@ -128,7 +130,7 @@ where
 {
     let timeout = left(ceiling_ms, deadline)?;
     transaction(connection, &Setting::ReadOnly(timeout), |connection| {
-        stream(connection, sql, None, Some(RAW_ROWS))
+        stream(connection, sql, None, Some(RAW_ROWS), Some(timeout))
     })
 }
 
@@ -142,18 +144,19 @@ pub(super) fn boot<C>(
 where
     C: Connection,
 {
-    transaction(connection, &Setting::Certified(NonZeroU32::new(ceiling_ms)), |connection| {
-        stream(connection, sql, bound, None)
+    let timeout = NonZeroU32::new(ceiling_ms);
+    transaction(connection, &Setting::Certified(timeout), |connection| {
+        stream(connection, sql, bound, None, timeout)
     })
 }
 
 /// Whether `error` is the deadline: spent before sending, or the server's `57014`.
 ///
 /// `57014` is also what a manual `pg_cancel_backend` produces, which this cannot tell apart -
-/// `deadline.rs`'s limit, unchanged.
+/// `docs/adr/0029`'s limit.
 pub(super) fn deadline_exceeded(error: &AdbcError) -> bool {
     match *error {
-        AdbcError::DeadlineSpent => true,
+        AdbcError::DeadlineSpent | AdbcError::TimedOut(_) => true,
         AdbcError::Adbc(ref cause) => sqlstate(cause) == QUERY_CANCELED,
         AdbcError::Load(_)
         | AdbcError::Batch(_)
@@ -161,6 +164,28 @@ pub(super) fn deadline_exceeded(error: &AdbcError) -> bool {
         | AdbcError::Parameters(_)
         | AdbcError::Unreadable(_) => false,
     }
+}
+
+/// Whether `error` is the server's `22012`.
+pub(super) fn division_by_zero(error: &AdbcError) -> bool {
+    matches!(*error, AdbcError::Adbc(ref cause) if sqlstate(cause) == DIVISION_BY_ZERO)
+}
+
+/// A fixture's statements, committed - autocommit stays on, so this is the one path here that
+/// writes. Behind the `fixtures` feature, which no release builds.
+#[cfg(feature = "fixtures")]
+pub(super) fn load<C>(connection: &mut C, sql: &str) -> Result<(), AdbcError>
+where
+    C: Connection,
+{
+    let mut statement = connection.new_statement().map_err(AdbcError::Adbc)?;
+    statement.set_sql_query(sql).map_err(AdbcError::Adbc)?;
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a fixture load: `importer`'s DDL and literals rendered from a parsed CSV, never caller text"
+    )]
+    let updated = statement.execute_update();
+    updated.map(drop).map_err(AdbcError::Adbc)
 }
 
 /// Whether `error` is the source saying no: `25006` or `42501`.
@@ -202,7 +227,13 @@ where
     outcome
 }
 
-fn stream<C>(connection: &mut C, sql: &str, bound: Option<RecordBatch>, stop: Option<usize>) -> Result<ResultBatches, AdbcError>
+fn stream<C>(
+    connection: &mut C,
+    sql: &str,
+    bound: Option<RecordBatch>,
+    stop: Option<usize>,
+    timeout: Option<NonZeroU32>,
+) -> Result<ResultBatches, AdbcError>
 where
     C: Connection,
 {
@@ -211,7 +242,30 @@ where
     if let Some(batch) = bound {
         statement.bind(batch).map_err(AdbcError::Adbc)?;
     }
-    drained(statement.execute().map_err(AdbcError::Adbc)?, stop)
+    let sent = Instant::now();
+    drained(statement.execute().map_err(AdbcError::Adbc)?, stop).map_err(|error| timed_out(error, sent, timeout))
+}
+
+/// A failure READING the stream, once the timeout the server was told has run out, is that
+/// timeout.
+///
+/// **Why a clock and not a SQLSTATE**: the pinned driver reads a parameterless result through
+/// `COPY ... TO STDOUT`, so a statement the server cancels mid-result fails inside the Arrow
+/// stream, and the driver manager hands that back as a C-interface message with no SQLSTATE
+/// (measured: a raw `pg_sleep` past its budget arrived as `Batch(CDataInterface(".. canceling
+/// statement due to statement timeout"))`). The server's timer starts no earlier than `sent`, so a
+/// real timeout always arrives at or past it; and once it has run out the server would have
+/// cancelled the statement before failing it for anything else.
+///
+/// **The limit**: a failure this process makes itself while reading - a batch that will not decode -
+/// after the window has passed is read as the timeout too.
+fn timed_out(error: AdbcError, sent: Instant, timeout: Option<NonZeroU32>) -> AdbcError {
+    match error {
+        AdbcError::Batch(cause) if timeout.is_some_and(|ms| sent.elapsed() >= Duration::from_millis(u64::from(ms.get()))) => {
+            AdbcError::TimedOut(cause)
+        }
+        other => other,
+    }
 }
 
 /// Reads a stream into the port's batches, refusing past either ceiling at the batch that crosses
@@ -328,6 +382,34 @@ mod tests {
                 },
                 Sent::Rollback,
             ]
+        );
+    }
+
+    #[test]
+    fn a_stream_failure_is_the_timeout_exactly_once_the_timeout_has_run_out() {
+        use core::num::NonZeroU32;
+        use std::time::Instant;
+
+        use super::super::AdbcError;
+
+        let failure = || AdbcError::Batch(arrow_schema::ArrowError::CDataInterface(String::from("the stream failed")));
+        let ms = NonZeroU32::new(50);
+        let long_ago = Instant::now()
+            .checked_sub(Duration::from_secs(1))
+            .expect("a second ago is representable");
+        let read = super::timed_out(failure(), long_ago, ms);
+        assert!(matches!(read, AdbcError::TimedOut(_)), "{read:?}");
+        assert!(super::deadline_exceeded(&read));
+        let read = super::timed_out(failure(), Instant::now(), ms);
+        assert!(
+            matches!(read, AdbcError::Batch(_)),
+            "inside the window it is the failure it was: {read:?}"
+        );
+        assert!(!super::deadline_exceeded(&read));
+        let read = super::timed_out(failure(), long_ago, None);
+        assert!(
+            matches!(read, AdbcError::Batch(_)),
+            "no timeout was set, so none ran out: {read:?}"
         );
     }
 

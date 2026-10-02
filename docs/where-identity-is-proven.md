@@ -366,9 +366,9 @@ about the vocabulary rather than to this row.
 
 ### What only this venue can answer
 
-1. **That a chain is actually VERIFIED.** `crates/sutura-exec-postgres/src/tls.rs` proves the
-   `rustls::ClientConfig` construction refuses what a closed type refuses, and nothing there
-   connects - so nothing there shows a handshake failing.
+1. **That a chain is actually VERIFIED.** `crates/sutura-exec-postgres/src/adbc/conninfo.rs`
+   proves the string libpq is told for each declared channel, and nothing there connects - so
+   nothing there shows a handshake failing.
    `a_source_chain_from_the_declared_anchor_is_verified_and_answers` and
    `a_source_chain_from_an_untrusted_issuer_is_refused` are the two directions against a real
    server, and the second is the one that matters.

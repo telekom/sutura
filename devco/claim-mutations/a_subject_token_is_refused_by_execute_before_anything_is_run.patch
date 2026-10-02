@@ -1,16 +1,12 @@
-diff --git a/crates/sutura-exec-postgres/src/lib.rs b/crates/sutura-exec-postgres/src/lib.rs
-index e98c6fc5d..e7519ae27 100644
---- a/crates/sutura-exec-postgres/src/lib.rs
-+++ b/crates/sutura-exec-postgres/src/lib.rs
-@@ -772,10 +772,9 @@ impl Warehouse for PostgresWarehouse {
-     fn execute(
-         &self,
+diff --git a/crates/sutura-exec-postgres/src/adbc.rs b/crates/sutura-exec-postgres/src/adbc.rs
+index 7417d98..1e4639c 100644
+--- a/crates/sutura-exec-postgres/src/adbc.rs
++++ b/crates/sutura-exec-postgres/src/adbc.rs
+@@ -430,6 +430,5 @@ impl Warehouse for AdbcPostgres {
          executable: Executable<'_>,
 -        presented: &Presented,
 +        _presented: &Presented,
          deadline: Deadline,
      ) -> Result<ResultBatches, Self::Error> {
--        self.deliverable(presented)?;
-         let query = Self::render(executable)?;
-         let rows = self.run_with_deadline(&query, deadline)?;
-         // `docs/adr/0039` step 2: the port's currency is Arrow, and this driver speaks rows - so the
+-        crate::deliverable(&self.source, &self.posture, presented)?;
+         let query = render(executable)?;

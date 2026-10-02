@@ -650,13 +650,10 @@ pub(crate) use crate::clickhouse::ClickHouseSource;
 #[cfg(feature = "oracle")]
 pub(crate) type OracleSource = sutura_exec_oracle::OracleWarehouse;
 
-/// A `Postgres` source as this binary composes it: one connection under the deployment's declared
-/// identity, secured as the source declares.
-///
-/// Named once for the reason `BigQuerySource` is: it appears in a registry type, a `Warehouse`
-/// bound and a constructor's return, and the three layers ARE the composition.
+/// A `Postgres` source as this binary composes it - `crate::postgres`'s, named here for this
+/// root's registry types.
 #[cfg(feature = "postgres")]
-pub(crate) type PostgresSource = sutura_exec_postgres::PostgresWarehouse;
+pub(crate) type PostgresSource = crate::postgres::PostgresSource;
 
 /// A `BigQuery` source as this binary composes it: the adapter, over the ADBC driver.
 ///
@@ -707,7 +704,7 @@ where
 /// The service for every shape whose adapter cannot carry a per-subject credential at all.
 ///
 /// **One function rather than the same four lines in five arms**, and the argument is one sentence
-/// for all of them: `DataFusionWarehouse`, `PostgresWarehouse`, `ClickHouseWarehouse` and
+/// for all of them: `DataFusionWarehouse`, `AdbcPostgres`, `ClickHouseWarehouse` and
 /// `OracleWarehouse` each declare `ImpersonationCapability::NoPlaceForASubject`, each composition
 /// root refuses an `impersonation-at-source` entry at the posture cross-check before opening one,
 /// and so the only identity a question is answered under is the one this process holds.

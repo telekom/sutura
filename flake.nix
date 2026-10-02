@@ -429,7 +429,7 @@
         # check POINTS AT, never the declaration.
         shipped = import ./nix/shipped.nix {
           inherit pkgs nixpkgs system crane rust-overlay craneLib commonArgs
-            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers;
+            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers postgresTier;
           inherit (commonArgs) version;
         };
 
@@ -450,6 +450,17 @@
           inherit pkgs;
           src = arrow-adbc-src;
         };
+
+        # The PostgreSQL driver THIS host mounts - for `checks.nextest` and the dev shell, where no
+        # archive is linked (only the musl triples link one). Every `kind: postgres` source is
+        # answered over ADBC, so the tier-backed cells need a driver wherever the tier runs; on
+        # darwin this is the one build of it, on linux the native gnu one.
+        postgresAdbcHost = import ./nix/postgres-adbc.nix {
+          inherit pkgs;
+          src = arrow-adbc-src;
+          crossSystemName = system;
+        };
+        postgresAdbcHostDriver = "${postgresAdbcHost}/lib/libadbc_driver_postgresql${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
 
         # #149 branch 5's runner - `nix/kind-smoke.nix` carries what it proves and what it does
         # not. `shipped.localImages.oci` is the SAME native image `nix build .#oci` builds, so
@@ -485,6 +496,10 @@
           // shipped.localImages // shipped.featurePackages // shipped.probeManifests
           // shipped.allFeaturesProbes // shipped.linkedDriversTests // {
           default = shipped.nativeBinaries.sutura;
+
+          # This host's mounted PostgreSQL ADBC driver, so the dev shell names the SAME derivation
+          # `checks.nextest` carries (`devenv.nix`'s `SUTURA_POSTGRES_ADBC_DRIVER`).
+          adbc-driver-postgresql-host = postgresAdbcHost;
 
           # The Pulumi CLI, as a package as well as an app, so `nix build .#pulumi` works from CI.
           pulumi = pkgs.pulumi;
@@ -708,6 +723,9 @@
             preCheck = "(cd examples/demo-chatinterface && ${pkgs.python3}/bin/python3 -m unittest test_behavior test_mcp -v) && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\" && ${clickhouseTier.tier}/bin/sutura-clickhouse-tier start && eval \"$(${clickhouseTier.tier}/bin/sutura-clickhouse-tier credentials)\"";
             postCheck = "${clickhouseTier.tier}/bin/sutura-clickhouse-tier stop && ${postgresTier.tier}/bin/sutura-postgres-tier stop";
             SUTURA_DEV_REQUIRE_TIER = "1";
+            # The driver every Postgres cell opens, as the composition root would on a host that
+            # links none - the tier is useless to an ADBC-only adapter without it.
+            SUTURA_POSTGRES_ADBC_DRIVER = postgresAdbcHostDriver;
           });
 
           # The identity tier, brought up and provisioned INSIDE the sandbox: a realm, a client
@@ -735,6 +753,13 @@
           # one per line rather than `inherit`ed, because that is what those gates parse.
           one-binary = shipped.artifactChecks.one-binary;
           shipped-features = shipped.artifactChecks.shipped-features;
+
+          # THE SHIPPED POSTGRES PATH AGAINST THE LINKED DRIVER (`telekom/sutura#913` stage 2) -
+          # `nix/shipped.nix`'s `linkedDriversTests` carries what it runs and what it leaves out.
+          # Only an x86_64-linux builder can execute the static x86_64-musl test binary, so on any
+          # other system this is a stub that says so and proves nothing.
+          postgres-linked-driver = shipped.linkedDriversTests."adbc-postgres-tier-x86_64-unknown-linux-musl-test"
+            or (pkgs.runCommand "postgres-linked-driver-not-on-${system}" { } "echo 'only x86_64-linux runs the linked musl driver' > $out");
 
           # A few tools are pinned twice because nix does not run everywhere. `check-pins` fails
           # if pixi.lock disagrees; nix is the authority.

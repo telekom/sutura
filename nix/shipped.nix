@@ -33,6 +33,8 @@
 , adbcDrivers
 # The per-triple ADBC PostgreSQL derivations - their musl static archives, see `adbcArchiveFor`.
 , postgresAdbcDrivers
+# The Postgres tier (`nix/postgres-tier.nix`), started inside `linkedDriversTests`' tier run.
+, postgresTier
 , version
 }:
 
@@ -335,6 +337,17 @@ let
         pname = "sutura-adbc-linked";
         cargoExtraArgs = "--package sutura-adbc --target ${target}";
       };
+      # THE SHIPPED PATH AGAINST THE LINKED DRIVER, ON A REAL SERVER (`telekom/sutura#913` stage 2):
+      # `sutura-exec-postgres`'s tier-backed targets, built static for this triple with the same
+      # archive a release links, run against the Postgres tier started in this sandbox - so libpq,
+      # its static OpenSSL and the driver's Arrow mapping answer real statements, not a fake.
+      # `PostgresDriver::from_host` takes the linked route because the archive is linked; no `.so` is in
+      # reach. What it does not cover: the release profile's LTO and stripping (this is `ci`), and
+      # the aarch64 musl triple, which no builder here can run.
+      pgArgs = args // adbcArchiveFor target // {
+        pname = "sutura-exec-postgres-linked";
+        cargoExtraArgs = "--package sutura-exec-postgres --features fixtures --target ${target}";
+      };
     in
     {
       "adbc-drivers-linked-${target}-test" = crossLib.mkCargoDerivation (testArgs // inheritedArtifacts (crossLib.buildDepsOnly (testArgs // { doCheck = true; })) // {
@@ -344,6 +357,21 @@ let
           cargoWithProfile test ${testArgs.cargoExtraArgs} --test linked -- --exact ${cell} --nocapture 2>&1 | tee linked.log
         '';
         installPhaseCommand = "install -Dm644 linked.log $out/linked.log";
+      });
+      "adbc-postgres-tier-${target}-test" = crossLib.mkCargoDerivation (pgArgs // inheritedArtifacts (crossLib.buildDepsOnly (pgArgs // { doCheck = true; })) // {
+        doInstallCargoArtifacts = false;
+        nativeBuildInputs = (pgArgs.nativeBuildInputs or [ ]) ++ [ postgresTier.tier ];
+        SUTURA_DEV_REQUIRE_TIER = "1";
+        buildPhaseCargoCommand = ''
+          set -o pipefail
+          sutura-postgres-tier start
+          eval "$(sutura-postgres-tier credentials)"
+          status=0
+          cargoWithProfile test ${pgArgs.cargoExtraArgs} --test conformance --test raw --test deadline --test tls --test types -- --nocapture 2>&1 | tee tier.log || status=$?
+          sutura-postgres-tier stop
+          exit "$status"
+        '';
+        installPhaseCommand = "install -Dm644 tier.log $out/tier.log";
       });
     });
 

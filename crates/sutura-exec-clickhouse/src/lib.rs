@@ -13,7 +13,7 @@
 //! own HTTP interface asks for nothing more than one request/response per statement, which is
 //! `ureq`'s whole job. **A pure-Rust driver either way**: `ureq` with the `rustls` feature links
 //! no C TLS library, and this crate's own `tls` module (over `sutura-tls`) is what most of
-//! `sutura_exec_postgres::tls`'s reasoning transfers to.
+//! `sutura_catalog_rdbms::postgres_channel::client_config`'s reasoning transfers to.
 //!
 //! # Why a driver-shaped seam, and not just a hand-rolled client
 //!
@@ -213,8 +213,8 @@ where
     }
 
     /// Refuses credential material this adapter has nowhere to put, then checks the presented leg
-    /// against how this source was DECLARED - `sutura_exec_postgres::PostgresWarehouse::
-    /// deliverable`'s exact shape, for the exact reason (`docs/adr/0008` part 4).
+    /// against how this source was DECLARED - `sutura_exec_postgres::deliverable`'s exact
+    /// shape, for the exact reason (`docs/adr/0008` part 4).
     fn deliverable(&self, presented: &Presented) -> ChResult<(), T::Error> {
         match *presented {
             Presented::SharedServiceUser { .. } => {}
@@ -290,7 +290,7 @@ where
         self.run(&query, boot_deadline()).map(AnchorRows::of)
     }
 
-    /// Overridden for the reason `sutura_exec_postgres::PostgresWarehouse::declared_key` gives: one
+    /// Overridden for the reason `sutura_exec_postgres::adbc::AdbcPostgres::declared_key` gives: one
     /// aggregate scan, no group, no parameter, so this adapter can ask cheaply. Takes no
     /// credential, for [`Warehouse::verify_anchor`]'s reason - there is no caller at boot.
     fn declared_key(&self, key: DeclaredKey<'_>) -> Result<KeyUniqueness, Self::Error> {
@@ -541,11 +541,10 @@ fn float_text(value: &serde_json::Value) -> Option<f64> {
 /// A `Decimal` cell, mapped exactly.
 ///
 /// `ClickHouse`'s JSON formats already render it as human-readable decimal text (a JSON number or
-/// a quoted string, either way carrying its own digits rather than this adapter's own base-10000
-/// decode the way `sutura_exec_postgres::PgNumeric` needs for Postgres's binary wire) - an
+/// a quoted string, either way carrying its own digits, so nothing here decodes a wire format) - an
 /// integral value with no fractional digits maps to [`Value::Integer`], and every other finite
-/// value keeps its exact text as [`Value::Text`], the same split `sutura_exec_postgres::
-/// numeric_cell` makes.
+/// value keeps its exact text as [`Value::Text`], the same split
+/// `sutura_exec_postgres::adbc::numeric::numeric_cell` makes.
 fn decimal_value(value: &serde_json::Value) -> Option<Value> {
     let text = match *value {
         serde_json::Value::Number(ref number) => number.to_string(),

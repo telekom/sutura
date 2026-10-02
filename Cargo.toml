@@ -188,16 +188,12 @@ parking_lot = "0.12"
 # stored value because OAuth resource indicators are compared byte for byte.
 url = { version = "2.5", default-features = false }
 
-# The Postgres driver. Pure Rust and links nothing, which is the point this adapter exists to prove:
-# the musl cross-build matrix survives a source whose driver pulls no native library. It is also the
-# row-18 inheritance: the same driver family underlies the OAuth work, so choosing it now does not
-# close that door.
+# The `rdbms` catalog's live dictionary reader's client, and the served tests' fixture-install
+# connection. No data source uses it: `sutura-exec-postgres` answers every source over ADBC
+# (`telekom/sutura#913`), and the reader moves to ADBC after it.
 tokio-postgres = "0.7"
-# The wire buffer the driver hands a `ToSql` impl on the way out; already in the graph as a
-# tokio-postgres dependency, so naming it adds no supply-chain surface.
-bytes = "1"
-# The `Sink` API `CopyInSink` drives a text `COPY` through; already in the graph as a
-# tokio-postgres dependency, so naming it adds no supply-chain surface.
+# The `StreamExt` the live dictionary reader drains a `tokio-postgres` row stream with; already in
+# the graph as a tokio-postgres dependency, so naming it adds no supply-chain surface.
 futures-util = "0.3"
 # Writing the compressed fixtures the engine's `compression` feature reads back, in DEV-dependencies
 # and nowhere else - nothing this workspace ships compresses anything. Both were already in
@@ -228,8 +224,8 @@ arrow-buffer = "59"
 # It has no default features, so its own `ring` provider is the one `tokio-rustls` already asks for.
 tokio-postgres-rustls = { version = "0.14", default-features = false, features = ["ring"] }
 # rustls itself, to build the `ClientConfig` over the declared trust anchors. The anchor bundle and
-# a client identity are read off disk by `sutura_exec_postgres::tls` (the one adapter that reads
-# those files) using rustls's own trailing `PemObject` reader, so no separate PEM crate enters the
+# a client identity are read off disk by `sutura_catalog_rdbms::postgres_channel::client_config`,
+# using rustls's own trailing `PemObject` reader, so no separate PEM crate enters the
 # graph for it.
 #
 # `tls12` is pinned HERE rather than left to arrive by feature unification with `tokio-rustls`'s own

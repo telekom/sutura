@@ -44,7 +44,7 @@ fn opened_postgres(entries: &str) -> Result<OpenedSources, String> {
 fn a_postgres_source_configured_to_impersonate_refuses_at_boot() {
     // **The Postgres half of the cross-check the neighbouring
     // `a_source_configured_to_impersonate_on_an_adapter_that_cannot_refuses_at_boot` proves over the
-    // in-process engine.** `PostgresWarehouse::IMPERSONATION` is `NoPlaceForASubject` - one
+    // in-process engine.** `AdbcPostgres::IMPERSONATION` is `NoPlaceForASubject` - one
     // connection under the deployment's declared identity, with nowhere for a subject's own
     // credential to arrive - and `build_postgres` runs this check BEFORE it reads `password_file` or
     // dials anything, so the refusal is reachable with no server listening and no password file on
@@ -108,7 +108,7 @@ fn a_served_postgres_source_reads_the_password_file_the_deployment_declared() {
     );
     assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
     // NOT the neighbouring arms: this build linked the adapter, and a shared posture is accepted by
-    // `PostgresWarehouse::IMPERSONATION`, so neither of those refusals may be what this observed.
+    // `AdbcPostgres::IMPERSONATION`, so neither of those refusals may be what this observed.
     assert!(
         !error.contains("--features postgres"),
         "this build DID link the adapter: {error}"

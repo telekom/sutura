@@ -890,7 +890,7 @@ model's `source:` names.**
 | `sources.<alias>.user` | absent | Postgres, ClickHouse and Oracle. The one role every caller reaches this source as |
 | `sources.<alias>.password_file` | absent | Postgres, ClickHouse and Oracle. Absolute, read at startup; secret text is refused in the settings tree |
 | `sources.<alias>.transport_mode` | absent | Postgres, ClickHouse and Oracle. `plaintext`, `verified` or `mutual`; required, with no default. A non-loopback host declared `plaintext` is refused on all three. Oracle accepts `plaintext` only: its driver trusts the certificate authorities compiled into it and takes no declared trust store, so `verified` and `mutual` are refused rather than half-honoured |
-| `sources.<alias>.transport_anchors` | absent | Postgres and ClickHouse TLS. `system` as an explicit choice, or an absolute PEM bundle path. Not accepted on Oracle - see `transport_mode` |
+| `sources.<alias>.transport_anchors` | absent | Postgres and ClickHouse TLS. An absolute PEM bundle path, or `system` as an explicit choice - which a Postgres source refuses at startup. Not accepted on Oracle - see `transport_mode` |
 | `sources.<alias>.client_certificate` | absent | Postgres and ClickHouse mutual TLS. Absolute PEM chain; both client identity halves or neither |
 | `sources.<alias>.client_key` | absent | Postgres and ClickHouse mutual TLS. Absolute PEM private key; both client identity halves or neither |
 | `sources.<alias>.posture` | absent | `shared-service-user` or `impersonation-at-source`. Required, with no default |
@@ -1002,7 +1002,7 @@ sources:
     user: "sutura_reader"
     password_file: "/etc/sutura/postgres-password"
     transport_mode: "verified"
-    # An explicit choice, never a default. Use `system` to read the host store instead.
+    # An explicit choice, never a default. A postgres source refuses `system` - see below.
     transport_anchors: "/etc/sutura/database-ca.pem"
     posture: "shared-service-user"
     acknowledged_because: "the reporting role is intentionally the same for every caller"
@@ -1017,8 +1017,10 @@ are mutually exclusive.
 
 - `plaintext` uses no TLS. It is accepted only with an absolute unix-socket directory or a loopback
   IP literal; a hostname or non-loopback address is a startup refusal.
-- `verified` requires `transport_anchors` and requires the TLS handshake. `system` means the host's
-  trust store because the operator wrote it; an absolute path means that PEM bundle alone. It
+- `verified` requires `transport_anchors` and requires the TLS handshake. An absolute path means
+  that PEM bundle alone. `system` means the host's trust store because the operator wrote it, and
+  a `postgres` source refuses it at startup: libpq reads `system` as OpenSSL's compiled-in store,
+  not the host's, so the ADBC driver could not verify against what was declared. It
   presents nothing, so a `client_certificate` or `client_key` written on a `verified` entry is a
   **startup refusal naming the key**, never a setting read past - the mode that presents a
   certificate is `mutual`.

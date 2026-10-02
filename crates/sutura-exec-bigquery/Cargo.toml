@@ -43,7 +43,7 @@ adbc = [
 # **Why a feature and not a `#[cfg(test)]` helper**, which would be the cheaper-looking answer: the
 # acceptance legs are INTEGRATION targets, which cargo compiles as separate crates, so they cannot
 # reach a `#[cfg(test)]` item in this one. The choice is therefore between a feature and a `pub`
-# method on the shipped surface - which is what #78's `PostgresWarehouse::load_csv` is, and this is
+# method on the shipped surface - which is what #78's `AdbcPostgres::load_csv` is, and this is
 # the stricter of the two.
 #
 # Off is not hidden, for the reason the `adbc` entry gives: every gate here passes `--all-features`,
