@@ -2817,7 +2817,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 </tr>
 <tr>
 <td>The RFC 8693 request document a broker sent, while one existed</td>
-<td>- nothing in this build sends one: the broker and its fake exchange were deleted with the <code>wire</code> transport (<code>docs/adr/0018</code>, eighth amendment). The cell was green against that fake and is kept as a record of a withdrawn claim, not a live one</td>
+<td>- the broker and its fake exchange this row was written for were deleted with the old <code>wire</code> transport (<code>docs/adr/0018</code>, eighth amendment), and that cell stays a record of a withdrawn claim. The tree sends one again since #1208 - the delegation exchange behind the new <code>wire</code> feature - and the row below is where that request is pinned</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -2917,10 +2917,10 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 </tr>
 <tr>
 <td>Whether a token exchange endpoint accepts what we send it</td>
+<td>no - a loopback fake accepts by construction. What it does pin is what we SEND: the RFC 8693 form <code>delegation::http::OverHttp</code> posts, captured by <code>the_request_is_an_rfc_8693_exchange_of_the_callers_token_for_the_requested_audience</code></td>
 <td>-</td>
 <td>-</td>
-<td>-</td>
-<td>-</td>
+<td><strong>wired</strong> - a real IdP's standard token exchange of each subject's own token for the pool audience (#1208); the IdP half only, no pool is reachable from the tier</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3195,7 +3195,7 @@ about the vocabulary rather than to this row.</p>
 <h2 id="a-provisioned-keycloak-realm">A provisioned Keycloak realm<a class="headerlink" href="#a-provisioned-keycloak-realm" title="Permanent link">&para;</a></h2>
 <p><code>nix/keycloak-tier.nix</code> stands up a real Keycloak - a realm, one confidential client and two
 subjects, every credential generated at <code>start</code> and written nowhere else - and
-<code>just keycloak-served-test</code> starts it, runs the two cells that need it, and stops it whatever the
+<code>just keycloak-served-test</code> starts it, runs the three cells that need it, and stops it whatever the
 cells do. The wave-one hosted job (<code>e2e-datahub-bigquery</code>, removed with the wire) verified the
 SAME realm over HTTP on its own composed deployment - a second, wider <code>Reached by</code> for the same
 venue, not a second row: its three asks all ride Keycloak-minted tokens.</p>
@@ -3238,6 +3238,14 @@ cannot answer" below: it is a password grant against a hardcoded audience mapper
 browser-delegated flow, and the audience is an RFC-2606 placeholder. This cell passed on <code>main</code> on
 2026-09-25, in the <code>keycloak-served-test</code> job of run
 https://github.com/telekom/sutura/actions/runs/36143472617.</p>
+<p><strong>The third cell is <code>wired</code>, and answers the token-exchange row.</strong>
+<code>a_real_idp_exchanges_each_subjects_own_token_for_the_pool_audience</code> (#1208) exchanges each
+provisioned subject's own access token at the realm's standard token exchange, as the exchanging
+client <code>nix/keycloak-tier.nix</code> provisions, for the pool audience: the issued token carries that
+audience and THAT subject's <code>sub</code>, and an audience the realm has no client for is refused with
+<code>invalid_client</code>. No hosted run of it has been observed, which is why the row says <code>wired</code>. It is
+the IdP half only - no pool is reachable from this tier, so nothing here shows a pool accepting an
+exchanged token - and a hosted tenant's exchange (Entra) is unmeasured.</p>
 <p><strong>What "a different subject" means, exactly.</strong> The audit record masks every <code>sub</code> to its first
 character plus <code>***</code>, and Keycloak subjects are UUIDs, so two different <code>sub</code>s' masked forms
 collide whenever their UUIDs share a first hex character (1 in 16). The old masked-comparison cell
