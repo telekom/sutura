@@ -195,7 +195,7 @@ ci.yml:bigquery-driver-check
 ci.yml:e2e-datahub-adbc
 
 # The Oracle docker tier, advisory for `bigquery-driver-check`'s reason: category-gated on
-# `data_source_oracle`, so it reports nothing on most pull requests, and a required context that
+# `data_source_oracle` or `catalog_rdbms`, so it reports nothing on most pull requests, and a required context that
 # does not report is a permanently pending merge. `ci-aggregate` holds run-or-fail for it.
 ci.yml:oracle-tier
 

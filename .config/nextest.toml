@@ -88,3 +88,13 @@ real-cargo = { max-threads = 2 }
 [[profile.default.overrides]]
 filter = "binary_id(xtask::bin/xtask) & (test(/^causality::gas_tests::/) | test(/^causality::tests::/) | test(/^causality::rot::tests::the_kill_half_/))"
 test-group = "real-cargo"
+
+[[profile.default.overrides]]
+# The one gas cell that runs TWO nested `causality::run`s (the composite `Pass` shape and its
+# laundered `Fail` twin), so it gets two cells' ceiling: 600s. Measured 10-02 at host load 50-75 on
+# 15 CPUs: it hit the 300s ceiling in two `checks.nextest` runs on unrelated branches (300.26s,
+# 300.28s) while the rest of the family passed. Limit: this widens one cell's bound against a
+# starved host; it explains nothing about the starvation, and splitting the cell in two would
+# restore one run per cell under the default ceiling.
+filter = "binary_id(xtask::bin/xtask) & test(=causality::gas_tests::a_claim_cell_and_an_ordinary_test_are_both_proven)"
+slow-timeout = { period = "60s", terminate-after = 10 }

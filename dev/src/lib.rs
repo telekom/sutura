@@ -51,9 +51,14 @@
 //! measures anything. It lives here rather than duplicated in each bench binary because
 //! `cargo xtask check-jscpd` refuses to exempt a clone under `crates/`, and two independent
 //! binaries printing the same probe is exactly that clone - `github.com/telekom/sutura#915`.
+//!
+//! [`env_proxy`] is the same argument for an outbound client's cell: every crate that builds an
+//! agent proves it dials a plaintext or loopback target directly under an environment proxy, and
+//! the harness re-running a test under one is written once.
 
 pub mod bench_venue;
 pub mod discovery;
+pub mod env_proxy;
 #[cfg(feature = "mock-issuer")]
 pub mod issuer;
 pub mod provisioned;

@@ -77,6 +77,21 @@ mod tests {
     /// RED/GREEN mutation: delete `HttpAspectReader::bearer`'s call site (the `.header("authorization", ..)`
     /// line in `fetch`) - the fake server still answers (it does not itself check the header), but
     /// every captured `authorization` becomes `None` and this assertion goes red.
+    /// **A proxy the environment names never carries the plaintext loopback read.**
+    #[test]
+    fn an_environment_proxy_never_carries_the_plaintext_loopback_read() {
+        sutura_dev::env_proxy::dialled_directly(
+            module_path!(),
+            "an_environment_proxy_never_carries_the_plaintext_loopback_read",
+            || {
+                let server = FakeServer::start(happy_path_answers());
+                let read = reader(&server, 2, GENEROUS_CAP).read();
+                drop(read.expect("the read reached the loopback endpoint directly"));
+                drop(server.finish());
+            },
+        );
+    }
+
     #[test]
     fn the_bearer_is_sent_on_every_request() {
         let server = FakeServer::start(happy_path_answers());

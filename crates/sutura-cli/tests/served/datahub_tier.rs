@@ -70,14 +70,11 @@ impl DatahubTier {
             .to_string();
         Self {
             endpoint,
-            agent: ureq::Agent::new_with_config(
-                ureq::Agent::config_builder()
+            agent: sutura_http_client::agent(|config| {
+                config
                     .http_status_as_error(false)
-                    .max_redirects(0)
                     .timeout_global(Some(Duration::from_secs(30)))
-                    .proxy(ureq::Proxy::try_from_env())
-                    .build(),
-            ),
+            }),
         }
     }
 
