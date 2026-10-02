@@ -48,6 +48,7 @@
 use crate::Verdict;
 use crate::causality::regions;
 use crate::repo;
+use crate::rust_source::blank_comments;
 use crate::serde_parse::scan::code_lines;
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -257,12 +258,17 @@ fn crate_pass(root: &Path, crate_dir: &Path) -> Result<Option<CratePass>, String
             error = Some(format!("{rel} is not valid UTF-8"));
             return;
         };
+        let file_text_no_comments = blank_comments(file_text);
         let test_scope = regions::scope(rel, &|path| std::fs::read_to_string(root.join(path)).ok());
-        for (index, line) in code_lines(file_text).iter().enumerate() {
+        for (index, (line, blanked)) in code_lines(file_text)
+            .iter()
+            .zip(code_lines(&file_text_no_comments).iter())
+            .enumerate()
+        {
             if rel.contains("/benches/") || rel.contains("/examples/") || test_scope.covers(index.saturating_add(1)) {
                 continue;
             }
-            text.push_str(line);
+            text.push_str(blanked);
             text.push('\n');
             let trimmed = line.trim_start();
             let Some(rest) = trimmed.strip_prefix("pub ") else { continue };
@@ -356,5 +362,26 @@ mod tests {
     fn end_of_input_counts() {
         assert!(reached_as_segment("a::b", "b"));
         assert!(reached_as_segment("trailing::ident", "ident"));
+    }
+
+    #[test]
+    fn a_module_named_only_in_a_comment_is_not_reached() {
+        let root = std::env::temp_dir().join(format!("sutura-orphan-modules-comment-{}", std::process::id()));
+        let crate_dir = root.join("crates/thing");
+        std::fs::create_dir_all(crate_dir.join("src")).expect("the scratch tree");
+        std::fs::write(
+            crate_dir.join("src/lib.rs"),
+            "// phantom is an orphan: only phantom::X in a comment\npub mod phantom;\n",
+        )
+        .expect("a readable file");
+
+        let pass = crate_pass(&root, &crate_dir)
+            .expect("the crate pass runs")
+            .expect("a single-file crate passes");
+        assert!(
+            !reached_as_segment(&pass.text, "phantom"),
+            "a name that appears only in a comment must not reach the module"
+        );
+        std::fs::remove_dir_all(&root).expect("remove the owned fixture");
     }
 }
