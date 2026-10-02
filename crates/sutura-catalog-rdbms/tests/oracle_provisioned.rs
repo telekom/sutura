@@ -90,6 +90,26 @@ mod oracle_provisioned {
             )
             .expect("the fixture reader settings parse")
         }
+
+        /// Waits, bounded, until a read-only transaction can read the freshly created table: for a
+        /// short window after the DDL Oracle refuses that snapshot with `ORA-01466`, as it would the
+        /// reader's own. A fresh session per probe, because the driver drops one that hit the error.
+        fn await_read_only_snapshot(&self) {
+            let deadline = Instant::now() + Duration::from_secs(60);
+            loop {
+                let probe = self.connect();
+                probe
+                    .execute("SET TRANSACTION READ ONLY", &[])
+                    .expect("the probe transaction starts");
+                match probe.query_row("SELECT COUNT(*) FROM \"COLUMNS\"", &[]) {
+                    Ok(_) => return,
+                    Err(cause) if cause.to_string().contains("ORA-01466") && Instant::now() < deadline => {
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                    Err(cause) => panic!("the fixture never became readable under a read-only snapshot: {cause}"),
+                }
+            }
+        }
     }
 
     /// Replaces the user's own `COLUMNS` table: `public.orders` bound to the model `orders`, with
@@ -128,28 +148,6 @@ mod oracle_provisioned {
             connection.execute(&statement, &[]).expect("a fixture row inserts");
         }
         connection.commit().expect("the fixture commits");
-        await_read_only_snapshot(connection);
-    }
-
-    /// Waits, bounded, until a read-only transaction can read the freshly created table: for a
-    /// short window after the DDL Oracle refuses that snapshot with `ORA-01466`, as it would the
-    /// reader's own.
-    fn await_read_only_snapshot(connection: &oracledb::Connection) {
-        let deadline = Instant::now() + Duration::from_secs(60);
-        loop {
-            connection
-                .execute("SET TRANSACTION READ ONLY", &[])
-                .expect("the probe transaction starts");
-            let probe = connection.query_row("SELECT COUNT(*) FROM \"COLUMNS\"", &[]);
-            connection.rollback().expect("the probe transaction ends");
-            match probe {
-                Ok(_) => return,
-                Err(cause) if cause.to_string().contains("ORA-01466") && Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(100));
-                }
-                Err(cause) => panic!("the fixture never became readable under a read-only snapshot: {cause}"),
-            }
-        }
     }
 
     #[test]
@@ -158,6 +156,7 @@ mod oracle_provisioned {
         let tier = Tier::here();
         let setup = tier.connect();
         install_fixture(&setup);
+        tier.await_read_only_snapshot();
 
         let catalog_name = SourceName::parse("dictionary").expect("catalog name parses");
         let source_alias = SourceName::parse("warehouse").expect("source alias parses");
