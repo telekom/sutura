@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
-//! Which requests [`sutura_http_client::agent`] lets a proxy carry: `https://` to a host that is not
-//! an IP loopback literal, and nothing else.
+//! Which requests [`sutura_http_client::agent`] lets a proxy carry - `https://` to a host that is
+//! not loopback, and nothing else - and that it follows no redirect.
 //!
 //! No request here is answered. Each one times out, and the cell reads which listener it dialled
 //! from that listener's accept queue - a connection the kernel completed whether or not anything
@@ -8,6 +8,7 @@
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Read as _, Write as _};
     use std::net::TcpListener;
     use std::time::Duration;
 
@@ -63,6 +64,161 @@ mod tests {
         assert!(
             dialled(&proxy),
             "TLS to a remote host no longer reaches the proxy the agent carries"
+        );
+    }
+
+    /// Every host in `hosts`, over `https://` to a listening loopback port, is dialled without the
+    /// proxy the agent carries.
+    fn never_proxied(hosts: &[&str]) {
+        let proxy = listener();
+        let carried = ureq::Proxy::new(&url("http", &proxy)).expect("a proxy URL parses");
+        let agent = sutura_http_client::agent(|config| config.timeout_global(Some(UNANSWERED)).proxy(Some(carried)));
+        let origin = listener();
+        let port = origin.local_addr().expect("a bound listener has an address").port();
+        for host in hosts {
+            drop(agent.get(format!("https://{host}:{port}/")).call());
+            assert!(!dialled(&proxy), "https://{host} was dialled through the agent's proxy");
+        }
+    }
+
+    #[test]
+    fn localhost_in_any_spelling_is_dialled_directly() {
+        never_proxied(&["localhost", "LOCALHOST", "localhost.", "sutura.localhost"]);
+    }
+
+    #[test]
+    fn a_mapped_or_unspecified_address_is_dialled_directly() {
+        never_proxied(&["[::ffff:127.0.0.1]", "[::]", "0.0.0.0"]);
+    }
+
+    #[test]
+    fn a_loopback_address_in_resolver_shorthand_is_dialled_directly() {
+        never_proxied(&["127.1", "2130706433", "0x7f.0.0.1", "0177.0.0.1", "127.0.0.1."]);
+    }
+
+    /// A plaintext loopback origin answering one request with a redirect to `target`.
+    fn redirecting_to(target: &TcpListener) -> String {
+        let origin = TcpListener::bind("127.0.0.1:0").expect("a loopback port is free");
+        let address = url("http", &origin);
+        let location = format!("{}second", url("http", target));
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = origin.accept() {
+                drop(stream.read(&mut [0_u8; 4096]));
+                drop(write!(
+                    stream,
+                    "HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                ));
+            }
+        });
+        address
+    }
+
+    #[test]
+    fn the_agent_follows_no_redirect() {
+        let target = listener();
+        let agent = sutura_http_client::agent(|config| config.timeout_global(Some(UNANSWERED)));
+        drop(agent.get(redirecting_to(&target)).call());
+        assert!(!dialled(&target), "the agent followed a redirect");
+    }
+
+    #[test]
+    fn a_request_level_setting_cannot_re_enable_redirects() {
+        let target = listener();
+        let agent = sutura_http_client::agent(|config| config.timeout_global(Some(UNANSWERED)));
+        drop(agent.get(redirecting_to(&target)).config().max_redirects(3).build().call());
+        assert!(!dialled(&target), "a request-level setting re-enabled redirects");
+    }
+
+    /// A request's head, read up to its blank line.
+    fn head(stream: &mut impl std::io::Read) -> String {
+        let mut head = Vec::new();
+        let mut byte = [0_u8; 1];
+        while !head.ends_with(b"\r\n\r\n") && stream.read(&mut byte).is_ok_and(|read| read == 1) {
+            head.extend_from_slice(&byte);
+        }
+        String::from_utf8_lossy(&head).into_owned()
+    }
+
+    /// A TLS origin for `sutura.invalid` answering one request with a redirect to plaintext
+    /// loopback, and the agent that trusts it.
+    fn tls_redirector() -> (TcpListener, ureq::tls::TlsConfig) {
+        let key = rcgen::KeyPair::generate().expect("a key pair generates");
+        let issued = rcgen::CertificateParams::new([String::from("sutura.invalid")])
+            .expect("a name parameterizes")
+            .self_signed(&key)
+            .expect("a self-signed certificate issues");
+        let server = std::sync::Arc::new(
+            rustls::ServerConfig::builder_with_provider(std::sync::Arc::new(rustls::crypto::ring::default_provider()))
+                .with_safe_default_protocol_versions()
+                .expect("the default protocol versions are safe")
+                .with_no_client_auth()
+                .with_single_cert(
+                    vec![issued.der().clone()],
+                    rustls::pki_types::PrivateKeyDer::try_from(key.serialize_der()).expect("a generated key is usable"),
+                )
+                .expect("a certificate and its own key pair"),
+        );
+        let origin = TcpListener::bind("127.0.0.1:0").expect("a loopback port is free");
+        let serving = origin.try_clone().expect("a listener clones");
+        std::thread::spawn(move || {
+            if let Ok((mut tcp, _)) = serving.accept() {
+                let mut connection = rustls::ServerConnection::new(server).expect("a server connection opens");
+                let mut tls = rustls::Stream::new(&mut connection, &mut tcp);
+                drop(head(&mut tls));
+                drop(tls.write_all(
+                    b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:9/second\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                ));
+                drop(tls.flush());
+            }
+        });
+        let trusted = ureq::tls::TlsConfig::builder()
+            .root_certs(ureq::tls::RootCerts::new_with_certs(&[ureq::tls::Certificate::from_der(
+                issued.der(),
+            )
+            .to_owned()]))
+            .build();
+        (origin, trusted)
+    }
+
+    #[test]
+    fn a_redirect_inside_a_proxied_tunnel_is_not_followed() {
+        let (origin, trusted) = tls_redirector();
+        let tunnelled_to = origin.local_addr().expect("a bound listener has an address");
+        let proxy = TcpListener::bind("127.0.0.1:0").expect("a loopback port is free");
+        let carried = ureq::Proxy::new(&url("http", &proxy)).expect("a proxy URL parses");
+        let (seen, connects) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            while let Ok((mut client, _)) = proxy.accept() {
+                drop(seen.send(head(&mut client)));
+                drop(client.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n"));
+                let upstream = std::net::TcpStream::connect(tunnelled_to).expect("the origin listens");
+                let (mut up, mut down) = (
+                    upstream.try_clone().expect("a stream clones"),
+                    client.try_clone().expect("a stream clones"),
+                );
+                std::thread::spawn(move || drop(std::io::copy(&mut client, &mut up)));
+                std::thread::spawn(move || drop(std::io::copy(&mut &upstream, &mut down)));
+            }
+        });
+        let agent = sutura_http_client::agent(|config| {
+            config
+                .timeout_global(Some(Duration::from_secs(3)))
+                .proxy(Some(carried))
+                .tls_config(trusted)
+        });
+        drop(agent.get("https://sutura.invalid/").config().max_redirects(3).build().call());
+        std::thread::sleep(UNANSWERED);
+        let connects: Vec<String> = connects.try_iter().collect();
+        assert!(
+            connects
+                .first()
+                .is_some_and(|line| line.starts_with("CONNECT sutura.invalid:443")),
+            "TLS to a remote host reaches the proxy: {connects:?}"
+        );
+        assert_eq!(
+            connects.len(),
+            1,
+            "the proxy carried a redirect the agent followed: {connects:?}"
         );
     }
 

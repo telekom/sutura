@@ -39,6 +39,10 @@ rustls = { workspace = true, optional = true }
 [dev-dependencies]
 # `env_proxy`, the harness `tests/direct_dial.rs` re-runs a cell under an environment proxy with.
 sutura-dev = { workspace = true }
+# The TLS origin `tests/direct_dial.rs`'s proxied-redirect cell tunnels to, for a name no loopback
+# harness here issues; both already in the graph through `tls-test`.
+rcgen = { workspace = true }
+rustls = { workspace = true }
 
 [lints]
 workspace = true

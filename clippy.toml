@@ -210,41 +210,48 @@ disallowed-methods = [
   { path = "adbc_core::Statement::execute_update", reason = "on the PostgreSQL driver this is the simple protocol, which runs every statement in a string; caller text goes through `execute`, and each call here carries an #[expect] naming the text it sends and its source" },
   { path = "rmcp::ErrorData::invalid_params", reason = "the message reaches a model's context as this transport's own error, so caller-chosen text must not be assembled into it; use sutura_mcp::server::RenderedCause::into_error_data, the one call this crate makes to this constructor" },
   # **Every `ureq::Agent` constructor but `sutura_http_client::agent`**, which holds the one
-  # `#[expect]`. That constructor installs, after the caller's own configuration, the middleware that
-  # dials a plaintext or IP-loopback target directly whatever proxy the agent or the request
-  # carries; `ureq`'s own defaults route by `NO_PROXY` alone. `config_builder` and
+  # `#[expect]`. That constructor installs the middleware that, on every request, dials a plaintext
+  # or loopback target directly whatever proxy the agent or the request carries, and pins no
+  # redirects; `ureq`'s own defaults route by `NO_PROXY` alone. `config_builder` and
   # `Config::builder` are banned beside the constructors because a `Config` they build converts
   # into an agent through `From`.
   #
-  # THE LIMIT: `From<Config> for Agent` is a trait impl, which a path here does not reach, so
-  # `ureq::Agent::from(Default::default())` builds an agent without the middleware and only review
-  # sees it. The lint reaches this workspace's calls, not a dependency's own agents.
+  # `From<Config> for Agent` is a trait impl, which a path here does not reach; the
+  # `ureq::config::Config` row in `disallowed-types` below refuses it wherever the type is named.
+  # A `Config` not named is either ambiguous to the compiler (`Agent::from(Default::default())`)
+  # or an existing agent's own `config()`, which already carries the middleware. The lint reaches this workspace's calls, not a
+  # dependency's own agents.
   #
   # VERIFIED TO RESOLVE the way this file's header requires: each path below was written as a call
   # in a probe target and `just lint` rejected every one by file and line.
-  { path = "ureq::Agent::new_with_config", reason = "an agent without the direct-dial middleware; use sutura_http_client::agent" },
-  { path = "ureq::Agent::new_with_defaults", reason = "an agent without the direct-dial middleware; use sutura_http_client::agent" },
-  { path = "ureq::Agent::with_parts", reason = "an agent without the direct-dial middleware; use sutura_http_client::agent" },
-  { path = "ureq::Agent::config_builder", reason = "its Config converts into an agent without the direct-dial middleware; sutura_http_client::agent hands its caller the builder" },
-  { path = "ureq::config::Config::builder", reason = "its Config converts into an agent without the direct-dial middleware; sutura_http_client::agent hands its caller the builder" },
-  { path = "ureq::config::Config::new_agent", reason = "an agent without the direct-dial middleware; use sutura_http_client::agent" },
-  { path = "ureq::RequestExt::with_default_agent", reason = "ureq's default agent, without the direct-dial middleware; use sutura_http_client::agent" },
-  { path = "ureq::agent", reason = "ureq's default agent, without the direct-dial middleware; use sutura_http_client::agent" },
-  { path = "ureq::run", reason = "ureq's default agent, without the direct-dial middleware; use sutura_http_client::agent" },
-  { path = "ureq::get", reason = "ureq's default agent, without the direct-dial middleware; use sutura_http_client::agent" },
-  { path = "ureq::post", reason = "ureq's default agent, without the direct-dial middleware; use sutura_http_client::agent" },
-  { path = "ureq::put", reason = "ureq's default agent, without the direct-dial middleware; use sutura_http_client::agent" },
-  { path = "ureq::delete", reason = "ureq's default agent, without the direct-dial middleware; use sutura_http_client::agent" },
-  { path = "ureq::head", reason = "ureq's default agent, without the direct-dial middleware; use sutura_http_client::agent" },
-  { path = "ureq::options", reason = "ureq's default agent, without the direct-dial middleware; use sutura_http_client::agent" },
-  { path = "ureq::connect", reason = "ureq's default agent, without the direct-dial middleware; use sutura_http_client::agent" },
-  { path = "ureq::patch", reason = "ureq's default agent, without the direct-dial middleware; use sutura_http_client::agent" },
-  { path = "ureq::trace", reason = "ureq's default agent, without the direct-dial middleware; use sutura_http_client::agent" },
+  { path = "ureq::Agent::new_with_config", reason = "an agent without the routing middleware; use sutura_http_client::agent" },
+  { path = "ureq::Agent::new_with_defaults", reason = "an agent without the routing middleware; use sutura_http_client::agent" },
+  { path = "ureq::Agent::with_parts", reason = "an agent without the routing middleware; use sutura_http_client::agent" },
+  { path = "ureq::Agent::config_builder", reason = "its Config converts into an agent without the routing middleware; sutura_http_client::agent hands its caller the builder" },
+  { path = "ureq::config::Config::builder", reason = "its Config converts into an agent without the routing middleware; sutura_http_client::agent hands its caller the builder" },
+  { path = "ureq::config::Config::new_agent", reason = "an agent without the routing middleware; use sutura_http_client::agent" },
+  { path = "ureq::RequestExt::with_default_agent", reason = "ureq's default agent, without the routing middleware; use sutura_http_client::agent" },
+  { path = "ureq::agent", reason = "ureq's default agent, without the routing middleware; use sutura_http_client::agent" },
+  { path = "ureq::run", reason = "ureq's default agent, without the routing middleware; use sutura_http_client::agent" },
+  { path = "ureq::get", reason = "ureq's default agent, without the routing middleware; use sutura_http_client::agent" },
+  { path = "ureq::post", reason = "ureq's default agent, without the routing middleware; use sutura_http_client::agent" },
+  { path = "ureq::put", reason = "ureq's default agent, without the routing middleware; use sutura_http_client::agent" },
+  { path = "ureq::delete", reason = "ureq's default agent, without the routing middleware; use sutura_http_client::agent" },
+  { path = "ureq::head", reason = "ureq's default agent, without the routing middleware; use sutura_http_client::agent" },
+  { path = "ureq::options", reason = "ureq's default agent, without the routing middleware; use sutura_http_client::agent" },
+  { path = "ureq::connect", reason = "ureq's default agent, without the routing middleware; use sutura_http_client::agent" },
+  { path = "ureq::patch", reason = "ureq's default agent, without the routing middleware; use sutura_http_client::agent" },
+  { path = "ureq::trace", reason = "ureq's default agent, without the routing middleware; use sutura_http_client::agent" },
 ]
 
 disallowed-types = [
   { path = "std::sync::Mutex", reason = "async code may deadlock the executor; use tokio::sync or parking_lot" },
   { path = "std::sync::RwLock", reason = "async code may deadlock the executor; use tokio::sync or parking_lot" },
+  # The other half of the `ureq::Agent` constructor rows above: a `Config` converts into an agent
+  # through `From`, which no `disallowed-methods` path reaches. VERIFIED TO RESOLVE: written as
+  # `Agent::from(Config::default())`, `Config::default().into()`, the qualified `From` call and a
+  # `fn(Config) -> Agent` value in a probe target, `just lint` rejected each by file and line.
+  { path = "ureq::config::Config", reason = "it converts into an agent without the routing middleware; use sutura_http_client::agent" },
 ]
 
 # Nothing here is published to a registry, so there is no exported API to break. Clippy

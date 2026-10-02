@@ -35,26 +35,27 @@ pub type AgentConfig = ureq::config::ConfigBuilder<ureq::typestate::AgentScope>;
 /// constructor, so an agent without the two pins below does not pass `just lint`.
 ///
 /// `configure` starts from `ureq`'s defaults, which take a proxy from `ALL_PROXY`, `HTTPS_PROXY` or
-/// `HTTP_PROXY` (either case) unless `NO_PROXY` names the host. The pins are applied after it, so
-/// no caller can undo them:
+/// `HTTP_PROXY` (either case) unless `NO_PROXY` names the host. Both pins are set on every request,
+/// after the agent's and the request's own configuration, so no caller can undo them:
 ///
-/// - **Only `https://` to a host that is not an IP loopback literal may use a proxy.** Every other
-///   request is dialled directly, whatever proxy the agent or the request itself carries.
+/// - **Only `https://` to a host that is not loopback may use a proxy.** Every other request is
+///   dialled directly, whatever proxy the agent or the request itself carries. Loopback is
+///   `localhost` or a name under it, and any loopback or unspecified address once read the way the
+///   resolver reads it (`127.1`, `0x7f000001`, `[::ffff:127.0.0.1]`).
 /// - **No redirects.** `ureq` follows one inside the request, after that decision was made for the
 ///   original target.
 ///
-/// The decision is a `ureq` middleware, read from the AGENT's configuration on every request, so a
+/// The pins are a `ureq` middleware, read from the AGENT's configuration on every request, so a
 /// request-level configuration cannot remove it.
 #[must_use]
 #[expect(
     clippy::disallowed_methods,
-    reason = "the one sanctioned agent constructor: every other site is banned so that each agent carries the direct-dial middleware"
+    reason = "the one sanctioned agent constructor: every other site is banned so that each agent carries the routing middleware"
 )]
 pub fn agent(configure: impl FnOnce(AgentConfig) -> AgentConfig) -> ureq::Agent {
     ureq::Agent::new_with_config(
         configure(ureq::Agent::config_builder())
-            .max_redirects(0)
-            .middleware(dial_directly_unless_tls_to_a_remote_host)
+            .middleware(pin_routing_and_redirects)
             .build(),
     )
 }
@@ -62,7 +63,7 @@ pub fn agent(configure: impl FnOnce(AgentConfig) -> AgentConfig) -> ureq::Agent 
 /// How a request may leave this process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Route {
-    /// `https://` to a host that is not an IP loopback literal: the agent's proxy, if any.
+    /// `https://` to a host that is not loopback: the agent's proxy, if any.
     MayProxy,
     /// Anything else: straight to the target.
     Direct,
@@ -70,8 +71,7 @@ enum Route {
 
 impl Route {
     fn of(uri: &ureq::http::Uri) -> Self {
-        let host = uri.host().unwrap_or_default().trim_start_matches('[').trim_end_matches(']');
-        if uri.scheme() == Some(&ureq::http::uri::Scheme::HTTPS) && !sutura_domain::source::host_is_loopback(host) {
+        if uri.scheme() == Some(&ureq::http::uri::Scheme::HTTPS) && !loopback(uri.host().unwrap_or_default()) {
             Self::MayProxy
         } else {
             Self::Direct
@@ -79,24 +79,71 @@ impl Route {
     }
 }
 
-/// A [`Route::Direct`] request whose proxy could not be cleared, so it was not sent.
-#[derive(Debug, thiserror::Error)]
-#[error("a plaintext or loopback request could not be taken off the proxy, so it was not sent")]
-struct NotTakenOffTheProxy;
+/// Whether `host` names this host's own loopback; the unspecified address dials it too. Wider than
+/// `sutura_domain::source::host_is_loopback`, which decides what may be PLAINTEXT and so stays
+/// narrow; here a wider answer only ever routes more requests directly.
+fn loopback(host: &str) -> bool {
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    let name = host.strip_suffix('.').unwrap_or(host).to_ascii_lowercase();
+    let address = host
+        .parse::<std::net::IpAddr>()
+        .ok()
+        .map(|address| address.to_canonical())
+        .or_else(|| ipv4_numbers(&name).map(std::net::IpAddr::V4));
+    name == "localhost"
+        || name.ends_with(".localhost")
+        || address.is_some_and(|address| address.is_loopback() || address.is_unspecified())
+}
 
-fn dial_directly_unless_tls_to_a_remote_host(
+/// `host` read as the C resolver's `inet_aton` reads it: one to four dot-separated parts, each
+/// decimal, `0x` hex or `0`-led octal, the last filling every byte the others left.
+fn ipv4_numbers(host: &str) -> Option<std::net::Ipv4Addr> {
+    let parts: Vec<&str> = host.split('.').collect();
+    if parts.len() > 4 {
+        return None;
+    }
+    let mut numbers = Vec::with_capacity(parts.len());
+    for part in &parts {
+        let (digits, radix) = match (part.strip_prefix("0x"), part.strip_prefix('0')) {
+            (Some(hex), _) => (hex, 16),
+            (None, Some(octal)) if !octal.is_empty() => (octal, 8),
+            _ => (*part, 10),
+        };
+        numbers.push(u32::from_str_radix(digits, radix).ok()?);
+    }
+    let (last, leading) = numbers.split_last()?;
+    let mut address: u32 = 0;
+    for (index, &byte) in leading.iter().enumerate() {
+        address |= u8::try_from(byte).ok().map(u32::from)? << (24 - 8 * index);
+    }
+    let room = 32 - 8 * u32::try_from(leading.len()).ok()?;
+    if room < 32 && *last >> room != 0 {
+        return None;
+    }
+    Some(std::net::Ipv4Addr::from(address | last))
+}
+
+/// A request whose routing could not be pinned, so it was not sent.
+#[derive(Debug, thiserror::Error)]
+#[error("a request's routing could not be pinned, so it was not sent")]
+struct RoutingNotPinned;
+
+fn pin_routing_and_redirects(
     request: ureq::http::Request<ureq::SendBody>,
     next: ureq::middleware::MiddlewareNext,
 ) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
     use ureq::RequestExt as _;
-    if Route::of(request.uri()) == Route::MayProxy {
-        return next.handle(request);
-    }
-    // `None` only outside a middleware; refused rather than sent through the proxy.
-    let direct = request
+    let route = Route::of(request.uri());
+    // `None` only outside a middleware; refused rather than sent unpinned.
+    let config = request
         .middleware_config()
-        .ok_or_else(|| ureq::Error::Other(Box::new(NotTakenOffTheProxy)))?;
-    next.handle(direct.proxy(None).build())
+        .ok_or_else(|| ureq::Error::Other(Box::new(RoutingNotPinned)))?
+        .max_redirects(0);
+    let config = match route {
+        Route::MayProxy => config,
+        Route::Direct => config.proxy(None),
+    };
+    next.handle(config.build())
 }
 
 /// A reader's rotating agent handle and (when a declaration exists) the poll handle that keeps it

@@ -63,15 +63,17 @@ threshold.
 constructor, so an agent without the two pins below does not pass `just lint`.
 
 `configure` starts from `ureq`'s defaults, which take a proxy from `ALL_PROXY`, `HTTPS_PROXY` or
-`HTTP_PROXY` (either case) unless `NO_PROXY` names the host. The pins are applied after it, so
-no caller can undo them:
+`HTTP_PROXY` (either case) unless `NO_PROXY` names the host. Both pins are set on every request,
+after the agent's and the request's own configuration, so no caller can undo them:
 
-- **Only `https://` to a host that is not an IP loopback literal may use a proxy.** Every other
-  request is dialled directly, whatever proxy the agent or the request itself carries.
+- **Only `https://` to a host that is not loopback may use a proxy.** Every other request is
+  dialled directly, whatever proxy the agent or the request itself carries. Loopback is
+  `localhost` or a name under it, and any loopback or unspecified address once read the way the
+  resolver reads it (`127.1`, `0x7f000001`, `[::ffff:127.0.0.1]`).
 - **No redirects.** `ureq` follows one inside the request, after that decision was made for the
   original target.
 
-The decision is a `ureq` middleware, read from the AGENT's configuration on every request, so a
+The pins are a `ureq` middleware, read from the AGENT's configuration on every request, so a
 request-level configuration cannot remove it.
 
 ## `use fixed`
