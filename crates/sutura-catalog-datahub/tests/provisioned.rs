@@ -138,8 +138,9 @@ mod tests {
             .map(ToString::to_string)
     }
 
-    /// A plain `ureq::Agent`, with no `https_only`: this is loopback plaintext by construction,
-    /// because the tier publishes an ephemeral HTTP port.
+    /// The shared agent, with no `https_only`: this is loopback plaintext by construction, because
+    /// the tier publishes an ephemeral HTTP port. `sutura_http_client::agent` pins no redirects - a
+    /// redirect is how a probe silently starts measuring a different server.
     ///
     /// `status_as_error` is the one knob, and it is a knob because the two cells need opposite
     /// halves of `ureq` 3's default. The reachability probe wants a non-2xx to arrive as an `Err`
@@ -147,15 +148,11 @@ mod tests {
     /// because the whole point of those assertions is the reason `DataHub` states in it, and an
     /// `Err` carries the status without it.
     fn agent(status_as_error: bool) -> ureq::Agent {
-        ureq::Agent::new_with_config(
-            ureq::Agent::config_builder()
+        sutura_http_client::agent(|config| {
+            config
                 .timeout_global(Some(ANSWER_TIMEOUT))
-                // A metadata platform on loopback has no reason to send this test anywhere else,
-                // and a redirect is how a probe silently starts measuring a different server.
-                .max_redirects(0)
                 .http_status_as_error(status_as_error)
-                .build(),
-        )
+        })
     }
 
     /// The self-minted PAT the `just datahub-acceptance` task exported, or a panic naming the

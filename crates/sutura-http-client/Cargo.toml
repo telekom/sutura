@@ -36,5 +36,9 @@ serde_json = { workspace = true }
 rcgen = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
 
+[dev-dependencies]
+# `env_proxy`, the harness `tests/direct_dial.rs` re-runs a cell under an environment proxy with.
+sutura-dev = { workspace = true }
+
 [lints]
 workspace = true

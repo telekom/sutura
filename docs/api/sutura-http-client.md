@@ -47,11 +47,32 @@ at construction over an already-loaded anchor bundle, or rebuilt on every
 instead, the same reasoning `sutura-catalog-datahub`'s own `tls_roots.rs` module header gave
 before this crate existed.
 
+## `use AgentConfig`
+
+`ureq`'s own agent builder, as `agent`'s `configure` receives it.
+
 ## `use OutboundAgent`
 
 A reader's rotating agent handle and (when a declaration exists) the poll handle that keeps it
 current - named because the spelled-out pair is over this workspace's `type_complexity`
 threshold.
+
+## `use agent`
+
+**The one way this workspace builds a `ureq::Agent`** - `clippy.toml` bans every other
+constructor, so an agent without the two pins below does not pass `just lint`.
+
+`configure` starts from `ureq`'s defaults, which take a proxy from `ALL_PROXY`, `HTTPS_PROXY` or
+`HTTP_PROXY` (either case) unless `NO_PROXY` names the host. The pins are applied after it, so
+no caller can undo them:
+
+- **Only `https://` to a host that is not an IP loopback literal may use a proxy.** Every other
+  request is dialled directly, whatever proxy the agent or the request itself carries.
+- **No redirects.** `ureq` follows one inside the request, after that decision was made for the
+  original target.
+
+The decision is a `ureq` middleware, read from the AGENT's configuration on every request, so a
+request-level configuration cannot remove it.
 
 ## `use fixed`
 

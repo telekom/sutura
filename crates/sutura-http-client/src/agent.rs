@@ -1,5 +1,6 @@
-//! The two ways a reader gets an outbound `ureq::Agent`: fixed over an already-loaded bundle, or
-//! rebuilt on every `sutura_tls::POLL_INTERVAL` poll from a `security.outbound` declaration.
+//! [`agent`], the one constructor of an outbound `ureq::Agent` in this workspace, and the two ways a
+//! reader gets one: fixed over an already-loaded bundle, or rebuilt on every
+//! `sutura_tls::POLL_INTERVAL` poll from a `security.outbound` declaration.
 
 use std::time::Duration;
 
@@ -18,16 +19,84 @@ const MAX_HEADER_BYTES: usize = 64 * 1024;
 /// non-loopback plaintext host) rather than a compile-time `https://` constant, so the scheme pin
 /// lives in the parse, not in the agent.
 fn agent_from_tls(socket: Duration, tls: ureq::tls::TlsConfig) -> ureq::Agent {
-    ureq::Agent::new_with_config(
-        ureq::Agent::config_builder()
+    agent(|config| {
+        config
             .http_status_as_error(false)
-            .max_redirects(0)
             .timeout_global(Some(socket))
             .max_response_header_size(MAX_HEADER_BYTES)
-            .proxy(ureq::Proxy::try_from_env())
             .tls_config(tls)
+    })
+}
+
+/// `ureq`'s own agent builder, as [`agent`]'s `configure` receives it.
+pub type AgentConfig = ureq::config::ConfigBuilder<ureq::typestate::AgentScope>;
+
+/// **The one way this workspace builds a `ureq::Agent`** - `clippy.toml` bans every other
+/// constructor, so an agent without the two pins below does not pass `just lint`.
+///
+/// `configure` starts from `ureq`'s defaults, which take a proxy from `ALL_PROXY`, `HTTPS_PROXY` or
+/// `HTTP_PROXY` (either case) unless `NO_PROXY` names the host. The pins are applied after it, so
+/// no caller can undo them:
+///
+/// - **Only `https://` to a host that is not an IP loopback literal may use a proxy.** Every other
+///   request is dialled directly, whatever proxy the agent or the request itself carries.
+/// - **No redirects.** `ureq` follows one inside the request, after that decision was made for the
+///   original target.
+///
+/// The decision is a `ureq` middleware, read from the AGENT's configuration on every request, so a
+/// request-level configuration cannot remove it.
+#[must_use]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the one sanctioned agent constructor: every other site is banned so that each agent carries the direct-dial middleware"
+)]
+pub fn agent(configure: impl FnOnce(AgentConfig) -> AgentConfig) -> ureq::Agent {
+    ureq::Agent::new_with_config(
+        configure(ureq::Agent::config_builder())
+            .max_redirects(0)
+            .middleware(dial_directly_unless_tls_to_a_remote_host)
             .build(),
     )
+}
+
+/// How a request may leave this process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Route {
+    /// `https://` to a host that is not an IP loopback literal: the agent's proxy, if any.
+    MayProxy,
+    /// Anything else: straight to the target.
+    Direct,
+}
+
+impl Route {
+    fn of(uri: &ureq::http::Uri) -> Self {
+        let host = uri.host().unwrap_or_default().trim_start_matches('[').trim_end_matches(']');
+        if uri.scheme() == Some(&ureq::http::uri::Scheme::HTTPS) && !sutura_domain::source::host_is_loopback(host) {
+            Self::MayProxy
+        } else {
+            Self::Direct
+        }
+    }
+}
+
+/// A [`Route::Direct`] request whose proxy could not be cleared, so it was not sent.
+#[derive(Debug, thiserror::Error)]
+#[error("a plaintext or loopback request could not be taken off the proxy, so it was not sent")]
+struct NotTakenOffTheProxy;
+
+fn dial_directly_unless_tls_to_a_remote_host(
+    request: ureq::http::Request<ureq::SendBody>,
+    next: ureq::middleware::MiddlewareNext,
+) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
+    use ureq::RequestExt as _;
+    if Route::of(request.uri()) == Route::MayProxy {
+        return next.handle(request);
+    }
+    // `None` only outside a middleware; refused rather than sent through the proxy.
+    let direct = request
+        .middleware_config()
+        .ok_or_else(|| ureq::Error::Other(Box::new(NotTakenOffTheProxy)))?;
+    next.handle(direct.proxy(None).build())
 }
 
 /// A reader's rotating agent handle and (when a declaration exists) the poll handle that keeps it

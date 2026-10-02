@@ -52,7 +52,7 @@ pub mod test_support;
 #[cfg(feature = "tls-test")]
 pub mod tls_test_support;
 
-pub use agent::{OutboundAgent, fixed, rotating_agent};
+pub use agent::{AgentConfig, OutboundAgent, agent, fixed, rotating_agent};
 pub use bounds::{DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, InvalidReadBounds, ReadBounds};
 pub use budget::Budget;
 pub use endpoint::{Endpoint, InvalidEndpoint};
