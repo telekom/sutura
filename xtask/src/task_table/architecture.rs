@@ -371,15 +371,45 @@ pub(crate) const TASKS: &[Task] = &[
         //
         // The falsifier seeds a `std::fs::read_to_string(&path)` into the local catalog's
         // library root - the exact mutation the comment described - so the refusal comes from this
-        // gate's own rule rather than from an empty-scan floor.
+        // gate's own rule rather than from an empty-scan floor. Also seeded are a workspace
+        // definition and a clean lib.rs, so cargo metadata finds members and the scan runs on
+        // a tree the gate can actually judge.
         name: "check-catalog-opened-once",
         description: "no path-based std::fs read in the catalog crates outside the registered walk",
         kind: Kind::Hygiene(Reads::Code),
         falsifier: Falsifier {
-            seeds: &[(
-                "crates/sutura-catalog-local/src/leaky_read.rs",
-                "fn f(path: &std::path::Path) {\n    let _ = std::fs::read_to_string(&path);\n}\n",
-            )],
+            seeds: &[
+                (
+                    "Cargo.toml",
+                    "[workspace]\nmembers = [\"crates/sutura-bounded-read\", \"crates/sutura-catalog-local\", \"crates/sutura-catalog-wren\"]\n",
+                ),
+                (
+                    "crates/sutura-bounded-read/Cargo.toml",
+                    "[package]\nname = \"sutura-bounded-read\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+                ),
+                ("crates/sutura-bounded-read/src/lib.rs", "pub fn lib() {}\n"),
+                (
+                    "crates/sutura-bounded-read/src/walk.rs",
+                    "pub fn walk() {\n    let _ = std::fs::read_dir(&dir);\n}\n",
+                ),
+                (
+                    "crates/sutura-catalog-local/Cargo.toml",
+                    "[package]\nname = \"sutura-catalog-local\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+                ),
+                ("crates/sutura-catalog-local/src/lib.rs", "pub fn f() {}\n"),
+                (
+                    "crates/sutura-catalog-local/src/leaky_read.rs",
+                    "fn f(path: &std::path::Path) {\n    let _ = std::fs::read_to_string(&path);\n}\n",
+                ),
+                (
+                    "crates/sutura-catalog-wren/Cargo.toml",
+                    "[package]\nname = \"sutura-catalog-wren\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+                ),
+                (
+                    "crates/sutura-catalog-wren/src/lib.rs",
+                    "pub fn import() {\n    let _ = std::fs::read_to_string(&path);\n    let _ = std::fs::read_dir(&dir);\n}\n",
+                ),
+            ],
             in_scope: Some("crates/sutura-catalog-local/src/leaky_read.rs"),
         },
         run: catalog_opened_once::run,
