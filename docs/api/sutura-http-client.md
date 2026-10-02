@@ -214,7 +214,8 @@ second worth of page-building. Named `status_code` rather than `status` because
 pub struct CapturedRequest
 ```
 
-One request this fake server answered: its request line, and its `authorization` header.
+One request this fake server answered: its request line, its `authorization` header, and its
+body.
 
 The request LINE (`METHOD /path?query HTTP/1.1`) is the one thing that proves what a reader
 actually dialled - `?fields=`, `?limit=`, the exact path - and not only that it dialled
@@ -236,6 +237,12 @@ pub fn authorization(&self) -> Option<&str>
 The `authorization` header's value, if the request carried one.
 
 ```rust
+pub fn body(&self) -> &str
+```
+
+The request body, read to its `Content-Length`; empty when none was sent.
+
+```rust
 pub fn request_line(&self) -> &str
 ```
 
@@ -255,8 +262,8 @@ pub struct FakeServer
 A real local HTTP/1.1 server answering one `Scripted` response per connection, in order, then
 closing.
 
-Captures each request's line and `authorization` header so a test can assert both the exact
-URL dialled and that the bearer was sent.
+Captures each request's line, `authorization` header, and body so a test can assert both the
+exact URL dialled and that the bearer and payload were sent.
 
 #### Methods
 

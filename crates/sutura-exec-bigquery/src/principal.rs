@@ -61,6 +61,8 @@ use sutura_domain::identity::{
 use sutura_domain::model::SourceName;
 use sutura_domain::source::SharedIdentityDeclared;
 
+use crate::delegation::{Delegation, DelegationFailed};
+
 /// Why a declared impersonation map is not one a source can be served under.
 ///
 /// Two variants, and the second one is the reason the enum was one from the start: an empty
@@ -204,13 +206,29 @@ pub enum DeclaredPrincipalsUnusable {
         #[source]
         cause: CredentialsDoNotCoverThePlan,
     },
+    /// The delegation exchange a `direct` source needs produced no usable token - the identity provider is a hard
+    /// runtime dependency, so this is `503 identity_unavailable` and never an answer as anybody.
+    #[error("the delegation exchange for `{source}` failed")]
+    Delegation {
+        /// The source whose exchange failed.
+        source: SourceName,
+        #[source]
+        cause: DelegationFailed,
+    },
 }
 
-/// Presents the asking subject's own verified assertion at a source that declares it, beside the
-/// account declared for that subject - and the operator's witness for a shared one.
+/// One impersonating source's declared subjects, and the exchange its callers' tokens go through
+/// in `direct` mode - `None` presents the inbound assertion itself.
+type Impersonating = (DeclaredPrincipals, Option<Delegation>);
+
+/// Presents the asking subject's own credential at a source that declares it, beside the account
+/// declared for that subject - and the operator's witness for a shared one.
 ///
-/// **The assertion AND the account, because either alone loses the property.** The assertion is
-/// what the caller possesses and what the pool verifies; the account is what a deployment declared
+/// **The credential is the verified assertion itself**, or, for a source declared through
+/// [`Self::impersonating_delegated`], the token its [`Delegation`] returned for that assertion.
+///
+/// **The assertion AND the account, because either alone loses the property.** The assertion (or
+/// its exchanged token) is what the caller possesses and what the pool verifies; the account is what a deployment declared
 /// this caller's questions should run as, and a broker that presented only the assertion ran every
 /// declared caller as one pool principal whatever the map said.
 ///
@@ -219,7 +237,7 @@ pub enum DeclaredPrincipalsUnusable {
 #[derive(Debug, Clone, Default)]
 pub struct DeclaredPrincipalBroker {
     shared: BTreeMap<SourceName, SharedIdentityDeclared>,
-    impersonating: BTreeMap<SourceName, DeclaredPrincipals>,
+    impersonating: BTreeMap<SourceName, Impersonating>,
 }
 
 impl DeclaredPrincipalBroker {
@@ -242,7 +260,15 @@ impl DeclaredPrincipalBroker {
     /// Declares one impersonating source and the subjects it may be asked as.
     #[must_use]
     pub fn impersonating(mut self, at: SourceName, declared: DeclaredPrincipals) -> Self {
-        drop(self.impersonating.insert(at, declared));
+        drop(self.impersonating.insert(at, (declared, None)));
+        self
+    }
+
+    /// Declares one impersonating source whose callers arrive in `direct` mode: their inbound token
+    /// serves leg 1 only, and what this source presents is the token `delegation` exchanges it for.
+    #[must_use]
+    pub fn impersonating_delegated(mut self, at: SourceName, declared: DeclaredPrincipals, delegation: Delegation) -> Self {
+        drop(self.impersonating.insert(at, (declared, Some(delegation))));
         self
     }
 
@@ -278,7 +304,8 @@ impl CredentialBroker for DeclaredPrincipalBroker {
         // assertion has nothing for Google's token service to verify, and answering as the process
         // is the fallback this whole path exists to remove.
         let assertion = context.assertion();
-        // **The assertion's OWN expiry, and a broker that federates has no other.** An earlier round
+        // **The assertion's OWN expiry** - and for a delegated source the exchanged token's too,
+        // folded below by `Expiry::earlier_of`. An earlier round
         // minted `NothingExpires` here, which was honest while this broker presented a principal's
         // name - a name does not age - and became a check that always answers yes the moment it
         // started presenting credential material. `BoundToTheRequest::still_usable_at` reads this.
@@ -288,6 +315,7 @@ impl CredentialBroker for DeclaredPrincipalBroker {
         // broker did not mint and does not age with the caller, so giving a shared-only plan the
         // caller's expiry would refuse answers for a lifetime that does not apply to them.
         let mut deadlines = Vec::new();
+        let mut exchanges = Vec::new();
         for source in sources.iter() {
             if let Some(declared) = self.shared.get(source) {
                 drop(presented.insert(
@@ -301,7 +329,7 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             }
             // Unreachable: the pass above established that every source has one of the two halves.
             // Answered rather than unwrapped, because `unwrap_used` is denied.
-            let Some(principals) = self.impersonating.get(source) else {
+            let Some((principals, delegation)) = self.impersonating.get(source) else {
                 return Ok(Minted::Refused { source: source.clone() });
             };
             // **The authorization decision, and both ways out of it are refusals.** A caller with no
@@ -329,9 +357,9 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             let Some(target) = key.and_then(|key| principals.target(key)) else {
                 return Ok(Minted::Refused { source: source.clone() });
             };
-            // **The asking subject's OWN assertion, plus the account declared beside that
-            // subject.** The transport puts the assertion behind a workload-identity credential
-            // document, so Google's token service verifies it and resolves the subject to the
+            // **The asking subject's OWN assertion (or, for a delegated source, the token exchanged
+            // for it below), plus the account declared beside that subject.** The transport puts it
+            // behind a workload-identity credential document, so Google's token service verifies it and resolves the subject to the
             // pool's principal - and that principal then impersonates `target`, which is what makes
             // the map's VALUES decide something. Both halves travel because a transport with only
             // the assertion runs every declared caller as one pool principal, and one with only the
@@ -345,17 +373,39 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             let Some(expires) = assertion_expires else {
                 return Ok(Minted::Refused { source: source.clone() });
             };
+            exchanges.push((source, target, delegation.as_ref(), assertion, expires));
+        }
+        // **Every refusal above is decided before any exchange below**, so a plan refused at its
+        // second source sends nothing to the IdP for its first. And no store: each exchange's token
+        // lives in this request's credentials alone, so two subjects cannot share one.
+        for (source, target, delegation, assertion, expires) in exchanges {
+            let (material, expires) = match delegation {
+                None => (assertion.clone(), expires),
+                Some(delegation) => {
+                    let delegated = delegation
+                        .exchange(assertion)
+                        .map_err(|cause| DeclaredPrincipalsUnusable::Delegation {
+                            source: source.clone(),
+                            cause,
+                        })?;
+                    let until = Expiry::At {
+                        unix_seconds: delegated.not_after_unix_seconds(),
+                    };
+                    (delegated.into_token(), expires.earlier_of(until))
+                }
+            };
             drop(presented.insert(
                 source.clone(),
                 Presented::SubjectToken {
-                    material: assertion.clone(),
+                    material,
                     impersonate: Some(target.clone()),
                 },
             ));
             deadlines.push(expires);
         }
         // **The earliest of what was presented, which is what `Expiry::earliest` exists for.** A
-        // federated leg is valid for exactly as long as the caller's own assertion is; a shared leg
+        // federated leg is valid for as long as the caller's own assertion is, or the earlier of that
+        // and its exchanged token for a delegated source; a shared leg
         // carries no lifetime this broker knows, so it contributes the fold's identity rather than
         // a guess. A plan reading one of each is bounded by the assertion, which is the
         // conservative direction and the correct one - the federated leg is the one that stops

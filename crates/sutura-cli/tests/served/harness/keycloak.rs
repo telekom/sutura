@@ -61,6 +61,8 @@ struct Realm {
     /// when a password grant requests `scope=openid`. Read from the realm file rather than restated,
     /// so the value the tier provisions and the value a cell asserts against are one document.
     id_token_audience: String,
+    /// The exchanging client `nix/keycloak-tier.nix` provisions for #1208: its id and secret.
+    delegation: (String, String),
 }
 
 /// Reads `.sutura-dev/keycloak-realm.json` at the worktree root - the file `stop` removes and every
@@ -98,6 +100,15 @@ fn read_realm(root: &Path) -> Realm {
         .get("id_token_audience")
         .and_then(serde_json::Value::as_str)
         .unwrap_or_else(|| panic!("{} carries no `id_token_audience`", path.display()));
+    let delegation_client = |field: &str| {
+        value
+            .pointer(&format!("/delegation/client/{field}"))
+            .and_then(serde_json::Value::as_str)
+            .map_or_else(
+                || panic!("{} carries no `delegation.client.{field}`", path.display()),
+                String::from,
+            )
+    };
     let subjects = value
         .get("subjects")
         .and_then(serde_json::Value::as_array)
@@ -125,6 +136,7 @@ fn read_realm(root: &Path) -> Realm {
         subjects: subjects.iter().map(read_subject).collect(),
         tls_certificate_file: PathBuf::from(tls_certificate_file),
         id_token_audience: String::from(id_token_audience),
+        delegation: (delegation_client("id"), delegation_client("secret")),
     }
 }
 
@@ -322,6 +334,8 @@ pub(crate) struct KeycloakFixture {
     /// The third-party audience the tier declares, READ off the realm file rather than restated as
     /// a literal - one document the tier provisions and a cell asserts against, never two.
     pub(crate) id_token_audience: String,
+    /// #1208's real exchange at this realm, as this deployment's exchanging client.
+    pub(crate) delegation: sutura_exec_bigquery::delegation::http::OverHttp,
 }
 
 impl KeycloakFixture {
@@ -407,6 +421,19 @@ pub(crate) fn settings(case: &str) -> KeycloakFixture {
         password_1,
     );
     let id_token_audience = realm.id_token_audience;
+    let delegation = {
+        use sutura_exec_bigquery::delegation::http::{ExchangeClient, OverHttp, TokenEndpoint};
+        let bounds = sutura_http_client::ReadBounds::parse(30, MAX_ANSWER_BYTES).expect("nonzero bounds");
+        let anchors = sutura_tls::load_anchors(&sutura_tls::Anchors::Bundle(realm.tls_certificate_file.clone()))
+            .expect("the tier's own CA loads");
+        let (id, secret) = realm.delegation;
+        OverHttp::new(
+            TokenEndpoint::parse(&token_url).expect("the tier's token endpoint parses"),
+            ExchangeClient::new(&id, sutura_domain::identity::Secret::new(secret)).expect("the tier's client id parses"),
+            sutura_http_client::fixed(bounds, Some(anchors)),
+            bounds,
+        )
+    };
 
     let key_set_file = scratch.join("keycloak-jwks.json");
     std::fs::write(&key_set_file, fetch_key_set(&client, &jwks_url)).expect("the fetched key set is writable");
@@ -419,5 +446,6 @@ pub(crate) fn settings(case: &str) -> KeycloakFixture {
         subject_b_token: subject_token_2,
         id_token,
         id_token_audience,
+        delegation,
     }
 }

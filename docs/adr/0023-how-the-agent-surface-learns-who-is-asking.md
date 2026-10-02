@@ -556,3 +556,14 @@ keep out, and that stays a decision with its own record rather than a lock-level
 2026-09-06, ten of eleven packages resolving and `sse-stream` not - is untouched, as is the
 open dependency question about adding it. What changes is only which venue holds the no-client
 property: a gate, rather than a reader of this paragraph.
+
+## Fourth amendment, 2026-10-02: the tree exchanges a token again, and no served build does
+
+**Status of the amendment: accepted.** The sentence *"Nothing in this tree exchanges a token at all
+now"* stopped being true of the tree with `telekom/sutura#1208`:
+`sutura_exec_bigquery::delegation::DelegationExchange`, and its HTTP implementor behind the
+default-off `wire` feature, perform an RFC 8693 delegation exchange at the caller's identity
+provider for a source declared with `impersonating_delegated`
+([0014](0014-how-a-caller-proves-who-it-is.md)'s fourth amendment). It is still true of every
+served build: `sutura serve` composes no delegation, so the chain this section measures still has
+no first hop in a deployment, and its conclusion is unchanged.

@@ -152,3 +152,44 @@ fn a_real_idp_mints_an_id_token_whose_aud_is_a_third_partys() {
         fixture.id_token_audience,
     );
 }
+
+// #1208: the real delegation exchange at a real IdP. Each subject's own inbound token is exchanged
+// for one whose `aud` is the pool provider's client ID (checked inside the exchange), carrying THAT
+// subject's `sub` - and an audience this realm has no client for is refused by the IdP, not widened.
+//
+// What it does NOT prove: that a workload pool accepts the exchanged token (no pool is reachable
+// from this tier), or anything about Entra, whose `sub` is pairwise per application.
+#[test]
+#[ignore = "needs the keycloak tier; run via `just keycloak-served-test`, which brings it up first"]
+fn a_real_idp_exchanges_each_subjects_own_token_for_the_pool_audience() {
+    use sutura_domain::identity::Secret;
+    use sutura_exec_bigquery::delegation::{DelegationExchange as _, DelegationFailed, RequestedAudience};
+
+    let fixture = keycloak_settings("keycloak-delegation");
+    let pool = RequestedAudience::parse(&fixture.id_token_audience).expect("the tier's pool audience parses");
+    let exchanged = |inbound: &str| {
+        let delegated = fixture
+            .delegation
+            .exchange(&Secret::new(inbound), &pool)
+            .unwrap_or_else(|failed| panic!("the tier refused a provisioned exchange: {failed}"));
+        #[expect(clippy::disallowed_methods, reason = "the cell reads the exchanged token's own `sub` claim")]
+        let token = String::from(delegated.into_token().expose_secret());
+        token
+    };
+    let a = exchanged(&fixture.subject_a_token);
+    let b = exchanged(&fixture.subject_b_token);
+    assert_eq!(keycloak_audience_of(&a), fixture.id_token_audience);
+    assert_eq!(keycloak_subject_of(&a), keycloak_subject_of(&fixture.subject_a_token));
+    assert_eq!(keycloak_subject_of(&b), keycloak_subject_of(&fixture.subject_b_token));
+    assert_ne!(a, b, "two subjects' exchanges returned one token");
+
+    let nobody = RequestedAudience::parse("https://not-a-client.example.com").expect("parses");
+    let refused = fixture
+        .delegation
+        .exchange(&Secret::new(fixture.subject_a_token.as_str()), &nobody)
+        .expect_err("an audience the realm has no client for is refused");
+    assert!(
+        matches!(refused, DelegationFailed::Refused { status: 400, error: Some(ref code) } if code == "invalid_client"),
+        "{refused:?}"
+    );
+}
