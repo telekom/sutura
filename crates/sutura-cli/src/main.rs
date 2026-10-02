@@ -460,8 +460,8 @@ fn postgres_driver_line() -> String {
     };
     match linked.probe() {
         Ok(()) => format!(
-            "loaded and initialised, {linked} - its libpq has no Kerberos/GSSAPI or OAuth sign-in \
-             (a mounted driver's has both); no source is answered over ADBC yet"
+            "loaded and initialised, {linked} - its libpq signs in with Kerberos and has no OAuth flow; \
+             no source is answered over ADBC yet"
         ),
         Err(cause) => format!("NOT usable: {linked}: {cause}"),
     }

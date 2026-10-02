@@ -200,18 +200,21 @@ path in `lib.rs` still answers every Postgres source, and no settings key select
 - **`NUMERIC` is read as `tokio-postgres` reads it** (`numeric`), except a domain over it, which
   stays text here. Parity is held per case by `parity` against the tier, for the types its cases
   name and no others.
-- **No run against a real driver.** Every cell here is a fake connection. The server refusing a
-  multi-statement string at `Parse`, the driver carrying `57014` in `sqlstate`, its `NUMERIC`
-  mapping, its bind types and its `BEGIN` on autocommit-off are read off the driver's source,
-  not observed.
+- **One run against a real driver**: `tests/kerberos.rs`'s Kerberos sign-in and one raw
+  statement, through the linked `x86_64` musl driver, in its CI venue alone. Every cell here is a
+  fake connection. The server refusing a multi-statement string at `Parse`, the driver carrying
+  `57014` in `sqlstate`, its `NUMERIC` mapping, its bind types and its `BEGIN` on autocommit-off
+  are read off the driver's source, not observed.
 - **Loading and connecting are outside the deadline**: the driver is loaded and a connection
   opened per call, and only the statement runs under `SET LOCAL`.
 - **Every port method, read off the driver's source.** `session`'s header says what each sends;
   `numeric` closes the `NUMERIC` drift for a column the driver tags `numeric`. No cell has run
-  them against a server.
-- **The linked driver signs in less.** Its libpq is built without Kerberos/GSSAPI and without
-  OAuth; a mounted driver's keeps both, and `Conninfo` refuses GSSAPI,
-  SSPI and OAuth sign-in on either route, because a declaration can name none of them.
+  them against a server, but for that one raw statement.
+- **Kerberos, not OAuth.** Both routes' libpq sign in with GSSAPI - the linked one through a static
+  MIT krb5 (`nix/postgres-adbc.nix`) - when `Conninfo::kerberos`
+  declares it, as the one principal the process environment names. The linked libpq is built
+  without libcurl, and `Conninfo` refuses SSPI and OAuth sign-in on
+  either route, because a declaration can name neither.
 
 ### `enum AdbcError`
 
@@ -315,6 +318,26 @@ How the channel to the source is secured, as the composition root resolved the d
 
 The connection string for one source. Only `Conninfo::new` makes one, and its `Debug` is the
 `Secret`'s, so the password it carries is never printed.
+
+### `use Delegation`
+
+Whether the server is handed this process's Kerberos credential - libpq's `gssdelegation`.
+
+### `use GssEncryption`
+
+Whether GSSAPI encrypts the channel - libpq's `gssencmode`.
+
+### `use InvalidKerberosService`
+
+A declared Kerberos service name that is not one.
+
+### `use Kerberos`
+
+A Kerberos sign-in through GSSAPI, as the declaration names it.
+
+### `use KerberosService`
+
+The service half of the server's principal, `<service>/<host>` - libpq's `krbsrvname`.
 
 ### `use UnusableChannel`
 

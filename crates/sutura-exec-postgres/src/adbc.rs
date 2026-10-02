@@ -38,18 +38,21 @@
 //! - **`NUMERIC` is read as `tokio-postgres` reads it** (`numeric`), except a domain over it, which
 //!   stays text here. Parity is held per case by `parity` against the tier, for the types its cases
 //!   name and no others.
-//! - **No run against a real driver.** Every cell here is a fake connection. The server refusing a
-//!   multi-statement string at `Parse`, the driver carrying `57014` in `sqlstate`, its `NUMERIC`
-//!   mapping, its bind types and its `BEGIN` on autocommit-off are read off the driver's source,
-//!   not observed.
+//! - **One run against a real driver**: `tests/kerberos.rs`'s Kerberos sign-in and one raw
+//!   statement, through the linked `x86_64` musl driver, in its CI venue alone. Every cell here is a
+//!   fake connection. The server refusing a multi-statement string at `Parse`, the driver carrying
+//!   `57014` in `sqlstate`, its `NUMERIC` mapping, its bind types and its `BEGIN` on autocommit-off
+//!   are read off the driver's source, not observed.
 //! - **Loading and connecting are outside the deadline**: the driver is loaded and a connection
 //!   opened per call, and only the statement runs under `SET LOCAL`.
 //! - **Every port method, read off the driver's source.** `session`'s header says what each sends;
 //!   `numeric` closes the `NUMERIC` drift for a column the driver tags `numeric`. No cell has run
-//!   them against a server.
-//! - **The linked driver signs in less.** Its libpq is built without Kerberos/GSSAPI and without
-//!   OAuth; a mounted driver's keeps both, and [`Conninfo`](crate::adbc::Conninfo) refuses GSSAPI,
-//!   SSPI and OAuth sign-in on either route, because a declaration can name none of them.
+//!   them against a server, but for that one raw statement.
+//! - **Kerberos, not OAuth.** Both routes' libpq sign in with GSSAPI - the linked one through a static
+//!   MIT krb5 (`nix/postgres-adbc.nix`) - when [`Conninfo::kerberos`](crate::adbc::Conninfo::kerberos)
+//!   declares it, as the one principal the process environment names. The linked libpq is built
+//!   without libcurl, and [`Conninfo`](crate::adbc::Conninfo) refuses SSPI and OAuth sign-in on
+//!   either route, because a declaration can name neither.
 
 mod conninfo;
 mod numeric;
@@ -61,7 +64,9 @@ use adbc_core::error::Error as CoreError;
 use adbc_core::options::{AdbcVersion, OptionDatabase, OptionValue};
 use adbc_core::{Database as _, Driver as _};
 use adbc_driver_manager::{ManagedConnection, ManagedDriver};
-pub use conninfo::{Channel, Conninfo, UnusableChannel};
+pub use conninfo::{
+    Channel, Conninfo, Delegation, GssEncryption, InvalidKerberosService, Kerberos, KerberosService, UnusableChannel,
+};
 pub use sutura_adbc::UnusableDriverPath;
 use sutura_adbc::{DriverLocation, parameter_batch};
 use sutura_domain::identity::Presented;

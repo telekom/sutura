@@ -75,12 +75,15 @@ composition root with the reason that no build delivers it.
 
 **Postgres has a second transport, shipped and answering nothing.** Every release compiles the ADBC
 PostgreSQL transport beside `tokio-postgres`, and every musl release links its driver statically,
-with libpq and OpenSSL 3. No settings key selects it: `tokio-postgres` answers every `kind: postgres`
-source, and `sutura doctor`'s `pg driver` line only says whether the driver is linked and
-initialises. **That linked libpq is built without Kerberos/GSSAPI and without OAuth**, which a
-mounted driver's libpq keeps; the connection string the transport builds refuses GSSAPI, SSPI and
-OAuth sign-in on either route, because a declaration can name none of them. It also refuses `transport_anchors:
-system` and TLS over a unix socket, which libpq cannot hold to. No cell has run it against a server.
+with libpq, MIT krb5 and OpenSSL 3. No settings key selects it: `tokio-postgres` answers every
+`kind: postgres` source, and `sutura doctor`'s `pg driver` line only says whether the driver is
+linked and initialises. **Its libpq signs in with Kerberos and has no OAuth flow**: the transport
+can be built for a Kerberos sign-in, as the one principal the process environment's keytab or
+ticket cache holds, and its connection string refuses SSPI and OAuth sign-in on either route. It
+also refuses `transport_anchors: system`, TLS or Kerberos over a unix socket, Kerberos with no
+credential named, and GSSAPI encryption beside TLS, which libpq cannot hold to. One cell runs it
+against a server: a Kerberos sign-in through the linked x86_64 musl driver, against a KDC tier, in
+CI only.
 
 ## Identity: what "impersonation" does and does not mean here
 

@@ -1610,3 +1610,37 @@ is read from its source. OpenSSL still reads its compiled-in default configurati
 initialises the driver and opens nothing, so libpq itself runs only in `linkedDriversTests`. And
 `bigquery-driver-check` runs for the `data_source_bigquery` category, which a change confined to
 `sutura-exec-postgres` does not select.
+
+## Fifteenth amendment, 2026-10-02: Kerberos on the linked libpq, through a static MIT krb5
+
+**What moved.** The Thirteenth amendment built the linked libpq without GSSAPI, so the static musl
+triples could not sign in with Kerberos. The owner's 2026-10-02 ruling on `telekom/sutura#913` is
+that this is not an accepted limit, for musl too. `nix/postgres-adbc.nix` now builds MIT krb5
+`staticOnly` - no keyring ccache, no libedit - and the static libpq with `--with-gssapi` against
+it, static-only so no `libpq.so` links a static krb5. Five archives join the musl link set after
+`libpgport.a`, in `crates/sutura-adbc/build.rs`'s single-pass order: `libgssapi_krb5.a`,
+`libkrb5.a`, `libk5crypto.a`, `libcom_err.a`, `libkrb5support.a`. musl needs no `libresolv.a`.
+
+**No dlopen, measured.** A static x86_64-musl client in an image holding only `/etc/krb5.conf` and a
+keytab signed in through the linked driver, GSSAPI-encrypted, before this change was written. krb5's
+compiled-in plugin directory and fallback profile are store paths; `remove-references-to` blanks
+them in the installed archives, so the shipped closure does not gain krb5. None of krb5's optional
+plugin archives is linked: no MS-KKDCP over HTTPS, no PKINIT, SPAKE or OTP pre-authentication. A KDC
+is reached over port 88 with a keytab or a ticket cache.
+
+**What is declared, and refused.** `Conninfo::kerberos` builds `require_auth='gss'`, the declared
+`krbsrvname` and `gssdelegation`, and `gssencmode='require'` only where GSSAPI encryption is the
+declared channel. Refused when built, by name: Kerberos to a unix socket; Kerberos while neither
+`KRB5_CLIENT_KTNAME` nor `KRB5CCNAME` is set, because libpq would sign in as whichever principal last
+filled the default ticket cache; and GSSAPI encryption beside TLS, which libpq tries first and which
+verifies none of the declared anchors. `passfile` moves from read-only-in-a-refused-case to left to
+libpq: a Kerberos string writes no password, and `require_auth='gss'` sends nothing a password file
+holds - so `KEYWORDS` has no refused-case row left.
+
+**Limits.** One principal per process: libpq takes no keytab or cache per connection, so every
+Kerberos source signs in as the principal the environment names - acting as the caller is a later
+change (S4U2Proxy). No settings key declares a Kerberos source yet, as none selects the ADBC
+transport. The one cell against a server, `tests/kerberos.rs`, runs only in `nix/shipped.nix`'s
+x86_64-linux venue, as `bigquery-driver-check` realises it; aarch64-musl links the same set and
+nothing executes it there. OAuth stays unsupported: the static libpq is built without libcurl, and
+a token sutura holds is a further change through libpq's `PQsetAuthDataHook`.
