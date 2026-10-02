@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-http/src/inbound/token.rs b/crates/sutura-http/src/inbound/token.rs
+index 38deb96eb..52609a6dd 100644
+--- a/crates/sutura-http/src/inbound/token.rs
++++ b/crates/sutura-http/src/inbound/token.rs
+@@ -443,9 +443,7 @@
+             PresentedType::Named { ref typ } => Some(typ),
+             PresentedType::Absent | PresentedType::Unusable => None,
+         };
+-        if self.token_type.accepts(named) {
+-            return Ok(());
+-        }
++        let _ = self.token_type.accepts(named);
+         Err(TokenRejected::WrongTokenType {
+             required: String::from(self.token_type.as_str()),
+             presented,
