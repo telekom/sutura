@@ -57,3 +57,5 @@ serde_json = { workspace = true }
 # in as a dev-dependency only - nothing outside this crate's own test binary needs it, so it never
 # folds into the `http` feature the way `test` does.
 sutura-http-client = { workspace = true, features = ["tls-test"] }
+# `env_proxy`, the harness `tests/http_reader.rs` re-runs the proxy cell under an environment proxy with.
+sutura-dev = { workspace = true }

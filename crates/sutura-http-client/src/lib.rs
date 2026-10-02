@@ -44,6 +44,7 @@ mod bounds;
 mod budget;
 mod endpoint;
 mod message;
+mod routed;
 mod tls;
 
 #[cfg(feature = "test")]
@@ -52,7 +53,7 @@ pub mod test_support;
 #[cfg(feature = "tls-test")]
 pub mod tls_test_support;
 
-pub use agent::{OutboundAgent, fixed, rotating_agent};
+pub use agent::{AgentConfig, OutboundAgent, agent, agent_resolving_through, fixed, rotating_agent};
 pub use bounds::{DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, InvalidReadBounds, ReadBounds};
 pub use budget::Budget;
 pub use endpoint::{Endpoint, InvalidEndpoint};

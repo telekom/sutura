@@ -59,6 +59,10 @@ measures anything. It lives here rather than duplicated in each bench binary bec
 `cargo xtask check-jscpd` refuses to exempt a clone under `crates/`, and two independent
 binaries printing the same probe is exactly that clone - `github.com/telekom/sutura#915`.
 
+`env_proxy` is the same argument for an outbound client's cell: every crate that builds an
+agent proves it dials a plaintext or loopback target directly under an environment proxy, and
+the harness re-running a test under one is written once.
+
 ## Module `bench_venue`
 
 Whether the host was too busy for a benchmark's number to mean anything.
@@ -365,6 +369,37 @@ pub fn forget_services(scope: &crate::scope::Scope, services: &[&str]) -> Result
 Withdraw the NAMED services' entries that THIS provisioner published, and nothing else.
 
 A scoped teardown that called `forget` would also withdraw a Docker tier it left running.
+
+## Module `env_proxy`
+
+Runs one test body under a proxy named by the ENVIRONMENT, and fails it if the proxy is dialled.
+
+A test cannot set a proxy variable in its own process - `std::env::set_var` is `unsafe` in Rust
+2024 and every crate here forbids `unsafe` - and an agent reads the variables when it is built,
+inside the constructor under test. So `dialled_directly` re-runs the calling test in a child
+copy of its own test binary, with every proxy variable naming a listener this process holds and
+`NO_PROXY` removed, and the child runs the body. The parent fails the test the moment that
+listener accepts a connection, or if the child's run did not pass exactly one test.
+
+Limit: a child that passes must have reached its own target, which only the body can assert -
+a body that sends nothing passes here too.
+
+### `fn dialled_directly`
+
+```rust
+pub fn dialled_directly(module_path: &str, test: &str, body: impl FnOnce())
+```
+
+Runs `body` in a child copy of the calling test, under an environment proxy, and panics if the
+proxy is dialled or the child does not pass.
+
+`module_path` is the caller's `module_path!()` and `test` its function name - together the
+name libtest runs it by.
+
+# Panics
+
+On a dialled proxy, a child that did not pass exactly one test, or a harness that cannot start
+one.
 
 ## Module `issuer`
 
