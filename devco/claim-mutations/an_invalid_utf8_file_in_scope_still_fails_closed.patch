@@ -1,0 +1,13 @@
+diff --git a/xtask/src/guidance.rs b/xtask/src/guidance.rs
+index 27bad2206f..6fbf87002c 100644
+--- a/xtask/src/guidance.rs
++++ b/xtask/src/guidance.rs
+@@ -425,7 +425,7 @@
+     // `problems.extend(refuted)` in `run` with a discard left 1023 tests green and printed a verdict
+     // byte-identical to a clean run over a planted refutation. The CALL was covered by nothing,
+     // exactly as `page_problems`' was.
+-    let (refuted, absence_read) = absence_problems(strict_read, files);
++    let (refuted, absence_read) = absence_problems(read, files);
+     problems.extend(refuted);
+     // The Markdown half, and the only check here that judges a page's SHAPE rather than a sentence
+     // in it: `text_files` again, because a page is where an ordinal and a table are written.

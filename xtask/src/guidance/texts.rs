@@ -42,3 +42,6 @@ pub(super) fn tree_problems_from_texts(root: &Path, texts: &Texts, files: &[Stri
     let strict = |rel: &str| texts.strict(rel);
     tree_problems(root, &lossy, &strict, files, text_files)
 }
+
+#[cfg(test)]
+mod wiring_tests;
