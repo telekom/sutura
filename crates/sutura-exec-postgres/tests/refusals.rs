@@ -13,11 +13,12 @@
 //! `FixtureSchema`), so the kill swaps which refusal answers and never reaches the connection.
 
 #[cfg(test)]
+#[path = "support/support.rs"]
+mod support;
+
+#[cfg(test)]
 mod refusals {
-    use std::io::{Read as _, Write as _};
-    use std::net::{TcpListener, TcpStream};
     use std::path::{Path, PathBuf};
-    use std::time::Duration;
 
     use sutura_conformance::corpus;
     use sutura_domain::identity::{Presented, PrincipalName, Secret};
@@ -28,49 +29,7 @@ mod refusals {
     use sutura_domain::warehouse::Warehouse as _;
     use sutura_exec_postgres::{PostgresError, PostgresWarehouse};
 
-    /// Reads one length-prefixed message body; `tagged` says whether a type byte precedes it.
-    #[expect(clippy::big_endian_bytes, reason = "the Postgres wire protocol frames lengths big-endian")]
-    fn read_message(stream: &mut TcpStream, tagged: bool) {
-        if tagged {
-            let mut tag = [0_u8; 1];
-            stream.read_exact(&mut tag).expect("the driver sends a message type");
-        }
-        let mut length = [0_u8; 4];
-        stream.read_exact(&mut length).expect("the driver sends a message length");
-        let body = usize::try_from(u32::from_be_bytes(length)).expect("a u32 fits a usize") - 4;
-        let mut discarded = vec![0_u8; body];
-        stream.read_exact(&mut discarded).expect("the driver sends the message body");
-    }
-
-    /// A loopback listener that completes one connection's handshake - `AuthenticationOk`,
-    /// `ReadyForQuery`, then `CommandComplete` for the boot `SET` - and closes it.
-    fn fake_postgres() -> u16 {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener binds");
-        let port = listener.local_addr().expect("a bound listener has an address").port();
-        std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().expect("the driver dials this listener");
-            read_message(&mut stream, false);
-            stream
-                .write_all(b"R\x00\x00\x00\x08\x00\x00\x00\x00Z\x00\x00\x00\x05I")
-                .expect("the handshake is answered");
-            read_message(&mut stream, true);
-            stream
-                .write_all(b"C\x00\x00\x00\x08SET\x00Z\x00\x00\x00\x05I")
-                .expect("the boot statement is answered");
-        });
-        port
-    }
-
-    fn config(port: u16) -> tokio_postgres::Config {
-        let mut config = tokio_postgres::Config::new();
-        config
-            .host("127.0.0.1")
-            .port(port)
-            .dbname("sutura")
-            .user("sutura")
-            .connect_timeout(Duration::from_secs(5));
-        config
-    }
+    use super::support::{config, fake_postgres};
 
     fn warehouse_under(posture: SourcePosture) -> PostgresWarehouse {
         PostgresWarehouse::connect(corpus::source(), posture, &config(fake_postgres()))
