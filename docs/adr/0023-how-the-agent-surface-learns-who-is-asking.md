@@ -508,7 +508,7 @@ anticipated.** The first amendment's own citation - `nix/shipped.nix`'s `crossPa
 `features` argument, so a cross-built release shipped cargo's default feature set only - was true
 of `docs/adr/0017`'s Eighth amendment and stopped being true at its Fifteenth: "one binary, every
 adapter compiled in, because which adapters a deployment uses is configuration, not a build."
-`features = [ "bigquery" "postgres" "tls" "datahub" "agent" ]` is what `nix/shipped.nix` now reads
+`features = [ "bigquery" "postgres" "clickhouse" "tls" "datahub" "agent" ]` is what `nix/shipped.nix` now reads
 for every release and release-performance build, native and cross - not `probeFeatures`, which is
 a separate, narrower per-triple link check. So *What this decision does NOT cover*'s own bullet
 above, **"it does not make anything published able to impersonate"**, is superseded: a published

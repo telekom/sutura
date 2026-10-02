@@ -67,17 +67,12 @@ postgres = ["dep:sutura-exec-postgres", "dep:tokio-postgres", "sutura-exec-postg
 # **It is not in `nix/shipped.nix`'s `features`, `allFeatures` or `probeFeatures`, and that is a
 # decision rather than an omission.** Every other adapter feature is in `features` since
 # `docs/adr/0017`'s Fifteenth amendment - one binary, every adapter compiled in. This one is held
-# back because a correctness fix for the adapter is still open at the time this feature landed:
-# `github.com/telekom/sutura#955` measured 6 of 23 parameter-binding corpus questions answering
-# WRONG against the real `clickhouse-server` `compose.services.yaml` provisions, under ClickHouse's
-# default `join_use_nulls = 0` - an outer join's unmatched side arriving as `''` where the engine
-# says `NULL`. That issue carries the server version it was measured on; repeating it here would be
-# a number no mechanism compares. A published binary that
-# links this adapter before that lands is a deployment that can be handed a wrong number, so the
-# feature is reachable by `--features clickhouse` and by `--all-features` (which is what `just
-# lint`, `just test` and every nix check pass, so the registration is compiled, linted and tested on
-# every run) and by no release. Adding the three `nix/shipped.nix` entries is the follow-up once
-# `#955` has merged.
+# back because a correctness fix for the adapter landed at `github.com/telekom/sutura#955`: the
+# adapter measured 6 of 23 parameter-binding corpus questions answering WRONG against the real
+# `clickhouse-server` under ClickHouse's default `join_use_nulls = 0` - an outer join's unmatched
+# side arriving as `''` where the engine says `NULL`. That fix set `join_use_nulls = 1` in
+# `crates/sutura-exec-clickhouse/src/transport.rs` (:477). The feature is shipped via
+# `nix/shipped.nix`'s `probeFeatures`, `allFeatures` and `features` lists.
 clickhouse = ["dep:sutura-exec-clickhouse"]
 
 # The Oracle adapter, over Oracle's own pure-Rust driver.

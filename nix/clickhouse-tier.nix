@@ -8,8 +8,8 @@
 # network and no docker socket; this server needs neither - one loopback HTTP listener on a port
 # the operating system allocates, published only once the server answers on it.
 #
-# `pkgs.clickhouse` is the same 26.7 series `compose.services.yaml` pins for the by-hand docker
-# service; nothing compares the two, so a bump of either is a bump of one venue.
+# `pkgs.clickhouse` runs 26.8.7.19; `compose.services.yaml` pins the same series for the by-hand
+# docker service; nothing compares the two, so a bump of either is a bump of one venue.
 { pkgs }:
 let
   endpoints = import ./tier-endpoints.nix { inherit pkgs; };

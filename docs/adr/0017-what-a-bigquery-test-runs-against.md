@@ -1620,7 +1620,7 @@ needs it is not built.
 `#685` step 5, in the same change. `nix/shipped.nix`'s `sutura` entry now carries `features =
 allFeatures` and `permit = [ "ring" "ureq" ]`; `nativeFor`/`crossFor` read that field for every
 release and release-performance build, native and cross, so every published binary and every
-image over it links `bigquery`, `postgres`, `tls`, `datahub` and `agent` together. The Fifteenth
+image over it links `bigquery`, `postgres`, `clickhouse`, `tls`, `datahub` and `agent` together. The Fifteenth
 amendment's own limit - *"this amendment records the decision; it does not implement it"* - no
 longer holds, and every sentence built on it needs saying so too: `nix/shipped.nix`'s and this
 record's own "the shipped binary carries neither `tls`, `bigquery`, `postgres` nor `datahub`" is
