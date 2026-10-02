@@ -80,7 +80,6 @@
 //!   for the one they meant.
 
 use std::collections::BTreeSet;
-use std::path::Path;
 
 use super::claims::flatten;
 use crate::causality::regions;
@@ -258,7 +257,7 @@ pub(in crate::guidance) fn prose(rel: &str, text: &str) -> String {
 /// because every glob in the table ends `*.rs` or `*.md`, so a PNG is out of SCOPE rather than
 /// unreadable.
 fn statements(
-    root: &Path,
+    read: &crate::causality::regions::PostImage<'_>,
     files: &[String],
     absence: &Absence,
     unread: &mut Vec<String>,
@@ -269,7 +268,7 @@ fn statements(
     // function holds no sequence and no filter a narrowing could be written beside - see
     // `crate::repo::accounting`. A truncation inside `each` cannot mint the witness either.
     let walked = Offered::matching("stating file", files, absence.stated_in).each(|_, rel| {
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
+        let Some(text) = read(rel) else {
             unread.push(String::from(rel));
             return;
         };
@@ -337,16 +336,11 @@ struct Sighted {
 /// **TWO images of every file, and the second is not an optimisation.** The blanked one gives a line
 /// number for a call; [`string_literals`] gives the body of a literal whose interior the blanked one
 /// removes when it spans lines. The module header records the measurement that forced it.
-fn sighted(root: &Path, files: &[String], sighting: &Sighting) -> Sighted {
-    // The blanked image is what both the region walk and the search read, so a `#[cfg(test)]` in a
-    // comment opens no region and a needle in a comment is not a call. `regions::scope` follows a
-    // `#[cfg(test)] mod x;` into the PARENT file, which is why this reads by path rather than
-    // taking the text it already has.
-    let read = |path: &str| {
-        std::fs::read_to_string(root.join(path))
-            .ok()
-            .map(|text| code_lines(&text).join("\n"))
-    };
+fn sighted(read: &crate::causality::regions::PostImage<'_>, files: &[String], sighting: &Sighting) -> Sighted {
+    // The blanked image is what the SEARCH reads: a needle inside a comment is not a call.
+    // `regions::scope` reads blanked text to avoid false regions from comments, and follows a
+    // `#[cfg(test)] mod x;` into the PARENT file - which is why it reads by path rather than
+    // taking the text this function already has.
     let mut found = Sighted {
         files: BTreeSet::new(),
         lines: 0,
@@ -355,11 +349,13 @@ fn sighted(root: &Path, files: &[String], sighting: &Sighting) -> Sighted {
         short: Vec::new(),
     };
     let walked = Offered::matching("file", files, sighting.over).each(|_, rel| {
-        let (Some(code), Ok(raw)) = (read(rel), std::fs::read_to_string(root.join(rel))) else {
+        let Some(raw) = read(rel) else {
             found.unread.push(String::from(rel));
             return None;
         };
-        let tests = regions::scope(rel, &read);
+        let code = code_lines(&raw).join("\n");
+        let blanked_read = |path: &str| read(path).map(|text| code_lines(&text).join("\n"));
+        let tests = regions::scope(rel, &blanked_read);
         // The walk INSIDE the file, accounted the same way the walk over files is: one outcome per
         // LINE, so `#414`'s first instance - `.take(100)` here, 214500 of 294744 lines gone at
         // exit 0 - cannot mint a witness. `true` means the line is production and was searched.
@@ -475,7 +471,7 @@ pub(super) struct Reading {
 /// Takes the table rather than reading the const, so the fixtures in `tests` exercise the code the
 /// gate runs and not a re-implementation of it - `remedies_hold`'s reason, and the one that makes
 /// the empty-table, empty-set and truncated-walk cases provable at all.
-fn absences_hold(root: &Path, files: &[String], table: &[Absence]) -> (Vec<String>, Reading) {
+fn absences_hold(read: &crate::causality::regions::PostImage<'_>, files: &[String], table: &[Absence]) -> (Vec<String>, Reading) {
     let mut problems = Vec::new();
     let mut stated_total = 0_usize;
     let mut scanned: BTreeSet<String> = BTreeSet::new();
@@ -491,7 +487,7 @@ fn absences_hold(root: &Path, files: &[String], table: &[Absence]) -> (Vec<Strin
     }
     for absence in table {
         let mut unread = Vec::new();
-        let stated = statements(root, files, absence, &mut unread, &mut problems);
+        let stated = statements(read, files, absence, &mut unread, &mut problems);
         stated_total = stated_total.saturating_add(stated.len());
         for rel in &unread {
             problems.push(format!(
@@ -509,7 +505,7 @@ fn absences_hold(root: &Path, files: &[String], table: &[Absence]) -> (Vec<Strin
             ));
         }
         for sighting in absence.refuted_by {
-            let found = sighted(root, files, sighting);
+            let found = sighted(read, files, sighting);
             scanned.extend(found.files.iter().cloned());
             lines = lines.saturating_add(found.lines);
             // FIRST, because every number below it is about a subset while one of these stands.
@@ -554,13 +550,13 @@ fn absences_hold(root: &Path, files: &[String], table: &[Absence]) -> (Vec<Strin
 }
 
 /// The entry point `guidance::tree_problems` wires in.
-pub(super) fn absence_problems(root: &Path, files: &[String]) -> (Vec<String>, Reading) {
-    absences_hold(root, files, ABSENCES)
+pub(super) fn absence_problems(read: &crate::causality::regions::PostImage<'_>, files: &[String]) -> (Vec<String>, Reading) {
+    absences_hold(read, files, ABSENCES)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use super::{Absence, Sighting, absence_problems, absences_hold, prose};
 
@@ -576,6 +572,13 @@ mod tests {
             std::fs::write(&full, body).expect("a fixture file");
         }
         (dir, files.iter().map(|(rel, _)| String::from(*rel)).collect())
+    }
+    /// A read closure over a fixture tree: a path the tree holds returns its text, and one it does
+    /// not - or that `fs` cannot decode - reads as unreadable.
+    /// Like production, which reads through `Texts::strict` (`Texts::get` is the lossy text), this
+    /// reader fails closed on bytes that are not UTF-8.
+    fn reader(root: &Path) -> impl Fn(&str) -> Option<String> + '_ {
+        move |rel| std::fs::read_to_string(root.join(rel)).ok()
     }
 
     const ENTRY: Absence = Absence {
@@ -622,7 +625,7 @@ mod tests {
                 "/// The widget, which has\n/// no consumer today.\npub fn widget() -> u8 { 1 }\n",
             )],
         );
-        let (problems, reading) = absences_hold(&dir, &files, &[ENTRY]);
+        let (problems, reading) = absences_hold(&reader(&dir), &files, &[ENTRY]);
         assert!(problems.is_empty(), "{problems:?}");
         // THREE numbers, because each alone is what some green-over-nothing prints: one statement
         // read out of prose, one file opened out of the tree, and the lines actually searched.
@@ -643,7 +646,7 @@ mod tests {
                 "/// There is\n/// no consumer today.\npub fn widget() {}\n",
             )],
         );
-        let (problems, reading) = absences_hold(&dir, &files, &[ENTRY]);
+        let (problems, reading) = absences_hold(&reader(&dir), &files, &[ENTRY]);
         assert!(problems.is_empty(), "{problems:?}");
         assert_eq!(reading.stated, 1);
     }
@@ -657,7 +660,7 @@ mod tests {
                 ("crates/b/src/lib.rs", "fn read(a: &A) -> u8 {\n    a.widget()\n}\n"),
             ],
         );
-        let (problems, _) = absences_hold(&dir, &files, &[ENTRY]);
+        let (problems, _) = absences_hold(&reader(&dir), &files, &[ENTRY]);
         assert_eq!(problems.len(), 1, "{problems:?}");
         let only = &problems[0];
         assert!(only.starts_with("crates/b/src/lib.rs:2:"), "{only}");
@@ -676,7 +679,7 @@ mod tests {
         }
         body.push_str("fn read(a: &A) -> u8 {\n    a.widget()\n}\n");
         let (dir, files) = tree("deep", &[("crates/a/src/lib.rs", body.as_str())]);
-        let (problems, reading) = absences_hold(&dir, &files, &[ENTRY]);
+        let (problems, reading) = absences_hold(&reader(&dir), &files, &[ENTRY]);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].starts_with("crates/a/src/lib.rs:44:"), "{}", problems[0]);
         assert_eq!(reading.files, 1);
@@ -702,7 +705,7 @@ mod tests {
                 ),
             ],
         );
-        let (problems, _) = absences_hold(&dir, &files, &[ENTRY]);
+        let (problems, _) = absences_hold(&reader(&dir), &files, &[ENTRY]);
         assert_eq!(problems.len(), 1, "a continued literal is still code: {problems:?}");
         assert!(problems[0].starts_with("crates/b/src/lib.rs:3:"), "{}", problems[0]);
     }
@@ -712,7 +715,7 @@ mod tests {
         // The half that made `PINS` and `COUNTS` each pass over nothing for weeks: the scan runs,
         // finds no counter-example, and agrees with a sentence that is not there.
         let (dir, files) = tree("silent", &[("crates/a/src/lib.rs", "pub fn widget() {}\n")]);
-        let (problems, reading) = absences_hold(&dir, &files, &[ENTRY]);
+        let (problems, reading) = absences_hold(&reader(&dir), &files, &[ENTRY]);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].contains("gate over silence"), "{}", problems[0]);
         assert_eq!(reading.stated, 0);
@@ -727,7 +730,7 @@ mod tests {
         // printing `0 statement(s) over 0 file(s)`. Both numbers are derived by iterating the table,
         // so they are two counters from one source and cannot witness each other.
         let (dir, files) = tree("emptytable", &[("crates/a/src/lib.rs", "pub fn widget() {}\n")]);
-        let (problems, reading) = absences_hold(&dir, &files, &[]);
+        let (problems, reading) = absences_hold(&reader(&dir), &files, &[]);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].contains("ABSENCES is empty"), "{}", problems[0]);
         assert_eq!(reading.stated, 0);
@@ -746,7 +749,7 @@ mod tests {
                 ("crates/a/src/lib.rs", "fn read(a: &A) { a.widget(); }\n"),
             ],
         );
-        let (problems, reading) = absences_hold(&dir, &files, &[NOWHERE]);
+        let (problems, reading) = absences_hold(&reader(&dir), &files, &[NOWHERE]);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].contains("read no production line"), "{}", problems[0]);
         assert_eq!(reading.files, 0);
@@ -766,7 +769,7 @@ mod tests {
                 ("crates/a/src/pool/tests/planted.rs", "fn t(a: &A) { a.widget(); }\n"),
             ],
         );
-        let (problems, reading) = absences_hold(&dir, &files, &[ENTRY]);
+        let (problems, reading) = absences_hold(&reader(&dir), &files, &[ENTRY]);
         assert!(problems.is_empty(), "test code refutes nothing: {problems:?}");
         assert_eq!(reading.files, 1, "the exempted file raises no file floor either");
         assert_eq!(reading.lines, 2, "and contributes no production line");
@@ -782,7 +785,7 @@ mod tests {
                 "/// no consumer today\npub fn widget() {}\n#[cfg(test)]\nmod tests {\n    fn t(a: &A) { a.widget(); }\n}\n",
             )],
         );
-        let (problems, reading) = absences_hold(&dir, &files, &[ENTRY]);
+        let (problems, reading) = absences_hold(&reader(&dir), &files, &[ENTRY]);
         assert!(problems.is_empty(), "{problems:?}");
         assert_eq!(reading.files, 1);
         assert!(reading.lines < 6, "the test region is not searched: {}", reading.lines);
@@ -802,13 +805,13 @@ mod tests {
         );
         let truncated = vec![String::from("crates/a/src/lib.rs")];
         let (whole, _) = absences_hold(
-            &dir,
+            &reader(&dir),
             &[String::from("crates/a/src/lib.rs"), String::from("crates/b/src/lib.rs")],
             &[ENTRY],
         );
         assert_eq!(whole.len(), 1, "the refutation is there to be found: {whole:?}");
 
-        let (problems, reading) = absences_hold(&dir, &truncated, &[OUTSIDE]);
+        let (problems, reading) = absences_hold(&reader(&dir), &truncated, &[OUTSIDE]);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].contains("read no production line"), "{}", problems[0]);
         assert_eq!(reading.files, 0);
@@ -825,7 +828,7 @@ mod tests {
             &[("crates/a/src/lib.rs", "/// no consumer today\npub fn widget() {}\n")],
         );
         std::fs::write(dir.join("crates/a/src/lib.rs"), [0x2f, 0x2f, 0x2f, 0xff, 0xfe]).expect("bad bytes");
-        let (problems, reading) = absences_hold(&dir, &files, &[ENTRY]);
+        let (problems, reading) = absences_hold(&reader(&dir), &files, &[ENTRY]);
         // Both halves report it, and the statement side ALSO reports the silence it now has.
         assert!(
             problems.iter().any(|p| p.contains("stated_in scope and could not be read")),
@@ -836,6 +839,27 @@ mod tests {
             "{problems:?}"
         );
         assert_eq!(reading.files, 0, "an unreadable file is not a file scanned");
+    }
+
+    #[test]
+    fn a_sighting_reads_the_text_it_is_handed_not_the_disk() {
+        // #414's read half: the scan now sees the bytes the run actually sealed, so a refutation
+        // that exists only on DISK is invisible to it - the old direct `fs::read_to_string` read
+        // the disk copy and reddened this fixture, while the passed-in `read` searches the sealed
+        // image. The accounting still pairs the offered file with the image that was searched.
+        let (_, files) = tree(
+            "sealed",
+            &[(
+                "crates/a/src/lib.rs",
+                "/// no consumer today\npub fn widget() {}\nfn read(a: &A) -> u8 {\n    a.widget()\n}\n",
+            )],
+        );
+        let sealed =
+            |rel: &str| (rel == "crates/a/src/lib.rs").then(|| String::from("/// no consumer today\npub fn widget() {}\n"));
+        let (problems, reading) = absences_hold(&sealed, &files, &[ENTRY]);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(reading.files, 1, "the file was offered and read through the sealed image");
+        assert_eq!(reading.lines, 2, "both production lines of the sealed image were searched");
     }
 
     #[test]
@@ -859,11 +883,11 @@ mod tests {
         // three entries the gate actually ships were exercised by nothing. Every sibling in this
         // gate has this test - `constants.rs`, `advice.rs`, `claims.rs`, `guidance.rs` - and each
         // states its floor rather than only its emptiness.
-        let (files, _texts, _witness) =
+        let (files, texts, _witness) =
             super::super::inspect_listing(crate::repo::all_files()).expect("could not locate the repo");
-        let root = crate::repo::root().expect("the repo root");
         assert!(!super::ABSENCES.is_empty(), "the shipped table is what this is about");
-        let (problems, reading) = absence_problems(&root, &files);
+        let read = |rel: &str| texts.get(rel).cloned();
+        let (problems, reading) = absence_problems(&read, &files);
         assert!(problems.is_empty(), "{problems:#?}");
         // The numbers are still asserted non-zero - a scan that opened nothing is a scan whose
         // empty hit list means nothing - but the DEPTH floor that used to sit here is gone, and

@@ -51,11 +51,11 @@
 //!
 //! **Every listed file is read once, by [`inspect_listing`]**, and every check handed its `read`
 //! judges those bytes, so a listed file that vanished or cannot be opened refuses the gate rather
-//! than dropping out of the scan while the verdict still counts it. What that does NOT cover, next
-//! to the claim: `absence_problems` still opens listed files itself, strictly as UTF-8, and pushes
-//! a finding for each one it cannot read, so it fails closed outside the census. A file the listing never
-//! offered - `remedy_problems`' evidence, `recipe_names`' justfile, `leg_two_citable`'s claims
-//! matrix - is read from disk and is not held at all.
+//! than dropping out of the scan while the verdict still counts it. `absence_problems` reads through
+//! the census's strict text view (UTF-8 validated), matching the contract `hosts` and `pages`
+//! hold for their former `read_to_string` calls, so a non-UTF-8 file in scope refuses rather than
+//! being silently skipped. A file the listing never offered - `remedy_problems`' evidence,
+//! `recipe_names`' justfile, `leg_two_citable`'s claims matrix - is read from disk and is not held at all.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -425,7 +425,7 @@ fn tree_problems(
     // `problems.extend(refuted)` in `run` with a discard left 1023 tests green and printed a verdict
     // byte-identical to a clean run over a planted refutation. The CALL was covered by nothing,
     // exactly as `page_problems`' was.
-    let (refuted, absence_read) = absence_problems(root, files);
+    let (refuted, absence_read) = absence_problems(strict_read, files);
     problems.extend(refuted);
     // The Markdown half, and the only check here that judges a page's SHAPE rather than a sentence
     // in it: `text_files` again, because a page is where an ordinal and a table are written.

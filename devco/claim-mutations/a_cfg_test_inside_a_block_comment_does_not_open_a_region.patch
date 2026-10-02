@@ -1,0 +1,14 @@
+diff --git a/xtask/src/guidance/absences.rs b/xtask/src/guidance/absences.rs
+index 3d5dc11c08..896b597922 100644
+--- a/xtask/src/guidance/absences.rs
++++ b/xtask/src/guidance/absences.rs
+@@ -354,8 +354,7 @@
+             return None;
+         };
+         let code = code_lines(&raw).join("\n");
+-        let blanked_read = |path: &str| read(path).map(|text| code_lines(&text).join("\n"));
+-        let tests = regions::scope(rel, &blanked_read);
++        let tests = regions::scope(rel, read);
+         // The walk INSIDE the file, accounted the same way the walk over files is: one outcome per
+         // LINE, so `#414`'s first instance - `.take(100)` here, 214500 of 294744 lines gone at
+         // exit 0 - cannot mint a witness. `true` means the line is production and was searched.
