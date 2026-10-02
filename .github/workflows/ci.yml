@@ -2092,11 +2092,11 @@ jobs:
             esac
           fi
           # The Oracle docker tier reads no secret, so it carries no event exception: every event
-          # that selects `data_source_oracle` or `catalog_rdbms` must run it, the same rule as `bigquery-driver-check`
-          # above.
+          # that selects `data_source_oracle` or `catalog_rdbms` must run it, the same rule as
+          # `bigquery-driver-check` above.
           if [ "$ORACLE_SELECTED" = "true" ]; then
             if [ "$ORACLE_RESULT" != "success" ]; then
-              fail "oracle-tier must run (data_source_oracle category selected) but reported '$ORACLE_RESULT'"
+              fail "oracle-tier must run (data_source_oracle or catalog_rdbms category selected) but reported '$ORACLE_RESULT'"
             fi
           else
             case "$ORACLE_RESULT" in

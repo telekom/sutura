@@ -798,7 +798,7 @@ oracle-acceptance:
     export SUTURA_DEV_REQUIRE_TIER=1
     export SUTURA_DEV_USER="${SUTURA_DEV_USER:-sutura}"
     export SUTURA_DEV_PASSWORD="${SUTURA_DEV_PASSWORD:-sutura}"
-    cargo nextest run -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features --run-ignored only -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/)'
+    cargo nextest run -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features --run-ignored only --no-fail-fast -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/)'
 
 # The sibling of `dev-up-identity` and `dev-up-datahub`, and it exists for the reason they do: a
 # service behind a profile is brought up by the task named after that profile, and the tier's own

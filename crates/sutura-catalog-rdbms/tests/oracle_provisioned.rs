@@ -25,6 +25,7 @@ mod oracle_provisioned {
     use std::collections::BTreeSet;
     use std::num::NonZeroU64;
     use std::path::Path;
+    use std::time::{Duration, Instant};
 
     use sutura_catalog_rdbms::oracle_reader::{OracleLogin, OracleReader};
     use sutura_catalog_rdbms::postgres_reader::RowPredicate;
@@ -92,8 +93,8 @@ mod oracle_provisioned {
     }
 
     /// Replaces the user's own `COLUMNS` table: `public.orders` bound to the model `orders`, with
-    /// `order_id` as its key, `amount`, and a soft-deleted `archived` row. Committed, because the
-    /// reader reads in a session of its own.
+    /// `order_id` as its key, `amount`, a soft-deleted `archived` row and a row of another
+    /// environment. Committed, because the reader reads in a session of its own.
     fn install_fixture(connection: &oracledb::Connection) {
         if let Err(cause) = connection.execute("DROP TABLE \"COLUMNS\" PURGE", &[]) {
             assert!(
@@ -112,16 +113,43 @@ mod oracle_provisioned {
                 &[],
             )
             .expect("the fixture table creates");
-        for (column, ordinal, key, deleted) in [("order_id", 1, 1, 0), ("amount", 2, 0, 0), ("archived", 3, 0, 1)] {
+        for (environment, column, ordinal, key, deleted) in [
+            (ENVIRONMENT, "order_id", 1, 1, 0),
+            (ENVIRONMENT, "amount", 2, 0, 0),
+            (ENVIRONMENT, "archived", 3, 0, 1),
+            ("prod", "prod_only", 4, 0, 0),
+        ] {
             let statement = format!(
                 "INSERT INTO \"COLUMNS\" (environment, schema_name, table_name, model_name, table_description, \
                  column_name, column_ordinal, column_type, is_primary_key, is_deleted) \
-                 VALUES ('{ENVIRONMENT}', 'public', 'orders', 'orders', 'Customer orders.', \
+                 VALUES ('{environment}', 'public', 'orders', 'orders', 'Customer orders.', \
                  '{column}', {ordinal}, 'NUMBER', {key}, {deleted})"
             );
             connection.execute(&statement, &[]).expect("a fixture row inserts");
         }
         connection.commit().expect("the fixture commits");
+        await_read_only_snapshot(connection);
+    }
+
+    /// Waits, bounded, until a read-only transaction can read the freshly created table: for a
+    /// short window after the DDL Oracle refuses that snapshot with `ORA-01466`, as it would the
+    /// reader's own.
+    fn await_read_only_snapshot(connection: &oracledb::Connection) {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        loop {
+            connection
+                .execute("SET TRANSACTION READ ONLY", &[])
+                .expect("the probe transaction starts");
+            let probe = connection.query_row("SELECT COUNT(*) FROM \"COLUMNS\"", &[]);
+            connection.rollback().expect("the probe transaction ends");
+            match probe {
+                Ok(_) => return,
+                Err(cause) if cause.to_string().contains("ORA-01466") && Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                Err(cause) => panic!("the fixture never became readable under a read-only snapshot: {cause}"),
+            }
+        }
     }
 
     #[test]
@@ -160,7 +188,7 @@ mod oracle_provisioned {
             "the alias contributes nothing"
         );
 
-        // Two live rows: a cap of one row, or of one byte, refuses at the first row.
+        // Two live rows: a one-row cap refuses at the second row, a one-byte cap at the first.
         for (row_cap, byte_cap, unit) in [(1, 1 << 20, "rows"), (1000, 1, "bytes")] {
             let capped = tier.reader(&tier.user, NonZeroU64::new(row_cap), NonZeroU64::new(byte_cap));
             assert_eq!(

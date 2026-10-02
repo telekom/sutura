@@ -1086,7 +1086,7 @@
             export SUTURA_DEV_USER="''${SUTURA_DEV_USER:-sutura}"
             export SUTURA_DEV_PASSWORD="''${SUTURA_DEV_PASSWORD:-sutura}"
             exec cargo nextest run --cargo-profile ci -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features \
-              --run-ignored only -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/)' "$@"
+              --run-ignored only --no-fail-fast -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/)' "$@"
           '');
         };
 
