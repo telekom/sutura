@@ -71,7 +71,10 @@ fn app_reading(issuer: &MockIssuer, published: &PublishedKeySet) -> axum::Router
 /// A cache over the published file, with both windows shortened to [`WINDOW`].
 ///
 /// `FileKeySet` and not a fake, which is the whole point of this module: what a rotation has to change
-/// is the thing the shipped source reads. The caller chooses the instant it is primed at.
+/// is the thing the shipped source reads. The injected instant matters only for the two gate cells,
+/// `a_forged_key_id` and `a_key_removed`, which prime here and re-ask the gate at that instant or
+/// past it; the router-driven cells still use the wall clock - `app_reading` passes `Instant::now()`,
+/// so "past the window" there is a wall-clock distance.
 fn cache_over(published: &PublishedKeySet, primed_at: Instant) -> KeySetCache {
     let declaration = direct_over(&published.path().to_string_lossy());
     let requirement = declaration.requirement();

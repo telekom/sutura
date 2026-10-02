@@ -797,7 +797,9 @@ mod deadline_tests {
     /// second copy of it on this runtime measured only the host (668ms against 500ms on a loaded
     /// `checks.nextest`). What this cell holds is exact: the call is refused as `DeadlineExceeded`,
     /// the source is dropped, and it still had rows left - `stop_by` is thirty seconds out, so
-    /// only a deadline that fired can end the call before it.
+    /// only a deadline that fired can end the call before it. The 200ms budget can still race
+    /// planning on a stalled host, so `stop_by` is a 30s wall-clock bound ensuring the source
+    /// would have rows if the deadline doesn't fire.
     #[test]
     fn a_question_that_exceeds_its_budget_is_stopped_on_the_wide_runtime_too() {
         let stop_by = Instant::now() + Duration::from_secs(30);
