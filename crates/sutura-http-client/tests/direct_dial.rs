@@ -9,7 +9,9 @@
 #[cfg(test)]
 mod tests {
     use std::io::{Read as _, Write as _};
-    use std::net::TcpListener;
+    use std::net::{SocketAddr, TcpListener};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
     use sutura_http_client::ReadBounds;
@@ -220,6 +222,85 @@ mod tests {
             1,
             "the proxy carried a redirect the agent followed: {connects:?}"
         );
+    }
+
+    const NAME: &str = "loopback.sutura.test";
+
+    /// Answers [`NAME`] with `first`, then `later` on every further lookup, counting them; any IP
+    /// literal (the proxy's own) answers as itself.
+    #[derive(Debug)]
+    struct Scripted {
+        first: SocketAddr,
+        later: SocketAddr,
+        lookups: Arc<AtomicUsize>,
+    }
+
+    impl ureq::unversioned::resolver::Resolver for Scripted {
+        #[expect(clippy::disallowed_types, reason = "test: `ureq`'s own resolver trait names its `Config`")]
+        fn resolve(
+            &self,
+            uri: &ureq::http::Uri,
+            _config: &ureq::config::Config,
+            _timeout: ureq::unversioned::transport::NextTimeout,
+        ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+            let host = uri.host().ok_or(ureq::Error::HostNotFound)?;
+            let address = if host == NAME {
+                if self.lookups.fetch_add(1, Ordering::SeqCst) == 0 {
+                    self.first
+                } else {
+                    self.later
+                }
+            } else {
+                SocketAddr::new(
+                    host.parse().map_err(|_unparsed| ureq::Error::HostNotFound)?,
+                    uri.port_u16().ok_or(ureq::Error::HostNotFound)?,
+                )
+            };
+            let mut answer = ureq::unversioned::resolver::ResolvedSocketAddrs::from_fn(|_| address);
+            answer.push(address);
+            Ok(answer)
+        }
+    }
+
+    /// One `https://` request to [`NAME`] through an agent carrying a proxy, with [`NAME`]
+    /// resolving to `origin` first and to `elsewhere` after; the number of lookups of it.
+    fn resolved_to_loopback(proxy: &TcpListener, origin: &TcpListener, elsewhere: &TcpListener) -> usize {
+        let address = |listener: &TcpListener| listener.local_addr().expect("a bound listener has an address");
+        let lookups = Arc::new(AtomicUsize::new(0));
+        let resolver = Scripted {
+            first: address(origin),
+            later: address(elsewhere),
+            lookups: Arc::clone(&lookups),
+        };
+        let carried = ureq::Proxy::new(&url("http", proxy)).expect("a proxy URL parses");
+        let agent = sutura_http_client::agent_resolving_through(
+            |config| config.timeout_global(Some(UNANSWERED)).proxy(Some(carried)),
+            resolver,
+        );
+        drop(agent.get(format!("https://{NAME}:{}/", address(origin).port())).call());
+        lookups.load(Ordering::SeqCst)
+    }
+
+    #[test]
+    fn a_name_that_resolves_to_loopback_is_dialled_directly() {
+        let (proxy, origin, elsewhere) = (listener(), listener(), listener());
+        assert!(
+            resolved_to_loopback(&proxy, &origin, &elsewhere) > 0,
+            "the name was never resolved"
+        );
+        assert!(
+            !dialled(&proxy),
+            "a name resolving to loopback was dialled through the agent's proxy"
+        );
+        assert!(dialled(&origin), "the loopback address the name resolved to was not dialled");
+    }
+
+    #[test]
+    fn the_resolution_that_decides_the_route_is_the_one_dialled() {
+        let (proxy, origin, elsewhere) = (listener(), listener(), listener());
+        let lookups = resolved_to_loopback(&proxy, &origin, &elsewhere);
+        assert!(!dialled(&elsewhere), "the dial resolved the name a second time");
+        assert_eq!(lookups, 1, "the name was resolved more than once between route and dial");
     }
 
     #[test]

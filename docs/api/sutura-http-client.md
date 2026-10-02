@@ -74,7 +74,14 @@ after the agent's and the request's own configuration, so no caller can undo the
   original target.
 
 The pins are a `ureq` middleware, read from the AGENT's configuration on every request, so a
-request-level configuration cannot remove it.
+request-level configuration cannot remove it. A request the proxy would still carry to a host
+NAME is resolved at connect, and dialled directly to those very addresses when any of them is
+this host's own - the one resolution both decides the route and is dialled.
+
+## `use agent_resolving_through`
+
+`agent`, resolving host names through `resolver` rather than the system's - the seam a cell
+gives a name a known answer through. Routing and dialling read the same resolution.
 
 ## `use fixed`
 

@@ -46,17 +46,32 @@ pub type AgentConfig = ureq::config::ConfigBuilder<ureq::typestate::AgentScope>;
 ///   original target.
 ///
 /// The pins are a `ureq` middleware, read from the AGENT's configuration on every request, so a
-/// request-level configuration cannot remove it.
+/// request-level configuration cannot remove it. A request the proxy would still carry to a host
+/// NAME is resolved at connect, and dialled directly to those very addresses when any of them is
+/// this host's own - the one resolution both decides the route and is dialled.
+#[must_use]
+pub fn agent(configure: impl FnOnce(AgentConfig) -> AgentConfig) -> ureq::Agent {
+    agent_resolving_through(configure, ureq::unversioned::resolver::DefaultResolver::default())
+}
+
+/// [`agent`], resolving host names through `resolver` rather than the system's - the seam a cell
+/// gives a name a known answer through. Routing and dialling read the same resolution.
 #[must_use]
 #[expect(
     clippy::disallowed_methods,
-    reason = "the one sanctioned agent constructor: every other site is banned so that each agent carries the routing middleware"
+    reason = "the one sanctioned agent constructor: every other site is banned so that each agent carries the routing middleware and connector"
 )]
-pub fn agent(configure: impl FnOnce(AgentConfig) -> AgentConfig) -> ureq::Agent {
-    ureq::Agent::new_with_config(
+pub fn agent_resolving_through(
+    configure: impl FnOnce(AgentConfig) -> AgentConfig,
+    resolver: impl ureq::unversioned::resolver::Resolver,
+) -> ureq::Agent {
+    use ureq::unversioned::transport::{Connector as _, RustlsConnector, TcpConnector};
+    ureq::Agent::with_parts(
         configure(ureq::Agent::config_builder())
             .middleware(pin_routing_and_redirects)
             .build(),
+        crate::routed::Routed::new(().chain(TcpConnector::default()).chain(RustlsConnector::default())),
+        resolver,
     )
 }
 
@@ -88,11 +103,8 @@ fn loopback(host: &str) -> bool {
     let address = host
         .parse::<std::net::IpAddr>()
         .ok()
-        .map(|address| address.to_canonical())
         .or_else(|| ipv4_numbers(&name).map(std::net::IpAddr::V4));
-    name == "localhost"
-        || name.ends_with(".localhost")
-        || address.is_some_and(|address| address.is_loopback() || address.is_unspecified())
+    name == "localhost" || name.ends_with(".localhost") || address.is_some_and(crate::routed::local)
 }
 
 /// `host` read as the C resolver's `inet_aton` reads it: one to four dot-separated parts, each
