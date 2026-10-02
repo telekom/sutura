@@ -354,9 +354,8 @@ where
     ///
     /// Shared with [`Self::verify_anchor`]'s own plan, so the boot-time reproduction and a live
     /// question resolve identically rather than one of them keeping the old, unresolved behaviour.
-    fn render_query(&self, plan: &QueryPlan) -> Mapped<GeneratedQuery, T::Error> {
+    fn render_query(&self, plan: QueryPlan) -> Mapped<GeneratedQuery, T::Error> {
         let resolved = plan
-            .clone()
             .resolve_tables(|table| resolve::resolve(table, &self.billing_project))
             .map_err(|cause| BigQueryError::UnresolvableConnection { cause })?;
         generate(&resolved, Dialect::BigQuery).map_err(|cause| BigQueryError::Render { cause })
@@ -378,7 +377,7 @@ where
     /// project is untouched by either path.
     fn render(&self, executable: Executable<'_>) -> Mapped<GeneratedQuery, T::Error> {
         match executable {
-            Executable::Query(plan) => self.render_query(plan),
+            Executable::Query(plan) => self.render_query(plan.clone()),
             Executable::Leg(leg) => generate_leg(leg, Dialect::BigQuery).map_err(|cause| BigQueryError::Render { cause }),
         }
     }
@@ -810,7 +809,7 @@ where
     /// caller and no request timeout to read one from, so the job is bounded by this adapter's own
     /// configured job bounds instead - unchanged by this record.
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        let query = self.render_query(plan.plan())?;
+        let query = self.render_query(plan.plan().clone())?;
         let answered = self
             .transport
             .run(&self.request(&query, JobIdentity::Transport, JobDeadline::Boot))
