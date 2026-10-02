@@ -51,8 +51,8 @@ members = [
   # engine, and (like `sutura-exec-duckdb`) not shipped: it proves the Postgres statement we render
   # is accepted by a real Postgres, reached through the compose tier.
   "crates/sutura-exec-postgres",
-  # A network data system over the third rendering, `Dialect::ClickHouse`. Shipped since
-  # `github.com/telekom/sutura#955`. It proves the ClickHouse statement we render is accepted by
+  # A network data system over the third rendering, `Dialect::ClickHouse`. Shipped since the
+  # release linked by `github.com/telekom/sutura#1237`. It proves the ClickHouse statement we render is accepted by
   # a real ClickHouse, reached over HTTP (`compose.services.yaml`'s `clickhouse` service).
   "crates/sutura-exec-clickhouse",
   # A network data system over an existing `Dialect::Oracle` rendering (`github.com/telekom/

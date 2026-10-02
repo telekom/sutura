@@ -59,7 +59,7 @@ bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc"]
 postgres = ["dep:sutura-exec-postgres", "dep:tokio-postgres", "sutura-exec-postgres/adbc"]
 
 # The ClickHouse adapter, over its HTTP interface.
-# Default-off for a SOURCE build, and in `nix/shipped.nix`'s `features` like every other adapter.
+# Default-off for a SOURCE build, and in `nix/shipped.nix`'s `features` like the other shipped adapters.
 # `sutura-exec-clickhouse` depends on `ureq`/`sutura-tls` non-optionally, so this optional edge
 # keeps the adapter and its transport out of a build that did not ask for it. It was held out of
 # the release until `github.com/telekom/sutura#955`: under ClickHouse's default

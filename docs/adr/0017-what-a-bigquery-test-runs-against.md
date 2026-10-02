@@ -1816,13 +1816,13 @@ today, and carries no new gate.**
 The Sixteenth amendment, dated 2026-09-16, records what `github.com/telekom/sutura#685` step 5
 linked on that date: `bigquery`, `postgres`, `tls`, `datahub` and `agent`, and not `clickhouse` -
 `sutura-cli`'s manifest held that feature out of the release until `github.com/telekom/sutura#955`
-landed. It did, in this PR (`github.com/telekom/sutura#1237`): the `join_use_nulls = 1` fix is now
-sent on every request, proving an outer join's unmatched side comes back `NULL` rather than `''`,
-and `sutura-cli`'s `clickhouse` feature joined `nix/shipped.nix`'s `features` (and, with it,
-`allFeatures` and `probeFeatures`). Every release and release-performance build now links
-`bigquery`, `postgres`, `clickhouse`, `tls`, `datahub`, `openmetadata` and `agent` together - one
-binary, every adapter compiled in, the Fifteenth amendment's decision finally extended to the one
-adapter it once held out.
+landed, on 2026-09-23 as commit 0771bbdde. This PR (`github.com/telekom/sutura#1237`) adds
+`clickhouse` to `nix/shipped.nix`'s `features` (and, with it, `allFeatures` and `probeFeatures`);
+`oracle` stays out. The `join_use_nulls = 1` fix is now sent on every request - a unit test shows
+the setting is sent, and executed goldens cover one server version. Every release and
+release-performance build now links `bigquery`, `postgres`, `clickhouse`, `tls`, `datahub`,
+`openmetadata` and `agent` together - one binary, every adapter compiled in, the Fifteenth
+amendment's decision now covering every shipped adapter.
 
 Recording it as a new dated amendment rather than editing the Sixteenth: that record is dated
 2026-09-16, and a sentence that stops being true about its own date is a trap this record exists to

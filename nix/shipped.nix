@@ -661,8 +661,8 @@ let
     # `nix/shipped.nix` decides that the shipped binary is built with every feature `features`
     # names - the shipped authority `nativeFor`/`crossFor` read, not `allFeatures`, which only
     # feeds `allFeaturesProbes`. None of them is a cargo DEFAULT (`sutura-cli`'s manifest declares
-    # no `default` key at all). Most of them pull a rustls closure with `ring` in it (`bigquery`,
-    # `postgres`, `clickhouse`, `datahub`, `tls`), and two of the four release triples are musl.
+    # no `default` key at all). Most of them pull a rustls closure with `ring` in it (`postgres`,
+    # `clickhouse`, `datahub`, `openmetadata`, `tls`), and two of the four release triples are musl.
     # Issue #111
     # asks for that to be a STATED choice rather than one somebody discovers, and a comment is not
     # a mechanism - so this is the mechanism.
