@@ -233,9 +233,12 @@ fn drained(reader: Box<dyn RecordBatchReader + Send>, stop: Option<usize>) -> Re
 mod tests {
     //! What each port method sends, over `super::super::tests`' fake connection.
 
+    use std::sync::Arc;
     use std::time::Duration;
 
-    use crate::adbc::tests::{CEILING_MS, FakeConnection, Sent, a_number, open_for, with_sqlstate};
+    use arrow_array::Int8Array;
+
+    use crate::adbc::tests::{CEILING_MS, FakeConnection, Sent, a_number, one_column, open_for, with_sqlstate};
 
     #[test]
     fn dry_run_describes_the_statement_inside_the_deadline_and_never_runs_it() {
@@ -273,6 +276,26 @@ mod tests {
                 Sent::Rollback,
             ]
         );
+    }
+
+    #[test]
+    fn a_raw_stream_is_read_no_further_than_the_batch_that_crosses_one_row_past_the_cap() {
+        // Five batches of 4000 rows: the third takes the count past 10 001, so it is the last one
+        // read. Literals, so moving the cap reddens this cell instead of moving it.
+        let mut connection = FakeConnection::streaming(Some(one_column("n", Arc::new(Int8Array::from(vec![0_i8; 4_000])))), 5);
+        let batches =
+            super::raw(&mut connection, "SELECT 1", CEILING_MS, open_for(Duration::from_secs(60))).expect("a raw stream reads");
+        assert_eq!(batches.batches().len(), 3);
+        let mut certified = FakeConnection::streaming(Some(one_column("n", Arc::new(Int8Array::from(vec![0_i8; 4_000])))), 5);
+        let batches = super::answer(
+            &mut certified,
+            "SELECT 1",
+            None,
+            CEILING_MS,
+            open_for(Duration::from_secs(60)),
+        )
+        .expect("a certified stream reads");
+        assert_eq!(batches.batches().len(), 5, "only the raw path stops early");
     }
 
     #[test]

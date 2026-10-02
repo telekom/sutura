@@ -163,9 +163,10 @@ it was handed whenever nothing was set. There is no unconfigured state to substi
 The ADBC transport for PostgreSQL, the second adapter on `sutura-adbc` (`telekom/sutura#913`).
 
 The `Warehouse` port over the self-built driver
-(`nix/postgres-adbc.nix`), answering with the same `PostgresError`
-variants the `tokio-postgres` path refuses with. A certified answer's Arrow batches are handed on
-as they arrive, except a `NUMERIC` column, which `numeric` re-reads per cell.
+(`nix/postgres-adbc.nix`), answering with `PostgresError`: every case
+`parity` holds is refused under the variant the `tokio-postgres` path refuses it with. A
+certified answer's Arrow batches are handed on as they arrive, except a `NUMERIC` column, which
+`numeric` re-reads per cell.
 
 **Shipped, and answering nothing.** `sutura-cli`'s `postgres` feature compiles this module into
 every release, and every musl release links the static driver (`nix/shipped.nix`). No
@@ -196,8 +197,9 @@ path in `lib.rs` still answers every Postgres source, and no settings key select
 
 # Limits
 
-- **`NUMERIC` is read as `tokio-postgres` reads it** (`numeric`). The parity of every other type
-  is held per case by `parity` against the tier.
+- **`NUMERIC` is read as `tokio-postgres` reads it** (`numeric`), except a domain over it, which
+  stays text here. Parity is held per case by `parity` against the tier, for the types its cases
+  name and no others.
 - **No run against a real driver.** Every cell here is a fake connection. The server refusing a
   multi-statement string at `Parse`, the driver carrying `57014` in `sqlstate`, its `NUMERIC`
   mapping, its bind types and its `BEGIN` on autocommit-off are read off the driver's source,
@@ -205,8 +207,8 @@ path in `lib.rs` still answers every Postgres source, and no settings key select
 - **Loading and connecting are outside the deadline**: the driver is loaded and a connection
   opened per call, and only the statement runs under `SET LOCAL`.
 - **Every port method, read off the driver's source.** `session`'s header says what each sends;
-  `numeric` closes the one value drift the two transports had. No cell has run them against a
-  server.
+  `numeric` closes the `NUMERIC` drift for a column the driver tags `numeric`. No cell has run
+  them against a server.
 - **The linked driver signs in less.** Its libpq is built without Kerberos/GSSAPI and without
   OAuth; a mounted driver's keeps both, and `Conninfo` refuses GSSAPI,
   SSPI and OAuth sign-in on either route, because a declaration can name none of them.

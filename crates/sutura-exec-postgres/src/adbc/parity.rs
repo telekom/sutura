@@ -49,6 +49,17 @@ fn cases() -> Vec<Case> {
         case("SELECT true AS v", Arc::new(BooleanArray::from(vec![true])), false),
         case("SELECT 2.5::float8 AS v", Arc::new(Float64Array::from(vec![2.5_f64])), false),
         case("SELECT 'north'::text AS v", Arc::new(StringArray::from(vec!["north"])), false),
+        case(
+            "SELECT 'north'::varchar AS v",
+            Arc::new(StringArray::from(vec!["north"])),
+            false,
+        ),
+        case(
+            "SELECT 'north'::bpchar AS v",
+            Arc::new(StringArray::from(vec!["north"])),
+            false,
+        ),
+        case("SELECT 'north'::name AS v", Arc::new(StringArray::from(vec!["north"])), false),
         case("SELECT DATE '2026-06-01' AS v", Arc::new(Date32Array::from(vec![day])), false),
         case("SELECT 1::numeric AS v", Arc::new(StringArray::from(vec!["1"])), true),
         case("SELECT -42::numeric AS v", Arc::new(StringArray::from(vec!["-42"])), true),
@@ -58,8 +69,24 @@ fn cases() -> Vec<Case> {
             Arc::new(StringArray::from(vec!["123456789012345678901234567890"])),
             true,
         ),
-        // Refused by both: a non-finite NUMERIC, and a 32-bit float neither maps.
+        // Refused by both, under the same variant: a non-finite NUMERIC or float8, and a 32-bit
+        // float neither maps.
         case("SELECT 'NaN'::numeric AS v", Arc::new(StringArray::from(vec!["nan"])), true),
+        case(
+            "SELECT 'Infinity'::numeric AS v",
+            Arc::new(StringArray::from(vec!["inf"])),
+            true,
+        ),
+        case(
+            "SELECT '-Infinity'::numeric AS v",
+            Arc::new(StringArray::from(vec!["-inf"])),
+            true,
+        ),
+        case(
+            "SELECT 'NaN'::float8 AS v",
+            Arc::new(Float64Array::from(vec![f64::NAN])),
+            false,
+        ),
         case("SELECT 1.5::float4 AS v", Arc::new(Float32Array::from(vec![1.5_f32])), false),
     ]
 }
@@ -115,7 +142,12 @@ fn each_mapped_type_reads_the_same_through_both_transports() {
                 assert_eq!(adbc.columns(), tokio.columns(), "{}", case.sql);
                 assert_eq!(adbc.rows(), tokio.rows(), "{}", case.sql);
             }
-            (Err(_), Err(_)) => {}
+            (Err(tokio), Err(adbc)) => assert_eq!(
+                core::mem::discriminant(&adbc),
+                core::mem::discriminant(&tokio),
+                "{}: tokio-postgres {tokio:?}, ADBC {adbc:?}",
+                case.sql
+            ),
             (tokio, adbc) => panic!("{}: tokio-postgres {tokio:?}, ADBC {adbc:?}", case.sql),
         }
     }
@@ -123,8 +155,8 @@ fn each_mapped_type_reads_the_same_through_both_transports() {
 
 #[test]
 fn a_non_finite_numeric_is_the_same_refusal_on_both_transports() {
-    // The refused cases above only agree that both refuse; this one is the same VARIANT, the
-    // `tokio-postgres` path's own, so a caller cannot tell the transports apart by it.
+    // The tier cell above holds the variants equal where a tier runs; this one holds the ADBC half
+    // to the `tokio-postgres` path's variant everywhere.
     let nan = cases()
         .into_iter()
         .find(|case| case.sql.contains("NaN"))
