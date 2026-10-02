@@ -178,8 +178,8 @@ stays a reference for the federation stage rather than becoming a dependency.
 
 The Context section (line 48) said of DuckDB: *it is the only thing in the repository that EXECUTES
 the SQL we render*. Every SQL-speaking adapter now executes what `sutura_sql::generate` renders:
-Postgres (`crates/sutura-exec-postgres/src/lib.rs:50`), ClickHouse
-(`crates/sutura-exec-clickhouse/src/lib.rs:93`), BigQuery (`crates/sutura-exec-bigquery/src/lib.rs:119`)
+Postgres (`crates/sutura-exec-postgres/src/lib.rs:52`), ClickHouse
+(`crates/sutura-exec-clickhouse/src/lib.rs:93`), BigQuery (`crates/sutura-exec-bigquery/src/lib.rs:120`)
 and Oracle (`crates/sutura-exec-oracle/src/lib.rs:74`), beside DuckDB. DuckDB was the only one when
 this was written; it is no longer. **The limit, next to the claim:** Oracle's adapter is linked but
 the repository records no live Oracle execution (`docs/adr/0007`'s Seventh amendment), and the
