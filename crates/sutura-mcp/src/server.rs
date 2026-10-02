@@ -61,7 +61,7 @@
 //! port methods (`dry_run`, `execute`, `execute_raw`) each take a `Deadline` parameter that controls
 //! how long the data system works; where a deadline is honored is the adapter's decision. A question
 //! keeps its slot until the data system answers it, which is exactly why the backlog is a number
-//! somebody chose rather than memory. `Warehouse::dry_run` and `Warehouse::execute` took `Deadline` before `#1144`; `execute_raw` was added by it.
+//! somebody chose rather than memory. `Warehouse::dry_run` and `Warehouse::execute` took `Deadline` before `#1144`; `execute_raw` took it in `#1144`.
 //!
 //! # How long a peer waits for a reply, and what happens when that runs out
 //!
