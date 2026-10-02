@@ -1620,7 +1620,7 @@ needs it is not built.
 `#685` step 5, in the same change. `nix/shipped.nix`'s `sutura` entry now carries `features =
 allFeatures` and `permit = [ "ring" "ureq" ]`; `nativeFor`/`crossFor` read that field for every
 release and release-performance build, native and cross, so every published binary and every
-image over it links `bigquery`, `postgres`, `clickhouse`, `tls`, `datahub` and `agent` together. The Fifteenth
+image over it links `bigquery`, `postgres`, `tls`, `datahub` and `agent` together. The Fifteenth
 amendment's own limit - *"this amendment records the decision; it does not implement it"* - no
 longer holds, and every sentence built on it needs saying so too: `nix/shipped.nix`'s and this
 record's own "the shipped binary carries neither `tls`, `bigquery`, `postgres` nor `datahub`" is
@@ -1807,3 +1807,24 @@ filter was `not (<the other>)` and the two partitioned the tests. The live pairs
 complements, and the gate holds the duplication invariant, not a partition. It compares two literal
 strings; it does not parse nextest filter syntax, and it does not check that a filter selects a real
 test - that is `check-venues`' job for the venue anchors.
+
+## Twenty-second amendment, 2026-10-02: the shipped binary links the ClickHouse adapter
+
+**Status of the amendment: accepted; it records that the Sixteenth amendment's list changed from
+today, and carries no new gate.**
+
+The Sixteenth amendment, dated 2026-09-16, records what `github.com/telekom/sutura#685` step 5
+linked on that date: `bigquery`, `postgres`, `tls`, `datahub` and `agent`, and not `clickhouse` -
+`sutura-cli`'s manifest held that feature out of the release until `github.com/telekom/sutura#955`
+landed. It did, in this PR (`github.com/telekom/sutura#1237`): the `join_use_nulls = 1` fix is now
+sent on every request, proving an outer join's unmatched side comes back `NULL` rather than `''`,
+and `sutura-cli`'s `clickhouse` feature joined `nix/shipped.nix`'s `features` (and, with it,
+`allFeatures` and `probeFeatures`). Every release and release-performance build now links
+`bigquery`, `postgres`, `clickhouse`, `tls`, `datahub`, `openmetadata` and `agent` together - one
+binary, every adapter compiled in, the Fifteenth amendment's decision finally extended to the one
+adapter it once held out.
+
+Recording it as a new dated amendment rather than editing the Sixteenth: that record is dated
+2026-09-16, and a sentence that stops being true about its own date is a trap this record exists to
+avoid. The Sixteenth keeps its original wording; this amendment carries the current state from
+today.

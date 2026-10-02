@@ -59,20 +59,13 @@ bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc"]
 postgres = ["dep:sutura-exec-postgres", "dep:tokio-postgres", "sutura-exec-postgres/adbc"]
 
 # The ClickHouse adapter, over its HTTP interface.
-#
-# Default-off and absent from `nix/shipped.nix`'s published feature list.
+# Default-off for a SOURCE build, and in `nix/shipped.nix`'s `features` like every other adapter.
 # `sutura-exec-clickhouse` depends on `ureq`/`sutura-tls` non-optionally, so this optional edge
-# keeps the adapter and its transport dependencies absent when the feature is off.
-#
-# **It is not in `nix/shipped.nix`'s `features`, `allFeatures` or `probeFeatures`, and that is a
-# decision rather than an omission.** Every other adapter feature is in `features` since
-# `docs/adr/0017`'s Fifteenth amendment - one binary, every adapter compiled in. This one is held
-# back because a correctness fix for the adapter landed at `github.com/telekom/sutura#955`: the
-# adapter measured 6 of 23 parameter-binding corpus questions answering WRONG against the real
-# `clickhouse-server` under ClickHouse's default `join_use_nulls = 0` - an outer join's unmatched
-# side arriving as `''` where the engine says `NULL`. That fix set `join_use_nulls = 1` in
-# `crates/sutura-exec-clickhouse/src/transport.rs` (:477). The feature is shipped via
-# `nix/shipped.nix`'s `probeFeatures`, `allFeatures` and `features` lists.
+# keeps the adapter and its transport out of a build that did not ask for it. It was held out of
+# the release until `github.com/telekom/sutura#955`: under ClickHouse's default
+# `join_use_nulls = 0` an outer join's unmatched side answered `''` where the engine says `NULL`.
+# `JOIN_USE_NULLS` in `request_settings` now asks for `1` on every request, held by
+# `every_request_asks_the_server_for_standard_outer_join_nulls`.
 clickhouse = ["dep:sutura-exec-clickhouse"]
 
 # The Oracle adapter, over Oracle's own pure-Rust driver.
@@ -80,8 +73,9 @@ clickhouse = ["dep:sutura-exec-clickhouse"]
 # **Default-off for the ARTEFACT reason `bigquery` above states**: `optional` keeps the driver and
 # its own `rustls` stack ABSENT from a build that did not ask for it.
 #
-# **Not in `nix/shipped.nix`'s `features`, `allFeatures` or `probeFeatures`, and for `clickhouse`'s
-# kind of reason - measured, not feared.** Asked against `compose.services.yaml`'s real `oracle`
+# **Not in `nix/shipped.nix`'s `features`, `allFeatures` or `probeFeatures`, and for the kind of
+# reason `clickhouse` was once held back - measured, not feared.** Asked against
+# `compose.services.yaml`'s real `oracle`
 # image, every whole-plan question this repository rendered for `Dialect::Oracle` ended in
 # `LIMIT n`, which the server refuses (`ORA-03049`; `github.com/telekom/sutura#127` carries the
 # measurement). It now ends in `FETCH FIRST n ROWS ONLY` - rendered and golden-pinned, and NOT yet

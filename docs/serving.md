@@ -955,8 +955,8 @@ the block above:
 - **`sutura serve` opens it only when built with `--features bigquery`.** A binary without the
   feature refuses the source at startup, naming the feature - a source build with the feature off
   is the only one that still refuses. Every published artefact carries it: `github.com/telekom/
-  sutura#685` step 5 ships the `bigquery` adapter (and `postgres`, `clickhouse`, `tls`, `datahub`,
-  `openmetadata`, `agent`) in every release tarball and image, so opening a dataset needs no
+  sutura#685` step 5, the `bigquery` adapter (and `postgres`, `clickhouse`, `tls`, `datahub`,
+  `openmetadata`, `agent`) is in every release tarball and image, so opening a dataset needs no
   separate build any more.
 - **One process opens one KIND of data system at a time.** A catalog whose models sit on a `files`
   source and a `bigquery` source is refused at startup, naming both entries - the registry a process

@@ -62,9 +62,9 @@
 //!
 //! # What is NOT here
 //!
-//! **No release links this crate.** `sutura-cli` opens a `kind: clickhouse` source behind its
-//! default-off `clickhouse` feature, which `nix/shipped.nix` does not enable - see that feature's
-//! own manifest entry for why.
+//! **Shipped in every release binary since `github.com/telekom/sutura#1237`.** `sutura-cli` opens a
+//! `kind: clickhouse` source behind its default-off `clickhouse` feature, which `nix/shipped.nix`
+//! now enables, once the `github.com/telekom/sutura#955` join-nulls fix landed.
 //!
 //! **No raw-SQL tool support** (`Warehouse::ACCEPTS_RAW_STATEMENTS` stays at its `false` default)
 //! and **no leg execution** (`Warehouse::EXECUTES_LEGS` stays at its `false` default, so
