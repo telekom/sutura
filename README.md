@@ -13,17 +13,21 @@
   <a href="https://scorecard.dev/viewer/?uri=github.com/telekom/sutura"><img src="https://api.scorecard.dev/projects/github.com/telekom/sutura/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
-sutura is an identity-aware, semantics-first data runtime. It answers questions about data **as the
-person or agent asking**, from metric definitions somebody certified, and refuses when it cannot do
-either. The [introduction](docs/index.md) states the design up front; this page is what is built
-today, and it is deliberately shorter than the vision.
+sutura is an identity-aware, semantics-first data runtime. Its design goal is to answer questions
+about data **as the person or agent asking**, from metric definitions somebody certified, and to
+refuse when it cannot do either - but that asking-caller identity is not what runs today. Per
+`AGENTS.md`, Leg 2 (a source executing *as* the caller) is **built and unproven**: the single-player
+demo answers under one **shared source identity**, not the caller's. The [introduction](docs/index.md)
+states the design up front; this page is what is built today, and it is deliberately shorter than
+the vision.
 
 ## What it is
 
 - A **governed question surface**, over HTTP (`sutura serve`) and MCP. A question names a metric,
-  a grain, a bounded range and some dimensions - there is no field for SQL, a table or a row id, so
-  an uncertified question is unrepresentable rather than merely refused. [Serving](docs/serving.md)
-  is the configuration reference.
+  a grain, a bounded range and some dimensions - by default there is no field for SQL, a table or a
+  row id, so an uncertified question is unrepresentable rather than merely refused. A raw `run_sql`
+  tool exists but is **off by default** (ADR 0013): a deployment that enables it over a shared source
+  in multi-user mode is refused at boot. [Serving](docs/serving.md) is the configuration reference.
 - An **engine**: a compiled plan executed locally over [DataFusion](https://datafusion.apache.org/),
   with `polyglot-sql` rendering SQL where a query is pushed down to a data system.
 - **Pluggable metadata and data sources** behind ports. Definitions arrive as a pinned, hashed
@@ -45,8 +49,10 @@ an adapter renders it per dialect. [Concepts](docs/concepts.md) defines the tool
 
 Saying what is absent is as important as what is here:
 
-- **Not a general SQL ORM handed to an agent.** The tool surface is deliberately narrow, and a query
-  that is not certified-defined is refused, not auto-generated.
+- **Not a general SQL ORM handed to an agent.** The certified tool surface is deliberately narrow,
+  and a query that is not certified-defined is refused, not auto-generated. A raw `run_sql` tool is
+  available only **off by default** (ADR 0013) and is refused at boot over a shared source in
+  multi-user mode.
 - **Not an authorization source.** sutura keeps no copy of who may see what; grants, row-level
   policies and masking stay in the data system, where their owners already audit them.
 - **Not a proven end-to-end impersonator.** Leg 2 below is **built and unproven** - do not read this
@@ -55,10 +61,15 @@ Saying what is absent is as important as what is here:
 
 ## What is built today
 
-The query path is built and proven for **one combination**: metadata from a catalogue of markdown
+The query path is built and proven for the local corpus - metadata from a catalogue of markdown
 documents with YAML frontmatter in git, executed by the in-process engine over the CSV or Parquet
-files the deployment points it at. A named metric's declared anchors re-execute before the bundle is
-served, and every outcome goes through an audit sink before it is returned.
+files the deployment points it at. That is the end-to-end-proven combination; the wider adapter
+surface is built to varying depths, not all proven. [Integrations](docs/integrations.md) lists six
+data sources and five metadata adapters, and the inventory in
+[What exists today](docs/architecture.md#what-exists-today) records what each built option actually
+links. A named metric's declared anchors re-execute before the bundle is served, and every outcome
+goes through an audit sink before it is returned - with two limits: sutura retains nothing, and
+behind the shared bearer token the subject recorded is the **deployment**, not the caller.
 
 The served surface is built over that same corpus: `sutura serve` speaks HTTP and MCP, can verify a
 caller's own token where the deployment declares `security.inbound`, and composes each source
@@ -91,8 +102,8 @@ may be cited where. Two legs, proven to different depths:
   adapter can carry a verified caller's assertion through its declared per-subject account map - an
   undeclared subject is refused, never run as the deployment - but the venue that would show two
   subjects resolving to two accounts is **wired with no observed run**. No served binary has
-  executed as a caller yet. Postgres declares `NoPlaceForASubject`: one connection is one shared
-  database role, never an asker's. The served venues are **not built**.
+  executed as a caller. Postgres declares `NoPlaceForASubject`: one connection is one shared
+  database role, never an asker's. The served venues are **not built, by decision**.
 
 The result for a reader: the demo and the single-player corpus read under one shared source
 identity, acknowledged by the operator, so **they prove no caller identity and no source
