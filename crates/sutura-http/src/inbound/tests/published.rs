@@ -10,8 +10,8 @@
 //! So this file uses `sutura_dev::issuer`: a generated key pair per test, a JWK set written to a real
 //! path, and `crate::inbound::keys::FileKeySet` reading it - the one source that ships. The gate is the
 //! real gate and the router is the real router; the only thing shortened is the two windows, through
-//! `crate::inbound::keys::KeySetCache::primed_with_window`, because a test asserting that a window
-//! *reopens* would otherwise have to sleep for a minute.
+//! `crate::inbound::keys::KeySetCache::primed_with_window`, so that "past the window" is a small
+//! distance on the injected instant.
 //!
 //! # Why the issuer lives in another crate
 //!
@@ -53,11 +53,9 @@ use super::{KID, direct_over};
 /// Both, because `KeySetCache::reserve` takes the *shorter* of the pair as its reservation window - so
 /// making them equal keeps a test's arithmetic to one number.
 ///
-/// **A whole second, which is longer than it needs to be and deliberately so.** Two of the tests below
-/// assert what happens *inside* the window, and the shipped value is a minute: the flake shape is a
-/// loaded machine spending longer between two statements than the window allows, and it fails as
-/// *revocation was instant*, which is a confusing thing to debug. The cost of the margin is the two
-/// sleeps below, and a sleep in a suite that runs its tests as processes is wall clock nobody waits on.
+/// The windows act on the instant the test injects: the cache primes at `primed_at` and the gate is
+/// asked at that instant, or at `primed_at + PAST_THE_WINDOW`. No wall time has to pass, so host load
+/// cannot move a call across a window.
 const WINDOW: Duration = Duration::from_secs(1);
 
 /// Comfortably past [`WINDOW`], for the two tests that want the window reopened.
@@ -66,15 +64,18 @@ const PAST_THE_WINDOW: Duration = Duration::from_millis(1400);
 /// A router whose gate reads `published`, over the real file source and the shortened windows.
 fn app_reading(issuer: &MockIssuer, published: &PublishedKeySet) -> axum::Router {
     let settings = settings_with(&direct_overlay(issuer, &published.path().to_string_lossy()));
-    let gate = InboundGate::over(&declared_inbound(&settings), cache_over(published));
+    let gate = InboundGate::over(&declared_inbound(&settings), cache_over(published, Instant::now()));
     serving(bundle(), fake_warehouse(), broker(), settings, Some(gate))
 }
 
 /// A cache over the published file, with both windows shortened to [`WINDOW`].
 ///
 /// `FileKeySet` and not a fake, which is the whole point of this module: what a rotation has to change
-/// is the thing the shipped source reads.
-fn cache_over(published: &PublishedKeySet) -> KeySetCache {
+/// is the thing the shipped source reads. The injected instant matters only for the two gate cells,
+/// `a_forged_key_id` and `a_key_removed`, which prime here and re-ask the gate at that instant or
+/// past it; the router-driven cells still use the wall clock - `app_reading` passes `Instant::now()`,
+/// so "past the window" there is a wall-clock distance.
+fn cache_over(published: &PublishedKeySet, primed_at: Instant) -> KeySetCache {
     let declaration = direct_over(&published.path().to_string_lossy());
     let requirement = declaration.requirement();
     KeySetCache::primed_with_window(
@@ -83,15 +84,18 @@ fn cache_over(published: &PublishedKeySet) -> KeySetCache {
         requirement.algorithms().to_string(),
         WINDOW,
         WINDOW,
-        Instant::now(),
+        primed_at,
     )
     .expect("a published key set primes a cache")
 }
 
 /// A gate over the published file, for the two tests that assert on the typed refusal rather than on a
 /// status code. The gate and not the router, because `TokenRejected` does not survive the `401`.
-fn gate_reading(published: &PublishedKeySet) -> InboundGate {
-    InboundGate::over(&direct_over(&published.path().to_string_lossy()), cache_over(published))
+fn gate_reading(published: &PublishedKeySet, primed_at: Instant) -> InboundGate {
+    InboundGate::over(
+        &direct_over(&published.path().to_string_lossy()),
+        cache_over(published, primed_at),
+    )
 }
 
 /// One question through the real router, carrying `token` if there is one.
@@ -202,13 +206,14 @@ async fn a_key_removed_from_the_published_set_stops_verifying_within_the_bound()
         .also_holding("being-retired", Curve::P256)
         .expect("a second key pair generates");
     let published = PublishedKeySet::of(&issuer, "rotation").expect("the key set publishes");
-    let gate = gate_reading(&published);
+    let primed = Instant::now();
+    let gate = gate_reading(&published, primed);
 
     let token = issuer
         .mint(&accepted_by("someone@example.com").signed_by("being-retired"))
         .expect("the issuer signs with the key being retired");
     assert!(
-        gate.establish(&bearer(&token), Instant::now()).await.is_ok(),
+        gate.establish(&bearer(&token), primed).await.is_ok(),
         "a published key verifies"
     );
 
@@ -221,13 +226,12 @@ async fn a_key_removed_from_the_published_set_stops_verifying_within_the_bound()
     // an id the deployment holds, so nothing else would trigger a re-read, which is exactly why the age
     // bound exists.
     assert!(
-        gate.establish(&bearer(&token), Instant::now()).await.is_ok(),
+        gate.establish(&bearer(&token), primed).await.is_ok(),
         "inside the age bound the cached key is still in use - which is what the bound is for"
     );
 
-    tokio::time::sleep(PAST_THE_WINDOW).await;
     let refused = gate
-        .establish(&bearer(&token), Instant::now())
+        .establish(&bearer(&token), primed + PAST_THE_WINDOW)
         .await
         .expect_err("past the age bound the retired key verifies nothing");
     assert!(
@@ -246,7 +250,7 @@ async fn a_key_removed_from_the_published_set_stops_verifying_within_the_bound()
         .mint(&accepted_by("someone@example.com").signed_by(KID))
         .expect("the issuer signs with the key that stayed");
     assert!(
-        gate.establish(&bearer(&survivor), Instant::now()).await.is_ok(),
+        gate.establish(&bearer(&survivor), primed + PAST_THE_WINDOW).await.is_ok(),
         "the key that was not retired still verifies"
     );
 }
@@ -265,7 +269,8 @@ async fn a_forged_key_id_does_not_make_this_deployment_read_the_published_set() 
     published
         .rotate_to(&issuer.key_set_without("rotated-in"))
         .expect("the key set is republished without the new key");
-    let gate = gate_reading(&published);
+    let primed = Instant::now();
+    let gate = gate_reading(&published, primed);
 
     // The key arrives in the published document immediately after priming, so the only thing standing
     // between the caller and a successful verification is the window.
@@ -275,7 +280,7 @@ async fn a_forged_key_id_does_not_make_this_deployment_read_the_published_set() 
         .expect("the issuer signs with the key just published");
 
     let refused = gate
-        .establish(&bearer(&token), Instant::now())
+        .establish(&bearer(&token), primed)
         .await
         .expect_err("inside the window the deployment does not look");
     assert!(
@@ -290,9 +295,8 @@ async fn a_forged_key_id_does_not_make_this_deployment_read_the_published_set() 
 
     // Past the window it looks once, finds the key, and the same token verifies. Which is the other
     // half: a bound that never reopened would be an outage on every rotation.
-    tokio::time::sleep(PAST_THE_WINDOW).await;
     assert!(
-        gate.establish(&bearer(&token), Instant::now()).await.is_ok(),
+        gate.establish(&bearer(&token), primed + PAST_THE_WINDOW).await.is_ok(),
         "past the window the newly published key is picked up"
     );
 }

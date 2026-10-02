@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-bounded-read/src/read.rs b/crates/sutura-bounded-read/src/read.rs
+index 3855915e2..4a55a1e9d 100644
+--- a/crates/sutura-bounded-read/src/read.rs
++++ b/crates/sutura-bounded-read/src/read.rs
+@@ -97,7 +97,6 @@ pub enum ReadError {
+ /// budget left; [`ReadError::Io`] for the read itself or a failed UTF-8 conversion.
+ pub fn read_document(root: &Path, path: &Path, total_bytes: u64) -> Result<String, ReadError> {
+     let flags = rustix::fs::OFlags::RDONLY
+-        .union(rustix::fs::OFlags::NOFOLLOW)
+         .union(rustix::fs::OFlags::NONBLOCK)
+         .union(rustix::fs::OFlags::CLOEXEC);
+     let fd = rustix::fs::open(path, flags, rustix::fs::Mode::empty()).map_err(|cause| ReadError::Open {
