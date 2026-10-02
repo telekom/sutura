@@ -345,10 +345,10 @@ fn result_error_types(line: &str) -> Vec<&str> {
 /// Is this an owned or borrowed string in an error position - `String`, `&str` (with or without
 /// a lifetime), or `Cow<_, str>`?
 ///
-/// Does not reach `Box<dyn Error>`: four sites in `sutura-exec-postgres` are `tokio_postgres`
-/// `FromSql`/`ToSql` signatures where that shape is the only legal one, and two more are inside
-/// `//!` doc comments this scan does not blank. A gate wide enough to catch those would refuse
-/// code it cannot fix, which is how a gate gets switched off rather than obeyed.
+/// Does not reach `Box<dyn Error>`. Its reason was four `tokio_postgres` `FromSql`/`ToSql`
+/// signatures in `sutura-exec-postgres`, where that shape is the only legal one; they went with
+/// that transport (`#913`). The two left are inside `//!` doc comments this scan does not blank,
+/// so the exclusion now rests on no live site.
 fn is_stringly(error: &str) -> bool {
     error == "String" || error.ends_with("::String") || is_str_reference(error) || is_cow_of_str(error)
 }
@@ -813,8 +813,7 @@ mod tests {
 
     #[test]
     fn a_boxed_dyn_error_is_not_widened_into() {
-        // The one legal shape for a `tokio_postgres` `FromSql`/`ToSql` impl, and the widening's
-        // documented limit: this gate does not, and must not, reach it.
+        // The widening's documented limit: this gate does not reach a boxed trait-object error.
         assert!(
             stringly_error_violations("x.rs", "fn f() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {}\n").is_empty(),
             "a boxed trait-object error is not stringly"

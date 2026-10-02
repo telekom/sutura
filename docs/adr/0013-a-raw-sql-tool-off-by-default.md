@@ -628,3 +628,21 @@ process's own heap rather than the server's work; and the wait for `execution_lo
 the deadline - a caller queued behind a slow statement can arrive already spent, refused locally as
 `DeadlineSpent` rather than sent to the server, the identical limit `run_with_deadline` already
 carries. `telekom/sutura#1144` is closed by this change; nothing else this record tracks moved.
+
+## Fourth amendment, 2026-10-02: the raw tool no longer shares a lock-serialized connection
+
+`github.com/telekom/sutura#913` answers every Postgres source over the ADBC driver, so the shared
+client and `PostgresWarehouse::execution_lock` the second amendment pinned are gone, and with them
+two items of the third amendment's *What is NOT changed*: the raw tool no longer shares one
+lock-serialized connection with the certified path - each call opens its own connection and rolls
+back its own transaction - and no caller queues behind another's statement. The three properties
+hold on the new transport: one statement the server parses (it refuses a second at `Parse`),
+`SET TRANSACTION READ ONLY` beside `SET LOCAL statement_timeout` in a transaction the driver opens
+and this adapter always rolls back, and a stream read no further than `MAX_ROWS` plus one.
+
+What replaces the lock wait as the unbounded part is loading the driver and connecting, per call
+and before the deadline is applied: they spend the budget, a budget spent by then is refused
+locally as `DeadlineSpent`, and nothing stops a connect that hangs - no `connect_timeout` is
+written. The protocol claims above (`tokio_postgres::Client::query`/`query_raw`, never
+`batch_execute`; `connect_secured`) describe the deleted client; the ADBC path's are in
+`crates/sutura-exec-postgres/src/adbc/session.rs`'s header.

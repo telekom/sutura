@@ -429,7 +429,8 @@
         # check POINTS AT, never the declaration.
         shipped = import ./nix/shipped.nix {
           inherit pkgs nixpkgs system crane rust-overlay craneLib commonArgs
-            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers postgresTier;
+            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers postgresTier
+            wholeTree;
           inherit (commonArgs) version;
         };
 

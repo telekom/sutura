@@ -1807,3 +1807,12 @@ filter was `not (<the other>)` and the two partitioned the tests. The live pairs
 complements, and the gate holds the duplication invariant, not a partition. It compares two literal
 strings; it does not parse nextest filter syntax, and it does not check that a filter selects a real
 test - that is `check-venues`' job for the venue anchors.
+
+## Twenty-second amendment, 2026-10-02: the Postgres importer this record compares against moved
+
+*The importer, and the two decisions in it worth a record* opens with `#78`'s
+`PostgresWarehouse::load_csv` and its `COPY ... FROM STDIN`. Both went with the tokio-postgres
+transport (`github.com/telekom/sutura#913`): the fixture-only
+`sutura_exec_postgres::adbc::AdbcPostgres::load_csv` infers the same per-column types, recreates
+the table, and carries the rows inside an `INSERT`, since the ADBC driver has no `COPY FROM
+STDIN`. The BigQuery decisions that section records are unchanged.

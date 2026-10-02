@@ -538,3 +538,12 @@ and one per manifest list, of which there are two. There were four lists, one pa
 binary, before `github.com/telekom/sutura#685` step 2 folded `sutura-serve` into `sutura-cli`, and
 the action's own comment above the manifest-list step says so. `cargo xtask collect-provenance`
 refuses anything but three bundles (`xtask/src/release_provenance.rs`).
+
+## Fourth amendment, 2026-10-02: the probe's sink is no longer a call this tree makes
+
+The second amendment's sink, `<tokio_postgres::client::Client>::prepare`, was "the call this tree
+actually makes". Since `github.com/telekom/sutura#913` it is not: the Postgres adapter runs its
+statements through the ADBC driver and holds no `tokio_postgres::Client`, and the one
+tokio-postgres client left, the RDBMS catalog reader, calls `Transaction::query_raw`. So that
+probe measured a sink the tree no longer reaches, and its `Arc` warning has no field left to apply
+to. The probe was not rerun against the new transport.

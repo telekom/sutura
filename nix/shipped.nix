@@ -35,6 +35,8 @@
 , postgresAdbcDrivers
 # The Postgres tier (`nix/postgres-tier.nix`), started inside `linkedDriversTests`' tier run.
 , postgresTier
+# `flake.nix`'s `wholeTree`, for the tier run's test build - see `linkedDriversTests`.
+, wholeTree
 , version
 }:
 
@@ -137,8 +139,8 @@ let
       # THE FEATURE-ON LINK PROBE LIST, for `featurePackages` below - one build per feature at
       # the `ci` profile, per release triple, so a feature that stops linking on a musl triple
       # fails on its own rather than only inside the all-features build. `bigquery` and `postgres`
-      # each pull `ureq`/`tokio-postgres-rustls` -> rustls -> `ring`, which compiles C and
-      # assembly - the two musl triples are the answer worth having per feature.
+      # each link a C driver archive (`adbcArchiveFor`) - the two musl triples are the answer worth
+      # having per feature.
       #
       # `tls`, `datahub`, `openmetadata` and `agent` are not probed individually: none of the four
       # ever had a documented single-feature source build to hold a `<bin>-<feature>-<triple>-ci`
@@ -343,7 +345,10 @@ let
       # its static OpenSSL and the driver's Arrow mapping answer real statements, not a fake.
       # `PostgresDriver::from_host` takes the linked route because the archive is linked; no `.so` is in
       # reach. What it does not cover: the release profile's LTO and stripping (this is `ci`), and
-      # the aarch64 musl triple, which no builder here can run.
+      # the aarch64 musl triple, which no builder here can run. The test build reads `wholeTree`, its
+      # deps-only build the filtered source: `sutura_dev::provisioned::worktree_root` needs a
+      # `flake.nix` beside the root `Cargo.toml`, which the filtered source drops - and without it
+      # every tier cell panics "`postgres` is not reachable" before running a statement.
       pgArgs = args // adbcArchiveFor target // {
         pname = "sutura-exec-postgres-linked";
         cargoExtraArgs = "--package sutura-exec-postgres --features fixtures --target ${target}";
@@ -358,7 +363,7 @@ let
         '';
         installPhaseCommand = "install -Dm644 linked.log $out/linked.log";
       });
-      "adbc-postgres-tier-${target}-test" = crossLib.mkCargoDerivation (pgArgs // inheritedArtifacts (crossLib.buildDepsOnly (pgArgs // { doCheck = true; })) // {
+      "adbc-postgres-tier-${target}-test" = crossLib.mkCargoDerivation (pgArgs // { src = wholeTree; } // inheritedArtifacts (crossLib.buildDepsOnly (pgArgs // { doCheck = true; })) // {
         doInstallCargoArtifacts = false;
         nativeBuildInputs = (pgArgs.nativeBuildInputs or [ ]) ++ [ postgresTier.tier ];
         SUTURA_DEV_REQUIRE_TIER = "1";
@@ -367,7 +372,7 @@ let
           sutura-postgres-tier start
           eval "$(sutura-postgres-tier credentials)"
           status=0
-          cargoWithProfile test ${pgArgs.cargoExtraArgs} --test conformance --test raw --test deadline --test tls --test types -- --nocapture 2>&1 | tee tier.log || status=$?
+          cargoWithProfile test ${pgArgs.cargoExtraArgs} --no-fail-fast --test conformance --test raw --test deadline --test tls --test types -- --nocapture 2>&1 | tee tier.log || status=$?
           sutura-postgres-tier stop
           exit "$status"
         '';
