@@ -28,8 +28,15 @@ const ACCESS_TOKEN: &str = "urn:ietf:params:oauth:token-type:access_token";
 ///
 /// The origin is held to [`Endpoint::parse`]'s scheme rule; unlike an [`Endpoint`] it keeps its
 /// path, and it refuses a query, a fragment and a `user[:pass]@` authority.
+///
+/// **A loopback endpoint is dialled directly, never through a proxy the agent carries** (the
+/// shared agent takes one from the environment); nothing on loopback needs one. Any other host keeps
+/// the agent's proxy, which an identity provider behind an egress proxy needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TokenEndpoint(String);
+pub struct TokenEndpoint {
+    url: String,
+    loopback: bool,
+}
 
 impl TokenEndpoint {
     /// # Errors
@@ -51,13 +58,17 @@ impl TokenEndpoint {
             uri.scheme_str().unwrap_or_default(),
             uri.authority().map_or("", |authority| authority.as_str())
         ))?;
-        Ok(Self(format!("{}{}", origin.as_str(), uri.path())))
+        let host = uri.host().unwrap_or_default().trim_start_matches('[').trim_end_matches(']');
+        Ok(Self {
+            url: format!("{}{}", origin.as_str(), uri.path()),
+            loopback: sutura_domain::source::host_is_loopback(host),
+        })
     }
 
     #[inline]
     #[must_use]
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.url
     }
 }
 
@@ -139,15 +150,17 @@ impl DelegationExchange for OverHttp {
             ("client_id", self.client.id.as_str()),
             ("client_secret", self.client.secret.expose_secret()),
         ];
-        let mut response = self
-            .agent
-            .current()
+        let agent = self.agent.current();
+        let request = agent
             .post(self.endpoint.as_str())
             .config()
-            .timeout_global(Some(Budget::socket(self.bounds.timeout())))
-            .build()
-            .send_form(form)
-            .map_err(unreachable)?;
+            .timeout_global(Some(Budget::socket(self.bounds.timeout())));
+        let request = if self.endpoint.loopback {
+            request.proxy(None)
+        } else {
+            request
+        };
+        let mut response = request.build().send_form(form).map_err(unreachable)?;
         let cap = self.bounds.max_response_bytes();
         let text = response
             .body_mut()

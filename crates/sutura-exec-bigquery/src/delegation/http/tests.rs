@@ -270,3 +270,34 @@ fn a_client_id_no_form_can_carry_is_refused() {
     let client = ExchangeClient::new("https://sutura.example.com", Secret::new(CLIENT_SECRET)).expect("parses");
     assert!(!format!("{client:?}").contains(CLIENT_SECRET), "{client:?}");
 }
+
+#[test]
+fn a_loopback_token_endpoint_is_dialled_directly_whatever_proxy_the_agent_carries() {
+    // The shared agent takes its proxy from the environment; this agent is given one explicitly so
+    // the cell does not depend on (or mutate) the process environment.
+    let proxy = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port is free");
+    let proxied = format!("http://{}", proxy.local_addr().expect("a bound listener has an address"));
+    let agent = ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .max_redirects(0)
+            .proxy(Some(ureq::Proxy::new(&proxied).expect("a proxy URL parses")))
+            .build(),
+    );
+    let server = FakeServer::start(vec![Scripted::ok(&issued(&good_token()))]);
+    let bounds = ReadBounds::parse(2, 64 * 1024).expect("test bounds are nonzero");
+    let exchange = OverHttp::new(
+        TokenEndpoint::parse(&format!("{}/token", server.endpoint())).expect("a loopback endpoint parses"),
+        ExchangeClient::new("https://sutura.example.com", Secret::new(CLIENT_SECRET)).expect("a client id parses"),
+        sutura_tls::Rotating::fixed(agent),
+        bounds,
+    );
+    let exchanged = exchange.exchange(&Secret::new(SUBJECT_TOKEN), &audience());
+    proxy.set_nonblocking(true).expect("the listener can be polled");
+    assert!(
+        proxy.accept().is_err(),
+        "the loopback token endpoint was dialled through the proxy"
+    );
+    drop(exchanged.expect("the exchange reached the loopback endpoint directly"));
+    assert_eq!(server.finish().len(), 1);
+}

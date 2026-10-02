@@ -1559,6 +1559,10 @@ The identity provider's token endpoint: `https://` to any host, `http://` to an 
 The origin is held to `Endpoint::parse`'s scheme rule; unlike an `Endpoint` it keeps its
 path, and it refuses a query, a fragment and a `user[:pass]@` authority.
 
+**A loopback endpoint is dialled directly, never through a proxy the agent carries** (the
+shared agent takes one from the environment); nothing on loopback needs one. Any other host keeps
+the agent's proxy, which an identity provider behind an egress proxy needs.
+
 ##### Methods
 
 ```rust
