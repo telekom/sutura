@@ -852,5 +852,7 @@ check, and the three named corpus cases bound on the one `sutura-exec-datafusion
 on every registered data system. None of those was the pack-selecting declaration this bullet's row
 was about. The metadata half this same bullet tracks is not in the 'decided and not built' column:
 the second metadata connector, the assembler and the contribution manifest are built. The catalog
-crates ship, the assembler is application code over `SemanticCatalog` ports, and the first amendment -
-mirrored by this record's status line - records the manifest in `PinnedDefinitions::pin`.
+crates ship, except `sutura-catalog-rdbms`, which only a build linking the default-off `rdbms` feature
+opens (the fifth amendment above); the assembler is application code over `SemanticCatalog` ports,
+and the first amendment - mirrored by this record's status line - records the manifest in
+`PinnedDefinitions::pin`.
