@@ -181,6 +181,13 @@ pub enum PostgresError {
     /// check.
     #[error("the deadline was already spent by the time the connection's lock was acquired")]
     DeadlineSpent,
+    /// The ADBC transport's own failure; its refusals before any SQL are the variants above.
+    #[cfg(feature = "adbc")]
+    #[error("the ADBC transport could not answer")]
+    Adbc {
+        #[source]
+        cause: crate::adbc::AdbcError,
+    },
     /// The credential broker handed this adapter subject material it has nowhere to put.
     #[error(
         "source `{at}` was handed {presented}, and this adapter has nowhere for a subject's own \
@@ -494,23 +501,9 @@ impl PostgresWarehouse {
         })
     }
 
-    /// Refuses credential material this adapter has nowhere to put, then checks the presented leg
-    /// against how this source was DECLARED - the two questions `docs/adr/0008` part 4 names apart.
-    /// Called by both port methods that take a credential, so the pre-flight cannot disagree with
-    /// the run about what this adapter accepts.
+    /// [`deliverable`] for this connection's source and posture.
     fn deliverable(&self, presented: &Presented) -> Result<(), PostgresError> {
-        match *presented {
-            Presented::SharedServiceUser { .. } => {}
-            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } => {
-                return Err(PostgresError::NoPlaceForASubject {
-                    at: String::from(self.source.as_str()),
-                    presented: presented.as_str(),
-                });
-            }
-        }
-        presented
-            .agrees_with(&self.posture, &self.source)
-            .map_err(|cause| PostgresError::PresentedDisagreesWithPosture { cause })
+        deliverable(&self.source, &self.posture, presented)
     }
 
     fn render(executable: Executable<'_>) -> Result<GeneratedQuery, PostgresError> {
@@ -724,6 +717,29 @@ fn parse_statement_timeout(raw: &str) -> Result<u32, PostgresError> {
         ceiling: u32::MAX,
         cause,
     })
+}
+
+/// Refuses credential material this adapter has nowhere to put, then checks the presented leg
+/// against how this source was DECLARED - the two questions `docs/adr/0008` part 4 names apart.
+/// Called by every port method that takes a credential, on both transports, so neither the
+/// pre-flight and the run nor `tokio-postgres` and ADBC can disagree about what is accepted.
+pub(crate) fn deliverable(
+    source: &sutura_domain::model::SourceName,
+    posture: &sutura_domain::source::SourcePosture,
+    presented: &Presented,
+) -> Result<(), PostgresError> {
+    match *presented {
+        Presented::SharedServiceUser { .. } => {}
+        Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } => {
+            return Err(PostgresError::NoPlaceForASubject {
+                at: String::from(source.as_str()),
+                presented: presented.as_str(),
+            });
+        }
+    }
+    presented
+        .agrees_with(posture, source)
+        .map_err(|cause| PostgresError::PresentedDisagreesWithPosture { cause })
 }
 
 impl Warehouse for PostgresWarehouse {

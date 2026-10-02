@@ -628,3 +628,36 @@ process's own heap rather than the server's work; and the wait for `execution_lo
 the deadline - a caller queued behind a slow statement can arrive already spent, refused locally as
 `DeadlineSpent` rather than sent to the server, the identical limit `run_with_deadline` already
 carries. `telekom/sutura#1144` is closed by this change; nothing else this record tracks moved.
+
+## Fourth amendment, 2026-10-02: the raw SQL tool is built and served, and all four prerequisites are spent
+
+The third amendment established that `execute_raw` carries the per-request `Deadline` and that
+`#1144` is closed. Two present-tense statements this record's body still makes about the raw
+tool's build state are now false, and are left in place because each was true when written. This
+block corrects them; the lines above it are older than the state they describe.
+
+**The status line** (line 8) still reads *accepted, scheduled LAST, amended 2026-09-13, and closed
+2026-09-14*, and only one token of it is now stale. **`scheduled LAST` no longer applies**: the raw
+SQL tool this record describes is built and reachable through the served surface, off by default
+behind `tools.run_sql.enabled` (`Tool::RunSql` is added to the advertised list only when it is set,
+`crates/sutura-cli/src/commands.rs`), and `Surface::run_sql` is a real driving port - so it is no
+longer merely *scheduled*. The rest of the line stands as written: the build is already recorded
+here via PR1 (`#666`), and this amendment retires the scheduling claim only.
+
+**Lines 329-330** said *three of the four are now spent, and the remaining one is what the row is
+blocked on*. All four prerequisites are now spent. The fourth to land was prerequisite 2 - an
+execution port that can cancel - which `#1144`/`#1162` delivered to the raw path: `execute_raw`
+takes the same per-request `Deadline` `Warehouse::execute` does, and `PostgresWarehouse::run_raw`
+re-checks the budget and derives `SET LOCAL statement_timeout` from what is left of it. The other
+three were already spent by the earlier amendments and the code that landed with PR1 (`#666`): the
+separate outcome type (`RawOutcome` with no `Provenance`), the scope gate with tool advertisement
+filtered by it (`run_sql` off by default, listed only when enabled), and the read-only story per
+mode (the `BEGIN READ ONLY`/`ROLLBACK` wrapper and the multi-user boot refusal).
+
+**Retained, unchanged:** the per-request cancellation/deadline limit the third amendment recorded
+holds exactly as it wrote it - the connect-time `statement_timeout` remains the outer ceiling a
+request's own budget may only narrow, the `DeadlineExceeded { budget_seconds }` refusal arm
+mirrors the certified path's, and the residual limits of that amendment's *What is NOT changed*
+block (the shared lock-serialized connection, the heap-bound row cap, and the `execution_lock`
+wait itself falling outside the deadline) stand. This amendment corrects what is built; it does not
+move any decision this record made.

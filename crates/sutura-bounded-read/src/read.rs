@@ -22,8 +22,9 @@
 //! not be caught by any swap-timing test here - the window between two back-to-back opens is
 //! sub-microsecond, well under what even a multi-millisecond swap test can land reliably (measured
 //! across 3 separate `just test` runs against that mutation, before this crate existed). The gate
-//! refuses a path-based `std::fs` read in this crate and the three catalogs outside `walk`'s
-//! `read_dir`; a second `rustix::fs::open` or an aliased read escapes that text scan.
+//! refuses a path-based `std::fs` read in this crate and in every `crates/sutura-catalog-*` crate,
+//! outside the registered reads: `walk`'s `read_dir` and `sutura-catalog-wren`'s offline import. A
+//! second `rustix::fs::open` or a read through a renamed import escapes that text scan.
 //!
 //! The refusal paths and their exact reach are [`read_document`]'s contract; a caller maps its
 //! [`ReadError`] into its own error enum, keeping its variants and rendered messages.
@@ -268,6 +269,26 @@ mod tests {
         assert!(
             matches!(err, ReadError::NotARegularFile { path: ref p } if *p == path),
             "expected NotARegularFile naming {}, got {err:?}",
+            path.display(),
+        );
+        drop(std::fs::remove_dir_all(&root));
+    }
+
+    /// A symlink at a document path - what a swap between the walk's listing and the open leaves
+    /// behind - is refused at the open with `ELOOP` and never followed to its target, which is
+    /// outside the walk.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_at_a_document_path_is_refused_at_the_open_not_followed() {
+        let root = scratch("symlink");
+        let target = root.join("outside.yaml");
+        std::fs::write(&target, "a document the walk never listed").expect("a target is writable");
+        let path = root.join("doc.yaml");
+        std::os::unix::fs::symlink(&target, &path).expect("a symlink is creatable");
+        let err = super::read_document(&root, &path, 0).expect_err("a symlink is not followed");
+        assert!(
+            matches!(err, ReadError::Open { path: ref p, cause } if *p == path && cause == rustix::io::Errno::LOOP),
+            "expected Open(ELOOP) naming {}, got {err:?}",
             path.display(),
         );
         drop(std::fs::remove_dir_all(&root));

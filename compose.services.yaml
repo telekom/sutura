@@ -521,7 +521,8 @@ services:
     #   the shape of. A `checks.*` derivation has no docker socket and no network, so there is
     #   nothing there for it to bring up.
     # Converges: the `oracle-tier` CI job (`ci.yml`), through `nix run .#oracle-acceptance`, which
-    #   runs the one `#[ignore]`d acceptance cell against this service. A green `just validate`
+    #   runs the `#[ignore]`d acceptance cell and `sutura-catalog-rdbms`'s live dictionary cells
+    #   against this service. A green `just validate`
     #   says nothing about a live Oracle: its nix sandbox has no docker socket. NO golden-matrix
     #   cell reaches it either: `DataSystemUnderTest for OracleWarehouse` answers `available()`
     #   FALSE unconditionally, and `crates/sutura-app/tests/adapters/adapters.rs` carries the two

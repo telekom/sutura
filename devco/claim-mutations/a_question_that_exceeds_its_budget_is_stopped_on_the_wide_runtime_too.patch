@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-datafusion/src/lib.rs b/crates/sutura-exec-datafusion/src/lib.rs
+index 02a4ab06d..918fdcaab 100644
+--- a/crates/sutura-exec-datafusion/src/lib.rs
++++ b/crates/sutura-exec-datafusion/src/lib.rs
+@@ -733,7 +733,7 @@ impl Warehouse for DataFusionWarehouse {
+         // Built INSIDE this `async move`, not handed to `block_on` directly: a `Sleep` registers on
+         // CONSTRUCTION, before `block_on`'s own argument is even evaluated - measured as a panic.
+         self.runtime()?
+-            .block_on(async move { tokio::time::timeout(remaining, rows).await })
++            .block_on(async move { tokio::time::timeout(remaining.saturating_add(std::time::Duration::from_secs(60)), rows).await })
+             .map_err(|_elapsed| DataFusionError::DeadlineExceeded { budget })?
+     }
+ 
