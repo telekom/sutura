@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http/src/inbound/gate.rs b/crates/sutura-http/src/inbound/gate.rs
+index 12b359961..840f4a3fa 100644
+--- a/crates/sutura-http/src/inbound/gate.rs
++++ b/crates/sutura-http/src/inbound/gate.rs
+@@ -310,7 +310,7 @@
+     );
+     let mut response = Failure::Unauthorized.into_response();
+     if let Some(challenge) = gate.challenge(request_uri, headers) {
+-        challenged(&mut response, &challenge);
++        challenged(&mut response, &format!("{challenge}, error_description=\"{rejected}\""));
+     }
+     response
+ }
