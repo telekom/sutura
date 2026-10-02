@@ -56,5 +56,9 @@ sutura-dev = { workspace = true }
 name = "provisioned"
 required-features = ["live"]
 
+[[test]]
+name = "oracle_provisioned"
+required-features = ["live"]
+
 [lints]
 workspace = true

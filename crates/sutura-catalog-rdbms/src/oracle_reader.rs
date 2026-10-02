@@ -17,8 +17,9 @@
 //! # The limits, next to the claims
 //!
 //! - **No live Oracle run is observed or cited.** No venue that runs `just validate` reaches an
-//!   Oracle server (`compose.services.yaml`'s `oracle` row says why, and why no Rust cell reaches
-//!   that tier). The unit cells prove the constructor refusals, the rendered statement, the flag
+//!   Oracle server (`compose.services.yaml`'s `oracle` row says why). The live cells in
+//!   `tests/oracle_provisioned.rs` exist and the `oracle-tier` CI job runs them; until a run of
+//!   them is cited here, the unit cells prove the constructor refusals, the rendered statement, the flag
 //!   decode, and a golden of the dictionary assembled from positional values handed to the
 //!   decoder - never a read. The driver cannot build a row outside a session, so the cursor, the
 //!   transaction and the driver's own type conversion stay unexercised.
