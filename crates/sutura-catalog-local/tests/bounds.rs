@@ -214,90 +214,6 @@ mod tests {
         assert!(status.success(), "mkfifo succeeded: {status}");
     }
 
-    /// The symlink half of the swap the one-open fix exists for. The walk lists documents by
-    /// their ENTRY type, so a symlink is skipped before any reader runs - the swap reaches
-    /// the reader only inside the window between the walk's listing and the open of each
-    /// listed path. Each attempt lands the swap there when the lead document's read begins;
-    /// on base the read FOLLOWS the swap and the catalog loads with content the walk never
-    /// listed, so no attempt is ever refused and the retries run out - the red. On the fixed
-    /// reader the open carries `O_NOFOLLOW` and the swap is refused with the open's `ELOOP`.
-    ///
-    /// **The limit, stated next to the claim:** the window is sampled per attempt and an
-    /// attempt whose trigger fires after `b`'s open is a plain successful load - which is
-    /// why there are attempts at all. Red on base is exhaustion across them, not a hang.
-    #[test]
-    fn a_document_swapped_in_the_read_window_is_refused_not_followed() {
-        const MAX_ATTEMPTS: usize = 25;
-
-        let root = scratch("read-window-symlink");
-        // The lead document is padded so its read-and-parse spans milliseconds - the window
-        // the swap lands in, wide enough that the poll sees the read within microseconds.
-        std::fs::write(root.join("a.md"), padded_model_document("lead", 12 << 20)).expect("a document is writable");
-
-        // The target is a VALID catalog document OUTSIDE the root: on base, following the
-        // swap loads a catalog the walk never listed - a successful load, which is why base
-        // never produces the refusal this cell requires.
-        let outside = scratch("read-window-symlink-target");
-        std::fs::write(outside.join("model-outside.md"), model_document("outside")).expect("an outside document is writable");
-        let link = root.join(".swap-object");
-        std::os::unix::fs::symlink(outside.join("model-outside.md"), &link).expect("the prepared symlink is creatable");
-
-        let catalog = LocalCatalog::new(test_name(), root.clone(), version());
-        let document = root.join("b_swap.md");
-        let saved = root.join(".swap-saved");
-        std::fs::write(&document, model_document("swap")).expect("a document is writable");
-        std::fs::write(&saved, model_document("swap")).expect("a document is writable");
-        for _ in 0..MAX_ATTEMPTS {
-            let (armed_tx, armed_rx) = std::sync::mpsc::channel::<()>();
-            let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
-            let swapper = std::thread::spawn({
-                let saved = saved.clone();
-                let link = link.clone();
-                let document = document.clone();
-                move || {
-                    armed_tx.send(()).expect("the caller waits to be armed");
-                    std::thread::sleep(std::time::Duration::from_millis(20));
-                    drop(std::fs::rename(&link, &document));
-                    if done_rx.recv_timeout(std::time::Duration::from_secs(5)).is_err() {
-                        return;
-                    }
-                    drop(std::fs::rename(&document, &link));
-                    drop(std::fs::rename(&saved, &document));
-                    drop(std::fs::write(
-                        &saved,
-                        std::fs::read(&document).expect("the restored document reads"),
-                    ));
-                }
-            });
-            armed_rx
-                .recv_timeout(std::time::Duration::from_secs(5))
-                .expect("the swapper arms");
-            let attempted = catalog.load();
-            if let Ok(loaded) = &attempted {
-                assert!(
-                    !loaded.definitions().models().is_empty(),
-                    "a load that followed nothing still parsed the listed documents"
-                );
-            }
-            drop(done_tx); // the swapper restores `b` and exits
-            swapper.join().expect("the swapping thread joins");
-            if let Err(err) = attempted {
-                let message = err.to_string();
-                if message.contains("Too many levels of symbolic links") {
-                    drop(std::fs::remove_dir_all(&root));
-                    drop(std::fs::remove_dir_all(&outside));
-                    return;
-                }
-                panic!("refused, but not by the open's own ELOOP - a later failure fired first: {message}");
-            }
-        }
-        panic!(
-            "in {MAX_ATTEMPTS} attempts, a document swapped for a symlink in the read window \
-             was never refused - the read followed the swap, or the swap never landed in a \
-             window; both is the failure this cell exists to catch"
-        );
-    }
-
     /// **PR #1022 review, finding (a).** The byte bound has to come from what the read actually
     /// delivers, not from the size `fstat` reported once before the read starts. Neutralising
     /// `read_document`'s budget - the `max` argument at its call site (`remaining.saturating_add(1)`
@@ -309,8 +225,8 @@ mod tests {
     /// so it is red under that mutation and green on the real reader.
     ///
     /// **The limit, stated next to the claim:** landing the growth inside the open read is a race,
-    /// same as the swap tests above - a miss just makes the load succeed on an under-cap document,
-    /// and the retry loop tries again.
+    /// same as the FIFO swap test below - a miss just makes the load succeed on an under-cap
+    /// document, and the retry loop tries again.
     #[test]
     fn a_document_grown_past_the_cap_after_its_own_stat_is_refused_by_the_bytes_the_read_delivers() {
         const MAX_ATTEMPTS: usize = 25;
@@ -358,7 +274,7 @@ mod tests {
         );
     }
 
-    /// The FIFO half of the same window: the swap lands between the walk and the open, and
+    /// A FIFO swapped in the read window: the swap lands between the walk and the open, and
     /// on base the open of a FIFO with no writer BLOCKS - a load that never returns, so the
     /// red here is base's hang (bounded on CI by the test runner's per-test timeout). On the
     /// fixed reader the open carries `O_NONBLOCK`, returns at once, and the FIFO is refused

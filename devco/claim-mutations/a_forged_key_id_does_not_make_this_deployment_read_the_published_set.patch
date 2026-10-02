@@ -1,0 +1,22 @@
+diff --git a/crates/sutura-http/src/inbound/keys.rs b/crates/sutura-http/src/inbound/keys.rs
+index 66da14723..7c0ebaf85 100644
+--- a/crates/sutura-http/src/inbound/keys.rs
++++ b/crates/sutura-http/src/inbound/keys.rs
+@@ -674,7 +674,7 @@ impl KeySetCache {
+             let current = { self.state.read().await.keys.get(id) };
+             return current.ok_or(KeyUnavailable::UnknownKeyId);
+         }
+-        if since < self.refetch_interval {
++        if since < self.refetch_interval && false {
+             return Err(KeyUnavailable::RefetchRateLimited {
+                 ago_ms: since.as_millis(),
+             });
+@@ -712,7 +712,7 @@ impl KeySetCache {
+     async fn reserve(&self, now: Instant) -> Option<InFlight<'_>> {
+         let window = self.refetch_interval.min(self.max_age);
+         let mut cached = self.state.write().await;
+-        if now.saturating_duration_since(cached.last_attempt) < window {
++        if now.saturating_duration_since(cached.last_attempt) < window && false {
+             return None;
+         }
+         // Set only here and only under the write lock, so two reservers cannot both see it clear;

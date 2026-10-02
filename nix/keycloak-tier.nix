@@ -361,7 +361,8 @@ rec {
             "$base/realms/$realm/protocol/openid-connect/token" \
             -d grant_type=password -d client_id="$client" -d client_secret="$client_secret" \
             -d username="$subject" -d "password=$(subject_password "$subject")")"
-          if ! printf '%s' "$token" | jq -e '.access_token and .expires_in >= ${toString accessTokenLifespan}' >/dev/null; then
+          # A wall-clock second may elapse between issue and receipt, so allow lifespan - 1.
+          if ! printf '%s' "$token" | jq -e '.access_token and .expires_in >= ${toString (accessTokenLifespan - 1)}' >/dev/null; then
             echo "keycloak tier: $subject could not obtain a ${toString accessTokenLifespan} s token from $realm" >&2
             printf '%s' "$token" | jq -c '{error, error_description, expires_in}' >&2 || echo "$token" >&2
             exit 1
