@@ -88,14 +88,12 @@ rcgen = { workspace = true }
 # this is still compiled, linted and tested on every run. `check-default-features` and
 # `check-default-feature-tests` scope themselves to the shipped set, which this crate is not in.
 [features]
-# THE ADBC TRANSPORT, and nothing reaches it yet: `src/adbc.rs`'s header says what it holds and
-# what it does not. Default-off for `sutura-exec-bigquery`'s reason - a native driver is a
-# per-triple addition a lean build should not link - and because the `tokio-postgres` path is still
-# how every Postgres source is answered. Off is not hidden: every compiling gate passes
-# `--all-features`, so the module is compiled, linted and tested on every run. The OFF arm is what
-# a shipped build compiles (`sutura-cli`'s `postgres` feature does not turn this on), but no
-# REQUIRED gate lints it under `-D warnings` or builds its tests; the non-required `cross` feature
-# probe compiles its lib without `-D warnings`.
+# THE ADBC TRANSPORT, shipped and answering nothing: `src/adbc.rs`'s header says what it holds and
+# what it does not. Default-off here for `sutura-exec-bigquery`'s reason - a native driver is a
+# per-triple addition a lean build should not link - and ON in every release, because
+# `sutura-cli`'s `postgres` feature turns it on. Every compiling gate passes `--all-features`, so
+# the module is compiled, linted and tested on every run; the OFF arm is now what only a direct
+# dependent without that feature compiles, and no REQUIRED gate lints it under `-D warnings`.
 adbc = ["dep:adbc_core", "dep:adbc_driver_manager", "dep:arrow-array", "dep:arrow-schema", "dep:sutura-adbc"]
 fixtures = ["sutura-domain/fixtures"]
 

@@ -44,7 +44,7 @@ bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc"]
 # The Postgres adapter, and with it the outbound TLS the source channel verifies against.
 #
 # Default-off for local Cargo builds; `nix/shipped.nix` enables it in published binaries.
-# `sutura-exec-postgres` is pure Rust, but `tokio-postgres-rustls` pulls in `ring`.
+# `tokio-postgres` is pure Rust, but `tokio-postgres-rustls` pulls in `ring`.
 #
 # **`dep:tokio-postgres` too, arrived from `sutura-serve`'s own `postgres` feature at the fold -
 # a strict superset of what this crate declared before it.** `tokio_postgres::Config` is used only
@@ -52,7 +52,11 @@ bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc"]
 # starting the composed binary; it is a normal, optional dependency rather than a dev-dependency
 # because Cargo has no way to make a dev-dependency optional, so it sits here unused by anything
 # `sutura serve` itself calls. The adapter owns every driver type `sutura serve` composes with.
-postgres = ["dep:sutura-exec-postgres", "dep:tokio-postgres"]
+#
+# **`sutura-exec-postgres/adbc` too (`telekom/sutura#913` stage 1)**: the ADBC transport ships so a
+# musl release links the static driver, and `doctor` probes it. `tokio-postgres` still answers every
+# source; nothing selects ADBC.
+postgres = ["dep:sutura-exec-postgres", "dep:tokio-postgres", "sutura-exec-postgres/adbc"]
 
 # The ClickHouse adapter, over its HTTP interface.
 #
