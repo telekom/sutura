@@ -2396,11 +2396,11 @@ away does not stop the question it asked. A permit handed back early is worse th
 all, because it reads as a control.</p>
 <p><strong>This defines the response to running out of admission and nothing about stopping work.</strong> A
 shed call is answered on the third channel above, inside the bounded admission window. What
-neither this nor the bound does is cancel a question that is already executing: the <code>Warehouse</code>
-port is synchronous and carries no deadline, so a question inside the pool runs to completion
-whatever the peer is told - and it keeps its slot until it does, which is exactly why the
-backlog is a number somebody chose rather than memory. Making running work stoppable is #160's
-subject, on the port rather than on either transport.</p>
+neither this nor the bound does is cancel a question that is already executing. The <code>Warehouse</code>
+port methods (<code>dry_run</code>, <code>execute</code>, <code>execute_raw</code>) each take a <code>Deadline</code> parameter that controls
+how long the data system works; where a deadline is honored is the adapter's decision. A question
+keeps its slot until the data system answers it, which is exactly why the backlog is a number
+somebody chose rather than memory. <code>Warehouse::dry_run</code> and <code>Warehouse::execute</code> took <code>Deadline</code> before <code>#1144</code>; <code>execute_raw</code> took it in <code>#1144</code>.</p>
 <h1 id="how-long-a-peer-waits-for-a-reply-and-what-happens-when-that-runs-out">How long a peer waits for a reply, and what happens when that runs out<a class="headerlink" href="#how-long-a-peer-waits-for-a-reply-and-what-happens-when-that-runs-out" title="Permanent link">&para;</a></h1>
 <p><strong><code>telekom/sutura#339</code>: the admission window was the only bounded wait on this surface.</strong> A
 question that could not get a slot came back inside <code>runtime.admission_timeout_seconds</code>; a
@@ -2440,7 +2440,8 @@ bound has:</strong> it does not stop the question. The permit is owned by the bl
 question whose reply deadline fired keeps its slot until the data system answers it - the
 deadline bounds the peer's wait and nothing else. That is deliberate and it is why the sentence
 the peer gets does not say <em>try again</em>: repeating the question would take a second slot while
-the first is still running. Making running work stoppable is #160's subject, on the port.</p>
+the first is still running. Where a question is stoppable is the data system's decision, not the
+transport's - each adapter honours the port's <code>Deadline</code> parameter differently.</p>
 <p><strong>Peer cancellation ends this transport's wait and nothing below it.</strong> rmcp delivers
 <code>notifications/cancelled</code> through <code>RequestContext::ct</code>, and <code>ServerHandler::call_tool</code> selects
 on that token while a question is pending. The handler returns before its configured deadline;
