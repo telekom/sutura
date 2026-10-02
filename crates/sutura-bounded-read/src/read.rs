@@ -22,8 +22,9 @@
 //! not be caught by any swap-timing test here - the window between two back-to-back opens is
 //! sub-microsecond, well under what even a multi-millisecond swap test can land reliably (measured
 //! across 3 separate `just test` runs against that mutation, before this crate existed). The gate
-//! refuses a path-based `std::fs` read in this crate and the three catalogs outside `walk`'s
-//! `read_dir`; a second `rustix::fs::open` or an aliased read escapes that text scan.
+//! refuses a path-based `std::fs` read in this crate and in every `crates/sutura-catalog-*` crate,
+//! outside the registered reads: `walk`'s `read_dir` and `sutura-catalog-wren`'s offline import. A
+//! second `rustix::fs::open` or a read through a renamed import escapes that text scan.
 //!
 //! The refusal paths and their exact reach are [`read_document`]'s contract; a caller maps its
 //! [`ReadError`] into its own error enum, keeping its variants and rendered messages.

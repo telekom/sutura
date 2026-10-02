@@ -4,31 +4,38 @@
 //! "opened once" was held by review alone, because a swap-timing test cannot land in the
 //! sub-microsecond window between two back-to-back opens.
 //!
-//! This is a STATIC mechanism: a text scan over the non-test source of every workspace
-//! `sutura-catalog-*` crate and of `sutura-bounded-read`, the crate whose walk and open they
-//! share, that refuses any path-based read outside a committed list of registered call sites. The
-//! crate set is derived from the workspace - [`scope_from_workspace`] - rather than declared, so a
-//! newly added catalog is walked the day it lands. It is the same
-//! shape as `check-answer-path-caches` and `check-bounded-wait`: a rule the code cannot state about
-//! itself, read as text, starting from a tree that already obeys it.
+//! This is a STATIC mechanism: a text scan over the non-test source of every `crates/sutura-catalog-*`
+//! crate and of `sutura-bounded-read`, the crate whose walk and open they share, that refuses any
+//! path-based read outside a committed list of registered call sites. What is walked is decided by
+//! [`walked_crate`] off the directory name, so a newly added catalog is walked the day it lands;
+//! every `sutura-catalog-*` workspace member from `cargo metadata` adds its `src/lib.rs` as an
+//! anchor ([`mandatory_files`]), so a member the walk does not reach refuses instead of passing. It
+//! is the same shape as `check-answer-path-caches` and `check-bounded-wait`: a rule the code cannot
+//! state about itself, read as text, starting from a tree that already obeys it.
 //!
 //! # The rule
 //!
-//! Over the non-test `.rs` files of every workspace `sutura-catalog-*` crate and of
-//! `sutura-bounded-read`, every occurrence of one of [`NEEDLES`]
-//! must match a [`Registered`] entry - a file and a needle - or it is a violation naming the file
-//! and line. [`REGISTERED`] is the committed list, and adding or removing
-//! an entry is an architecture decision, exactly as the tables in `check-newtype-leaks` and
+//! Over the non-test `.rs` files of every `crates/sutura-catalog-*` crate and of
+//! `sutura-bounded-read` - the whole crate directory, not only `src/` - every occurrence of one of
+//! [`NEEDLES`] must match a [`Registered`] entry - a file and a needle - or it is a violation naming
+//! the file and line. [`REGISTERED`] is the committed list, and adding or removing an entry is an
+//! architecture decision, exactly as the tables in `check-newtype-leaks` and
 //! `check-answer-path-caches` are.
 //!
 //! # What it deliberately does NOT cover
 //!
+//! **Membership is a name prefix.** A crate is walked when its directory under `crates/` is named
+//! `sutura-catalog-*` (or is `sutura-bounded-read`); a crate that loads catalog files under any other
+//! name is outside this gate. A `sutura-catalog-*` workspace member that is not at
+//! `crates/<its name>/`, or has no `src/lib.rs`, refuses rather than passes - its anchor is never
+//! judged.
+//!
 //! **A read through an alias or a helper in another crate escapes.** The scan reads text in these
 //! crates; `use std::fs as disk;` followed by `disk::read_to_string` is not found, and neither
-//! is a function in a third crate that reads a path, called from here. `use std::fs;` followed by
-//! `fs::read_to_string` is also not found - the bare `fs::` spelling was removed to avoid
-//! double-matching with the `std::fs::` prefixed needles (the former is a substring of the latter),
-//! and no crate in scope uses `use std::fs;` today. Renaming on import is the same blind spot
+//! is a function in a third crate that reads a path, called from here. `use std::fs;` (or
+//! `use std::{fs, io};`) followed by `fs::read_to_string` IS found: [`qualify`] reads a bare `fs::`
+//! as `std::fs::` before matching, which also reads any other `fs::` path that way - a
+//! `tokio::fs::read_to_string(` is refused too. Renaming on import is the same blind spot
 //! `check-bounded-wait`'s header records for `Stdio::piped()`.
 //!
 //! **Test code is not scanned.** A file named `tests.rs` or one under any `tests/` directory is out
@@ -59,10 +66,9 @@ use crate::serde_parse::scan::code_lines;
 /// Each needle is the qualified spelling, so `use std::fs as disk; disk::read_to_string` is not
 /// found - the same limit `check-bounded-wait`'s header records, and for the same reason: a bare
 /// `read_to_string` needle would fire on every method of that name on any type. The `std::fs::`
-/// prefixed needles are kept alongside the bare `File::open(` and `OpenOptions::` needles because
-/// the latter are reached through `use std::fs::File;` / `use std::fs::OpenOptions;`, while the
-/// former are how this workspace spells `read_dir` and `read_to_string` today - with the full path
-/// and no `use std::fs;` import in either catalog crate.
+/// prefixed needles also see `fs::read_to_string` after `use std::fs;`, because [`qualify`] runs
+/// first; the bare `File::open(` and `OpenOptions::` needles are reached through
+/// `use std::fs::File;` / `use std::fs::OpenOptions;`.
 const NEEDLES: &[&str] = &[
     "std::fs::read(",
     "std::fs::read_to_string(",
@@ -84,23 +90,35 @@ struct Registered {
 
 /// The committed list of call sites where a path-based read is the registered one.
 ///
-/// One entry: the `std::fs::read_dir` in `sutura-bounded-read`'s `walk`, which every file catalog's
-/// `documents()` calls. The `rustix::fs::open` in its `read_document` is the safe open this gate
-/// exists to protect, and it is not a `std::fs` call - so no other needle is registered, and any
-/// `std::fs::read_to_string`, `File::open` or `OpenOptions` in a scoped crate's non-test source is
-/// a violation.
-const REGISTERED: &[Registered] = &[Registered {
-    file: "crates/sutura-bounded-read/src/walk.rs",
-    needle: "std::fs::read_dir(",
-}];
+/// The `std::fs::read_dir` in `sutura-bounded-read`'s `walk`, which every file catalog's
+/// `documents()` calls; and `sutura-catalog-wren`'s two reads, which are an offline importer's
+/// (`sutura import wren`) - it reads one source manifest and checks that its destination is empty,
+/// and is never a catalog loaded at boot. The `rustix::fs::open` in `read_document` is the safe
+/// open this gate exists to protect, and it is not a `std::fs` call - so any other path-based read
+/// in a walked crate's non-test source is a violation.
+const REGISTERED: &[Registered] = &[
+    Registered {
+        file: "crates/sutura-bounded-read/src/walk.rs",
+        needle: "std::fs::read_dir(",
+    },
+    Registered {
+        file: "crates/sutura-catalog-wren/src/lib.rs",
+        needle: "std::fs::read_to_string(",
+    },
+    Registered {
+        file: "crates/sutura-catalog-wren/src/lib.rs",
+        needle: "std::fs::read_dir(",
+    },
+];
 
-/// Is `rel` the source of a crate this gate walks - any workspace `sutura-catalog-*` crate, or the
-/// one crate whose walk and open the catalogs share?
+/// Is `rel` the source of a crate this gate walks - any `crates/sutura-catalog-*` crate, or the one
+/// crate whose walk and open the catalogs share? This, not the workspace member list, decides what
+/// is judged.
 ///
-/// Derived from the crate directory name rather than from a declared list, so a newly added catalog
-/// is walked the day its `crates/` directory lands. A bare `fn` because [`repo::Scope`] is one: the
-/// predicate carries no data, and it does not need to - the crate set is read off the path, and the
-/// directory split keeps a sibling whose name merely starts with the same prefix from matching.
+/// A name prefix on the directory rather than a declared list, so a newly added catalog is walked
+/// the day its `crates/` directory lands; the header's first limit is what that costs. A bare `fn`
+/// because [`repo::Scope`] is one, and taking the first path segment keeps a sibling elsewhere whose
+/// name merely starts with the same prefix from matching.
 fn walked_crate(rel: &str) -> bool {
     let Some(name) = rel.strip_prefix("crates/").and_then(|rest| rest.split('/').next()) else {
         return false;
@@ -108,14 +126,10 @@ fn walked_crate(rel: &str) -> bool {
     name.starts_with("sutura-catalog-") || name == "sutura-bounded-read"
 }
 
-/// The catalog crates this gate walks, from `cargo metadata` rather than from a declared list, so a
-/// newly added `sutura-catalog-*` member is covered the day it lands. Scope paths are
-/// `crates/sutura-catalog-NAME/src/`.
-///
-/// `--no-deps` for the same reason `fmt` uses it: the member list is the question, and `packages`
-/// under `--no-deps` is exactly the member set.
-fn scope_from_workspace() -> Result<Vec<String>, String> {
-    let metadata = crate::cargo_metadata(&["--no-deps"])?;
+/// The `sutura-catalog-*` workspace members in `cargo metadata --no-deps` output (`packages` under
+/// `--no-deps` is exactly the member set), each as the `crates/NAME/src/` it is expected at. An
+/// empty set refuses: it would anchor nothing beyond [`REGISTERED`].
+fn scope_from_metadata(metadata: &serde_json::Value) -> Result<Vec<String>, String> {
     let packages = metadata
         .get("packages")
         .and_then(|p| p.as_array())
@@ -132,6 +146,17 @@ fn scope_from_workspace() -> Result<Vec<String>, String> {
         return Err(String::from("cargo metadata named no sutura-catalog-* workspace members"));
     }
     Ok(scope)
+}
+
+/// The paths a verdict cannot be had without: each [`REGISTERED`] file, and every member in
+/// `scope`'s `src/lib.rs`. The second half is the fail-closed part - a member [`walked_crate`] does
+/// not reach refuses ([`repo::Refusal::NotJudged`]) rather than passing on a crate never read.
+fn mandatory_files(scope: &[String]) -> Vec<String> {
+    let mut must_judge: Vec<String> = anchors().into_iter().map(String::from).collect();
+    must_judge.extend(scope.iter().map(|prefix| format!("{prefix}lib.rs")));
+    must_judge.sort_unstable();
+    must_judge.dedup();
+    must_judge
 }
 
 /// The files [`REGISTERED`] names - this gate cannot have a verdict without reading each of them,
@@ -189,7 +214,7 @@ fn scan(census: repo::Census, must_judge: &[&str]) -> Result<Scanned, repo::Refu
         read = read.saturating_add(1);
         let code = code_lines(&text);
         for (index, line) in code.iter().enumerate() {
-            let dense = strip_whitespace(line);
+            let dense = qualify(&strip_whitespace(line));
             for needle in NEEDLES {
                 if !dense.contains(needle) {
                     continue;
@@ -221,40 +246,28 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         );
         return Verdict::Fail;
     }
+    verdict(crate::cargo_metadata(&["--no-deps"]), repo::all_files())
+}
 
-    let scope = match scope_from_workspace() {
+/// [`run`] over the member list and the census it is handed, so a test reaches every refusal arm -
+/// a metadata error, an empty member list, an anchor never judged - with a scratch tree.
+fn verdict(metadata: Result<serde_json::Value, String>, census: Result<repo::Census, repo::Refusal>) -> Verdict {
+    let scope = match metadata.and_then(|metadata| scope_from_metadata(&metadata)) {
         Ok(scope) => scope,
         Err(message) => {
             eprintln!("xtask check-catalog-opened-once: FAILED - {message}");
             return Verdict::Fail;
         }
     };
-
-    let census = match repo::all_files() {
-        Ok(census) => census,
+    let mandatory = mandatory_files(&scope);
+    let must_judge: Vec<&str> = mandatory.iter().map(String::as_str).collect();
+    match census.and_then(|census| scan(census, &must_judge)) {
+        Ok(found) => decide(&found),
         Err(why) => {
             eprintln!("xtask check-catalog-opened-once: FAILED - {}", why.describe());
-            return Verdict::Fail;
+            Verdict::Fail
         }
-    };
-
-    // Anchor on each registered file AND on every derived catalog crate's `src/lib.rs`, so a
-    // workspace `sutura-catalog-*` member whose sources this gate does not judge refuses instead of
-    // passing silently on a crate it never read.
-    let mut must_judge: Vec<String> = anchors().into_iter().map(String::from).collect();
-    must_judge.extend(scope.iter().map(|prefix| format!("{prefix}lib.rs")));
-    must_judge.sort_unstable();
-    must_judge.dedup();
-    let must_judge: Vec<&str> = must_judge.iter().map(String::as_str).collect();
-
-    let found = match scan(census, &must_judge) {
-        Ok(found) => found,
-        Err(why) => {
-            eprintln!("xtask check-catalog-opened-once: FAILED - {}", why.describe());
-            return Verdict::Fail;
-        }
-    };
-    decide(&found)
+    }
 }
 
 /// What to say about a scan. Separated from [`run`] so both verdicts are reachable from a test.
@@ -295,9 +308,16 @@ fn strip_whitespace(line: &str) -> String {
     line.chars().filter(|c| !c.is_ascii_whitespace()).collect()
 }
 
+/// Read every `fs::` path as `std::fs::`, so `fs::read_to_string(` after `use std::fs;` meets the
+/// same needle - and the same registration - as its qualified spelling. Collapsing first keeps an
+/// already-qualified call from becoming `std::std::fs::`.
+fn qualify(dense: &str) -> String {
+    dense.replace("std::fs::", "fs::").replace("fs::", "std::fs::")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{NEEDLES, REGISTERED, Scanned, is_registered, scan, strip_whitespace};
+    use super::{NEEDLES, REGISTERED, Scanned, is_registered, scan, strip_whitespace, verdict};
     use crate::repo;
 
     /// A `std::fs::read_to_string` on a line of code is found as a needle.
@@ -430,9 +450,39 @@ mod tests {
         assert!(matches!(why, repo::Refusal::Empty | repo::Refusal::NothingJudged { .. }));
     }
 
-    /// A previously-unlisted `sutura-catalog-*` crate is still walked: the gate derives its crate
-    /// set from the workspace rather than from a declared list, so a newly added catalog's
-    /// unregistered read is caught the day the crate directory lands.
+    /// One spelling after `use std::fs;` - the bare `fs::NAME(` - in a walked catalog crate is
+    /// refused as its qualified needle.
+    fn refuses_the_imported_spelling(call: &str, needle: &str) {
+        let source = format!("use std::fs;\nfn f(path: &Path) {{\n    let _ = {call}(&path);\n}}\n");
+        let tree = crate::scratch_tree::Tree::of(
+            "catalog-opened-once-imported-spelling",
+            &[("crates/sutura-catalog-local/src/lib.rs", source.as_bytes())],
+        );
+        let found = scan_over(&tree, &["crates/sutura-catalog-local/src/lib.rs"]).expect("a readable tree scans");
+        assert_eq!(found.violations.len(), 1, "{:?}", found.violations);
+        assert_eq!(found.violations[0].needle, needle);
+        assert_eq!(found.violations[0].line, 3);
+        assert_eq!(super::decide(&found), crate::Verdict::Fail);
+    }
+
+    #[test]
+    fn an_imported_fs_read_to_string_is_refused() {
+        refuses_the_imported_spelling("fs::read_to_string", "std::fs::read_to_string(");
+    }
+
+    #[test]
+    fn an_imported_fs_read_is_refused() {
+        refuses_the_imported_spelling("fs::read", "std::fs::read(");
+    }
+
+    #[test]
+    fn an_imported_fs_read_dir_is_refused() {
+        refuses_the_imported_spelling("fs::read_dir", "std::fs::read_dir(");
+    }
+
+    /// A previously-unlisted `sutura-catalog-*` crate is walked: the crate set is read off the
+    /// directory name rather than a declared list, so a newly added catalog's unregistered read is
+    /// caught the day the crate directory lands.
     #[test]
     fn a_new_unregistered_catalog_crate_is_caught() {
         let tree = crate::scratch_tree::Tree::of(
@@ -443,16 +493,96 @@ mod tests {
             )],
         );
         let found = scan_over(&tree, &["crates/sutura-catalog-newcrate/src/lib.rs"])
-            .expect("the workspace-derived predicate walks a new catalog crate");
+            .expect("the directory-derived predicate walks a new catalog crate");
         assert_eq!(found.violations.len(), 1, "{:?}", found.violations);
         assert_eq!(super::decide(&found), crate::Verdict::Fail);
     }
 
-    /// `scope_from_workspace` names every real `sutura-catalog-*` crate as
-    /// `crates/sutura-catalog-NAME/src/`, matching the directory layout.
+    /// `cargo metadata --no-deps` naming these packages.
+    fn members(names: &[&str]) -> serde_json::Value {
+        serde_json::json!({ "packages": names.iter().map(|name| serde_json::json!({ "name": name })).collect::<Vec<_>>() })
+    }
+
+    /// A scratch-tree file: its path and its bytes.
+    type Fixture = (&'static str, &'static [u8]);
+
+    /// The files of a tree that holds every [`REGISTERED`] file and one clean catalog.
+    const CLEAN: [Fixture; 3] = [
+        (
+            "crates/sutura-bounded-read/src/walk.rs",
+            b"fn walk() {\n    let _ = std::fs::read_dir(&dir);\n}\n",
+        ),
+        ("crates/sutura-catalog-wren/src/lib.rs", b"fn f() {}\n"),
+        ("crates/sutura-catalog-local/src/lib.rs", b"fn f() {}\n"),
+    ];
+
+    fn census_of(tree: &crate::scratch_tree::Tree) -> repo::Census {
+        repo::collect_files(tree.root(), tree.root(), &["rs"])
+    }
+
+    /// **The derived anchors fail closed.** A `sutura-catalog-*` member whose `lib.rs` sits where
+    /// [`super::walked_crate`] does not reach refuses on that anchor instead of passing on a tree
+    /// it judged only partly.
     #[test]
-    fn all_workspace_catalog_crates_are_scanned() {
-        let scope = super::scope_from_workspace().expect("cargo metadata resolves in-tree");
+    fn a_member_the_walk_does_not_reach_refuses_on_its_anchor() {
+        let [walk, wren, local] = CLEAN;
+        let tree = crate::scratch_tree::Tree::of(
+            "catalog-opened-once-unwalked-member",
+            &[
+                walk,
+                wren,
+                local,
+                ("crates/catalogs/sutura-catalog-x/src/lib.rs", b"fn f() {}\n"),
+            ],
+        );
+        let scope = vec![String::from("crates/sutura-catalog-x/src/")];
+        let mandatory = super::mandatory_files(&scope);
+        let must_judge: Vec<&str> = mandatory.iter().map(String::as_str).collect();
+        let Err(why) = scan(census_of(&tree), &must_judge) else {
+            panic!("a member never judged produced a verdict");
+        };
+        assert!(
+            matches!(&why, repo::Refusal::NotJudged { path, .. } if path == "crates/sutura-catalog-x/src/lib.rs"),
+            "{why:?}"
+        );
+        assert_eq!(
+            verdict(Ok(members(&["sutura-catalog-x"])), Ok(census_of(&tree))),
+            crate::Verdict::Fail
+        );
+    }
+
+    /// A metadata error refuses rather than running with no derived anchors. The same tree passes
+    /// with its members named, so the refusal is the error's.
+    #[test]
+    fn a_metadata_error_refuses() {
+        let tree = crate::scratch_tree::Tree::of("catalog-opened-once-metadata-error", &CLEAN);
+        let named = members(&["sutura-catalog-local", "sutura-catalog-wren"]);
+        assert_eq!(verdict(Ok(named), Ok(census_of(&tree))), crate::Verdict::Pass);
+        assert_eq!(
+            verdict(Err(String::from("no cargo")), Ok(census_of(&tree))),
+            crate::Verdict::Fail
+        );
+    }
+
+    /// A workspace naming no `sutura-catalog-*` member refuses rather than reading as "no catalogs
+    /// to guard". The same tree passes with its members named, so the refusal is the empty list's.
+    #[test]
+    fn an_empty_member_list_refuses() {
+        let tree = crate::scratch_tree::Tree::of("catalog-opened-once-no-members", &CLEAN);
+        let named = members(&["sutura-catalog-local", "sutura-catalog-wren"]);
+        assert_eq!(verdict(Ok(named), Ok(census_of(&tree))), crate::Verdict::Pass);
+        assert_eq!(
+            verdict(Ok(members(&["sutura-app"])), Ok(census_of(&tree))),
+            crate::Verdict::Fail
+        );
+    }
+
+    /// The members `cargo metadata` names are exactly the `sutura-catalog-*` directories under
+    /// `crates/`, so every one of them is anchored.
+    #[test]
+    fn the_derived_scope_names_every_catalog_directory() {
+        let metadata = crate::cargo_metadata(&["--no-deps"]).expect("cargo metadata resolves in-tree");
+        let scope = super::scope_from_metadata(&metadata).expect("the workspace has catalog members");
         let mut real: Vec<String> = std::fs::read_dir(crate::repo::root().expect("the repo root").join("crates"))
             .expect("crates/ is readable")
             .filter_map(Result::ok)
@@ -462,6 +592,15 @@ mod tests {
             .collect();
         real.sort();
         assert_eq!(scope, real);
+    }
+
+    /// The real tree passes the whole gate - its derived anchors included, not only [`REGISTERED`]'s.
+    #[test]
+    fn the_real_tree_passes_against_its_derived_anchors() {
+        assert_eq!(
+            verdict(crate::cargo_metadata(&["--no-deps"]), repo::all_files()),
+            crate::Verdict::Pass
+        );
     }
 
     /// **Measured before it was written: today's real tree carries no unregistered path-based read
