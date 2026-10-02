@@ -13620,6 +13620,12 @@ pub fn columns(&self) -> &[String]
 ```
 
 ```rust
+pub fn into_parts(self) -> super::raw::RawColumnsAndRows
+```
+
+The columns and rows, for an adapter that re-reads cells before handing them on.
+
+```rust
 pub fn new(columns: Vec<String>, rows: Vec<Vec<Value>>) -> Result<Self, MalformedRowSet>
 ```
 

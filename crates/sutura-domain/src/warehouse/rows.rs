@@ -57,6 +57,12 @@ impl RowSet {
         &self.rows
     }
 
+    /// The columns and rows, for an adapter that re-reads cells before handing them on.
+    #[must_use]
+    pub fn into_parts(self) -> super::raw::RawColumnsAndRows {
+        (self.columns, self.rows)
+    }
+
     /// Where a column with this label sits, if there is exactly one.
     ///
     /// `None` for a label that appears twice, not the first match: two columns under one label means

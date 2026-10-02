@@ -101,6 +101,10 @@ fixtures = ["sutura-domain/fixtures"]
 name = "conformance"
 required-features = ["fixtures"]
 
+[[test]]
+name = "parity"
+required-features = ["adbc"]
+
 # `harness = false`: divan runs its own `main`, not libtest's `#[bench]` runner. Not a gate -
 # `github.com/telekom/sutura#915` - so it is reached by `just bench`, never by `just validate`,
 # `just test` or `ci`.
