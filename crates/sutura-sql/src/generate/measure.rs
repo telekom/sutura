@@ -110,8 +110,7 @@ fn avg_for_postgres(over: Expr, kind: Aggregate, dialect: Dialect) -> Expr {
 /// once per candidate, which is what makes the final `?` count match `emitted`'s length for this
 /// dialect.
 fn sum_for_clickhouse(bare: &Expr, guard: Option<&Guard>, emitted: &mut Vec<ParamValue>) -> Expr {
-    let probe_type = || builder::func("toTypeName", [builder::sum(bare.clone())]);
-    let is_integer = probe_type().in_list([
+    let is_integer = builder::func("toTypeName", [builder::sum(bare.clone())]).in_list([
         builder::lit("Int64"),
         builder::lit("UInt64"),
         builder::lit("Nullable(Int64)"),
@@ -127,17 +126,16 @@ fn sum_for_clickhouse(bare: &Expr, guard: Option<&Guard>, emitted: &mut Vec<Para
         )
     };
     let widened = builder::func(
-        "tuple",
+        "toDecimal128",
         [
-            builder::lit("Int128"),
             builder::sum(builder::func(
                 "accurateCastOrNull",
                 [guarded_value(emitted), builder::lit("Int128")],
-            ))
-            .cast("Dynamic"),
+            )),
+            builder::lit(0),
         ],
     );
-    let original = builder::func("tuple", [probe_type(), builder::sum(guarded_value(emitted)).cast("Dynamic")]);
+    let original = builder::func("toDecimal128", [builder::sum(guarded_value(emitted)), builder::lit(0)]);
     builder::func("if", [is_integer, widened, original])
 }
 
@@ -200,7 +198,7 @@ fn ratio_term_expression(term: &PlanTerm, guard: Option<&Guard>, dialect: Dialec
             }
         )
     {
-        builder::func("tupleElement", [value, builder::lit(2)]).cast("DOUBLE")
+        value.cast("DOUBLE")
     } else {
         value
     }

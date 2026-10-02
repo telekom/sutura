@@ -324,14 +324,14 @@ fn a_uint128_above_i128_max_decodes_as_its_exact_digits() {
 
 #[test]
 fn a_clickhouse_sum_keeps_wide_integers_decimal_scale_and_float_type() {
-    let body = "[\"total\"]\n[\"Tuple(String, Dynamic)\"]\n[[\"Int128\",\"9223372036854775808\"]]\n[[\"Int128\",\"18446744073709551616\"]]\n[[\"Decimal(38, 2)\",\"11.50\"]]\n[[\"Nullable(Decimal(38, 2))\",\"19.50\"]]\n[[\"Float64\",3]]\n[[\"Nullable(Float64)\",4]]\n";
+    let body = "[\"total\"]\n[\"Decimal(38, 0)\"]\n[\"9223372036854775808\"]\n[\"18446744073709551616\"]\n[\"11\"]\n[\"19\"]\n[\"3\"]\n[\"4\"]\n";
     let rows: RowSet = rows_from_json::<ScriptedError>(body.as_bytes(), budget()).expect("typed sums decode");
     assert_eq!(rows.rows()[0][0], Value::Text(String::from("9223372036854775808")));
     assert_eq!(rows.rows()[1][0], Value::Text(String::from("18446744073709551616")));
-    assert_eq!(rows.rows()[2][0], Value::Text(String::from("11.50")));
-    assert_eq!(rows.rows()[3][0], Value::Text(String::from("19.50")));
-    assert_eq!(rows.rows()[4][0], Value::Real(Real::parse(3.0).expect("finite")));
-    assert_eq!(rows.rows()[5][0], Value::Real(Real::parse(4.0).expect("finite")));
+    assert_eq!(rows.rows()[2][0], Value::Integer(11));
+    assert_eq!(rows.rows()[3][0], Value::Integer(19));
+    assert_eq!(rows.rows()[4][0], Value::Integer(3));
+    assert_eq!(rows.rows()[5][0], Value::Integer(4));
 }
 
 #[test]

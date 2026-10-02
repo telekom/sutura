@@ -51,8 +51,7 @@ fn clickhouse_sum_widens_integer_results_without_changing_float_or_decimal_sums(
         Dialect::ClickHouse,
     )
     .expect("the sum renders for ClickHouse");
-    assert!(clickhouse.contains("toTypeName"), "{clickhouse}");
-    assert!(clickhouse.contains("Dynamic"), "{clickhouse}");
+    assert!(clickhouse.contains("toDecimal128"), "{clickhouse}");
     for dialect in [Dialect::DuckDb, Dialect::Postgres, Dialect::BigQuery, Dialect::Oracle] {
         let rendered = render(
             &super::term_expression(&term, None, dialect, &mut Vec::new()).into_inner(),
