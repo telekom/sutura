@@ -64,7 +64,7 @@ mod tests {
         match (cfg!(adbc_duckdb_driver_linked), sutura_adbc::linked_duckdb_driver()) {
             (false, Err(refused)) => {
                 assert_eq!(refused.status, Status::NotFound, "{refused:?}");
-                assert!(refused.message.contains("DuckDB"), "{refused:?}");
+                assert_eq!(refused.message, "this build linked no DuckDB ADBC driver", "{refused:?}");
             }
             (true, Ok(mut duckdb)) => {
                 answers_select_one(&mut duckdb);
@@ -87,6 +87,7 @@ mod tests {
         let Err(derived) = ManagedDriver::load_dynamic_from_filename(&library, None, AdbcVersion::default()) else {
             panic!("{} defines a name the driver manager derives", library.display());
         };
+        assert_eq!(derived.status, Status::Internal, "{derived:?}");
         assert!(derived.message.contains("AdbcDriverInit"), "{derived:?}");
         let mut duckdb = sutura_adbc::mounted_duckdb_driver(&library).expect("the mounted DuckDB initialises");
         answers_select_one(&mut duckdb);

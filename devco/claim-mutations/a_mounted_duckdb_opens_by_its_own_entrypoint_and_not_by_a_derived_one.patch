@@ -1,0 +1,11 @@
+diff --git a/crates/sutura-adbc/src/lib.rs b/crates/sutura-adbc/src/lib.rs
+index 56d57aa01..682bda59a 100644
+--- a/crates/sutura-adbc/src/lib.rs
++++ b/crates/sutura-adbc/src/lib.rs
+@@ -126,5 +126,5 @@ pub fn linked_duckdb_driver() -> Result<ManagedDriver, CoreError> {
+ ///
+ /// [`CoreError`] where the library does not load or its initialisation refused.
+ pub fn mounted_duckdb_driver(path: &Path) -> Result<ManagedDriver, CoreError> {
+-    ManagedDriver::load_dynamic_from_filename(path, Some(b"duckdb_adbc_init"), AdbcVersion::default())
++    ManagedDriver::load_dynamic_from_filename(path, None, AdbcVersion::default())
+ }
