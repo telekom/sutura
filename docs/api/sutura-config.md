@@ -1175,10 +1175,10 @@ bare `String` carried past `parse_placement` unexamined - the exclusivity of `ho
 `unix_socket` was a check in that function, but the FIELD still admitted whatever text was
 there, so `crate::sources::placement::PostgresDial` existed only as a `match` two composition
 roots each wrote by hand. Refuses only shapes that cannot be a host at all - empty, embedded
-whitespace, a URL scheme, a path separator - and nothing about reachability: a value that parses
-may still fail to resolve, or fail the TLS name check at connect time, and neither is this
-type's question. `crate::sources::transport::host_is_loopback` still does the loopback test on
-the parsed text.
+whitespace, a URL scheme, a path separator, a list separator - and nothing about reachability:
+a value that parses may still fail to resolve, or fail the TLS name check at connect time, and
+neither is this type's question. `crate::sources::transport::host_is_loopback` still does the
+loopback test on the parsed text.
 
 ## `use InvalidHostName`
 
@@ -1195,6 +1195,10 @@ Why a declared name for a cloud resource was not usable.
 One type for both newtypes above, with the offending key named by the caller rather than by the
 variant: the shapes differ and the *reasons* do not, so two near-identical enums would be two
 places to keep one set of sentences.
+
+## `use InvalidSocketDirectory`
+
+Why a declared socket directory cannot be dialled as one.
 
 ## `use OracleServiceName`
 
@@ -1218,6 +1222,12 @@ so both composition roots carried a `match (host, unix_socket)` with a fourth ar
 already made unreachable, and a comment saying so at each. This enum is the same argument
 `SourcePlacement` itself makes about `Files` versus `BigQuery`: unrepresentable beats checked
 twice.
+
+## `use SocketDirectory`
+
+A `postgres` source's unix socket directory: absolute, and one directory.
+
+libpq reads the `host` this becomes as a list, so a list separator is refused like a relative path.
 
 ## `use SourcePlacement`
 
@@ -2294,6 +2304,7 @@ its message names the key under `sources.<catalog name>` rather than under this 
 - `HostAndUnixSocket`
 - `RelativePath`
 - `Host`
+- `UnixSocket`
 - `Transport`
 - `Channel`
 - `OracleServiceName`
@@ -5549,6 +5560,7 @@ convenience, and nothing needs to clone a startup refusal.
 - `ResourceName` - A declared cloud resource name is not usable.
 - `OracleServiceName` - A declared Oracle `service_name` the driver would not read as written.
 - `Host` - A declared `host` cannot be dialled at all - a shape refusal, not a reachability one.
+- `UnixSocket` - A declared `unix_socket` is not one absolute directory.
 - `MissingWorkloadIdentity` - An `impersonation-at-source` source declared no token-exchange setup.
 
   A source that executes as the asking subject has to say WHICH account each subject becomes -
@@ -5804,10 +5816,10 @@ bare `String` carried past `parse_placement` unexamined - the exclusivity of `ho
 `unix_socket` was a check in that function, but the FIELD still admitted whatever text was
 there, so `crate::sources::placement::PostgresDial` existed only as a `match` two composition
 roots each wrote by hand. Refuses only shapes that cannot be a host at all - empty, embedded
-whitespace, a URL scheme, a path separator - and nothing about reachability: a value that parses
-may still fail to resolve, or fail the TLS name check at connect time, and neither is this
-type's question. `crate::sources::transport::host_is_loopback` still does the loopback test on
-the parsed text.
+whitespace, a URL scheme, a path separator, a list separator - and nothing about reachability:
+a value that parses may still fail to resolve, or fail the TLS name check at connect time, and
+neither is this type's question. `crate::sources::transport::host_is_loopback` still does the
+loopback test on the parsed text.
 
 ##### Methods
 
@@ -5841,6 +5853,52 @@ Why a declared Postgres host cannot be dialled at all.
 - `Whitespace` - A host cannot contain whitespace - it would not survive being one token in a connection string, and a name split by a space is not a name any resolver would look up.
 - `Scheme` - A URL was written where a bare host belongs - `host` is not a connection string.
 - `PathSeparator` - A `/` is a path separator, not a character a host or an address ever carries.
+- `List` - libpq reads `host` as a list of hosts.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `struct SocketDirectory`
+
+```rust
+pub struct SocketDirectory
+```
+
+A `postgres` source's unix socket directory: absolute, and one directory.
+
+libpq reads the `host` this becomes as a list, so a list separator is refused like a relative path.
+
+##### Methods
+
+```rust
+pub fn as_path(&self) -> &Path
+```
+
+The directory, for dialling.
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidSocketDirectory>
+```
+
+Parses a declared socket directory.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum InvalidSocketDirectory`
+
+```rust
+pub enum InvalidSocketDirectory
+```
+
+Why a declared socket directory cannot be dialled as one.
+
+##### Variants
+
+- `Relative` - A relative path resolves against the process's working directory, a different one per host.
+- `List` - See `InvalidHostName::List`.
 
 ##### Implements
 

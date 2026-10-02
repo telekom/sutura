@@ -4,10 +4,11 @@
 //! batches handed on as the port's [`ResultBatches`](sutura_domain::warehouse::ResultBatches) with
 //! no per-cell walk of this crate's own.
 //!
-//! **Default-off, and wired to nothing.** No composition root constructs
-//! [`AdbcPostgres`](crate::adbc::AdbcPostgres) and no `Warehouse` method reaches it: the
-//! `tokio-postgres` path in `lib.rs` still answers every Postgres source. Whether and when that
-//! changes is the cutover's decision, not this module's.
+//! **Shipped, and answering nothing.** `sutura-cli`'s `postgres` feature compiles this module into
+//! every release, and every musl release links the static driver (`nix/shipped.nix`). No
+//! composition root constructs [`AdbcPostgres`](crate::adbc::AdbcPostgres) and no `Warehouse`
+//! method reaches it: the `tokio-postgres` path in `lib.rs` still answers every Postgres source, and
+//! no settings key selects this one. `sutura doctor` probes the linked driver; tests reach the rest.
 //!
 //! # What holds what
 //!
@@ -25,10 +26,12 @@
 //!   (`57014`) reads as
 //!   [`AdbcPostgres::deadline_exceeded`](crate::adbc::AdbcPostgres::deadline_exceeded), the same
 //!   split `deadline.rs` draws.
-//! - **No linked-in driver, yet.** `sutura_adbc::linked_postgres_driver()` opens the PostgreSQL
-//!   archive under its own init symbol, but only a test build links that archive (`nix/shipped.nix`'s
-//!   `linkedDriversTests`), so [`MountedDriver`](crate::adbc::MountedDriver) still has no linked
-//!   spelling and this transport takes it rather than a `DriverLocation`.
+//! - **The channel is the declared one.** [`Conninfo`](crate::adbc::Conninfo) builds the libpq
+//!   connection string from the declaration and classifies every libpq keyword, pinning each one the
+//!   environment could weaken; its own header carries what it refuses and what it cannot pin.
+//! - **The driver is the linked one where there is one.**
+//!   [`PostgresDriver`](crate::adbc::PostgresDriver) is the archive this artefact links (both musl
+//!   triples) or a mounted `.so` (every other build).
 //!
 //! # Limits
 //!
@@ -43,15 +46,12 @@
 //!   not observed.
 //! - **Loading and connecting are outside the deadline**: the driver is loaded and a connection
 //!   opened per call, and only the statement runs under `SET LOCAL`.
-//! - **The channel is whatever the URI says.** libpq reads `sslmode` and friends from it; the
-//!   declared `SourceTransport` a composition root turns into a `rustls::ClientConfig` for the
-//!   `tokio-postgres` path is not applied here.
 //! - **Only `execute`'s shape**: no `dry_run`, no raw statement, no boot-path call.
-//! - **Nothing on the two static musl triples.** A [`MountedDriver`](crate::adbc::MountedDriver)
-//!   is always opened with `load_dynamic_from_filename`, which a static binary cannot do
-//!   (`sutura-adbc`'s `linked.rs`), so there this transport can only answer `AdbcError::Load`.
-//!   The static link itself is built and run in a musl test binary; a release carries it once a
-//!   shipped path constructs this transport.
+//! - **The linked driver signs in less.** Its libpq is built without Kerberos/GSSAPI and without
+//!   OAuth; a mounted driver's keeps both, and [`Conninfo`](crate::adbc::Conninfo) refuses GSSAPI,
+//!   SSPI and OAuth sign-in on either route, because a declaration can name none of them.
+
+mod conninfo;
 
 use core::num::{NonZeroU32, NonZeroUsize};
 use std::path::PathBuf;
@@ -62,9 +62,9 @@ use adbc_core::options::{AdbcVersion, OptionConnection, OptionDatabase, OptionVa
 use adbc_core::{Connection, Database as _, Driver as _, Statement};
 use adbc_driver_manager::ManagedDriver;
 use arrow_array::{RecordBatch, RecordBatchReader};
+pub use conninfo::{Channel, Conninfo, UnusableChannel};
 pub use sutura_adbc::UnusableDriverPath;
 use sutura_adbc::{DriverLocation, parameter_batch};
-use sutura_domain::identity::Secret;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{Accumulating, ResultBatches, ResultBudget, UnannouncedBatch};
 use sutura_sql::GeneratedQuery;
@@ -104,15 +104,26 @@ pub enum AdbcError {
     DeadlineSpent,
 }
 
-/// A driver this deployment mounted, at an absolute path - and never the linked-in route.
+/// Where the PostgreSQL driver comes from: this artefact's own link, or a mounted `.so`.
 ///
-/// Parsed by `sutura_adbc::DriverLocation::parse`, so an empty or relative path is refused exactly
-/// as it is for every ADBC adapter; kept as a path because the only other thing a `DriverLocation`
-/// can be is the `BigQuery` archive this module's header describes.
+/// Not `sutura_adbc::DriverLocation`, whose linked route is the `BigQuery` archive; a mounted path is
+/// parsed by it, so an empty or relative one is refused exactly as for every ADBC adapter.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MountedDriver(PathBuf);
+pub struct PostgresDriver(Route);
 
-impl MountedDriver {
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Route {
+    Linked,
+    Mounted(PathBuf),
+}
+
+impl PostgresDriver {
+    /// The driver this artefact links, or `None` where it links none.
+    #[must_use]
+    pub fn linked_in() -> Option<Self> {
+        sutura_adbc::LINKS_POSTGRES_DRIVER.then_some(Self(Route::Linked))
+    }
+
     /// Parses a mounted driver's path.
     ///
     /// # Errors
@@ -120,28 +131,46 @@ impl MountedDriver {
     /// [`UnusableDriverPath`] for an empty or relative path. Whether a driver is there is the
     /// load's question, asked by the first call.
     pub fn parse(named: &str) -> Result<Self, UnusableDriverPath> {
-        DriverLocation::parse(named).map(|_| Self(PathBuf::from(named)))
+        DriverLocation::parse(named).map(|_| Self(Route::Mounted(PathBuf::from(named))))
+    }
+
+    /// Loads and initialises the driver, opening no database - what `sutura doctor` asks.
+    ///
+    /// # Errors
+    ///
+    /// [`AdbcError::Load`], from either route.
+    pub fn probe(&self) -> Result<(), AdbcError> {
+        self.load().map(drop)
+    }
+
+    fn load(&self) -> Result<ManagedDriver, AdbcError> {
+        match self.0 {
+            Route::Linked => sutura_adbc::linked_postgres_driver(),
+            Route::Mounted(ref path) => ManagedDriver::load_dynamic_from_filename(path, None, AdbcVersion::default()),
+        }
+        .map_err(AdbcError::Load)
+    }
+}
+
+impl core::fmt::Display for PostgresDriver {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.0 {
+            Route::Linked => f.write_str("linked into this binary"),
+            Route::Mounted(ref path) => write!(f, "mounted at {}", path.display()),
+        }
     }
 }
 
 /// A PostgreSQL source reached through its ADBC driver.
+#[derive(Debug)]
 pub struct AdbcPostgres {
-    driver: MountedDriver,
-    uri: Secret,
+    driver: PostgresDriver,
+    conninfo: Conninfo,
     statement_timeout_ceiling_ms: u32,
 }
 
-impl core::fmt::Debug for AdbcPostgres {
-    /// Hand-written so the URI - a libpq connection string, password included - is never printed.
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("AdbcPostgres")
-            .field("driver", &self.driver)
-            .finish_non_exhaustive()
-    }
-}
-
 impl AdbcPostgres {
-    /// Takes the driver and the libpq URI it connects with.
+    /// Takes the driver and the connection string it connects with.
     ///
     /// Reads the connect-time ceiling the `tokio-postgres` path reads
     /// (`SUTURA_DEV_STATEMENT_TIMEOUT_MS`).
@@ -149,10 +178,10 @@ impl AdbcPostgres {
     /// # Errors
     ///
     /// [`PostgresError::InvalidStatementTimeout`] where that tuning value is not a millisecond count.
-    pub fn new(driver: MountedDriver, uri: Secret) -> Result<Self, PostgresError> {
+    pub fn new(driver: PostgresDriver, conninfo: Conninfo) -> Result<Self, PostgresError> {
         Ok(Self {
             driver,
-            uri,
+            conninfo,
             statement_timeout_ceiling_ms: crate::statement_timeout_ms()?,
         })
     }
@@ -164,13 +193,12 @@ impl AdbcPostgres {
     /// [`AdbcError`]; [`Self::deadline_exceeded`] says which of them is the deadline.
     pub fn execute(&self, query: &GeneratedQuery, deadline: Deadline) -> Result<ResultBatches, AdbcError> {
         let bound = parameter_batch(query.params()).map_err(AdbcError::Parameters)?;
-        let mut driver =
-            ManagedDriver::load_dynamic_from_filename(&self.driver.0, None, AdbcVersion::default()).map_err(AdbcError::Load)?;
+        let mut driver = self.driver.load()?;
         #[expect(
             clippy::disallowed_methods,
             reason = "the libpq connection string is the driver's credential, and handing it to the driver is its purpose"
         )]
-        let uri = OptionValue::String(self.uri.expose_secret().to_owned());
+        let uri = OptionValue::String(self.conninfo.secret().expose_secret().to_owned());
         let database = driver
             .new_database_with_opts([(OptionDatabase::Uri, uri)])
             .map_err(AdbcError::Adbc)?;
@@ -307,7 +335,7 @@ mod tests {
     use sutura_domain::warehouse::{ParamValue, ResultBatches, UnannouncedBatch, Value};
     use sutura_sql::GeneratedQuery;
 
-    use super::{AdbcError, AdbcPostgres, MountedDriver, answer};
+    use super::{AdbcError, AdbcPostgres, Channel, Conninfo, PostgresDriver, Route, answer};
 
     /// What reached the fake driver, in order.
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -734,8 +762,30 @@ mod tests {
 
     #[test]
     fn a_relative_driver_path_is_refused_before_anything_loads_it() {
-        let refused = MountedDriver::parse("lib/libadbc_driver_postgresql.so").expect_err("a relative path is refused");
+        let refused = PostgresDriver::parse("lib/libadbc_driver_postgresql.so").expect_err("a relative path is refused");
         assert!(matches!(refused, super::UnusableDriverPath::Relative { .. }), "{refused:?}");
+    }
+
+    #[test]
+    fn the_linked_route_is_offered_exactly_where_the_linked_driver_initialises() {
+        // A source build offers none and has none; a linked build offers the one it can open.
+        let offered = PostgresDriver::linked_in();
+        assert_eq!(
+            offered.is_some(),
+            sutura_adbc::linked_postgres_driver().is_ok(),
+            "{offered:?}"
+        );
+        if let Some(linked) = offered {
+            linked.probe().expect("the driver this build links initialises");
+        }
+    }
+
+    #[test]
+    fn each_route_reads_as_the_sentence_doctor_prints_and_the_driver_check_matches() {
+        // `nix/bigquery-driver-check.sh` passes a musl artefact only on `linked into this binary`.
+        assert_eq!(PostgresDriver(Route::Linked).to_string(), "linked into this binary");
+        let mounted = PostgresDriver::parse("/opt/lib/libadbc_driver_postgresql.so").expect("an absolute path parses");
+        assert_eq!(mounted.to_string(), "mounted at /opt/lib/libadbc_driver_postgresql.so");
     }
 
     #[test]
@@ -743,13 +793,23 @@ mod tests {
         // THE NEGATIVE CONTROL: the real `execute`, which every guard above lets through, fails on
         // the one thing a fake cannot stand in for. And the connection string, which carries the
         // password in a deployment (a plain marker here), is in neither the `Debug` nor the failure.
-        let driver = MountedDriver::parse("/nonexistent/libadbc_driver_postgresql.so").expect("an absolute path parses");
-        let transport = AdbcPostgres::new(driver, Secret::new("a-connection-string-marker")).expect("the default ceiling parses");
+        let driver = PostgresDriver::parse("/nonexistent/libadbc_driver_postgresql.so").expect("an absolute path parses");
+        let source = SourceName::parse("pg").expect("a test source is a source");
+        let conninfo = Conninfo::new(
+            &source,
+            crate::connection::ConnectionTarget::Host("127.0.0.1"),
+            1,
+            "sales",
+            "reader",
+            &Secret::new("a-connection-string-marker"),
+            Channel::Plaintext,
+        )
+        .expect("plaintext builds");
+        let transport = AdbcPostgres::new(driver, conninfo).expect("the default ceiling parses");
         assert!(
             !format!("{transport:?}").contains("connection-string-marker"),
             "{transport:?}"
         );
-        let source = SourceName::parse("pg").expect("a test source is a source");
         let failed = transport
             .execute(
                 &GeneratedQuery::literal(source, String::from("SELECT 1")),

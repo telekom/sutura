@@ -24,7 +24,9 @@ use sutura_domain::model::{ColumnName, InvalidIdentifier, SourceName};
 
 use crate::raw::{RawCatalog, RawCatalogConnection, RawLiveRowPredicate};
 use crate::sources::SourceRegistry;
-use crate::sources::placement::{HostName, InvalidHostName, InvalidOracleServiceName, OracleServiceName, PostgresDial};
+use crate::sources::placement::{
+    HostName, InvalidHostName, InvalidOracleServiceName, InvalidSocketDirectory, OracleServiceName, PostgresDial, SocketDirectory,
+};
 use crate::sources::transport::{InvalidTransport, SourceTransport, UnsafeChannel};
 
 /// The `kind: rdbms`-only half of a catalog entry, all or nothing.
@@ -443,7 +445,7 @@ impl PostgresCatalogConnection {
                 port,
             },
             (None, Some(directory)) => PostgresDial::UnixSocket {
-                directory: absolute("unix_socket", directory)?,
+                directory: SocketDirectory::parse(directory).map_err(|cause| InvalidConnection::UnixSocket { cause })?,
                 port,
             },
         };
@@ -671,6 +673,11 @@ pub enum InvalidConnection {
     Host {
         #[source]
         cause: InvalidHostName,
+    },
+    #[error("`connection.unix_socket` is not a socket directory sutura can dial")]
+    UnixSocket {
+        #[source]
+        cause: InvalidSocketDirectory,
     },
     #[error("`connection` declares a transport sutura cannot use")]
     Transport {

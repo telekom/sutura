@@ -41,7 +41,8 @@ use std::path::PathBuf;
 
 use crate::security::DeploymentIdentity;
 use crate::sources::placement::{
-    BillingProject, DatasetId, InvalidHostName, InvalidOracleServiceName, InvalidResourceName, SourcePlacement,
+    BillingProject, DatasetId, InvalidHostName, InvalidOracleServiceName, InvalidResourceName, InvalidSocketDirectory,
+    SourcePlacement,
 };
 use crate::sources::transport::InvalidTransport;
 use crate::sources::workload_identity::{InvalidWorkloadIdentity, WorkloadIdentityConfig};
@@ -391,6 +392,13 @@ pub enum InvalidSourceRegistry {
         alias: SourceName,
         #[source]
         cause: InvalidHostName,
+    },
+    /// A declared `unix_socket` is not one absolute directory.
+    #[error("`sources.{alias}.unix_socket` is not a usable socket directory")]
+    UnixSocket {
+        alias: SourceName,
+        #[source]
+        cause: InvalidSocketDirectory,
     },
     /// An `impersonation-at-source` source declared no token-exchange setup.
     ///

@@ -103,3 +103,7 @@ so a composition root either resolved a driver or refused to serve - the shape
 ## `use UnusableDriverPath`
 
 Why a named driver path is not one this process will open.
+
+## `constant LINKS_POSTGRES_DRIVER`
+
+Whether this artefact's own link carries the PostgreSQL driver, asked without initialising it.
