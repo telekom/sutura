@@ -69,12 +69,46 @@ mod tests {
         );
     }
 
+    /// A resolver that answers no name; an IP literal (the proxy's own) answers as itself.
+    #[derive(Debug)]
+    struct Unanswered;
+
+    impl ureq::unversioned::resolver::Resolver for Unanswered {
+        #[expect(clippy::disallowed_types, reason = "test: `ureq`'s own resolver trait names its `Config`")]
+        fn resolve(
+            &self,
+            uri: &ureq::http::Uri,
+            _config: &ureq::config::Config,
+            _timeout: ureq::unversioned::transport::NextTimeout,
+        ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+            literal(uri)
+        }
+    }
+
+    /// `uri`'s host read as an IP literal, or [`ureq::Error::HostNotFound`].
+    fn literal(uri: &ureq::http::Uri) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        let host = uri.host().ok_or(ureq::Error::HostNotFound)?;
+        let address = SocketAddr::new(
+            host.parse().map_err(|_unparsed| ureq::Error::HostNotFound)?,
+            uri.port_u16().ok_or(ureq::Error::HostNotFound)?,
+        );
+        let mut answer = ureq::unversioned::resolver::ResolvedSocketAddrs::from_fn(|_| address);
+        answer.push(address);
+        Ok(answer)
+    }
+
     /// Every host in `hosts`, over `https://` to a listening loopback port, is dialled without the
     /// proxy the agent carries.
+    ///
+    /// Every name lookup fails ([`Unanswered`]), so the connector cannot route by what a name
+    /// resolves to: each host here is held by the routing rule alone.
     fn never_proxied(hosts: &[&str]) {
         let proxy = listener();
         let carried = ureq::Proxy::new(&url("http", &proxy)).expect("a proxy URL parses");
-        let agent = sutura_http_client::agent(|config| config.timeout_global(Some(UNANSWERED)).proxy(Some(carried)));
+        let agent = sutura_http_client::agent_resolving_through(
+            |config| config.timeout_global(Some(UNANSWERED)).proxy(Some(carried)),
+            Unanswered,
+        );
         let origin = listener();
         let port = origin.local_addr().expect("a bound listener has an address").port();
         for host in hosts {
@@ -243,18 +277,13 @@ mod tests {
             _config: &ureq::config::Config,
             _timeout: ureq::unversioned::transport::NextTimeout,
         ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
-            let host = uri.host().ok_or(ureq::Error::HostNotFound)?;
-            let address = if host == NAME {
-                if self.lookups.fetch_add(1, Ordering::SeqCst) == 0 {
-                    self.first
-                } else {
-                    self.later
-                }
+            if uri.host() != Some(NAME) {
+                return literal(uri);
+            }
+            let address = if self.lookups.fetch_add(1, Ordering::SeqCst) == 0 {
+                self.first
             } else {
-                SocketAddr::new(
-                    host.parse().map_err(|_unparsed| ureq::Error::HostNotFound)?,
-                    uri.port_u16().ok_or(ureq::Error::HostNotFound)?,
-                )
+                self.later
             };
             let mut answer = ureq::unversioned::resolver::ResolvedSocketAddrs::from_fn(|_| address);
             answer.push(address);

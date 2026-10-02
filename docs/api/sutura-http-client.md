@@ -76,7 +76,16 @@ after the agent's and the request's own configuration, so no caller can undo the
 The pins are a `ureq` middleware, read from the AGENT's configuration on every request, so a
 request-level configuration cannot remove it. A request the proxy would still carry to a host
 NAME is resolved at connect, and dialled directly to those very addresses when any of them is
-this host's own - the one resolution both decides the route and is dialled.
+this host's own - the one resolution both decides the route and is dialled; another host's
+address in the same answer is never dialled without the proxy.
+
+**Limits of the name lookup.**
+One local DNS lookup happens per new connection a proxy would carry to an `https://` host
+name; a pooled connection is reused without a new lookup, and the name now reaches the local
+resolver. A lookup that fails fast (host not found) falls back to the proxy. This is fail-open
+on purpose: failing closed would refuse every proxied request on a network whose local
+resolver cannot see outside names. A lookup that stalls spends the request's own time budget,
+so it fails with a global timeout instead of falling back.
 
 ## `use agent_resolving_through`
 

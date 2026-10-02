@@ -217,10 +217,11 @@ disallowed-methods = [
   # into an agent through `From`.
   #
   # `From<Config> for Agent` is a trait impl, which a path here does not reach; the
-  # `ureq::config::Config` row in `disallowed-types` below refuses it wherever the type is named.
-  # A `Config` not named is either ambiguous to the compiler (`Agent::from(Default::default())`)
-  # or an existing agent's own `config()`, which already carries the middleware. The lint reaches this workspace's calls, not a
-  # dependency's own agents.
+  # `ureq::config::Config` row in `disallowed-types` below refuses it wherever the type is named,
+  # and the `Agent::config` row refuses the one call that hands out an unnamed `Config` - which
+  # carries the middleware but not the agent's resolving connector. What is left is
+  # `Agent::from(Default::default())`, which the compiler refuses as ambiguous. The lint reaches
+  # this workspace's calls, not a dependency's own agents.
   #
   # VERIFIED TO RESOLVE the way this file's header requires: each path below was written as a call
   # in a probe target and `just lint` rejected every one by file and line.
@@ -231,6 +232,7 @@ disallowed-methods = [
   { path = "ureq::config::Config::builder", reason = "its Config converts into an agent without the routing middleware; sutura_http_client::agent hands its caller the builder" },
   { path = "ureq::config::Config::new_agent", reason = "an agent without the routing middleware; use sutura_http_client::agent" },
   { path = "ureq::RequestExt::with_default_agent", reason = "ureq's default agent, without the routing middleware; use sutura_http_client::agent" },
+  { path = "ureq::Agent::config", reason = "its Config rebuilds an agent without the resolving connector; build another one with sutura_http_client::agent" },
   { path = "ureq::agent", reason = "ureq's default agent, without the routing middleware; use sutura_http_client::agent" },
   { path = "ureq::run", reason = "ureq's default agent, without the routing middleware; use sutura_http_client::agent" },
   { path = "ureq::get", reason = "ureq's default agent, without the routing middleware; use sutura_http_client::agent" },

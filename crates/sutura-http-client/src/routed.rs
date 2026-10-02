@@ -1,6 +1,7 @@
 //! The connector every [`crate::agent()`] dials through: `ureq`'s own chain, except that a proxied
 //! request to a host NAME is resolved first and, when any address it resolves to is loopback or
-//! unspecified, dialled directly to exactly those addresses.
+//! unspecified, dialled directly to exactly those local addresses - an address of another host in
+//! the same answer is never dialled without the proxy.
 //!
 //! **One resolution.** The addresses that decide the route are the addresses dialled, so nothing
 //! between the check and the connect can resolve the name to something else. A lookup that fails
@@ -9,12 +10,27 @@
 use std::net::IpAddr;
 use std::sync::Arc;
 
+use ureq::unversioned::resolver::ResolvedSocketAddrs;
 use ureq::unversioned::transport::{ConnectionDetails, Connector, DefaultConnector, Transport};
 
 /// Whether `address` reaches this host itself.
 pub(crate) const fn local(address: IpAddr) -> bool {
     let address = address.to_canonical();
     address.is_loopback() || address.is_unspecified()
+}
+
+/// The addresses of `resolved` that reach this host, in answer order, or `None` when none does.
+/// Taken by value so the dial can only be handed this subset, never the whole answer.
+fn local_only(mut resolved: ResolvedSocketAddrs) -> Option<ResolvedSocketAddrs> {
+    let mut kept = 0;
+    for index in 0..resolved.len() {
+        if resolved.get(index).is_some_and(|address| local(address.ip())) {
+            resolved.swap(kept, index);
+            kept += 1;
+        }
+    }
+    resolved.truncate(kept);
+    (kept > 0).then_some(resolved)
 }
 
 /// `ureq`'s default chain for every connection, and `direct` - a TCP dial wrapped in TLS - for a
@@ -45,8 +61,8 @@ impl<D: Connector> Connector for Routed<D> {
             .is_some_and(|host| !host.starts_with('[') && host.parse::<IpAddr>().is_err());
         if proxied
             && named
-            && let Ok(addrs) = details.resolver.resolve(details.uri, details.config, details.timeout)
-            && addrs.iter().any(|address| local(address.ip()))
+            && let Ok(resolved) = details.resolver.resolve(details.uri, details.config, details.timeout)
+            && let Some(addrs) = local_only(resolved)
         {
             let pinned = ConnectionDetails {
                 uri: details.uri,
@@ -63,5 +79,37 @@ impl<D: Connector> Connector for Routed<D> {
             return Ok(dialled.map(|transport| -> Box<dyn Transport> { Box::new(transport) }));
         }
         self.default.connect(details, chained)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::SocketAddr;
+
+    use super::{ResolvedSocketAddrs, local_only};
+
+    fn answer(addresses: &[&str]) -> ResolvedSocketAddrs {
+        let mut answer = ResolvedSocketAddrs::from_fn(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
+        for address in addresses {
+            answer.push(address.parse().expect("a test address parses"));
+        }
+        answer
+    }
+
+    #[test]
+    fn only_the_local_addresses_of_a_mixed_answer_are_dialled_directly() {
+        let kept = local_only(answer(&["192.0.2.1:443", "127.0.0.1:443", "[2001:db8::1]:443", "[::1]:443"]))
+            .expect("an answer with a local address routes directly");
+        let kept: Vec<String> = kept.iter().map(ToString::to_string).collect();
+        assert_eq!(
+            kept,
+            ["127.0.0.1:443", "[::1]:443"],
+            "a non-local address was kept for a direct dial"
+        );
+    }
+
+    #[test]
+    fn an_answer_with_no_local_address_keeps_the_proxy() {
+        assert!(local_only(answer(&["192.0.2.1:443", "[2001:db8::1]:443"])).is_none());
     }
 }
