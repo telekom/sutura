@@ -1105,8 +1105,9 @@
           '');
         };
 
-        # The Oracle venue (#127): starts the compose `oracle` profile and runs its one `#[ignore]`d
-        # acceptance cell - the only venue that executes a statement against a live Oracle, since a
+        # The Oracle venue (#127): starts the compose `oracle` profile and runs its `#[ignore]`d
+        # cells - `sutura-exec-oracle`'s acceptance cell and `sutura-catalog-rdbms`'s live dictionary
+        # cells (#972) - the only venue that executes a statement against a live Oracle, since a
         # nix check has no docker socket. The `oracle-tier` CI job runs it; `just oracle-acceptance`
         # is the by-hand twin. No teardown: the CI runner is ephemeral, and a tier a developer
         # started by hand is neither adopted nor stopped.
@@ -1122,8 +1123,8 @@
             export SUTURA_DEV_REQUIRE_TIER=1
             export SUTURA_DEV_USER="''${SUTURA_DEV_USER:-sutura}"
             export SUTURA_DEV_PASSWORD="''${SUTURA_DEV_PASSWORD:-sutura}"
-            exec cargo nextest run --cargo-profile ci -p sutura-exec-oracle --all-features \
-              --run-ignored only -E 'test(/^acceptance::/)' "$@"
+            exec cargo nextest run --cargo-profile ci -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features \
+              --run-ignored only --no-fail-fast -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/)' "$@"
           '');
         };
 

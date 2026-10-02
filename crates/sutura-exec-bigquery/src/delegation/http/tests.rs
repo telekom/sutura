@@ -274,16 +274,15 @@ fn a_client_id_no_form_can_carry_is_refused() {
 #[test]
 fn a_loopback_token_endpoint_is_dialled_directly_whatever_proxy_the_agent_carries() {
     // The shared agent takes its proxy from the environment; this agent is given one explicitly so
-    // the cell does not depend on (or mutate) the process environment.
+    // the cell does not depend on (or mutate) the process environment -
+    // `a_loopback_token_exchange_never_reaches_an_environment_proxy` is the environment's own cell.
     let proxy = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port is free");
     let proxied = format!("http://{}", proxy.local_addr().expect("a bound listener has an address"));
-    let agent = ureq::Agent::new_with_config(
-        ureq::Agent::config_builder()
+    let agent = sutura_http_client::agent(|config| {
+        config
             .http_status_as_error(false)
-            .max_redirects(0)
             .proxy(Some(ureq::Proxy::new(&proxied).expect("a proxy URL parses")))
-            .build(),
-    );
+    });
     let server = FakeServer::start(vec![Scripted::ok(&issued(&good_token()))]);
     let bounds = ReadBounds::parse(2, 64 * 1024).expect("test bounds are nonzero");
     let exchange = OverHttp::new(
@@ -300,4 +299,19 @@ fn a_loopback_token_endpoint_is_dialled_directly_whatever_proxy_the_agent_carrie
     );
     drop(exchanged.expect("the exchange reached the loopback endpoint directly"));
     assert_eq!(server.finish().len(), 1);
+}
+
+#[test]
+fn a_loopback_token_exchange_never_reaches_an_environment_proxy() {
+    sutura_dev::env_proxy::dialled_directly(
+        module_path!(),
+        "a_loopback_token_exchange_never_reaches_an_environment_proxy",
+        || {
+            let server = FakeServer::start(vec![Scripted::ok(&issued(&good_token()))]);
+            let exchanged = exchanging_at(&format!("{}/token", server.endpoint()), 64 * 1024)
+                .exchange(&Secret::new(SUBJECT_TOKEN), &audience());
+            drop(exchanged.expect("the exchange reached the loopback endpoint directly"));
+            assert_eq!(server.finish().len(), 1);
+        },
+    );
 }

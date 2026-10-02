@@ -127,6 +127,8 @@ sutura-domain = { workspace = true, features = ["agreement"] }
 sutura-conformance = { workspace = true }
 # The loopback fake the `wire` exchange's cells answer from, extended to capture the request body.
 sutura-http-client = { workspace = true, features = ["test"] }
+# `env_proxy`, the harness the exchange's environment-proxy cell re-runs itself under.
+sutura-dev = { workspace = true }
 
 [lints]
 workspace = true

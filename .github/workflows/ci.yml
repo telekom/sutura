@@ -1951,14 +1951,15 @@ jobs:
   # a fixture corpus, and it reaches no release artifact - `nix/shipped.nix` carries no `oracle`
   # feature. The image is pinned by digest in `compose.services.yaml`, which says why.
   #
-  # Category-gated on `data_source_oracle`, like `bigquery-driver-check` on its own category, and
+  # Category-gated on `data_source_oracle` or `catalog_rdbms` (whose Oracle dictionary reader's live
+  # cells run here, #972), like `bigquery-driver-check` on its own category, and
   # held run-or-fail by `ci-aggregate`. An app rather than a `checks.*` entry because it needs a
   # docker socket, and because its cell panics on a missing endpoint, which would go fatal on every
   # `just validate`. `SUTURA_DOCKER_PROBE_TIMEOUT_SECS` for `e2e-datahub-adbc`'s reason: `docker
   # info` inside the 10s default has wedged on this runner.
   oracle-tier:
     needs: [ci]
-    if: needs.ci.outputs.data_source_oracle == 'true'
+    if: needs.ci.outputs.data_source_oracle == 'true' || needs.ci.outputs.catalog_rdbms == 'true'
     runs-on: rust-mcp-16core
     timeout-minutes: 30
     permissions:
@@ -1980,7 +1981,7 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      - name: Oracle acceptance cell
+      - name: Oracle acceptance cells
         run: nix run .#oracle-acceptance -- --no-capture
 
   # THE BODY IS `.github/workflows/demo-container.yml`, the same split `cross-link.yml` uses and
@@ -2044,7 +2045,7 @@ jobs:
           E2E_RESULT: ${{ needs.e2e-datahub-adbc.result }}
           E2E_REQUIRED: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.catalog_datahub == 'true' || needs.ci.outputs.identity == 'true') }}
           ORACLE_RESULT: ${{ needs.oracle-tier.result }}
-          ORACLE_SELECTED: ${{ needs.ci.outputs.data_source_oracle }}
+          ORACLE_SELECTED: ${{ needs.ci.outputs.data_source_oracle == 'true' || needs.ci.outputs.catalog_rdbms == 'true' }}
         run: |
           set -eu
           fail() { echo "ci-aggregate: RED - $*"; exit 1; }
@@ -2101,11 +2102,11 @@ jobs:
             esac
           fi
           # The Oracle docker tier reads no secret, so it carries no event exception: every event
-          # that selects `data_source_oracle` must run it, the same rule as `bigquery-driver-check`
-          # above.
+          # that selects `data_source_oracle` or `catalog_rdbms` must run it, the same rule as
+          # `bigquery-driver-check` above.
           if [ "$ORACLE_SELECTED" = "true" ]; then
             if [ "$ORACLE_RESULT" != "success" ]; then
-              fail "oracle-tier must run (data_source_oracle category selected) but reported '$ORACLE_RESULT'"
+              fail "oracle-tier must run (data_source_oracle or catalog_rdbms category selected) but reported '$ORACLE_RESULT'"
             fi
           else
             case "$ORACLE_RESULT" in

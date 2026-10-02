@@ -292,7 +292,7 @@ build.
 # Why this is a fallible step SEPARATE from opening the transport
 
 `transport::Http::connect`/`connect_secured` take an already-built `ureq::tls::TlsConfig` and
-cannot fail, because `ureq::Agent::new_with_config` does no I/O - `ureq` dials lazily, on the
+cannot fail, because building a `ureq::Agent` does no I/O - `ureq` dials lazily, on the
 first request. So `TlsError` is its own type here rather than a variant folded into
 `crate::ClickHouseError`: nothing about it can arrive from `Warehouse::execute`, only from
 whoever resolves a declared channel into a config before opening the adapter.
