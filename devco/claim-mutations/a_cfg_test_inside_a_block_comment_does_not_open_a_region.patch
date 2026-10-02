@@ -1,0 +1,11 @@
+--- a/xtask/src/guidance/absences.rs
++++ b/xtask/src/guidance/absences.rs
+@@ -355,7 +355,7 @@ fn sighted(read: &crate::causality::regions::PostImage<'_>, files: &[String], s
+         };
+         let code = code_lines(&raw).join("\n");
+         let blanked_read = |path: &str| read(path).map(|text| code_lines(&text).join("\n"));
+-        let tests = regions::scope(rel, &blanked_read);
++        let tests = regions::scope(rel, read);
+         // The walk INSIDE the file, accounted the same way the walk over files is: one outcome per
+         // LINE, so `#414`'s first instance - `.take(100)` here, 214500 of 294744 lines gone at
+         // exit 0 - cannot mint a witness. `true` means the line is production and was searched.
