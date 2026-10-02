@@ -156,8 +156,10 @@ must be absent for every caller when a deployment never turned it on - see `perm
 
 Where a bucket's key comes from, as a value the limiter layer is built with.
 
-`Clone` because `KeyExtractor` requires it and the layer clones it per connection; the trusted
-list is behind an `Arc` so that clone is a pointer bump rather than a copy of every block.
+`Clone` because `KeyExtractor` requires it and the value is cloned 6 times per request through
+the composed router; the trusted list is behind an `Arc` so that clone is a pointer bump; the
+list is non-empty under forwarded keying, making Arc's refcount bump cheaper than heap-copying it
+per request.
 
 ## `use CorrelationId`
 
@@ -642,8 +644,10 @@ pub struct ClientAddress
 
 Where a bucket's key comes from, as a value the limiter layer is built with.
 
-`Clone` because `KeyExtractor` requires it and the layer clones it per connection; the trusted
-list is behind an `Arc` so that clone is a pointer bump rather than a copy of every block.
+`Clone` because `KeyExtractor` requires it and the value is cloned 6 times per request through
+the composed router; the trusted list is behind an `Arc` so that clone is a pointer bump; the
+list is non-empty under forwarded keying, making Arc's refcount bump cheaper than heap-copying it
+per request.
 
 #### Methods
 
