@@ -16,7 +16,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 use sutura_domain::identity::Secret;
-use sutura_http_client::{Budget, Endpoint, InvalidEndpoint, ReadBounds};
+use sutura_http_client::{Budget, Endpoint, InvalidEndpoint};
+/// The bounds and the rotating agent [`OverHttp`] dials over, so a composition root builds them
+/// without naming the shared client crate itself.
+pub use sutura_http_client::{ReadBounds, rotating_agent};
 use ureq::http::Uri;
 
 use super::{Delegated, DelegationExchange, DelegationFailed, RequestedAudience};

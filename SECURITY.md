@@ -146,6 +146,9 @@ is the state of the repository, recorded in `.agents/skills/sutura/invariants` a
   deployment's own ceiling and nothing binds an assertion to what it was sent with, so inside that
   window an intercepted assertion replays. A regression test asserts the replay rather than pretending
   otherwise
+- **which host a delegation exchange sends a caller's token to.** sutura does not tie a delegation's
+  `token_endpoint` to the inbound issuer: the operator chooses the host, and each caller's token is
+  sent to it
 - a result leaving without provenance in an Arrow schema. There is no Arrow envelope
 
 ## Supported versions

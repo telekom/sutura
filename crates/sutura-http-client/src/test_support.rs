@@ -32,7 +32,7 @@
               restriction lints it triggers are scoped out here and nowhere else."
 )]
 
-use std::io::{Read as _, Write as _};
+use std::io::Write as _;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::thread;
 use std::time::Duration;
@@ -207,7 +207,7 @@ impl FakeServer {
 
 /// Reads one HTTP request and returns its request line, `authorization` header, and body. A GET
 /// has no body, so an absent `Content-Length` reads none.
-fn read_request(stream: &mut TcpStream) -> CapturedRequest {
+pub(crate) fn read_request(stream: &mut impl std::io::Read) -> CapturedRequest {
     let mut buf = Vec::new();
     let mut chunk = [0_u8; 4096];
     while let Ok(read) = stream.read(&mut chunk) {
