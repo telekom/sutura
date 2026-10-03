@@ -486,8 +486,8 @@ running as - which is the same reason the refusals in `sutura-config` read the l
 
 The whole tree goes out as one `Debug` field. That is safe because the only credential-shaped
 value in it is held in a type whose `Debug` redacts, and `sutura-config` has a test asserting
-that at the outermost struct, and refuses at load a catalog endpoint, an inbound URL or a
-source host carrying an `@` - not because this function was careful. The limit: a value with
+that at the outermost struct, and refuses at load a catalog endpoint, an inbound URL, a
+delegation token endpoint or a source host carrying an `@` - not because this function was careful. The limit: a value with
 no `@` that holds a secret anyway, such as one written into a path, is printed.
 
 ## Module `blocking`

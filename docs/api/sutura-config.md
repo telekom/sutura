@@ -1025,8 +1025,9 @@ The whole resolved configuration.
 `Clone` because it is held in the request state, and every field is either `Copy` or a small
 owned value. `Debug` is safe to log in full: the only credential-shaped field is held in
 `sutura_domain::identity::Secret`, whose `Debug` redacts, and a test in `crate::security`
-asserts that at struct depth. A catalog endpoint, an inbound URL or a source host carrying an
-`@` - userinfo, however a URL parser splits it - is refused before a `Settings` exists. The
+asserts that at struct depth. A catalog endpoint, an inbound URL, a delegation token endpoint or a
+source host carrying an `@` - userinfo, however a URL parser splits it - is refused before a
+`Settings` exists. The
 limit: a secret with no `@`, such as one written into a path, is printed.
 
 ## `use SettingsError`
@@ -5545,6 +5546,7 @@ convenience, and nothing needs to clone a startup refusal.
   rather than a widened first one: `data_dir` is the only key whose absence has a refusal of its
   own - `Self::NoDataDirectory` - so folding them would make one message stand for two checks
   that are not the same. This one names the key.
+- `CredentialsInUrl` - A declared URL carries an `@` - userinfo however a URL parser splits it. Refused at load, before the startup log prints the resolved settings, and never quoted back.
 - `Posture` - The `posture:` word is not one of the two.
 - `Kind` - The `kind:` word does not name a data system this build has an adapter for.
 
@@ -6554,7 +6556,8 @@ The delegation exchange a `direct` deployment runs before the pool will accept i
 **Held as written and parsed by the crate that sends it**, at boot, by `sutura_cli`'s
 `build_broker` - the endpoint, client ID and audience each go into a request only that adapter
 builds, so its parse is the one that decides whether they can be sent, and a refusal there is
-still a startup failure naming the key. The secret is not here at all: only the path to it,
+still a startup failure naming the key. One check runs here instead: an `@` in the endpoint is
+refused at load, because the startup log prints this tree first. The secret is not here at all: only the path to it,
 which must be absolute like every other secret file a source names.
 
 ##### Methods
