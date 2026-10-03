@@ -47,11 +47,11 @@ driver owns the HTTP transport and its own authentication, so this crate ships n
 reads no credential file - the previous HTTP `wire` transport and its STS/credential machinery
 were removed when ADBC became this adapter's only mode.
 
-So nothing here may be cited as a round-tripped invariant. `sutura serve` links this adapter and
-dispatches `kind: bigquery` behind its default-off `bigquery` feature, but the ADBC driver path is
-not yet a shipped artefact and no live acceptance leg against a real dataset is wired under it -
-the `wire`-era acceptance/corpus/differential legs went away with the transport. A default build
-links none of this.
+`sutura serve` links this adapter and dispatches `kind: bigquery` behind its default-off `bigquery`
+feature. The golden matrix's `bigquery` row runs the example corpus through this transport
+against a real dataset in the `bigquery-conformance` CI job, under one shared CI identity - wired,
+with no observed run when this was written, so until one is green nothing here may be cited as a
+round-tripped invariant - and no gate reaches a dataset at all. A default build links none of this.
 
 # Identity
 

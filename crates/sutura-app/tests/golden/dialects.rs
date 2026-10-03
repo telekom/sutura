@@ -524,27 +524,20 @@ enum Evidence {
 /// `docs/where-identity-is-proven.md` has no row for, and that is why this is a second enum rather
 /// than a citation of that page's vocabulary.** Its venue column reads *in process, every run* /
 /// *a GitHub environment, on demand* / *nowhere yet*, because it grades venues a GATE reaches;
-/// [`Self::OnDemand`] is its second run-site token exactly, and [`Self::ByHandOnly`] is a
-/// `compose.services.yaml` service no task in that page's `Reached by` column can invoke. That
+/// [`Self::ByHandOnly`] is a `compose.services.yaml` service no task in that page's `Reached by`
+/// column can invoke. Its on-demand arm went when `BigQuery`, the one dialect it described, moved
+/// to [`Evidence::Executed`]. That
 /// page's other axis - `unrun`/`wired`/`yes` - is deliberately not borrowed at all: it grades how
 /// strongly an EXISTING venue's claim has been observed, and borrowing it here would have graded
 /// an absence as a weak presence.
 ///
-/// **Both arms claim an adapter exists**, because on this tree every dialect has one (`ls
-/// crates/sutura-exec-*`). A dialect with no adapter at all needs a third arm, and it is absent
+/// **The arm claims an adapter exists**, because on this tree every dialect has one (`ls
+/// crates/sutura-exec-*`). A dialect with no adapter at all needs a second arm, and it is absent
 /// rather than reserved: the workspace denies `dead_code`, so a variant nothing constructs does not
 /// compile - measured, `error: variant ... is never constructed`. The exhaustive match in
 /// [`evidence`] is what forces the decision when that dialect arrives.
 #[derive(Debug, Clone, Copy)]
 enum Venue {
-    /// *A GitHub environment, on demand.* Checked - `task` names a real `just` task, and
-    /// `compose.services.yaml` carries NO service for the dialect, so this arm and the next cannot
-    /// both describe one venue.
-    OnDemand {
-        /// The `just` task that reaches the venue. Asserted to be declared in the `justfile`, so
-        /// this cannot cite a task that was renamed away.
-        task: &'static str,
-    },
     /// A `compose.services.yaml` service a developer brings up by hand, and nothing else. Checked -
     /// that service is named there, so the claim is not of a venue nobody can reach at all.
     ByHandOnly,
@@ -561,20 +554,15 @@ fn evidence(dialect: Dialect) -> Evidence {
         // All three execute on every run - DuckDB in-process, Postgres against the postmaster
         // `nix/postgres-tier.nix` stands up in the same sandbox, ClickHouse against the server
         // `nix/clickhouse-tier.nix` stands up beside it (`github.com/telekom/sutura#920`).
-        Dialect::DuckDb | Dialect::Postgres | Dialect::ClickHouse => Evidence::Executed,
-        // Both fields MOVED with the wire deletion, and the pair is why this axis is typed: the
-        // `bigquery-acceptance` leg and `tests/corpus.rs` were deleted together with the HTTP
-        // transport they executed over, so the arm this replaces cited a task the `justfile` no
-        // longer declares and a file no longer in the tree. The hosted venue that is left asks a
-        // real dataset `SESSION_USER()` per declared subject rather than running the corpus, which
-        // is a NARROWER venue than the one it replaces - so `stated_in` moves to the header that
-        // argues the render-only limit at length rather than to that venue's own.
-        Dialect::BigQuery => Evidence::RenderOnly {
-            venue: Venue::OnDemand {
-                task: "bigquery-declared-principal",
-            },
-            stated_in: "crates/sutura-exec-bigquery/tests/conformance.rs",
-        },
+        //
+        // BigQuery executes in ONE venue and no gate: the `bigquery-conformance` CI job, against
+        // the dataset it provisions (`just bigquery-conformance`). Its execution goldens were seeded
+        // from the answer the other four executing data systems already return byte for byte - the
+        // conformance claim itself - and its one error golden is pinned through the adapter's own
+        // layers, because the driver's message links the run's job. **So a golden here is an
+        // expectation until that job has run green**, and the pull request adding the job is its
+        // first run.
+        Dialect::DuckDb | Dialect::Postgres | Dialect::ClickHouse | Dialect::BigQuery => Evidence::Executed,
         // `sutura-exec-oracle` arrived with `github.com/telekom/sutura#127` PR 2 while this change
         // was in review, and this arm MOVED for it: the declaration it replaced said *no adapter
         // executes Oracle on this tree*, prose that went false on a merge no gate would have read.
@@ -604,10 +592,8 @@ fn evidence(dialect: Dialect) -> Evidence {
 ///    `xtask`'s `compose::file::every_nix_tier_module_is_provisioned_by_a_nix_check` already holds
 ///    a tier module to being provisioned, and this one holds it to the dialect's GOLDENS, which is
 ///    the edge that was missing.
-/// 6. **The venue named is the venue there is**: [`Venue::OnDemand`]'s task is declared
-///    in the `justfile` and the dialect has no compose service; [`Venue::ByHandOnly`]'s
-///    compose service is named. Without this the `venue` field would be decoration, and `BigQuery`'s
-///    hosted absence would read the same as `Oracle`'s by-hand one.
+/// 6. **The venue named is the venue there is**: [`Venue::ByHandOnly`]'s compose service is
+///    named. Without this the `venue` field would be decoration.
 ///
 /// Plus `stated_in` resolving to a file, so a moved header is a red and not a dangling citation.
 ///
@@ -616,20 +602,18 @@ fn evidence(dialect: Dialect) -> Evidence {
 /// this test relies on and no mechanism holds, so an adapter or a tier named otherwise reads as
 /// absent. A present directory is not a WIRED adapter - nothing here asks whether a composition
 /// root links it, and `sutura-exec-oracle` is the standing case of one nothing links. The
-/// compose read is a substring search over the file and the `justfile` read a line-anchored name
-/// prefix, neither a parse of either. And none of this reaches whether a golden's CONTENT is right:
+/// compose read is a substring search over the file, not a parse of it. And none of this reaches whether a golden's CONTENT is right:
 /// measured while `ClickHouse` was still render-only, flipping its `date_trunc_shape` to the wrong
 /// shape and re-accepting the render goldens left this test and
 /// `dialects::clickhouse::every_generated_statement_parses_here` both green, which is the ceiling
-/// [`Evidence::RenderOnly`] declares rather than closes - and the ceiling `BigQuery` and `Oracle`
-/// still stand under.
+/// [`Evidence::RenderOnly`] declares rather than closes - and the ceiling `Oracle` still stands
+/// under.
 #[test]
 fn every_dialect_declares_what_backs_its_goldens() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let read = |relative: &str| {
         std::fs::read_to_string(root.join(relative)).unwrap_or_else(|cause| panic!("{relative} did not read: {cause}"))
     };
-    let justfile = read("justfile");
     let compose = read("compose.services.yaml");
     for &dialect in dialect::ALL {
         let counted = census(dialect);
@@ -677,26 +661,6 @@ fn every_dialect_declares_what_backs_its_goldens() {
                 );
                 let service = format!("\n  {name}:\n");
                 match venue {
-                    Venue::OnDemand { task } => {
-                        // A line-anchored prefix and NOT `contains("\n{task}:")`, which is what
-                        // this read used to be: `just` declares a recipe taking arguments as
-                        // `<name> *args:`, so the colon form answered *not declared* to every
-                        // parameterised venue - fail-open, and measured on
-                        // `bigquery-declared-principal`. Anchoring at a line start also stops a
-                        // mention inside a comment from counting as a declaration.
-                        assert!(
-                            justfile.lines().any(|line| line
-                                .strip_prefix(task)
-                                .is_some_and(|rest| rest.starts_with(':') || rest.starts_with(' '))),
-                            "{name} declares its venue is reached by `just {task}`, which the justfile \
-                             does not declare"
-                        );
-                        assert!(
-                            !compose.contains(&service),
-                            "{name} declares an on-demand venue and compose.services.yaml names a \
-                             {name} service too - one of the two is the venue, so say which"
-                        );
-                    }
                     Venue::ByHandOnly => assert!(
                         compose.contains(&service),
                         "{name} declares a by-hand compose venue and compose.services.yaml names no \

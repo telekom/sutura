@@ -12,7 +12,9 @@ use sutura_domain::warehouse::RowSet;
 use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
 use sutura_semantic::{Compiled, compile};
 
-use crate::adapters::{DataSystemUnderTest, ReferenceCatalog, data_root, load, open, questions, read_question, stem};
+use crate::adapters::{
+    DataSystemUnderTest, Exempt, ReferenceCatalog, data_root, excused, load, open, questions, read_question, runs_here, stem,
+};
 
 use crate::shared::{chain, question, settings, stable};
 
@@ -27,9 +29,9 @@ where
     W: DataSystemUnderTest + Sync,
     W::Error: Send,
 {
-    // A network adapter with no provisioned tier to run against is SKIPPED (the notice is already
-    // on stderr) rather than failed; the skip-or-fail direction is `SUTURA_DEV_REQUIRE_TIER`.
-    if !W::available() {
+    // A network adapter with no venue here is SKIPPED under its named exemption, or fails for
+    // having none; the skip-or-fail direction for a tier is `SUTURA_DEV_REQUIRE_TIER`.
+    if !runs_here::<W>() {
         return;
     }
     let pinned = load::<ReferenceCatalog>();
@@ -68,7 +70,7 @@ where
     W: DataSystemUnderTest + Sync,
     W::Error: Send,
 {
-    if !W::available() {
+    if !runs_here::<W>() {
         return;
     }
     let pinned = load::<ReferenceCatalog>();
@@ -97,10 +99,28 @@ where
                 insta::assert_snapshot!(format!("{name}__rows"), stable(rows));
             }
             Err(ref error) => {
-                insta::assert_snapshot!(format!("{name}__error"), chain(error));
+                insta::assert_snapshot!(format!("{name}__error"), error_golden(W::NAME, chain(error)));
             }
         });
     }
+}
+
+/// An error chain as [`runs_the_corpus_and_pins_the_rows`] pins it: the chain itself, except on
+/// `bigquery`.
+///
+/// Its driver's message ends in a console link naming the project and the run's job id, which is
+/// neither stable nor publishable, so the chain is pinned through the adapter's own layers and the
+/// driver's message is replaced by a marker. **The limit:** the `bigquery` error golden therefore
+/// pins THAT the driver refused and not what it said - the zero-denominator cell below asserts
+/// what it said.
+fn error_golden(system: &str, chain: String) -> String {
+    const DRIVER: &str = "\n  caused by: ADBC call failed: ";
+    if system == "bigquery"
+        && let Some((ours, _driver)) = chain.split_once(DRIVER)
+    {
+        return format!("{ours}{DRIVER}[the driver's own message, which links this run's job]");
+    }
+    chain
 }
 
 /// Asking "would this be accepted" never answers no for a plan that runs.
@@ -125,7 +145,7 @@ where
     W: DataSystemUnderTest + Sync,
     W::Error: Send,
 {
-    if !W::available() {
+    if !runs_here::<W>() {
         return;
     }
     let pinned = load::<ReferenceCatalog>();
@@ -201,7 +221,7 @@ where
     W: DataSystemUnderTest + Sync,
     W::Error: Send,
 {
-    if !W::available() {
+    if !runs_here::<W>() {
         return;
     }
     let pinned = load::<ReferenceCatalog>();
@@ -290,7 +310,7 @@ where
     W: DataSystemUnderTest + Sync,
     W::Error: Send,
 {
-    if !W::available() {
+    if !runs_here::<W>() {
         return;
     }
     let pinned = load::<ReferenceCatalog>();
@@ -319,10 +339,12 @@ where
     match W::NAME {
         // Postgres RAISES `division by zero` at the server where the IEEE adapters hand back a
         // non-finite cell, and a server error names no column; its contract is the server's own
-        // refusal, which the adapter carries as the typed DivisionByZero variant.
-        "postgres" => assert!(
+        // refusal, which the adapter carries as the typed DivisionByZero variant. `BigQuery`'s `/`
+        // raises too - its documented behaviour, where `IEEE_DIVIDE` would answer `inf` - and its
+        // adapter carries the driver's message rather than a typed variant.
+        system @ ("postgres" | "bigquery") => assert!(
             rendered.contains("division by zero"),
-            "postgres neither refused a non-finite cell nor reported the server's division-by-zero:\n{rendered}"
+            "{system} neither refused a non-finite cell nor reported the server's division-by-zero:\n{rendered}"
         ),
         // The engine, DuckDB and ClickHouse divide with IEEE semantics and receive a non-finite
         // value, which the adapter refuses NAMING THE COLUMN - the strong assertion kept for the
@@ -379,20 +401,22 @@ where
 /// resolved the wrong table, or one over a table nobody loaded, answers `0` over `0` - which *is*
 /// unique, vacuously, and would read as a clean check forever.
 ///
-/// **What this axis does not reach is `BigQuery`**: it is registered, but its `available()` answers
-/// `false` unconditionally because no gate reaches a dataset, so its cell skips. So a dimension
-/// model on a dataset is unchecked, stated in
-/// `.agents/skills/sutura/invariants` and in `SECURITY.md` rather than implied by a green run here.
+/// **What this axis does not reach is `BigQuery`'s count**: it takes the port's default, so a
+/// dimension model on a dataset is unchecked - stated in `.agents/skills/sutura/invariants` and in
+/// `SECURITY.md` rather than implied by a green run here, and excused by name in
+/// `adapters::EXEMPTIONS`. Where it executes, the cell asserts that default is still what answers,
+/// so the exemption expires the day a probe is implemented rather than outliving it.
 fn counts_every_declared_join_key<W>()
 where
     W: DataSystemUnderTest + Sync,
     W::Error: Send,
 {
-    if !W::available() {
+    if !runs_here::<W>() {
         return;
     }
     let pinned = load::<ReferenceCatalog>();
     let warehouse = open::<W>(&pinned);
+    let probes = !excused::<W>(Exempt::KeyProbe);
     let definitions = pinned.definitions();
     assert!(
         !definitions.relationships().is_empty(),
@@ -420,6 +444,14 @@ where
         let answered = warehouse
             .declared_key(key)
             .unwrap_or_else(|e| panic!("{} could not count {} on {}: {e}", W::NAME, column, key.table()));
+        if !probes {
+            assert!(
+                matches!(answered, KeyUniqueness::NotAsked),
+                "{} now answers a declared key, so its `KeyProbe` exemption is stale - delete it",
+                W::NAME
+            );
+            continue;
+        }
         let KeyUniqueness::Counted(counts) = answered else {
             panic!(
                 "{} did not count {}, so every cardinality declaration on it is unchecked and nothing \
@@ -456,6 +488,58 @@ fn rows_in_fixture(key: &DeclaredKey<'_>) -> u64 {
     let path = data_root().join(format!("{}.csv", key.table().name()));
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("could not read {}: {e}", path.display()));
     text.lines().skip(1).filter(|line| !line.is_empty()).count() as u64
+}
+
+/// **The `bigquery-conformance` job's first step**: replace one table per example CSV in the
+/// dataset `SUTURA_BQ_DATASET` names, then prove the identity can READ through the driver. Every
+/// `bigquery` cell after it reads those tables and none writes - the registration says why.
+///
+/// `#[ignore]`d because it needs a real dataset, the driver and a credential, and it PANICS on a
+/// missing one rather than skipping: a provisioning step that skipped would leave every cell after
+/// it reading whatever the last run left. The importer gives each table a one-day expiration, so a
+/// job that dies here leaves nothing behind for long.
+///
+/// **The read probe names the one grant a load does not need.** A `CREATE OR REPLACE TABLE` is a
+/// job; reading an answer back as Arrow opens a Storage Read API session, which needs
+/// `bigquery.readsessions.create` - `roles/bigquery.readSessionUser`. An identity holding every
+/// other grant loads all five tables and then fails every cell after this one, so the probe refuses
+/// HERE, naming the role, instead of leaving each cell to report the same driver message.
+#[test]
+#[ignore = "needs the dataset the bigquery-conformance job provisions, the ADBC driver and a credential"]
+fn the_bigquery_dataset_holds_the_example_corpus() {
+    type BigQuery = sutura_exec_bigquery::BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery>;
+    assert!(
+        <BigQuery as DataSystemUnderTest>::available(),
+        "SUTURA_BQ_DATASET is unset, so there is no dataset to provision"
+    );
+    let warehouse = crate::adapters::bigquery_warehouse(crate::adapters::source());
+    let mut csvs: Vec<std::path::PathBuf> = std::fs::read_dir(data_root())
+        .expect("the example data directory reads")
+        .map(|entry| entry.expect("a directory entry is readable").path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "csv"))
+        .collect();
+    csvs.sort();
+    assert!(!csvs.is_empty(), "no CSV under {}", data_root().display());
+    for csv in csvs {
+        let table = sutura_domain::model::TableName::parse(stem(&csv)).expect("an example CSV is named after its table");
+        let loaded = warehouse
+            .load_fixture(&table, &csv)
+            .unwrap_or_else(|e| panic!("{table} did not load:\n{}", chain(&e)));
+        let text = std::fs::read_to_string(&csv).unwrap_or_else(|e| panic!("could not read {}: {e}", csv.display()));
+        let rows = text.lines().skip(1).filter(|line| !line.is_empty()).count();
+        assert_eq!(loaded, rows, "{table} loaded {loaded} rows where its CSV holds {rows}");
+        eprintln!("provisioned {table}: {loaded} rows");
+    }
+    if let Err(error) = warehouse.session_user(&crate::adapters::presented()) {
+        let said = chain(&error);
+        assert!(
+            !said.contains("bigquery.readsessions.create"),
+            "the CI identity loaded the corpus and may not READ it back: the driver's Arrow reader needs \
+             `bigquery.readsessions.create`, so grant that identity `roles/bigquery.readSessionUser` on the \
+             billing project\n{said}"
+        );
+        panic!("the CI identity loaded the corpus and could not read through the driver:\n{said}");
+    }
 }
 
 /// One cell of the data-system axis.

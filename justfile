@@ -340,6 +340,24 @@ e2e-datahub-adbc *args:
     cargo nextest run -p sutura-cli --all-features --run-ignored only \
       -E 'test(served_datahub_metric_executes_through_adbc_bigquery)' {{ args }}
 
+# Load the example corpus into the dataset `SUTURA_BQ_DATASET` names, ONCE, before
+# `just bigquery-conformance`; the `bigquery-conformance` CI job runs both through their Nix apps.
+bigquery-provision *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "bigquery-provision: scope sutura-app - one cell that loads five tables into SUTURA_BQ_DATASET."
+    echo "bigquery-provision: this is NOT a gate. Run \`just test\` for the workspace suite."
+    cargo nextest run -p sutura-app --all-features --run-ignored only \
+      -E 'test(=data_systems::the_bigquery_dataset_holds_the_example_corpus)' {{ args }}
+
+# Run every `bigquery` cell of the golden matrix against the dataset `just bigquery-provision` loaded.
+bigquery-conformance *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "bigquery-conformance: scope sutura-app - the golden matrix's bigquery cells, against SUTURA_BQ_DATASET."
+    echo "bigquery-conformance: this is NOT a gate. Run \`just test\` for the workspace suite."
+    cargo nextest run -p sutura-app --all-features -E 'test(/bigquery/)' {{ args }}
+
 # The finishing sequence, over the committed branch diff. Needs a clean tree.
 ship-check:
     devenv shell ship-check

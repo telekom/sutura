@@ -1105,6 +1105,38 @@
           '');
         };
 
+        # The golden matrix's `bigquery` row, live, as two apps the `bigquery-conformance` CI job runs
+        # in order: `bigquery-provision` loads the example corpus into the dataset `SUTURA_BQ_DATASET`
+        # names, ONCE, and `bigquery-conformance` runs every `bigquery` cell of `sutura-app`'s golden
+        # and differential targets against it through the ADBC driver, under one shared CI identity.
+        # Two apps so a failed load stops the job before any cell reads. The cells themselves refuse
+        # a missing project, driver or credential by name; the dataset check here is what stops an
+        # unset one from skipping every cell green.
+        apps.bigquery-provision = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-provision" ''
+            set -euo pipefail
+            : "''${SUTURA_BQ_DATASET:?bigquery-provision: SUTURA_BQ_DATASET is unset or empty}"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
+            export SUTURA_BIGQUERY_ADBC_DRIVER="${adbcDrivers."adbc-driver-bigquery-x86_64-unknown-linux-gnu"}/lib/libadbc_driver_bigquery.so"
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo nextest run --cargo-profile ci -p sutura-app --all-features --run-ignored only -E 'test(=data_systems::the_bigquery_dataset_holds_the_example_corpus)' "$@"
+          '');
+        };
+        apps.bigquery-conformance = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-conformance" ''
+            set -euo pipefail
+            : "''${SUTURA_BQ_DATASET:?bigquery-conformance: SUTURA_BQ_DATASET is unset or empty}"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
+            export SUTURA_BIGQUERY_ADBC_DRIVER="${adbcDrivers."adbc-driver-bigquery-x86_64-unknown-linux-gnu"}/lib/libadbc_driver_bigquery.so"
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo nextest run --cargo-profile ci -p sutura-app --all-features -E 'test(/bigquery/)' "$@"
+          '');
+        };
+
         # The Oracle venue (#127): starts the compose `oracle` profile and runs its `#[ignore]`d
         # cells - `sutura-exec-oracle`'s acceptance cell and `sutura-catalog-rdbms`'s live dictionary
         # cells (#972) - the only venue that executes a statement against a live Oracle, since a

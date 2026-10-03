@@ -208,7 +208,9 @@ and every build links it; `sutura-exec-duckdb` is a **data source** - it renders
 rendered SQL runs somewhere. Postgres, ClickHouse, Oracle and BigQuery are data sources too, each
 behind a default-off feature, and the release binary enables BigQuery, Postgres and ClickHouse. The golden
 suite executes the example corpus against Postgres and ClickHouse on a server their nix tier starts
-beside the suite; BigQuery and Oracle have no local tier, so their golden cells skip.
+beside the suite; BigQuery's golden cells run against a real dataset in the `bigquery-conformance`
+CI job and skip elsewhere under a named exemption, and Oracle's skip under one because no gate
+provisions an Oracle.
 
 A plan resolves to **one** data system per leg. Spanning two is not a bigger version of the same
 problem: it is a second identity to satisfy, and a plan whose legs cannot all run as one subject is

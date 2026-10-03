@@ -194,6 +194,10 @@ ci.yml:bigquery-driver-check
 # on a selected same-repository pull request or push.
 ci.yml:e2e-datahub-adbc
 
+# The golden matrix's `bigquery` row against a real dataset. Advisory and outside `ci-aggregate`:
+# category-gated, so it reports nothing on most pull requests, and it has no observed green run yet.
+ci.yml:bigquery-conformance
+
 # The Oracle docker tier, advisory for `bigquery-driver-check`'s reason: category-gated on
 # `data_source_oracle` or `catalog_rdbms`, so it reports nothing on most pull requests, and a required context that
 # does not report is a permanently pending merge. `ci-aggregate` holds run-or-fail for it.
