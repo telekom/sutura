@@ -74,16 +74,19 @@
 //! provisioned a service once two provisioners contribute to one file.
 //!
 //! So a fail-closed cell is no longer unconditionally red over a service some other provisioner's
-//! `start` erased. What keeps this test behind a named task is the venue and nothing else: `SUTURA_DEV_REQUIRE_TIER=1`
-//! is exported in two places - the `just datahub-acceptance` recipe and the flake `datahub-acceptance` app - and
-//! they must be kept in sync (see #1254); the `DataHub` profile is off by default because it costs
-//! three JVMs and a migration job; and the nix sandbox has no docker socket at all.
+//! `start` erased. What keeps this test behind a named task is the venue and nothing else: `just
+//! test` sets `SUTURA_DEV_REQUIRE_TIER=1`, the `DataHub` profile is off by default because it costs
+//! three JVMs and a migration job, and the nix sandbox has no docker socket at all.
+//!
 //! So the venue gets a named task, `just datahub-acceptance`, which brings the profile up and runs
 //! this with the fail-closed direction set. **An `#[ignore]`d test is not evidence in the default
 //! suite, and this file may not be cited as though it were** - what it is evidence of is whatever
 //! the last run of that task reported. Its CI venue is `ci.yml`'s `ci-datahub-tier` job, which runs
-//! the same task when `xtask classify` selects the `catalog_datahub` category and which
-//! `ci-aggregate` holds run-or-fail; no nix check covers it, because the sandbox has no docker socket.
+//! the same cells through `nix run .#datahub-acceptance` when `xtask classify` selects the
+//! `catalog_datahub` category and which `ci-aggregate` holds run-or-fail; no nix check covers it,
+//! because the sandbox has no docker socket. That app and `just datahub-acceptance` are two copies -
+//! both export `SUTURA_DEV_REQUIRE_TIER=1`, under different cargo profiles - and nothing checks that
+//! they agree.
 
 // `cfg(test)` because clippy only honours `allow-expect-in-tests` and `allow-panic-in-tests` for
 // code inside a `#[cfg(test)]` item, and `tests_outside_test_module` wants the `#[test]` function

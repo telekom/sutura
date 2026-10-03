@@ -815,6 +815,8 @@ dev-up-demo:
 # write. THE LIMIT ON THAT REPAIR: nothing compares the two writers' shapes, so they agree by review
 # and a THIRD writer would be held by neither. It brings the profile up first, because asking for
 # the fail-closed direction against a tier nobody started is a confusing way to spell an error.
+# CI runs the same cells through `nix run .#datahub-acceptance`; keep the two aligned - nothing
+# checks it.
 # The provisioned DataHub, asked whether it can carry the deployment-defined metric document.
 datahub-acceptance:
     #!/usr/bin/env bash

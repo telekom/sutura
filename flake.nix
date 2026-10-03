@@ -1106,10 +1106,12 @@
         # acceptance cells - the instance reachable, the deployment-defined metric document
         # round-tripping, and a bearer-less read refused - failing rather than skipping, under
         # `SUTURA_DEV_REQUIRE_TIER=1`. The `ci-datahub-tier` CI job runs it; `just
-        # datahub-acceptance` is its by-hand twin, the same steps, so a change to one is a change to
-        # both. An app for `apps.oracle-acceptance`'s reason: the runner needs the pinned toolchain,
-        # the cargo env and the warm start a bare `just` would not have, and a nix check has no
-        # docker socket. No teardown: the CI runner is ephemeral, and a tier a developer started by
+        # datahub-acceptance` is its by-hand twin - the same cells, but this app runs `--profile ci`
+        # and forwards its arguments - and nothing checks that the two agree, so keep them aligned by
+        # hand; this app's `export SUTURA_DEV_REQUIRE_TIER=1` is what makes the CI leg fail rather
+        # than skip. An app for `apps.oracle-acceptance`'s reason: the runner needs the pinned
+        # toolchain, the cargo env and the warm start a bare `just` would not have, and a nix check
+        # has no docker socket. No teardown: the CI runner is ephemeral, and a tier a developer started by
         # hand is neither adopted nor stopped.
         apps.datahub-acceptance = {
           type = "app";
