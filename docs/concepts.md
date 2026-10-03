@@ -206,7 +206,7 @@ it reads CSV, Parquet and NDJSON files itself, executes the plan over Arrow and 
 and every build links it; `sutura-exec-duckdb` is a **data source** - it renders the plan into
 `DuckDB` SQL and pushes the statement down, and it is a development dependency, there to prove the
 rendered SQL runs somewhere. Postgres, ClickHouse, Oracle and BigQuery are data sources too, each
-behind a default-off feature, and the release binary enables BigQuery and Postgres. The golden
+behind a default-off feature, and the release binary enables BigQuery, Postgres and ClickHouse. The golden
 suite executes the example corpus against Postgres and ClickHouse on a server their nix tier starts
 beside the suite; BigQuery and Oracle have no local tier, so their golden cells skip.
 

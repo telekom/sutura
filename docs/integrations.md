@@ -64,7 +64,7 @@ composition root with the reason that no build delivers it.
 
 **ClickHouse is the newest row and the one whose columns need reading together.** It executes: a
 `kind: clickhouse` source is declarable and openable by a build carrying the `clickhouse` feature,
-which is default-off and in no published binary. The golden and differential suites run the example
+which every release binary carries now that `github.com/telekom/sutura#955` landed. The golden and differential suites run the example
 corpus against a real ClickHouse - the server `nix/clickhouse-tier.nix` starts beside the Postgres
 tier - and pin its rows, refusals, error and anchor report; the conformance packs are bound too
 (`execute_packs!` in `crates/sutura-exec-clickhouse/tests/conformance.rs`). What the `Executes`
