@@ -262,4 +262,24 @@ mod tests {
             refused.len()
         );
     }
+
+    #[test]
+    fn an_unrequired_adapter_reaches_the_report_as_a_rule_of_its_own() {
+        // `adapters::unrequired`'s findings are refused here and not only computed: a shipped
+        // adapter `checks.shipped-features` would not hold fails the gate.
+        let clean = super::Reconciliation {
+            problems: Vec::new(),
+            probed: vec![String::from("docs/p.md:2 sutura-cli [bigquery]")],
+        };
+        let unrequired = [String::from(
+            "sutura: shipped feature `clickhouse` pulls `sutura-exec-clickhouse`",
+        )];
+        let refused = refusals(Verdict::Pass, &[], &[], Some("ci.yml"), Ok(&clean), &unrequired);
+        assert!(
+            matches!(refused.as_slice(), [Refused::Unrequired([_])]),
+            "{} rule(s)",
+            refused.len()
+        );
+        assert_eq!(super::report(&refused), Verdict::Fail);
+    }
 }
