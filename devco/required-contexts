@@ -88,6 +88,16 @@ ci
 # `required_status_checks` holds (verified 2026-09-24).
 ci-aggregate
 
+# The pull-request title check, now in its own workflow. REQUIRED - it is the gate on the subject
+# GitHub's squash will land, the one commit a local hook never sees. READ ON 2026-10-03 (owner
+# decision #1257): the workflow's job carries `name: pr-title`, so the context the ruleset must
+# require is `pr-title`. It triggers on `pull_request` INCLUDING `edited`, so a title rename alone
+# fires a fresh verdict instead of waiting for the last push. It triggers on `merge_group` as
+# well, because a required context that does not report on a queue entry leaves that entry pending
+# until the queue's timeout drops it; `obligations::pr_title_check` refuses a `pr-title.yml`
+# without that trigger.
+pr-title
+
 [advisory]
 
 # A red leg in this section does not block a merge, read on 2026-09-24, in the queue or out of it,
