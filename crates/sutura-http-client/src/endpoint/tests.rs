@@ -112,12 +112,13 @@ fn a_bracketed_ipv6_userinfo_prefix_is_refused_as_credentials_too() {
 /// A query string is refused rather than silently carried into the request path - see
 /// [`InvalidEndpoint::PathBeyondRoot`]. This particular shape has no `@` in the AUTHORITY (the
 /// `@` is inside the query, after the `?`), so it is `PathBeyondRoot` rather than
-/// `CredentialsInUrl` - the two refusals name different reasons for a reason.
+/// `CredentialsInUrl` - the two refusals name different reasons for a reason. An `@` outside the
+/// parsed authority shows nothing: it may be the rest of a password.
 #[test]
 fn a_query_string_is_refused_rather_than_silently_kept() {
     let refused = Endpoint::parse("http://127.0.0.1:1?@evil.example");
     assert!(
-        matches!(&refused, Err(InvalidEndpoint::PathBeyondRoot { given }) if given.to_string() == "http://127.0.0.1:1"),
+        matches!(&refused, Err(InvalidEndpoint::PathBeyondRoot { given }) if given.to_string() == "the declared endpoint"),
         "{refused:?}"
     );
 }
@@ -208,4 +209,20 @@ fn an_endpoint_the_parser_refuses_is_not_shown_at_all() {
         shown.starts_with("the declared endpoint ") && !shown.contains("cret"),
         "{shown}"
     );
+}
+
+/// An unencoded `/`, `?` or `#` in a password ends the parsed authority early, so the rest of the
+/// credential reads as port, path or query: any `@` outside the parsed authority shows nothing.
+#[test]
+fn an_at_sign_outside_the_parsed_authority_is_not_shown_at_all() {
+    for raw in [
+        "https://svc:Ab?cd@catalog.example",
+        "https://svc:Ab#cd@catalog.example",
+        "https://svc:Ab/cd@catalog.example",
+        "https://svc/x:Ab@catalog.example",
+        "https://svc:1234/x@catalog.example",
+    ] {
+        let shown = Endpoint::parse(raw).expect_err("each shape is refused").to_string();
+        assert!(shown.starts_with("the declared endpoint "), "{raw}: {shown}");
+    }
 }

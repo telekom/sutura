@@ -1025,7 +1025,9 @@ The whole resolved configuration.
 `Clone` because it is held in the request state, and every field is either `Copy` or a small
 owned value. `Debug` is safe to log in full: the only credential-shaped field is held in
 `sutura_domain::identity::Secret`, whose `Debug` redacts, and a test in `crate::security`
-asserts that at struct depth.
+asserts that at struct depth. A catalog endpoint, an inbound URL or a source host carrying an
+`@` - userinfo, however a URL parser splits it - is refused before a `Settings` exists. The
+limit: a secret with no `@`, such as one written into a path, is printed.
 
 ## `use SettingsError`
 
@@ -1175,9 +1177,9 @@ bare `String` carried past `parse_placement` unexamined - the exclusivity of `ho
 `unix_socket` was a check in that function, but the FIELD still admitted whatever text was
 there, so `crate::sources::placement::PostgresDial` existed only as a `match` two composition
 roots each wrote by hand. Refuses only shapes that cannot be a host at all - empty, embedded
-whitespace, a URL scheme, a path separator, a list separator - and nothing about reachability:
-a value that parses may still fail to resolve, or fail the TLS name check at connect time, and
-neither is this type's question. `crate::sources::transport::host_is_loopback` still does the
+whitespace, a URL scheme, a path separator, a list separator, an `@` - and nothing about
+reachability: a value that parses may still fail to resolve, or fail the TLS name check at
+connect time, and neither is this type's question. `crate::sources::transport::host_is_loopback` still does the
 loopback test on the parsed text.
 
 ## `use InvalidHostName`
@@ -1753,6 +1755,7 @@ Why a catalog configuration is not usable.
 - `EmptyCatalog` - No catalog was declared, so there is nothing to serve.
 - `DuplicateName` - Two catalogs share one declared name, so the contribution manifest could not tell them apart.
 - `MissingForDatahub` - A `catalog.kind: datahub` entry did not declare a field only that kind needs.
+- `CredentialsInEndpoint` - `catalogs[].endpoint` carries an `@`. A catalog endpoint is `scheme://host[:port]`, so an `@` is userinfo however the URL parser splits it - refused here, before the startup log prints the resolved settings, and never quoted back.
 - `MissingForOpenmetadata` - A `catalog.kind: openmetadata` entry did not declare a field only that kind needs.
 - `ZeroRefresh` - `catalogs[].refresh_seconds: 0` - `github.com/telekom/sutura#975`. Zero re-reads on every tick of whatever drives it, which is not a refresh interval; absent is how "never refresh" is written.
 - `Rdbms` - A `catalog.kind: rdbms` entry's own keys are not usable.
@@ -5816,9 +5819,9 @@ bare `String` carried past `parse_placement` unexamined - the exclusivity of `ho
 `unix_socket` was a check in that function, but the FIELD still admitted whatever text was
 there, so `crate::sources::placement::PostgresDial` existed only as a `match` two composition
 roots each wrote by hand. Refuses only shapes that cannot be a host at all - empty, embedded
-whitespace, a URL scheme, a path separator, a list separator - and nothing about reachability:
-a value that parses may still fail to resolve, or fail the TLS name check at connect time, and
-neither is this type's question. `crate::sources::transport::host_is_loopback` still does the
+whitespace, a URL scheme, a path separator, a list separator, an `@` - and nothing about
+reachability: a value that parses may still fail to resolve, or fail the TLS name check at
+connect time, and neither is this type's question. `crate::sources::transport::host_is_loopback` still does the
 loopback test on the parsed text.
 
 ##### Methods
@@ -5854,6 +5857,7 @@ Why a declared Postgres host cannot be dialled at all.
 - `Scheme` - A URL was written where a bare host belongs - `host` is not a connection string.
 - `PathSeparator` - A `/` is a path separator, not a character a host or an address ever carries.
 - `List` - libpq reads `host` as a list of hosts.
+- `Userinfo` - A host carries no credentials, and the startup log prints the resolved settings.
 
 ##### Implements
 

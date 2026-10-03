@@ -346,3 +346,26 @@ fn a_loopback_token_exchange_never_reaches_an_environment_proxy() {
         },
     );
 }
+
+/// An unencoded `/`, `?` or `#` in a password ends the parsed authority early: the `?` and `#`
+/// shapes are refused without being shown, and the `/` shapes - otherwise accepted, dialling the
+/// text before the `/` as the host - are refused as credentials.
+#[test]
+fn a_token_endpoint_with_an_at_sign_outside_the_authority_is_refused_unshown() {
+    for (raw, credentials) in [
+        ("https://svc:Ab?cd@idp.example.com/token", false),
+        ("https://svc:Ab#cd@idp.example.com/token", false),
+        ("https://svc:Ab/cd@idp.example.com/token", true),
+        ("https://svc/x:Ab@idp.example.com/token", true),
+        ("https://svc:1234/x@idp.example.com/token", true),
+    ] {
+        let refused = TokenEndpoint::parse(raw).expect_err("each shape is refused");
+        let shown = refused.to_string();
+        assert_eq!(
+            matches!(refused, InvalidEndpoint::CredentialsInUrl { .. }),
+            credentials,
+            "{raw}: {refused:?}"
+        );
+        assert!(shown.starts_with("the declared endpoint "), "{raw}: {shown}");
+    }
+}

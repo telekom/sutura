@@ -27,7 +27,8 @@ const ACCESS_TOKEN: &str = "urn:ietf:params:oauth:token-type:access_token";
 /// The identity provider's token endpoint: `https://` to any host, `http://` to an IP loopback literal only.
 ///
 /// The origin is held to [`Endpoint::parse`]'s scheme rule; unlike an [`Endpoint`] it keeps its
-/// path, and it refuses a query, a fragment and a `user[:pass]@` authority.
+/// path, and it refuses a query, a fragment and any `@` - in the authority or, where an unencoded
+/// `/` in a password ends the parsed authority early, in the path.
 ///
 /// A loopback endpoint is dialled directly, never through a proxy - [`sutura_http_client::agent`]'s
 /// own pin; `https://` to any other host keeps the agent's proxy, which an identity provider behind
@@ -53,6 +54,11 @@ impl TokenEndpoint {
             })?;
         if uri.query().is_some() {
             return Err(beyond());
+        }
+        if uri.path().contains('@') {
+            return Err(InvalidEndpoint::CredentialsInUrl {
+                given: ShownEndpoint::of(raw),
+            });
         }
         let origin = Endpoint::parse(&format!(
             "{}://{}",

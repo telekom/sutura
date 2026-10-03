@@ -173,10 +173,13 @@ Why a declared endpoint is not usable.
 A declared endpoint as a refusal shows it: the scheme, host, port and path `Uri` parsed, and
 never its userinfo, query or fragment.
 
-Built only by `Self::of`, so no refusal can carry the declared text as written. Text `Uri`
-does not parse is not shown at all - a second parser's reading of input the dial parser refused
-is where a credential would survive. The limit: a secret written into the PATH is shown, because
-a path is not a credential to the parser that dials it.
+Outside this module it is built only by `Self::of` - the field is private; inside it, cells
+and not the type hold that no refusal carries the declared text as written. Two shapes are not
+shown at all: text `Uri` does not parse, because a second parser's reading of input the dial
+parser refused is where a credential would survive; and text with an `@` outside the parsed
+authority, because an unencoded `/`, `?` or `#` in a password ends that authority early and the
+rest of the credential would read as path. The limit: a secret written into the PATH with no
+`@` is shown, because a path is not a credential to the parser that dials it.
 
 ## `use EndpointMessage`
 

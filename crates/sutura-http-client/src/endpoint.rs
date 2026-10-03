@@ -20,10 +20,13 @@ use ureq::http::Uri;
 /// A declared endpoint as a refusal shows it: the scheme, host, port and path [`Uri`] parsed, and
 /// never its userinfo, query or fragment.
 ///
-/// Built only by [`Self::of`], so no refusal can carry the declared text as written. Text [`Uri`]
-/// does not parse is not shown at all - a second parser's reading of input the dial parser refused
-/// is where a credential would survive. The limit: a secret written into the PATH is shown, because
-/// a path is not a credential to the parser that dials it.
+/// Outside this module it is built only by [`Self::of`] - the field is private; inside it, cells
+/// and not the type hold that no refusal carries the declared text as written. Two shapes are not
+/// shown at all: text [`Uri`] does not parse, because a second parser's reading of input the dial
+/// parser refused is where a credential would survive; and text with an `@` outside the parsed
+/// authority, because an unencoded `/`, `?` or `#` in a password ends that authority early and the
+/// rest of the credential would read as path. The limit: a secret written into the PATH with no
+/// `@` is shown, because a path is not a credential to the parser that dials it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShownEndpoint(Option<String>);
 
@@ -34,6 +37,9 @@ impl ShownEndpoint {
             // Past the LAST `@`, where `Authority::host` itself starts reading: `host:port` exactly as
             // written, so a port this refusal is about is shown, and the userinfo before it never is.
             let authority = uri.authority()?.as_str();
+            if raw.matches('@').count() != authority.matches('@').count() {
+                return None;
+            }
             let host_port = authority
                 .rsplit_once('@')
                 .map_or(authority, |(_userinfo, host_port)| host_port);
@@ -56,7 +62,8 @@ pub enum InvalidEndpoint {
     /// authority at all.
     #[error("{given} is not an http:// or https:// URL")]
     NotAnHttpUrl { given: ShownEndpoint },
-    /// The authority carries `user[:pass]@` - refused outright. **This is not merely defence in
+    /// The authority carries `user[:pass]@` - refused outright - or a token endpoint's path carries
+    /// an `@`, which is where an unencoded `/` in a password moves the rest of the credential. **This is not merely defence in
     /// depth against a spoofed host**: the round-2 review measured a reader built from
     /// `http://[::1]:1@localhost:<port>` dialling `localhost` in clear text with the bearer
     /// prepared, because a hand-rolled host extraction split on the wrong delimiter. Parsing with
