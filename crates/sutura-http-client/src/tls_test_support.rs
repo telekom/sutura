@@ -8,12 +8,11 @@
 //! `cargo xtask check-jscpd` measured as byte-for-byte identical wire plumbing once the second
 //! reader carried its own copy.
 //!
-//! **A dev-dependency-only feature, unlike [`crate::test_support`].** Nothing outside a reader's
-//! OWN `tests/http_reader.rs` needs this - `sutura-cli`'s served suite only dials the plaintext
-//! fake behind [`crate::test_support`] - so a catalog crate takes `sutura-http-client` with this
-//! feature in `[dev-dependencies]` only, never folded into its own `http` feature: no `rcgen`/
-//! `rustls` object code reaches a `--features http` build that did not already carry `rustls`
-//! transitively through `ureq`.
+//! **A dev-dependency-only feature, unlike [`crate::test_support`].** Only test binaries need this -
+//! a reader's own `tests/http_reader.rs`, and `sutura-cli`'s delegation-exchange cell - so a crate
+//! takes `sutura-http-client` with this feature in `[dev-dependencies]` only, never folded into its
+//! own `http` feature: no `rcgen`/`rustls` object code reaches a `--features http` build that did
+//! not already carry `rustls` transitively through `ureq`.
 
 #![expect(
     clippy::expect_used,
@@ -23,7 +22,7 @@
               slices are how a test asserts invariants and never reach a shipped binary."
 )]
 
-use std::io::{Read as _, Write as _};
+use std::io::Write as _;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -159,11 +158,11 @@ fn serve_connection(stream: TcpStream, config: &Arc<rustls::ServerConfig>, answe
     let mut connection = rustls::ServerConnection::new(Arc::clone(config)).expect("a server connection builds");
     {
         let mut tls = rustls::Stream::new(&mut connection, &mut tcp);
-        let mut request = [0_u8; 2048];
-        // Reading first drives the handshake to completion and consumes the client's request; a
-        // client that refused the handshake (an untrusted issuer) errors here, which is exactly
+        // Reading first drives the handshake to completion and consumes the client's WHOLE request,
+        // body included - a POST whose body arrives in a later record is otherwise reset mid-write.
+        // A client that refused the handshake (an untrusted issuer) errors here, which is exactly
         // what the negative cells below provoke - discarded rather than panicked on.
-        let _ignored = tls.read(&mut request);
+        let _ignored = crate::test_support::read_request(&mut tls);
         let head = format!(
             "HTTP/1.1 {} OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
             answer.status_code(),
@@ -187,6 +186,13 @@ fn serve_connection(stream: TcpStream, config: &Arc<rustls::ServerConfig>, answe
 /// The freshly written bundle fails to load - a test invariant, never a production path.
 #[must_use]
 pub fn declared_anchors(scratch: &Scratch, name: &str, issued: &Issued) -> sutura_tls::LoadedAnchors {
-    let bundle = scratch.bundle(name, &issued.certificate);
-    sutura_tls::load_anchors(&sutura_tls::Anchors::Bundle(bundle)).expect("the freshly written bundle loads")
+    sutura_tls::load_anchors(&sutura_tls::Anchors::Bundle(declared_bundle(scratch, name, issued)))
+        .expect("the freshly written bundle loads")
+}
+
+/// Writes `issued`'s own certificate as a bundle and returns its path - what a declared
+/// `security.outbound.transport_anchors` names, for a consumer that loads it itself.
+#[must_use]
+pub fn declared_bundle(scratch: &Scratch, name: &str, issued: &Issued) -> PathBuf {
+    scratch.bundle(name, &issued.certificate)
 }

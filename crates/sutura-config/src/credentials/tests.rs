@@ -56,6 +56,7 @@ fn wif() -> crate::raw::RawWorkloadIdentity {
         impersonate: std::collections::BTreeMap::new(),
         expected_issuer: None,
         expected_audience: None,
+        delegation: None,
     }
 }
 

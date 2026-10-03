@@ -39,7 +39,10 @@ tls = ["sutura-config/tls", "sutura-http/tls"]
 # list, same set, and it links and runs. Both reach CI now, as `nix run .#default-features` and
 # `nix run .#default-feature-tests` in the required `ci` job, so this lane's lint half is a required
 # check rather than the four `cross` link builds and a developer's memory.
-bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc"]
+#
+# `wire` is the delegation exchange a `direct` deployment composes for a source declaring
+# `workload_identity.delegation` (`docs/adr/0014`'s fourth amendment).
+bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc", "sutura-exec-bigquery/wire"]
 
 # The Postgres adapter: the ADBC transport, over the driver every musl release links
 # (`nix/shipped.nix`) or the one `SUTURA_POSTGRES_ADBC_DRIVER` names elsewhere.
@@ -254,7 +257,8 @@ mimalloc = { workspace = true }
 serde_json = { workspace = true }
 # The hosted served acceptance loads its own BigQuery tables through the adapter's fixture-only
 # importer. This feature is absent from the shipped binary. `wire` is the real delegation exchange
-# the Keycloak tier cell drives (#1208), over `sutura-http-client`'s bounded agent.
+# the Keycloak tier cell drives (#1208), over `sutura-http-client`'s bounded agent; `tls-test` is
+# the loopback TLS identity provider the delegation exchange's `security.outbound` cell dials.
 sutura-exec-bigquery = { workspace = true, features = ["fixtures", "wire"] }
 # The served Postgres cells load the example into the tier through the adapter's fixture-only
 # loader and open it with the fixture's driver. This feature is absent from the shipped binary.
@@ -263,7 +267,7 @@ sutura-exec-postgres = { workspace = true, features = ["fixtures"] }
 # its documentation schema through (`tests/served/harness/postgres.rs`, `tests/common/fixtures.rs`,
 # `tests/mcp/rdbms.rs`). A dev-dependency, so the shipped `postgres` feature compiles none of it.
 tokio-postgres = { workspace = true }
-sutura-http-client = { workspace = true }
+sutura-http-client = { workspace = true, features = ["tls-test"] }
 # The domain's own `fixtures` feature, for `plan::RefusingCombiner` - the fake over
 # `docs/adr/0007`'s second driven port. The served root builds the REAL combiner; this crate's own
 # suite composes services that answer single-source questions, where a combiner that answered would

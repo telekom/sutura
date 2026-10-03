@@ -564,3 +564,25 @@ delegation; the real HTTP implementation is behind the default-off `wire` featur
 `client_secret_post` only; no rotation of the client secret; the returned JWT is decoded, not
 signature-verified; Entra is unmeasured;
 and no pool has been shown accepting an exchanged token.
+
+## Fifth amendment, 2026-10-03: `sutura serve` composes the delegation exchange
+
+**Status of the amendment: accepted.** `sutura serve` now composes the delegation exchange for a
+bigquery source declaring `sources.<alias>.workload_identity.delegation` (keys `token_endpoint`,
+`client_id`, `client_secret_file`, `audience`), in `crates/sutura-cli/src/serve/broker.rs`, and
+refuses it at startup unless `security.inbound.mode` is `direct`; an impersonating source is not
+required to declare a delegation, and one without it presents the inbound token itself. No served
+binary cell reaches the exchange - a bigquery deployment needs the ADBC driver to boot, which the
+default test venue lacks - so it is held in-process by `build_broker`'s cells in
+`crates/sutura-cli/src/serve/tests/bigquery.rs`. This supersedes the fourth amendment's
+"`sutura serve` declares no settings for the IdP token endpoint or client credential, so no served
+deployment reaches the port". The fourth amendment's other limits stand: `client_secret_post` only,
+any failure is `503 identity_unavailable`, the exchanged `sub` is not compared with the inbound one,
+the JWT is decoded not verified, no secret rotation, and no pool has been shown accepting an
+exchanged token.
+
+It also supersedes the fourth amendment's "it stays true of every served build, below": a served
+build that declares a delegation on a `direct` deployment exchanges a token (`docs/adr/0023`'s
+fifth amendment). And it supersedes "rotating it means restarting whatever composed the exchange -
+and today nothing does": `sutura serve` composes it and reads the secret once at boot, so rotating
+the client secret means restarting `sutura serve`.

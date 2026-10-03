@@ -567,3 +567,16 @@ provider for a source declared with `impersonating_delegated`
 ([0014](0014-how-a-caller-proves-who-it-is.md)'s fourth amendment). It is still true of every
 served build: `sutura serve` composes no delegation, so the chain this section measures still has
 no first hop in a deployment, and its conclusion is unchanged.
+
+## Fifth amendment, 2026-10-03: a served build composes the delegation exchange
+
+**Status of the amendment: accepted.** This supersedes the fourth amendment's heading clause "and
+no served build does" and its sentence "It is still true of every served build: `sutura serve`
+composes no delegation". `sutura serve` now composes the exchange for a bigquery source declaring
+`workload_identity.delegation` on a `direct` deployment
+([0014](0014-how-a-caller-proves-who-it-is.md)'s fifth amendment), so the chain this section
+measures has a first hop in such a deployment.
+
+The limit: no served-binary cell reaches the exchange - it is held
+in-process by `build_broker`'s cells in `crates/sutura-cli/src/serve/tests/bigquery.rs` - and no
+pool has been shown accepting an exchanged token.

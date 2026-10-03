@@ -1,0 +1,8 @@
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -2154,4 +2154,4 @@
+           if [ "$DH_SELECTED" = "true" ]; then
+-            if [ "$DH_RESULT" != "success" ]; then
++            if [ "$DH_RESULT" = "success" ]; then
+               fail "ci-datahub-tier must run (catalog_datahub category selected) but reported '$DH_RESULT'"
+             fi

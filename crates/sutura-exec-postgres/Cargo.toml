@@ -91,6 +91,9 @@ required-features = ["fixtures"]
 name = "types"
 required-features = ["fixtures"]
 
+[[test]]
+name = "kerberos"
+
 # `harness = false`: divan runs its own `main`, not libtest's `#[bench]` runner. Not a gate -
 # `github.com/telekom/sutura#915` - so it is reached by `just bench`, never by `just validate`,
 # `just test` or `ci`.

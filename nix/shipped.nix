@@ -353,6 +353,10 @@ let
         pname = "sutura-exec-postgres-linked";
         cargoExtraArgs = "--package sutura-exec-postgres --features fixtures --target ${target}";
       };
+      kerberosArgs = testArgs // {
+        pname = "sutura-exec-postgres-kerberos";
+        cargoExtraArgs = "--package sutura-exec-postgres --target ${target}";
+      };
     in
     {
       "adbc-drivers-linked-${target}-test" = crossLib.mkCargoDerivation (testArgs // inheritedArtifacts (crossLib.buildDepsOnly (testArgs // { doCheck = true; })) // {
@@ -378,6 +382,24 @@ let
           [ "$status" -eq 0 ]
         '';
         installPhaseCommand = "install -Dm644 tier.log $out/tier.log";
+      });
+      # A DECLARED KERBEROS SIGN-IN THROUGH THE LINKED DRIVER, against a KDC - the same static musl
+      # build of `sutura-exec-postgres`'s `tests/kerberos.rs`, run with `--ignored` after
+      # `nix/kerberos-tier.sh` starts an MIT KDC and a PostgreSQL that admits GSSAPI-encrypted
+      # GSSAPI alone, both from this nixpkgs and both on loopback in the sandbox. The marker line is
+      # required here, so a run that skipped the cell is red; `nix/bigquery-driver-check.sh`
+      # realises it in CI.
+      "adbc-postgres-kerberos-${target}-test" = crossLib.mkCargoDerivation (kerberosArgs // inheritedArtifacts (crossLib.buildDepsOnly (kerberosArgs // { doCheck = true; })) // {
+        doInstallCargoArtifacts = false;
+        nativeBuildInputs = (kerberosArgs.nativeBuildInputs or [ ]) ++ [ pkgs.krb5 pkgs.postgresql_18 ];
+        buildPhaseCargoCommand = ''
+          set -o pipefail
+          sh ${./kerberos-tier.sh} "$TMPDIR/kerberos-tier"
+          . "$TMPDIR/kerberos-tier/env"
+          cargoWithProfile test ${kerberosArgs.cargoExtraArgs} --test kerberos -- --ignored --nocapture 2>&1 | tee kerberos.log
+          grep -qx 'linked-postgres-driver-signed-in-with-kerberos' kerberos.log
+        '';
+        installPhaseCommand = "install -Dm644 kerberos.log $out/kerberos.log";
       });
     });
 
@@ -735,7 +757,11 @@ let
         # body, and dropping the old key without this addition would leave nothing in
         # `required` asserting `axum` is linked at all, which is a silent weakening of this
         # gate rather than a fold.**
-        required = { sutura = [ "axum" "datafusion" ]; };
+        #
+        # **Every shipped adapter crate too, since `github.com/telekom/sutura#1247`**: a release
+        # that stopped linking one fails here naming it, and `check-shipped-binaries` holds this
+        # list to the record's `features` at PR time (`xtask/src/shipped/adapters.rs`).
+        required = { sutura = [ "axum" "datafusion" "sutura-exec-bigquery" "sutura-exec-postgres" "sutura-exec-clickhouse" "sutura-catalog-datahub" "sutura-catalog-openmetadata" ]; };
         # `ring` and not `rustls`: `rustls` is a name several crates in the closure carry a
         # variant of, while `ring` is the one that compiles C and assembly and is therefore
         # the one the cross builds actually pay for.
