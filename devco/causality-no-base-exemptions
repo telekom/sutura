@@ -1,0 +1,20 @@
+# Exemption list for the causality gate's no-base refusal.
+#
+# An added test (one this diff declares) that the base run produced no result for - "not run at
+# base" - proves nothing on either tree, so `cargo xtask test-causality` now FAILS it unless it is
+# exempted here by name. These are the tests that legitimately produce no base result: a
+# feature-gated test the reconstruction leaves out, or a test whose module is declared in a file the
+# base run reverts.
+#
+# Format: one test-fn name per line, with a `# reason` required on each line - the reason is the
+# only thing a reviewer reads to decide whether the exemption is still earned.
+#
+#   <test_fn_name> # <why this test produces no base result>
+#
+# Three shapes are REFUSED rather than silently accepted, so the file stays honest:
+#   - a line with no ` # reason`;
+#   - a line naming no test this diff added (a stale entry that exempts nothing);
+#   - an added test with no base result that is not listed here.
+#
+# The list below is EMPTY: there are no current no-base exemptions. Add one only when the gate
+# names a test you cannot make run at base, and delete it with its reason when it can.

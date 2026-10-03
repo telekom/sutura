@@ -1312,8 +1312,13 @@ and NAMES the ones it left out, `NOT MECHANICALLY SEPARABLE` included, where the
 argued: replayed over thirteen recent branch diffs, twelve reached a verdict and ALL TWELVE had
 `measured < M`** - seven at zero, three partial, two on arms that measure nothing at all. A
 fail-on-mismatch rule would have reddened every branch in the sample, and a gate that reddens
-correct work gets disabled. **What it therefore is not:** nothing forces the remainder to be
-proven. `7 of 8` is an instruction to run a mutation by hand, not a mechanism.
+correct work gets disabled. **What it therefore is not:** nothing forces the WHOLE remainder to be
+proven - `7 of 8` is an instruction to run a mutation by hand, not a mechanism - with ONE
+exception. A scoped test the base run produced NO PER-TEST RESULT for (`not run at base: <name>`)
+proves nothing on either tree, so the gate REFUSES it rather than printing it beside a verdict,
+unless that name is exempted - with a reason, one per line - in
+`devco/causality-no-base-exemptions`. A reason-less exemption line, or one naming no added test,
+is refused too, so the file cannot rot into a dead allowance.
 
 **FIVE passing arms run NEITHER run, and *every verdict carries the ratio* was false for them** -
 which is the same defect class one level up, so it is worth the row. `no changed tests`,
