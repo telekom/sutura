@@ -2051,9 +2051,9 @@ infinite float answers the JSON <code>null</code>. <code>timeout_overflow_mode=t
 cell holds what is sent; the executed goldens hold what the first two settings make the server
 answer, and nothing executed holds the third.</p>
 <h1 id="what-is-not-here">What is NOT here<a class="headerlink" href="#what-is-not-here" title="Permanent link">&para;</a></h1>
-<p><strong>No release links this crate.</strong> <code>sutura-cli</code> opens a <code>kind: clickhouse</code> source behind its
-default-off <code>clickhouse</code> feature, which <code>nix/shipped.nix</code> does not enable - see that feature's
-own manifest entry for why.</p>
+<p><strong>Shipped in every release binary since <code>github.com/telekom/sutura#1237</code>.</strong> <code>sutura-cli</code> opens a
+<code>kind: clickhouse</code> source behind its default-off <code>clickhouse</code> feature, which <code>nix/shipped.nix</code>
+now enables, once the <code>github.com/telekom/sutura#955</code> join-nulls fix landed.</p>
 <p><strong>No raw-SQL tool support</strong> (<code>Warehouse::ACCEPTS_RAW_STATEMENTS</code> stays at its <code>false</code> default)
 and <strong>no leg execution</strong> (<code>Warehouse::EXECUTES_LEGS</code> stays at its <code>false</code> default, so
 <code>Executable::Leg</code> answers <code>ClickHouseError::LegWithoutCombiner</code> exactly as

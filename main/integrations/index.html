@@ -2242,7 +2242,7 @@ identity column is <code>ClickHouse</code>'s: an <code>impersonation-at-source</
 composition root with the reason that no build delivers it.</p>
 <p><strong>ClickHouse is the newest row and the one whose columns need reading together.</strong> It executes: a
 <code>kind: clickhouse</code> source is declarable and openable by a build carrying the <code>clickhouse</code> feature,
-which is default-off and in no published binary. The golden and differential suites run the example
+which every release binary carries now that <code>github.com/telekom/sutura#955</code> landed. The golden and differential suites run the example
 corpus against a real ClickHouse - the server <code>nix/clickhouse-tier.nix</code> starts beside the Postgres
 tier - and pin its rows, refusals, error and anchor report; the conformance packs are bound too
 (<code>execute_packs!</code> in <code>crates/sutura-exec-clickhouse/tests/conformance.rs</code>). What the <code>Executes</code>

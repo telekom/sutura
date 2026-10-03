@@ -2503,9 +2503,9 @@ rendered SQL, while the shipped BigQuery and Postgres adapters are runtime depen
 <h3 id="what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses">What can be plugged in today, and what the shipped binary actually uses<a class="headerlink" href="#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses" title="Permanent link">&para;</a></h3>
 <p>The composition root chooses adapters at build time, then <code>sources.&lt;alias&gt;.kind</code> selects among
 those linked by the binary. <code>nix/shipped.nix</code> is the release feature list: it enables <code>bigquery</code>,
-<code>postgres</code>, <code>datahub</code>, <code>agent</code> and <code>tls</code> for the shipped binary. A local Cargo build without those
-features has a narrower set; <code>sutura doctor</code> reports the adapters it links. ClickHouse and Oracle
-remain default-off and absent from the shipped binary. <a href="../integrations/">Integrations</a> records each
+<code>postgres</code>, <code>datahub</code>, <code>agent</code>, <code>tls</code>, <code>openmetadata</code> and <code>clickhouse</code> for the shipped binary. A local Cargo build without those
+features has a narrower set; <code>sutura doctor</code> reports the adapters it links. Oracle remains
+default-off and absent from the shipped binary. <a href="../integrations/">Integrations</a> records each
 adapter's capability and identity posture.</p>
 <p><code>sutura query</code> can answer a local file question or open a configured source whose adapter is linked.
 It does not establish a remote caller's identity: its request context is the command-line caller's

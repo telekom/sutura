@@ -4116,9 +4116,10 @@ the block above:</p>
 <ul>
 <li><strong><code>sutura serve</code> opens it only when built with <code>--features bigquery</code>.</strong> A binary without the
   feature refuses the source at startup, naming the feature - a source build with the feature off
-  is the only one that still refuses. Every published artefact carries it: <code>github.com/telekom/
-  sutura#685</code> step 5 ships the <code>bigquery</code> adapter (and <code>postgres</code>, <code>tls</code>, <code>datahub</code>) in every
-  release tarball and image, so opening a dataset needs no separate build any more.</li>
+  is the only one that still refuses. Every published artefact carries it since <code>github.com/
+  telekom/sutura#685</code> step 5: the <code>bigquery</code> adapter (and <code>postgres</code>, <code>clickhouse</code>, <code>tls</code>,
+  <code>datahub</code>, <code>openmetadata</code>, <code>agent</code>) is in every release tarball and image, so opening a
+  dataset needs no separate build any more.</li>
 <li><strong>One process opens one KIND of data system at a time.</strong> A catalog whose models sit on a <code>files</code>
   source and a <code>bigquery</code> source is refused at startup, naming both entries - the registry a process
   holds is generic in one adapter type, and the alternative is a source nothing opened.</li>
