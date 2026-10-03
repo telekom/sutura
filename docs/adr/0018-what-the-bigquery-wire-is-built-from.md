@@ -1650,9 +1650,51 @@ re-read (scale-zero text that fits an `i64` is an integer, the rest exact text).
 **Limits.** A Postgres source signs in only as the deployment's declared shared service account.
 OAuth, Kerberos/GSSAPI and per-caller sign-in are not supported: `Conninfo` pins `require_auth`
 to `password,md5,scram-sha-256,none` and `gssencmode` to `disable`, on every channel and with
-either driver. The musl tier run is the `ci` profile and x86_64 only: the release profile's LTO and
+either driver. (Kerberos for that one account: the sixteenth amendment.) The musl tier run is the `ci` profile and x86_64 only: the release profile's LTO and
 stripping, and aarch64-musl, are not executed. A connection opens per call, so loading and connecting
 stay outside the request's deadline and an unreachable server is met at the boot path's first anchor
 check rather than at startup. A key that does not match its certificate passes the boot-time read and
 fails at libpq's connect. A failure this process makes itself while reading a stream, after the
 timeout window has passed, is read as the timeout.
+
+## Sixteenth amendment, 2026-10-03: Kerberos on the linked libpq, through a static MIT krb5
+
+**What moved.** The Thirteenth amendment built the linked libpq without GSSAPI, so the static musl
+triples could not sign in with Kerberos. The owner's 2026-10-02 ruling on `telekom/sutura#913` is
+that this is not an accepted limit, for musl too. `nix/postgres-adbc.nix` now builds MIT krb5
+`staticOnly` - no keyring ccache, no libedit - and the static libpq with `--with-gssapi` against
+it, static-only so no `libpq.so` links a static krb5. Five archives join the musl link set after
+`libpgport.a`, in `crates/sutura-adbc/build.rs`'s single-pass order: `libgssapi_krb5.a`,
+`libkrb5.a`, `libk5crypto.a`, `libcom_err.a`, `libkrb5support.a`. musl needs no `libresolv.a`.
+
+**No dlopen, measured.** A static x86_64-musl client in an image holding only `/etc/krb5.conf` and a
+keytab signed in through the linked driver, GSSAPI-encrypted, before this change was written. krb5's
+compiled-in plugin directory and fallback profile are store paths; `remove-references-to` blanks
+them in the installed archives, so the shipped closure does not gain krb5. None of krb5's optional
+plugin archives is linked: no MS-KKDCP over HTTPS, no PKINIT, SPAKE or OTP pre-authentication. A KDC
+is reached over port 88 with a keytab or a ticket cache.
+
+**What this supersedes.** The fifteenth amendment's *OAuth, Kerberos/GSSAPI and per-caller sign-in
+are not supported* now reads: a Postgres source signs in only as its declared shared service
+account - a password, or one Kerberos principal from the deployment's keytab - and OAuth and
+per-caller sign-in are not supported. Its `require_auth`/`gssencmode` pins hold everywhere but
+`Conninfo::kerberos`.
+
+**What is declared, and refused.** `Conninfo::kerberos` builds `require_auth='gss'`, the declared
+`krbsrvname` and `gssdelegation='0'` - the credential is never delegated - and `gssencmode='require'`
+only where GSSAPI encryption is the declared channel. Refused when built, by name: Kerberos to a
+unix socket; Kerberos while `KRB5CCNAME` names no credential cache, because MIT krb5 then signs in as
+whatever a default cache holds and reads a client keytab only where none exists; and GSSAPI
+encryption beside TLS, which libpq tries first and which verifies none of the declared anchors.
+`passfile` moves from read-only-in-a-refused-case to left to libpq: a Kerberos string writes no
+password, and `require_auth='gss'` sends nothing a password file holds - so `KEYWORDS` has no
+refused-case row left.
+
+**Limits.** One principal per process: libpq takes no keytab or cache per connection, so every
+Kerberos source signs in as the principal the environment names; acting as the caller is not
+supported. Which server principal GSSAPI authenticates is the one `krb5.conf` makes of the declared
+host, not anything the declared anchors hold. No settings key declares a Kerberos source yet. The two cells against a server, `tests/kerberos.rs` - the
+sign-in and its refused negative control - run only in `nix/shipped.nix`'s x86_64-linux venue, as
+`bigquery-driver-check` realises them; aarch64-musl links the same set and nothing executes it
+there. OAuth stays unsupported: the static libpq is built without libcurl, and a token sutura holds
+is a further change through libpq's `PQsetAuthDataHook`.

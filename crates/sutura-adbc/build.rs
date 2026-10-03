@@ -30,8 +30,9 @@
 //! and `src/linked.rs` declares each driver's own init symbol (`AdbcDriverBigqueryInit`,
 //! `AdbcDriverPostgresqlInit`), so no name is shared between the two archives -
 //! `nix/postgres-adbc.nix` says how the PostgreSQL one stopped defining the ADBC C API. The
-//! PostgreSQL directory also holds that archive's static link set (libpq and OpenSSL), linked here
-//! in dependency order with the C++ runtime after it, so the directory is the whole contract.
+//! PostgreSQL directory also holds that archive's static link set (libpq, MIT krb5's GSSAPI and
+//! OpenSSL), linked here in dependency order with the C++ runtime after it, so the directory is the
+//! whole contract.
 
 fn main() {
     link(ARCHIVE_DIR, &[ARCHIVE_NAME], "adbc_driver_linked");
@@ -77,4 +78,16 @@ const ARCHIVE_NAME: &str = "adbc_driver_bigquery";
 const POSTGRES_ARCHIVE_DIR: &str = "SUTURA_ADBC_POSTGRES_ARCHIVE_DIR";
 
 /// The PostgreSQL archive, then what it needs, in the order a single-pass linker resolves them.
-const POSTGRES_ARCHIVES: &[&str] = &["adbc_driver_postgresql", "pq", "pgcommon", "pgport", "ssl", "crypto"];
+const POSTGRES_ARCHIVES: &[&str] = &[
+    "adbc_driver_postgresql",
+    "pq",
+    "pgcommon",
+    "pgport",
+    "gssapi_krb5",
+    "krb5",
+    "k5crypto",
+    "com_err",
+    "krb5support",
+    "ssl",
+    "crypto",
+];

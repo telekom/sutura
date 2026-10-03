@@ -1691,6 +1691,9 @@ jobs:
     outputs:
       identity: ${{ steps.classify.outputs.identity }}
       data_source_bigquery: ${{ steps.classify.outputs.data_source_bigquery }}
+      # `bigquery-driver-check`'s selection, one flag: its `if:` may hold no `||` beside the
+      # release-skip clause (`xtask/src/workflows/obligations.rs`), so the OR is taken here.
+      driver_check: ${{ steps.classify.outputs.data_source_bigquery == 'true' || steps.classify.outputs.data_source_postgres == 'true' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1909,8 +1912,10 @@ jobs:
   #
   # Category-gated on `data_source_bigquery`, which until this job existed was published by `ci`
   # and read by NOTHING: the leg that consumed it was deleted with the HTTP transport, so the
-  # classification axis for this adapter was orphaned. `ci-aggregate` holds run-or-fail for it,
-  # exactly as it does for `keycloak-served-test`.
+  # classification axis for this adapter was orphaned. And on `data_source_postgres`, because this
+  # is also the one venue that runs the linked PostgreSQL driver's libpq and its sign-in cells
+  # against their tiers, so a change confined to that adapter must run it too. `ci-aggregate` holds
+  # run-or-fail for either, exactly as it does for `keycloak-served-test`.
   #
   # It reads no secret and needs no environment, so a fork's pull request can run it - the same
   # reason `keycloak-served-test` carries no event exception.
@@ -1921,7 +1926,7 @@ jobs:
   # `release.yml` runs this check against the published build, so a release commit loses nothing.
   bigquery-driver-check:
     needs: [identity-classify]
-    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.data_source_bigquery == 'true' }}
+    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.driver_check == 'true' }}
     runs-on: rust-mcp-16core
     timeout-minutes: 45
     permissions:
@@ -2083,7 +2088,7 @@ jobs:
           KC_RESULT: ${{ needs.keycloak-served-test.result }}
           KC_SELECTED: ${{ needs.ci.outputs.identity }}
           BQ_RESULT: ${{ needs.bigquery-driver-check.result }}
-          BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery }}
+          BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.data_source_postgres == 'true' }}
           E2E_RESULT: ${{ needs.e2e-datahub-adbc.result }}
           E2E_REQUIRED: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.catalog_datahub == 'true' || needs.ci.outputs.identity == 'true') }}
           ORACLE_RESULT: ${{ needs.oracle-tier.result }}
@@ -2097,7 +2102,7 @@ jobs:
           # situation: the release commit, whose `chore(release):` message skips the whole belt
           # below `ci` (see `ci`'s own `if:`, top of the file) - `bigquery-driver-check` included,
           # whose own `if:` repeats that test now that it `needs: [identity-classify]` rather than
-          # `[ci]`, and whose `BQ_SELECTED` reads `ci`'s `''` exactly as `KC_SELECTED` does below.
+          # `[ci]`, and whose `BQ_SELECTED` renders `false` off `ci`'s `''` outputs, as `KC_SELECTED` reads `''` below.
           # `keycloak-served-test` (#983) does NOT skip any more - it
           # `needs: [identity-classify]`, which carries no such `if:`, so it runs on a release
           # commit independently of `ci`'s skip and its own result is `success` or `failure`, not
@@ -2127,7 +2132,7 @@ jobs:
           # that category was published and consumed by nothing.
           if [ "$BQ_SELECTED" = "true" ]; then
             if [ "$BQ_RESULT" != "success" ]; then
-              fail "bigquery-driver-check must run (data_source_bigquery category selected) but reported '$BQ_RESULT'"
+              fail "bigquery-driver-check must run (data_source_bigquery or data_source_postgres selected) but reported '$BQ_RESULT'"
             fi
           else
             case "$BQ_RESULT" in

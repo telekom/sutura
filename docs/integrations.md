@@ -74,15 +74,19 @@ question involving a ClickHouse source is still refused by the capability gate. 
 composition root with the reason that no build delivers it.
 
 **Postgres is answered over ADBC.** Every `kind: postgres` source runs through the ADBC PostgreSQL
-driver: every musl release links it statically, with libpq and OpenSSL 3, and any other build mounts
-one named by `SUTURA_POSTGRES_ADBC_DRIVER` (a source refuses at boot where neither is there).
-`sutura doctor`'s `pg driver` line says which driver this process would open and whether it
-initialises. **That linked libpq is built without Kerberos/GSSAPI and without OAuth**, which a
-mounted driver's libpq keeps; the connection string the transport builds refuses GSSAPI, SSPI and
-OAuth sign-in on either route, because a declaration can name none of them. It also refuses
-`transport_anchors: system` and TLS over a unix socket, which libpq cannot hold to. The adapter's
-tier-backed cells run through a mounted driver in `checks.nextest` and through the linked static one
-on x86_64 musl in CI; aarch64 musl links it and nothing executes it.
+driver: every musl release links it statically, with libpq, MIT krb5 and OpenSSL 3, and any other
+build mounts one named by `SUTURA_POSTGRES_ADBC_DRIVER` (a source refuses at boot where neither is
+there). `sutura doctor`'s `pg driver` line says which driver this process would open and whether it
+initialises. **A source signs in only as its declared shared service account**: with a password or
+a client certificate, or as one Kerberos principal from the deployment's keytab - the one the
+credential cache `KRB5CCNAME` names, filled from `KRB5_CLIENT_KTNAME`'s keytab - which the
+transport can be built for and no settings key selects yet. OAuth and per-caller sign-in are not
+supported: the linked libpq is built without OAuth, and the connection string refuses SSPI and
+OAuth sign-in on either route. It also refuses `transport_anchors: system`, TLS or Kerberos over a
+unix socket, Kerberos with no credential named, and GSSAPI encryption beside TLS, which libpq cannot
+hold to. The adapter's tier-backed cells run through a mounted driver in `checks.nextest` and
+through the linked static one on x86_64 musl in CI, where a Kerberos sign-in against a KDC tier and
+its refused negative control run too; aarch64 musl links it and nothing executes it.
 
 ## Identity: what "impersonation" does and does not mean here
 

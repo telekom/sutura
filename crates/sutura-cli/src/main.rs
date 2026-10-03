@@ -467,8 +467,8 @@ fn postgres_driver_line() -> String {
     };
     match driver.probe() {
         Ok(()) => format!(
-            "loaded and initialised, {driver} - a source signs in as its declared service account, \
-             with a password or a client certificate"
+            "loaded and initialised, {driver} - a source signs in only as its declared service account, \
+             with a password, a client certificate or one Kerberos principal; no OAuth or per-caller sign-in"
         ),
         Err(cause) => format!("NOT usable: {driver}: {cause}"),
     }

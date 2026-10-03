@@ -20,9 +20,12 @@ the channel, the deadline and the single-statement guarantee, and what does not.
 ## Limits
 
 - **One declared identity, only.** A Postgres source signs in solely as the deployment's
-  declared shared service account. OAuth, Kerberos/GSSAPI and per-caller sign-in are not
-  supported: `AdbcPostgres::IMPERSONATION` is `NoPlaceForASubject`, and `Conninfo` pins
-  `require_auth` to `password,md5,scram-sha-256,none` and `gssencmode` to `disable`.
+  declared shared service account: a password, or one Kerberos principal from the deployment's
+  keytab. OAuth and per-caller sign-in are not supported: `AdbcPostgres::IMPERSONATION` is
+  `NoPlaceForASubject`, and `Conninfo` pins `require_auth` to `password,md5,scram-sha-256,none`
+  and `gssencmode` to `disable` everywhere but `Conninfo::kerberos`, which writes
+  `require_auth='gss'` and the `gssencmode` its declaration names. No settings key selects
+  Kerberos yet.
 - **`transport_anchors: system` is refused** (`adbc::UnusableChannel::HostStore`): libpq's
   `system` store is OpenSSL's compiled-in default, not the host store sutura reads.
 
@@ -109,12 +112,17 @@ links (both musl triples) or the one `SUTURA_POSTGRES_ADBC_DRIVER` names.
   a real driver (mounted on a host, linked in `nix/shipped.nix`'s musl test build). The server
   refusing a multi-statement string at `Parse` is held there; the driver's `BEGIN` on
   autocommit-off is read off its source and observed only through `SET LOCAL` taking effect.
+  `tests/kerberos.rs`'s Kerberos sign-in and its refused negative control (a declared service the
+  KDC does not know) run through the linked `x86_64` musl driver, in its CI venue alone.
 - **Loading and connecting are outside the deadline**: the driver is loaded and a connection
   opened per call, and only the statement runs under `SET LOCAL`.
 - **Every port method.** `session`'s header says what each sends.
-- **One declared identity.** `Conninfo` refuses Kerberos/GSSAPI, SSPI
-  and OAuth sign-in on either driver, so a source signs in only as its declared service account,
-  with a password or a client certificate; the linked libpq is built without the first three.
+- **One declared identity.** A source signs in only as its declared shared service account: with
+  a password or a client certificate, or as the one Kerberos principal the process's named
+  credential cache holds, when `Conninfo::kerberos` declares it
+  (the linked libpq through a static MIT krb5, `nix/postgres-adbc.nix`). No settings key selects
+  Kerberos yet. OAuth and per-caller sign-in are not supported: `Conninfo`
+  refuses SSPI and OAuth on either driver, and the linked libpq is built without libcurl.
 
 ### `enum AdbcError`
 
@@ -312,8 +320,24 @@ How the channel to the source is secured, as the composition root resolved the d
 
 ### `use Conninfo`
 
-The connection string for one source. Only `Conninfo::new` makes one, and its `Debug` is the
-`Secret`'s, so the password it carries is never printed.
+The connection string for one source. Only `Conninfo::new` and `Conninfo::kerberos` make
+one, and its `Debug` is the `Secret`'s, so the password it carries is never printed.
+
+### `use GssEncryption`
+
+Whether GSSAPI encrypts the channel - libpq's `gssencmode`.
+
+### `use InvalidKerberosService`
+
+A declared Kerberos service name that is not one.
+
+### `use Kerberos`
+
+A Kerberos sign-in through GSSAPI, as the declaration names it.
+
+### `use KerberosService`
+
+The service half of the server's principal, `<service>/<host>` - libpq's `krbsrvname`.
 
 ### `use UnusableChannel`
 
