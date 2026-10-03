@@ -62,11 +62,13 @@ mod deadline {
     /// cells running in parallel against one server never see one another's views or tables.
     fn open(case: &str) -> Option<(AdbcPostgres, String)> {
         let schema = format!("deadline_{case}_{}", std::process::id());
+        // The tier first: with none there is no driver either, and the cell is NOT RUN.
+        let conninfo = conninfo(case, &schema)?;
         let warehouse = AdbcPostgres::new(
             corpus::source(),
             corpus::posture(),
             sutura_exec_postgres::adbc::PostgresDriver::from_host().expect("the tier is up, so a driver is named"),
-            conninfo(case, &schema)?,
+            conninfo,
         )
         .expect("the default ceiling parses");
         warehouse
@@ -80,9 +82,10 @@ mod deadline {
     /// runs inside a `READ ONLY` transaction this adapter always rolls back. The connection is
     /// returned, so a transaction `sql` leaves open lives until the caller drops it.
     fn admin(case: &str, schema: &str, sql: &str) -> Option<FixtureAdmin> {
+        let conninfo = conninfo(case, schema)?;
         let mut admin = FixtureAdmin::open(
             &sutura_exec_postgres::adbc::PostgresDriver::from_host().expect("the tier is up, so a driver is named"),
-            &conninfo(case, schema)?,
+            &conninfo,
         )
         .unwrap_or_else(|e| panic!("the admin connection did not open: {e}"));
         admin
