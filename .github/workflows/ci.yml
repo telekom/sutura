@@ -718,39 +718,6 @@ jobs:
         if: ${{ always() && github.event_name != 'push' }}
         run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
 
-      # THE ONE SUBJECT NO HOOK SEES. The queue squashes and composes the landed subject from the
-      # PULL-REQUEST TITLE, so `commit-msg` - which judges commits made in a checkout - never reads
-      # the string that becomes permanent history: `spike(metadata): …` is on `main` as `ed650549`
-      # over a vocabulary that holds eleven types and not that one (#935). This step is the venue
-      # that has the title.
-      #
-      # IT IS THE FIRST `nix run .#xtask` STEP IN THIS FILE, DELIBERATELY. `obligations::REQUIRED`
-      # holds its `if:` by a line, and that rule's order half requires every obligation to sit
-      # ahead of the first step realising the xtask closure - which this one is, so it neither
-      # displaces the three closure-free obligations above it nor sits behind a closure it would
-      # otherwise wait on. Moving it below `Classify the change` reddens `check-workflows`.
-      #
-      # THE TITLE IS READ AT RUN TIME, NOT FROM THE EVENT PAYLOAD. `github.event.pull_request.title`
-      # is frozen when the run STARTS and never refreshes on a re-run, so renaming the title then
-      # re-running judged the OLD string and stayed red (#1249) - a title-only change could not fire
-      # the check on its own. The step resolves the pull request from `$GITHUB_REF` and fetches the
-      # CURRENT title from the repository, so the verdict is about the metadata that exists now and a
-      # re-run after a rename goes green. No event-body expression reaches this shell.
-      #
-      # THE GATE STILL FAILS CLOSED ON A MISSING TITLE: a non-`pull_request` event carries no
-      # `refs/pull/<n>/merge` ref to resolve, so dropping the `if:` is a red run rather than a
-      # silent pass.
-      - name: PR title
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -eu
-          number="${GITHUB_REF#refs/pull/}"; number="${number%/merge}"
-          title="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '.title')"
-          unset GH_TOKEN
-          nix run .#xtask -- check-pr-title "$title"
-
       # A docs-only edit needs the structural gates and nothing else; a flake edit needs the
       # whole chain. An unmapped path, a bad base ref or an empty diff all run everything.
       - name: Classify the change

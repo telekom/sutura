@@ -862,12 +862,13 @@ panic-free.
   squashes and composes `main`'s subject from the title, so `commit-msg` judged every commit except
   the one that becomes history: six of the last hundred landed subjects are outside the vocabulary
   `xtask/src/commit_msg.rs` declares (`batch:` ×3, `batch C:`, `spike(`, and one with no type).
-  `check-pr-title` runs in the `ci` job's `pull_request` event, which is where that string exists,
-  and `obligations::REQUIRED` holds the step's `if:`. **Two limits:** it does not judge LENGTH - 69
-  of those hundred subjects exceed the commit-msg limit, so holding it would refuse most real merges
-  - and a title EDITED after the last push starts no `ci` run, so the verdict is about the title
-  that was there.
-  A re-run now re-judges the title against the live PR state, not the frozen event.
+  The title is judged by the required `pr-title` context (`.github/workflows/pr-title.yml`), which
+  fires on `edited` so a rename alone re-judges (#1249) and on `merge_group` so the queue never
+  waits on it; it fetches the live title, never the frozen payload. Its `grep -E` is held to
+  `commit_msg::check_shape` by `pr_title::tests::the_workflow_regex_agrees_with_the_rule`, which
+  runs the step body under a fake `gh`; `obligations::pr_title_check` holds both triggers.
+  **Limits:** length is not judged (69 of those hundred subjects exceed the commit-msg limit), and
+  the agreement is over a corpus - non-ASCII whitespace is outside it.
 - **A COLLISION RULE ONLY REACHES THE NAMES IT CAN READ - #937.** `check-guidance` refuses two ADR
   files claiming one ordinal, and the merge queue's own `hygiene` build is where that fires, because
   only the merged tree holds both files. What got past it was a NAMING: a bare `0037.md` planted in

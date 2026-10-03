@@ -16,31 +16,26 @@
 //! * **The vocabulary and the shape, not the length.** 69 of those hundred subjects are longer
 //!   than `commit_msg`'s limit, because GitHub appends ` (#N)` to a title written for a reader
 //!   rather than for `git log --oneline`. `commit_msg::check_shape` is the half that applies.
-//! * **The CURRENT title, fetched at run time, not the frozen event payload.** A title EDITED after
-//!   the last push does not start a `ci` run - the workflow's `pull_request` trigger takes the default
-//!   activity types, and `edited` is not among them - but a RE-RUN of a pull-request run now reads the
-//!   title as it IS (via `gh api`), so renaming the title and re-running judges the new string
-//!   (#1249): the check fires on its own against the metadata that exists, not the metadata the last
-//!   push carried. What still does not close the surface: a rename alone does not start a FRESH run,
-//!   so the verdict is re-taken only when the run is re-run or a push fires one. The merge queue's own
-//!   event may carry the composed subject, which would close it, and that is unverified here rather
-//!   than assumed.
-//! * **Fail closed on no title at all.** The fetch that supplies it fails when there is nothing
-//!   to fetch: on any event without a `refs/pull/<n>/merge` ref to resolve, `gh api` returns 404
-//!   with exit 1, and `set -eu` stops the step before `xtask` runs - so an absent title is a red
-//!   run before [`Title::parse`] is ever asked, never a silent pass.
+//! * **The CURRENT title, fetched at run time, not the frozen event payload.** `pr-title.yml`
+//!   fetches it over the API (not a `ci` step) and fires on `edited`, so a RENAME alone starts a
+//!   fresh verdict on the live title (#1249), never the payload that is frozen when a run starts.
+//!   On `merge_group` it judges the queued pull request's title.
+//! * **An event naming no pull request is refused before `gh` is asked.** The step reads the pull
+//!   request number from the ref on the two events that carry one, and exits 1 (stopping the step)
+//!   on any other event - so an absent title is a red run before the fetch, never a silent pass.
+//! * **The workflow's `grep -E` is a form of this rule; this subcommand is its oracle.** The step
+//!   judges the title with one `grep -E`, and `the_workflow_regex_agrees_with_the_rule` runs that
+//!   step body under a fake `gh` title by title to hold it to this rule. This subcommand is a local
+//!   check only - no CI step calls it.
 
 use crate::Verdict;
 use crate::commit_msg::{SubjectVerdict, TYPES, check_shape};
 
 /// A pull-request title: the subject GitHub's squash will land, minus the ` (#N)` it appends.
 ///
-/// **A newtype because the empty string is a VENUE mistake and not a bad title.** `ci.yml` fetches
-/// the CURRENT title over the API and hands it here as one argument; on the wrong event the fetch
-/// fails before `xtask` runs (gh returns 404 exit 1; set -eu stops the step), and an empty string
-/// handed to the subject rule would come back as one more `SubjectVerdict`, a verdict about a
-/// convention over an input nobody wrote. Parsing refuses it here, so the two failures carry
-/// different messages and a step on the wrong event cannot read as a vocabulary problem.
+/// **A newtype because the empty string is a VENUE mistake and not a bad title.** Handed to the
+/// subject rule it would come back as one more `SubjectVerdict`, a verdict about a convention over
+/// an input nobody wrote. Parsing refuses it here, so the two failures carry different messages.
 #[derive(Debug, PartialEq, Eq)]
 struct Title<'a>(&'a str);
 
@@ -60,15 +55,10 @@ impl<'a> Title<'a> {
 pub(crate) fn run(args: &[String]) -> Verdict {
     let Some(text) = args.first() else {
         eprintln!("xtask check-pr-title: expected the pull request's title as one argument");
-        eprintln!("  ci.yml fetches the current title over the API; there is nothing to read locally");
         return Verdict::Usage;
     };
     let Some(title) = Title::parse(text) else {
-        eprintln!("xtask check-pr-title: FAILED - no title was handed to this gate");
-        eprintln!("  A fetch with no `refs/pull/<n>/merge` ref to resolve now fails: gh returns 404");
-        eprintln!("  with exit 1, and set -eu stops the step before xtask runs - so the empty");
-        eprintln!("  argument that reaches this gate is a wrong event or a manual call, and it is");
-        eprintln!("  not a pass.");
+        eprintln!("xtask check-pr-title: FAILED - an empty title is not a pass");
         return Verdict::Fail;
     };
     match title.judge() {
@@ -92,7 +82,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
 
 #[cfg(test)]
 mod tests {
-    use super::{Title, run};
+    use super::{TYPES, Title, run};
     use crate::Verdict;
     use crate::commit_msg::SubjectVerdict;
 
@@ -145,5 +135,176 @@ mod tests {
         ] {
             assert_eq!(run(&[String::from(ok)]), Verdict::Pass, "{ok}");
         }
+    }
+
+    /// The body of the live `pr-title.yml` step named `PR title`.
+    #[cfg(unix)]
+    fn title_step() -> String {
+        let root = crate::repo::root().expect("the xtask binary discovers the repo root");
+        let text =
+            std::fs::read_to_string(root.join(".github/workflows/pr-title.yml")).expect("the live pr-title.yml is readable");
+        crate::action_shell::extract(&text)
+            .into_iter()
+            .find(|extracted| extracted.step == "PR title")
+            .map(|extracted| extracted.body)
+            .expect("pr-title.yml has a step named `PR title`")
+    }
+
+    /// What one run of the step did: its exit code and every `gh` call it made.
+    #[cfg(unix)]
+    #[derive(Debug, PartialEq, Eq)]
+    struct Ran {
+        code: Option<i32>,
+        gh: Vec<String>,
+    }
+
+    /// Runs the step body under a fake `gh` - the same way the agreement cell exercises it - and
+    /// returns the exit code and every `gh` invocation the step made.
+    #[cfg(unix)]
+    fn run_step(body: &str, event: &str, git_ref: &str, title: &str) -> Ran {
+        const FAKE: &str = r#"set -eu
+gh() { printf 'gh %s\n' "$*" >&2; printf '%s\n' "$FAKE_TITLE"; }
+export -f gh
+bash --noprofile --norc -c "$STEP"
+"#;
+        let out = std::process::Command::new("bash")
+            .args(["--noprofile", "--norc", "-c", FAKE])
+            .env_remove("BASH_ENV")
+            .env("STEP", body)
+            .env("FAKE_TITLE", title)
+            .env("GITHUB_EVENT_NAME", event)
+            .env("GITHUB_REF", git_ref)
+            .env("GITHUB_REPOSITORY", "telekom/sutura")
+            .output()
+            .expect("bash is present in a unix test");
+        let invoked = String::from_utf8_lossy(&out.stderr)
+            .lines()
+            .filter(|line| line.starts_with("gh "))
+            .map(str::to_owned)
+            .collect();
+        Ran {
+            code: out.status.code(),
+            gh: invoked,
+        }
+    }
+
+    /// The required check judges the title with one `grep -E`, so it needs no toolchain - this runs
+    /// that step's own body under a fake `gh` and asserts it agrees with `run` title by title. RED
+    /// ON BASE because the workflow does not exist there. LIMIT: agreement is over this corpus, and
+    /// non-ASCII whitespace is outside it - `str::trim` drops it and `[[:space:]]` may not.
+    #[cfg(unix)]
+    #[test]
+    fn the_workflow_regex_agrees_with_the_rule() {
+        let body = title_step();
+        assert!(
+            body.contains(&format!("({})", TYPES.join("|"))),
+            "the step judges the same vocabulary as `run`"
+        );
+        let mut titles: Vec<String> = TYPES.iter().map(|ty| format!("{ty}: x")).collect();
+        for title in [
+            "fix(xtask): hold the landed subject to the vocabulary",
+            "feat!: rename the port",
+            "fix(a)!: x",
+            "fix(!): x",
+            "fix(a(b)): x",
+            "fix(a)): x",
+            "fix((a): x",
+            "  fix: padded  ",
+            "\tfix: tabbed",
+            "fix: a: b",
+            "fix:  x",
+            "fix: x\nbatch: y",
+            "Revert \"feat(identity): the thing\"",
+            "Merge branch 'main' into feat/x",
+            "Merge  x",
+            "fixup! feat: x",
+            "squash!",
+            "amend! x",
+            "",
+            "   ",
+            "Merge",
+            "Merge ",
+            "Revert ",
+            "spike(metadata): what a BPMN file actually carries",
+            "batch: three gate holes",
+            "batch C: two",
+            "no type here",
+            "fix:x",
+            "fix: ",
+            "fix:",
+            "fix: x.",
+            "fix: x. ",
+            "fix:  .",
+            "fix(): x",
+            "fix( ): x",
+            "fix(a:b): c",
+            "fix!!: x",
+            "fix!(a): x",
+            "fix(a)b: x",
+            "fix(a)!!: x",
+            "Fix: x",
+            "fixx: x",
+            "fix(a: x",
+            "batch: y\nfix: x",
+            "fix: x\n.",
+        ] {
+            titles.push(String::from(title));
+        }
+        for title in titles {
+            let shell = run_step(&body, "pull_request", "refs/pull/7/merge", &title).code == Some(0);
+            let rule = run(core::slice::from_ref(&title)) == Verdict::Pass;
+            assert_eq!(
+                shell, rule,
+                "{title:?}: the workflow says {shell}, check-pr-title says {rule}"
+            );
+        }
+    }
+
+    /// The verdict follows what `gh` answers for the pull request the event names, so it is the live
+    /// title and not the payload; an event naming no pull request is refused before `gh` is asked.
+    #[cfg(unix)]
+    #[test]
+    fn the_workflow_asks_for_the_queued_pull_request_and_refuses_any_other_event() {
+        let body = title_step();
+        assert_eq!(
+            run_step(&body, "pull_request", "refs/pull/7/merge", "fix: x"),
+            Ran {
+                code: Some(0),
+                gh: vec![String::from("gh api repos/telekom/sutura/pulls/7 --jq .title")]
+            }
+        );
+        assert_eq!(
+            run_step(
+                &body,
+                "merge_group",
+                "refs/heads/gh-readonly-queue/main/pr-1257-0123abcd",
+                "fix: x"
+            ),
+            Ran {
+                code: Some(0),
+                gh: vec![String::from("gh api repos/telekom/sutura/pulls/1257 --jq .title")]
+            }
+        );
+        assert_eq!(
+            run_step(&body, "push", "refs/heads/main", "fix: x"),
+            Ran {
+                code: Some(1),
+                gh: vec![]
+            }
+        );
+        assert_eq!(
+            run_step(&body, "merge_group", "refs/heads/main", "fix: x"),
+            Ran {
+                code: Some(1),
+                gh: vec![]
+            }
+        );
+        assert_eq!(
+            run_step(&body, "pull_request", "refs/pull/7/merge", "batch: x"),
+            Ran {
+                code: Some(1),
+                gh: vec![String::from("gh api repos/telekom/sutura/pulls/7 --jq .title")]
+            }
+        );
     }
 }

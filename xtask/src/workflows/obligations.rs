@@ -74,66 +74,38 @@
 //! module that is** - `check-workflows` reads the file text, not a schedule, so it cannot see
 //! how long any step actually took; the 238 s figure above is measured once, from the jobs API,
 //! and not reproduced here.
+//!
+//! # The pull-request TITLE obligation moved out with its step (#1257)
+//!
+//! The step left `ci.yml` (#1257); what decides the event it runs on is now `pr-title.yml`'s `on:`,
+//! held by [`pr_title_check`] - it fires on `edited` for #1249 and on `merge_group` because the
+//! context is required.
 
 use std::path::Path;
 
 /// A step whose `if:` is held by this rule, and the exact form it needs.
 ///
-/// **Two kinds of obligation now, and the table is the same shape for both.** Three rows are here
-/// because a condition keeps the step REACHABLE after a red above it - the finding this module's
-/// header is about. `PR title` is the other kind: its `if:` decides the EVENT it runs on, and
-/// without it the step would start on events where the title fetch fails - a red run rather than a
-/// silent pass. The two mechanisms are worth having together: this one names the step in
-/// `check-workflows`, that one reddens the run.
+/// Every row is a REACHABILITY obligation: a condition that keeps the step reporting after a red
+/// above it.
 struct Obligation {
     /// The step's `name:` value, which is also how a reader finds it.
     step: &'static str,
     /// The `if:` expression, with `${{ }}` and surplus whitespace already removed.
     condition: &'static str,
-    /// Why the `if:` is held - see [`Kind`]. The None-arm's refusal text is written per kind, so
-    /// an event-kind step whose `if:` goes missing is not told to make itself reachable.
-    kind: Kind,
-}
-
-/// What the held condition is FOR. Two kinds, and they are not interchangeable:
-///
-/// - [`Kind::Reachability`] - the condition keeps the step REPORTING after a red above it. The
-///   refusal for a missing `if:` names what reachability costs, and `always()` is the right fix.
-/// - [`Kind::Event`] - the condition decides the EVENT the step runs on. `PR title`'s condition
-///   is the example: without it, the step would start on every event, where the title fetch fails
-///   and the run is red rather than a pass. The refusal therefore says where the condition
-///   belongs, and NEVER reaches for `always()`, which would put the gate on every event where
-///   there is nothing to judge.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Kind {
-    Reachability,
-    Event,
 }
 
 const REQUIRED: &[Obligation] = &[
     Obligation {
         step: "Secrets",
         condition: "always() && github.event_name != 'push'",
-        kind: Kind::Reachability,
     },
     Obligation {
         step: "Licensing",
         condition: "!cancelled() && github.event_name != 'push'",
-        kind: Kind::Reachability,
     },
     Obligation {
         step: "Chart",
         condition: "!cancelled() && github.event_name != 'push'",
-        kind: Kind::Reachability,
-    },
-    Obligation {
-        // #935. The landed subject is composed from the pull-request title, so the gate holding the
-        // commit vocabulary over it can only run where that title exists. No `always()` and no
-        // `!cancelled()`: on any other event the title fetch fails and the step has nothing to
-        // judge.
-        step: "PR title",
-        condition: "github.event_name == 'pull_request'",
-        kind: Kind::Event,
     },
 ];
 
@@ -182,13 +154,16 @@ fn order_problems(steps: &[super::cache_scope::Step<'_>]) -> Vec<String> {
 ///
 /// Fails CLOSED on an unreadable file and on a step it cannot find: a named step that is absent
 /// is indistinguishable, to a text reader, from a rule that has stopped matching anything, and
-/// the reassuring pass is the failure mode a scan like this is most prone to.
+/// the reassuring pass is the failure mode a scan like this is most prone to. `pr-title.yml`'s
+/// trigger obligations are appended, so `check-workflows` refuses them under the same call.
 pub(super) fn problems(root: &Path) -> Vec<String> {
     let path = root.join(".github/workflows/ci.yml");
     let Ok(text) = std::fs::read_to_string(&path) else {
         return vec![format!("{} could not be read, so no step obligation is held", path.display())];
     };
-    check(&text)
+    let mut out = check(&text);
+    out.extend(pr_title_problems(root));
+    out
 }
 
 /// The rule itself, over the text, so a test can put a tree in front of it.
@@ -204,16 +179,10 @@ fn check(text: &str) -> Vec<String> {
             continue;
         };
         match step.gate() {
-            None => out.push(match want.kind {
-                Kind::Reachability => format!(
-                    "ci.yml:{} `{}` carries no `if:`. A failed step ends the job, so it runs only while every step above it is green - `if: ${{{{ {} }}}}` is what makes it reachable regardless",
-                    step.line, want.step, want.condition
-                ),
-                Kind::Event => format!(
-                    "ci.yml:{} `{}` carries no `if:`. Its condition decides the EVENT it runs on, not its reachability: it is not `always()` but `{}`, and without it the step starts on events where the title fetch fails and the run goes red rather than passing - `if: ${{{{ {} }}}}` puts it on the event that carries the subject",
-                    step.line, want.step, want.condition, want.condition
-                ),
-            }),
+            None => out.push(format!(
+                "ci.yml:{} `{}` carries no `if:`. A failed step ends the job, so it runs only while every step above it is green - `if: ${{{{ {} }}}}` is what makes it reachable regardless",
+                step.line, want.step, want.condition
+            )),
             Some(gate) if gate != want.condition => out.push(format!(
                 "ci.yml:{} `{}` is gated on `{gate}`, but its obligation needs `{}` - see the header of xtask/src/workflows/obligations.rs for which case each form survives",
                 step.line, want.step, want.condition
@@ -224,6 +193,62 @@ fn check(text: &str) -> Vec<String> {
     out.extend(order_problems(&steps));
     out
 }
+
+/// The activity types `pr-title.yml` must fire on. `edited` is #1249's: the `pull_request`
+/// default types omit it, so a rename alone started no run.
+const PR_TITLE_EVENT_TYPES: &[&str] = &["opened", "edited", "reopened", "synchronize"];
+
+/// The trigger obligations of `pr-title.yml`. Fails CLOSED on an unreadable file, as [`problems`].
+fn pr_title_problems(root: &Path) -> Vec<String> {
+    let path = root.join(".github/workflows/pr-title.yml");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return vec![format!(
+            "{} could not be read, so the pull-request title trigger obligation is held by nothing",
+            path.display()
+        )];
+    };
+    pr_title_check(&text)
+}
+
+/// The trigger rule over the text, so a test can put a workflow in front of it.
+fn pr_title_check(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    match pull_request_types(text) {
+        None => out.push(String::from(
+            "pr-title.yml declares no `pull_request` trigger with a `types: [..]` list - the title check has to fire on the event that carries the subject, and on `edited` so a rename alone fires it (#1249)",
+        )),
+        Some(types) => out.extend(PR_TITLE_EVENT_TYPES.iter().filter(|want| !types.contains(want)).map(|want| {
+            format!("pr-title.yml's `pull_request` trigger omits `{want}` - the title check must fire on it (#1249)")
+        })),
+    }
+    if !super::contexts::block_keys(text, "on:")
+        .iter()
+        .any(|key| key == "merge_group")
+    {
+        out.push(String::from(
+            "pr-title.yml declares no `merge_group` trigger - `pr-title` is a required context, so a queue entry waits on it until the queue's timeout drops the entry",
+        ));
+    }
+    out
+}
+
+/// The flow-style `types: [..]` list directly under the top-level `on:` block's `pull_request:`.
+fn pull_request_types(text: &str) -> Option<Vec<&str>> {
+    let mut lines = text.lines().filter(|line| {
+        let trimmed = line.trim_start();
+        !trimmed.is_empty() && !trimmed.starts_with('#')
+    });
+    lines.by_ref().find(|line| *line == "on:")?;
+    let mut on = lines.take_while(|line| line.starts_with(' '));
+    on.by_ref().find(|line| *line == "  pull_request:")?;
+    on.take_while(|line| line.starts_with("    "))
+        .find_map(|line| line.strip_prefix("    types:"))?
+        .trim()
+        .strip_prefix('[')?
+        .strip_suffix(']')
+        .map(|list| list.split(',').map(str::trim).collect())
+}
+
 /// The release-commit skip clause that `ci` and `bigquery-driver-check` both carry, normalized the
 /// way `Step::gate` normalizes (`${{ }}` stripped, whitespace collapsed to single spaces).
 ///
@@ -340,13 +365,13 @@ const JOB_INDENT: usize = 2;
 mod tests {
     use core::fmt::Write as _;
 
-    use super::{RELEASE_SKIP, RELEASE_SKIP_CLAUSE, REQUIRED, check, release_skip_check};
+    use super::{PR_TITLE_EVENT_TYPES, RELEASE_SKIP, RELEASE_SKIP_CLAUSE, REQUIRED, check, pr_title_check, release_skip_check};
 
     /// A `ci.yml` shaped like the real one, with each named step given `gate` as its condition.
     ///
     /// `None` writes the step with no `if:` at all, which is the state the finding was about.
-    /// `PR title` is the one obligation that PAYS for the xtask closure, so these trees exercise
-    /// the order half as well as the condition half.
+    /// Every required step here is closure-free, so these trees exercise the condition half; the
+    /// order half is exercised below with an explicit `xtask_step`.
     fn tree(gates: &[Option<&str>]) -> String {
         let mut text = String::from("jobs:\n  ci:\n    steps:\n");
         for (want, gate) in REQUIRED.iter().zip(gates) {
@@ -363,11 +388,7 @@ mod tests {
             text.push_str(gate);
             text.push_str(" }}\n");
         }
-        text.push_str(if name == "PR title" {
-            "        run: nix run .#xtask -- check-pr-title \"$TITLE\"\n"
-        } else {
-            "        run: true\n"
-        });
+        text.push_str("        run: true\n");
         text
     }
 
@@ -387,34 +408,6 @@ mod tests {
             "every unconditioned step should be named: {found:?}"
         );
         assert!(found.iter().all(|problem| problem.contains("carries no `if:`")), "{found:?}");
-    }
-
-    /// The two kinds refuse DIFFERENTLY. An event-kind step whose `if:` goes missing must not be
-    /// told to buy reachability - `always()` would put its gate on every event, where the subject
-    /// it judges does not exist - so the reachability sentence must never appear in its refusal.
-    #[test]
-    fn the_event_kind_refusal_does_not_suggest_reachability() {
-        let gates: Vec<Option<&str>> = REQUIRED.iter().map(|_| None).collect();
-        let found = check(&tree(&gates));
-        let title = found
-            .iter()
-            .find(|problem| problem.contains("`PR title`"))
-            .expect("the unconditioned PR title step is reported");
-        assert!(
-            title.contains("decides the EVENT it runs on"),
-            "the event-kind refusal must name what its condition is for: {title}"
-        );
-        assert!(
-            !title.contains("reachable regardless"),
-            "reachability is the other kind's reason, not this one's: {title}"
-        );
-        assert!(
-            found
-                .iter()
-                .filter(|problem| !problem.contains("`PR title`"))
-                .all(|problem| problem.contains("reachable regardless")),
-            "the reachability kind keeps its own sentence: {found:?}"
-        );
     }
 
     /// The mutation the real finding was: a condition that exists but is the wrong form.
@@ -452,71 +445,6 @@ mod tests {
     /// trusting the generic tests above to cover it: those iterate `REQUIRED` itself, so an
     /// entry that was never added would leave them passing over one fewer obligation and
     /// nothing would say so.
-    /// #935: the step that reads the pull-request title, and the condition deciding the EVENT it
-    /// runs on. Named rather than left to the loops above, for the reason the chart's test gives -
-    /// an entry never added would leave them passing over one fewer obligation.
-    #[test]
-    fn the_pr_title_step_is_a_required_obligation() {
-        assert!(
-            REQUIRED
-                .iter()
-                .any(|o| o.step == "PR title" && o.condition == "github.event_name == 'pull_request'"),
-            "the pull-request title's step obligation is missing or holds the wrong condition"
-        );
-    }
-
-    /// THE RED-BEFORE-GREEN CELL FOR #1249, against the LIVE workflow rather than a fixture: the
-    /// `PR title` step must read the CURRENT title from the repository at run time, not
-    /// `github.event.pull_request.title`. That payload expression is frozen when the run STARTS and
-    /// never refreshes on a re-run, so renaming the title then re-running judged the OLD string and
-    /// stayed red - a title-only change could not fire the check on its own. RED ON BASE (base's
-    /// `ci.yml` still reads the event payload), GREEN with the change.
-    #[test]
-    fn refuses_github_event_pull_request_title() {
-        let Some(root) = crate::repo::root() else {
-            return;
-        };
-        let path = root.join(".github/workflows/ci.yml");
-        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-        let step = super::super::cache_scope::steps(&text)
-            .into_iter()
-            .find(|step| step.input("name:") == Some("PR title"))
-            .expect("the live ci.yml has a `PR title` step");
-        assert!(
-            !step.contains_verbatim("github.event.pull_request.title"),
-            "ci.yml:{} `PR title` must read the CURRENT title from the repository over the API at run time, not `github.event.pull_request.title` - the payload is frozen at run start, so renaming the title and re-running stays red against the old string (#1249)",
-            step.line
-        );
-    }
-
-    /// The ORDER half over the shape #935 introduced: `PR title` realises the xtask closure, so
-    /// every closure-free obligation has to stay ahead of it - and the rule may not report that
-    /// step against itself, which is what placing it first measures.
-    #[test]
-    fn a_closure_free_obligation_behind_the_title_step_is_refused() {
-        let mut text = String::from("jobs:\n  ci:\n    steps:\n");
-        text.push_str(&step("PR title", Some("github.event_name == 'pull_request'")));
-        for want in REQUIRED.iter().filter(|want| want.step != "PR title") {
-            text.push_str(&step(want.step, Some(want.condition)));
-        }
-
-        let found = check(&text);
-
-        assert_eq!(
-            found.len(),
-            REQUIRED.len().saturating_sub(1),
-            "every closure-free obligation behind it, and only those: {found:?}"
-        );
-        assert!(
-            found.iter().all(|problem| problem.contains("sits behind ci.yml:")),
-            "{found:?}"
-        );
-        assert!(
-            !found.iter().any(|problem| problem.contains("`PR title` sits behind")),
-            "the first xtask step is not behind itself: {found:?}"
-        );
-    }
-
     #[test]
     fn the_chart_step_is_a_required_obligation() {
         assert!(
@@ -539,6 +467,32 @@ mod tests {
         assert!(
             found.iter().any(|problem| problem.contains("declares no step named `Chart`")),
             "{found:?}"
+        );
+    }
+
+    /// THE RED-BEFORE-GREEN CELL FOR #1249, against the LIVE `pr-title.yml` rather than a fixture:
+    /// the step must read the CURRENT title from the repository at run time, not a payload
+    /// expression - `github.event.pull_request.title` is frozen when a run STARTS and never
+    /// refreshes, so a rename alone could never fire a fresh verdict. RED ON BASE because base has
+    /// no `pr-title.yml`, GREEN with the move.
+    #[test]
+    fn refuses_github_event_pull_request_title() {
+        let root = crate::repo::root().expect("repository root");
+        let path = root.join(".github/workflows/pr-title.yml");
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let step = super::super::cache_scope::steps(&text)
+            .into_iter()
+            .find(|step| step.input("name:") == Some("PR title"))
+            .expect("the live pr-title.yml has a `PR title` step");
+        assert!(
+            step.contains_verbatim("gh api \"repos/$GITHUB_REPOSITORY/pulls/$number\""),
+            "pr-title.yml:{} `PR title` must resolve the pull-request number and fetch the CURRENT title from the repository over the API at run time (#1249)",
+            step.line
+        );
+        assert!(
+            !step.contains_verbatim("github.event") && !step.contains_verbatim("GITHUB_EVENT_PATH"),
+            "pr-title.yml:{} `PR title` must read no event-payload expression - the payload is frozen at run start, so it would judge the OLD string after a rename (#1249)",
+            step.line
         );
     }
 
@@ -571,6 +525,64 @@ mod tests {
         text.push_str(&xtask_step("The attribution document generates completely", false));
         assert_eq!(check(&text), Vec::<String>::new());
     }
+
+    // ---- pr-title.yml trigger (the event obligation #1257) ----
+
+    /// A `pr-title.yml` with the standard pull-request trigger carrying `types`.
+    fn pr_title_yml(types: &[&str]) -> String {
+        let mut text = String::from("name: pr-title\non:\n  pull_request:\n    types: [");
+        text.push_str(&types.join(", "));
+        text.push_str(
+            "]\n  merge_group:\npermissions:\n  contents: read\n  pull-requests: read\njobs:\n  title:\n    name: pr-title\n",
+        );
+        text
+    }
+
+    /// The real shape: all four activity types fire the title check.
+    #[test]
+    fn the_pr_title_trigger_carries_every_required_activity_type() {
+        assert_eq!(pr_title_check(&pr_title_yml(PR_TITLE_EVENT_TYPES)), Vec::<String>::new());
+    }
+
+    /// `edited` is the point of #1249: dropping it leaves a rename alone never re-verified.
+    #[test]
+    fn omitting_edited_from_the_pr_title_trigger_is_refused() {
+        let found = pr_title_check(&pr_title_yml(&["opened", "reopened", "synchronize"]));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("`edited`"), "{found:?}");
+    }
+
+    /// Fails closed on no trigger at all - same convention as the step half. With no
+    /// `pull_request` trigger and no `merge_group`, both refusals fire.
+    #[test]
+    fn a_pr_title_workflow_with_no_pull_request_trigger_is_refused() {
+        let found = pr_title_check("name: pr-title\non:\n  push:\n    branches: [main]\n");
+        assert!(
+            found.iter().any(|p| p.contains("declares no `pull_request` trigger")),
+            "{found:?}"
+        );
+    }
+
+    /// `pr-title` is a required context, so a queue entry must get an answer: a workflow without
+    /// `merge_group` would leave the entry pending until the queue's timeout drops it.
+    #[test]
+    fn a_pr_title_workflow_the_queue_cannot_reach_is_refused() {
+        let text = pr_title_yml(PR_TITLE_EVENT_TYPES).replacen("  merge_group:\n", "", 1);
+        let found = pr_title_check(&text);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("`merge_group`"), "{found:?}");
+    }
+
+    /// Only `pull_request`'s own `types:` counts: a list under the next trigger, or under a job,
+    /// leaves a bare `pull_request:` - which takes the default types and omits `edited` - refused.
+    #[test]
+    fn a_types_list_outside_the_pull_request_trigger_is_not_read() {
+        let text = "name: pr-title\non:\n  pull_request:\n  merge_group:\n  workflow_dispatch:\n    types: [opened, edited, reopened, synchronize]\njobs:\n  title:\n    types: [opened, edited, reopened, synchronize]\n";
+        let found = pr_title_check(text);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("declares no `pull_request` trigger"), "{found:?}");
+    }
+
     // ---- release-skip (job-level `if:`) ----
 
     /// A `ci.yml` with both release-skip jobs carrying their real `if:` shape.

@@ -365,7 +365,7 @@ const JOB_INDENT: usize = 2;
 /// Comments are skipped, and a line deeper than the block's own keys is not one - so a `run: |`
 /// body cannot contribute a key, which is the failure `crate::workflows::declared_block` records
 /// about counting braces over raw text.
-fn block_keys(text: &str, opener: &str) -> Vec<String> {
+pub(super) fn block_keys(text: &str, opener: &str) -> Vec<String> {
     let mut keys = Vec::new();
     let mut inside = false;
     for raw in text.lines() {

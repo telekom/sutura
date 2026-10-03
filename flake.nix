@@ -1302,7 +1302,7 @@
           program = "${cargoWrapper}/bin/sutura-cargo";
         };
         # `nix run .#xtask` - every subcommand this repository already calls this way from
-        # `ci.yml` and `release.yml` (`classify`, `check-pr-title`, `check-attribution`,
+        # `ci.yml` and `release.yml` (`classify`, `check-attribution`,
         # `attribution`, `crap-delta`), and now `hygiene` from `version-bump.yml`. An EXPLICIT
         # app rather than the one `nix run` synthesises implicitly from `packages.xtask`'s own
         # `meta.mainProgram`, because several of those subcommands shell out to `cargo metadata`
