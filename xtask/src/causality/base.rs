@@ -210,15 +210,21 @@ pub(crate) fn classify_base(
     if under_test.is_empty() {
         BaseOutcome::RedOutsideTheDiff { failed: outside }
     } else {
-        // SIBLINGS. The whole-run verdict used to answer from the red names alone, so an added
-        // test that PASSED without the change rode along unmentioned beside the one that failed:
-        // the run is red, the gate reports the red name, and the second added test's false green
-        // went unreported. A scoped name this run reported a RESULT for - `results` reads passes
-        // too - that is not among the failures ran and passed, so name it and let the per-test
-        // rule see it rather than the whole-run one.
-        let green: Vec<String> = results(text)
-            .into_iter()
-            .filter(|one| is_scoped(one, scoped) && !under_test.iter().any(|red| red == one))
+        // SIBLINGS, judged per ADDED TEST rather than per result line. The whole-run verdict
+        // answered from the red names alone, so an added test that PASSED without the change rode
+        // along beside the one that failed. Green means: not moved (a moved test passes on base by
+        // definition), at least one PASS, and no failing result - so a parametrised test with one
+        // red case is red, and an `XFAIL` (a process that never launched) is not a pass.
+        let passed = passes(text);
+        let green: Vec<String> = scoped
+            .iter()
+            .filter(|test| {
+                let one = std::slice::from_ref(*test);
+                !moved.names().iter().any(|name| name.as_str() == test.name())
+                    && passed.iter().any(|line| is_scoped(line, one))
+                    && !under_test.iter().any(|line| is_scoped(line, one))
+            })
+            .map(|test| format!("{} in {}", test.name(), test.file()))
             .collect();
         if green.is_empty() {
             BaseOutcome::RedByAssertion { failed: under_test }
@@ -361,6 +367,14 @@ pub(super) fn results(text: &str) -> Vec<String> {
     collect(text, nextest_result)
 }
 
+/// Every test nextest reports as `PASS` or `LEAK` - a pass, not merely a result.
+fn passes(text: &str) -> Vec<String> {
+    collect(text, |trimmed| {
+        let (status, _) = strip_retry(trimmed).split_once(" [")?;
+        matches!(status, "PASS" | "LEAK").then(|| nextest_result(trimmed))?
+    })
+}
+
 fn nextest_result(trimmed: &str) -> Option<String> {
     let (status, rest) = strip_retry(trimmed).split_once(" [")?;
     if !matches!(status, "PASS" | "LEAK" | "XFAIL") && !is_failing(status) {
@@ -424,7 +438,7 @@ pub(super) fn is_scoped(failure: &str, scoped: &[AddedTest]) -> bool {
 /// DID run in both trees, so the measurement is real there and what it is not is evidence about
 /// the change. The other four are asserted anyway, because the mapping is what a mutation moves
 /// and an arm that starts printing must not have to re-derive it -
-/// [`BaseOutcome::GreenAfterAPartialMove`] joins them rather than the six: its moved subset ran,
+/// [`BaseOutcome::GreenAfterAPartialMove`] joins them rather than the seven: its moved subset ran,
 /// but the scope it is about includes tests that did not, so the numerator stays understated.
 ///
 /// **AND IT IS NOW THE ONLY PLACE THAT CAN MINT [`PerTestResults`]**, which is the half review found
@@ -448,7 +462,7 @@ fn earned(outcome: &BaseOutcome, coverage: &Coverage) -> String {
 
 /// Did this outcome come from a base run that reported PER-TEST results?
 ///
-/// The four variants [`earned`] maps to [`Attributed::PerTest`], pulled out under a name of its
+/// The five variants [`earned`] maps to [`Attributed::PerTest`], pulled out under a name of its
 /// own so `super::base::report` can ask the same question `earned` already answers rather than
 /// re-deriving a second match that could quietly disagree with it -
 /// `github.com/telekom/sutura#893`: the sentence a "measured" outcome prints still baked in the
@@ -496,6 +510,10 @@ mod report;
 #[cfg(test)]
 pub(crate) use report::report_base;
 pub(crate) use report::{report_base_scoped, tail};
+
+// The per-test sibling cells, split out at the same cap.
+#[cfg(test)]
+mod sibling_tests;
 
 #[cfg(test)]
 mod tests {
@@ -571,29 +589,6 @@ mod tests {
             other => panic!("expected RedByAssertion, got {other:?}"),
         }
     }
-    #[test]
-    fn a_green_sibling_is_not_hidden_by_a_red_added_test() {
-        // THE DEFECT THIS CLOSES. Two added tests in one diff, one red and one green on base:
-        // the old whole-run classifier answered from the failure alone, so the green sibling - a
-        // second added test that PASSES with the change reverted, and so proves nothing of its
-        // own - rode along unmentioned on the red one's strength. The run reports per-test names,
-        // and the per-test rule is the only one that surfaces the green sibling.
-        let text = concat!(
-            "    Starting 2 tests across 1 binary\n",
-            "        FAIL [   0.010s] (1/2) pa tests::the_red_one\n",
-            "        PASS [   0.010s] (2/2) pa tests::the_green_one\n",
-            "error: test run failed\n",
-        );
-        let under_test = scoped("pa", "pa/src/lib.rs", &["the_red_one", "the_green_one"]);
-        match classified(text, false, &under_test) {
-            BaseOutcome::RedWithGreenSibling { ref red, ref green } => {
-                assert_eq!(red, &[String::from("pa tests::the_red_one")], "{red:?}");
-                assert_eq!(green, &[String::from("pa tests::the_green_one")]);
-            }
-            other => panic!("expected RedWithGreenSibling, got {other:?}"),
-        }
-    }
-
     #[test]
     fn a_failure_in_another_package_is_never_this_diffs_test() {
         // THE FINDING THIS CLOSES. With the bare function name as the key, a failure anywhere in
