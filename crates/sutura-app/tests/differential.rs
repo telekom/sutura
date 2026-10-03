@@ -176,9 +176,9 @@ mod tests {
     ///
     /// The ENGINE side must name the column and the non-finite cell, as it always does. The OTHER side
     /// has to fail too, but the HOW is that data system's own business: an IEEE one (`DuckDB`) refuses a
-    /// non-finite cell and names the column, while a raising one (`Postgres`) gets the server's typed
-    /// `division by zero`. Both honor `zero_denominator: fails`, and the assertion is a type switch on
-    /// the adapter rather than one weakened shape for both.
+    /// non-finite cell and names the column, while a raising one (`Postgres`, `BigQuery`) gets the
+    /// server's `division by zero`. Both honor `zero_denominator: fails`, and the assertion is a type
+    /// switch on the adapter rather than one weakened shape for both.
     fn refused_together<W>(
         engine_error: &dyn core::error::Error,
         other_error: &dyn core::error::Error,
@@ -202,10 +202,12 @@ mod tests {
         );
         let rendered_other = chain(other_error);
         match W::NAME {
-            "postgres" => {
+            // `BigQuery`'s `/` raises at the server too: its first live run answered
+            // `invalidQuery: division by zero` through the driver.
+            system @ ("postgres" | "bigquery") => {
                 assert!(
                     rendered_other.contains("division by zero"),
-                    "{name}: postgres neither refused a non-finite cell nor reported the server's \
+                    "{name}: {system} neither refused a non-finite cell nor reported the server's \
                  division-by-zero:\n{rendered_other}"
                 );
             }

@@ -1133,7 +1133,7 @@
             export SUTURA_BIGQUERY_ADBC_DRIVER="${adbcDrivers."adbc-driver-bigquery-x86_64-unknown-linux-gnu"}/lib/libadbc_driver_bigquery.so"
             ${cargoLinkEnv}
             ${cargoWarmStart}
-            exec cargo nextest run --cargo-profile ci -p sutura-app --all-features -E 'test(/bigquery/)' "$@"
+            exec cargo nextest run --cargo-profile ci -p sutura-app --all-features --no-fail-fast -E 'test(/bigquery/)' "$@"
           '');
         };
 

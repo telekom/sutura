@@ -356,7 +356,7 @@ bigquery-conformance *args:
     set -euo pipefail
     echo "bigquery-conformance: scope sutura-app - the golden matrix's bigquery cells, against SUTURA_BQ_DATASET."
     echo "bigquery-conformance: this is NOT a gate. Run \`just test\` for the workspace suite."
-    cargo nextest run -p sutura-app --all-features -E 'test(/bigquery/)' {{ args }}
+    cargo nextest run -p sutura-app --all-features --no-fail-fast -E 'test(/bigquery/)' {{ args }}
 
 # The finishing sequence, over the committed branch diff. Needs a clean tree.
 ship-check:
