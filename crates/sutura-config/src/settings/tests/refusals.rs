@@ -120,16 +120,10 @@ fn a_catalog_endpoint_with_userinfo_is_refused_at_load_without_being_quoted() {
                 "catalogs:\n  - name: catalog\n    {reader}\n    dir: catalog\n    data_dir: data\n    version: test-1\n    endpoint: {endpoint}\n    token_file: /nowhere/token\n"
             ));
             let error = Settings::load(&sources).expect_err("a userinfo endpoint is refused");
-            assert!(
-                matches!(
-                    error.reason(),
-                    SettingsError::Catalog {
-                        cause: crate::catalog::InvalidCatalogSettings::CredentialsInEndpoint { .. }
-                    }
-                ),
-                "{error:?}"
-            );
-            let rendered = format!("{error} {error:?}");
+            assert!(matches!(error.reason(), SettingsError::Catalog { .. }), "{error:?}");
+            let cause = core::error::Error::source(error.reason()).map_or_default(ToString::to_string);
+            assert!(cause.contains("endpoint carries an `@`"), "{cause}");
+            let rendered = format!("{error} {error:?} {cause}");
             assert!(!rendered.contains("s3cret"), "{rendered}");
         }
     }
