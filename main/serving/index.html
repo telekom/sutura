@@ -3635,7 +3635,9 @@ mechanisms and limits below.</p>
 <p><code>server.request_timeout_seconds</code> bounds the caller's <strong>whole wait</strong>. The same setting, minus a
 one-second reply margin, opens the absolute deadline carried by the <code>Warehouse</code> port. The engine
 returns after that deadline at a cooperative yield and drops its rows future; Postgres sends
-<code>SET LOCAL statement_timeout</code> after acquiring its execution lock. <strong>BigQuery sends what is left of
+what is left as <code>SET LOCAL statement_timeout</code> once its per-call connection is open - loading the
+driver and connecting run before it, spending the budget with nothing to stop them. <strong>BigQuery
+sends what is left of
 the deadline as the job's <code>jobTimeoutMs</code></strong> through the ADBC driver's <code>bigquery.query.job_timeout</code>,
 which the service honours on a best-effort basis; at the deadline this process also stops waiting
 and asks the driver to cancel the job, queued behind the driver's statement lock. Neither has yet
@@ -3644,9 +3646,9 @@ than belt-and-braces here: it caps how much work can accumulate where cancellati
 cooperative, or best-effort.</p>
 <p><code>max_concurrent_queries</code> is that bound. A question holds its slot from the moment it starts until the
 port call returns - <strong>not</strong> merely until the caller is answered. For the engine that is after the
-timer is observed at a cooperative yield; for Postgres it is after the execution-lock wait and the
-statement stop; for BigQuery it is whenever the driver answers, which nothing bounds - no request
-asks the service to stop the job. The backlog is therefore bounded even when a timed-out caller
+timer is observed at a cooperative yield; for Postgres it is once the statement stops, and a connect
+that hangs holds the slot, since no connect timeout is written; for BigQuery it is whenever the
+driver answers, which nothing bounds - no request asks the service to stop the job. The backlog is therefore bounded even when a timed-out caller
 cannot stop the underlying work at all.</p>
 <p>A question that cannot get a slot inside <code>admission_timeout_seconds</code> is answered <code>503</code> with
 <code>code: at_capacity</code> and a <code>Retry-After</code> in seconds, rather than being left in a queue. <code>503</code> and not
@@ -3679,11 +3681,11 @@ pinned MCP SDK delivers that cancellation as a token the handler does not read.<
 <p>Stated plainly, because each of these has been mistaken for the thing above.</p>
 <ul>
 <li><strong>It does not cancel anything by itself.</strong> The per-request deadline is a separate mechanism. The
-  engine observes it at cooperative yield points, Postgres after its execution-lock wait, and
+  engine observes it at cooperative yield points, Postgres once its connection is open, and
   BigQuery sends what remains to its service. None of those facts turns the concurrency ceiling into
   a cancellation mechanism.</li>
 <li><strong>It does not impose one universal duration bound.</strong> Already-running blocking engine work may
-  outlive the rows future, Postgres's lock wait is outside its statement timeout, and BigQuery's
+  outlive the rows future, Postgres's driver load and connect are outside its statement timeout, and BigQuery's
   stopped-job reply is unmeasured while its socket allowance may cross the caller's reply margin.</li>
 <li><strong>It is not a per-caller budget.</strong> One caller can fill every slot and shed everybody else. With leg 1
   configured two callers <em>can</em> now be told apart - and nothing does: there is no budget port to key on
@@ -3775,7 +3777,7 @@ selects which file is layered, so a file that could change it would be self-refe
 <tr>
 <td><code>server.request_timeout_seconds</code></td>
 <td><code>30</code></td>
-<td>At most 300. Bounds a caller's whole wait on <strong>both</strong> surfaces - the <code>408</code> here, and a tool result on the agent surface. Minus a one-second reply margin, it also opens the shared execution deadline: the engine observes it at cooperative yield points and Postgres after its execution-lock wait. <strong>BigQuery is the exception, and it is one an operator has to know:</strong> what is left is sent as the job's <code>jobTimeoutMs</code>, a best-effort stop at the service, and at the deadline this process asks the driver to cancel, queued behind its statement lock - the <code>408</code> a caller sees does not by itself stop the work behind it</td>
+<td>At most 300. Bounds a caller's whole wait on <strong>both</strong> surfaces - the <code>408</code> here, and a tool result on the agent surface. Minus a one-second reply margin, it also opens the shared execution deadline: the engine observes it at cooperative yield points and Postgres once its connection is open. <strong>BigQuery is the exception, and it is one an operator has to know:</strong> what is left is sent as the job's <code>jobTimeoutMs</code>, a best-effort stop at the service, and at the deadline this process asks the driver to cancel, queued behind its statement lock - the <code>408</code> a caller sees does not by itself stop the work behind it</td>
 </tr>
 <tr>
 <td><code>server.max_body_bytes</code></td>
@@ -4058,7 +4060,7 @@ model's <code>source:</code> names.</strong></p>
 | <code>sources.&lt;alias&gt;.user</code> | absent | Postgres, ClickHouse and Oracle. The one role every caller reaches this source as |
 | <code>sources.&lt;alias&gt;.password_file</code> | absent | Postgres, ClickHouse and Oracle. Absolute, read at startup; secret text is refused in the settings tree |
 | <code>sources.&lt;alias&gt;.transport_mode</code> | absent | Postgres, ClickHouse and Oracle. <code>plaintext</code>, <code>verified</code> or <code>mutual</code>; required, with no default. A non-loopback host declared <code>plaintext</code> is refused on all three. Oracle accepts <code>plaintext</code> only: its driver trusts the certificate authorities compiled into it and takes no declared trust store, so <code>verified</code> and <code>mutual</code> are refused rather than half-honoured |
-| <code>sources.&lt;alias&gt;.transport_anchors</code> | absent | Postgres and ClickHouse TLS. <code>system</code> as an explicit choice, or an absolute PEM bundle path. Not accepted on Oracle - see <code>transport_mode</code> |
+| <code>sources.&lt;alias&gt;.transport_anchors</code> | absent | Postgres and ClickHouse TLS. An absolute PEM bundle path, or <code>system</code> as an explicit choice - which a Postgres source refuses at startup. Not accepted on Oracle - see <code>transport_mode</code> |
 | <code>sources.&lt;alias&gt;.client_certificate</code> | absent | Postgres and ClickHouse mutual TLS. Absolute PEM chain; both client identity halves or neither |
 | <code>sources.&lt;alias&gt;.client_key</code> | absent | Postgres and ClickHouse mutual TLS. Absolute PEM private key; both client identity halves or neither |
 | <code>sources.&lt;alias&gt;.posture</code> | absent | <code>shared-service-user</code> or <code>impersonation-at-source</code>. Required, with no default |
@@ -4160,7 +4162,7 @@ still needs to ask for it explicitly.</p>
 </span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">    </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="s">"sutura_reader"</span>
 </span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">    </span><span class="nt">password_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/etc/sutura/postgres-password"</span>
 </span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="w">    </span><span class="nt">transport_mode</span><span class="p">:</span><span class="w"> </span><span class="s">"verified"</span>
-</span><span id="__span-9-13"><a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="w">    </span><span class="c1"># An explicit choice, never a default. Use `system` to read the host store instead.</span>
+</span><span id="__span-9-13"><a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="w">    </span><span class="c1"># An explicit choice, never a default. A postgres source refuses `system` - see below.</span>
 </span><span id="__span-9-14"><a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="w">    </span><span class="nt">transport_anchors</span><span class="p">:</span><span class="w"> </span><span class="s">"/etc/sutura/database-ca.pem"</span>
 </span><span id="__span-9-15"><a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"shared-service-user"</span>
 </span><span id="__span-9-16"><a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="w">    </span><span class="nt">acknowledged_because</span><span class="p">:</span><span class="w"> </span><span class="s">"the</span><span class="nv"> </span><span class="s">reporting</span><span class="nv"> </span><span class="s">role</span><span class="nv"> </span><span class="s">is</span><span class="nv"> </span><span class="s">intentionally</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">same</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">every</span><span class="nv"> </span><span class="s">caller"</span>
@@ -4173,8 +4175,10 @@ are mutually exclusive.</p>
 <ul>
 <li><code>plaintext</code> uses no TLS. It is accepted only with an absolute unix-socket directory or a loopback
   IP literal; a hostname or non-loopback address is a startup refusal.</li>
-<li><code>verified</code> requires <code>transport_anchors</code> and requires the TLS handshake. <code>system</code> means the host's
-  trust store because the operator wrote it; an absolute path means that PEM bundle alone. It
+<li><code>verified</code> requires <code>transport_anchors</code> and requires the TLS handshake. An absolute path means
+  that PEM bundle alone. <code>system</code> means the host's trust store because the operator wrote it, and
+  a <code>postgres</code> source refuses it at startup: libpq reads <code>system</code> as OpenSSL's compiled-in store,
+  not the host's, so the ADBC driver could not verify against what was declared. It
   presents nothing, so a <code>client_certificate</code> or <code>client_key</code> written on a <code>verified</code> entry is a
   <strong>startup refusal naming the key</strong>, never a setting read past - the mode that presents a
   certificate is <code>mutual</code>.</li>
@@ -4582,7 +4586,7 @@ address can start questions.</p>
 <p>The same caller can keep a question running after being answered <code>408</code> for as long as its adapter
 overruns the port budget - the request timeout minus a one-second reply margin (<code>docs/adr/0029</code>).
 The engine stops at its next cooperative yield. Postgres stops at <code>SET LOCAL statement_timeout</code>,
-after an execution-lock wait nothing bounds (the raw SQL path too, since <code>#1144</code>). ClickHouse's
+after a per-call driver load and connect nothing bounds (the raw SQL path too, since <code>#1144</code>). ClickHouse's
 server stops at <code>max_execution_time</code>, checked at block boundaries, while its HTTP client waits
 without a deadline. BigQuery stops at a best-effort <code>jobTimeoutMs</code> and a client-side cancel. Oracle
 does not stop a statement that keeps its socket busy - its call timeout is a per-read idle timeout,

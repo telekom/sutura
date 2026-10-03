@@ -2454,6 +2454,54 @@ defaults <code>crate::postgres_reader::PostgresReader</code> uses.</p>
 <p>The documentation schema or the predicate column is not an identifier.</p>
 <h4 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>DictionaryReader</code></p>
+<h2 id="module-postgres_channel">Module <code>postgres_channel</code><a class="headerlink" href="#module-postgres_channel" title="Permanent link">&para;</a></h2>
+<p>The connection the live Postgres dictionary reader dials with.</p>
+<p>The <code>tokio-postgres</code> configuration for one declared connection, and the <code>rustls::ClientConfig</code>
+a <code>verified</code>/<code>mutual</code> channel verifies (and presents) with.</p>
+<p><strong>Here because this reader is the one <code>tokio-postgres</code> client left</strong> (<code>telekom/sutura#913</code>):
+<code>sutura-exec-postgres</code> answers every source through ADBC, so the client and its channel live
+beside the reader that still uses them, until the reader moves to ADBC too.</p>
+<p>What fails here is what only a file and a TLS implementation can answer, each fail-closed and
+naming the path: anchors that cannot be read or parse to nothing, an identity half that cannot be
+read or holds the wrong kind (all <code>sutura_tls</code>'s reads), a certificate rustls cannot use as a
+root, and a key that does not match its certificate. An untrusted chain is the handshake's
+refusal, not this module's.</p>
+<h3 id="enum-unusablechannel"><code>enum UnusableChannel</code><a class="headerlink" href="#enum-unusablechannel" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">UnusableChannel</span>
+</span></code></pre></div>
+<p>Why a declared channel could not become a client config.</p>
+<h4 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Material</code></li>
+<li><code>Root</code></li>
+<li><code>Verifier</code></li>
+<li><code>Identity</code></li>
+</ul>
+<h4 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="enum-target"><code>enum Target</code><a class="headerlink" href="#enum-target" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Target</span><span class="o">&lt;'</span><span class="na">a</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The address the reader dials.</p>
+<h4 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Host</code> - A TCP host name or address.</li>
+<li><code>UnixSocket</code> - A unix socket directory.</li>
+</ul>
+<h4 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code></p>
+<h3 id="fn-config"><code>fn config</code><a class="headerlink" href="#fn-config" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">config</span><span class="p">(</span><span class="n">target</span><span class="p">:</span><span class="w"> </span><span class="nc">Target</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="n">database</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">user</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">credential</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">identity</span><span class="p">::</span><span class="n">Secret</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">tokio_postgres</span><span class="p">::</span><span class="n">Config</span>
+</span></code></pre></div>
+<p>The driver configuration for one declared connection. It selects no TLS; the reader makes a
+supplied client config mandatory.</p>
+<h3 id="fn-client_config"><code>fn client_config</code><a class="headerlink" href="#fn-client_config" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">client_config</span><span class="p">(</span><span class="n">anchors</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_tls</span><span class="p">::</span><span class="n">Anchors</span><span class="p">,</span><span class="w"> </span><span class="n">identity</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Identity</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">rustls</span><span class="p">::</span><span class="n">ClientConfig</span><span class="p">,</span><span class="w"> </span><span class="n">UnusableChannel</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The <code>rustls::ClientConfig</code> a TLS channel verifies against <code>anchors</code> with, presenting <code>identity</code>.</p>
+<h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
+<p><code>UnusableChannel</code>: material <code>sutura_tls</code> cannot read, a root rustls cannot use, or a pair it
+will not present together.</p>
 <h2 id="module-postgres_reader">Module <code>postgres_reader</code><a class="headerlink" href="#module-postgres_reader" title="Permanent link">&para;</a></h2>
 <p>The live Postgres documentation-schema reader, behind the default-off <code>live</code> feature.</p>
 <p>This is the reader the crate's module header has said, since #151, "a real implementor" would
@@ -2545,41 +2593,41 @@ materialises one row before its size is checked. Neither bound limits elapsed re
 material is resolved by a composition root into a <code>rustls::ClientConfig</code> for <code>verified</code>/<code>mutual</code>
 channels, or <code>None</code> for <code>plaintext</code>. When a <code>ClientConfig</code> is supplied the reader forces
 <code>SslMode::Require</code> so a server declining TLS cannot silently downgrade the verifier to
-cleartext - the same hardening <code>sutura-exec-postgres::connect_secured</code> applies. There is no
-unconditional <code>NoTls</code>: plaintext is reached only through the declared <code>plaintext</code> mode, which
-the transport layer already refuses for a remote host.</p>
+cleartext - the libpq <code>sslmode=verify-full</code> the Postgres data source's <code>Conninfo</code> writes holds
+the same line. There is no unconditional <code>NoTls</code>: plaintext is reached only through the
+declared <code>plaintext</code> mode, which the transport layer already refuses for a remote host.</p>
 <h1 id="feature-gating">Feature gating<a class="headerlink" href="#feature-gating" title="Permanent link">&para;</a></h1>
 <p>This module is <code>#[cfg(feature = "live")]</code>. A build without the feature links no
 <code>tokio-postgres</code>/<code>tokio-postgres-rustls</code>/<code>rustls</code>/<code>ring</code> stack, and the composition root refuses
 the catalog by name.</p>
 <h3 id="enum-invalidreaderconfig"><code>enum InvalidReaderConfig</code><a class="headerlink" href="#enum-invalidreaderconfig" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidReaderConfig</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidReaderConfig</span>
 </span></code></pre></div>
-<h4 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h4>
+<h4 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Schema</code></li>
 <li><code>PredicateColumn</code></li>
 <li><code>DefaultBound</code></li>
 </ul>
-<h4 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h4>
+<h4 id="implements_15">Implements<a class="headerlink" href="#implements_15" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="enum-rowpredicate"><code>enum RowPredicate</code><a class="headerlink" href="#enum-rowpredicate" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RowPredicate</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RowPredicate</span>
 </span></code></pre></div>
 <p>A live-row predicate rendered into the dictionary query and bound as parameters.</p>
 <p><code>PostgresReader::new</code> validates the column identifier before it can reach SQL text. The
 operator is from a fixed set rendered as fixed text; an <code>equals</code> value is bound as a parameter.</p>
-<h4 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h4>
+<h4 id="variants_6">Variants<a class="headerlink" href="#variants_6" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>None</code> - No live-row filter beyond the soft-delete marker.</li>
 <li><code>IsNull</code> - <code>column IS NULL</code>.</li>
 <li><code>IsNotNull</code> - <code>column IS NOT NULL</code>.</li>
 <li><code>Equals</code> - <code>column = $N</code>, value bound as a parameter.</li>
 </ul>
-<h4 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h4>
+<h4 id="implements_16">Implements<a class="headerlink" href="#implements_16" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-postgresreader"><code>struct PostgresReader</code><a class="headerlink" href="#struct-postgresreader" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PostgresReader</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PostgresReader</span>
 </span></code></pre></div>
 <p>A live <code>crate::DictionaryReader</code> over a Postgres documentation schema.</p>
 <p>Owns the driver configuration and the optional TLS verifier, plus the environment key, the
@@ -2587,15 +2635,15 @@ optional live-row predicate and the read bounds. The TLS <code>ClientConfig</cod
 composition root that resolved the declared <code>transport_mode</code>; <code>None</code> selects the <code>plaintext</code>
 channel. The read-only transaction, parameter binding and inline caps are all this reader's own.</p>
 <h4 id="methods_10">Methods<a class="headerlink" href="#methods_10" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bounds</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">DictionaryBounds</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bounds</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">DictionaryBounds</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">config</span><span class="p">:</span><span class="w"> </span><span class="nc">tokio_postgres</span><span class="p">::</span><span class="n">Config</span><span class="p">,</span><span class="w"> </span><span class="n">tls</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">rustls</span><span class="p">::</span><span class="n">ClientConfig</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">documentation_schema</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">environment</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">predicate</span><span class="p">:</span><span class="w"> </span><span class="nc">RowPredicate</span><span class="p">,</span><span class="w"> </span><span class="n">row_cap</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">NonZeroU64</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">byte_cap</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">NonZeroU64</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidReaderConfig</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">config</span><span class="p">:</span><span class="w"> </span><span class="nc">tokio_postgres</span><span class="p">::</span><span class="n">Config</span><span class="p">,</span><span class="w"> </span><span class="n">tls</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">rustls</span><span class="p">::</span><span class="n">ClientConfig</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">documentation_schema</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">environment</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">predicate</span><span class="p">:</span><span class="w"> </span><span class="nc">RowPredicate</span><span class="p">,</span><span class="w"> </span><span class="n">row_cap</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">NonZeroU64</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">byte_cap</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">NonZeroU64</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidReaderConfig</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Builds the reader. <code>tls</code> is <code>Some(rustls::ClientConfig)</code> for a <code>verified</code>/<code>mutual</code> channel
 and <code>None</code> for a declared <code>plaintext</code> one. <code>documentation_schema</code> and <code>environment</code> are
 validated identifiers supplied by the composition root. An absent <code>row_cap</code>/<code>byte_cap</code>
 selects the reader's own documented defaults.</p>
-<h4 id="implements_15">Implements<a class="headerlink" href="#implements_15" title="Permanent link">&para;</a></h4>
+<h4 id="implements_17">Implements<a class="headerlink" href="#implements_17" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>DictionaryReader</code></p>
 <h3 id="constant-default_documentation_schema"><code>constant DEFAULT_DOCUMENTATION_SCHEMA</code><a class="headerlink" href="#constant-default_documentation_schema" title="Permanent link">&para;</a></h3>
 <p>The documented default documentation schema, used when no <code>dictionary_schema</code> is configured.</p>
