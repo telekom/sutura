@@ -43,14 +43,15 @@ HTTP. `AspectReader` is the seam a real reader over `DataHub`'s versioned `OpenA
 surface implements, and since issue #202's HTTP reader, one now does: `http::HttpAspectReader`,
 behind this crate's default-off `http` feature, with a personal access token as a bearer. Its own
 module header states what is measured against a live `DataHub` and what is not - only the
-`metric` entity's wire shape is, today. The recorded fixture source in `fixture` and the two
+`metric` entity's wire shape has been measured live, and the `dataset` and `semanticModel`
+pages have live cells that do not drive this reader. The recorded fixture source in `fixture` and the two
 test doubles (`tests::Stub`, the acceptance suite's `Composed`) remain what every other test in
 this crate reads against. **A composition root now serves it, behind `sutura-cli`'s default-off
 `datahub` feature:** that feature links this crate (with `http`) and opens `catalog.kind: datahub`,
 reading the entry's token file once at boot and carrying its PAT as the bearer on every request. What
-is still not is a live-`DataHub` read path in CI and the rest of the wire mapping - the fixed
-`bigquery` platform alias and the last page unmeasured against a live instance, both stated in
-`http`'s own module header. The *Built and not wired* register in
+is still not is a live read through `HttpAspectReader` itself. The platform is read from each
+served URN; the composition root maps only `bigquery`, so any other platform is refused by name
+at load (`DataHubError::UnknownPlatform`). The *Built and not wired* register in
 `.agents/skills/sutura/query-surface/SKILL.md` keeps those limits; it no longer records "no
 composition root".
 
@@ -850,8 +851,9 @@ guess about `dataset` would be a FIRST claim this crate has made about it. Both 
 refuse an unexpected shape as a typed `HttpReaderError::UnexpectedShape` naming the entity and
 the field, rather than reading past a missing or mistyped key with a default - a guess that
 happened to be wrong would otherwise certify a bundle silently missing a model or a relationship.
-**Do not cite this reader as proof the `dataset` half works against a real `DataHub` until an
-acceptance leg like `tests/provisioned.rs`'s measures it.**
+**Do not cite this reader as proof the `dataset` half works against a real `DataHub`.**
+`tests/provisioned.rs`'s dataset-page cell asserts what the platform serves through the test's
+own copy of this mapping, not through this reader, and it is evidence only of a run of it.
 
 # What every read is bounded by
 
