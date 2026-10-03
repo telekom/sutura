@@ -62,7 +62,9 @@ const STARTUP: Subject = Subject {
     name: "NotFitToServe",
     declared_in: "crates/sutura-config/src/settings/posture.rs",
     allow_file: "devco/startup-refusals-unprovoked-allow",
-    variants: variants(16),
+    // 17: `DelegationWithoutDirectInbound` (#1230), a delegation exchange declared on a deployment
+    // that verifies no `direct` caller.
+    variants: variants(17),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

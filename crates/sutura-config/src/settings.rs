@@ -506,6 +506,7 @@ impl Settings {
         refusals.extend(self.tls_refusals());
         refusals.extend(self.keying_refusals());
         refusals.extend(self.identity_refusals());
+        refusals.extend(self.delegation_refusals());
         refusals.extend(self.run_sql_refusals());
         refusals.extend(self.spend_refusals());
         refusals.extend(self.credential_refusals(off_host));
@@ -589,6 +590,19 @@ impl Settings {
             }
         }
         refusals
+    }
+
+    /// A declared delegation exchange on a deployment that verifies no `direct` caller - see
+    /// [`NotFitToServe::DelegationWithoutDirectInbound`].
+    fn delegation_refusals(&self) -> Vec<NotFitToServe> {
+        if matches!(self.security.inbound(), Some(InboundIdentity::Direct { .. })) {
+            return Vec::new();
+        }
+        self.sources
+            .each()
+            .filter(|(_, source)| source.workload_identity().is_some_and(|wif| wif.delegation().is_some()))
+            .map(|(alias, _)| NotFitToServe::DelegationWithoutDirectInbound { alias: alias.clone() })
+            .collect()
     }
 
     /// Whether the raw SQL tool is enabled over a deployment it may not run over -

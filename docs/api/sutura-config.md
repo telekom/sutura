@@ -6329,9 +6329,12 @@ on this side: an operator who means a loopback TCP dial writes `127.0.0.1` or `:
 The token-exchange setup one `impersonation-at-source` source declares.
 The Workload Identity Federation setup one `impersonation-at-source` source declares.
 
-**This process performs no exchange.** `audience` names the pool a subject's own assertion is
-federated against, and the federating is Google's token service's, driven by the driver from the
-`external_account` document `sutura_exec_bigquery`'s ADBC transport builds. A source that
+**This process performs no exchange with the pool.** `audience` names the pool a subject's own
+assertion is federated against, and the federating is Google's token service's, driven by the
+driver from the `external_account` document `sutura_exec_bigquery`'s ADBC transport builds. The
+one exchange this process can run is a declared
+`crate::sources::workload_identity::DelegationDeclared`, at the caller's own identity provider,
+before that. A source that
 executes as the asking subject has to say *which* pool receives that assertion, and that is the
 source's declaration rather than this process's guess. See `docs/adr/0008` and `docs/adr/0018`'s
 sixth amendment.
@@ -6454,6 +6457,13 @@ pub const fn audience(&self) -> &WifAudience
 The provider audience.
 
 ```rust
+pub const fn delegation(&self) -> Option<&DelegationDeclared>
+```
+
+The delegation exchange, if declared. `Some` requires `security.inbound.mode: direct` -
+`crate::NotFitToServe::DelegationWithoutDirectInbound`.
+
+```rust
 pub const fn expected_audience(&self) -> Option<&WifAudience>
 ```
 
@@ -6519,6 +6529,56 @@ it. The `BigQuery` client's own default scope applies instead.
 **Declared and unread, not declared and ignored** - the distinction is that this is the
 sentence an operator meets, so nobody reads a narrowed scope as a control that is in place.
 Removing the key is a settings break and a follow-up; misreporting it is a defect now.
+
+```rust
+pub fn with_delegation(self, delegation: Option<DelegationDeclared>) -> Self
+```
+
+The same declaration, with the delegation exchange its callers' tokens go through.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct DelegationDeclared`
+
+```rust
+pub struct DelegationDeclared
+```
+
+The delegation exchange a `direct` deployment runs before the pool will accept its caller.
+
+`docs/adr/0014`'s fourth amendment: the caller's inbound token is exchanged at
+`token_endpoint` for one whose `aud` is `audience`, the pool provider's client ID.
+
+**Held as written and parsed by the crate that sends it**, at boot, by `sutura_cli`'s
+`build_broker` - the endpoint, client ID and audience each go into a request only that adapter
+builds, so its parse is the one that decides whether they can be sent, and a refusal there is
+still a startup failure naming the key. The secret is not here at all: only the path to it,
+which must be absolute like every other secret file a source names.
+
+##### Methods
+
+```rust
+pub fn audience(&self) -> &str
+```
+
+The pool provider's client ID the exchanged token must carry.
+
+```rust
+pub fn client_id(&self) -> &str
+```
+
+```rust
+pub fn client_secret_file(&self) -> &std::path::Path
+```
+
+```rust
+pub fn token_endpoint(&self) -> &str
+```
+
+The identity provider's token endpoint. **Not tied to the inbound issuer:** the operator
+chooses the host, and each caller's token is sent to it.
 
 ##### Implements
 

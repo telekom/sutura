@@ -195,12 +195,14 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   `src/http.rs`, but these cells do not drive it: they build their own `ureq` agent, so the requests
   and the response mapping they exercise live in the test, and the structural half of that snapshot
   is still the recorded corpus. **Still absent:** any frontend, so there is
-  no UI; and any CI job, because the nix sandbox has no docker socket. Authentication is ON
+  no UI; and any nix check, because the nix sandbox has no docker socket - the CI venue is
+  `ci.yml:ci-datahub-tier`, run when `xtask classify` selects `catalog_datahub`. Authentication is ON
   (`METADATA_SERVICE_AUTH_ENABLED: "true"`): the tier mints its own PAT offline, the acceptance run
   presents it as a bearer and asserts a bearer-less read is refused - a self-minted PAT, not a
   DB-backed token-service token. **A platform that accepts the
   document is not a read path**, and the acceptance cells are `#[ignore]`d, so they are evidence of
-  whatever the last `just datahub-acceptance` run reported and of nothing in the default suite - run
+  whatever the last `ci-datahub-tier` or `just datahub-acceptance` run reported and of nothing in
+  the default suite - run
   without `SUTURA_DEV_REQUIRE_TIER=1` they report `ok` having asserted nothing, which is why the task
   sets it.
 - **Two DataHub read surfaces, and only one is read-your-writes** - measured 2026-09-04 by

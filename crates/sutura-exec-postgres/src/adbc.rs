@@ -39,12 +39,17 @@
 //!   a real driver (mounted on a host, linked in `nix/shipped.nix`'s musl test build). The server
 //!   refusing a multi-statement string at `Parse` is held there; the driver's `BEGIN` on
 //!   autocommit-off is read off its source and observed only through `SET LOCAL` taking effect.
+//!   `tests/kerberos.rs`'s Kerberos sign-in and its refused negative control (a declared service the
+//!   KDC does not know) run through the linked `x86_64` musl driver, in its CI venue alone.
 //! - **Loading and connecting are outside the deadline**: the driver is loaded and a connection
 //!   opened per call, and only the statement runs under `SET LOCAL`.
 //! - **Every port method.** `session`'s header says what each sends.
-//! - **One declared identity.** [`Conninfo`](crate::adbc::Conninfo) refuses Kerberos/GSSAPI, SSPI
-//!   and OAuth sign-in on either driver, so a source signs in only as its declared service account,
-//!   with a password or a client certificate; the linked libpq is built without the first three.
+//! - **One declared identity.** A source signs in only as its declared shared service account: with
+//!   a password or a client certificate, or as the one Kerberos principal the process's named
+//!   credential cache holds, when [`Conninfo::kerberos`](crate::adbc::Conninfo::kerberos) declares it
+//!   (the linked libpq through a static MIT krb5, `nix/postgres-adbc.nix`). No settings key selects
+//!   Kerberos yet. OAuth and per-caller sign-in are not supported: [`Conninfo`](crate::adbc::Conninfo)
+//!   refuses SSPI and OAuth on either driver, and the linked libpq is built without libcurl.
 
 mod conninfo;
 mod numeric;
@@ -56,7 +61,7 @@ use adbc_core::error::Error as CoreError;
 use adbc_core::options::{AdbcVersion, OptionDatabase, OptionValue};
 use adbc_core::{Database as _, Driver as _};
 use adbc_driver_manager::{ManagedConnection, ManagedDriver};
-pub use conninfo::{Channel, Conninfo, UnusableChannel};
+pub use conninfo::{Channel, Conninfo, GssEncryption, InvalidKerberosService, Kerberos, KerberosService, UnusableChannel};
 pub use sutura_adbc::UnusableDriverPath;
 use sutura_adbc::{DriverLocation, parameter_batch};
 use sutura_domain::identity::Presented;

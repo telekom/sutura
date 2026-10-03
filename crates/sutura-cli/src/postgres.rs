@@ -13,9 +13,12 @@
 //! # The limits, next to the claim
 //!
 //! - **One declared identity, only.** A Postgres source signs in solely as the deployment's
-//!   declared shared service account. OAuth, Kerberos/GSSAPI and per-caller sign-in are not
-//!   supported: `AdbcPostgres::IMPERSONATION` is `NoPlaceForASubject`, and `Conninfo` pins
-//!   `require_auth` to `password,md5,scram-sha-256,none` and `gssencmode` to `disable`.
+//!   declared shared service account: a password, or one Kerberos principal from the deployment's
+//!   keytab. OAuth and per-caller sign-in are not supported: `AdbcPostgres::IMPERSONATION` is
+//!   `NoPlaceForASubject`, and `Conninfo` pins `require_auth` to `password,md5,scram-sha-256,none`
+//!   and `gssencmode` to `disable` everywhere but `Conninfo::kerberos`, which writes
+//!   `require_auth='gss'` and the `gssencmode` its declaration names. No settings key selects
+//!   Kerberos yet.
 //! - **Nothing dials here.** A connection opens per call, so an unreachable server or a refused
 //!   login is the boot path's first anchor check, not this function - a source with no anchor
 //!   declared first meets its server at the first question.
