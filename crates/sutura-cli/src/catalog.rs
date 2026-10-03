@@ -405,7 +405,7 @@ fn open_one_rdbms_catalog(
         }
         sutura_config::CatalogConnection::Oracle(connection) => {
             let password = crate::password_file::read_key(
-                &format!("catalogs.{}.connection", settings.name()),
+                &format!("catalogs.{}.connection.password_file", settings.name()),
                 connection.password_file(),
             )?;
             let login = sutura_catalog_rdbms::oracle_reader::OracleLogin::new(

@@ -80,7 +80,8 @@ pub struct WorkloadIdentityConfig {
 /// **Held as written and parsed by the crate that sends it**, at boot, by `sutura_cli`'s
 /// `build_broker` - the endpoint, client ID and audience each go into a request only that adapter
 /// builds, so its parse is the one that decides whether they can be sent, and a refusal there is
-/// still a startup failure naming the key. The secret is not here at all: only the path to it.
+/// still a startup failure naming the key. The secret is not here at all: only the path to it,
+/// which must be absolute like every other secret file a source names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DelegationDeclared {
     token_endpoint: String,
@@ -90,15 +91,24 @@ pub struct DelegationDeclared {
 }
 
 impl DelegationDeclared {
-    pub(crate) fn of(raw: &crate::raw::RawDelegation) -> Self {
-        Self {
+    pub(crate) fn of(
+        alias: &sutura_domain::model::SourceName,
+        raw: &crate::raw::RawDelegation,
+    ) -> Result<Self, super::InvalidSourceRegistry> {
+        Ok(Self {
             token_endpoint: raw.token_endpoint.clone(),
             client_id: raw.client_id.clone(),
-            client_secret_file: std::path::PathBuf::from(&raw.client_secret_file),
+            client_secret_file: super::parse_absolute(
+                alias,
+                "workload_identity.delegation.client_secret_file",
+                &raw.client_secret_file,
+            )?,
             audience: raw.audience.clone(),
-        }
+        })
     }
 
+    /// The identity provider's token endpoint. **Not tied to the inbound issuer:** the operator
+    /// chooses the host, and each caller's token is sent to it.
     #[inline]
     #[must_use]
     pub fn token_endpoint(&self) -> &str {

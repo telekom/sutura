@@ -347,12 +347,11 @@ crate's `tls-test` feature.
 `cargo xtask check-jscpd` measured as byte-for-byte identical wire plumbing once the second
 reader carried its own copy.
 
-**A dev-dependency-only feature, unlike `crate::test_support`.** Nothing outside a reader's
-OWN `tests/http_reader.rs` needs this - `sutura-cli`'s served suite only dials the plaintext
-fake behind `crate::test_support` - so a catalog crate takes `sutura-http-client` with this
-feature in `[dev-dependencies]` only, never folded into its own `http` feature: no `rcgen`/
-`rustls` object code reaches a `--features http` build that did not already carry `rustls`
-transitively through `ureq`.
+**A dev-dependency-only feature, unlike `crate::test_support`.** Only test binaries need this -
+a reader's own `tests/http_reader.rs`, and `sutura-cli`'s delegation-exchange cell - so a crate
+takes `sutura-http-client` with this feature in `[dev-dependencies]` only, never folded into its
+own `http` feature: no `rcgen`/`rustls` object code reaches a `--features http` build that did
+not already carry `rustls` transitively through `ureq`.
 
 ### `struct Issued`
 
@@ -442,3 +441,12 @@ would from a declared `security.outbound.transport_anchors` bundle path.
 # Panics
 
 The freshly written bundle fails to load - a test invariant, never a production path.
+
+### `fn declared_bundle`
+
+```rust
+pub fn declared_bundle(scratch: &Scratch, name: &str, issued: &Issued) -> std::path::PathBuf
+```
+
+Writes `issued`'s own certificate as a bundle and returns its path - what a declared
+`security.outbound.transport_anchors` names, for a consumer that loads it itself.

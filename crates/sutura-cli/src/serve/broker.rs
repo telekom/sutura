@@ -121,16 +121,9 @@ fn delegation(
         .map_err(|cause| format!("`{key}.token_endpoint` is not an endpoint this exchange can dial: {cause}"))?;
     let audience = RequestedAudience::parse(declared.audience())
         .map_err(|cause| format!("`{key}.audience` is not an audience this exchange can ask for: {cause}"))?;
-    let secret = std::fs::read_to_string(declared.client_secret_file())
-        .map_err(|cause| format!("`{key}.client_secret_file` could not be read: {cause}"))?;
-    let secret = secret.trim();
-    if secret.is_empty() {
-        return Err(format!(
-            "`{key}.client_secret_file` is empty, and an empty secret is not a client credential"
-        ));
-    }
-    let client = ExchangeClient::new(declared.client_id(), sutura_domain::identity::Secret::new(secret))
-        .map_err(|cause| format!("`{key}.client_id` is unusable: {cause}"))?;
+    let secret = crate::password_file::read_key(&format!("{key}.client_secret_file"), declared.client_secret_file())?;
+    let client =
+        ExchangeClient::new(declared.client_id(), secret).map_err(|cause| format!("`{key}.client_id` is unusable: {cause}"))?;
     let bounds = sutura_http_client::ReadBounds::parse(EXCHANGE_TIMEOUT_SECONDS, EXCHANGE_MAX_ANSWER_BYTES)
         .map_err(|cause| format!("the delegation exchange's own read bounds are unusable: {cause}"))?;
     let (agent, rotator) = sutura_http_client::rotating_agent(bounds, outbound.cloned())

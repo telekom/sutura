@@ -1,8 +1,9 @@
-//! The declared user's password, read from the file a `clickhouse` or `oracle` entry, or an Oracle
-//! `rdbms` catalog, names.
+//! A declared secret read from its file: a `clickhouse` or `oracle` entry's password, an Oracle
+//! `rdbms` catalog's, or a `bigquery` delegation exchange's client secret.
 //!
-//! **One copy for the kinds whose build lives in one shared module** (`crate::clickhouse`,
-//! `crate::oracle`), so the trim, the empty-file refusal and the wording cannot differ between them.
+//! **One copy for every root that reads one** (`crate::clickhouse`, `crate::oracle`,
+//! `crate::catalog`, `crate::serve::broker`), so the trim, the empty-file refusal and the wording
+//! cannot differ between them.
 //! The two `postgres` roots still carry their own reads - issue 121's unshared build, not this file's.
 
 /// The declared user's password, read at BOOT rather than on the first question.
@@ -19,18 +20,17 @@ pub(crate) fn read(
     source: &sutura_domain::model::SourceName,
     password_file: &std::path::Path,
 ) -> Result<sutura_domain::identity::Secret, String> {
-    read_key(&format!("sources.{source}"), password_file)
+    read_key(&format!("sources.{source}.password_file"), password_file)
 }
 
-/// `read` for a key that is not a `sources:` entry's, such as an `rdbms` catalog's
-/// `catalogs.<name>.connection`.
+/// `read` for any declared secret file; `key` is the full settings key the refusal names, field
+/// included.
 pub(crate) fn read_key(key: &str, password_file: &std::path::Path) -> Result<sutura_domain::identity::Secret, String> {
-    let raw =
-        std::fs::read_to_string(password_file).map_err(|cause| format!("`{key}.password_file` could not be read: {cause}"))?;
+    let raw = std::fs::read_to_string(password_file).map_err(|cause| format!("`{key}` could not be read: {cause}"))?;
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err(format!(
-            "`{key}.password_file` is empty, and an empty password is not a credential \
+            "`{key}` is empty, and an empty secret is not a credential \
              this deployment can present"
         ));
     }
@@ -43,7 +43,7 @@ mod tests {
     use sutura_domain::model::SourceName;
 
     /// A file holding only whitespace - a truncated secret, or `echo > file` - is refused naming the
-    /// key, never trimmed down to an empty password and sent.
+    /// key, never trimmed down to an empty secret and sent.
     #[test]
     fn a_whitespace_only_password_file_is_refused_naming_the_key() {
         let directory = std::env::temp_dir().join(format!("sutura-cli-password-file-{}", std::process::id()));

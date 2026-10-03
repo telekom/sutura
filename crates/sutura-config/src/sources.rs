@@ -690,7 +690,12 @@ fn parse_entry(
                 alias: alias.clone(),
                 cause,
             })?
-            .with_delegation(raw.delegation.as_ref().map(workload_identity::DelegationDeclared::of)),
+            .with_delegation(
+                raw.delegation
+                    .as_ref()
+                    .map(|delegation| workload_identity::DelegationDeclared::of(alias, delegation))
+                    .transpose()?,
+            ),
         ),
     };
     Ok(ConfiguredSource {

@@ -188,8 +188,9 @@ pub trait DelegationExchange: core::fmt::Debug + Send + Sync {
 
 /// What one impersonating source exchanges through.
 ///
-/// `Arc` because one identity provider client - one TLS agent, one credential - serves every source a deployment
-/// declares, and the broker is per answer rather than per source.
+/// `Arc` because a cloned broker shares its source's one identity provider client - one TLS agent,
+/// one credential - rather than building another. A composition root builds one per source that
+/// declares a delegation, never one per deployment.
 #[derive(Debug, Clone)]
 pub struct Delegation {
     exchange: Arc<dyn DelegationExchange>,

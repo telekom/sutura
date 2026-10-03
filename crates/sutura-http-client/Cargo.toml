@@ -18,9 +18,9 @@ description = "The bounded, TLS-rotating ureq client sutura-catalog-datahub's an
 # openmetadata` binary, not even as dead code.
 test = []
 # The TLS loopback harness (`rcgen`-issued leaf, a real `rustls::ServerConnection`) a reader's own
-# `tests/http_reader.rs::tls_anchors` cells need. Unlike `test` above, NOTHING outside a
-# crate's own test binary needs this - `sutura-cli`'s served suite only dials the plaintext fake -
-# so it stays a dev-dependency-only feature and never folds into `http`: no rustls/rcgen object code
+# `tests/http_reader.rs::tls_anchors` cells and `sutura-cli`'s delegation-exchange cell need. Unlike
+# `test` above, NOTHING outside a crate's own test binary needs this, so it stays a
+# dev-dependency-only feature and never folds into `http`: no rustls/rcgen object code
 # reaches a `--features http` build that did not already carry rustls transitively through `ureq`.
 tls-test = ["test", "dep:rcgen", "dep:rustls"]
 

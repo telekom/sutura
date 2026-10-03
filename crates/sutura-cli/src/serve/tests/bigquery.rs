@@ -389,11 +389,13 @@ fn delegation_block(endpoint: &str, secret_file: &std::path::Path) -> String {
     )
 }
 
-/// The serve root's broker over `warehouse`, two declared subjects and a delegation at `endpoint`.
+/// The serve root's broker over `warehouse`, two declared subjects and a delegation at `endpoint`,
+/// dialled over `outbound`.
 #[cfg(feature = "bigquery")]
 fn delegated_broker(
     endpoint: &str,
     secret_file: &std::path::Path,
+    outbound: Option<&sutura_tls::Declared>,
 ) -> Result<sutura_exec_bigquery::DeclaredPrincipalBroker, String> {
     super::super::broker::build_broker(
         &direct_registry(&bigquery_entry(
@@ -405,7 +407,7 @@ fn delegated_broker(
                 delegation_block(endpoint, secret_file)
             )),
         )),
-        None,
+        outbound,
     )
 }
 
@@ -473,7 +475,7 @@ fn a_delegated_source_exchanges_the_callers_own_token_and_presents_what_came_bac
     // token - not the assertion - beside the account declared for that subject.
     let secret = SecretFileGuard::create("a_delegated_source_exchanges_the_callers_own_token_and_presents_what_came_back");
     let fake = FakeServer::start(vec![Scripted::ok(&issued())]);
-    let broker = delegated_broker(&format!("{}/token", fake.endpoint()), secret.path())
+    let broker = delegated_broker(&format!("{}/token", fake.endpoint()), secret.path(), None)
         .expect("a direct deployment admits a declared delegation");
     let warehouse = SourceName::parse("warehouse").expect("a test source is a source");
     let asked = SourceSet::of(warehouse.clone());
@@ -540,7 +542,7 @@ fn a_refused_exchange_fails_the_mint_and_never_presents_the_inbound_token() {
     // carry the inbound token it was asked to exchange.
     let secret = SecretFileGuard::create("a_refused_exchange_fails_the_mint_and_never_presents_the_inbound_token");
     let fake = FakeServer::start(vec![Scripted::status(400, r#"{"error":"invalid_grant"}"#)]);
-    let broker = delegated_broker(&format!("{}/token", fake.endpoint()), secret.path())
+    let broker = delegated_broker(&format!("{}/token", fake.endpoint()), secret.path(), None)
         .expect("a direct deployment admits a declared delegation");
     let asked = SourceSet::of(SourceName::parse("warehouse").expect("a test source is a source"));
     let subject = Subject::verified("analyst-a@example.com").expect("a test subject is a subject");
@@ -574,7 +576,7 @@ fn an_undeclared_subject_at_a_delegated_source_is_refused_before_any_exchange() 
     // carries a declared delegation.
     let secret = SecretFileGuard::create("an_undeclared_subject_at_a_delegated_source_is_refused_before_any_exchange");
     let fake = FakeServer::start(vec![]);
-    let broker = delegated_broker(&format!("{}/token", fake.endpoint()), secret.path())
+    let broker = delegated_broker(&format!("{}/token", fake.endpoint()), secret.path(), None)
         .expect("a direct deployment admits a declared delegation");
     let asked = SourceSet::of(SourceName::parse("warehouse").expect("a test source is a source"));
     let stranger = Subject::verified("stranger@example.com").expect("a test subject is a subject");
@@ -603,9 +605,68 @@ fn an_unreadable_client_secret_file_does_not_boot() {
     let error = delegated_broker(
         "https://idp.example.com/token",
         std::path::Path::new("/nonexistent/sutura-idp-secret"),
+        None,
     )
     .map(drop)
     .expect_err("an unreadable client secret file must not boot");
     assert!(error.contains("client_secret_file"), "the refusal must name the key: {error}");
     assert!(error.contains("warehouse"), "the refusal must name the entry: {error}");
+}
+
+#[test]
+#[cfg(feature = "bigquery")]
+fn a_whitespace_only_client_secret_file_does_not_boot() {
+    // `echo > file` or a truncated secret is refused by the read every secret file shares, naming
+    // the key, rather than trimmed to an empty credential and sent to the identity provider.
+    let secret = SecretFileGuard::create("a_whitespace_only_client_secret_file_does_not_boot");
+    std::fs::write(secret.path(), " \n\t\n").expect("the client secret file is writable");
+    let error = delegated_broker("https://idp.example.com/token", secret.path(), None)
+        .map(drop)
+        .expect_err("a whitespace-only client secret must not boot");
+    assert!(
+        error.contains("`sources.warehouse.workload_identity.delegation.client_secret_file` is empty"),
+        "{error}"
+    );
+}
+
+#[test]
+#[cfg(feature = "bigquery")]
+fn the_delegation_exchange_dials_over_the_declared_outbound_anchors() {
+    // The exchange client's agent is built from `security.outbound`: an identity provider whose
+    // certificate only the declared bundle names is trusted, and without the declaration the same
+    // provider is refused at the handshake - so the mint fails rather than exchanging.
+    use sutura_http_client::tls_test_support::{Scratch, TlsFakeServer, declared_bundle, issue};
+
+    let secret = SecretFileGuard::create("the_delegation_exchange_dials_over_the_declared_outbound_anchors");
+    let scratch = Scratch::new("delegation-outbound");
+    let leaf = issue();
+    let outbound = sutura_tls::Declared::new(sutura_tls::Anchors::Bundle(declared_bundle(&scratch, "idp", &leaf)), None);
+    let asked = SourceSet::of(SourceName::parse("warehouse").expect("a test source is a source"));
+    let subject = Subject::verified("analyst-a@example.com").expect("a test subject is a subject");
+    let mint = |outbound: Option<&sutura_tls::Declared>| {
+        let idp = TlsFakeServer::start(&leaf, vec![Scripted::ok(&issued())]);
+        delegated_broker(&format!("{}/token", idp.endpoint()), secret.path(), outbound)
+            .expect("a direct deployment admits a declared delegation")
+            .mint(
+                &RequestContext::with_assertion(
+                    PrincipalChain::of(subject.clone()),
+                    Secret::new("assertion.for.analyst-a"),
+                    4_102_444_800,
+                ),
+                &asked,
+            )
+    };
+    let minted = mint(Some(&outbound)).expect("the declared bundle names the identity provider's certificate");
+    assert!(
+        matches!(
+            minted.agreeing_with(&subject, &asked, 4_000_000_000),
+            Ok(Agreed::Granted { .. })
+        ),
+        "the exchange over the declared anchors must grant"
+    );
+    let refused = mint(None).expect_err("the compiled-in roots do not name a self-signed identity provider");
+    assert!(
+        matches!(refused, sutura_exec_bigquery::DeclaredPrincipalsUnusable::Delegation { .. }),
+        "{refused:?}"
+    );
 }

@@ -8,6 +8,7 @@
 
 use sutura_domain::model::SourceName;
 
+use super::inbound::{DIRECT_INBOUND, GATEWAY_INBOUND};
 use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources};
 
 /// One source entry, so a test changes exactly one thing about it.
@@ -221,11 +222,6 @@ fn a_second_shared_source_without_an_acknowledgement_is_not_fit_to_serve_either(
 // PATH: the secret itself is read by the composition root, never the settings tree.
 const DELEGATION: &str = "      delegation:\n        token_endpoint: \"https://idp.example.com/token\"\n        client_id: \"sutura\"\n        client_secret_file: \"/run/secrets/idp-client\"\n        audience: \"pool-client-id\"\n";
 
-// The inbound.rs original is crate-private to that module, so this test's CONTROL copies the text
-// rather than reaching for it - it is the accepted `security.inbound` shape, and nothing here
-// wants to own a second spelling of it.
-const DIRECT_INBOUND: &str = "  inbound:\n    mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    authorization_server: \"https://issuer.example.com\"\n    key_set_file: \"/etc/sutura/jwks.json\"\n    algorithms: [\"RS256\"]\n";
-
 #[test]
 fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_to_serve() {
     // A delegation exchange sends the caller's OWN inbound token - leg 1's - to the identity
@@ -246,9 +242,29 @@ fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_t
             alias: SourceName::parse("local").expect("a legal identifier")
         }]
     );
-    let rendered = refusals.first().expect("one refusal").to_string();
-    assert!(rendered.contains("sources.local.workload_identity.delegation"), "{rendered}");
-    assert!(rendered.contains("security.inbound.mode"), "{rendered}");
+    assert_eq!(
+        refusals.first().expect("one refusal").to_string(),
+        "`sources.local.workload_identity.delegation` is declared and security.inbound.mode is not \
+         `direct`. The delegation exchange sends the caller's own inbound token, which only a `direct` \
+         deployment verifies - set security.inbound.mode: direct, or remove the block"
+    );
+
+    // A `behind-gateway` deployment verifies a gateway's assertion, not the caller's own token, so
+    // it is refused exactly like one with no inbound block.
+    let gateway = Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{GATEWAY_INBOUND}{}",
+        source_overlay("impersonation-at-source", DELEGATION)
+    ));
+    let error = Settings::load(&gateway).expect_err("a delegation behind a gateway is not fit to serve");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a delegation refusal, got {error:?}");
+    };
+    assert_eq!(
+        *refusals,
+        vec![NotFitToServe::DelegationWithoutDirectInbound {
+            alias: SourceName::parse("local").expect("a legal identifier")
+        }]
+    );
 
     // The CONTROL: the same block on a `direct` deployment serves, and the declaration survives
     // into the parsed tree so the exchange has somewhere to read it from.
@@ -286,5 +302,28 @@ fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_t
     assert!(
         rendered.contains("client_secret_file"),
         "the refusal must name the missing key: {rendered}"
+    );
+}
+
+#[test]
+fn a_relative_client_secret_file_is_refused_at_load() {
+    // A relative path resolves against the working directory - a different file on every host - so
+    // the delegation's client secret is held to the rule every other secret file on a source is.
+    let relative = Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{DIRECT_INBOUND}{}",
+        source_overlay(
+            "impersonation-at-source",
+            &DELEGATION.replace("/run/secrets/idp-client", "secrets/idp-client")
+        )
+    ));
+    let error = Settings::load(&relative).expect_err("a relative client secret file is refused");
+    let SettingsError::Sources { ref cause } = *error.reason() else {
+        panic!("expected a sources refusal, got {error:?}");
+    };
+    assert!(
+        cause.to_string().starts_with(
+            "`sources.local.workload_identity.delegation.client_secret_file` is `secrets/idp-client`, which is relative"
+        ),
+        "{cause}"
     );
 }

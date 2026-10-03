@@ -580,3 +580,9 @@ deployment reaches the port". The fourth amendment's other limits stand: `client
 any failure is `503 identity_unavailable`, the exchanged `sub` is not compared with the inbound one,
 the JWT is decoded not verified, no secret rotation, and no pool has been shown accepting an
 exchanged token.
+
+It also supersedes the fourth amendment's "it stays true of every served build, below": a served
+build that declares a delegation on a `direct` deployment exchanges a token (`docs/adr/0023`'s
+fifth amendment). And it supersedes "rotating it means restarting whatever composed the exchange -
+and today nothing does": `sutura serve` composes it and reads the secret once at boot, so rotating
+the client secret means restarting `sutura serve`.

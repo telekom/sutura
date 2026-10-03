@@ -6550,7 +6550,8 @@ The delegation exchange a `direct` deployment runs before the pool will accept i
 **Held as written and parsed by the crate that sends it**, at boot, by `sutura_cli`'s
 `build_broker` - the endpoint, client ID and audience each go into a request only that adapter
 builds, so its parse is the one that decides whether they can be sent, and a refusal there is
-still a startup failure naming the key. The secret is not here at all: only the path to it.
+still a startup failure naming the key. The secret is not here at all: only the path to it,
+which must be absolute like every other secret file a source names.
 
 ##### Methods
 
@@ -6571,6 +6572,9 @@ pub fn client_secret_file(&self) -> &std::path::Path
 ```rust
 pub fn token_endpoint(&self) -> &str
 ```
+
+The identity provider's token endpoint. **Not tied to the inbound issuer:** the operator
+chooses the host, and each caller's token is sent to it.
 
 ##### Implements
 
