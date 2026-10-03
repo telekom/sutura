@@ -45,7 +45,7 @@
 //! reading the entry's token file once at boot and carrying its PAT as the bearer on every request.
 //! The only live read through this reader is in the
 //! `e2e-datahub-adbc` venue (run 37105272807, push adea454b3, job 111152847768), which passes
-//! `served_datahub_metric_executes_through_adbc_bigquery`; that venue needs a BigQuery secret, so
+//! `served_datahub_metric_executes_through_adbc_bigquery`; that venue needs a `BigQuery` secret, so
 //! it skips on forks and the merge queue, and its seeds carry no per-field `description` or
 //! `isPartOfKey`. The platform is read from each
 //! served URN; the composition root maps only `bigquery`, so any other platform is refused by name

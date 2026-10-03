@@ -1130,7 +1130,8 @@
 
         # The DataHub venue (#1251): starts the compose `datahub` profile and runs the live
         # acceptance cells - the instance reachable, the deployment-defined metric document
-        # round-tripping, and a bearer-less read refused - failing rather than skipping, under
+        # round-tripping, a dataset page and a relationship page preserving their wire shapes,
+        # and a bearer-less read refused - failing rather than skipping, under
         # `SUTURA_DEV_REQUIRE_TIER=1`. The `ci-datahub-tier` CI job runs it; `just
         # datahub-acceptance` is its by-hand twin - the same cells, but this app runs `--profile ci`
         # and forwards its arguments - and nothing checks that the two agree, so keep them aligned by
