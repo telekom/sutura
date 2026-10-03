@@ -104,17 +104,19 @@ mod mcp;
 #[cfg(feature = "oracle")]
 mod oracle;
 /// The password-file read the `clickhouse`, `oracle` and `rdbms` builds share.
-#[cfg(any(feature = "clickhouse", feature = "oracle", feature = "rdbms"))]
+#[cfg(any(feature = "clickhouse", feature = "oracle", feature = "postgres", feature = "rdbms"))]
 mod password_file;
+#[cfg(feature = "postgres")]
+mod postgres;
 /// Starts the outbound-material rotation poll - the cli half of `github.com/telekom/sutura#125`'s
 /// rotating trust bundle, where `sutura-tls::Rotator::poll_once` meets the tokio runtime.
 ///
 /// Behind the same features as every caller: only an adapter that links an outbound TLS stack has
 /// any material to rotate, so a default-features build (no `postgres`/`datahub`/`openmetadata`)
 /// must not compile a `drive_rotation` no composition root calls. The removed BigQuery `wire`'s STS
-/// rotation used to be a third caller; only the postgres TLS, datahub reader and openmetadata
-/// reader rotators remain.
-#[cfg(any(feature = "postgres", feature = "datahub", feature = "openmetadata"))]
+/// rotation and the removed `tokio-postgres` source channel's were callers; only the datahub and
+/// openmetadata reader rotators remain - a Postgres source's libpq re-reads its files per connect.
+#[cfg(any(feature = "datahub", feature = "openmetadata"))]
 mod rotation;
 /// The HTTP surface's composition root - `sutura serve`. Its own module rather than flattened
 /// here: `github.com/telekom/sutura#685` step 2 folded the `sutura-serve` binary into this crate,
@@ -409,8 +411,8 @@ fn doctor() {
     // whether a driver is present, which is exactly the gap the previous version of this command
     // left - it named a transport and said nothing about whether it could be reached.
     println!("  bq driver    : {}", bigquery_driver_line());
-    // The PostgreSQL ADBC driver, which every musl release links and `nix/bigquery-driver-check.sh`
-    // requires that line of. Initialised and never connected: no source is answered over it yet.
+    // The PostgreSQL ADBC driver every `kind: postgres` source is answered over: every musl release
+    // links it, and `nix/bigquery-driver-check.sh` requires that line of. Initialised, never connected.
     println!("  pg driver    : {}", postgres_driver_line());
     // Proves the redaction invariant holds in the shipped binary, not only under test.
     let probe = Secret::new("must-not-appear");
@@ -447,23 +449,21 @@ fn bigquery_driver_line() -> String {
     String::from("not linked - this build has no BigQuery adapter to load one for")
 }
 
-/// What `doctor` can find out about the PostgreSQL ADBC driver: whether this artefact links one,
-/// and whether it initialises. The linked one's libpq signs in with fewer methods, which is said
-/// here because this line is where a holder of the binary learns which driver they have.
+/// What `doctor` can find out about the PostgreSQL ADBC driver every `kind: postgres` source is
+/// answered over: which one this process would open, and whether it initialises - and, on either
+/// driver, the one way a source signs in, because this line is where a holder of the binary looks.
 #[cfg(feature = "postgres")]
 fn postgres_driver_line() -> String {
-    let Some(linked) = sutura_exec_postgres::adbc::PostgresDriver::linked_in() else {
-        return String::from(
-            "not linked into this binary - a source build would mount libadbc_driver_postgresql.so; \
-             no source is answered over ADBC yet",
-        );
+    let driver = match sutura_exec_postgres::adbc::PostgresDriver::from_host() {
+        Ok(driver) => driver,
+        Err(none) => return format!("not configured - {}", crate::commands::render(&none)),
     };
-    match linked.probe() {
+    match driver.probe() {
         Ok(()) => format!(
-            "loaded and initialised, {linked} - its libpq has no Kerberos/GSSAPI or OAuth sign-in \
-             (a mounted driver's has both); no source is answered over ADBC yet"
+            "loaded and initialised, {driver} - a source signs in as its declared service account, \
+             with a password or a client certificate"
         ),
-        Err(cause) => format!("NOT usable: {linked}: {cause}"),
+        Err(cause) => format!("NOT usable: {driver}: {cause}"),
     }
 }
 

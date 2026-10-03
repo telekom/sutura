@@ -84,8 +84,12 @@
 //! So the venue gets a named task, `just datahub-acceptance`, which brings the profile up and runs
 //! this with the fail-closed direction set. **An `#[ignore]`d test is not evidence in the default
 //! suite, and this file may not be cited as though it were** - what it is evidence of is whatever
-//! the last run of that task reported. There is no CI venue at all: the nix sandbox has no docker
-//! socket.
+//! the last run of that task reported. Its CI venue is `ci.yml`'s `ci-datahub-tier` job, which runs
+//! the same cells through `nix run .#datahub-acceptance` when `xtask classify` selects the
+//! `catalog_datahub` category and which `ci-aggregate` holds run-or-fail; no nix check covers it,
+//! because the sandbox has no docker socket. That app and `just datahub-acceptance` are two copies -
+//! both export `SUTURA_DEV_REQUIRE_TIER=1`, under different cargo profiles - and nothing checks that
+//! they agree.
 
 // `cfg(test)` because clippy only honours `allow-expect-in-tests` and `allow-panic-in-tests` for
 // code inside a `#[cfg(test)]` item, and `tests_outside_test_module` wants the `#[test]` function

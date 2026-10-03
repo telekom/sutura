@@ -1,16 +1,9 @@
-diff --git a/crates/sutura-exec-postgres/src/lib.rs b/crates/sutura-exec-postgres/src/lib.rs
-index e98c6fc5d..cf045aee2 100644
---- a/crates/sutura-exec-postgres/src/lib.rs
-+++ b/crates/sutura-exec-postgres/src/lib.rs
-@@ -425,10 +425,7 @@ impl PostgresWarehouse {
-     /// rows through `COPY ... FROM STDIN`. Re-inferring from the committed CSV each run cannot
-     /// drift from it, and recreating makes a run idempotent.
-     pub fn load_csv(&self, table: &TableName, path: &Path) -> Result<(), PostgresError> {
--        let text = std::fs::read_to_string(path).map_err(|cause| PostgresError::FixtureRead {
--            path: path.display().to_string(),
--            cause,
--        })?;
-+        let text = std::fs::read_to_string(path).unwrap_or_default();
-         let schema = importer::infer_schema(&text).map_err(|cause| PostgresError::InvalidColumnName { cause })?;
-         self.load_schema(table, path, &schema)
-     }
+diff --git a/crates/sutura-exec-postgres/src/adbc.rs b/crates/sutura-exec-postgres/src/adbc.rs
+index 7417d98..5f1b5ba 100644
+--- a/crates/sutura-exec-postgres/src/adbc.rs
++++ b/crates/sutura-exec-postgres/src/adbc.rs
+@@ -276,3 +276,3 @@ impl AdbcPostgres {
+         let schema =
+-            crate::importer::infer_schema(&read_fixture(path)?).map_err(|cause| PostgresError::InvalidColumnName { cause })?;
++            crate::importer::infer_schema(&read_fixture(path).unwrap_or_default()).map_err(|cause| PostgresError::InvalidColumnName { cause })?;
+         self.loaded(table.as_str(), &path.display().to_string(), &schema.load_statement(table))

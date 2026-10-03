@@ -246,7 +246,7 @@ fn a_remote_host_without_tls_is_a_startup_refusal_naming_the_key() {
 fn a_tls_transport_over_a_unix_socket_is_refused_naming_both_keys() {
     // The other direction issue 124/125 hold: TLS over a unix socket has no handshake to perform, so
     // a `verified`/`mutual` declaration on that dial is refused at PARSE, before it can reach
-    // `PostgresWarehouse::connect_secured` and fail at connect time with an error naming neither key.
+    // the adapter and fail there with an error naming neither key.
     let verified_socket = RawSourceEntry {
         transport_mode: Some("verified"),
         transport_anchors: Some("system"),

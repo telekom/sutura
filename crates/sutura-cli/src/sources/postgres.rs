@@ -6,124 +6,32 @@
 
 use sutura_domain::model::SourceName;
 
-#[cfg(feature = "postgres")]
-use crate::commands::render;
 use crate::sources::Opened;
 #[cfg(feature = "postgres")]
 use crate::sources::OpenedWith;
 
-/// A `Postgres` source as this binary composes it: one connection under the declared identity.
-///
-/// Named once for the reason `bigquery::BigQuerySource` is: it appears in a registry type, a
-/// `Warehouse` bound and a constructor's return, and because the three layers ARE the composition.
+/// A `Postgres` source as this binary composes it - `crate::postgres`'s, named here for the
+/// registry type in the parent.
 #[cfg(feature = "postgres")]
-pub(crate) type PostgresSource = sutura_exec_postgres::PostgresWarehouse;
+pub(crate) type PostgresSource = crate::postgres::PostgresSource;
 
 /// Opens one `PostgreSQL` source, under the identity and channel the deployment declared.
 ///
 /// **Nothing is attached** - the tables live in the database - so [`OpenedWith::attached`] is `None`
-/// here, the same narrowing `bigquery.rs` documents. What opening does is everything that can fail
-/// before a question is asked against a real server: the posture cross-check, the TLS resolution
-/// (which reads the declared trust anchors and an optional client identity and refuses what a closed
-/// type must refuse), and the connection itself - so a source whose channel is misdeclared refuses
-/// the question rather than answering over a channel it believes is secured.
-///
-/// **The composition is `crate::serve::postgres`'s `build_postgres`, line for line, through the
-/// same public constructors** - which is what issue 121 asks for by "one composition per adapter,
-/// shared by both roots". The TLS reading and the connection live in `sutura-exec-postgres` (`tls::client_config`
-/// and `connect_secured`), so a fix to either lands once and both roots get it.
+/// here, the same narrowing `bigquery.rs` documents. The composition is `crate::postgres::build`,
+/// shared with `crate::serve`'s root.
 ///
 /// # Errors
 ///
-/// A placement the dispatcher should have sent elsewhere; a source with no declared identity; a
-/// posture this adapter cannot deliver; the `impersonation-at-source` posture (this adapter has
-/// nowhere for a subject's credential); a password file that cannot be read; or the declared TLS
-/// material being unusable.
+/// `crate::postgres::build`'s.
 #[cfg(feature = "postgres")]
 pub(super) fn open(
     source: &SourceName,
     configured: &sutura_config::ConfiguredSource,
     registry: &sutura_config::SourceRegistry,
 ) -> Result<Opened, String> {
-    use sutura_exec_postgres::PostgresWarehouse;
-    use sutura_exec_postgres::connection::{ConnectionTarget, config};
-    use sutura_exec_postgres::tls::{TlsAnchors, TlsIdentity, rotating_client_config};
-
-    let sutura_config::SourcePlacement::Postgres {
-        ref dial,
-        ref database,
-        ref user,
-        ref password_file,
-        ref transport,
-    } = *configured.placement()
-    else {
-        return Err(format!(
-            "`sources.{source}` reached the Postgres connect step with a placement no Postgres \
-             adapter reads, which the dispatcher should have sent elsewhere"
-        ));
-    };
-    let identity = configured
-        .identity()
-        .ok_or_else(|| format!("`sources.{source}` declares no identity a query could run under"))?;
-    // Against this adapter's OWN constant, which is the point of the cross-check being per adapter.
-    // `PostgresWarehouse` declares `NoPlaceForASubject`, so an `impersonation-at-source` entry FAILS
-    // the capability half here - and the static broker below serves only the declared identity.
-    identity
-        .posture()
-        .deliverable_by(
-            <PostgresWarehouse as sutura_domain::warehouse::Warehouse>::IMPERSONATION,
-            source,
-        )
-        .map_err(|cause| render(&cause))?;
-
-    // Exactly one of these, by construction - `sutura_config::sources::placement::PostgresDial`
-    // is the reason there is no third arm here for a state `parse_placement` already refused.
-    let (target, port) = match dial {
-        sutura_config::sources::placement::PostgresDial::Tcp { host, port } => (ConnectionTarget::Host(host.as_str()), *port),
-        sutura_config::sources::placement::PostgresDial::UnixSocket { directory, port } => {
-            (ConnectionTarget::UnixSocket(directory.as_path()), *port)
-        }
-    };
-    let config = config(target, port, database, user, password_file)
-        .map_err(|cause| format!("`sources.{source}.password_file` could not be read: {cause}"))?;
-
-    let tls = match transport {
-        sutura_config::sources::transport::SourceTransport::Plaintext => None,
-        sutura_config::sources::transport::SourceTransport::Verified { anchors } => {
-            let anchors = match anchors {
-                sutura_config::sources::transport::TrustAnchors::System => TlsAnchors::System,
-                sutura_config::sources::transport::TrustAnchors::File(path) => TlsAnchors::Bundle(path.clone()),
-            };
-            Some(rotating_client_config(&anchors, None).map_err(|cause| {
-                format!(
-                    "`sources.{source}` is declared TLS and its material is not usable: {}",
-                    render(&cause)
-                )
-            })?)
-        }
-        sutura_config::sources::transport::SourceTransport::Mutual { anchors, identity } => {
-            let anchors = match anchors {
-                sutura_config::sources::transport::TrustAnchors::System => TlsAnchors::System,
-                sutura_config::sources::transport::TrustAnchors::File(path) => TlsAnchors::Bundle(path.clone()),
-            };
-            let tls_identity = TlsIdentity::new(identity.certificate().clone(), identity.key().clone());
-            Some(rotating_client_config(&anchors, Some(&tls_identity)).map_err(|cause| {
-                format!(
-                    "`sources.{source}` is declared mTLS and its material is not usable: {}",
-                    render(&cause)
-                )
-            })?)
-        }
-    };
-    let (tls, rotator) = match tls {
-        None => (None, None),
-        Some((rotating, rotator)) => (Some(rotating), Some(rotator)),
-    };
-    crate::rotation::drive_rotation("source transport (postgres TLS)", rotator);
-    let engine = PostgresWarehouse::connect_secured(source.clone(), identity.posture().clone(), &config, tls)
-        .map_err(|cause| render(&cause))?;
     Ok(Opened::Postgres(OpenedWith {
-        engines: sutura_app::Warehouses::of(engine),
+        engines: sutura_app::Warehouses::of(crate::postgres::build(source, configured)?),
         // Nothing to compare: the tables are the database's. See the field's own note, and the caller's.
         attached: None,
         broker: sutura_config::StaticCredentialBroker::from_registry(registry),
@@ -244,7 +152,7 @@ mod tests {
     /// at_boot`) - proven here too, because #124's last comment framed the boot refusal over BOTH
     /// composition roots and only `serve`'s had a cell.
     ///
-    /// `PostgresWarehouse::IMPERSONATION` is `NoPlaceForASubject`, and this root's `open` runs the
+    /// `AdbcPostgres::IMPERSONATION` is `NoPlaceForASubject`, and this root's `open` runs the
     /// check before it reads `password_file` or dials anything, so the refusal is reachable with no
     /// server listening and no password file on disk.
     #[test]

@@ -1,7 +1,7 @@
-//! The `oracle-tier` arm of the real `ci-aggregate` shell, run through `tests::shell_simulation`'s
+//! The `oracle-tier` arm of the real `ci-aggregate` shell, run through `aggregate_shell`'s
 //! harness. Its own file because `affected.rs` sits at the 1000-line cap.
 
-use super::tests::shell_simulation::run_aggregator;
+use super::aggregate_shell::run_aggregator;
 
 #[test]
 fn a_selected_but_skipped_oracle_tier_is_red() {

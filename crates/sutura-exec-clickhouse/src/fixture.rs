@@ -132,7 +132,7 @@ impl ClickHouseWarehouse<Http> {
     /// Opens the adapter over `endpoint`, resolving every unqualified table name in `database`.
     ///
     /// The database is created here if absent, so several opens can share one server without
-    /// clobbering each other's tables. `sutura_exec_postgres::PostgresWarehouse::connect_in_schema`'s
+    /// clobbering each other's tables. `sutura_exec_postgres::fixture::FixtureCredential::conninfo_in`'s
     /// shape, over a database because that is `ClickHouse`'s namespace for a table.
     pub fn connect_in_database(
         source: SourceName,

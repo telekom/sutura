@@ -241,7 +241,9 @@ ci:
     # `libadbc_driver_bigquery.so` builds (review telekom/sutura#913 round 1 found no gate built the
     # driver), so a broken driver triple reds this task like any other gate check.
     # adbc-driver-postgresql is in it for the same reason, over the four C++ driver builds.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql; do
+    # postgres-linked-driver runs the adapter's tier cells through the LINKED static musl driver; only
+    # an x86_64-linux host executes it, and anywhere else the check is a stub that says so.
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql postgres-linked-driver; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L
     done
@@ -815,6 +817,8 @@ dev-up-demo:
 # write. THE LIMIT ON THAT REPAIR: nothing compares the two writers' shapes, so they agree by review
 # and a THIRD writer would be held by neither. It brings the profile up first, because asking for
 # the fail-closed direction against a tier nobody started is a confusing way to spell an error.
+# CI runs the same cells through `nix run .#datahub-acceptance`; keep the two aligned - nothing
+# checks it.
 # The provisioned DataHub, asked whether it can carry the deployment-defined metric document.
 datahub-acceptance:
     #!/usr/bin/env bash

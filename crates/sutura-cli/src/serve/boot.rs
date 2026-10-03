@@ -69,7 +69,7 @@ use super::flatten;
 /// **That qualifier is `telekom/sutura#929`'s eighth round, and without it the sentence was false.**
 /// It read *nothing on the way to this function reads a credential at all*, and a `postgres`
 /// deployment takes a way that does: `serve::run` -> `open_engine` -> `kind::open_postgres` ->
-/// `serve::postgres::build` -> `sutura_exec_postgres::connection::config`, whose
+/// `crate::postgres::build` -> `crate::password_file::read`, whose
 /// `read_to_string(password_file)` is a credential read on a shipped path reached before this
 /// function. `serve::tests::postgres`'s
 /// `a_served_postgres_source_reads_the_password_file_the_deployment_declared` is what holds it -

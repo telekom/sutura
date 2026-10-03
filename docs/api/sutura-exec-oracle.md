@@ -11,7 +11,7 @@ A `Warehouse` adapter over Oracle Database - one connection under the deployment
 identity (`SharedServiceUser`). `github.com/telekom/sutura#127` PR 2, over PR 1's
 `Dialect::Oracle` rendering.
 
-**Synchronous, unlike `sutura_exec_postgres::PostgresWarehouse`.** `oracledb::Connection`'s own
+**Synchronous.** `oracledb::Connection`'s own
 methods (`execute`, `query`, `set_call_timeout`) are plain blocking `fn`s over a
 `std::net::TcpStream` - measured by reading `oracle/rust-oracledb`'s own source, not assumed -
 so this adapter owns no `tokio` runtime and calls the driver directly. `oracledb` is
@@ -42,8 +42,8 @@ answers `None`. This module's own `#[cfg(test)]` cell,
   directory's `ewallet.pem` when one is configured and from the bundled `webpki-roots` set when
   one is not (measured by reading `oracle/rust-oracledb/src/transport.rs`) - there is no
   constructor that takes an external root store or a caller-built `ClientConfig` at all. So
-  `OracleWarehouse::connect_secured` takes a wallet directory rather than the
-  `sutura_tls::Rotating<rustls::ClientConfig>` handle Postgres's own `connect_secured` takes, and
+  `OracleWarehouse::connect_secured` takes a wallet directory, unlike the `rustls::ClientConfig`
+  `sutura_catalog_rdbms::postgres_channel::client_config` produces for a Postgres TLS channel, and
   a `transport_anchors: system` declaration has nothing on this adapter to reach: there is no
   "read the host trust store" option in the driver at all. This is a real fork in ADR 0010, not
   an oversight - and it is why `sutura-config` refuses any `transport_mode` but `plaintext` on
@@ -67,8 +67,8 @@ answers `None`. This module's own `#[cfg(test)]` cell,
   Oracle therefore assert what `sutura-sql` emitted and nothing a data system said back; that
   is what `crates/sutura-app/tests/golden/dialects.rs`'s `Venue::ByHandOnly` arm declares. The
   check there holds this path, never this prose - a header that stops arguing this stays green.
-- **One `parking_lot::Mutex` serializes every call**, the same shape
-  `PostgresWarehouse::execution_lock` holds and for a matching reason: `Connection`'s own methods
+- **One `parking_lot::Mutex` serializes every call**, and for good reason:
+  `Connection`'s own methods
   take `&self`, so the port's shared reference alone does not prove the driver tolerates two
   overlapping calls - and nothing here measured that it does.
 
@@ -133,7 +133,7 @@ pub fn connect_fixture(source: sutura_domain::model::SourceName, posture: sutura
 ```
 
 A connection config's host/port/credential for the fixture tier - the counterpart of
-`sutura_exec_postgres::PostgresWarehouse::local_config`. `service_name` is fixed at
+`sutura_exec_postgres::adbc::Conninfo`. `service_name` is fixed at
 `FREEPDB1`, the community image's own pluggable database, which is not a secret the tier
 publishes - it is the image's name for itself.
 

@@ -4,5 +4,6 @@ expression: chain(error)
 ---
 the data system did not answer
   caused by: the statement was refused by the server as a division by zero
-  caused by: db error
-  caused by: ERROR: division by zero
+  caused by: an ADBC call to the PostgreSQL driver failed
+  caused by: InvalidArguments: [libpq] Failed to execute prepared statement: PGRES_FATAL_ERROR ERROR:  division by zero
+ (sqlstate: 22012, vendor_code: -2147483648)

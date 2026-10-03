@@ -1828,3 +1828,12 @@ Recording it as a new dated amendment rather than editing the Sixteenth: that re
 2026-09-16, and a sentence that stops being true about its own date is a trap this record exists to
 avoid. The Sixteenth keeps its original wording; this amendment carries the current state from
 today.
+
+## Twenty-third amendment, 2026-10-02: the Postgres importer this record compares against moved
+
+*The importer, and the two decisions in it worth a record* opens with `#78`'s
+`PostgresWarehouse::load_csv` and its `COPY ... FROM STDIN`. Both went with the tokio-postgres
+transport (`github.com/telekom/sutura#913`): the fixture-only
+`sutura_exec_postgres::adbc::AdbcPostgres::load_csv` infers the same per-column types, recreates
+the table, and carries the rows inside an `INSERT`, since the ADBC driver has no `COPY FROM
+STDIN`. The BigQuery decisions that section records are unchanged.

@@ -429,7 +429,8 @@
         # check POINTS AT, never the declaration.
         shipped = import ./nix/shipped.nix {
           inherit pkgs nixpkgs system crane rust-overlay craneLib commonArgs
-            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers;
+            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers postgresTier
+            wholeTree;
           inherit (commonArgs) version;
         };
 
@@ -450,6 +451,17 @@
           inherit pkgs;
           src = arrow-adbc-src;
         };
+
+        # The PostgreSQL driver THIS host mounts - for `checks.nextest` and the dev shell, where no
+        # archive is linked (only the musl triples link one). Every `kind: postgres` source is
+        # answered over ADBC, so the tier-backed cells need a driver wherever the tier runs; on
+        # darwin this is the one build of it, on linux the native gnu one.
+        postgresAdbcHost = import ./nix/postgres-adbc.nix {
+          inherit pkgs;
+          src = arrow-adbc-src;
+          crossSystemName = system;
+        };
+        postgresAdbcHostDriver = "${postgresAdbcHost}/lib/libadbc_driver_postgresql${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
 
         # #149 branch 5's runner - `nix/kind-smoke.nix` carries what it proves and what it does
         # not. `shipped.localImages.oci` is the SAME native image `nix build .#oci` builds, so
@@ -485,6 +497,10 @@
           // shipped.localImages // shipped.featurePackages // shipped.probeManifests
           // shipped.allFeaturesProbes // shipped.linkedDriversTests // {
           default = shipped.nativeBinaries.sutura;
+
+          # This host's mounted PostgreSQL ADBC driver, so the dev shell names the SAME derivation
+          # `checks.nextest` carries (`devenv.nix`'s `SUTURA_POSTGRES_ADBC_DRIVER`).
+          adbc-driver-postgresql-host = postgresAdbcHost;
 
           # The Pulumi CLI, as a package as well as an app, so `nix build .#pulumi` works from CI.
           pulumi = pkgs.pulumi;
@@ -708,6 +724,9 @@
             preCheck = "(cd examples/demo-chatinterface && ${pkgs.python3}/bin/python3 -m unittest test_behavior test_mcp -v) && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\" && ${clickhouseTier.tier}/bin/sutura-clickhouse-tier start && eval \"$(${clickhouseTier.tier}/bin/sutura-clickhouse-tier credentials)\"";
             postCheck = "${clickhouseTier.tier}/bin/sutura-clickhouse-tier stop && ${postgresTier.tier}/bin/sutura-postgres-tier stop";
             SUTURA_DEV_REQUIRE_TIER = "1";
+            # The driver every Postgres cell opens, as the composition root would on a host that
+            # links none - the tier is useless to an ADBC-only adapter without it.
+            SUTURA_POSTGRES_ADBC_DRIVER = postgresAdbcHostDriver;
           });
 
           # The identity tier, brought up and provisioned INSIDE the sandbox: a realm, a client
@@ -735,6 +754,13 @@
           # one per line rather than `inherit`ed, because that is what those gates parse.
           one-binary = shipped.artifactChecks.one-binary;
           shipped-features = shipped.artifactChecks.shipped-features;
+
+          # THE SHIPPED POSTGRES PATH AGAINST THE LINKED DRIVER (`telekom/sutura#913` stage 2) -
+          # `nix/shipped.nix`'s `linkedDriversTests` carries what it runs and what it leaves out.
+          # Only an x86_64-linux builder can execute the static x86_64-musl test binary, so on any
+          # other system this is a stub that says so and proves nothing.
+          postgres-linked-driver = shipped.linkedDriversTests."adbc-postgres-tier-x86_64-unknown-linux-musl-test"
+            or (pkgs.runCommand "postgres-linked-driver-not-on-${system}" { } "echo 'only x86_64-linux runs the linked musl driver' > $out");
 
           # A few tools are pinned twice because nix does not run everywhere. `check-pins` fails
           # if pixi.lock disagrees; nix is the authority.
@@ -1099,6 +1125,35 @@
             export SUTURA_DEV_PASSWORD="''${SUTURA_DEV_PASSWORD:-sutura}"
             exec cargo nextest run --cargo-profile ci -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features \
               --run-ignored only --no-fail-fast -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/)' "$@"
+          '');
+        };
+
+        # The DataHub venue (#1251): starts the compose `datahub` profile and runs the live
+        # acceptance cells - the instance reachable, the deployment-defined metric document
+        # round-tripping, and a bearer-less read refused - failing rather than skipping, under
+        # `SUTURA_DEV_REQUIRE_TIER=1`. The `ci-datahub-tier` CI job runs it; `just
+        # datahub-acceptance` is its by-hand twin - the same cells, but this app runs `--profile ci`
+        # and forwards its arguments - and nothing checks that the two agree, so keep them aligned by
+        # hand; this app's `export SUTURA_DEV_REQUIRE_TIER=1` is what makes the CI leg fail rather
+        # than skip. An app for `apps.oracle-acceptance`'s reason: the runner needs the pinned
+        # toolchain, the cargo env and the warm start a bare `just` would not have, and a nix check
+        # has no docker socket. No teardown: the CI runner is ephemeral, and a tier a developer started by
+        # hand is neither adopted nor stopped.
+        apps.datahub-acceptance = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-datahub-acceptance" ''
+            set -euo pipefail
+            export PATH="${toolchain}/bin:${pkgs.git}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            cargo run -q -p xtask -- dev-up --with datahub
+            token="$(git rev-parse --show-toplevel)/.sutura-dev/datahub-pat"
+            cargo run -q -p sutura-dev --features mock-issuer -- mint-pat "$token"
+            export SUTURA_DEV_REQUIRE_TIER=1
+            SUTURA_DATAHUB_PAT="$(cat "$token")"
+            export SUTURA_DATAHUB_PAT
+            exec cargo test --profile ci -p sutura-catalog-datahub --test provisioned -- --ignored --nocapture "$@"
           '');
         };
 
