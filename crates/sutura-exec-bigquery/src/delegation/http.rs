@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 use sutura_domain::identity::Secret;
-use sutura_http_client::{Budget, Endpoint, InvalidEndpoint, ReadBounds};
+use sutura_http_client::{Budget, Endpoint, InvalidEndpoint, ReadBounds, ShownEndpoint};
 use ureq::http::Uri;
 
 use super::{Delegated, DelegationExchange, DelegationFailed, RequestedAudience};
@@ -40,13 +40,17 @@ impl TokenEndpoint {
     ///
     /// [`InvalidEndpoint`], the shared client's own refusal.
     pub fn parse(raw: &str) -> Result<Self, InvalidEndpoint> {
-        let beyond = || InvalidEndpoint::PathBeyondRoot { given: raw.to_owned() };
+        let beyond = || InvalidEndpoint::PathBeyondRoot {
+            given: ShownEndpoint::of(raw),
+        };
         if raw.contains('#') {
             return Err(beyond());
         }
         let uri: Uri = raw
             .parse()
-            .map_err(|_cause: ureq::http::uri::InvalidUri| InvalidEndpoint::NotAnHttpUrl { given: raw.to_owned() })?;
+            .map_err(|_cause: ureq::http::uri::InvalidUri| InvalidEndpoint::NotAnHttpUrl {
+                given: ShownEndpoint::of(raw),
+            })?;
         if uri.query().is_some() {
             return Err(beyond());
         }

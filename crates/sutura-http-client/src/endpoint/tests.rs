@@ -77,11 +77,10 @@ fn a_trailing_slash_is_normalised_away() {
 
 #[test]
 fn a_url_naming_neither_scheme_is_refused() {
-    assert_eq!(
-        Endpoint::parse("ftp://catalog.example"),
-        Err(InvalidEndpoint::NotAnHttpUrl {
-            given: String::from("ftp://catalog.example")
-        })
+    let refused = Endpoint::parse("ftp://catalog.example");
+    assert!(
+        matches!(&refused, Err(InvalidEndpoint::NotAnHttpUrl { given }) if given.to_string() == "ftp://catalog.example"),
+        "{refused:?}"
     );
 }
 
@@ -93,22 +92,20 @@ fn a_url_naming_neither_scheme_is_refused() {
 /// trusting that resolution alone.
 #[test]
 fn a_userinfo_prefix_naming_a_loopback_ip_is_refused_as_credentials_not_silently_accepted() {
-    assert_eq!(
-        Endpoint::parse("http://127.0.0.1:1@evil.example"),
-        Err(InvalidEndpoint::CredentialsInUrl {
-            given: String::from("http://127.0.0.1:1@evil.example")
-        })
+    let refused = Endpoint::parse("http://127.0.0.1:1@evil.example");
+    assert!(
+        matches!(&refused, Err(InvalidEndpoint::CredentialsInUrl { given }) if given.to_string() == "http://evil.example"),
+        "{refused:?}"
     );
 }
 
 /// The bracketed-IPv6 spelling of the same bypass shape.
 #[test]
 fn a_bracketed_ipv6_userinfo_prefix_is_refused_as_credentials_too() {
-    assert_eq!(
-        Endpoint::parse("http://[::1]:1@evil.example"),
-        Err(InvalidEndpoint::CredentialsInUrl {
-            given: String::from("http://[::1]:1@evil.example")
-        })
+    let refused = Endpoint::parse("http://[::1]:1@evil.example");
+    assert!(
+        matches!(&refused, Err(InvalidEndpoint::CredentialsInUrl { given }) if given.to_string() == "http://evil.example"),
+        "{refused:?}"
     );
 }
 
@@ -118,28 +115,25 @@ fn a_bracketed_ipv6_userinfo_prefix_is_refused_as_credentials_too() {
 /// `CredentialsInUrl` - the two refusals name different reasons for a reason.
 #[test]
 fn a_query_string_is_refused_rather_than_silently_kept() {
-    assert_eq!(
-        Endpoint::parse("http://127.0.0.1:1?@evil.example"),
-        Err(InvalidEndpoint::PathBeyondRoot {
-            given: String::from("http://127.0.0.1:1?@evil.example")
-        })
+    let refused = Endpoint::parse("http://127.0.0.1:1?@evil.example");
+    assert!(
+        matches!(&refused, Err(InvalidEndpoint::PathBeyondRoot { given }) if given.to_string() == "http://127.0.0.1:1"),
+        "{refused:?}"
     );
 }
 
 /// A fragment is refused, not silently dropped by `http::Uri`'s own parse.
 #[test]
 fn a_fragment_is_refused_rather_than_silently_dropped() {
-    assert_eq!(
-        Endpoint::parse("http://127.0.0.1:1#x"),
-        Err(InvalidEndpoint::PathBeyondRoot {
-            given: String::from("http://127.0.0.1:1#x")
-        })
+    let refused = Endpoint::parse("http://127.0.0.1:1#x");
+    assert!(
+        matches!(&refused, Err(InvalidEndpoint::PathBeyondRoot { given }) if given.to_string() == "http://127.0.0.1:1"),
+        "{refused:?}"
     );
-    assert_eq!(
-        Endpoint::parse("https://catalog.example#"),
-        Err(InvalidEndpoint::PathBeyondRoot {
-            given: String::from("https://catalog.example#")
-        })
+    let refused = Endpoint::parse("https://catalog.example#");
+    assert!(
+        matches!(&refused, Err(InvalidEndpoint::PathBeyondRoot { given }) if given.to_string() == "https://catalog.example"),
+        "{refused:?}"
     );
 }
 
@@ -147,11 +141,10 @@ fn a_fragment_is_refused_rather_than_silently_dropped() {
 #[test]
 fn a_malformed_or_out_of_range_port_is_refused() {
     for bad in ["http://127.0.0.1:", "http://127.0.0.1:0", "http://127.0.0.1:65536"] {
-        assert_eq!(
-            Endpoint::parse(bad),
-            Err(InvalidEndpoint::NotAnHttpUrl {
-                given: String::from(bad)
-            })
+        let refused = Endpoint::parse(bad);
+        assert!(
+            matches!(&refused, Err(InvalidEndpoint::NotAnHttpUrl { given }) if given.to_string() == bad),
+            "{refused:?}"
         );
     }
 }
@@ -159,11 +152,10 @@ fn a_malformed_or_out_of_range_port_is_refused() {
 /// A bare `/path` is refused - the same `PathBeyondRoot` branch as the query cell above.
 #[test]
 fn a_path_is_refused_rather_than_silently_dropped() {
-    assert_eq!(
-        Endpoint::parse("http://127.0.0.1:1/path"),
-        Err(InvalidEndpoint::PathBeyondRoot {
-            given: String::from("http://127.0.0.1:1/path")
-        })
+    let refused = Endpoint::parse("http://127.0.0.1:1/path");
+    assert!(
+        matches!(&refused, Err(InvalidEndpoint::PathBeyondRoot { given }) if given.to_string() == "http://127.0.0.1:1/path"),
+        "{refused:?}"
     );
 }
 
@@ -171,10 +163,49 @@ fn a_path_is_refused_rather_than_silently_dropped() {
 /// no legitimate use for them in a declared catalog endpoint either way.
 #[test]
 fn credentials_over_https_are_refused_too() {
-    assert_eq!(
-        Endpoint::parse("https://user:pw@catalog.example"),
-        Err(InvalidEndpoint::CredentialsInUrl {
-            given: String::from("https://user:pw@catalog.example")
-        })
+    let refused = Endpoint::parse("https://user:pw@catalog.example");
+    assert!(
+        matches!(&refused, Err(InvalidEndpoint::CredentialsInUrl { given }) if given.to_string() == "https://catalog.example"),
+        "{refused:?}"
+    );
+}
+
+/// Diagnostics show endpoint URLs without userinfo: the credentials refusal names the host it
+/// refused and not the `user:secret@` it refused it for.
+#[test]
+fn a_credentials_refusal_shows_the_host_without_the_userinfo() {
+    let refused = Endpoint::parse("https://user:s3cret@catalog.example").expect_err("userinfo is refused");
+    let shown = refused.to_string();
+    assert!(matches!(refused, InvalidEndpoint::CredentialsInUrl { .. }), "{refused:?}");
+    assert!(shown.contains("catalog.example") && !shown.contains("s3cret"), "{shown}");
+}
+
+/// The fragment refusal runs on the raw text before anything is parsed - and still shows it parsed.
+#[test]
+fn a_fragment_refusal_shows_the_host_without_the_userinfo() {
+    let refused = Endpoint::parse("https://user:s3cret@catalog.example#f").expect_err("a fragment is refused");
+    let shown = refused.to_string();
+    assert!(matches!(refused, InvalidEndpoint::PathBeyondRoot { .. }), "{refused:?}");
+    assert!(shown.contains("catalog.example") && !shown.contains("s3cret"), "{shown}");
+}
+
+/// The scheme refusal is reached before the userinfo check, so it is the one most likely to echo it.
+#[test]
+fn a_scheme_refusal_shows_the_host_without_the_userinfo() {
+    let refused = Endpoint::parse("ftp://user:s3cret@catalog.example").expect_err("ftp is refused");
+    let shown = refused.to_string();
+    assert!(matches!(refused, InvalidEndpoint::NotAnHttpUrl { .. }), "{refused:?}");
+    assert!(shown.contains("catalog.example") && !shown.contains("s3cret"), "{shown}");
+}
+
+/// What the dial parser cannot read is not shown at all, rather than shown through a second parser.
+#[test]
+fn an_endpoint_the_parser_refuses_is_not_shown_at_all() {
+    let refused = Endpoint::parse("https://user:s3 cret@catalog.example").expect_err("a space is refused");
+    let shown = refused.to_string();
+    assert!(matches!(refused, InvalidEndpoint::NotAnHttpUrl { .. }), "{refused:?}");
+    assert!(
+        shown.starts_with("the declared endpoint ") && !shown.contains("cret"),
+        "{shown}"
     );
 }

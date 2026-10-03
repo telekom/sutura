@@ -258,6 +258,37 @@ fn a_token_endpoint_keeps_its_path_and_refuses_what_could_leak_the_secret() {
     ));
 }
 
+/// Diagnostics show endpoint URLs without userinfo: the query refusal is reached before the origin
+/// is checked, so it is the one that would echo a `user:secret@` written ahead of it.
+#[test]
+fn a_token_endpoint_query_refusal_shows_the_host_without_the_userinfo() {
+    let refused = TokenEndpoint::parse("https://user:s3cret@idp.example.com/token?x=1").expect_err("a query is refused");
+    let shown = refused.to_string();
+    assert!(matches!(refused, InvalidEndpoint::PathBeyondRoot { .. }), "{refused:?}");
+    assert!(shown.contains("idp.example.com") && !shown.contains("s3cret"), "{shown}");
+}
+
+/// The origin this endpoint hands the shared check carries the userinfo it was written with.
+#[test]
+fn a_token_endpoint_credentials_refusal_shows_the_host_without_the_userinfo() {
+    let refused = TokenEndpoint::parse("https://user:s3cret@idp.example.com/token").expect_err("userinfo is refused");
+    let shown = refused.to_string();
+    assert!(matches!(refused, InvalidEndpoint::CredentialsInUrl { .. }), "{refused:?}");
+    assert!(shown.contains("idp.example.com") && !shown.contains("s3cret"), "{shown}");
+}
+
+/// Text the dial parser cannot read is not shown at all.
+#[test]
+fn a_token_endpoint_the_parser_refuses_is_not_shown_at_all() {
+    let refused = TokenEndpoint::parse("https://user:s3 cret@idp.example.com/token").expect_err("a space is refused");
+    let shown = refused.to_string();
+    assert!(matches!(refused, InvalidEndpoint::NotAnHttpUrl { .. }), "{refused:?}");
+    assert!(
+        shown.starts_with("the declared endpoint ") && !shown.contains("cret"),
+        "{shown}"
+    );
+}
+
 #[test]
 fn a_client_id_no_form_can_carry_is_refused() {
     for unusable in ["", "has space", "tab\t", &"c".repeat(256)] {
