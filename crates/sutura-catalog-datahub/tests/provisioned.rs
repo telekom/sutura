@@ -74,10 +74,10 @@
 //! provisioned a service once two provisioners contribute to one file.
 //!
 //! So a fail-closed cell is no longer unconditionally red over a service some other provisioner's
-//! `start` erased. What keeps this test behind a named task is the venue and nothing else: `just
-//! test` sets `SUTURA_DEV_REQUIRE_TIER=1`, the `DataHub` profile is off by default because it costs
-//! three JVMs and a migration job, and the nix sandbox has no docker socket at all.
-//!
+//! `start` erased. What keeps this test behind a named task is the venue and nothing else: `SUTURA_DEV_REQUIRE_TIER=1`
+//! is exported in two places - the `just datahub-acceptance` recipe and the flake `datahub-acceptance` app - and
+//! they must be kept in sync (see #1254); the `DataHub` profile is off by default because it costs
+//! three JVMs and a migration job; and the nix sandbox has no docker socket at all.
 //! So the venue gets a named task, `just datahub-acceptance`, which brings the profile up and runs
 //! this with the fail-closed direction set. **An `#[ignore]`d test is not evidence in the default
 //! suite, and this file may not be cited as though it were** - what it is evidence of is whatever

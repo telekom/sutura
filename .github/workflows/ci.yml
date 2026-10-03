@@ -1978,7 +1978,9 @@ jobs:
   # compose profile (five containers, three JVMs and a migration job, so the cap is wide) and
   # runs the cells `just datahub-acceptance`'s recipe weaves together - the instance reachable,
   # the deployment-defined metric document round-tripping, and a bearer-LESS read refused
-  # (auth is ON) - failing rather than skipping, because that recipe sets `SUTURA_DEV_REQUIRE_TIER=1`.
+  # (auth is ON) - failing rather than skipping, because `SUTURA_DEV_REQUIRE_TIER=1` is exported in
+  # two places: the just recipe sets it and the flake `datahub-acceptance` app exports it too, and the
+  # pair must be kept in sync manually (see #1254).
   # Category-gated on `catalog_datahub`, which `xtask/src/affected.rs` derives from the
   # `crates/sutura-catalog-datahub` crate; a change to the docker tier (`compose.services.yaml`,
   # which holds the `datahub` profile) falls open to `core`, which runs every leg. Held run-or-fail
@@ -1990,7 +1992,7 @@ jobs:
     needs: [ci]
     if: needs.ci.outputs.catalog_datahub == 'true'
     runs-on: rust-mcp-16core
-    timeout-minutes: 90
+    timeout-minutes: 30
     permissions:
       contents: read
     env:
