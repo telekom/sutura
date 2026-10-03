@@ -3000,9 +3000,10 @@ version has none.</p>
   obtain a pool-audience token for any subject whose inbound token they also hold. It is a
   <code>Secret</code> (redacted <code>Debug</code>, no <code>Display</code>, zeroized on drop - with the copy limits that type
   states).</li>
-<li><strong>Nothing composes it yet.</strong> <code>sutura serve</code> declares no settings for an identity provider token endpoint or a
-  client credential, so a served deployment never reaches this port; the cells and the Keycloak
-  tier cell do.</li>
+<li><strong><code>sutura serve</code> composes it</strong> for a source declaring <code>workload_identity.delegation</code>, refused
+  at boot unless the inbound mode is <code>direct</code>. No served-binary cell reaches it: a <code>bigquery</code>
+  deployment needs the ADBC driver to boot and the default test venue carries none, so the
+  composition is held in-process by <code>sutura-cli</code>'s <code>build_broker</code> cells.</li>
 </ul>
 <h3 id="struct-requestedaudience"><code>struct RequestedAudience</code><a class="headerlink" href="#struct-requestedaudience" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RequestedAudience</span>
@@ -3078,8 +3079,9 @@ served caller of it is already on the blocking pool (<code>sutura_runtime::spawn
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Delegation</span>
 </span></code></pre></div>
 <p>What one impersonating source exchanges through.</p>
-<p><code>Arc</code> because one identity provider client - one TLS agent, one credential - serves every source a deployment
-declares, and the broker is per answer rather than per source.</p>
+<p><code>Arc</code> because a cloned broker shares its source's one identity provider client - one TLS agent,
+one credential - rather than building another. A composition root builds one per source that
+declares a delegation, never one per deployment.</p>
 <h4 id="methods_10">Methods<a class="headerlink" href="#methods_10" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">through</span><span class="p">(</span><span class="n">exchange</span><span class="p">:</span><span class="w"> </span><span class="nc">Arc</span><span class="o">&lt;</span><span class="k">dyn</span><span class="w"> </span><span class="n">DelegationExchange</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">audience</span><span class="p">:</span><span class="w"> </span><span class="nc">RequestedAudience</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
@@ -3149,6 +3151,12 @@ an egress proxy needs.</p>
 </span></code></pre></div>
 <h5 id="implements_25">Implements<a class="headerlink" href="#implements_25" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>DelegationExchange</code></p>
+<h4 id="use-readbounds"><code>use ReadBounds</code><a class="headerlink" href="#use-readbounds" title="Permanent link">&para;</a></h4>
+<p>The bounds and the rotating agent <code>OverHttp</code> dials over, so a composition root builds them
+without naming the shared client crate itself.</p>
+<h4 id="use-rotating_agent"><code>use rotating_agent</code><a class="headerlink" href="#use-rotating_agent" title="Permanent link">&para;</a></h4>
+<p>The bounds and the rotating agent <code>OverHttp</code> dials over, so a composition root builds them
+without naming the shared client crate itself.</p>
 
 
 
