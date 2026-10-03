@@ -374,7 +374,8 @@ let
           status=0
           cargoWithProfile test ${pgArgs.cargoExtraArgs} --no-fail-fast --test conformance --test raw --test deadline --test tls --test types -- --nocapture 2>&1 | tee tier.log || status=$?
           sutura-postgres-tier stop
-          exit "$status"
+          # A test, not `exit`: `exit` ends the builder before the install phase writes `$out`.
+          [ "$status" -eq 0 ]
         '';
         installPhaseCommand = "install -Dm644 tier.log $out/tier.log";
       });
