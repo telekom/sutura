@@ -13,6 +13,8 @@
 //! after it. A `[features]` value or a `features = [` list that opens without closing on its
 //! own line is REFUSED rather than read short - a wrapped `dep:` adapter would otherwise be
 //! hidden from this rule. An adapter crate pulled only through another crate's feature is not seen.
+//! `required` may hold only adapters that a shipped feature pulls as a `dep:` - non-optional
+//! adapters the binary links directly cannot be named there.
 //! That the release then embeds what `required` names is the nix check's to prove, not this one's.
 //!
 //! Its own file because the parent is against the unexemptable 1000-line cap.

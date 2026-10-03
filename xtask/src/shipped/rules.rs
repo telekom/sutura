@@ -58,7 +58,9 @@ impl Refused<'_> {
             Self::UnreadablePage(why) => unreadable_page(why),
             Self::NothingProbed => nothing_probed(),
             Self::Unprobed { problems, host } => unprobed(problems, *host),
-            Self::Unrequired(problems) => unrequired(problems),
+            Self::Unrequired(problems) => {
+                let _: Option<()> = unrequired(&mut std::io::stderr().lock(), problems).ok();
+            }
         }
     }
 }
@@ -196,21 +198,26 @@ fn unprobed(problems: &[String], host: Option<&str>) {
 }
 
 /// Shipped adapters the release check's `required` list and the shipped `features` disagree on.
-fn unrequired(problems: &[String]) {
-    eprintln!(
+fn unrequired(out: &mut impl std::io::Write, problems: &[String]) -> std::io::Result<()> {
+    writeln!(
+        out,
         "xtask check-shipped-binaries: FAILED - {} adapter(s) `checks.shipped-features` would not hold",
         problems.len()
-    );
+    )?;
     for problem in problems {
-        eprintln!("  {problem}");
+        writeln!(out, "  {problem}")?;
     }
-    eprintln!("  `required` in nix/shipped.nix is what a release is refused without. Name a shipped adapter");
-    eprintln!("  there, or drop one no shipped feature pulls, in the same change.");
+    writeln!(
+        out,
+        "  `required` in nix/shipped.nix is what a release is refused without. Name a shipped adapter"
+    )?;
+    writeln!(out, "  there, or drop one no shipped feature pulls, in the same change.")?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Refused, refusals};
+    use super::{Refused, refusals, unrequired};
     use crate::Verdict;
 
     #[test]
@@ -285,26 +292,17 @@ mod tests {
 
     #[test]
     fn the_unrequired_rule_names_the_crate_in_its_output() {
-        // `rules::unrequired` prints every adapter problem VERBATIM (`eprintln!("  {problem}")`),
-        // so the crate a release would refuse has to be IN the message the report carries - a
-        // vector of anonymous rows would pass `report`'s Fail without telling anyone which crate.
-        // Asserted on the exact message `report` prints, beside the Fail verdict.
-        let clean = super::Reconciliation {
-            problems: Vec::new(),
-            probed: vec![String::from("docs/p.md:2 sutura-cli [bigquery]")],
-        };
-        let unrequired = [String::from(
+        // The report's choice of stderr is not held by this cell - it only asserts that the
+        // unrequired function, when called, writes a message containing the crate name.
+        let problems = [String::from(
             "sutura: `required` names adapter `sutura-exec-cassandra`, but no `[features]` entry pulls it",
         )];
-        let refused = refusals(Verdict::Pass, &[], &[], Some("ci.yml"), Ok(&clean), &unrequired);
-        let Refused::Unrequired(problems) = refused.as_slice()[0] else {
-            panic!("the unrequired rule did not refuse: {} rule(s) refused", refused.len());
-        };
+        let mut buf = Vec::new();
+        unrequired(&mut buf, &problems).expect("write failed");
+        let output = String::from_utf8(buf).expect("invalid utf8");
         assert!(
-            problems[0].contains("sutura-exec-cassandra"),
-            "the report's unrequired message must name the crate: {}",
-            problems[0]
+            output.contains("sutura-exec-cassandra"),
+            "the message must name the crate:\n{output}"
         );
-        assert_eq!(super::report(&refused), Verdict::Fail);
     }
 }
