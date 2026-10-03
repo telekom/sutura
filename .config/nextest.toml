@@ -98,3 +98,8 @@ test-group = "real-cargo"
 # restore one run per cell under the default ceiling.
 filter = "binary_id(xtask::bin/xtask) & test(=causality::gas_tests::a_claim_cell_and_an_ordinary_test_are_both_proven)"
 slow-timeout = { period = "60s", terminate-after = 10 }
+
+[[profile.default.overrides]]
+# Live BigQuery corpus cells query real resources and need more time
+filter = "package(sutura-app) + test(/bigquery/)"
+slow-timeout = { period = "60s", terminate-after = 20 }
