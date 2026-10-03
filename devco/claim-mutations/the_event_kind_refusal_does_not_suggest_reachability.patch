@@ -1,6 +1,6 @@
 --- a/xtask/src/workflows/obligations.rs
 +++ b/xtask/src/workflows/obligations.rs
-@@ -194,16 +194,13 @@
+@@ -206,16 +206,13 @@
              continue;
          };
          match step.gate() {
@@ -13,7 +13,7 @@
                      step.line, want.step, want.condition
 -                ),
 -                Kind::Event => format!(
--                    "ci.yml:{} `{}` carries no `if:`. Its condition decides the EVENT it runs on, not its reachability: `{}` is empty on every other event, and the gate it runs refuses an empty subject rather than passing, so the step would start and fail closed where there is nothing to judge - `if: ${{{{ {} }}}}` puts it on the event that carries the subject",
+-                    "ci.yml:{} `{}` carries no `if:`. Its condition decides the EVENT it runs on, not its reachability: it is not `always()` but `{}`, and without it the step starts on events where the title fetch fails and the run goes red rather than passing - `if: ${{{{ {} }}}}` puts it on the event that carries the subject",
 -                    step.line, want.step, want.condition, want.condition
 -                ),
 -            }),

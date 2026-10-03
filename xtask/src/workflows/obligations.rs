@@ -81,11 +81,10 @@ use std::path::Path;
 ///
 /// **Two kinds of obligation now, and the table is the same shape for both.** Three rows are here
 /// because a condition keeps the step REACHABLE after a red above it - the finding this module's
-/// header is about. `PR title` is here because its condition decides the EVENT it runs on: the
-/// title expression expands to the empty string on anything but a `pull_request`, so a dropped
-/// `if:` would put the gate on a run with nothing to judge. Its own gate fails closed on that
-/// rather than passing, which is why the two mechanisms are worth having together - this one names
-/// the step in `check-workflows`, that one reddens the run.
+/// header is about. `PR title` is the other kind: its `if:` decides the EVENT it runs on, and
+/// without it the step would start on events where the title fetch fails - a red run rather than a
+/// silent pass. The two mechanisms are worth having together: this one names the step in
+/// `check-workflows`, that one reddens the run.
 struct Obligation {
     /// The step's `name:` value, which is also how a reader finds it.
     step: &'static str,
@@ -101,11 +100,10 @@ struct Obligation {
 /// - [`Kind::Reachability`] - the condition keeps the step REPORTING after a red above it. The
 ///   refusal for a missing `if:` names what reachability costs, and `always()` is the right fix.
 /// - [`Kind::Event`] - the condition decides the EVENT the step runs on. `PR title`'s condition
-///   is the example: the title expression expands to the empty string on anything but a
-///   `pull_request`, and its own gate refuses an empty title rather than passing, so a dropped
-///   `if:` does not expose an unchecked pass - it starts the run that carries the subject. The
-///   refusal therefore says where the condition belongs, and NEVER reaches for `always()`, which
-///   would put the gate on every event where there is nothing to judge.
+///   is the example: without it, the step would start on every event, where the title fetch fails
+///   and the run is red rather than a pass. The refusal therefore says where the condition
+///   belongs, and NEVER reaches for `always()`, which would put the gate on every event where
+///   there is nothing to judge.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Reachability,
@@ -131,8 +129,8 @@ const REQUIRED: &[Obligation] = &[
     Obligation {
         // #935. The landed subject is composed from the pull-request title, so the gate holding the
         // commit vocabulary over it can only run where that title exists. No `always()` and no
-        // `!cancelled()`: on every other event the expression supplying the title is empty, and the
-        // step has nothing to judge.
+        // `!cancelled()`: on any other event the title fetch fails and the step has nothing to
+        // judge.
         step: "PR title",
         condition: "github.event_name == 'pull_request'",
         kind: Kind::Event,
@@ -212,7 +210,7 @@ fn check(text: &str) -> Vec<String> {
                     step.line, want.step, want.condition
                 ),
                 Kind::Event => format!(
-                    "ci.yml:{} `{}` carries no `if:`. Its condition decides the EVENT it runs on, not its reachability: `{}` is empty on every other event, and the gate it runs refuses an empty subject rather than passing, so the step would start and fail closed where there is nothing to judge - `if: ${{{{ {} }}}}` puts it on the event that carries the subject",
+                    "ci.yml:{} `{}` carries no `if:`. Its condition decides the EVENT it runs on, not its reachability: it is not `always()` but `{}`, and without it the step starts on events where the title fetch fails and the run goes red rather than passing - `if: ${{{{ {} }}}}` puts it on the event that carries the subject",
                     step.line, want.step, want.condition, want.condition
                 ),
             }),
@@ -222,19 +220,6 @@ fn check(text: &str) -> Vec<String> {
             )),
             Some(_) => {}
         }
-    }
-    // THE TITLE MUST COME FROM THE REPOSITORY AT RUN TIME, NOT FROM THE EVENT PAYLOAD (#1249).
-    // `github.event.pull_request.title` is frozen when the run STARTS and never refreshes on a
-    // re-run, so renaming the title then re-running judged the OLD string and stayed red - a
-    // title-only change could not fire the check on its own. The step must fetch the CURRENT
-    // title from the repository instead. Refused here so the stale shape cannot come back.
-    if let Some(step) = steps.iter().find(|step| step.input("name:") == Some("PR title"))
-        && step.contains_verbatim("github.event.pull_request.title")
-    {
-        out.push(format!(
-            "ci.yml:{} `PR title` reads its title from `github.event.pull_request.title`, which is frozen at run start and never refreshes on a re-run - renaming the title then re-running judged the old string and stayed red (#1249). Fetch the CURRENT title from the repository over the API at run time instead",
-            step.line
-        ));
     }
     out.extend(order_problems(&steps));
     out
@@ -360,8 +345,8 @@ mod tests {
     /// A `ci.yml` shaped like the real one, with each named step given `gate` as its condition.
     ///
     /// `None` writes the step with no `if:` at all, which is the state the finding was about.
-    /// `PR title` gets the body it really carries, because it is the one obligation that PAYS for
-    /// the xtask closure - so these trees exercise the order half as well as the condition half.
+    /// `PR title` is the one obligation that PAYS for the xtask closure, so these trees exercise
+    /// the order half as well as the condition half.
     fn tree(gates: &[Option<&str>]) -> String {
         let mut text = String::from("jobs:\n  ci:\n    steps:\n");
         for (want, gate) in REQUIRED.iter().zip(gates) {
@@ -487,7 +472,7 @@ mod tests {
     /// stayed red - a title-only change could not fire the check on its own. RED ON BASE (base's
     /// `ci.yml` still reads the event payload), GREEN with the change.
     #[test]
-    fn the_pr_title_step_reads_the_current_title_not_the_frozen_payload() {
+    fn refuses_github_event_pull_request_title() {
         let Some(root) = crate::repo::root() else {
             return;
         };

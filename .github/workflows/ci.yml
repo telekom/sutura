@@ -748,6 +748,7 @@ jobs:
           set -eu
           number="${GITHUB_REF#refs/pull/}"; number="${number%/merge}"
           title="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '.title')"
+          unset GH_TOKEN
           nix run .#xtask -- check-pr-title "$title"
 
       # A docs-only edit needs the structural gates and nothing else; a flake edit needs the

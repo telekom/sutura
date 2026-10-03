@@ -867,6 +867,7 @@ panic-free.
   of those hundred subjects exceed the commit-msg limit, so holding it would refuse most real merges
   - and a title EDITED after the last push starts no `ci` run, so the verdict is about the title
   that was there.
+  A re-run now re-judges the title against the live PR state, not the frozen event.
 - **A COLLISION RULE ONLY REACHES THE NAMES IT CAN READ - #937.** `check-guidance` refuses two ADR
   files claiming one ordinal, and the merge queue's own `hygiene` build is where that fires, because
   only the merged tree holds both files. What got past it was a NAMING: a bare `0037.md` planted in

@@ -25,9 +25,10 @@
 //!   so the verdict is re-taken only when the run is re-run or a push fires one. The merge queue's own
 //!   event may carry the composed subject, which would close it, and that is unverified here rather
 //!   than assumed.
-//! * **Fail closed on no title at all.** The fetch that supplies it produces an empty string on any
-//!   event without a `refs/pull/<n>/merge` ref to resolve, so [`Title::parse`] refuses that rather
-//!   than letting an absent title reach the subject rule and read as one more verdict.
+//! * **Fail closed on no title at all.** The fetch that supplies it fails when there is nothing
+//!   to fetch: on any event without a `refs/pull/<n>/merge` ref to resolve, `gh api` returns 404
+//!   with exit 1, and `set -eu` stops the step before `xtask` runs - so an absent title is a red
+//!   run before [`Title::parse`] is ever asked, never a silent pass.
 
 use crate::Verdict;
 use crate::commit_msg::{SubjectVerdict, TYPES, check_shape};
@@ -35,10 +36,10 @@ use crate::commit_msg::{SubjectVerdict, TYPES, check_shape};
 /// A pull-request title: the subject GitHub's squash will land, minus the ` (#N)` it appends.
 ///
 /// **A newtype because the empty string is a VENUE mistake and not a bad title.** `ci.yml` fetches
-/// the CURRENT title over the API and hands it here as one argument; an empty string means the fetch
-/// produced nothing - a non-`pull_request` run with no `refs/pull/<n>/merge` ref to resolve - and an
-/// empty string handed to the subject rule would come back as one more `SubjectVerdict`, a verdict
-/// about a convention over an input nobody wrote. Parsing refuses it here, so the two failures carry
+/// the CURRENT title over the API and hands it here as one argument; on the wrong event the fetch
+/// fails before `xtask` runs (gh returns 404 exit 1; set -eu stops the step), and an empty string
+/// handed to the subject rule would come back as one more `SubjectVerdict`, a verdict about a
+/// convention over an input nobody wrote. Parsing refuses it here, so the two failures carry
 /// different messages and a step on the wrong event cannot read as a vocabulary problem.
 #[derive(Debug, PartialEq, Eq)]
 struct Title<'a>(&'a str);
@@ -64,9 +65,10 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     };
     let Some(title) = Title::parse(text) else {
         eprintln!("xtask check-pr-title: FAILED - no title was handed to this gate");
-        eprintln!("  An empty argument is what a fetch with no `refs/pull/<n>/merge` ref to resolve");
-        eprintln!("  produces - so this is a step on the wrong event rather than a title anybody wrote,");
-        eprintln!("  and it is not a pass.");
+        eprintln!("  A fetch with no `refs/pull/<n>/merge` ref to resolve now fails: gh returns 404");
+        eprintln!("  with exit 1, and set -eu stops the step before xtask runs - so the empty");
+        eprintln!("  argument that reaches this gate is a wrong event or a manual call, and it is");
+        eprintln!("  not a pass.");
         return Verdict::Fail;
     };
     match title.judge() {
