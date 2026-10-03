@@ -248,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn the_falsifier_fires_on_every_red_arm_and_on_nothing_else() {
+    fn the_falsifier_fires_on_both_red_arms_and_on_nothing_else() {
         // MEASURED BY REVIEW rather than argued: with a loop in each red arm of `report_base`,
         // deleting the one in `RedOutsideTheDiff` reddened no test at all. The choice is one
         // function now, and this is what holds it.
