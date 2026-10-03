@@ -6542,8 +6542,9 @@ The same declaration, with the delegation exchange its callers' tokens go throug
 pub struct DelegationDeclared
 ```
 
-The delegation exchange a `direct` deployment runs before the pool will accept its caller
-(`docs/adr/0014`'s fourth amendment): the caller's inbound token is exchanged at
+The delegation exchange a `direct` deployment runs before the pool will accept its caller.
+
+`docs/adr/0014`'s fourth amendment: the caller's inbound token is exchanged at
 `token_endpoint` for one whose `aud` is `audience`, the pool provider's client ID.
 
 **Held as written and parsed by the crate that sends it**, at boot, by `sutura_cli`'s
