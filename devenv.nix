@@ -247,10 +247,21 @@ in
     # cites a task rather than a command line that drifts from the one people run.
     just
 
-    # `gh-stack` describes a stack (PR bodies and cross-links) for one that was built by hand.
-    # It is not a replacement for `st refresh`, which restacks. nixpkgs' version is the one we
-    # want, so unlike `stax` above it needs no pin of its own.
-    gh-stack
+    # Pin the release until nixpkgs catches up.
+    (gh-stack.overrideAttrs (final: old: {
+      version = "0.2.0";
+      src = pkgs.fetchFromGitHub {
+        owner = "github";
+        repo = "gh-stack";
+        tag = "v${final.version}";
+        hash = "sha256-70H1kOdvklTeB8OVFg7g6xQ4rn0gqv+zU7yjDYPd3vo=";
+      };
+      vendorHash = "sha256-Otstml5TSTJeYsP9o94aUperP1MgT2axa/wqALEnXYk=";
+      # The skill hook belongs to the package, not its dependency-only derivation.
+      passthru = old.passthru // {
+        overrideModAttrs = _: _: { dontInstallAgentSkills = true; };
+      };
+    }))
 
     # For stax's `use_gh_cli` and for release commands that use `gh` rather than an action.
     gh
