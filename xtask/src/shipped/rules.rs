@@ -282,4 +282,29 @@ mod tests {
         );
         assert_eq!(super::report(&refused), Verdict::Fail);
     }
+
+    #[test]
+    fn the_unrequired_rule_names_the_crate_in_its_output() {
+        // `rules::unrequired` prints every adapter problem VERBATIM (`eprintln!("  {problem}")`),
+        // so the crate a release would refuse has to be IN the message the report carries - a
+        // vector of anonymous rows would pass `report`'s Fail without telling anyone which crate.
+        // Asserted on the exact message `report` prints, beside the Fail verdict.
+        let clean = super::Reconciliation {
+            problems: Vec::new(),
+            probed: vec![String::from("docs/p.md:2 sutura-cli [bigquery]")],
+        };
+        let unrequired = [String::from(
+            "sutura: `required` names adapter `sutura-exec-cassandra`, but no `[features]` entry pulls it",
+        )];
+        let refused = refusals(Verdict::Pass, &[], &[], Some("ci.yml"), Ok(&clean), &unrequired);
+        let Refused::Unrequired(problems) = refused.as_slice()[0] else {
+            panic!("the unrequired rule did not refuse: {} rule(s) refused", refused.len());
+        };
+        assert!(
+            problems[0].contains("sutura-exec-cassandra"),
+            "the report's unrequired message must name the crate: {}",
+            problems[0]
+        );
+        assert_eq!(super::report(&refused), Verdict::Fail);
+    }
 }

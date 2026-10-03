@@ -394,7 +394,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     // EVERY RULE REPORTS BEFORE ANY OF THEM RETURNS, which is `rules`' whole reason: the loop rule
     // used to return here, so a tree with an empty shipped set in one file and a drifted literal
-    // in another printed the first and hid the second. Each of the four is still fail-closed on
+    // in another printed the first and hid the second. Each of the five rules is still fail-closed on
     // its own subject - a zero-iteration loop is a green job that linked, audited and inventoried
     // nothing; a `docs/adr/0017` claim resting on a refusal no workflow holds has no referent; a
     // page this cannot read or lex goes unreconciled while the others keep the count non-empty -
