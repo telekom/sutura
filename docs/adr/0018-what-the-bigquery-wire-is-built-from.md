@@ -1564,7 +1564,9 @@ before both: `nix/shipped.nix`'s `linkedDriversTests` builds and runs both drive
 x86_64-musl test binary, and the published artefacts of this change still link only the `BigQuery`
 archive. That test reaches libpq's connect path and no server, so no TLS handshake through the
 static OpenSSL is observed. The linked libpq is built without GSSAPI and without libcurl, so the
-linked driver offers neither Kerberos nor OAuth sign-in - a mounted driver library keeps both.
+linked driver offers neither Kerberos nor OAuth sign-in, and a mounted driver (which keeps both)
+is not asked for them either - no declaration can carry them, so a Postgres source signs in only as
+its declared shared service account.
 
 **Caching.** The static libpq and OpenSSL are build inputs of `checks.adbc-driver-postgresql`, which
 `.github/workflows/cachix-push.yml`'s `push` job already realises, so they publish with the driver.
