@@ -677,6 +677,81 @@ The documentation schema or the predicate column is not an identifier.
 
 `Clone`, `Debug`, `DictionaryReader`
 
+## Module `postgres_channel`
+
+The connection the live Postgres dictionary reader dials with.
+
+The `tokio-postgres` configuration for one declared connection, and the `rustls::ClientConfig`
+a `verified`/`mutual` channel verifies (and presents) with.
+
+**Here because this reader is the one `tokio-postgres` client left** (`telekom/sutura#913`):
+`sutura-exec-postgres` answers every source through ADBC, so the client and its channel live
+beside the reader that still uses them, until the reader moves to ADBC too.
+
+What fails here is what only a file and a TLS implementation can answer, each fail-closed and
+naming the path: anchors that cannot be read or parse to nothing, an identity half that cannot be
+read or holds the wrong kind (all `sutura_tls`'s reads), a certificate rustls cannot use as a
+root, and a key that does not match its certificate. An untrusted chain is the handshake's
+refusal, not this module's.
+
+### `enum UnusableChannel`
+
+```rust
+pub enum UnusableChannel
+```
+
+Why a declared channel could not become a client config.
+
+#### Variants
+
+- `Material`
+- `Root`
+- `Verifier`
+- `Identity`
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `enum Target`
+
+```rust
+pub enum Target<'a>
+```
+
+The address the reader dials.
+
+#### Variants
+
+- `Host` - A TCP host name or address.
+- `UnixSocket` - A unix socket directory.
+
+#### Implements
+
+`Clone`, `Copy`
+
+### `fn config`
+
+```rust
+pub fn config(target: Target<'_>, port: u16, database: &str, user: &str, credential: &sutura_domain::identity::Secret) -> tokio_postgres::Config
+```
+
+The driver configuration for one declared connection. It selects no TLS; the reader makes a
+supplied client config mandatory.
+
+### `fn client_config`
+
+```rust
+pub fn client_config(anchors: &sutura_tls::Anchors, identity: Option<&sutura_tls::Identity>) -> Result<rustls::ClientConfig, UnusableChannel>
+```
+
+The `rustls::ClientConfig` a TLS channel verifies against `anchors` with, presenting `identity`.
+
+# Errors
+
+`UnusableChannel`: material `sutura_tls` cannot read, a root rustls cannot use, or a pair it
+will not present together.
+
 ## Module `postgres_reader`
 
 The live Postgres documentation-schema reader, behind the default-off `live` feature.
@@ -736,9 +811,9 @@ The reader uses the catalog's own declared connection and transport policy. Anch
 material is resolved by a composition root into a `rustls::ClientConfig` for `verified`/`mutual`
 channels, or `None` for `plaintext`. When a `ClientConfig` is supplied the reader forces
 `SslMode::Require` so a server declining TLS cannot silently downgrade the verifier to
-cleartext - the same hardening `sutura-exec-postgres::connect_secured` applies. There is no
-unconditional `NoTls`: plaintext is reached only through the declared `plaintext` mode, which
-the transport layer already refuses for a remote host.
+cleartext - the libpq `sslmode=verify-full` the Postgres data source's `Conninfo` writes holds
+the same line. There is no unconditional `NoTls`: plaintext is reached only through the
+declared `plaintext` mode, which the transport layer already refuses for a remote host.
 
 # Feature gating
 

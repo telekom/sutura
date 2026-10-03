@@ -73,14 +73,16 @@ question involving a ClickHouse source is still refused by the capability gate. 
 `NoPlaceForASubject`, so an `impersonation-at-source` declaration on this kind is refused at the
 composition root with the reason that no build delivers it.
 
-**Postgres has a second transport, shipped and answering nothing.** Every release compiles the ADBC
-PostgreSQL transport beside `tokio-postgres`, and every musl release links its driver statically,
-with libpq and OpenSSL 3. No settings key selects it: `tokio-postgres` answers every `kind: postgres`
-source, and `sutura doctor`'s `pg driver` line only says whether the driver is linked and
+**Postgres is answered over ADBC.** Every `kind: postgres` source runs through the ADBC PostgreSQL
+driver: every musl release links it statically, with libpq and OpenSSL 3, and any other build mounts
+one named by `SUTURA_POSTGRES_ADBC_DRIVER` (a source refuses at boot where neither is there).
+`sutura doctor`'s `pg driver` line says which driver this process would open and whether it
 initialises. **That linked libpq is built without Kerberos/GSSAPI and without OAuth**, which a
 mounted driver's libpq keeps; the connection string the transport builds refuses GSSAPI, SSPI and
-OAuth sign-in on either route, because a declaration can name none of them. It also refuses `transport_anchors:
-system` and TLS over a unix socket, which libpq cannot hold to. No cell has run it against a server.
+OAuth sign-in on either route, because a declaration can name none of them. It also refuses
+`transport_anchors: system` and TLS over a unix socket, which libpq cannot hold to. The adapter's
+tier-backed cells run through a mounted driver in `checks.nextest` and through the linked static one
+on x86_64 musl in CI; aarch64 musl links it and nothing executes it.
 
 ## Identity: what "impersonation" does and does not mean here
 

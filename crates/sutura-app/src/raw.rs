@@ -157,7 +157,7 @@ where
         .map_err(|cause| RunSqlError::Credentials { cause })?
     {
         // No credential for this subject at this source. Unreachable through the only adapter wired
-        // for this path today - `PostgresWarehouse` runs under one static, shared credential every
+        // for this path today - `sutura_exec_postgres::adbc::AdbcPostgres` runs under one shared credential every
         // subject shares - and there is deliberately no `RawRefusalReason` variant for it yet: the
         // vocabulary is closed over what this PR's one adapter can provoke, and a future
         // per-subject-credential raw adapter is what would earn a dedicated one.

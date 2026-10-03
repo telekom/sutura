@@ -448,7 +448,7 @@ where
 
     /// Replaces one table in the connection's dataset with the rows of a committed fixture CSV.
     ///
-    /// **The mirror of #78's `PostgresWarehouse::load_csv`, and it exists for the reason that one
+    /// **The mirror of #78's `AdbcPostgres::load_csv`, and it exists for the reason that one
     /// does: a relational data system has to be GIVEN tables before a corpus can be run against it,
     /// and the example models are files.** The differences from the Postgres shape are in
     /// [`crate::importer`]'s header - there is no `COPY`, so the rows travel inside the statement and

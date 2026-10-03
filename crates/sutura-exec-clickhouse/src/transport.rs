@@ -165,8 +165,7 @@ pub enum HttpError {
 
 /// The real transport: one `ureq::Agent`, built once and kept for this adapter's life.
 ///
-/// The same shape `sutura_exec_postgres::PostgresWarehouse` keeps its one connection in. A rotated
-/// TLS config takes effect on the next agent a composition root builds, never on an agent already
+/// A rotated TLS config takes effect on the next agent a composition root builds, never on an agent already
 /// standing - `ureq::Agent`'s configuration is fixed at construction, so this is not a choice made
 /// here but the shape the client already has.
 pub struct Http {
@@ -220,7 +219,7 @@ impl Http {
     /// `crate::tls::config` built from the declared channel. Both this and [`Self::connect`] are
     /// produced by the composition root, which is the only place that can see the declared
     /// `sutura_config::sources::transport::SourceTransport` - the same boundary
-    /// `PostgresWarehouse::connect_secured`'s own signature draws. `max_response_bytes` is
+    /// `sutura_exec_postgres::adbc::Conninfo::new` draws. `max_response_bytes` is
     /// [`Self::connect`]'s.
     #[must_use]
     pub fn connect_secured(

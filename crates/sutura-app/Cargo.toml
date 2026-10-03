@@ -63,7 +63,7 @@ sutura-exec-duckdb = { workspace = true }
 # A second DATA SOURCE, over the wire, and a development dependency for the same reason: it proves
 # the Postgres statement we render is accepted by a real Postgres. Its corpus cells run against this
 # worktree's provisioned tier and skip where none is up.
-# `fixtures` for `PostgresWarehouse::local_config`, which the adapters harness below opens the tier
+# `fixtures` for `sutura_exec_postgres::fixture::FixtureCredential::conninfo`, which the harness opens the tier
 # with. A DEV-dependency's feature reaches no consumer, which is the point of the gate on it.
 sutura-exec-postgres = { workspace = true, features = ["fixtures"] }
 # A fifth DATA SOURCE, over HTTP, and a development dependency for Postgres's reason: it proves the
