@@ -192,6 +192,17 @@ pub enum NotFitToServe {
         DeploymentIdentity::KEY
     )]
     SharedSourceNotAcknowledged { alias: SourceName },
+    /// A source declares a delegation exchange and this deployment does not verify its callers in
+    /// `direct` mode.
+    ///
+    /// The exchange's subject token is the caller's own inbound token, and only `direct` verifies
+    /// one: `behind-gateway` already hands the pool the component's assertion (`docs/adr/0014`'s
+    /// fourth amendment), and with no inbound identity there is no caller to exchange for. A
+    /// declared client credential that nothing could use reads as a control that is in place.
+    #[error(
+        "`sources.{alias}.workload_identity.delegation` is declared and security.inbound.mode is          not `direct`. The delegation exchange sends the caller's own inbound token, which only a          `direct` deployment verifies - set security.inbound.mode: direct, or remove the block"
+    )]
+    DelegationWithoutDirectInbound { alias: SourceName },
     /// The raw SQL tool is enabled in a deployment that declared it serves more than one subject.
     ///
     /// **The same "same reason, same mechanism" the shared-source check already uses, over a

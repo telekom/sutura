@@ -215,3 +215,76 @@ fn a_second_shared_source_without_an_acknowledgement_is_not_fit_to_serve_either(
     let rendered = refusals.first().expect("one refusal").to_string();
     assert!(rendered.contains("sources.orders.acknowledged_because"), "{rendered}");
 }
+
+// The exchange a `direct` deployment runs for an impersonating source - nested under
+// `workload_identity:` at 6 spaces, with its four required keys at 8. `client_secret_file` is a
+// PATH: the secret itself is read by the composition root, never the settings tree.
+const DELEGATION: &str = "      delegation:\n        token_endpoint: \"https://idp.example.com/token\"\n        client_id: \"sutura\"\n        client_secret_file: \"/run/secrets/idp-client\"\n        audience: \"pool-client-id\"\n";
+
+// The inbound.rs original is crate-private to that module, so this test's CONTROL copies the text
+// rather than reaching for it - it is the accepted `security.inbound` shape, and nothing here
+// wants to own a second spelling of it.
+const DIRECT_INBOUND: &str = "  inbound:\n    mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    authorization_server: \"https://issuer.example.com\"\n    key_set_file: \"/etc/sutura/jwks.json\"\n    algorithms: [\"RS256\"]\n";
+
+#[test]
+fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_to_serve() {
+    // A delegation exchange sends the caller's OWN inbound token - leg 1's - to the identity
+    // provider, so it only exists on a deployment that verifies one. A non-direct deployment that
+    // declares the block holds a client credential nothing could use, which reads as a control that
+    // is in place: refused, naming `security.inbound.mode`.
+    let refused = Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{}",
+        source_overlay("impersonation-at-source", DELEGATION)
+    ));
+    let error = Settings::load(&refused).expect_err("a delegation on a non-direct deployment is not fit to serve");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a delegation refusal, got {error:?}");
+    };
+    assert_eq!(
+        *refusals,
+        vec![NotFitToServe::DelegationWithoutDirectInbound {
+            alias: SourceName::parse("local").expect("a legal identifier")
+        }]
+    );
+    let rendered = refusals.first().expect("one refusal").to_string();
+    assert!(rendered.contains("sources.local.workload_identity.delegation"), "{rendered}");
+    assert!(rendered.contains("security.inbound.mode"), "{rendered}");
+
+    // The CONTROL: the same block on a `direct` deployment serves, and the declaration survives
+    // into the parsed tree so the exchange has somewhere to read it from.
+    let direct = Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{DIRECT_INBOUND}{}",
+        source_overlay("impersonation-at-source", DELEGATION)
+    ));
+    let settings = Settings::load(&direct).expect("a direct deployment admits a delegation");
+    assert!(settings.refusals().is_empty(), "{:?}", settings.refusals());
+    let local = settings
+        .sources()
+        .each()
+        .find(|(alias, _)| alias.as_str() == "local")
+        .expect("local is configured")
+        .1;
+    assert_eq!(
+        local
+            .workload_identity()
+            .and_then(crate::sources::workload_identity::WorkloadIdentityConfig::delegation)
+            .map(crate::sources::workload_identity::DelegationDeclared::audience),
+        Some("pool-client-id")
+    );
+
+    // And a delegation block missing one of its REQUIRED keys is a parse refusal naming it, so a
+    // block that lost its `client_secret_file` cannot silently fall back to no exchange.
+    let missing = Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{}",
+        source_overlay(
+            "impersonation-at-source",
+            "      delegation:\n        token_endpoint: \"https://idp.example.com/token\"\n        client_id: \"sutura\"\n        audience: \"pool-client-id\"\n"
+        )
+    ));
+    let error = Settings::load(&missing).expect_err("a delegation block missing its client secret file is refused");
+    let rendered = format!("{error:?}");
+    assert!(
+        rendered.contains("client_secret_file"),
+        "the refusal must name the missing key: {rendered}"
+    );
+}

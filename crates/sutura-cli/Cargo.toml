@@ -39,7 +39,15 @@ tls = ["sutura-config/tls", "sutura-http/tls"]
 # list, same set, and it links and runs. Both reach CI now, as `nix run .#default-features` and
 # `nix run .#default-feature-tests` in the required `ci` job, so this lane's lint half is a required
 # check rather than the four `cross` link builds and a developer's memory.
-bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc"]
+#
+# `wire` and `sutura-http-client` are the delegation exchange a `direct` deployment composes for a
+# source declaring `workload_identity.delegation` (`docs/adr/0014`'s fourth amendment).
+bigquery = [
+  "dep:sutura-exec-bigquery",
+  "sutura-exec-bigquery/adbc",
+  "sutura-exec-bigquery/wire",
+  "dep:sutura-http-client",
+]
 
 # The Postgres adapter, and with it the outbound TLS the source channel verifies against.
 #
@@ -183,6 +191,8 @@ sutura-exec-datafusion = { workspace = true }
 # The BigQuery adapter, behind the `bigquery` feature above. `optional` is what makes the dependency
 # ABSENT from the default build rather than merely unused, which is the property the cross builds need.
 sutura-exec-bigquery = { workspace = true, optional = true }
+# The delegation exchange's bounded, rotating agent, behind the `bigquery` feature above.
+sutura-http-client = { workspace = true, optional = true }
 # The Postgres adapter, behind the `postgres` feature above. `optional` is what makes the dependency
 # ABSENT from the default build rather than merely unused, which is the property the cross builds
 # need. The adapter owns its driver's connection config, so this root names no driver crate itself.

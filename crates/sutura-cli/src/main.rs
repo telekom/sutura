@@ -111,10 +111,9 @@ mod password_file;
 ///
 /// Behind the same features as every caller: only an adapter that links an outbound TLS stack has
 /// any material to rotate, so a default-features build (no `postgres`/`datahub`/`openmetadata`)
-/// must not compile a `drive_rotation` no composition root calls. The removed BigQuery `wire`'s STS
-/// rotation used to be a third caller; only the postgres TLS, datahub reader and openmetadata
-/// reader rotators remain.
-#[cfg(any(feature = "postgres", feature = "datahub", feature = "openmetadata"))]
+/// must not compile a `drive_rotation` no composition root calls. The callers are the postgres TLS,
+/// the datahub and openmetadata readers, and a `bigquery` source's delegation exchange.
+#[cfg(any(feature = "bigquery", feature = "postgres", feature = "datahub", feature = "openmetadata"))]
 mod rotation;
 /// The HTTP surface's composition root - `sutura serve`. Its own module rather than flattened
 /// here: `github.com/telekom/sutura#685` step 2 folded the `sutura-serve` binary into this crate,

@@ -689,7 +689,8 @@ fn parse_entry(
             .map_err(|cause| InvalidSourceRegistry::WorkloadIdentity {
                 alias: alias.clone(),
                 cause,
-            })?,
+            })?
+            .with_delegation(raw.delegation.as_ref().map(workload_identity::DelegationDeclared::of)),
         ),
     };
     Ok(ConfiguredSource {

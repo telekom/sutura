@@ -1,8 +1,11 @@
 //! The Workload Identity Federation setup one `impersonation-at-source` source declares.
 //!
-//! **This process performs no exchange.** `audience` names the pool a subject's own assertion is
-//! federated against, and the federating is Google's token service's, driven by the driver from the
-//! `external_account` document `sutura_exec_bigquery`'s ADBC transport builds. A source that
+//! **This process performs no exchange with the pool.** `audience` names the pool a subject's own
+//! assertion is federated against, and the federating is Google's token service's, driven by the
+//! driver from the `external_account` document `sutura_exec_bigquery`'s ADBC transport builds. The
+//! one exchange this process can run is a declared
+//! [`crate::sources::workload_identity::DelegationDeclared`], at the caller's own identity provider,
+//! before that. A source that
 //! executes as the asking subject has to say *which* pool receives that assertion, and that is the
 //! source's declaration rather than this process's guess. See `docs/adr/0008` and `docs/adr/0018`'s
 //! sixth amendment.
@@ -66,6 +69,60 @@ pub struct WorkloadIdentityConfig {
     expected_issuer: Option<crate::IssuerUrl>,
     /// The audience the pool's provider accepts - the STS audience a subject token must carry.
     expected_audience: Option<WifAudience>,
+    delegation: Option<DelegationDeclared>,
+}
+
+/// The delegation exchange a `direct` deployment runs before the pool will accept its caller.
+///
+/// `docs/adr/0014`'s fourth amendment: the caller's inbound token is exchanged at
+/// `token_endpoint` for one whose `aud` is `audience`, the pool provider's client ID.
+///
+/// **Held as written and parsed by the crate that sends it**, at boot, by `sutura_cli`'s
+/// `build_broker` - the endpoint, client ID and audience each go into a request only that adapter
+/// builds, so its parse is the one that decides whether they can be sent, and a refusal there is
+/// still a startup failure naming the key. The secret is not here at all: only the path to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DelegationDeclared {
+    token_endpoint: String,
+    client_id: String,
+    client_secret_file: std::path::PathBuf,
+    audience: String,
+}
+
+impl DelegationDeclared {
+    pub(crate) fn of(raw: &crate::raw::RawDelegation) -> Self {
+        Self {
+            token_endpoint: raw.token_endpoint.clone(),
+            client_id: raw.client_id.clone(),
+            client_secret_file: std::path::PathBuf::from(&raw.client_secret_file),
+            audience: raw.audience.clone(),
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn token_endpoint(&self) -> &str {
+        &self.token_endpoint
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn client_id(&self) -> &str {
+        &self.client_id
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn client_secret_file(&self) -> &std::path::Path {
+        &self.client_secret_file
+    }
+
+    /// The pool provider's client ID the exchanged token must carry.
+    #[inline]
+    #[must_use]
+    pub fn audience(&self) -> &str {
+        &self.audience
+    }
 }
 
 impl WorkloadIdentityConfig {
@@ -135,7 +192,23 @@ impl WorkloadIdentityConfig {
             impersonate: parsed,
             expected_issuer,
             expected_audience,
+            delegation: None,
         })
+    }
+
+    /// The same declaration, with the delegation exchange its callers' tokens go through.
+    #[must_use]
+    pub fn with_delegation(mut self, delegation: Option<DelegationDeclared>) -> Self {
+        self.delegation = delegation;
+        self
+    }
+
+    /// The delegation exchange, if declared. `Some` requires `security.inbound.mode: direct` -
+    /// `crate::NotFitToServe::DelegationWithoutDirectInbound`.
+    #[inline]
+    #[must_use]
+    pub const fn delegation(&self) -> Option<&DelegationDeclared> {
+        self.delegation.as_ref()
     }
 
     /// The provider audience.

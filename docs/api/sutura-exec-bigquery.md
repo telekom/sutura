@@ -1388,9 +1388,10 @@ version has none.
   obtain a pool-audience token for any subject whose inbound token they also hold. It is a
   `Secret` (redacted `Debug`, no `Display`, zeroized on drop - with the copy limits that type
   states).
-- **Nothing composes it yet.** `sutura serve` declares no settings for an identity provider token endpoint or a
-  client credential, so a served deployment never reaches this port; the cells and the Keycloak
-  tier cell do.
+- **`sutura serve` composes it** for a source declaring `workload_identity.delegation`, refused
+  at boot unless the inbound mode is `direct`. No served-binary cell reaches it: a `bigquery`
+  deployment needs the ADBC driver to boot and the default test venue carries none, so the
+  composition is held in-process by `sutura-cli`'s `build_broker` cells.
 
 ### `struct RequestedAudience`
 
