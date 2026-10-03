@@ -2180,9 +2180,12 @@ the channel, the deadline and the single-statement guarantee, and what does not.
 <h2 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>One declared identity, only.</strong> A Postgres source signs in solely as the deployment's
-  declared shared service account. OAuth, Kerberos/GSSAPI and per-caller sign-in are not
-  supported: <code>AdbcPostgres::IMPERSONATION</code> is <code>NoPlaceForASubject</code>, and <code>Conninfo</code> pins
-  <code>require_auth</code> to <code>password,md5,scram-sha-256,none</code> and <code>gssencmode</code> to <code>disable</code>.</li>
+  declared shared service account: a password, or one Kerberos principal from the deployment's
+  keytab. OAuth and per-caller sign-in are not supported: <code>AdbcPostgres::IMPERSONATION</code> is
+  <code>NoPlaceForASubject</code>, and <code>Conninfo</code> pins <code>require_auth</code> to <code>password,md5,scram-sha-256,none</code>
+  and <code>gssencmode</code> to <code>disable</code> everywhere but <code>Conninfo::kerberos</code>, which writes
+  <code>require_auth='gss'</code> and the <code>gssencmode</code> its declaration names. No settings key selects
+  Kerberos yet.</li>
 <li><strong><code>transport_anchors: system</code> is refused</strong> (<code>adbc::UnusableChannel::HostStore</code>): libpq's
   <code>system</code> store is OpenSSL's compiled-in default, not the host store sutura reads.</li>
 </ul>
@@ -2257,13 +2260,18 @@ links (both musl triples) or the one <code>SUTURA_POSTGRES_ADBC_DRIVER</code> na
 <li><strong>The cells here are a fake connection</strong>; the integration tests are what reach a server through
   a real driver (mounted on a host, linked in <code>nix/shipped.nix</code>'s musl test build). The server
   refusing a multi-statement string at <code>Parse</code> is held there; the driver's <code>BEGIN</code> on
-  autocommit-off is read off its source and observed only through <code>SET LOCAL</code> taking effect.</li>
+  autocommit-off is read off its source and observed only through <code>SET LOCAL</code> taking effect.
+  <code>tests/kerberos.rs</code>'s Kerberos sign-in and its refused negative control (a declared service the
+  KDC does not know) run through the linked <code>x86_64</code> musl driver, in its CI venue alone.</li>
 <li><strong>Loading and connecting are outside the deadline</strong>: the driver is loaded and a connection
   opened per call, and only the statement runs under <code>SET LOCAL</code>.</li>
 <li><strong>Every port method.</strong> <code>session</code>'s header says what each sends.</li>
-<li><strong>One declared identity.</strong> <code>Conninfo</code> refuses Kerberos/GSSAPI, SSPI
-  and OAuth sign-in on either driver, so a source signs in only as its declared service account,
-  with a password or a client certificate; the linked libpq is built without the first three.</li>
+<li><strong>One declared identity.</strong> A source signs in only as its declared shared service account: with
+  a password or a client certificate, or as the one Kerberos principal the process's named
+  credential cache holds, when <code>Conninfo::kerberos</code> declares it
+  (the linked libpq through a static MIT krb5, <code>nix/postgres-adbc.nix</code>). No settings key selects
+  Kerberos yet. OAuth and per-caller sign-in are not supported: <code>Conninfo</code>
+  refuses SSPI and OAuth on either driver, and the linked libpq is built without libcurl.</li>
 </ul>
 <h3 id="enum-adbcerror"><code>enum AdbcError</code><a class="headerlink" href="#enum-adbcerror" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">AdbcError</span>
@@ -2376,8 +2384,16 @@ runs whatever it is handed, through the simple protocol - which is why it exists
 <h3 id="use-channel"><code>use Channel</code><a class="headerlink" href="#use-channel" title="Permanent link">&para;</a></h3>
 <p>How the channel to the source is secured, as the composition root resolved the declaration.</p>
 <h3 id="use-conninfo"><code>use Conninfo</code><a class="headerlink" href="#use-conninfo" title="Permanent link">&para;</a></h3>
-<p>The connection string for one source. Only <code>Conninfo::new</code> makes one, and its <code>Debug</code> is the
-<code>Secret</code>'s, so the password it carries is never printed.</p>
+<p>The connection string for one source. Only <code>Conninfo::new</code> and <code>Conninfo::kerberos</code> make
+one, and its <code>Debug</code> is the <code>Secret</code>'s, so the password it carries is never printed.</p>
+<h3 id="use-gssencryption"><code>use GssEncryption</code><a class="headerlink" href="#use-gssencryption" title="Permanent link">&para;</a></h3>
+<p>Whether GSSAPI encrypts the channel - libpq's <code>gssencmode</code>.</p>
+<h3 id="use-invalidkerberosservice"><code>use InvalidKerberosService</code><a class="headerlink" href="#use-invalidkerberosservice" title="Permanent link">&para;</a></h3>
+<p>A declared Kerberos service name that is not one.</p>
+<h3 id="use-kerberos"><code>use Kerberos</code><a class="headerlink" href="#use-kerberos" title="Permanent link">&para;</a></h3>
+<p>A Kerberos sign-in through GSSAPI, as the declaration names it.</p>
+<h3 id="use-kerberosservice"><code>use KerberosService</code><a class="headerlink" href="#use-kerberosservice" title="Permanent link">&para;</a></h3>
+<p>The service half of the server's principal, <code>&lt;service&gt;/&lt;host&gt;</code> - libpq's <code>krbsrvname</code>.</p>
 <h3 id="use-unusablechannel"><code>use UnusableChannel</code><a class="headerlink" href="#use-unusablechannel" title="Permanent link">&para;</a></h3>
 <p>A declared connection the ADBC transport cannot hold to, refused before anything dials.</p>
 <h3 id="use-unusabledriverpath"><code>use UnusableDriverPath</code><a class="headerlink" href="#use-unusabledriverpath" title="Permanent link">&para;</a></h3>
