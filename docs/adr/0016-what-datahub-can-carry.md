@@ -1083,17 +1083,18 @@ reach, where that adapter counts.
 `github.com/telekom/sutura#1251`'s gap 2 named two open wire-mapping limits. This amendment records
 where each stands, without touching the earlier dated text.
 
-- **The `dataset` and `semanticModel` pages now have live cells; no run of them is observed yet.**
-  `tests/provisioned.rs` adds `a_dataset_page_served_by_a_real_datahub_preserves_its_wire_shape` and
+- **The `dataset` and `semanticModel` pages now have live cells, run by CI's `ci-datahub-tier`
+  job (#1261); first observed passing in run 37142880591 at this PR's head.**
+  `tests/provisioned/wire_pages.rs` adds `a_dataset_page_served_by_a_real_datahub_preserves_its_wire_shape` and
   `a_relationship_page_served_by_a_real_datahub_preserves_its_wire_shape`. Each seeds the corpus's own
   entities on the tier - the models as `dataset` entities with a full `schemaMetadata`, the
   relationship nested in `semanticModelInfo.value.relationships[]` - reads the page back over the
   search-backed paged surface, and asserts the served entity maps to the same
   `DatasetAspect`/`RelationshipAspect` as the seed. Like the metric cell, they map the response with
   the test's own copy of the mapping, not `src/http.rs`'s `HttpAspectReader`: what they can show is
-  that the pinned platform keeps every field the reader maps, not that the reader maps them right.
-  They are `#[ignore]`d, and run under `just datahub-acceptance` and, once #1254 lands, in CI's
-  `ci-datahub-tier` job.
+  that the pinned platform keeps every field the reader maps as of this copy, kept equal by
+  review, not that the reader maps them right.
+  They are `#[ignore]`d, and run under `just datahub-acceptance` and in CI's `ci-datahub-tier` job.
 - **The platform half was already a refusal by name.** `src/http.rs` reads the platform out of each
   served dataset URN, and `DataHubCatalog::load` resolves it through the deployment's `sources`,
   refusing an unmapped one as `DataHubError::UnknownPlatform` (`tests/refusals.rs`'s
