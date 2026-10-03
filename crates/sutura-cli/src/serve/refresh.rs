@@ -127,13 +127,12 @@ where
                 if next.digest() == &self.digest {
                     return Outcome::Unchanged;
                 }
-                let previous = self.digest.clone();
-                self.digest = next.digest().clone();
                 tracing::info!(
-                    previous_digest = previous.as_str(),
-                    digest = self.digest.as_str(),
+                    previous_digest = self.digest.as_str(),
+                    digest = next.digest().as_str(),
                     "a declared catalog refresh re-pinned this bundle"
                 );
+                self.digest = next.digest().clone();
                 drop(self.sender.send_replace(Arc::new(next)));
                 Outcome::Rotated
             }

@@ -19,7 +19,7 @@
 //!
 //! [`crate::fixture::FixtureCredential`] is the only way to hold one, its three values are private, and
 //! `FixtureCredential::parse` is the only way in. So *unconfigured* is not a value
-//! `PostgresWarehouse::local_config` can be handed - it is unrepresentable rather than rejected -
+//! `FixtureCredential::conninfo` can be handed - it is unrepresentable rather than rejected -
 //! and there is no branch left for a fallback to live in.
 //!
 //! # Where the values come from, because nothing set them before
@@ -49,6 +49,10 @@
 //!   distinction this module is about. Only the password is generated.
 
 use sutura_domain::identity::Secret;
+use sutura_domain::model::SourceName;
+
+use crate::adbc::{Channel, Conninfo, UnusableChannel};
+use crate::connection::ConnectionTarget;
 
 /// One of the three values the Postgres fixture tier publishes into the environment.
 ///
@@ -119,9 +123,9 @@ pub enum UnconfiguredFixture {
 ///
 /// Exists only if all three values were present, so nothing downstream asks again. No `Display`,
 /// no `PartialEq`, no public field and no public accessor: the password is a
-/// [`sutura_domain::identity::Secret`], which has neither `Display` nor `==`, and the two names
-/// leave this crate only as arguments to `PostgresWarehouse::local_config`.
-#[derive(Debug)]
+/// [`sutura_domain::identity::Secret`], which has neither `Display` nor `==`, and the values leave
+/// this crate only inside a [`Conninfo`].
+#[derive(Debug, Clone)]
 pub struct FixtureCredential {
     user: String,
     password: Secret,
@@ -162,23 +166,53 @@ impl FixtureCredential {
         })
     }
 
-    /// The login role.
-    #[inline]
-    pub(crate) fn user(&self) -> &str {
-        &self.user
+    /// The same credential, signing in as `role` - the tier's certificate-authenticated role.
+    #[must_use]
+    pub fn as_role(&self, role: &str) -> Self {
+        Self {
+            user: String::from(role),
+            ..self.clone()
+        }
     }
 
-    /// The database.
-    #[inline]
-    pub(crate) fn database(&self) -> &str {
-        &self.database
+    /// The tier at `host:port` as this credential, over `channel`.
+    ///
+    /// # Errors
+    ///
+    /// [`Conninfo::new`]'s.
+    pub fn conninfo(
+        &self,
+        source: &SourceName,
+        host: &str,
+        port: u16,
+        channel: Channel<'_>,
+    ) -> Result<Conninfo, UnusableChannel> {
+        Conninfo::new(
+            source,
+            ConnectionTarget::Host(host),
+            port,
+            &self.database,
+            &self.user,
+            &self.password,
+            channel,
+        )
     }
 
-    /// The password, still wrapped. Exposed at exactly one call site - the connection config -
-    /// where the value itself is the payload.
-    #[inline]
-    pub(crate) const fn password(&self) -> &Secret {
-        &self.password
+    /// The tier at `host:port` as this credential, every unqualified name resolved in `schema`.
+    ///
+    /// # Errors
+    ///
+    /// [`Conninfo::in_schema`]'s.
+    pub fn conninfo_in(&self, source: &SourceName, host: &str, port: u16, schema: &str) -> Result<Conninfo, UnusableChannel> {
+        Conninfo::in_schema(
+            schema,
+            source,
+            ConnectionTarget::Host(host),
+            port,
+            &self.database,
+            &self.user,
+            &self.password,
+        )
     }
 }
 
@@ -250,8 +284,8 @@ mod tests {
     fn all_three_present_parses() {
         let credential = FixtureCredential::parse(|variable| Some(String::from(variable.name())))
             .expect("three present values are a credential");
-        assert_eq!(credential.user(), FixtureVariable::User.name());
-        assert_eq!(credential.database(), FixtureVariable::Database.name());
+        assert_eq!(credential.user, FixtureVariable::User.name());
+        assert_eq!(credential.database, FixtureVariable::Database.name());
     }
 
     /// The password does not reach a log through the credential's own `Debug`.

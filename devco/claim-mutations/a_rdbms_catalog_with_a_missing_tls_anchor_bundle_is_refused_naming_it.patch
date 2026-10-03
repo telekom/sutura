@@ -1,18 +1,16 @@
 diff --git a/crates/sutura-cli/src/catalog.rs b/crates/sutura-cli/src/catalog.rs
-index 079d84cb4..6f7752ef7 100644
+index 144b658..2ddbd31 100644
 --- a/crates/sutura-cli/src/catalog.rs
 +++ b/crates/sutura-cli/src/catalog.rs
-@@ -399,12 +399,7 @@ fn open_one_rdbms_catalog(
-                 sutura_config::sources::transport::TrustAnchors::System => TlsAnchors::System,
-                 sutura_config::sources::transport::TrustAnchors::File(path) => TlsAnchors::Bundle(path.clone()),
-             };
--            Some(client_config(&anchors, None).map_err(|cause| {
--                format!(
--                    "`catalogs.{}.connection` is declared TLS and its material is not usable: {cause}",
--                    settings.name()
--                )
--            })?)
-+            client_config(&anchors, None).ok()
-         }
-         sutura_config::sources::transport::SourceTransport::Mutual { anchors, identity } => {
-             let anchors = match anchors {
+@@ -491,10 +491,3 @@ fn postgres_dictionary_reader(
+     }
+-    .transpose()
+-    .map_err(|cause| {
+-        format!(
+-            "`catalogs.{}.connection` is declared TLS and its material is not usable: {}",
+-            settings.name(),
+-            crate::commands::render(&cause)
+-        )
+-    })?;
++    .and_then(Result::ok);
+ 

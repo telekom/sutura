@@ -726,7 +726,7 @@ The paragraph at line 506 said *That check cannot be written today* and gave the
 adapter can carry a per-subject credential, so every leg presents the identity this deployment holds
 for that source*. The reason is now false. `BigQueryWarehouse` declares
 `ImpersonationCapability::PerSubjectCredential`
-(`crates/sutura-exec-bigquery/src/lib.rs:666`), and `Presented::SubjectToken` is constructed by the
+(`crates/sutura-exec-bigquery/src/lib.rs`, symbol `BigQueryWarehouse::IMPERSONATION`), and `Presented::SubjectToken` is constructed by the
 shipping broker (`crates/sutura-exec-bigquery/src/principal.rs`). So a published build links an
 adapter that carries a per-subject credential, and the stated justification for why the identity-keyed
 set would hold one element "for a reason that has nothing to do with the asker" no longer holds for

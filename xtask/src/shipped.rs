@@ -90,6 +90,7 @@ use std::collections::BTreeMap;
 // `.agents/skills/sutura/gates/SKILL.md`'s orphan rule is about moving tests OUT of a file, and
 // every assertion that was here is still here. `documented` reads pages, `refusal` locates a
 // workflow, `declaration` reads and classifies the YAML; none touches the nix parse below.
+mod adapters;
 mod declaration;
 mod documented;
 mod finder;
@@ -171,6 +172,8 @@ pub(crate) struct Record {
     package: String,
     /// `probeFeatures`: which feature-on source builds the cross link legs link.
     probe_features: Vec<String>,
+    /// `features`: what the shipped artefact carries, read on one line - `adapters` says why.
+    features: Vec<String>,
 }
 
 /// Every record in `binaries = [ ... ]`, in declaration order.
@@ -206,6 +209,7 @@ fn records(text: &str) -> Vec<Record> {
                 bin: String::new(),
                 package: String::new(),
                 probe_features: Vec::new(),
+                features: Vec::new(),
             });
             collecting = false;
         }
@@ -217,6 +221,9 @@ fn records(text: &str) -> Vec<Record> {
         }
         if let Some(package) = quoted_after(line, "package = \"") {
             record.package = String::from(package);
+        }
+        if let Some(rest) = line.trim_start().strip_prefix("features = [") {
+            record.features = quoted_items(rest);
         }
         if let Some((_, rest)) = line.split_once("probeFeatures = [") {
             record.probe_features = quoted_items(rest);
@@ -387,7 +394,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
     // EVERY RULE REPORTS BEFORE ANY OF THEM RETURNS, which is `rules`' whole reason: the loop rule
     // used to return here, so a tree with an empty shipped set in one file and a drifted literal
-    // in another printed the first and hid the second. Each of the four is still fail-closed on
+    // in another printed the first and hid the second. Each of the five rules is still fail-closed on
     // its own subject - a zero-iteration loop is a green job that linked, audited and inventoried
     // nothing; a `docs/adr/0017` claim resting on a refusal no workflow holds has no referent; a
     // page this cannot read or lex goes unreconciled while the others keep the count non-empty -
@@ -397,12 +404,23 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         Err(why) => Err(why),
     };
     let host = refusal::hosting(&files, &refusal::PROBE_REFUSAL);
+    let unrequired: Vec<String> = records(&source)
+        .iter()
+        .flat_map(|record| {
+            let manifest = root.join("crates").join(&record.package).join("Cargo.toml");
+            std::fs::read_to_string(&manifest).map_or_else(
+                |error| vec![format!("{}: could not read {}: {error}", record.bin, manifest.display())],
+                |text| adapters::unrequired(record, &source, &text),
+            )
+        })
+        .collect();
     let refused = rules::refusals(
         loops::verdict(&files),
         &expected,
         &mismatches,
         host.as_deref(),
         reconciled.as_ref().map_err(String::as_str),
+        &unrequired,
     );
     if rules::report(&refused) == Verdict::Fail {
         return Verdict::Fail;

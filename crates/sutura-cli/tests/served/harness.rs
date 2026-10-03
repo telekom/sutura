@@ -338,6 +338,11 @@ pub(crate) fn command(config_dir: &Path, environment: Environment) -> Command {
             command.env_remove(key);
         }
     }
+    // Restored: which PostgreSQL driver file this host carries is a property of the host, not a
+    // setting any case is about, and every `kind: postgres` source needs one where none is linked.
+    if let Some(driver) = std::env::var_os(sutura_exec_postgres::adbc::MOUNTED_DRIVER) {
+        command.env(sutura_exec_postgres::adbc::MOUNTED_DRIVER, driver);
+    }
     command
         .env("SUTURA_ENVIRONMENT", environment.as_str())
         .env("SUTURA_CONFIG_DIR", config_dir)

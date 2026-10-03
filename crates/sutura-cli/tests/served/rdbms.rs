@@ -20,7 +20,7 @@
 //! The rdbms catalog's dictionary rows carry a required `schema_name`, so `convert_table_address`
 //! always builds a `QualifiedTable` (e.g. `public.orders`). The `files` engine refuses a qualified
 //! model at boot (`crates/sutura-cli/src/serve/files.rs`), so the `source_alias` must name a
-//! `postgres` source. `PostgresWarehouse` takes the port's default `preflight` (`NotAsked`), so
+//! `postgres` source. `AdbcPostgres` takes the port's default `preflight` (`NotAsked`), so
 //! the table's absence from the tier is a `NotReported` notice at boot rather than a refusal, and
 //! the deployment starts without the physical table loaded - which is why this cell needs no
 //! `FixtureLoadGuard` and no example CSV load.

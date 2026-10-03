@@ -25,11 +25,14 @@
 # a mispaired OS thread, a barrier nobody releases - holds the whole run open until a human notices
 # and sends SIGTERM by hand, which is what happened at 3293s. `terminate-after = 5` on a 60s period
 # is 5 minutes, the number `#692`'s own thread states as the bar for ANY test in this suite. The
-# longest legitimately slow cell found by reading the workspace is nowhere close: postgres's own
-# cancellation-under-load cell (`crates/sutura-exec-postgres/tests/deadline.rs`) asserts its OWN
-# elapsed time stays under 18s, and the most generous reply budget in the default suite
-# (`crates/sutura-cli/tests/mcp.rs`) is 120s of slack around a local reply that returns in a
-# fraction of that - so 5 minutes has no legitimately slow cell within an order of magnitude of it.
+# slowest regular cells are postgres (18s) and mcp (120s), a long way from the ceiling. What
+# actually sets the margin is the gas family: it measured 174.6s max in three later runs under
+# normal CI load (lines 82-83 below), so the margin from the default 300s ceiling is 1.7x for
+# those cells. One note: the composite gas cell at the foot of this file measured 410.3s in one
+# host-starved run (line 79) but gets a doubled 600s ceiling from the override it sits beside,
+# re-added 10-02 after it hit the 300s ceiling in two runs. That single cell is not the one the
+# 1.7x above rests on; it carries its own ceiling - so "any test" here means every test but that composite cell. (The 600s override is the composite cell's alone; no other gas cell has a special
+# ceiling.)
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 5 }
 

@@ -327,3 +327,22 @@ path has no per-request deadline"*, the Postgres row of the adapter table, the r
 *What holds it*'s Postgres row, and the raw-tool bullet under *Limits*. *What holds it*'s
 before-admission row now names a cell per transport for the raw tool; the certified question's
 opening is still held by reading.
+
+## Fifth amendment, 2026-10-02: Postgres connects per call, outside the deadline, and holds no lock
+
+`github.com/telekom/sutura#913` answers every Postgres source over the ADBC driver, and the
+connection's own execution lock is gone, so the lock-first ordering in Decision 1's adapter table,
+*What holds it*'s certified-path row and the Fourth amendment's "once the execution lock is held"
+no longer describe the code. What runs now, on the certified and the raw path alike
+(`crates/sutura-exec-postgres/src/adbc.rs`, `adbc/session.rs`): `refuse_if_spent` refuses a spent
+budget before the driver is loaded; the driver is loaded and one connection opened per call; a
+budget spent by then is refused locally as `DeadlineSpent`; and what is left is sent as
+`SET LOCAL statement_timeout`, clamped to the connect-time ceiling, inside a transaction the driver
+opens and this adapter always rolls back. `57014`, `DeadlineSpent`, or a stream that fails once
+that timeout has run out is `deadline_exceeded`.
+
+**The limit moves rather than closes.** Loading the driver and connecting are outside the deadline
+and unbounded: `Conninfo` writes no `connect_timeout`, so with `PGCONNECT_TIMEOUT` unset a server
+that never answers holds the call, and its admission permit, until the OS gives up on the connect -
+libpq's documented default, not measured here. The six tier cells in
+`crates/sutura-exec-postgres/tests/deadline.rs` run against the new transport.

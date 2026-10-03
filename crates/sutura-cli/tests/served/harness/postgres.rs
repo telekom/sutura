@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 
 use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
-use sutura_exec_postgres::PostgresWarehouse;
+use sutura_exec_postgres::adbc::{AdbcPostgres, Channel};
+use sutura_exec_postgres::fixture::FixtureCredential;
 
 use super::{LOCAL_SOURCE, LOOPBACK, SINGLE_USER, TOKEN, config_path, derived_beside, example_root, settings_over};
 
@@ -17,10 +18,9 @@ const FIXTURE_LOAD_LOCK_KEY: i64 = 0x5375_7475_7261_5351;
 
 /// Holds the fixture-load advisory lock for as long as it lives - dropping it is what releases it.
 ///
-/// **Why the lock has to outlive the LOAD, not just wrap it.** The load itself is two separate
-/// server-side transactions per table (`PostgresWarehouse::load_schema`: a committed
-/// `DROP TABLE IF EXISTS ...; CREATE TABLE ...`, then a second, separate `COPY`), so between them
-/// the freshly created table is visible and EMPTY. A first version of this lock released as soon as
+/// **Why the lock has to outlive the LOAD, not just wrap it.** A load drops and refills every table
+/// (`AdbcPostgres::load_csv`), so a served cell's questions must not overlap another cell's
+/// reload. A first version of this lock released as soon as
 /// the load loop returned, which serialised the two LOADS against each other but left the window
 /// open between "cell A releases the lock and starts querying its own served binary" and "cell B,
 /// which was waiting on the lock, immediately begins dropping and refilling the same tables cell
@@ -68,7 +68,7 @@ fn lock_fixture_load(config: &tokio_postgres::Config) -> FixtureLoadGuard {
     let (client, connection) = runtime
         .block_on(config.connect(tokio_postgres::NoTls))
         .expect("the provisioned tier accepts a lock connection");
-    // Own task, like `PostgresWarehouse::connect`'s own driver task - polled independently of this
+    // Own task - polled independently of this
     // function's own `block_on` calls, which is what lets the lock query below go through the same
     // client without deadlocking the executor. Its own error has no caller to route to; the next
     // `block_on` fails on the client's state instead.
@@ -117,6 +117,7 @@ pub(crate) struct LoadedTier {
 /// this same discovery.
 pub(crate) struct DiscoveredTier {
     pub(crate) config: tokio_postgres::Config,
+    pub(crate) host: String,
     pub(crate) port: u16,
     pub(crate) user: String,
     pub(crate) password: String,
@@ -143,6 +144,7 @@ pub(crate) fn discover_tier() -> Option<DiscoveredTier> {
         .dbname(&database);
     Some(DiscoveredTier {
         config,
+        host: String::from(endpoint.host()),
         port: endpoint.port(),
         user,
         password,
@@ -170,8 +172,17 @@ pub(crate) fn load_into_tier(case: &str, loader_source: &str) -> Option<LoadedTi
         let posture = SourcePosture::SharedServiceUser {
             declared: SharedIdentityDeclared::of(reason),
         };
-        let loader = PostgresWarehouse::connect(source, posture, &discovered.config)
-            .expect("the provisioned Postgres tier accepts its published fixture credential");
+        let credential = FixtureCredential::from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
+        let conninfo = credential
+            .conninfo(&source, &discovered.host, discovered.port, Channel::Plaintext)
+            .expect("the tier's published endpoint builds a connection string");
+        let loader = AdbcPostgres::new(
+            source,
+            posture,
+            sutura_exec_postgres::adbc::PostgresDriver::from_host().expect("the tier is up, so a driver is named"),
+            conninfo,
+        )
+        .expect("the default ceiling parses");
         for entry in std::fs::read_dir(&data).expect("the single-player data directory is readable") {
             let path = entry.expect("a fixture directory entry is readable").path();
             if path.extension().and_then(|extension| extension.to_str()) != Some("csv") {

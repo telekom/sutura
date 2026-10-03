@@ -7,23 +7,15 @@
 //! exists: `open_engine`'s single-kind arm and the mixed path's `kind::postgres_group`.
 //!
 //! **Opening is where a misdeclared channel fails, and it fails before the listener binds**: the
-//! posture cross-check, the password file, the TLS material and the connection itself are all read
-//! here, so a deployment cannot come up believing a channel is secured when it is not.
+//! posture cross-check, the password file, the declared channel and its TLS material are all read
+//! in `crate::postgres::build`, so a deployment cannot come up believing a channel is secured when
+//! it is not.
 
-/// Opens one `PostgreSQL` connection per declared source, secured as the source declares.
+/// Opens one `PostgreSQL` adapter per declared source, secured as the source declares.
 ///
 /// Attaches nothing (the tables live in the database), which is the whole difference from the files
-/// arm. What opening DOES is everything that can fail before a question is asked against a real
-/// server: the posture cross-check, the TLS resolution (which reads the declared trust anchors and
-/// an optional client identity and refuses what a closed type must refuse), and the connection
-/// itself - so a deployment whose channel is misdeclared fails to START rather than answering every
-/// question over a channel it believes is secured.
-///
-/// **The composition is `crate::serve`'s single Postgres composition, and it is thin on purpose:**
-/// the TLS reading and the connection live in `sutura-exec-postgres` (`tls::client_config` and
-/// `connect_secured`), so a fix to either lands once and both matches get it. What this
-/// function owns is the mapping from the declared `SourcePlacement` to that adapter's resolved
-/// material - the same boundary `build_bigquery` draws.
+/// arm. The composition is `crate::postgres::build`, shared with `crate::sources`' root, so a fix to
+/// it lands once and both roots get it.
 #[cfg(feature = "postgres")]
 pub(crate) fn open_postgres(
     declared: &[&sutura_domain::model::SourceName],
@@ -32,7 +24,7 @@ pub(crate) fn open_postgres(
     let mut engines: Option<sutura_app::Warehouses<super::PostgresSource>> = None;
     for source in declared {
         let configured = super::configured_source(source, registry)?;
-        let engine = build_postgres(source, configured)?;
+        let engine = crate::postgres::build(source, configured)?;
         engines = Some(match engines {
             None => sutura_app::Warehouses::of(engine),
             Some(open) => open.and(engine).map_err(super::flatten)?,
@@ -64,103 +56,4 @@ pub(crate) fn open_postgres(
          feature - so it links no Postgres adapter. Build `sutura-cli` with `--features postgres`, \
          or declare a `files` source"
     ))
-}
-
-/// Builds one `Postgres` adapter, after checking this build can deliver the source's posture and
-/// that the declared channel is one this binary can actually open.
-///
-/// **Every value the connection needs is declared on the entry**: the host or unix socket, the
-/// port, the role, the database and the password file are the entry's. The password file is read
-/// HERE - the same justification `build_bigquery` gives for its credential file - so a password
-/// that is missing, unreadable or empty stops the process rather than producing a deployment that
-/// answers every question with an authentication failure while claiming to be open.
-///
-/// **The non-loopback fail-closed is configuration's, and this function inherits it:** config
-/// refuses a non-loopback `host` declared `plaintext` at load (issue 124). What opening adds is the
-/// TLS resolution for a `verified`/`mutual` source - reading the anchor bundle and optional client
-/// identity through `sutura_exec_postgres::tls::client_config`, which reads an explicitly selected
-/// `system` store and refuses one it cannot read completely, anchors that parse to nothing, and an
-/// incomplete identity.
-#[cfg(feature = "postgres")]
-fn build_postgres(
-    source: &sutura_domain::model::SourceName,
-    configured: &sutura_config::ConfiguredSource,
-) -> Result<super::PostgresSource, String> {
-    use sutura_exec_postgres::PostgresWarehouse;
-    use sutura_exec_postgres::connection::{ConnectionTarget, config};
-    use sutura_exec_postgres::tls::{TlsAnchors, TlsIdentity, rotating_client_config};
-
-    let identity = configured
-        .identity()
-        .ok_or_else(|| format!("`sources.{source}` declares no identity a query could run under"))?;
-    identity
-        .posture()
-        .deliverable_by(
-            <super::PostgresSource as sutura_domain::warehouse::Warehouse>::IMPERSONATION,
-            source,
-        )
-        .map_err(super::flatten)?;
-    // Matched rather than read off accessors every kind would have to have, for the reason
-    // `build_bigquery` gives: `one_kind` has already decided this is the Postgres arm, and a second
-    // openable kind should arrive as a compile error at this line too.
-    let sutura_config::SourcePlacement::Postgres {
-        ref dial,
-        ref database,
-        ref user,
-        ref password_file,
-        ref transport,
-    } = *configured.placement()
-    else {
-        return Err(format!(
-            "`sources.{source}` reached the Postgres connect step with a placement no Postgres \
-             adapter reads, which `one_kind` should have dispatched elsewhere"
-        ));
-    };
-
-    // Exactly one of these, by construction - `sutura_config::sources::placement::PostgresDial`
-    // is the reason there is no third arm here for a state `parse_placement` already refused.
-    let (target, port) = match dial {
-        sutura_config::sources::placement::PostgresDial::Tcp { host, port } => (ConnectionTarget::Host(host.as_str()), *port),
-        sutura_config::sources::placement::PostgresDial::UnixSocket { directory, port } => {
-            (ConnectionTarget::UnixSocket(directory.as_path()), *port)
-        }
-    };
-    let config = config(target, port, database, user, password_file)
-        .map_err(|cause| format!("`sources.{source}.password_file` could not be read: {cause}"))?;
-    let tls = match transport {
-        sutura_config::sources::transport::SourceTransport::Plaintext => None,
-        sutura_config::sources::transport::SourceTransport::Verified { anchors } => {
-            let anchors = match anchors {
-                sutura_config::sources::transport::TrustAnchors::System => TlsAnchors::System,
-                sutura_config::sources::transport::TrustAnchors::File(path) => TlsAnchors::Bundle(path.clone()),
-            };
-            Some(rotating_client_config(&anchors, None).map_err(|cause| {
-                format!(
-                    "`sources.{source}` is declared TLS and its material is not usable: {}",
-                    super::flatten(&cause)
-                )
-            })?)
-        }
-        sutura_config::sources::transport::SourceTransport::Mutual { anchors, identity } => {
-            let anchors = match anchors {
-                sutura_config::sources::transport::TrustAnchors::System => TlsAnchors::System,
-                sutura_config::sources::transport::TrustAnchors::File(path) => TlsAnchors::Bundle(path.clone()),
-            };
-            let identity = TlsIdentity::new(identity.certificate().clone(), identity.key().clone());
-            Some(rotating_client_config(&anchors, Some(&identity)).map_err(|cause| {
-                format!(
-                    "`sources.{source}` is declared mTLS and its material is not usable: {}",
-                    super::flatten(&cause)
-                )
-            })?)
-        }
-    };
-    // A new connection resolves the rotating handle ONCE (at connect) and keeps that pair for its
-    // life - a live connection is left until it closes, per `docs/adr/0010`.
-    let (tls, rotator) = match tls {
-        None => (None, None),
-        Some((rotating, rotator)) => (Some(rotating), Some(rotator)),
-    };
-    crate::rotation::drive_rotation("source transport (postgres TLS)", rotator);
-    PostgresWarehouse::connect_secured(source.clone(), identity.posture().clone(), &config, tls).map_err(super::flatten)
 }

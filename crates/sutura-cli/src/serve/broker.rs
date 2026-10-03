@@ -113,7 +113,7 @@ fn delegation(
     declared: &sutura_config::sources::workload_identity::DelegationDeclared,
     outbound: Option<&sutura_tls::Declared>,
 ) -> Result<sutura_exec_bigquery::delegation::Delegation, String> {
-    use sutura_exec_bigquery::delegation::http::{ExchangeClient, OverHttp, TokenEndpoint};
+    use sutura_exec_bigquery::delegation::http::{ExchangeClient, OverHttp, ReadBounds, TokenEndpoint, rotating_agent};
     use sutura_exec_bigquery::delegation::{Delegation, RequestedAudience};
 
     let key = format!("sources.{alias}.workload_identity.delegation");
@@ -124,9 +124,9 @@ fn delegation(
     let secret = crate::password_file::read_key(&format!("{key}.client_secret_file"), declared.client_secret_file())?;
     let client =
         ExchangeClient::new(declared.client_id(), secret).map_err(|cause| format!("`{key}.client_id` is unusable: {cause}"))?;
-    let bounds = sutura_http_client::ReadBounds::parse(EXCHANGE_TIMEOUT_SECONDS, EXCHANGE_MAX_ANSWER_BYTES)
+    let bounds = ReadBounds::parse(EXCHANGE_TIMEOUT_SECONDS, EXCHANGE_MAX_ANSWER_BYTES)
         .map_err(|cause| format!("the delegation exchange's own read bounds are unusable: {cause}"))?;
-    let (agent, rotator) = sutura_http_client::rotating_agent(bounds, outbound.cloned())
+    let (agent, rotator) = rotating_agent(bounds, outbound.cloned())
         .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
     crate::rotation::drive_rotation("security.outbound.transport_anchors (delegation exchange)", rotator);
     Ok(Delegation::through(

@@ -1,16 +1,10 @@
-diff --git a/crates/sutura-exec-postgres/src/raw.rs b/crates/sutura-exec-postgres/src/raw.rs
-index 2f666c048..aafc90bd9 100644
---- a/crates/sutura-exec-postgres/src/raw.rs
-+++ b/crates/sutura-exec-postgres/src/raw.rs
-@@ -59,10 +59,9 @@ impl PostgresWarehouse {
-     pub(crate) fn run_raw(
-         &self,
-         statement: &sutura_domain::raw::RawStatement,
--        presented: &Presented,
-+        _presented: &Presented,
-         deadline: Deadline,
-     ) -> Result<sutura_domain::warehouse::RawRows, PostgresError> {
--        self.deliverable(presented)?;
-         let sql = statement.as_str();
-         // Held for the whole `BEGIN` / statement / `ROLLBACK` triple: this client pipelines, so
-         // without this a concurrent caller's own exchange interleaves on the wire mid-transaction
+diff --git a/crates/sutura-exec-postgres/src/adbc.rs b/crates/sutura-exec-postgres/src/adbc.rs
+index 7417d98..642919e 100644
+--- a/crates/sutura-exec-postgres/src/adbc.rs
++++ b/crates/sutura-exec-postgres/src/adbc.rs
+@@ -239,4 +239,3 @@ impl AdbcPostgres {
+     /// The raw tool's one statement, `READ ONLY` - `docs/adr/0013`'s three properties, `session::raw`.
+-    fn raw(&self, statement: &RawStatement, presented: &Presented, deadline: Deadline) -> Result<RawRows, PostgresError> {
+-        crate::deliverable(&self.source, &self.posture, presented)?;
++    fn raw(&self, statement: &RawStatement, _presented: &Presented, deadline: Deadline) -> Result<RawRows, PostgresError> {
+         refuse_if_spent(deadline)?;

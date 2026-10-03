@@ -172,6 +172,9 @@ in
   # sysroot, so the language server navigates the std of the compiler it is paired with. Set
   # explicitly rather than left to discovery, which is the documented devenv behaviour.
   env.RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
+  # The PostgreSQL ADBC driver every `kind: postgres` source is answered over, for `just test` and
+  # a locally run `sutura`: the flake's own host build, the one `checks.nextest` names.
+  env.SUTURA_POSTGRES_ADBC_DRIVER = "${inputs.repo.packages.${pkgs.stdenv.hostPlatform.system}.adbc-driver-postgresql-host}/lib/libadbc_driver_postgresql${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
 
   # devenv puts its stdenv compiler first on PATH, ahead of packages.
   stdenv = toolPkgs.llvmPackages_latest.stdenv;
