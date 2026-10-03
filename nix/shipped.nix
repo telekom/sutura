@@ -701,7 +701,11 @@ let
         # body, and dropping the old key without this addition would leave nothing in
         # `required` asserting `axum` is linked at all, which is a silent weakening of this
         # gate rather than a fold.**
-        required = { sutura = [ "axum" "datafusion" ]; };
+        #
+        # **Every shipped adapter crate too, since `github.com/telekom/sutura#1247`**: a release
+        # that stopped linking one fails here naming it, and `check-shipped-binaries` holds this
+        # list to the record's `features` at PR time (`xtask/src/shipped/adapters.rs`).
+        required = { sutura = [ "axum" "datafusion" "sutura-exec-bigquery" "sutura-exec-postgres" "sutura-catalog-datahub" "sutura-catalog-openmetadata" ]; };
         # `ring` and not `rustls`: `rustls` is a name several crates in the closure carry a
         # variant of, while `ring` is the one that compiles C and assembly and is therefore
         # the one the cross builds actually pay for.

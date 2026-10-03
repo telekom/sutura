@@ -43,6 +43,8 @@ pub(super) enum Refused<'a> {
     NothingProbed,
     /// Documented feature builds no probe covers.
     Unprobed { problems: &'a [String], host: Option<&'a str> },
+    /// Shipped adapters `checks.shipped-features` would not hold - `super::adapters`.
+    Unrequired(&'a [String]),
 }
 
 impl Refused<'_> {
@@ -56,6 +58,7 @@ impl Refused<'_> {
             Self::UnreadablePage(why) => unreadable_page(why),
             Self::NothingProbed => nothing_probed(),
             Self::Unprobed { problems, host } => unprobed(problems, *host),
+            Self::Unrequired(problems) => unrequired(problems),
         }
     }
 }
@@ -71,6 +74,7 @@ pub(super) fn refusals<'a>(
     mismatches: &'a [Mismatch],
     host: Option<&'a str>,
     reconciled: Result<&'a Reconciliation, &'a str>,
+    unrequired: &'a [String],
 ) -> Vec<Refused<'a>> {
     let mut refused = Vec::new();
     if loops == Verdict::Fail {
@@ -95,6 +99,9 @@ pub(super) fn refusals<'a>(
                 });
             }
         }
+    }
+    if !unrequired.is_empty() {
+        refused.push(Refused::Unrequired(unrequired));
     }
     refused
 }
@@ -188,6 +195,19 @@ fn unprobed(problems: &[String], host: Option<&str>) {
     eprintln!("  nothing. The row belongs in `{source}`'s probeFeatures.");
 }
 
+/// Shipped adapters the release check's `required` list and the shipped `features` disagree on.
+fn unrequired(problems: &[String]) {
+    eprintln!(
+        "xtask check-shipped-binaries: FAILED - {} adapter(s) `checks.shipped-features` would not hold",
+        problems.len()
+    );
+    for problem in problems {
+        eprintln!("  {problem}");
+    }
+    eprintln!("  `required` in nix/shipped.nix is what a release is refused without. Name a shipped adapter");
+    eprintln!("  there, or drop one no shipped feature pulls, in the same change.");
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Refused, refusals};
@@ -208,7 +228,7 @@ mod tests {
             problems: Vec::new(),
             probed: vec![String::from("docs/p.md:2 sutura-cli [bigquery]")],
         };
-        let refused = refusals(Verdict::Fail, &expected, &mismatches, Some("ci.yml"), Ok(&clean));
+        let refused = refusals(Verdict::Fail, &expected, &mismatches, Some("ci.yml"), Ok(&clean), &[]);
         assert!(
             matches!(refused.as_slice(), [Refused::EmptyLoop, Refused::Drift { .. }]),
             "both rules have to survive into the report, got {} rule(s)",
@@ -225,7 +245,7 @@ mod tests {
             problems: Vec::new(),
             probed: vec![String::from("docs/p.md:2 sutura-cli [bigquery]")],
         };
-        let refused = refusals(Verdict::Pass, &[], &[], Some("ci.yml"), Ok(&clean));
+        let refused = refusals(Verdict::Pass, &[], &[], Some("ci.yml"), Ok(&clean), &[]);
         assert!(refused.is_empty(), "{} rule(s) fired on a clean tree", refused.len());
         assert_eq!(super::report(&refused), Verdict::Pass);
     }
@@ -235,7 +255,7 @@ mod tests {
         // `documented::pages` returning `Err` used to return from `run` before the drift report
         // too. It is one rule among the others now, and it must not also report `NothingProbed` -
         // there is no reconciliation to be empty when the pages could not be read.
-        let refused = refusals(Verdict::Pass, &[], &[], Some("ci.yml"), Err("docs/p.md: invalid utf-8"));
+        let refused = refusals(Verdict::Pass, &[], &[], Some("ci.yml"), Err("docs/p.md: invalid utf-8"), &[]);
         assert!(
             matches!(refused.as_slice(), [Refused::UnreadablePage("docs/p.md: invalid utf-8")]),
             "{} rule(s)",
