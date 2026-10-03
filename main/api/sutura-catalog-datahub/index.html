@@ -2033,15 +2033,22 @@ tested against a fake reader that serves recorded documents - the port gets a fa
 HTTP. <code>AspectReader</code> is the seam a real reader over <code>DataHub</code>'s versioned <code>OpenAPI</code> v3 entity
 surface implements, and since issue #202's HTTP reader, one now does: <code>http::HttpAspectReader</code>,
 behind this crate's default-off <code>http</code> feature, with a personal access token as a bearer. Its own
-module header states what is measured against a live <code>DataHub</code> and what is not - only the
-<code>metric</code> entity's wire shape is, today. The recorded fixture source in <code>fixture</code> and the two
+module header states what is measured against a live <code>DataHub</code> and what is not - the <code>metric</code>
+entity's wire shape and the <code>semanticModel</code> entity's relationship shape are BOTH measured live
+(the latter on the docker tier, 2026-09-16), and the <code>dataset</code> entity's field list is not; the
+<code>dataset</code> and <code>semanticModel</code> pages have live cells that do not drive this reader. The recorded
+fixture source in <code>fixture</code> and the two
 test doubles (<code>tests::Stub</code>, the acceptance suite's <code>Composed</code>) remain what every other test in
 this crate reads against. <strong>A composition root now serves it, behind <code>sutura-cli</code>'s default-off
 <code>datahub</code> feature:</strong> that feature links this crate (with <code>http</code>) and opens <code>catalog.kind: datahub</code>,
-reading the entry's token file once at boot and carrying its PAT as the bearer on every request. What
-is still not is a live-<code>DataHub</code> read path in CI and the rest of the wire mapping - the fixed
-<code>bigquery</code> platform alias and the last page unmeasured against a live instance, both stated in
-<code>http</code>'s own module header. The <em>Built and not wired</em> register in
+reading the entry's token file once at boot and carrying its PAT as the bearer on every request.
+The only live read through this reader is in the
+<code>e2e-datahub-adbc</code> venue (run 37105272807, push adea454b3, job 111152847768), which passes
+<code>served_datahub_metric_executes_through_adbc_bigquery</code>; that venue needs a <code>BigQuery</code> secret, so
+it skips on forks and the merge queue, and its seeds carry no per-field <code>description</code> or
+<code>isPartOfKey</code>. The platform is read from each
+served URN; the composition root maps only <code>bigquery</code>, so any other platform is refused by name
+at load (<code>DataHubError::UnknownPlatform</code>). The <em>Built and not wired</em> register in
 <code>.agents/skills/sutura/query-surface/SKILL.md</code> keeps those limits; it no longer records "no
 composition root".</p>
 <p><strong>What that register no longer says is that the cost is unmeasured.</strong> <code>docs/adr/0016</code>'s
@@ -2558,8 +2565,9 @@ guess about <code>dataset</code> would be a FIRST claim this crate has made abou
 refuse an unexpected shape as a typed <code>HttpReaderError::UnexpectedShape</code> naming the entity and
 the field, rather than reading past a missing or mistyped key with a default - a guess that
 happened to be wrong would otherwise certify a bundle silently missing a model or a relationship.
-<strong>Do not cite this reader as proof the <code>dataset</code> half works against a real <code>DataHub</code> until an
-acceptance leg like <code>tests/provisioned.rs</code>'s measures it.</strong></p>
+<strong>Do not cite this reader as proof the <code>dataset</code> half works against a real <code>DataHub</code>.</strong>
+<code>tests/provisioned/wire_pages.rs</code>'s dataset-page cell asserts what the platform serves through the test's
+own copy of this mapping, not through this reader, and it is evidence only of a run of it.</p>
 <h1 id="what-every-read-is-bounded-by">What every read is bounded by<a class="headerlink" href="#what-every-read-is-bounded-by" title="Permanent link">&para;</a></h1>
 <p><code>ReadBounds</code> carries a request timeout and a response-size cap, both <strong>settings with defaults,
 not constants</strong> - <code>DEFAULT_TIMEOUT_SECONDS</code> and <code>DEFAULT_MAX_RESPONSE_BYTES</code> are the values a
