@@ -145,15 +145,19 @@ pub(crate) const TASKS: &[Task] = &[
         // `Code`, which is the failure `docs/implementation-plan-identity-and-services.md` records
         // for `check-crap`: a gate whose inputs grew into `docs/` while its classification did not.
         name: "check-shipped-binaries",
-        description: "every release-path binary literal equals nix/shipped.nix, and every documented feature build is probed",
+        description: "every release-path binary literal equals nix/shipped.nix, every documented feature build is probed, and unrequired shipped adapters are refused as a fifth rule",
         kind: Kind::Hygiene(Reads::Prose),
         falsifier: Falsifier {
-            // The feature build is documented and probed; only the release literal drifts.
+            // The feature build is documented and probed; only the release literal drifts. The
+            // seeded nix also carries a `required` list, and a real manifest is seeded beside it,
+            // so the unrequired rule reads its own input rather than refusing on the missing-file
+            // floor that would mask it from a drift mutation.
             seeds: &[
                 (
                     "nix/shipped.nix",
-                    "binaries = [\n  { bin = \"sutura\"; package = \"sutura-cli\"; probeFeatures = [ \"bigquery\" ]; }\n];\n",
+                    "binaries = [\n  { bin = \"sutura\"; package = \"sutura-cli\"; probeFeatures = [ \"bigquery\" ]; }\n];\nrequired = { sutura = [ \"axum\" ]; };\n",
                 ),
+                ("crates/sutura-cli/Cargo.toml", "[features]\n"),
                 (
                     ".github/workflows/release.yml",
                     "name: release\nenv:\n  BINARIES: sutura-serve\njobs:\n  link:\n    runs-on: ubuntu-latest\n    steps:\n      - run: |\n          test -n \"$BINARIES\" || exit 1\n          nix build \".#feature-probes-${TARGET}\"\n          if [ ! -s \"$manifest\" ]; then exit 1; fi\n          for bin in $BINARIES; do echo \"$bin\"; done\n",
