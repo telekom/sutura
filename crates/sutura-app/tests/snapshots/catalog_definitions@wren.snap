@@ -1,0 +1,46 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: pinned.definitions()
+---
+models:
+  customers:
+    name: customers
+    source: local
+    table: customers
+    columns:
+      id:
+        name: id
+        data_type: INTEGER
+        description: ""
+        nullable: ~
+      region:
+        name: region
+        data_type: VARCHAR
+        description: ""
+        nullable: ~
+    primary_key: []
+    description: ""
+  orders:
+    name: orders
+    source: local
+    table: orders
+    columns:
+      customer_id:
+        name: customer_id
+        data_type: INTEGER
+        description: ""
+        nullable: ~
+      id:
+        name: id
+        data_type: INTEGER
+        description: ""
+        nullable: ~
+      total:
+        name: total
+        data_type: NUMERIC
+        description: ""
+        nullable: ~
+    primary_key: []
+    description: ""
+relationships: {}
+metrics: {}

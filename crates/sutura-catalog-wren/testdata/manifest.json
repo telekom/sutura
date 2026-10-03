@@ -1,0 +1,26 @@
+{
+  "layoutVersion": 2,
+  "catalog": "example",
+  "schema": "public",
+  "models": [
+    {
+      "name": "customers",
+      "tableReference": { "catalog": "example", "schema": "public", "table": "customers" },
+      "columns": [
+        { "name": "id", "type": "INTEGER" },
+        { "name": "region", "type": "VARCHAR" }
+      ],
+      "primaryKey": "id"
+    },
+    {
+      "name": "orders",
+      "tableReference": { "catalog": "example", "schema": "public", "table": "orders" },
+      "columns": [
+        { "name": "id", "type": "INTEGER" },
+        { "name": "customer_id", "type": "INTEGER" },
+        { "name": "total", "type": "NUMERIC" }
+      ],
+      "primaryKey": "id"
+    }
+  ]
+}

@@ -4,7 +4,7 @@ use super::{ImportError, import};
 /// dependency of this workspace and one test is not the argument for adding one; the crate's
 /// sibling tests under `sutura-catalog-local` use the same pattern. A fresh dir per call, because
 /// this repo has hit shared-path races before.
-fn scratch(name: &str) -> std::path::PathBuf {
+pub(crate) fn scratch(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "sutura-catalog-wren-{name}-{}-{}",
         std::process::id(),
