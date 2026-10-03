@@ -819,10 +819,10 @@ dev-up-demo:
 datahub-acceptance:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "datahub-acceptance: scope sutura-catalog-datahub - one target, two live cells plus an"
-    echo "datahub-acceptance: enforcement cell: the instance is reachable, a document written under a"
-    echo "datahub-acceptance: property THE DEPLOYMENT names comes back and decodes into a certified"
-    echo "datahub-acceptance: metric, and a bearer-LESS read is refused (auth is ON). These cells do"
+    echo "datahub-acceptance: scope sutura-catalog-datahub - the live DataHub tier: a document written"
+    echo "datahub-acceptance: under a property THE DEPLOYMENT names comes back and decodes into a certified"
+    echo "datahub-acceptance: metric, a dataset page and a relationship page preserve their wire shapes,"
+    echo "datahub-acceptance: and a bearer-LESS read is refused (auth is ON). These cells do"
     echo "datahub-acceptance: not drive src/http.rs's HttpAspectReader, so this is NOT its read path -"
     echo "datahub-acceptance: the requests and the mapping onto the adapter's shape are in the test."
     echo "datahub-acceptance: run \`just test\` for the whole workspace's suite; this target is NOT part of it."

@@ -1077,3 +1077,26 @@ cardinality from DataHub does not change this, and the base record's point stand
 nothing about the rows, and moving the person who is trusted is not a check. What moved is that a
 deployment's own boot path now checks the declaration against the data the deployment's adapter can
 reach, where that adapter counts.
+
+## Fourth amendment, 2026-10-03: the dataset and relationship pages get live cells, and the platform half was already a refusal
+
+`github.com/telekom/sutura#1251`'s gap 2 named two open wire-mapping limits. This amendment records
+where each stands, without touching the earlier dated text.
+
+- **The `dataset` and `semanticModel` pages now have live cells; no run of them is observed yet.**
+  `tests/provisioned.rs` adds `a_dataset_page_served_by_a_real_datahub_preserves_its_wire_shape` and
+  `a_relationship_page_served_by_a_real_datahub_preserves_its_wire_shape`. Each seeds the corpus's own
+  entities on the tier - the models as `dataset` entities with a full `schemaMetadata`, the
+  relationship nested in `semanticModelInfo.value.relationships[]` - reads the page back over the
+  search-backed paged surface, and asserts the served entity maps to the same
+  `DatasetAspect`/`RelationshipAspect` as the seed. Like the metric cell, they map the response with
+  the test's own copy of the mapping, not `src/http.rs`'s `HttpAspectReader`: what they can show is
+  that the pinned platform keeps every field the reader maps, not that the reader maps them right.
+  They are `#[ignore]`d, and run under `just datahub-acceptance` and, once #1254 lands, in CI's
+  `ci-datahub-tier` job.
+- **The platform half was already a refusal by name.** `src/http.rs` reads the platform out of each
+  served dataset URN, and `DataHubCatalog::load` resolves it through the deployment's `sources`,
+  refusing an unmapped one as `DataHubError::UnknownPlatform` (`tests/refusals.rs`'s
+  `a_dataset_on_an_unmapped_platform_is_refused`). What is fixed is the composition root's one
+  mapping: `sutura-cli`'s `open_one_datahub_catalog` maps only `bigquery`, because `CatalogSettings`
+  carries no platform-to-source map - so any other platform is refused by name at load, not guessed.
