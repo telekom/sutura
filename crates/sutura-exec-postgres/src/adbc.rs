@@ -38,8 +38,9 @@
 //! - **`NUMERIC` is read as `tokio-postgres` reads it** (`numeric`), except a domain over it, which
 //!   stays text here. Parity is held per case by `parity` against the tier, for the types its cases
 //!   name and no others.
-//! - **One run against a real driver**: `tests/kerberos.rs`'s Kerberos sign-in and one raw
-//!   statement, through the linked `x86_64` musl driver, in its CI venue alone. Every cell here is a
+//! - **Two runs against a real driver**: `tests/kerberos.rs`'s Kerberos sign-in and its refused
+//!   negative control (a declared service the KDC does not know), each through the linked `x86_64`
+//!   musl driver, in its CI venue alone. Every cell here is a
 //!   fake connection. The server refusing a multi-statement string at `Parse`, the driver carrying
 //!   `57014` in `sqlstate`, its `NUMERIC` mapping, its bind types and its `BEGIN` on autocommit-off
 //!   are read off the driver's source, not observed.
@@ -64,9 +65,7 @@ use adbc_core::error::Error as CoreError;
 use adbc_core::options::{AdbcVersion, OptionDatabase, OptionValue};
 use adbc_core::{Database as _, Driver as _};
 use adbc_driver_manager::{ManagedConnection, ManagedDriver};
-pub use conninfo::{
-    Channel, Conninfo, Delegation, GssEncryption, InvalidKerberosService, Kerberos, KerberosService, UnusableChannel,
-};
+pub use conninfo::{Channel, Conninfo, GssEncryption, InvalidKerberosService, Kerberos, KerberosService, UnusableChannel};
 pub use sutura_adbc::UnusableDriverPath;
 use sutura_adbc::{DriverLocation, parameter_batch};
 use sutura_domain::identity::Presented;

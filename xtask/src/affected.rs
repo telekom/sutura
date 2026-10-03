@@ -434,7 +434,7 @@ mod tests {
 
     /// A `Categories` built from a path set against a fixed declared set, so the selection
     /// properties are tested without a filesystem read.
-    fn selected(paths: &[&str]) -> Categories {
+    pub(super) fn selected(paths: &[&str]) -> Categories {
         let owned: Vec<String> = paths.iter().map(|p| (*p).to_owned()).collect();
         let declared = BTreeSet::from(
             [

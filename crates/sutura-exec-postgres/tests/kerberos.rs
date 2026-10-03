@@ -9,9 +9,9 @@
 //! derivation also requires the first cell's marker line in its log, so a build that skipped or lost
 //! the cell is red there, not green. `nix/bigquery-driver-check.sh` realises it in CI.
 //!
-//! What this does not reach: TLS with Kerberos inside it, the mounted driver's libpq, delegation,
-//! and any principal but the one the environment names - `conninfo.rs`'s limits say why that is one
-//! per process.
+//! What this does not reach: TLS with Kerberos inside it, the mounted driver's libpq and any
+//! principal but the one the named credential cache holds - `conninfo.rs`'s limits say why that is
+//! one per process.
 
 #[cfg(test)]
 mod kerberos {
@@ -19,9 +19,7 @@ mod kerberos {
     use sutura_domain::raw::RawStatement;
     use sutura_domain::warehouse::{RawRows, Value, Warehouse as _};
     use sutura_exec_postgres::PostgresError;
-    use sutura_exec_postgres::adbc::{
-        AdbcPostgres, Channel, Conninfo, Delegation, GssEncryption, Kerberos, KerberosService, PostgresDriver,
-    };
+    use sutura_exec_postgres::adbc::{AdbcPostgres, Channel, Conninfo, GssEncryption, Kerberos, KerberosService, PostgresDriver};
     use sutura_exec_postgres::connection::ConnectionTarget;
 
     /// Signs in as the tier's keytab, asking for a ticket to `<service>/localhost`, and reads back
@@ -39,7 +37,7 @@ mod kerberos {
             .expect("the tier's port is a port");
         let driver = PostgresDriver::linked_in().expect("the venue links the driver archive");
         let service = KerberosService::parse(service).expect("a test service is a service");
-        let kerberos = Kerberos::new(service, Delegation::Withheld, GssEncryption::Required);
+        let kerberos = Kerberos::new(service, GssEncryption::Required);
         let target = ConnectionTarget::Host("localhost");
         let conninfo = Conninfo::kerberos(
             &corpus::source(),

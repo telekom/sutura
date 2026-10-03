@@ -1629,18 +1629,21 @@ plugin archives is linked: no MS-KKDCP over HTTPS, no PKINIT, SPAKE or OTP pre-a
 is reached over port 88 with a keytab or a ticket cache.
 
 **What is declared, and refused.** `Conninfo::kerberos` builds `require_auth='gss'`, the declared
-`krbsrvname` and `gssdelegation`, and `gssencmode='require'` only where GSSAPI encryption is the
-declared channel. Refused when built, by name: Kerberos to a unix socket; Kerberos while neither
-`KRB5_CLIENT_KTNAME` nor `KRB5CCNAME` is set, because libpq would sign in as whichever principal last
-filled the default ticket cache; and GSSAPI encryption beside TLS, which libpq tries first and which
-verifies none of the declared anchors. `passfile` moves from read-only-in-a-refused-case to left to
-libpq: a Kerberos string writes no password, and `require_auth='gss'` sends nothing a password file
-holds - so `KEYWORDS` has no refused-case row left.
+`krbsrvname` and `gssdelegation='0'` - the credential is never delegated - and `gssencmode='require'`
+only where GSSAPI encryption is the declared channel. Refused when built, by name: Kerberos to a
+unix socket; Kerberos while `KRB5CCNAME` names no credential cache, because MIT krb5 then signs in as
+whatever a default cache holds and reads a client keytab only where none exists; and GSSAPI
+encryption beside TLS, which libpq tries first and which verifies none of the declared anchors.
+`passfile` moves from read-only-in-a-refused-case to left to libpq: a Kerberos string writes no
+password, and `require_auth='gss'` sends nothing a password file holds - so `KEYWORDS` has no
+refused-case row left.
 
 **Limits.** One principal per process: libpq takes no keytab or cache per connection, so every
 Kerberos source signs in as the principal the environment names - acting as the caller is a later
-change (S4U2Proxy). No settings key declares a Kerberos source yet, as none selects the ADBC
-transport. The one cell against a server, `tests/kerberos.rs`, runs only in `nix/shipped.nix`'s
-x86_64-linux venue, as `bigquery-driver-check` realises it; aarch64-musl links the same set and
-nothing executes it there. OAuth stays unsupported: the static libpq is built without libcurl, and
-a token sutura holds is a further change through libpq's `PQsetAuthDataHook`.
+change (S4U2Proxy). Which server principal GSSAPI authenticates is the one `krb5.conf` makes of the
+declared host, not anything the declared anchors hold. No settings key declares a Kerberos source
+yet, as none selects the ADBC transport. The two cells against a server, `tests/kerberos.rs` - the
+sign-in and its refused negative control - run only in `nix/shipped.nix`'s x86_64-linux venue, as
+`bigquery-driver-check` realises them; aarch64-musl links the same set and nothing executes it
+there. OAuth stays unsupported: the static libpq is built without libcurl, and a token sutura holds
+is a further change through libpq's `PQsetAuthDataHook`.

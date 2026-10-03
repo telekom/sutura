@@ -200,8 +200,9 @@ path in `lib.rs` still answers every Postgres source, and no settings key select
 - **`NUMERIC` is read as `tokio-postgres` reads it** (`numeric`), except a domain over it, which
   stays text here. Parity is held per case by `parity` against the tier, for the types its cases
   name and no others.
-- **One run against a real driver**: `tests/kerberos.rs`'s Kerberos sign-in and one raw
-  statement, through the linked `x86_64` musl driver, in its CI venue alone. Every cell here is a
+- **Two runs against a real driver**: `tests/kerberos.rs`'s Kerberos sign-in and its refused
+  negative control (a declared service the KDC does not know), each through the linked `x86_64`
+  musl driver, in its CI venue alone. Every cell here is a
   fake connection. The server refusing a multi-statement string at `Parse`, the driver carrying
   `57014` in `sqlstate`, its `NUMERIC` mapping, its bind types and its `BEGIN` on autocommit-off
   are read off the driver's source, not observed.
@@ -316,12 +317,8 @@ How the channel to the source is secured, as the composition root resolved the d
 
 ### `use Conninfo`
 
-The connection string for one source. Only `Conninfo::new` makes one, and its `Debug` is the
-`Secret`'s, so the password it carries is never printed.
-
-### `use Delegation`
-
-Whether the server is handed this process's Kerberos credential - libpq's `gssdelegation`.
+The connection string for one source. Only `Conninfo::new` and `Conninfo::kerberos` make
+one, and its `Debug` is the `Secret`'s, so the password it carries is never printed.
 
 ### `use GssEncryption`
 

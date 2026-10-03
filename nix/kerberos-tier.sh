@@ -11,7 +11,8 @@
 # client's `sutura@SUTURA.TEST`, signing in as role `sutura` (`include_realm=0`).
 #
 # Unprivileged ports, because the nix build sandbox runs it as a build user. The realm is the
-# tier's own: nothing here reads DNS (`dns_lookup_*`, `dns_canonicalize_hostname` and `rdns` off).
+# tier's own: nothing here reads DNS (`dns_lookup_*`, `dns_canonicalize_hostname` and `rdns` off,
+# and `qualify_shortname` empty, so a resolver's search domain is never appended to `localhost`).
 set -eu
 dir="$1"
 kdc_port="${SUTURA_KERBEROS_TIER_KDC_PORT:-18088}"
@@ -25,6 +26,7 @@ cat > "$dir/krb5.conf" <<EOF
  dns_lookup_kdc = false
  dns_lookup_realm = false
  dns_canonicalize_hostname = false
+ qualify_shortname = ""
  rdns = false
 [realms]
  SUTURA.TEST = {

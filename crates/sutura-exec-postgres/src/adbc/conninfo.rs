@@ -21,17 +21,19 @@
 //! `rustls-native-certs` reads for the `tokio-postgres` path. An empty password is refused, because libpq reads one as unset and looks it
 //! up in a password file. TLS is refused while `OPENSSL_CONF` is set, because libpq has no cipher
 //! knob and that file can lower the protocol ceiling and the cipher list below the declared channel.
-//! A [`Kerberos`] sign-in is refused to a socket, where a server offers no GSSAPI; while neither
-//! `KRB5_CLIENT_KTNAME` nor `KRB5CCNAME` is set, because libpq would sign in as whichever principal
-//! last filled the default ticket cache; and with GSSAPI encryption beside TLS, which libpq tries
-//! first and which verifies none of the declared anchors. Declared material is read once here too, through the same
+//! A [`Kerberos`] sign-in is refused to a socket, where a server offers no GSSAPI; while
+//! `KRB5CCNAME` names no credential cache, because MIT krb5 then signs in as whatever a default
+//! cache holds and reads a client keytab only where that cache does not exist; and with GSSAPI
+//! encryption beside TLS, which libpq tries first and which verifies none of the declared anchors. Declared material is read once here too, through the same
 //! [`client_config`](crate::tls::client_config) that path boots with, so an unreadable bundle or
 //! client pair is refused before a driver loads rather than at the first connect.
 //!
 //! **The limits.** A Kerberos sign-in is the PROCESS's: libpq takes no keytab or cache per
-//! connection, so every Kerberos source signs in as the one principal the environment names, and the
+//! connection, so every Kerberos source signs in as the one principal the named cache holds, and the
 //! server maps it to the declared `user`. The string pins what the ticket is for (`krbsrvname`) and
-//! whether the credential is forwarded (`gssdelegation`), not who holds it. libpq re-reads the files at every connect, so what was checked here is not
+//! that the credential is never forwarded (`gssdelegation`), not who holds it. Which server
+//! principal GSSAPI authenticates is the `<krbsrvname>/<host>` that `krb5.conf` makes of the declared
+//! host (`qualify_shortname`, `dns_canonicalize_hostname`), not anything the declared anchors hold. libpq re-reads the files at every connect, so what was checked here is not
 //! what is presented later. libpq refuses a client key readable by group or others; this does not
 //! check that, so such a key passes here and fails at connect. The string names keys libpq 16 to 18
 //! added (`sslcertmode`, `require_auth`, `sslkeylogfile`), so a mounted driver over an older libpq
@@ -41,9 +43,11 @@
 //! configuration file when `OPENSSL_CONF` is unset; in the nix build that file is in the store, and
 //! what the static musl artefact's copy holds is unmeasured. `PGTZ`, `PGDATESTYLE` and `PGGEQO` have
 //! no keyword, so the string cannot pin them: each reaches the server as a session setting. The
-//! `OPENSSL_CONF` cell hands the variable's state in; that [`Conninfo::new`] reads the process's own
-//! is not held by a cell here. And no cell here observes a handshake: the strings below are what
+//! environment (`OPENSSL_CONF`, `KRB5CCNAME`) is read through a lookup a cell supplies; that the
+//! constructors hand it the process's own `std::env::var_os` is the one line no cell drives. And no cell here observes a handshake: the strings below are what
 //! libpq is told, read against its source, not what it did.
+
+use std::ffi::OsString;
 
 use sutura_domain::identity::Secret;
 use sutura_domain::model::SourceName;
@@ -176,7 +180,7 @@ const KEYWORDS: [(&str, Held); 50] = [
     ),
     (
         "gssdelegation",
-        Held::Written("on Kerberos; `PGGSSDELEGATION=1` would hand the server this process's credential"),
+        Held::Written("`0` on Kerberos; `PGGSSDELEGATION=1` would hand the server this process's credential"),
     ),
     (
         "replication",
@@ -239,19 +243,14 @@ enum SignIn<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Kerberos {
     service: KerberosService,
-    delegation: Delegation,
     encryption: GssEncryption,
 }
 
 impl Kerberos {
-    /// The sign-in a declaration names.
+    /// The sign-in a declaration names. The credential is never delegated to the server.
     #[must_use]
-    pub const fn new(service: KerberosService, delegation: Delegation, encryption: GssEncryption) -> Self {
-        Self {
-            service,
-            delegation,
-            encryption,
-        }
+    pub const fn new(service: KerberosService, encryption: GssEncryption) -> Self {
+        Self { service, encryption }
     }
 }
 
@@ -287,15 +286,6 @@ impl KerberosService {
     }
 }
 
-/// Whether the server is handed this process's Kerberos credential - libpq's `gssdelegation`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Delegation {
-    /// The server gets a service ticket and nothing it could act on elsewhere.
-    Withheld,
-    /// The server gets a forwardable credential for this process's principal.
-    Forwarded,
-}
-
 /// Whether GSSAPI encrypts the channel - libpq's `gssencmode`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GssEncryption {
@@ -309,15 +299,23 @@ pub enum GssEncryption {
 #[derive(Debug, Clone, Copy)]
 struct Process {
     openssl_configured: bool,
-    kerberos_credential_named: bool,
+    kerberos_cache_named: bool,
 }
 
 impl Process {
+    /// The process's own environment - the one line no cell drives, because setting a variable is
+    /// `unsafe`; [`Process::read_with`] is what the cells hold.
     fn read() -> Self {
-        let set = |name| std::env::var_os(name).is_some_and(|value| !value.is_empty());
+        Self::read_with(|name| std::env::var_os(name))
+    }
+
+    /// The environment `var` answers for. Only `KRB5CCNAME` names the Kerberos credential: with no
+    /// cache named, MIT krb5 signs in as whatever the default cache holds and reads the client keytab
+    /// only when that cache does not exist, so `KRB5_CLIENT_KTNAME` alone pins nobody.
+    fn read_with(var: impl Fn(&str) -> Option<OsString>) -> Self {
         Self {
-            openssl_configured: std::env::var_os("OPENSSL_CONF").is_some(),
-            kerberos_credential_named: set("KRB5_CLIENT_KTNAME") || set("KRB5CCNAME"),
+            openssl_configured: var("OPENSSL_CONF").is_some(),
+            kerberos_cache_named: var("KRB5CCNAME").is_some_and(|value| !value.is_empty()),
         }
     }
 }
@@ -354,11 +352,11 @@ pub enum UnusableChannel {
     )]
     KerberosOverASocket { alias: SourceName, target: String },
     #[error(
-        "`sources.{alias}` declares Kerberos and neither `KRB5_CLIENT_KTNAME` nor `KRB5CCNAME` is set, \
-         so libpq would sign in as whichever principal last filled this host's default ticket cache. \
-         Name the keytab or the cache"
+        "`sources.{alias}` declares Kerberos and `KRB5CCNAME` names no credential cache, \
+         so libpq would sign in as whichever principal a default cache holds, a keytab notwithstanding. \
+         Name the cache - a keytab in `KRB5_CLIENT_KTNAME` fills it"
     )]
-    NoKerberosCredential { alias: SourceName },
+    NoKerberosCache { alias: SourceName },
     #[error(
         "`sources.{alias}` declares GSSAPI encryption beside TLS; libpq would take GSSAPI first and \
          verify none of the declared anchors. Declare one of the two"
@@ -372,8 +370,8 @@ pub enum UnusableChannel {
     },
 }
 
-/// The connection string for one source. Only [`Conninfo::new`] makes one, and its `Debug` is the
-/// [`Secret`]'s, so the password it carries is never printed.
+/// The connection string for one source. Only [`Conninfo::new`] and [`Conninfo::kerberos`] make
+/// one, and its `Debug` is the [`Secret`]'s, so the password it carries is never printed.
 #[derive(Debug)]
 pub struct Conninfo(Secret);
 
@@ -400,7 +398,8 @@ impl Conninfo {
     }
 
     /// Builds the connection string for `source` over `channel`, signing in with Kerberos as the
-    /// credential this process's environment names - `KRB5_CLIENT_KTNAME` or `KRB5CCNAME`.
+    /// principal the credential cache `KRB5CCNAME` names holds - filled from `KRB5_CLIENT_KTNAME`'s
+    /// keytab where one is named.
     ///
     /// # Errors
     ///
@@ -450,8 +449,8 @@ impl Conninfo {
                         target: host,
                     });
                 }
-                if !process.kerberos_credential_named {
-                    return Err(UnusableChannel::NoKerberosCredential { alias: source.clone() });
+                if !process.kerberos_cache_named {
+                    return Err(UnusableChannel::NoKerberosCache { alias: source.clone() });
                 }
                 match (kerberos.encryption, channel) {
                     (GssEncryption::Off, _) => ("gss", "disable"),
@@ -542,11 +541,7 @@ fn signed_in(mut text: String, sign_in: SignIn<'_>, source: &SourceName) -> Resu
         SignIn::Password(password) => with_password(text, password, source),
         SignIn::Kerberos(kerberos) => {
             pair(&mut text, "krbsrvname", &kerberos.service.0);
-            let delegation = match kerberos.delegation {
-                Delegation::Withheld => "0",
-                Delegation::Forwarded => "1",
-            };
-            pair(&mut text, "gssdelegation", delegation);
+            pair(&mut text, "gssdelegation", "0");
             Ok(Secret::new(text))
         }
     }
@@ -577,8 +572,8 @@ mod tests {
     use sutura_domain::model::SourceName;
 
     use super::{
-        Channel, Conninfo, Delegation, GssEncryption, Held, InvalidKerberosService, KEYWORDS, Kerberos, KerberosService, Process,
-        SignIn, UnusableChannel,
+        Channel, Conninfo, GssEncryption, Held, InvalidKerberosService, KEYWORDS, Kerberos, KerberosService, Process, SignIn,
+        UnusableChannel,
     };
     use crate::connection::ConnectionTarget;
     use crate::tls::{TlsAnchors, TlsIdentity};
@@ -611,7 +606,7 @@ mod tests {
     ) -> Result<String, UnusableChannel> {
         let process = Process {
             openssl_configured: false,
-            kerberos_credential_named: named,
+            kerberos_cache_named: named,
         };
         let sign_in = SignIn::Kerberos(kerberos);
         let conninfo = Conninfo::under(process, &source(), target, 5432, "sales", "reader", sign_in, channel)?;
@@ -622,7 +617,7 @@ mod tests {
 
     fn kerberos(encryption: GssEncryption) -> Kerberos {
         let service = KerberosService::parse("postgres").expect("a test service is a service");
-        Kerberos::new(service, Delegation::Withheld, encryption)
+        Kerberos::new(service, encryption)
     }
 
     /// A self-signed certificate and its key, written where the cell can name them.
@@ -772,7 +767,7 @@ mod tests {
         let password = Secret::new("p");
         let process = Process {
             openssl_configured: true,
-            kerberos_credential_named: false,
+            kerberos_cache_named: false,
         };
         let under = |channel| {
             let sign_in = SignIn::Password(&password);
@@ -818,30 +813,50 @@ mod tests {
     }
 
     #[test]
-    fn a_kerberos_sign_in_inside_tls_keeps_gssapi_encryption_off_and_forwards_only_when_declared() {
+    fn a_kerberos_sign_in_inside_tls_keeps_gssapi_encryption_off_and_delegates_nothing() {
         let (bundle, _) = material("kerberos-tls");
         let anchors = TlsAnchors::Bundle(bundle.clone());
         let service = KerberosService::parse("POSTGRES").expect("a test service is a service");
-        let forwarded = Kerberos::new(service, Delegation::Forwarded, GssEncryption::Off);
-        let text = kerberized(true, HOST, &forwarded, Channel::Verified(&anchors)).expect("it builds");
+        let inside = Kerberos::new(service, GssEncryption::Off);
+        let text = kerberized(true, HOST, &inside, Channel::Verified(&anchors)).expect("it builds");
         assert_eq!(
             text,
             format!(
                 "{KERBEROS}gssencmode='disable' sslkeylogfile='' ssl_min_protocol_version='TLSv1.2' \
-                 sslmode='verify-full' sslrootcert='{}' sslcertmode='disable' krbsrvname='POSTGRES' gssdelegation='1' ",
+                 sslmode='verify-full' sslrootcert='{}' sslcertmode='disable' krbsrvname='POSTGRES' gssdelegation='0' ",
                 bundle.display()
             )
         );
     }
 
     #[test]
-    fn kerberos_with_no_credential_named_is_refused_rather_than_signing_in_as_the_default_cache() {
-        let refused = kerberized(false, HOST, &kerberos(GssEncryption::Required), Channel::Plaintext)
-            .expect_err("no keytab or cache is named");
+    fn kerberos_with_no_cache_named_is_refused_rather_than_signing_in_as_the_default_cache() {
+        let refused =
+            kerberized(false, HOST, &kerberos(GssEncryption::Required), Channel::Plaintext).expect_err("no cache is named");
         assert!(
-            matches!(refused, UnusableChannel::NoKerberosCredential { ref alias } if alias.as_str() == "pg"),
+            matches!(refused, UnusableChannel::NoKerberosCache { ref alias } if alias.as_str() == "pg"),
             "{refused:?}"
         );
+    }
+
+    #[test]
+    fn only_a_named_cache_names_the_kerberos_credential_and_a_keytab_alone_does_not() {
+        let lookup = |set: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                set.iter()
+                    .find(|&&(key, _)| key == name)
+                    .map(|&(_, value)| std::ffi::OsString::from(value))
+            }
+        };
+        let named = |set| Process::read_with(lookup(set)).kerberos_cache_named;
+        assert!(!named(&[]), "nothing set");
+        assert!(!named(&[("KRB5_CLIENT_KTNAME", "/run/keytab")]), "a keytab pins no principal");
+        assert!(!named(&[("KRB5CCNAME", "")]), "an empty name is unset");
+        assert!(named(&[("KRB5CCNAME", "MEMORY:sutura")]), "a named cache");
+        assert!(named(&[("KRB5CCNAME", "MEMORY:s"), ("KRB5_CLIENT_KTNAME", "/run/keytab")]));
+        let openssl = |set| Process::read_with(lookup(set)).openssl_configured;
+        assert!(!openssl(&[]));
+        assert!(openssl(&[("OPENSSL_CONF", "")]), "libpq's OpenSSL reads even an empty one");
     }
 
     #[test]
