@@ -1989,6 +1989,47 @@ jobs:
       - name: Oracle acceptance cells
         run: nix run .#oracle-acceptance -- --no-capture
 
+  # The DataHub metadata tier, as a live acceptance venue: brings up the docker `datahub`
+  # compose profile (five containers, three JVMs and a migration job, so the cap is wide) and
+  # runs the cells `just datahub-acceptance`'s recipe weaves together - the instance reachable,
+  # the deployment-defined metric document round-tripping, and a bearer-LESS read refused
+  # (auth is ON) - failing rather than skipping, because `SUTURA_DEV_REQUIRE_TIER=1` is exported in
+  # two places: the just recipe sets it and the flake `datahub-acceptance` app exports it too, and the
+  # pair must be kept in sync manually (see #1254).
+  # Category-gated on `catalog_datahub`, which `xtask/src/affected.rs` derives from the
+  # `crates/sutura-catalog-datahub` crate; a change to the docker tier (`compose.services.yaml`,
+  # which holds the `datahub` profile) falls open to `core`, which runs every leg. Held run-or-fail
+  # by `ci-aggregate`. An app rather than a `checks.*` entry for `oracle-tier`'s reason: it needs
+  # a docker socket, and its cells fail on a missing endpoint, which would go fatal on every
+  # `just validate`. `SUTURA_DOCKER_PROBE_TIMEOUT_SECS` for `e2e-datahub-adbc`'s reason: `docker
+  # info` inside the 10s default has wedged on this runner.
+  ci-datahub-tier:
+    needs: [ci]
+    if: needs.ci.outputs.catalog_datahub == 'true'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      SUTURA_DOCKER_PROBE_TIMEOUT_SECS: "60"
+    concurrency:
+      group: ci-datahub-tier-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: DataHub acceptance cells
+        run: nix run .#datahub-acceptance
+
   # THE BODY IS `.github/workflows/demo-container.yml`, the same split `cross-link.yml` uses and
   # for the same reason: what moves is the body, and the gating - `needs: [ci]` and the event test
   # - stays where the decision is reviewed. Event-gated rather than category-gated: `examples/demo-chatinterface/**`
@@ -2036,7 +2077,7 @@ jobs:
 
   ci-aggregate:
     runs-on: ubuntu-latest
-    needs: [ci, keycloak-served-test, bigquery-driver-check, e2e-datahub-adbc, oracle-tier]
+    needs: [ci, keycloak-served-test, bigquery-driver-check, e2e-datahub-adbc, oracle-tier, ci-datahub-tier]
     # Never category-skipped and never suppressed by an upstream failure: it reads the results.
     if: ${{ !cancelled() }}
     steps:
@@ -2051,6 +2092,8 @@ jobs:
           E2E_REQUIRED: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.catalog_datahub == 'true' || needs.ci.outputs.identity == 'true') }}
           ORACLE_RESULT: ${{ needs.oracle-tier.result }}
           ORACLE_SELECTED: ${{ needs.ci.outputs.data_source_oracle == 'true' || needs.ci.outputs.catalog_rdbms == 'true' }}
+          DH_RESULT: ${{ needs.ci-datahub-tier.result }}
+          DH_SELECTED: ${{ needs.ci.outputs.catalog_datahub }}
         run: |
           set -eu
           fail() { echo "ci-aggregate: RED - $*"; exit 1; }
@@ -2117,6 +2160,20 @@ jobs:
             case "$ORACLE_RESULT" in
               skipped|success) ;;
               *) fail "oracle-tier reported '$ORACLE_RESULT' and was neither required to run nor allowed to skip" ;;
+            esac
+          fi
+          # The DataHub docker tier reads no secret, so it carries no event exception: every
+          # event that selects `catalog_datahub` must run it - the same rule as `oracle-tier`,
+          # and it is what closes the gap the `e2e-datahub-adbc` leg left for the adapter's own
+          # discoverable tier: a selected-but-skipped filter can no longer go green.
+          if [ "$DH_SELECTED" = "true" ]; then
+            if [ "$DH_RESULT" != "success" ]; then
+              fail "ci-datahub-tier must run (catalog_datahub category selected) but reported '$DH_RESULT'"
+            fi
+          else
+            case "$DH_RESULT" in
+              skipped|success) ;;
+              *) fail "ci-datahub-tier reported '$DH_RESULT' and was neither required to run nor allowed to skip" ;;
             esac
           fi
           echo "ci-aggregate: ok - every category-gated leg green"

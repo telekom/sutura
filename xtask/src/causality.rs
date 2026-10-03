@@ -766,8 +766,10 @@ fn separable_verdict(
             // those are the ordinary base/head proof's to run - the old range-wide
             // `Undeclared` refusal reddened them, and that refusal is gone. The verdict
             // is the AND: the declared cells' mutations must kill AND the undeclared
-            // additions must be red against the base behaviour - per RUN, not per test,
-            // so an undeclared pin still rides along beside one that is red on base.
+            // additions must be red against the base behaviour - per TEST, not per run, now:
+            // `base` names an added test that PASSED on base beside a red sibling
+            // (`RedWithGreenSibling`) instead of letting the undeclared pin ride along
+            // unmentioned on the red one's strength.
             //
             // After feature-activation and relocation and nowhere before, for the same
             // reason both were: a manifest in the diff or a conflicting trailer is a

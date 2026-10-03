@@ -115,10 +115,10 @@
 //! **AND IT HAS A FALSIFIER RATHER THAN ONLY AN ARGUMENT.** *Out of reach* and *a red base run*
 //! are contradictory answers about one run: this module says the revert restores nothing a test can
 //! execute, and the run says something failed once it was restored. `super::base` prints that
-//! pairing on BOTH red arms - `RedByAssertion` and `RedOutsideTheDiff`, which is equally
-//! contradictory and printed nothing until review said so - rather than resolving it, because the
-//! two answers come from different places, one from the diff and one from nextest, and a rule with
-//! a hole in it is what the pairing would be evidence of.
+//! pairing on EVERY red arm - `RedByAssertion`, `RedWithGreenSibling` and `RedOutsideTheDiff`, the
+//! last equally contradictory and printed nothing until review said so - rather than resolving it,
+//! because the two answers come from different places, one from the diff and one from nextest, and
+//! a rule with a hole in it is what the pairing would be evidence of.
 //!
 //! **WHAT THE FALSIFIER DOES NOT SEE, because it is scoped exactly as the runs are.** It fires on a
 //! failure the run REPORTED, and the base run is filtered to the tests this diff added. A revert

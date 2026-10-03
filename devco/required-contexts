@@ -199,6 +199,14 @@ ci.yml:e2e-datahub-adbc
 # does not report is a permanently pending merge. `ci-aggregate` holds run-or-fail for it.
 ci.yml:oracle-tier
 
+# The DataHub docker tier, advisory for `oracle-tier`'s reason above: category-gated on
+# `catalog_datahub` (derived from `crates/sutura-catalog-datahub`; a docker-tier
+# `compose.services.yaml` change falls open to `core`, which runs it), so it reports nothing on
+# a diff confined to other adapters (e.g. one limited to `crates/sutura-exec-oracle/`), and a
+# required context that does not report is a permanently pending merge.
+# `ci-aggregate` holds run-or-fail for it.
+ci.yml:ci-datahub-tier
+
 # #149 branch 5's smoke test, advisory on `ci.yml:demo-container`'s own reasoning one entry
 # down: it needs a container runtime and a real network namespace, which is what makes it
 # unsuited to a nix check, and a red kind cluster must not block unrelated work on a pull
