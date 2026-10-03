@@ -168,6 +168,16 @@ that parses as `IpAddr` and answers `is_loopback()` does.
 
 Why a declared endpoint is not usable.
 
+## `use ShownEndpoint`
+
+A declared endpoint as a refusal shows it: the scheme, host, port and path `Uri` parsed, and
+never its userinfo, query or fragment.
+
+Built only by `Self::of`, so no refusal can carry the declared text as written. Text `Uri`
+does not parse is not shown at all - a second parser's reading of input the dial parser refused
+is where a credential would survive. The limit: a secret written into the PATH is shown, because
+a path is not a credential to the parser that dials it.
+
 ## `use EndpointMessage`
 
 The endpoint's own message on a refusal.
