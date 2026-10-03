@@ -25,9 +25,10 @@
 # has nothing else to resolve `libpq` against: `libpq.a`, `libpgcommon.a`, `libpgport.a` and
 # MIT krb5's five GSSAPI archives, then OpenSSL's `libssl.a`/`libcrypto.a` (`docs/adr/0018`'s
 # Thirteenth amendment says why OpenSSL and not rustls, its Fifteenth why krb5). That libpq signs
-# in with GSSAPI and is built without libcurl, so it has no OAuth flow of its own - the `.so`'s
-# keeps one - and `postBuild` links a static probe against exactly that set, so a member missing
-# from it fails the build here rather than in a Rust link.
+# in with GSSAPI and is built without libcurl, so an OAuth bearer the transport holds reaches it only
+# through the auth-data hook `sutura-adbc` installs - no device flow - and `postBuild` links a
+# static probe against exactly that set, so a member missing from it fails the build here rather
+# than in a Rust link.
 #
 # **The static krb5 needs no dlopen.** Built `staticOnly`, without the keyring ccache (keyutils) and
 # without libedit; its compiled-in plugin directory and fallback profile are store paths, which

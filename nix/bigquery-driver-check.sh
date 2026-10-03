@@ -20,8 +20,8 @@
 # binary has no dynamic loader, so a carried driver is the only route it can ever have. A musl
 # artefact with the PostgreSQL adapter is asked a third question, for the same reason: does it link
 # that driver too, and does it initialise (`assert_links_postgres`). Two last legs run the linked
-# PostgreSQL driver in test builds: its libpq, judged by `linked_verdict`, and a Kerberos sign-in
-# through it against a KDC tier.
+# PostgreSQL driver in test builds: its libpq, judged by `linked_verdict`, and a sign-in through it
+# that pairs Kerberos against a KDC tier and OAuth against an OAuth tier.
 #
 # FAIL CLOSED, AND PROVEN SO IN THIS SCRIPT. `verdict` is run first over three lines whose right
 # answer is known - including the line a build with NO driver prints - so a matcher that accepted
@@ -70,7 +70,7 @@ pg_self_check() {
             exit 1
         fi
     done <<'CASES'
-ok|  pg driver    : loaded and initialised, linked into this binary - its libpq signs in with Kerberos and has no OAuth flow
+ok|  pg driver    : loaded and initialised, linked into this binary - its libpq signs in with Kerberos or a held OAuth bearer
 no|  pg driver    : loaded and initialised, mounted at /opt/sutura/lib/libadbc_driver_postgresql.so
 no|  pg driver    : not linked into this binary - a source build would mount libadbc_driver_postgresql.so
 no|  pg driver    : NOT usable: linked into this binary: could not load the PostgreSQL ADBC driver
@@ -307,15 +307,18 @@ if [ "${SUTURA_DRIVER_CHECK_PROFILE:-ci}" = ci ]; then
     fi
     echo "bigquery-driver-check: ok - the linked PostgreSQL driver ran libpq beside the linked BigQuery"
     echo "  driver in one static x86_64-musl test binary."
-    # And signed in with Kerberos through it, against the derivation's own KDC tier. The derivation
-    # requires the marker too; reading it here as well means a derivation that stopped asking is
-    # still red.
-    kerberos="$(nix build --no-link --print-build-logs --print-out-paths .#adbc-postgres-kerberos-x86_64-unknown-linux-musl-test)"
-    if ! grep -qx 'linked-postgres-driver-signed-in-with-kerberos' "$kerberos/kerberos.log" \
-        || ! grep -q '^test result: ok\. 2 passed; 0 failed' "$kerberos/kerberos.log"; then
-        echo "bigquery-driver-check: FAILED - the Kerberos sign-in did not pass through the linked driver. Its log:" >&2
-        sed 's/^/    /' "$kerberos/kerberos.log" >&2
+    # And signed in with Kerberos and with OAuth through it, against the derivation's own KDC and
+    # OAuth tiers. The derivation requires the markers too; reading them here as well means a
+    # derivation that stopped asking is still red.
+    signin="$(nix build --no-link --print-build-logs --print-out-paths .#adbc-postgres-sign-in-x86_64-unknown-linux-musl-test)"
+    ok_count="$(grep -c '^test result: ok\. 2 passed; 0 failed' "$signin/sign-in.log" || true)"
+    if ! grep -qx 'linked-postgres-driver-signed-in-with-kerberos' "$signin/sign-in.log" \
+        || ! grep -qx 'linked-postgres-driver-signed-in-with-oauth' "$signin/sign-in.log" \
+        || [ "$ok_count" != 2 ]; then
+        echo "bigquery-driver-check: FAILED - the Kerberos and OAuth sign-ins did not both pass through the linked driver. Its log:" >&2
+        sed 's/^/    /' "$signin/sign-in.log" >&2
         exit 1
     fi
-    echo "bigquery-driver-check: ok - the linked PostgreSQL driver signed in with Kerberos, GSSAPI-encrypted."
+    echo "bigquery-driver-check: ok - the linked PostgreSQL driver signed in with Kerberos (GSSAPI-encrypted)"
+    echo "  and with OAuth, each against its own tier."
 fi

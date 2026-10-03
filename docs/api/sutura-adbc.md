@@ -9,19 +9,19 @@ The public API of `sutura-adbc`, rendered from rustdoc JSON.
 
 The linked-driver FFI and the shared helpers every ADBC adapter needs.
 
-This crate exists so the workspace's one `unsafe` declaration has one home
-rather than one per adapter. `linked` declares the per-driver C ABI init function
-each statically linked driver exports, and `ManagedDriver::load_static`
-opens it through that pointer - the only route a STATIC musl artefact has, because
-it has no dynamic loader. The `#[expect(unsafe_code)]` on that declaration is the
-one lowering `cargo xtask check-unsafe` excepts, and this crate's root is the one
-root that omits `#![forbid(unsafe_code)]`.
+This crate exists so the workspace's `unsafe` has one home rather than one per adapter.
+`linked` declares the per-driver C ABI init function each statically linked driver
+exports, and `ManagedDriver::load_static` opens it through that pointer - the only
+route a STATIC musl artefact has, because it has no dynamic loader. `oauth` installs
+the libpq hook that hands the linked PostgreSQL driver an OAuth bearer. Those two files
+are the only ones `cargo xtask check-unsafe` lets lower the lint, and this crate's root
+is the one root that omits `#![forbid(unsafe_code)]`.
 
 **Why a shared crate and not a per-adapter `linked.rs`** (`telekom/sutura#913` PR 2):
 a second ADBC adapter that links its own driver needs the same FFI, and a list of
 excepted roots widens the invariant from "one site" to "N sites". One crate keeps
-the single exception and removes the duplication - the same shape `sutura-tls` has
-for the TLS-bundle read two adapters share.
+one excepted root, in two named files, and removes the duplication - the same shape
+`sutura-tls` has for the TLS-bundle read two adapters share.
 
 **The prefix is the role, not an adapter**: `sutura-adbc` joins no `-exec-` class
 (it opens no data system and renders no dialect), so `xtask/src/boundaries/adapters.rs`'s
@@ -73,6 +73,19 @@ are separate symbols, so no build can hand one out under the other's name.
 # Errors
 
 As `linked_driver`.
+
+## `fn with_postgres_bearer`
+
+```rust
+pub fn with_postgres_bearer<T>(bearer: &core::ffi::CStr, dial: impl FnOnce() -> T) -> Option<T>
+```
+
+Runs `dial` with `bearer` as the OAuth token the LINKED PostgreSQL driver's libpq signs in with.
+
+On this thread and for no other dial; `None`, without running it, where this build links no
+PostgreSQL archive. A mounted driver brings its own libpq, which this hook never reaches - the
+caller refuses that route rather than asking here. `oauth`'s header carries why a thread-local
+is enough.
 
 ## `use parameter_batch`
 

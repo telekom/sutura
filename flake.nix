@@ -610,6 +610,22 @@
             test "$libpq" = "$table" \
               || { echo "conninfo.rs KEYWORDS is not libpq ${pkgs.libpq.version}'s keyword list:" >&2;
                    diff <(printf '%s\n' "$libpq") <(printf '%s\n' "$table") >&2; exit 1; }
+            # `sutura-adbc`'s OAuth hook writes into libpq's `PGoauthBearerRequest` through a
+            # `#[repr(C)]` mirror, so the mirror's fields are held to the header's, in order -
+            # comments and function-pointer argument lists stripped, the last identifier of each
+            # declaration kept. Textual like the keyword check: a reshaped struct fails here.
+            header=$(sed -n '/^typedef struct PGoauthBearerRequest$/,/^} PGoauthBearerRequest;/p' \
+              ${pkgs.libpq.src}/src/interfaces/libpq/libpq-fe.h | tr '\n' ' ' \
+              | sed -e 's|/\*[^*]*\*\+\([^/*][^*]*\*\+\)*/||g' -e 's/^typedef struct PGoauthBearerRequest *{//' \
+                    -e 's/} PGoauthBearerRequest; *$//' -e 's/)[[:space:]]*([^)]*)/)/g' \
+              | tr ';' '\n' | grep -oE '[a-z_]+\)?[[:space:]]*$' | tr -d ') \t')
+            mirror=$(sed -n '/^struct BearerRequest {/,/^}/p' ${./crates/sutura-adbc/src/oauth.rs} \
+              | grep -oE '^[[:space:]]+(r#)?[a-z_]+:' | tr -d ' :' | sed 's/^r#//')
+            test "$(printf '%s\n' "$header" | wc -l)" -ge 6 \
+              || { echo "read no PGoauthBearerRequest from libpq ${pkgs.libpq.version}'s header" >&2; exit 1; }
+            test "$header" = "$mirror" \
+              || { echo "oauth.rs BearerRequest is not libpq ${pkgs.libpq.version}'s PGoauthBearerRequest:" >&2;
+                   diff <(printf '%s\n' "$header") <(printf '%s\n' "$mirror") >&2; exit 1; }
             found=0
             for d in $buildInputs; do
               for shape in so a; do

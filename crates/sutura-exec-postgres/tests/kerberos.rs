@@ -4,10 +4,10 @@
 //! GSSAPI and nothing else.
 //!
 //! `#[ignore]`d, because only one venue has both halves: `nix/shipped.nix`'s
-//! `adbc-postgres-kerberos-x86_64-unknown-linux-musl-test` starts the tier, sources its `env`, builds
-//! this file for `x86_64` musl with the driver archive linked, and runs it with `--ignored`. That
-//! derivation also requires the first cell's marker line in its log, so a build that skipped or lost
-//! the cell is red there, not green. `nix/bigquery-driver-check.sh` realises it in CI.
+//! `adbc-postgres-sign-in-x86_64-unknown-linux-musl-test` starts the tiers, sources their `env`s, builds
+//! this file (and `oauth.rs`) for `x86_64` musl with the driver archive linked, and runs it with
+//! `--ignored`. That derivation also requires this cell's marker line in its log, so a build that
+//! skipped or lost the cell is red there, not green. `nix/bigquery-driver-check.sh` realises it in CI.
 //!
 //! What this does not reach: TLS with Kerberos inside it, the mounted driver's libpq and any
 //! principal but the one the named credential cache holds - `conninfo.rs`'s limits say why that is
@@ -61,7 +61,7 @@ mod kerberos {
     }
 
     #[test]
-    #[ignore = "needs the Kerberos tier and the linked driver: `adbc-postgres-kerberos-x86_64-unknown-linux-musl-test`"]
+    #[ignore = "needs the Kerberos tier and the linked driver: `adbc-postgres-sign-in-x86_64-unknown-linux-musl-test`"]
     fn the_linked_driver_signs_in_with_kerberos_over_a_gssapi_encrypted_channel() {
         let rows = signed_in("postgres").expect("the KDC issues a ticket for postgres/localhost");
         assert_eq!(
@@ -72,7 +72,7 @@ mod kerberos {
     }
 
     #[test]
-    #[ignore = "needs the Kerberos tier and the linked driver: `adbc-postgres-kerberos-x86_64-unknown-linux-musl-test`"]
+    #[ignore = "needs the Kerberos tier and the linked driver: `adbc-postgres-sign-in-x86_64-unknown-linux-musl-test`"]
     fn a_declared_service_the_kdc_does_not_know_is_refused_rather_than_signed_in() {
         // The negative control for the cell above: `krbsrvname` reaches libpq, so a service name the
         // KDC holds no key for fails the ticket request, and nothing falls back to another method.

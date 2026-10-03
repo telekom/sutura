@@ -1,4 +1,5 @@
-//! The drivers LINKED INTO this artefact, and the one `unsafe` declaration in this workspace.
+//! The drivers LINKED INTO this artefact, and one of the workspace's two `unsafe` sites (`oauth` is
+//! the other).
 //!
 //! **Why it exists: the static musl artefacts.** A statically linked binary has no dynamic
 //! loader, so `ManagedDriver::load_dynamic_from_filename` can never succeed on the two musl

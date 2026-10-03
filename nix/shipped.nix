@@ -335,10 +335,14 @@ let
         pname = "sutura-adbc-linked";
         cargoExtraArgs = "--package sutura-adbc --target ${target}";
       };
-      kerberosArgs = testArgs // {
-        pname = "sutura-exec-postgres-kerberos";
+      signInArgs = testArgs // {
+        pname = "sutura-exec-postgres-sign-in";
         cargoExtraArgs = "--package sutura-exec-postgres --features adbc --target ${target}";
       };
+      oauthValidator = pkgs.runCommandCC "sutura-tier-oauth-validator" { } ''
+        mkdir -p $out/lib
+        $CC -shared -fPIC -O2 -I${pkgs.lib.getDev pkgs.postgresql_18}/include/server -I${pkgs.lib.getDev pkgs.openssl}/include -I${pkgs.lib.getDev pkgs.krb5}/include ${./oauth-validator.c} -o $out/lib/sutura_tier_validator.so
+      '';
     in
     {
       "adbc-drivers-linked-${target}-test" = crossLib.mkCargoDerivation (testArgs // inheritedArtifacts (crossLib.buildDepsOnly (testArgs // { doCheck = true; })) // {
@@ -349,23 +353,27 @@ let
         '';
         installPhaseCommand = "install -Dm644 linked.log $out/linked.log";
       });
-      # A DECLARED KERBEROS SIGN-IN THROUGH THE LINKED DRIVER, against a KDC - the same static musl
-      # build of `sutura-exec-postgres`'s `tests/kerberos.rs`, run with `--ignored` after
-      # `nix/kerberos-tier.sh` starts an MIT KDC and a PostgreSQL that admits GSSAPI-encrypted
-      # GSSAPI alone, both from this nixpkgs and both on loopback in the sandbox. The marker line is
-      # required here, so a run that skipped the cell is red; `nix/bigquery-driver-check.sh`
-      # realises it in CI.
-      "adbc-postgres-kerberos-${target}-test" = crossLib.mkCargoDerivation (kerberosArgs // inheritedArtifacts (crossLib.buildDepsOnly (kerberosArgs // { doCheck = true; })) // {
+      # A DECLARED KERBEROS AND OAUTH SIGN-IN THROUGH THE LINKED DRIVER - the same static musl
+      # build of `sutura-exec-postgres`'s `tests/kerberos.rs` and `tests/oauth.rs`, run with
+      # `--ignored` after `nix/kerberos-tier.sh` and `nix/oauth-tier.sh` each start their tier and
+      # each PostgreSQL admits only one auth method (KDC-issued GSSAPI on the one, an authorised
+      # OAuth bearer verified by the fixed-string validator `nix/oauth-validator.c` on the other),
+      # both from this nixpkgs and both on loopback in the sandbox. The marker lines are required
+      # here, so a run that skipped a cell is red; `nix/bigquery-driver-check.sh` realises it in CI.
+      "adbc-postgres-sign-in-${target}-test" = crossLib.mkCargoDerivation (signInArgs // inheritedArtifacts (crossLib.buildDepsOnly (signInArgs // { doCheck = true; })) // {
         doInstallCargoArtifacts = false;
-        nativeBuildInputs = (kerberosArgs.nativeBuildInputs or [ ]) ++ [ pkgs.krb5 pkgs.postgresql_18 ];
+        nativeBuildInputs = (signInArgs.nativeBuildInputs or [ ]) ++ [ pkgs.krb5 pkgs.postgresql_18 pkgs.openssl ];
         buildPhaseCargoCommand = ''
           set -o pipefail
           sh ${./kerberos-tier.sh} "$TMPDIR/kerberos-tier"
+          sh ${./oauth-tier.sh} "$TMPDIR/oauth-tier" ${oauthValidator}/lib/sutura_tier_validator
           . "$TMPDIR/kerberos-tier/env"
-          cargoWithProfile test ${kerberosArgs.cargoExtraArgs} --test kerberos -- --ignored --nocapture 2>&1 | tee kerberos.log
-          grep -qx 'linked-postgres-driver-signed-in-with-kerberos' kerberos.log
+          . "$TMPDIR/oauth-tier/env"
+          cargoWithProfile test ${signInArgs.cargoExtraArgs} --test kerberos --test oauth -- --ignored --nocapture 2>&1 | tee sign-in.log
+          grep -qx 'linked-postgres-driver-signed-in-with-kerberos' sign-in.log
+          grep -qx 'linked-postgres-driver-signed-in-with-oauth' sign-in.log
         '';
-        installPhaseCommand = "install -Dm644 kerberos.log $out/kerberos.log";
+        installPhaseCommand = "install -Dm644 sign-in.log $out/sign-in.log";
       });
     });
 

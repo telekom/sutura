@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 # Not published to a registry: sutura ships as an OCI image, not as crates.
 publish = false
-description = "The linked-driver FFI (the workspace's one `unsafe` site) plus the shared parameter-batch and driver-location helpers every ADBC adapter needs."
+description = "The linked-driver FFI and the linked libpq's OAuth hook (the workspace's two `unsafe` sites) plus the shared parameter-batch and driver-location helpers every ADBC adapter needs."
 
 [dependencies]
 # The ADBC driver manager: `ManagedDriver::load_static` (the linked route) and

@@ -156,6 +156,7 @@ pub(super) fn deadline_exceeded(error: &AdbcError) -> bool {
         AdbcError::DeadlineSpent => true,
         AdbcError::Adbc(ref cause) => sqlstate(cause) == QUERY_CANCELED,
         AdbcError::Load(_)
+        | AdbcError::BearerNeedsTheLinkedDriver
         | AdbcError::Batch(_)
         | AdbcError::Unannounced(_)
         | AdbcError::Parameters(_)

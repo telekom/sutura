@@ -24,7 +24,9 @@
 //! A [`Kerberos`] sign-in is refused to a socket, where a server offers no GSSAPI; while
 //! `KRB5CCNAME` names no credential cache, because MIT krb5 then signs in as whatever a default
 //! cache holds and reads a client keytab only where that cache does not exist; and with GSSAPI
-//! encryption beside TLS, which libpq tries first and which verifies none of the declared anchors. Declared material is read once here too, through the same
+//! encryption beside TLS, which libpq tries first and which verifies none of the declared anchors. An [`OAuth`] sign-in is refused over
+//! plaintext, where its bearer would be readable on the path, and with a bearer libpq cannot carry
+//! (empty, or holding a NUL). Declared material is read once here too, through the same
 //! [`client_config`](crate::tls::client_config) that path boots with, so an unreadable bundle or
 //! client pair is refused before a driver loads rather than at the first connect.
 //!
@@ -33,7 +35,10 @@
 //! server maps it to the declared `user`. The string pins what the ticket is for (`krbsrvname`) and
 //! that the credential is never forwarded (`gssdelegation`), not who holds it. Which server
 //! principal GSSAPI authenticates is the `<krbsrvname>/<host>` that `krb5.conf` makes of the declared
-//! host (`qualify_shortname`, `dns_canonicalize_hostname`), not anything the declared anchors hold. libpq re-reads the files at every connect, so what was checked here is not
+//! host (`qualify_shortname`, `dns_canonicalize_hostname`), not anything the declared anchors hold. An OAuth bearer is
+//! never in the string: libpq has no keyword for one, so `Conninfo::bearer` holds it for the
+//! linked libpq's hook, and only the linked driver can be handed it. Its issuer and client are
+//! pinned; when the token expires, and who it was minted for, are the declaration's, not libpq's. libpq re-reads the files at every connect, so what was checked here is not
 //! what is presented later. libpq refuses a client key readable by group or others; this does not
 //! check that, so such a key passes here and fails at connect. The string names keys libpq 16 to 18
 //! added (`sslcertmode`, `require_auth`, `sslkeylogfile`), so a mounted driver over an older libpq
@@ -47,6 +52,7 @@
 //! constructors hand it the process's own `std::env::var_os` is the one line no cell drives. And no cell here observes a handshake: the strings below are what
 //! libpq is told, read against its source, not what it did.
 
+use core::ffi::CStr;
 use std::ffi::OsString;
 
 use sutura_domain::identity::Secret;
@@ -201,19 +207,19 @@ const KEYWORDS: [(&str, Held); 50] = [
     ),
     (
         "oauth_issuer",
-        Held::Harmless("read only for OAuth, which require_auth rules out"),
+        Held::Written("on OAuth; a service file's would pick which server's issuer the bearer is for"),
     ),
     (
         "oauth_client_id",
-        Held::Harmless("read only for OAuth, which require_auth rules out"),
+        Held::Written("on OAuth; libpq refuses OAuth without it, and a service file's would be someone else's"),
     ),
     (
         "oauth_client_secret",
-        Held::Harmless("read only for OAuth, which require_auth rules out"),
+        Held::Harmless("read only by libpq's device flow, which the linked libpq is built without"),
     ),
     (
         "oauth_scope",
-        Held::Harmless("read only for OAuth, which require_auth rules out"),
+        Held::Harmless("only handed to the hook, which answers with the held bearer whatever it names"),
     ),
     (
         "sslkeylogfile",
@@ -237,6 +243,7 @@ pub enum Channel<'a> {
 enum SignIn<'a> {
     Password(&'a Secret),
     Kerberos(&'a Kerberos),
+    OAuth(&'a OAuth, &'a Secret),
 }
 
 /// A Kerberos sign-in through GSSAPI, as the declaration names it.
@@ -293,6 +300,48 @@ pub enum GssEncryption {
     Required,
     /// Off: GSSAPI signs in, and the channel is the declared one.
     Off,
+}
+
+/// An OAuth sign-in, as the declaration names the issuer and the client the bearer is for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OAuth {
+    issuer: String,
+    client_id: String,
+}
+
+/// A declared OAuth issuer or client that libpq could not hold to.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidOAuth {
+    #[error("an OAuth issuer is an `https://` URL")]
+    IssuerNotHttps,
+    #[error("an OAuth client id is empty")]
+    EmptyClientId,
+    #[error("an OAuth issuer or client id holds a control character")]
+    ControlCharacter,
+}
+
+impl OAuth {
+    /// The issuer libpq holds the server's discovery document to, and the client id it requires.
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidOAuth`] for an issuer that is not `https://`, an empty client id, or a control
+    /// character in either.
+    pub fn new(issuer: &str, client_id: &str) -> Result<Self, InvalidOAuth> {
+        if issuer.strip_prefix("https://").is_none_or(str::is_empty) {
+            return Err(InvalidOAuth::IssuerNotHttps);
+        }
+        if client_id.is_empty() {
+            return Err(InvalidOAuth::EmptyClientId);
+        }
+        if issuer.chars().chain(client_id.chars()).any(char::is_control) {
+            return Err(InvalidOAuth::ControlCharacter);
+        }
+        Ok(Self {
+            issuer: String::from(issuer),
+            client_id: String::from(client_id),
+        })
+    }
 }
 
 /// What [`Conninfo`] reads from the process environment, handed in so a cell can set it.
@@ -362,6 +411,13 @@ pub enum UnusableChannel {
          verify none of the declared anchors. Declare one of the two"
     )]
     GssEncryptionBesideTls { alias: SourceName },
+    #[error(
+        "`sources.{alias}` declares an OAuth bearer over plaintext, where anyone on the path could \
+         read it and sign in with it. Declare TLS for OAuth"
+    )]
+    BearerOverPlaintext { alias: SourceName },
+    #[error("`sources.{alias}` declares an OAuth bearer that is empty or holds a NUL, which libpq cannot carry")]
+    UnusableBearer { alias: SourceName },
     #[error("`sources.{alias}` declares TLS material that cannot be used")]
     Material {
         alias: SourceName,
@@ -370,10 +426,16 @@ pub enum UnusableChannel {
     },
 }
 
-/// The connection string for one source. Only [`Conninfo::new`] and [`Conninfo::kerberos`] make
-/// one, and its `Debug` is the [`Secret`]'s, so the password it carries is never printed.
+/// The connection string for one source, and the OAuth bearer its dials sign in with, if any.
+///
+/// Only [`Conninfo::new`], [`Conninfo::kerberos`] and [`Conninfo::oauth`] make one, and its `Debug`
+/// is the [`Secret`]s', so neither the password nor the bearer is ever printed.
 #[derive(Debug)]
-pub struct Conninfo(Secret);
+pub struct Conninfo {
+    text: Secret,
+    /// NUL-terminated, so libpq reads it in place: no copy outlives the zeroizing [`Secret`].
+    bearer: Option<Secret>,
+}
 
 impl Conninfo {
     /// Builds the connection string for `source` over `channel`, signing in with `password`.
@@ -419,6 +481,28 @@ impl Conninfo {
         Self::under(Process::read(), source, target, port, database, user, sign_in, channel)
     }
 
+    /// Builds the connection string for `source` over `channel`, signing in with OAuth: libpq asks
+    /// the server for its issuer, refuses one other than `oauth`'s, and is handed `bearer` by the
+    /// linked libpq's hook (`sutura_adbc::with_postgres_bearer`) - no keyword carries it.
+    ///
+    /// # Errors
+    ///
+    /// [`Conninfo::new`]'s, less the password's, and [`UnusableChannel`] for a plaintext channel
+    /// and for a bearer that is empty or holds a NUL.
+    pub fn oauth(
+        source: &SourceName,
+        target: ConnectionTarget<'_>,
+        port: u16,
+        database: &str,
+        user: &str,
+        oauth: &OAuth,
+        bearer: &Secret,
+        channel: Channel<'_>,
+    ) -> Result<Self, UnusableChannel> {
+        let sign_in = SignIn::OAuth(oauth, bearer);
+        Self::under(Process::read(), source, target, port, database, user, sign_in, channel)
+    }
+
     fn under(
         process: Process,
         source: &SourceName,
@@ -460,6 +544,12 @@ impl Conninfo {
                     }
                 }
             }
+            SignIn::OAuth(..) => {
+                if matches!(channel, Channel::Plaintext) {
+                    return Err(UnusableChannel::BearerOverPlaintext { alias: source.clone() });
+                }
+                ("oauth", "disable")
+            }
         };
         let port = port.to_string();
         let mut text = String::new();
@@ -481,7 +571,7 @@ impl Conninfo {
         let (anchors, identity) = match channel {
             Channel::Plaintext => {
                 pair(&mut text, "sslmode", "disable");
-                return signed_in(text, sign_in, source).map(Self);
+                return signed_in(text, sign_in, source);
             }
             Channel::Verified(anchors) => (anchors, None),
             Channel::Mutual(anchors, identity) => (anchors, Some(identity)),
@@ -512,12 +602,22 @@ impl Conninfo {
                 pair(&mut text, "sslkey", &identity.key().display().to_string());
             }
         }
-        signed_in(text, sign_in, source).map(Self)
+        signed_in(text, sign_in, source)
     }
 
     /// The string, for the one caller that hands it to the driver.
     pub(crate) const fn secret(&self) -> &Secret {
-        &self.0
+        &self.text
+    }
+
+    /// The bearer, as the C string libpq's hook hands over, where this string signs in with OAuth.
+    pub(crate) fn bearer(&self) -> Option<&CStr> {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the bearer's destination is libpq's hook, and handing it over is its purpose"
+        )]
+        let bearer = self.bearer.as_ref()?.expose_secret();
+        CStr::from_bytes_with_nul(bearer.as_bytes()).ok()
     }
 }
 
@@ -534,22 +634,42 @@ fn pair(text: &mut String, key: &str, value: &str) {
     text.push_str("' ");
 }
 
-/// Appends what the sign-in writes and seals the string: the password, or the Kerberos service and
-/// delegation.
-fn signed_in(mut text: String, sign_in: SignIn<'_>, source: &SourceName) -> Result<Secret, UnusableChannel> {
-    match sign_in {
-        SignIn::Password(password) => with_password(text, password, source),
+/// Appends what the sign-in writes and seals the string: the password; the Kerberos service and
+/// delegation; or the OAuth issuer and client, with the bearer held beside the string.
+fn signed_in(mut text: String, sign_in: SignIn<'_>, source: &SourceName) -> Result<Conninfo, UnusableChannel> {
+    let bearer = match sign_in {
+        SignIn::Password(password) => {
+            text = with_password(text, password, source)?;
+            None
+        }
         SignIn::Kerberos(kerberos) => {
             pair(&mut text, "krbsrvname", &kerberos.service.0);
             pair(&mut text, "gssdelegation", "0");
-            Ok(Secret::new(text))
+            None
         }
-    }
+        SignIn::OAuth(oauth, bearer) => {
+            pair(&mut text, "oauth_issuer", &oauth.issuer);
+            pair(&mut text, "oauth_client_id", &oauth.client_id);
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "the bearer is re-sealed NUL-terminated for libpq's hook, its one destination"
+            )]
+            let bearer = bearer.expose_secret();
+            if bearer.is_empty() || bearer.contains('\0') {
+                return Err(UnusableChannel::UnusableBearer { alias: source.clone() });
+            }
+            Some(Secret::new(format!("{bearer}\0")))
+        }
+    };
+    Ok(Conninfo {
+        text: Secret::new(text),
+        bearer,
+    })
 }
 
-/// Appends the password and seals the string, refusing an empty one: libpq reads `password=''` as
-/// unset and looks it up in `PGPASSFILE` or `~/.pgpass`.
-fn with_password(mut text: String, password: &Secret, source: &SourceName) -> Result<Secret, UnusableChannel> {
+/// Appends the password, refusing an empty one: libpq reads `password=''` as unset and looks it up
+/// in `PGPASSFILE` or `~/.pgpass`.
+fn with_password(mut text: String, password: &Secret, source: &SourceName) -> Result<String, UnusableChannel> {
     #[expect(
         clippy::disallowed_methods,
         reason = "the libpq connection string is the password's destination, and building it is its purpose"
@@ -559,375 +679,8 @@ fn with_password(mut text: String, password: &Secret, source: &SourceName) -> Re
         return Err(UnusableChannel::EmptyPassword { alias: source.clone() });
     }
     pair(&mut text, "password", password);
-    Ok(Secret::new(text))
+    Ok(text)
 }
 
 #[cfg(test)]
-mod tests {
-    //! What libpq is told for each declared channel, and each refusal arriving instead of a string.
-
-    use std::path::{Path, PathBuf};
-
-    use sutura_domain::identity::Secret;
-    use sutura_domain::model::SourceName;
-
-    use super::{
-        Channel, Conninfo, GssEncryption, Held, InvalidKerberosService, KEYWORDS, Kerberos, KerberosService, Process, SignIn,
-        UnusableChannel,
-    };
-    use crate::connection::ConnectionTarget;
-    use crate::tls::{TlsAnchors, TlsIdentity};
-
-    /// Every channel's shared prefix: the declared target, then the keys the environment may not fill.
-    const PINNED: &str = "host='db.example' port='5432' dbname='sales' user='reader' hostaddr='' \
-                          options='' client_encoding='UTF8' require_auth='password,md5,scram-sha-256,none' \
-                          gssencmode='disable' sslkeylogfile='' ssl_min_protocol_version='TLSv1.2' ";
-
-    fn source() -> SourceName {
-        SourceName::parse("pg").expect("a test source is a source")
-    }
-
-    fn built(target: ConnectionTarget<'_>, password: &str, channel: Channel<'_>) -> Result<String, UnusableChannel> {
-        let conninfo = Conninfo::new(&source(), target, 5432, "sales", "reader", &Secret::new(password), channel)?;
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "the cell asserts the exact string libpq is handed, password included"
-        )]
-        let text = conninfo.secret().expose_secret().to_owned();
-        Ok(text)
-    }
-
-    /// The string a Kerberos sign-in builds, in an environment that names a credential or none.
-    fn kerberized(
-        named: bool,
-        target: ConnectionTarget<'_>,
-        kerberos: &Kerberos,
-        channel: Channel<'_>,
-    ) -> Result<String, UnusableChannel> {
-        let process = Process {
-            openssl_configured: false,
-            kerberos_cache_named: named,
-        };
-        let sign_in = SignIn::Kerberos(kerberos);
-        let conninfo = Conninfo::under(process, &source(), target, 5432, "sales", "reader", sign_in, channel)?;
-        #[expect(clippy::disallowed_methods, reason = "the cell asserts the exact string libpq is handed")]
-        let text = conninfo.secret().expose_secret().to_owned();
-        Ok(text)
-    }
-
-    fn kerberos(encryption: GssEncryption) -> Kerberos {
-        let service = KerberosService::parse("postgres").expect("a test service is a service");
-        Kerberos::new(service, encryption)
-    }
-
-    /// A self-signed certificate and its key, written where the cell can name them.
-    fn material(case: &str) -> (PathBuf, PathBuf) {
-        let generated = rcgen::generate_simple_self_signed(vec![String::from("db.example")]).expect("rcgen signs");
-        let dir = std::env::temp_dir().join(format!("sutura-conninfo-{case}-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("a temp dir is creatable");
-        let (certificate, key) = (dir.join("ca.pem"), dir.join("client.key"));
-        std::fs::write(&certificate, generated.cert.pem()).expect("the certificate is writable");
-        std::fs::write(&key, generated.signing_key.serialize_pem()).expect("the key is writable");
-        (certificate, key)
-    }
-
-    const HOST: ConnectionTarget<'static> = ConnectionTarget::Host("db.example");
-
-    #[test]
-    fn a_verified_channel_is_verify_full_against_the_declared_bundle_and_presents_nothing() {
-        let (bundle, _) = material("verified");
-        let anchors = TlsAnchors::Bundle(bundle.clone());
-        let text = built(HOST, "p", Channel::Verified(&anchors)).expect("a readable bundle builds");
-        assert_eq!(
-            text,
-            format!(
-                "{PINNED}sslmode='verify-full' sslrootcert='{}' sslcertmode='disable' password='p' ",
-                bundle.display()
-            )
-        );
-    }
-
-    #[test]
-    fn a_mutual_channel_presents_exactly_the_declared_pair() {
-        let (certificate, key) = material("mutual");
-        let anchors = TlsAnchors::Bundle(certificate.clone());
-        let identity = TlsIdentity::new(certificate.clone(), key.clone());
-        let text = built(HOST, "p", Channel::Mutual(&anchors, &identity)).expect("a matching pair builds");
-        assert_eq!(
-            text,
-            format!(
-                "{PINNED}sslmode='verify-full' sslrootcert='{c}' sslcertmode='allow' sslcert='{c}' sslkey='{}' password='p' ",
-                key.display(),
-                c = certificate.display()
-            )
-        );
-    }
-
-    #[test]
-    fn a_plaintext_channel_disables_tls_rather_than_leaving_libpq_to_prefer_it() {
-        let text = built(HOST, "p", Channel::Plaintext).expect("plaintext builds");
-        assert_eq!(text, format!("{PINNED}sslmode='disable' password='p' "));
-    }
-
-    #[test]
-    fn a_quote_in_a_declared_value_cannot_open_a_second_key() {
-        let text = built(HOST, r"x' sslmode='disable \", Channel::Plaintext).expect("plaintext builds");
-        assert!(text.ends_with(r"password='x\' sslmode=\'disable \\' "), "{text}");
-    }
-
-    #[test]
-    fn tls_over_a_unix_socket_is_refused_by_name() {
-        let (bundle, _) = material("socket");
-        let anchors = TlsAnchors::Bundle(bundle);
-        let refused = built(
-            ConnectionTarget::UnixSocket(Path::new("/run/postgresql")),
-            "p",
-            Channel::Verified(&anchors),
-        )
-        .expect_err("libpq drops TLS on a socket");
-        assert!(
-            matches!(refused, UnusableChannel::TlsOverASocket { ref alias, ref target } if alias.as_str() == "pg" && target == "/run/postgresql"),
-            "{refused:?}"
-        );
-    }
-
-    #[test]
-    fn tls_to_a_host_libpq_reads_as_an_abstract_socket_is_refused() {
-        let (bundle, _) = material("abstract");
-        let anchors = TlsAnchors::Bundle(bundle);
-        let refused = built(ConnectionTarget::Host("@pg"), "p", Channel::Verified(&anchors)).expect_err("`@` is a socket");
-        assert!(matches!(refused, UnusableChannel::TlsOverASocket { .. }), "{refused:?}");
-    }
-
-    #[test]
-    fn a_declared_system_store_is_refused_by_name() {
-        let refused = built(HOST, "p", Channel::Verified(&TlsAnchors::System)).expect_err("libpq's system is not sutura's");
-        assert!(
-            matches!(refused, UnusableChannel::HostStore { ref alias } if alias.as_str() == "pg"),
-            "{refused:?}"
-        );
-    }
-
-    #[test]
-    fn an_unreadable_bundle_is_refused_before_any_driver_loads() {
-        let anchors = TlsAnchors::Bundle(PathBuf::from("/nonexistent/sutura-ca.pem"));
-        let refused = built(HOST, "p", Channel::Verified(&anchors)).expect_err("no bundle lives there");
-        assert!(
-            matches!(
-                refused,
-                UnusableChannel::Material {
-                    cause: crate::PostgresError::AnchorsRead { .. },
-                    ..
-                }
-            ),
-            "{refused:?}"
-        );
-    }
-
-    #[test]
-    fn a_target_that_is_not_one_host_is_refused_on_every_channel() {
-        let (bundle, _) = material("targets");
-        let anchors = TlsAnchors::Bundle(bundle);
-        for (target, channel) in [
-            (ConnectionTarget::Host("db.example,"), Channel::Verified(&anchors)),
-            (ConnectionTarget::Host("db.example,@pg"), Channel::Verified(&anchors)),
-            (ConnectionTarget::Host(""), Channel::Verified(&anchors)),
-            (ConnectionTarget::Host("127.0.0.1,"), Channel::Plaintext),
-            (
-                ConnectionTarget::UnixSocket(Path::new("/run/pg,db.example")),
-                Channel::Plaintext,
-            ),
-            (ConnectionTarget::UnixSocket(Path::new("")), Channel::Plaintext),
-        ] {
-            let refused = built(target, "p", channel).expect_err("one host, or none");
-            assert!(
-                matches!(refused, UnusableChannel::NotOneTarget { ref alias, .. } if alias.as_str() == "pg"),
-                "{refused:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn an_empty_password_is_refused_rather_than_looked_up() {
-        let (bundle, _) = material("password");
-        let anchors = TlsAnchors::Bundle(bundle);
-        for channel in [Channel::Plaintext, Channel::Verified(&anchors)] {
-            let refused = built(HOST, "", channel).expect_err("an empty password is not sent");
-            assert!(
-                matches!(refused, UnusableChannel::EmptyPassword { ref alias } if alias.as_str() == "pg"),
-                "{refused:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn tls_is_refused_while_openssl_conf_is_set_and_plaintext_is_not() {
-        let (bundle, _) = material("openssl-conf");
-        let anchors = TlsAnchors::Bundle(bundle);
-        let password = Secret::new("p");
-        let process = Process {
-            openssl_configured: true,
-            kerberos_cache_named: false,
-        };
-        let under = |channel| {
-            let sign_in = SignIn::Password(&password);
-            Conninfo::under(process, &source(), HOST, 5432, "sales", "reader", sign_in, channel)
-        };
-        let refused = under(Channel::Verified(&anchors)).expect_err("its OpenSSL would read the file");
-        assert!(matches!(refused, UnusableChannel::OpensslConfig { .. }), "{refused:?}");
-        under(Channel::Plaintext).expect("plaintext never starts OpenSSL");
-    }
-
-    #[test]
-    fn an_unreadable_client_pair_is_refused_before_any_driver_loads() {
-        let (certificate, _) = material("pair");
-        let anchors = TlsAnchors::Bundle(certificate.clone());
-        let identity = TlsIdentity::new(certificate, PathBuf::from("/nonexistent/sutura-client.key"));
-        let refused = built(HOST, "p", Channel::Mutual(&anchors, &identity)).expect_err("no key lives there");
-        assert!(
-            matches!(
-                refused,
-                UnusableChannel::Material {
-                    cause: crate::PostgresError::IdentityRead { .. },
-                    ..
-                }
-            ),
-            "{refused:?}"
-        );
-    }
-
-    /// Every Kerberos string's shared prefix, the password one's with GSSAPI the only method.
-    const KERBEROS: &str = "host='db.example' port='5432' dbname='sales' user='reader' hostaddr='' \
-                            options='' client_encoding='UTF8' require_auth='gss' ";
-
-    #[test]
-    fn a_kerberos_sign_in_requires_gssapi_encryption_names_the_service_and_sends_no_password() {
-        let text = kerberized(true, HOST, &kerberos(GssEncryption::Required), Channel::Plaintext).expect("it builds");
-        assert_eq!(
-            text,
-            format!(
-                "{KERBEROS}gssencmode='require' sslkeylogfile='' ssl_min_protocol_version='TLSv1.2' \
-                 sslmode='disable' krbsrvname='postgres' gssdelegation='0' "
-            )
-        );
-    }
-
-    #[test]
-    fn a_kerberos_sign_in_inside_tls_keeps_gssapi_encryption_off_and_delegates_nothing() {
-        let (bundle, _) = material("kerberos-tls");
-        let anchors = TlsAnchors::Bundle(bundle.clone());
-        let service = KerberosService::parse("POSTGRES").expect("a test service is a service");
-        let inside = Kerberos::new(service, GssEncryption::Off);
-        let text = kerberized(true, HOST, &inside, Channel::Verified(&anchors)).expect("it builds");
-        assert_eq!(
-            text,
-            format!(
-                "{KERBEROS}gssencmode='disable' sslkeylogfile='' ssl_min_protocol_version='TLSv1.2' \
-                 sslmode='verify-full' sslrootcert='{}' sslcertmode='disable' krbsrvname='POSTGRES' gssdelegation='0' ",
-                bundle.display()
-            )
-        );
-    }
-
-    #[test]
-    fn kerberos_with_no_cache_named_is_refused_rather_than_signing_in_as_the_default_cache() {
-        let refused =
-            kerberized(false, HOST, &kerberos(GssEncryption::Required), Channel::Plaintext).expect_err("no cache is named");
-        assert!(
-            matches!(refused, UnusableChannel::NoKerberosCache { ref alias } if alias.as_str() == "pg"),
-            "{refused:?}"
-        );
-    }
-
-    #[test]
-    fn only_a_named_cache_names_the_kerberos_credential_and_a_keytab_alone_does_not() {
-        let lookup = |set: &'static [(&'static str, &'static str)]| {
-            move |name: &str| {
-                set.iter()
-                    .find(|&&(key, _)| key == name)
-                    .map(|&(_, value)| std::ffi::OsString::from(value))
-            }
-        };
-        let named = |set| Process::read_with(lookup(set)).kerberos_cache_named;
-        assert!(!named(&[]), "nothing set");
-        assert!(!named(&[("KRB5_CLIENT_KTNAME", "/run/keytab")]), "a keytab pins no principal");
-        assert!(!named(&[("KRB5CCNAME", "")]), "an empty name is unset");
-        assert!(named(&[("KRB5CCNAME", "MEMORY:sutura")]), "a named cache");
-        assert!(named(&[("KRB5CCNAME", "MEMORY:s"), ("KRB5_CLIENT_KTNAME", "/run/keytab")]));
-        let openssl = |set| Process::read_with(lookup(set)).openssl_configured;
-        assert!(!openssl(&[]));
-        assert!(openssl(&[("OPENSSL_CONF", "")]), "libpq's OpenSSL reads even an empty one");
-    }
-
-    #[test]
-    fn gssapi_encryption_beside_tls_is_refused_by_name() {
-        let (bundle, _) = material("kerberos-both");
-        let anchors = TlsAnchors::Bundle(bundle);
-        let refused = kerberized(true, HOST, &kerberos(GssEncryption::Required), Channel::Verified(&anchors))
-            .expect_err("libpq would take GSSAPI and skip the anchors");
-        assert!(
-            matches!(refused, UnusableChannel::GssEncryptionBesideTls { .. }),
-            "{refused:?}"
-        );
-    }
-
-    #[test]
-    fn kerberos_to_a_unix_socket_is_refused_by_name() {
-        for target in [
-            ConnectionTarget::UnixSocket(Path::new("/run/postgresql")),
-            ConnectionTarget::Host("/tmp"),
-        ] {
-            let refused = kerberized(true, target, &kerberos(GssEncryption::Off), Channel::Plaintext)
-                .expect_err("a server offers no GSSAPI on a socket");
-            assert!(
-                matches!(refused, UnusableChannel::KerberosOverASocket { ref alias, .. } if alias.as_str() == "pg"),
-                "{refused:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_service_name_cannot_carry_a_realm_a_second_component_or_nothing() {
-        assert_eq!(KerberosService::parse(""), Err(InvalidKerberosService::Empty));
-        for (name, found) in [
-            ("postgres@EXAMPLE.TEST", '@'),
-            ("postgres/db.example", '/'),
-            ("post gres", ' '),
-            ("postgres'", '\''),
-        ] {
-            assert_eq!(
-                KerberosService::parse(name),
-                Err(InvalidKerberosService::Character { found }),
-                "{name:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn every_libpq_keyword_is_classified_once_and_exactly_the_written_ones_are_written() {
-        let (certificate, key) = material("keywords");
-        let anchors = TlsAnchors::Bundle(certificate.clone());
-        let identity = TlsIdentity::new(certificate, key);
-        let strings = [
-            built(HOST, "p", Channel::Plaintext),
-            built(HOST, "p", Channel::Verified(&anchors)),
-            built(HOST, "p", Channel::Mutual(&anchors, &identity)),
-            kerberized(true, HOST, &kerberos(GssEncryption::Required), Channel::Plaintext),
-            kerberized(
-                true,
-                HOST,
-                &kerberos(GssEncryption::Off),
-                Channel::Mutual(&anchors, &identity),
-            ),
-        ]
-        .map(|text| format!(" {}", text.expect("each channel builds")));
-        let mut seen = std::collections::HashSet::new();
-        for (keyword, held) in KEYWORDS {
-            assert!(seen.insert(keyword), "{keyword} is classified twice");
-            let written = strings.iter().any(|text| text.contains(&format!(" {keyword}='")));
-            let (Held::Written(reason) | Held::Harmless(reason)) = held;
-            assert!(!reason.is_empty(), "{keyword} is classified for no stated reason");
-            assert_eq!(written, matches!(held, Held::Written(_)), "{keyword} is {held:?}");
-        }
-    }
-}
+mod tests;

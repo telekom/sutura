@@ -1647,3 +1647,27 @@ sign-in and its refused negative control - run only in `nix/shipped.nix`'s x86_6
 `bigquery-driver-check` realises them; aarch64-musl links the same set and nothing executes it
 there. OAuth stays unsupported: the static libpq is built without libcurl, and a token sutura holds
 is a further change through libpq's `PQsetAuthDataHook`.
+
+## Sixteenth amendment, 2026-10-03: an OAuth bearer on the linked libpq, through its auth-data hook
+
+**What moved.** The owner's 2026-10-02 ruling on `telekom/sutura#913` is that OAuth is not an
+accepted limit. libpq 18 compiles `OAUTHBEARER` and `PQsetAuthDataHook` unconditionally, and only
+its built-in device flow needs libcurl, so the static libpq stays built without libcurl and
+`nix/postgres-adbc.nix` is unchanged.
+
+**A second `unsafe` site.** Owner-approved, in `crates/sutura-adbc/src/oauth.rs`: the workspace's
+two `unsafe` sites are `linked` and `oauth`, and `cargo xtask check-unsafe` pins exactly those two
+files under the one excepted root, and now also catches the inner `#![expect(` spelling. The
+request mirror (`BearerRequest`) is held to `libpq-fe.h`'s `PGoauthBearerRequest` by the
+`adbc-driver-postgresql` check. The hook answers only while `with_postgres_bearer` holds a bearer
+on the calling thread, and the driver dials synchronously on that thread twice per query.
+
+**What is declared, and refused.** `Conninfo::oauth` builds `require_auth='oauth'` with the declared
+`oauth_issuer` and `oauth_client_id`. Refused when built, by name: a bearer over plaintext, an
+empty or NUL bearer, and OAuth through a mounted driver (`AdbcError::BearerNeedsTheLinkedDriver`).
+
+**Limits.** One bearer per transport, with no minting, refresh or expiry. The tier validator checks
+a fixed string, never a JWT; a deployment's validator is the operator's. No settings key selects
+the ADBC transport yet. The two tier cells (`tests/oauth.rs`, the sign-in and its refused negative
+control) run only in the x86_64-linux CI venue, and they prove the protocol and the link, not an
+identity. The mounted route is refused, not served. Acting as the caller is a later change.

@@ -43,7 +43,7 @@ bytes = { workspace = true }
 futures-util = { workspace = true }
 thiserror = { workspace = true }
 # The ADBC transport (`src/adbc.rs`, `telekom/sutura#913`), all behind the default-off `adbc`
-# feature. `sutura-adbc` is the shared crate that owns the workspace's one `unsafe` ADBC site, so
+# feature. `sutura-adbc` is the shared crate that owns the workspace's two `unsafe` ADBC sites, so
 # this adapter adds none; the driver manager loads the self-built `libadbc_driver_postgresql.so`
 # (`nix/postgres-adbc.nix`) by path and the two Arrow crates name what it hands back. Every one of
 # these is already in `Cargo.lock` through `sutura-exec-bigquery`, so the feature adds edges and no
@@ -107,6 +107,10 @@ required-features = ["adbc"]
 
 [[test]]
 name = "kerberos"
+required-features = ["adbc"]
+
+[[test]]
+name = "oauth"
 required-features = ["adbc"]
 
 # `harness = false`: divan runs its own `main`, not libtest's `#[bench]` runner. Not a gate -

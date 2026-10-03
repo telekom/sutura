@@ -16,3 +16,5 @@ crates/sutura-exec-bigquery/tests/declared_principal.rs::the_deployments_own_ide
 crates/sutura-exec-oracle/tests/acceptance.rs::a_quoted_identifier_names_the_object_the_dictionary_stores
 crates/sutura-exec-postgres/tests/kerberos.rs::a_declared_service_the_kdc_does_not_know_is_refused_rather_than_signed_in
 crates/sutura-exec-postgres/tests/kerberos.rs::the_linked_driver_signs_in_with_kerberos_over_a_gssapi_encrypted_channel
+crates/sutura-exec-postgres/tests/oauth.rs::another_roles_bearer_is_refused_rather_than_signed_in
+crates/sutura-exec-postgres/tests/oauth.rs::the_linked_driver_signs_in_with_an_authorised_oauth_bearer_over_a_verified_channel

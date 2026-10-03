@@ -77,14 +77,16 @@ composition root with the reason that no build delivers it.
 PostgreSQL transport beside `tokio-postgres`, and every musl release links its driver statically,
 with libpq, MIT krb5 and OpenSSL 3. No settings key selects it: `tokio-postgres` answers every
 `kind: postgres` source, and `sutura doctor`'s `pg driver` line only says whether the driver is
-linked and initialises. **Its libpq signs in with Kerberos and has no OAuth flow**: the transport
-can be built for a Kerberos sign-in, as the one principal the credential cache `KRB5CCNAME` names,
-filled from a keytab where `KRB5_CLIENT_KTNAME` names one, and its connection string refuses SSPI
-and OAuth sign-in on either route. It also refuses `transport_anchors: system`, TLS or Kerberos
-over a unix socket, Kerberos with no credential named, and GSSAPI encryption beside TLS, which
-libpq cannot hold to. Two cells run it against a server: a Kerberos sign-in through the linked
-x86_64 musl driver, against a KDC tier, and its refused negative control - a declared service the
-KDC does not know - in CI only.
+linked and initialises. **Its libpq signs in with Kerberos or an OAuth bearer the transport holds**:
+Kerberos as the one principal the credential cache `KRB5CCNAME` names, filled from a keytab where
+`KRB5_CLIENT_KTNAME` names one; or a held bearer handed to the LINKED libpq through its auth-data
+hook - no libcurl, no device flow, and the bearer refused through a mounted driver and over
+plaintext. It also refuses `transport_anchors: system`, TLS or Kerberos over a unix socket, Kerberos
+with no credential cache named, and GSSAPI encryption beside TLS, which libpq cannot hold to. Four
+cells run it against a server, in CI only: a Kerberos sign-in through the linked x86_64 musl driver
+against a KDC tier and its refused negative control, and an OAuth sign-in on a TLS PostgreSQL 18
+whose fixed-string validator admits a held bearer and its refused negative control - the OAuth tier
+is protocol-only, never a real issuer's JWT.
 
 ## Identity: what "impersonation" does and does not mean here
 

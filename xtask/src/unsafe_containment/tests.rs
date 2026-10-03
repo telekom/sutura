@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{EXCEPTED_FILE, EXCEPTED_ROOT, Why, check, lowerings, member_paths, reassertion};
+use super::{EXCEPTED_FILES, EXCEPTED_ROOT, Why, check, lowerings, member_paths, reassertion};
 
 /// A file that lowers the lint, built from [`lowerings`] rather than written out.
 ///
@@ -19,6 +19,14 @@ fn lowers() -> String {
 /// The same with the `allow` spelling, which differs only in whether an unfulfilled one warns.
 fn lowers_by_allowing() -> String {
     format!("{})]\nfn f() {{}}\n", lowerings()[1])
+}
+
+/// The same with the inner `expect` spelling, which lowers everything under the module it heads.
+///
+/// Spelled here rather than read from [`lowerings`], so a gate that dropped the spelling from its
+/// own list is judged by a fixture it did not write; assembled so this file is not a finding.
+fn lowers_inside() -> String {
+    format!("#![expect({})]\nfn f() {{}}\n", ["unsafe", "_code"].concat())
 }
 
 /// A scratch workspace root keyed on the test's own name, removed first.
@@ -122,6 +130,20 @@ fn an_allow_lowers_the_lint_as_much_as_an_expect_does() {
 }
 
 #[test]
+fn an_inner_expect_lowering_in_an_undeclared_file_is_named() {
+    // An inner `#![expect(unsafe_code)]` at a module head lowers every source line under it, so the
+    // inner spelling is a fourth way to reach `deny` that an outer-only needle would have missed.
+    let root = one_member("inner-expect", &format!("{}\npub mod sneaky;\n", reassertion()));
+    put(&root, "crates/one/src/sneaky.rs", &lowers_inside());
+    let why = check(&root).expect_err("an inner expect is a lowering like the outer ones");
+    drop(std::fs::remove_dir_all(&root));
+    assert!(
+        matches!(&why, Why::Lowered(paths) if paths == &["crates/one/src/sneaky.rs".to_owned()]),
+        "{why:?}"
+    );
+}
+
+#[test]
 fn a_workspace_declaring_no_member_is_refused_rather_than_swept_clean() {
     let root = tree("empty");
     put(&root, "Cargo.toml", "[workspace]\nmembers = []\n");
@@ -143,8 +165,8 @@ fn a_member_with_no_crate_root_at_all_is_refused() {
 #[test]
 fn the_declared_exception_may_omit_the_reassertion_and_must_use_it() {
     // BOTH halves of the exception, in one cell because they are one bargain: the excepted root is
-    // allowed to go without the attribute precisely because one named file under it lowers the
-    // lint. Without that file the exception is a widening nobody spends, and the gate says so.
+    // allowed to go without the attribute precisely because its two named files lower the lint.
+    // Whichever declared file goes unspent is a widening nobody spends, and the gate names it.
     let root = tree("exception");
     put(
         &root,
@@ -153,10 +175,19 @@ fn the_declared_exception_may_omit_the_reassertion_and_must_use_it() {
     );
     put(&root, "crates/sutura-adbc/Cargo.toml", "[package]\nname = \"b\"\n");
     put(&root, EXCEPTED_ROOT, "pub mod adbc;\n");
-    let why = check(&root).expect_err("an exception that lowers nothing is stale");
-    assert!(matches!(why, Why::ExceptionEmpty), "{why:?}");
 
-    put(&root, EXCEPTED_FILE, &lowers());
+    let why = check(&root).expect_err("an exception that lowers nothing is stale");
+    let both: Vec<String> = EXCEPTED_FILES.iter().map(|f| String::from(*f)).collect();
+    assert!(matches!(&why, Why::ExceptionEmpty(files) if files == &both), "{why:?}");
+
+    put(&root, EXCEPTED_FILES[0], &lowers());
+    let why = check(&root).expect_err("one declared file spent still leaves the other unspent");
+    assert!(
+        matches!(&why, Why::ExceptionEmpty(files) if files == &[EXCEPTED_FILES[1].to_owned()]),
+        "{why:?}"
+    );
+
+    put(&root, EXCEPTED_FILES[1], &lowers());
     let scanned = check(&root).expect("the declared exception, spent where it was declared");
     assert_eq!(scanned.roots, 1, "the excepted root is still counted as read");
     drop(std::fs::remove_dir_all(&root));
@@ -186,9 +217,9 @@ fn a_member_list_naming_a_crate_in_a_comment_does_not_read_it_as_a_member() {
 #[test]
 fn the_real_tree_agrees_with_this_gate() {
     // The gate against the tree it guards, so a refactor of the walk cannot pass its own fixtures
-    // and fail the repository - `xtask/src/shipped.rs`'s own suite does the same. It also pins the
-    // two declarations to real paths: an exception naming a file that moved would be an exception
-    // holding nothing, and `EXCEPTION_EMPTY` would not fire if the root moved too.
+    // and fail the repository - `xtask/src/shipped.rs`'s own suite does the same. It also pins each
+    // declared exception to a real path: an exception naming a file that moved would be an
+    // exception holding nothing, and `EXCEPTION_EMPTY` would not fire if the root moved too.
     let Some(root) = crate::repo::root() else {
         return;
     };
@@ -196,5 +227,7 @@ fn the_real_tree_agrees_with_this_gate() {
     assert!(scanned.members >= 20, "{} member(s) read", scanned.members);
     assert!(scanned.roots >= 60, "{} crate root(s) read", scanned.roots);
     assert!(root.join(EXCEPTED_ROOT).is_file(), "the excepted root moved");
-    assert!(root.join(EXCEPTED_FILE).is_file(), "the excepted file moved");
+    for excepted in EXCEPTED_FILES {
+        assert!(root.join(excepted).is_file(), "the declared exception moved: {excepted}");
+    }
 }

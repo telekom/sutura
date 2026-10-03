@@ -49,11 +49,13 @@
 //! - **Every port method, read off the driver's source.** `session`'s header says what each sends;
 //!   `numeric` closes the `NUMERIC` drift for a column the driver tags `numeric`. No cell has run
 //!   them against a server, but for that one raw statement.
-//! - **Kerberos, not OAuth.** Both routes' libpq sign in with GSSAPI - the linked one through a static
-//!   MIT krb5 (`nix/postgres-adbc.nix`) - when [`Conninfo::kerberos`](crate::adbc::Conninfo::kerberos)
-//!   declares it, as the one principal the process environment names. The linked libpq is built
-//!   without libcurl, and [`Conninfo`](crate::adbc::Conninfo) refuses SSPI and OAuth sign-in on
-//!   either route, because a declaration can name neither.
+//! - **Kerberos on both routes, OAuth on the linked one.** Both routes' libpq sign in with GSSAPI -
+//!   the linked one through a static MIT krb5 (`nix/postgres-adbc.nix`) - when
+//!   [`Conninfo::kerberos`](crate::adbc::Conninfo::kerberos) declares it, as the one principal the
+//!   process environment names. [`Conninfo::oauth`](crate::adbc::Conninfo::oauth) signs in with a
+//!   bearer the transport hands the LINKED libpq's hook around each dial
+//!   (`sutura_adbc::with_postgres_bearer`); a mounted driver brings its own libpq, so an OAuth
+//!   declaration through one is refused when the transport is built. SSPI is refused on both.
 
 mod conninfo;
 mod numeric;
@@ -65,7 +67,9 @@ use adbc_core::error::Error as CoreError;
 use adbc_core::options::{AdbcVersion, OptionDatabase, OptionValue};
 use adbc_core::{Database as _, Driver as _};
 use adbc_driver_manager::{ManagedConnection, ManagedDriver};
-pub use conninfo::{Channel, Conninfo, GssEncryption, InvalidKerberosService, Kerberos, KerberosService, UnusableChannel};
+pub use conninfo::{
+    Channel, Conninfo, GssEncryption, InvalidKerberosService, InvalidOAuth, Kerberos, KerberosService, OAuth, UnusableChannel,
+};
 pub use sutura_adbc::UnusableDriverPath;
 use sutura_adbc::{DriverLocation, parameter_batch};
 use sutura_domain::identity::Presented;
@@ -100,6 +104,9 @@ pub enum AdbcError {
     Parameters(#[source] arrow_schema::ArrowError),
     #[error("a result cell could not be read")]
     Unreadable(#[source] sutura_domain::warehouse::UnreadableCell),
+    /// An OAuth bearer declared for a mounted driver, whose own libpq the bearer hook never reaches.
+    #[error("an OAuth sign-in needs the driver this artefact links; a mounted driver's libpq cannot be handed the bearer")]
+    BearerNeedsTheLinkedDriver,
     /// Spent before anything was sent - refused locally, the `tokio-postgres` path's `DeadlineSpent`.
     #[error("the deadline was already spent by the time the connection was open")]
     DeadlineSpent,
@@ -181,13 +188,17 @@ impl AdbcPostgres {
     ///
     /// # Errors
     ///
-    /// [`PostgresError::InvalidStatementTimeout`] where that tuning value is not a millisecond count.
+    /// [`PostgresError::InvalidStatementTimeout`] where that tuning value is not a millisecond count,
+    /// and [`AdbcError::BearerNeedsTheLinkedDriver`] for an OAuth sign-in through a mounted driver.
     pub fn new(
         source: SourceName,
         posture: SourcePosture,
         driver: PostgresDriver,
         conninfo: Conninfo,
     ) -> Result<Self, PostgresError> {
+        if conninfo.bearer().is_some() && matches!(driver.0, Route::Mounted(_)) {
+            return Err(AdbcError::BearerNeedsTheLinkedDriver.into());
+        }
         Ok(Self {
             source,
             posture,
@@ -205,10 +216,18 @@ impl AdbcPostgres {
             reason = "the libpq connection string is the driver's credential, and handing it to the driver is its purpose"
         )]
         let uri = OptionValue::String(self.conninfo.secret().expose_secret().to_owned());
-        let database = driver
-            .new_database_with_opts([(OptionDatabase::Uri, uri)])
-            .map_err(AdbcError::Adbc)?;
-        let mut connection = database.new_connection().map_err(AdbcError::Adbc)?;
+        // The driver dials twice, in `DatabaseInit` and `ConnectionInit`, both on this thread.
+        let dial = || -> Result<_, AdbcError> {
+            let database = driver
+                .new_database_with_opts([(OptionDatabase::Uri, uri)])
+                .map_err(AdbcError::Adbc)?;
+            let connection = database.new_connection().map_err(AdbcError::Adbc)?;
+            Ok((database, connection))
+        };
+        let (_database, mut connection) = match self.conninfo.bearer() {
+            None => dial(),
+            Some(bearer) => sutura_adbc::with_postgres_bearer(bearer, dial).ok_or(AdbcError::BearerNeedsTheLinkedDriver)?,
+        }?;
         Ok(step(&mut connection)?)
     }
 
@@ -834,6 +853,39 @@ mod tests {
         assert_eq!(PostgresDriver(Route::Linked).to_string(), "linked into this binary");
         let mounted = PostgresDriver::parse("/opt/lib/libadbc_driver_postgresql.so").expect("an absolute path parses");
         assert_eq!(mounted.to_string(), "mounted at /opt/lib/libadbc_driver_postgresql.so");
+    }
+
+    #[test]
+    fn an_oauth_sign_in_through_a_mounted_driver_is_refused_when_the_transport_is_built() {
+        let generated = rcgen::generate_simple_self_signed(vec![String::from("db.example")]).expect("rcgen signs");
+        let bundle = std::env::temp_dir().join(format!("sutura-adbc-oauth-{}.pem", std::process::id()));
+        std::fs::write(&bundle, generated.cert.pem()).expect("the bundle is writable");
+        let anchors = crate::tls::TlsAnchors::Bundle(bundle);
+        let source = SourceName::parse("pg").expect("a test source is a source");
+        let oauth = super::OAuth::new("https://issuer.example", "sutura").expect("a test declaration is one");
+        let conninfo = Conninfo::oauth(
+            &source,
+            crate::connection::ConnectionTarget::Host("db.example"),
+            5432,
+            "sales",
+            "reader",
+            &oauth,
+            &Secret::new("a-bearer"),
+            Channel::Verified(&anchors),
+        )
+        .expect("a TLS channel and a bearer build");
+        let mounted = PostgresDriver::parse("/opt/lib/libadbc_driver_postgresql.so").expect("an absolute path parses");
+        let refused = AdbcPostgres::new(source, sutura_conformance::corpus::posture(), mounted, conninfo)
+            .expect_err("the hook never reaches a mounted driver's libpq");
+        assert!(
+            matches!(
+                refused,
+                crate::PostgresError::Adbc {
+                    cause: AdbcError::BearerNeedsTheLinkedDriver
+                }
+            ),
+            "{refused:?}"
+        );
     }
 
     #[test]

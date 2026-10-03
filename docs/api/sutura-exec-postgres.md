@@ -211,11 +211,13 @@ path in `lib.rs` still answers every Postgres source, and no settings key select
 - **Every port method, read off the driver's source.** `session`'s header says what each sends;
   `numeric` closes the `NUMERIC` drift for a column the driver tags `numeric`. No cell has run
   them against a server, but for that one raw statement.
-- **Kerberos, not OAuth.** Both routes' libpq sign in with GSSAPI - the linked one through a static
-  MIT krb5 (`nix/postgres-adbc.nix`) - when `Conninfo::kerberos`
-  declares it, as the one principal the process environment names. The linked libpq is built
-  without libcurl, and `Conninfo` refuses SSPI and OAuth sign-in on
-  either route, because a declaration can name neither.
+- **Kerberos on both routes, OAuth on the linked one.** Both routes' libpq sign in with GSSAPI -
+  the linked one through a static MIT krb5 (`nix/postgres-adbc.nix`) - when
+  `Conninfo::kerberos` declares it, as the one principal the
+  process environment names. `Conninfo::oauth` signs in with a
+  bearer the transport hands the LINKED libpq's hook around each dial
+  (`sutura_adbc::with_postgres_bearer`); a mounted driver brings its own libpq, so an OAuth
+  declaration through one is refused when the transport is built. SSPI is refused on both.
 
 ### `enum AdbcError`
 
@@ -233,6 +235,7 @@ Why this transport could not answer.
 - `Unannounced`
 - `Parameters`
 - `Unreadable`
+- `BearerNeedsTheLinkedDriver` - An OAuth bearer declared for a mounted driver, whose own libpq the bearer hook never reaches.
 - `DeadlineSpent` - Spent before anything was sent - refused locally, the `tokio-postgres` path's `DeadlineSpent`.
 
 #### Implements
@@ -305,7 +308,8 @@ Reads the connect-time ceiling the `tokio-postgres` path reads
 
 # Errors
 
-`PostgresError::InvalidStatementTimeout` where that tuning value is not a millisecond count.
+`PostgresError::InvalidStatementTimeout` where that tuning value is not a millisecond count,
+and `AdbcError::BearerNeedsTheLinkedDriver` for an OAuth sign-in through a mounted driver.
 
 #### Implements
 
@@ -317,8 +321,10 @@ How the channel to the source is secured, as the composition root resolved the d
 
 ### `use Conninfo`
 
-The connection string for one source. Only `Conninfo::new` and `Conninfo::kerberos` make
-one, and its `Debug` is the `Secret`'s, so the password it carries is never printed.
+The connection string for one source, and the OAuth bearer its dials sign in with, if any.
+
+Only `Conninfo::new`, `Conninfo::kerberos` and `Conninfo::oauth` make one, and its `Debug`
+is the `Secret`s', so neither the password nor the bearer is ever printed.
 
 ### `use GssEncryption`
 
@@ -328,6 +334,10 @@ Whether GSSAPI encrypts the channel - libpq's `gssencmode`.
 
 A declared Kerberos service name that is not one.
 
+### `use InvalidOAuth`
+
+A declared OAuth issuer or client that libpq could not hold to.
+
 ### `use Kerberos`
 
 A Kerberos sign-in through GSSAPI, as the declaration names it.
@@ -335,6 +345,10 @@ A Kerberos sign-in through GSSAPI, as the declaration names it.
 ### `use KerberosService`
 
 The service half of the server's principal, `<service>/<host>` - libpq's `krbsrvname`.
+
+### `use OAuth`
+
+An OAuth sign-in, as the declaration names the issuer and the client the bearer is for.
 
 ### `use UnusableChannel`
 

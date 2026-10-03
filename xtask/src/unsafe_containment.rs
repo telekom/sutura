@@ -14,7 +14,8 @@
 //!    bench and each build script is its own target with its own root, which is why they are all
 //!    read.
 //! 2. Exactly one root is excepted, by name, and the `#[expect(unsafe_code)]` that exception
-//!    buys appears in exactly one file, also by name - and must APPEAR there. A stale exception
+//!    buys appears in exactly the two files [`EXCEPTED_FILES`] names - the linked drivers' init
+//!    declarations and the linked libpq's OAuth hook - and must APPEAR in each. A stale exception
 //!    is a widening nobody revoked, so an unused one is a finding too.
 //!
 //! # What it reads, and what that cannot see
@@ -52,21 +53,23 @@ pub(super) fn reassertion() -> String {
 
 /// The attribute spellings that lower the lint where `deny` is the level.
 ///
-/// All three, because `expect` and `allow` differ only in whether an unfulfilled one warns, and an
-/// inner `allow` at a root lowers the whole target - none may appear outside [`EXCEPTED_FILE`].
-pub(super) fn lowerings() -> [String; 3] {
+/// All four, because `expect` and `allow` differ only in whether an unfulfilled one warns, and an
+/// inner one at a root or a module lowers everything under it - none may appear outside
+/// [`EXCEPTED_FILES`].
+pub(super) fn lowerings() -> [String; 4] {
     [
         format!("#[expect({LINT}"),
         format!("#[allow({LINT}"),
         format!("#![allow({LINT}"),
+        format!("#![expect({LINT}"),
     ]
 }
 
 /// The one crate root that does not re-assert the forbid.
 const EXCEPTED_ROOT: &str = "crates/sutura-adbc/src/lib.rs";
 
-/// The one file that may lower the lint, under [`EXCEPTED_ROOT`]'s crate.
-const EXCEPTED_FILE: &str = "crates/sutura-adbc/src/linked.rs";
+/// The two files that may lower the lint, under [`EXCEPTED_ROOT`]'s crate - each must.
+const EXCEPTED_FILES: [&str; 2] = ["crates/sutura-adbc/src/linked.rs", "crates/sutura-adbc/src/oauth.rs"];
 
 /// Why the containment is not intact.
 #[derive(Debug)]
@@ -79,10 +82,10 @@ enum Why {
     Unguarded(Vec<String>),
     /// The excepted root carries the re-assertion, so the exception is stale.
     ExceptionUnused,
-    /// Files lowering the lint outside the one declared file.
+    /// Files lowering the lint outside the declared ones.
     Lowered(Vec<String>),
-    /// The declared file does not lower the lint, so the exception buys nothing.
-    ExceptionEmpty,
+    /// Declared files that do not lower the lint, so that part of the exception buys nothing.
+    ExceptionEmpty(Vec<String>),
 }
 
 impl Why {
@@ -103,13 +106,15 @@ impl Why {
                 reassertion()
             ),
             Self::Lowered(paths) => format!(
-                "{} file(s) lower the lint outside `{EXCEPTED_FILE}`: {}",
+                "{} file(s) lower the lint outside `{}`: {}",
                 paths.len(),
+                EXCEPTED_FILES.join("` and `"),
                 paths.join(", ")
             ),
-            Self::ExceptionEmpty => format!(
-                "`{EXCEPTED_FILE}` lowers the lint nowhere, so the excepted root buys nothing and \
-                 the exception should be revoked"
+            Self::ExceptionEmpty(paths) => format!(
+                "{} lower(s) the lint nowhere, so that file's exception buys nothing and should be \
+                 revoked",
+                paths.join(", ")
             ),
         }
     }
@@ -233,7 +238,7 @@ fn check(root: &Path) -> Result<Scanned, Why> {
     let spellings = lowerings();
     let mut files = 0usize;
     let mut lowered: Vec<String> = Vec::new();
-    let mut exception_lowers = false;
+    let mut spent: Vec<&str> = Vec::new();
     for member in &members {
         // From the member's own directory, so `build.rs` and every `tests/` file are read beside
         // `src/` - the lowering rule is about the whole crate and not only its library.
@@ -249,8 +254,8 @@ fn check(root: &Path) -> Result<Scanned, Why> {
                 continue;
             }
             let relative = relative(root, &path);
-            if relative == EXCEPTED_FILE {
-                exception_lowers = true;
+            if let Some(&excepted) = EXCEPTED_FILES.iter().find(|&&excepted| excepted == relative) {
+                spent.push(excepted);
             } else {
                 lowered.push(relative);
             }
@@ -260,8 +265,13 @@ fn check(root: &Path) -> Result<Scanned, Why> {
         lowered.sort();
         return Err(Why::Lowered(lowered));
     }
-    if exception_seen && !exception_lowers {
-        return Err(Why::ExceptionEmpty);
+    let unspent: Vec<String> = EXCEPTED_FILES
+        .iter()
+        .filter(|excepted| !spent.contains(excepted))
+        .map(|excepted| String::from(*excepted))
+        .collect();
+    if exception_seen && !unspent.is_empty() {
+        return Err(Why::ExceptionEmpty(unspent));
     }
     Ok(Scanned {
         roots,
@@ -303,14 +313,14 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             eprintln!();
             eprintln!("The workspace denies this lint, which a crate can lower. What makes that as strong");
             eprintln!("as the `forbid` it replaced is `{}` at every crate root,", reassertion());
-            eprintln!("with one declared exception ({EXCEPTED_ROOT}) for the ADBC");
-            eprintln!("driver a static musl artefact carries. telekom/sutura#929.");
+            eprintln!("with one declared exception ({EXCEPTED_ROOT}) for the ADBC drivers a static");
+            eprintln!("musl artefact carries and its libpq's OAuth hook. telekom/sutura#929, #913.");
             Verdict::Fail
         }
         Ok(scanned) => {
             println!(
                 "xtask check-unsafe: ok - {} crate root(s) across {} member(s) re-assert `{}`, one declared \
-                 exception, and {} source file(s) hold no other lowering",
+                 exception spent in its two files, and {} source file(s) hold no other lowering",
                 scanned.roots,
                 scanned.members,
                 reassertion(),

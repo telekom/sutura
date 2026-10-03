@@ -167,8 +167,9 @@ and exempt in tests (`allow-*-in-tests` in `clippy.toml`). Shipped profiles use
 
 Slices are walked with `split_first` rather than indexed. `unsafe_code` is `deny` in the
 workspace table and `#![forbid(unsafe_code)]` at every crate root but one, so those crates cannot
-re-allow it locally. The exception is `sutura-adbc`'s linked-driver ADBC entrypoint (`#929`,
-`#913`), and `cargo xtask check-unsafe` holds both halves.
+re-allow it locally. The exception is `sutura-adbc`'s two named files - the linked-driver
+ADBC entrypoint and `oauth`, which hands the linked libpq a held bearer through its auth-data
+hook (`#929`, `#913`) - and `cargo xtask check-unsafe` holds them.
 
 ## 3. `--all-features` on every entry point - now load-bearing
 

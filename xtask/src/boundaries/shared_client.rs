@@ -120,7 +120,7 @@ pub(crate) fn explain_bounded_read() {
 
 /// The same argument as [`explain`], for [`ADBC`]'s own reason to exist.
 pub(crate) fn explain_adbc() {
-    eprintln!("  Why: this crate exists so the workspace's one `unsafe` linked-driver FFI call has one");
+    eprintln!("  Why: this crate exists so the workspace's `unsafe` linked-driver FFI and OAuth hook have one");
     eprintln!("  home instead of one per ADBC adapter - it names no data system and joins no");
     eprintln!("  `adapters::CLASSES` prefix, so nothing else in this gate can see an edge FROM it.");
     eprintln!("  Do:  a type both an ADBC adapter and this crate genuinely need belongs in");
