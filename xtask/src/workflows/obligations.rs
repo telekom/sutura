@@ -223,6 +223,19 @@ fn check(text: &str) -> Vec<String> {
             Some(_) => {}
         }
     }
+    // THE TITLE MUST COME FROM THE REPOSITORY AT RUN TIME, NOT FROM THE EVENT PAYLOAD (#1249).
+    // `github.event.pull_request.title` is frozen when the run STARTS and never refreshes on a
+    // re-run, so renaming the title then re-running judged the OLD string and stayed red - a
+    // title-only change could not fire the check on its own. The step must fetch the CURRENT
+    // title from the repository instead. Refused here so the stale shape cannot come back.
+    if let Some(step) = steps.iter().find(|step| step.input("name:") == Some("PR title"))
+        && step.contains_verbatim("github.event.pull_request.title")
+    {
+        out.push(format!(
+            "ci.yml:{} `PR title` reads its title from `github.event.pull_request.title`, which is frozen at run start and never refreshes on a re-run - renaming the title then re-running judged the old string and stayed red (#1249). Fetch the CURRENT title from the repository over the API at run time instead",
+            step.line
+        ));
+    }
     out.extend(order_problems(&steps));
     out
 }
@@ -464,6 +477,30 @@ mod tests {
                 .iter()
                 .any(|o| o.step == "PR title" && o.condition == "github.event_name == 'pull_request'"),
             "the pull-request title's step obligation is missing or holds the wrong condition"
+        );
+    }
+
+    /// THE RED-BEFORE-GREEN CELL FOR #1249, against the LIVE workflow rather than a fixture: the
+    /// `PR title` step must read the CURRENT title from the repository at run time, not
+    /// `github.event.pull_request.title`. That payload expression is frozen when the run STARTS and
+    /// never refreshes on a re-run, so renaming the title then re-running judged the OLD string and
+    /// stayed red - a title-only change could not fire the check on its own. RED ON BASE (base's
+    /// `ci.yml` still reads the event payload), GREEN with the change.
+    #[test]
+    fn the_pr_title_step_reads_the_current_title_not_the_frozen_payload() {
+        let Some(root) = crate::repo::root() else {
+            return;
+        };
+        let path = root.join(".github/workflows/ci.yml");
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let step = super::super::cache_scope::steps(&text)
+            .into_iter()
+            .find(|step| step.input("name:") == Some("PR title"))
+            .expect("the live ci.yml has a `PR title` step");
+        assert!(
+            !step.contains_verbatim("github.event.pull_request.title"),
+            "ci.yml:{} `PR title` must read the CURRENT title from the repository over the API at run time, not `github.event.pull_request.title` - the payload is frozen at run start, so renaming the title and re-running stays red against the old string (#1249)",
+            step.line
         );
     }
 

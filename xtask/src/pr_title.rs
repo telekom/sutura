@@ -16,27 +16,30 @@
 //! * **The vocabulary and the shape, not the length.** 69 of those hundred subjects are longer
 //!   than `commit_msg`'s limit, because GitHub appends ` (#N)` to a title written for a reader
 //!   rather than for `git log --oneline`. `commit_msg::check_shape` is the half that applies.
-//! * **The title as it stood when the run started.** A title EDITED after the last push does not
-//!   start a `ci` run - the workflow's `pull_request` trigger takes the default activity types, and
-//!   `edited` is not among them - so the verdict on the pull request is about the title that was
-//!   there, and a later edit is not re-judged by this gate. Naming the limit rather than implying
-//!   the surface is closed: the merge queue's own event may carry the composed subject, which would
-//!   close it, and that is unverified here rather than assumed.
-//! * **Fail closed on no title at all.** The workflow expression that supplies it expands to the
-//!   empty string on any event without a pull request, so [`Title::parse`] refuses that rather than
-//!   letting an absent title reach the subject rule and read as one more verdict.
+//! * **The CURRENT title, fetched at run time, not the frozen event payload.** A title EDITED after
+//!   the last push does not start a `ci` run - the workflow's `pull_request` trigger takes the default
+//!   activity types, and `edited` is not among them - but a RE-RUN of a pull-request run now reads the
+//!   title as it IS (via `gh api`), so renaming the title and re-running judges the new string
+//!   (#1249): the check fires on its own against the metadata that exists, not the metadata the last
+//!   push carried. What still does not close the surface: a rename alone does not start a FRESH run,
+//!   so the verdict is re-taken only when the run is re-run or a push fires one. The merge queue's own
+//!   event may carry the composed subject, which would close it, and that is unverified here rather
+//!   than assumed.
+//! * **Fail closed on no title at all.** The fetch that supplies it produces an empty string on any
+//!   event without a `refs/pull/<n>/merge` ref to resolve, so [`Title::parse`] refuses that rather
+//!   than letting an absent title reach the subject rule and read as one more verdict.
 
 use crate::Verdict;
 use crate::commit_msg::{SubjectVerdict, TYPES, check_shape};
 
 /// A pull-request title: the subject GitHub's squash will land, minus the ` (#N)` it appends.
 ///
-/// **A newtype because the empty string is a VENUE mistake and not a bad title.**
-/// `github.event.pull_request.title` expands to nothing on a `merge_group` or `push` run, and an
-/// empty string handed to the subject rule comes back as one more `SubjectVerdict` - a verdict
-/// about a convention, over an input nobody wrote. Parsing refuses it here, so the two failures
-/// carry different messages and a step wired to the wrong event cannot read as a vocabulary
-/// problem.
+/// **A newtype because the empty string is a VENUE mistake and not a bad title.** `ci.yml` fetches
+/// the CURRENT title over the API and hands it here as one argument; an empty string means the fetch
+/// produced nothing - a non-`pull_request` run with no `refs/pull/<n>/merge` ref to resolve - and an
+/// empty string handed to the subject rule would come back as one more `SubjectVerdict`, a verdict
+/// about a convention over an input nobody wrote. Parsing refuses it here, so the two failures carry
+/// different messages and a step on the wrong event cannot read as a vocabulary problem.
 #[derive(Debug, PartialEq, Eq)]
 struct Title<'a>(&'a str);
 
@@ -56,14 +59,14 @@ impl<'a> Title<'a> {
 pub(crate) fn run(args: &[String]) -> Verdict {
     let Some(text) = args.first() else {
         eprintln!("xtask check-pr-title: expected the pull request's title as one argument");
-        eprintln!("  ci.yml passes `github.event.pull_request.title`; there is nothing to read locally");
+        eprintln!("  ci.yml fetches the current title over the API; there is nothing to read locally");
         return Verdict::Usage;
     };
     let Some(title) = Title::parse(text) else {
         eprintln!("xtask check-pr-title: FAILED - no title was handed to this gate");
-        eprintln!("  An empty argument is what `github.event.pull_request.title` expands to on an");
-        eprintln!("  event that carries no pull request, so this is a step on the wrong event rather");
-        eprintln!("  than a title anybody wrote - and it is not a pass.");
+        eprintln!("  An empty argument is what a fetch with no `refs/pull/<n>/merge` ref to resolve");
+        eprintln!("  produces - so this is a step on the wrong event rather than a title anybody wrote,");
+        eprintln!("  and it is not a pass.");
         return Verdict::Fail;
     };
     match title.judge() {
