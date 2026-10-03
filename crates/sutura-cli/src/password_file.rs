@@ -1,9 +1,9 @@
-//! The declared user's password, read from the file a `clickhouse` or `oracle` entry, or an Oracle
-//! `rdbms` catalog, names.
+//! The declared user's password, read from the file a `clickhouse`, `oracle` or `postgres` entry, or
+//! an `rdbms` catalog, names.
 //!
 //! **One copy for the kinds whose build lives in one shared module** (`crate::clickhouse`,
-//! `crate::oracle`), so the trim, the empty-file refusal and the wording cannot differ between them.
-//! The two `postgres` roots still carry their own reads - issue 121's unshared build, not this file's.
+//! `crate::oracle`, `crate::postgres`), so the trim, the empty-file refusal and the wording cannot
+//! differ between them.
 
 /// The declared user's password, read at BOOT rather than on the first question.
 ///
@@ -14,7 +14,7 @@
 /// Trimmed, because a file written by `echo` carries a newline the server would reject; empty after
 /// trimming is refused rather than sent, so a truncated secret file is a refusal naming the key
 /// instead of an authentication failure on the first question.
-#[cfg(any(feature = "clickhouse", feature = "oracle"))]
+#[cfg(any(feature = "clickhouse", feature = "oracle", feature = "postgres"))]
 pub(crate) fn read(
     source: &sutura_domain::model::SourceName,
     password_file: &std::path::Path,
@@ -25,8 +25,12 @@ pub(crate) fn read(
 /// `read` for a key that is not a `sources:` entry's, such as an `rdbms` catalog's
 /// `catalogs.<name>.connection`.
 pub(crate) fn read_key(key: &str, password_file: &std::path::Path) -> Result<sutura_domain::identity::Secret, String> {
-    let raw =
-        std::fs::read_to_string(password_file).map_err(|cause| format!("`{key}.password_file` could not be read: {cause}"))?;
+    let raw = std::fs::read_to_string(password_file).map_err(|cause| {
+        format!(
+            "`{key}.password_file` could not be read at {}: {cause}",
+            password_file.display()
+        )
+    })?;
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err(format!(

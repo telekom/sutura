@@ -156,16 +156,13 @@ fn agent(tls_certificate_file: &Path) -> ureq::Agent {
     });
     let cert = ureq::tls::Certificate::from_pem(&pem)
         .unwrap_or_else(|cause| panic!("{} is not a PEM certificate: {cause}", tls_certificate_file.display()));
-    ureq::Agent::new_with_config(
-        ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(30)))
-            .tls_config(
-                ureq::tls::TlsConfig::builder()
-                    .root_certs(ureq::tls::RootCerts::new_with_certs(&[cert]))
-                    .build(),
-            )
-            .build(),
-    )
+    sutura_http_client::agent(|config| {
+        config.timeout_global(Some(Duration::from_secs(30))).tls_config(
+            ureq::tls::TlsConfig::builder()
+                .root_certs(ureq::tls::RootCerts::new_with_certs(&[cert]))
+                .build(),
+        )
+    })
 }
 
 /// A password grant against the tier's own confidential client - the shared POST for the access

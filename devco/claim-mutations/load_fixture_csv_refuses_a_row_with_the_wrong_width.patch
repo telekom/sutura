@@ -1,15 +1,13 @@
-diff --git a/crates/sutura-exec-postgres/src/lib.rs b/crates/sutura-exec-postgres/src/lib.rs
-index e98c6fc5d..830ff76ab 100644
---- a/crates/sutura-exec-postgres/src/lib.rs
-+++ b/crates/sutura-exec-postgres/src/lib.rs
-@@ -442,7 +442,9 @@ impl PostgresWarehouse {
-             path: path.display().to_string(),
-             cause,
-         })?;
--        let schema = importer::infer_fixture_schema(&text).map_err(|cause| PostgresError::FixtureSchema { cause })?;
-+        let schema = importer::infer_fixture_schema(&text)
-+            .or_else(|_| importer::infer_schema(&text))
+diff --git a/crates/sutura-exec-postgres/src/adbc.rs b/crates/sutura-exec-postgres/src/adbc.rs
+index 7417d98..f5a2f8d 100644
+--- a/crates/sutura-exec-postgres/src/adbc.rs
++++ b/crates/sutura-exec-postgres/src/adbc.rs
+@@ -288,4 +288,6 @@ impl AdbcPostgres {
+     pub fn load_fixture_csv(&self, table: &sutura_domain::model::TableName, path: &std::path::Path) -> Result<(), PostgresError> {
+-        let schema = crate::importer::infer_fixture_schema(&read_fixture(path)?)
+-            .map_err(|cause| PostgresError::FixtureSchema { cause })?;
++        let text = read_fixture(path)?;
++        let schema = crate::importer::infer_fixture_schema(&text)
++            .or_else(|_| crate::importer::infer_schema(&text))
 +            .map_err(|cause| PostgresError::InvalidColumnName { cause })?;
-         self.load_schema(table, path, &schema)
-     }
- 
+         self.loaded(table.as_str(), &path.display().to_string(), &schema.load_statement(table))

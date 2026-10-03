@@ -165,8 +165,7 @@ pub enum HttpError {
 
 /// The real transport: one `ureq::Agent`, built once and kept for this adapter's life.
 ///
-/// The same shape `sutura_exec_postgres::PostgresWarehouse` keeps its one connection in. A rotated
-/// TLS config takes effect on the next agent a composition root builds, never on an agent already
+/// A rotated TLS config takes effect on the next agent a composition root builds, never on an agent already
 /// standing - `ureq::Agent`'s configuration is fixed at construction, so this is not a choice made
 /// here but the shape the client already has.
 pub struct Http {
@@ -206,7 +205,7 @@ impl Http {
     /// independently: the held wire body and decoded rows can overlap in memory.
     #[must_use]
     pub fn connect(endpoint: Endpoint, auth: Option<BasicAuth>, max_response_bytes: u64) -> Self {
-        let agent = ureq::Agent::new_with_config(base_config().build());
+        let agent = sutura_http_client::agent(base_config);
         Self {
             endpoint,
             agent,
@@ -220,7 +219,7 @@ impl Http {
     /// `crate::tls::config` built from the declared channel. Both this and [`Self::connect`] are
     /// produced by the composition root, which is the only place that can see the declared
     /// `sutura_config::sources::transport::SourceTransport` - the same boundary
-    /// `PostgresWarehouse::connect_secured`'s own signature draws. `max_response_bytes` is
+    /// `sutura_exec_postgres::adbc::Conninfo::new` draws. `max_response_bytes` is
     /// [`Self::connect`]'s.
     #[must_use]
     pub fn connect_secured(
@@ -229,7 +228,7 @@ impl Http {
         tls: ureq::tls::TlsConfig,
         max_response_bytes: u64,
     ) -> Self {
-        let agent = ureq::Agent::new_with_config(base_config().tls_config(tls).build());
+        let agent = sutura_http_client::agent(|config| base_config(config).tls_config(tls));
         Self {
             endpoint,
             agent,
@@ -287,12 +286,9 @@ impl Http {
     }
 }
 
-fn base_config() -> ureq::config::ConfigBuilder<ureq::typestate::AgentScope> {
-    ureq::Agent::config_builder()
-        .http_status_as_error(false)
-        .max_redirects(0)
-        .max_response_header_size(MAX_HEADER_BYTES)
-        .proxy(ureq::Proxy::try_from_env())
+/// The proxy from the environment and no redirects are [`sutura_http_client::agent`]'s own pins.
+fn base_config(config: sutura_http_client::AgentConfig) -> sutura_http_client::AgentConfig {
+    config.http_status_as_error(false).max_response_header_size(MAX_HEADER_BYTES)
 }
 
 impl ClickHouseTransport for Http {
@@ -566,6 +562,20 @@ mod tests {
     /// own assertions live in the body-reading cells; this helper just needs to get out of the way.
     fn test_http() -> Http {
         Http::connect(Endpoint::plaintext("localhost", 8123), None, 1 << 20)
+    }
+
+    /// **A proxy the environment names never carries a plaintext query.**
+    #[test]
+    fn an_environment_proxy_never_carries_a_plaintext_query() {
+        sutura_dev::env_proxy::dialled_directly(module_path!(), "an_environment_proxy_never_carries_a_plaintext_query", || {
+            let server =
+                sutura_http_client::test_support::FakeServer::start(vec![sutura_http_client::test_support::Scripted::status(
+                    200, "",
+                )]);
+            let http = Http::connect(Endpoint::plaintext("127.0.0.1", server.addr().port()), None, 1 << 20);
+            drop(http.run("SELECT 1", &[], deadline_of(30).0));
+            assert_eq!(server.finish().len(), 1, "the query reached the loopback endpoint directly");
+        });
     }
 
     #[test]

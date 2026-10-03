@@ -139,9 +139,9 @@ rendered SQL, while the shipped BigQuery and Postgres adapters are runtime depen
 
 The composition root chooses adapters at build time, then `sources.<alias>.kind` selects among
 those linked by the binary. `nix/shipped.nix` is the release feature list: it enables `bigquery`,
-`postgres`, `datahub`, `agent` and `tls` for the shipped binary. A local Cargo build without those
-features has a narrower set; `sutura doctor` reports the adapters it links. ClickHouse and Oracle
-remain default-off and absent from the shipped binary. [Integrations](integrations.md) records each
+`postgres`, `datahub`, `agent`, `tls`, `openmetadata` and `clickhouse` for the shipped binary. A local Cargo build without those
+features has a narrower set; `sutura doctor` reports the adapters it links. Oracle remains
+default-off and absent from the shipped binary. [Integrations](integrations.md) records each
 adapter's capability and identity posture.
 
 `sutura query` can answer a local file question or open a configured source whose adapter is linked.

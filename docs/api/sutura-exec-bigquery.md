@@ -240,7 +240,7 @@ pub fn load_fixture(&self, table: &TableName, csv: &std::path::Path) -> Loaded<<
 
 Replaces one table in the connection's dataset with the rows of a committed fixture CSV.
 
-**The mirror of #78's `PostgresWarehouse::load_csv`, and it exists for the reason that one
+**The mirror of #78's `AdbcPostgres::load_csv`, and it exists for the reason that one
 does: a relational data system has to be GIVEN tables before a corpus can be run against it,
 and the example models are files.** The differences from the Postgres shape are in
 `crate::importer`'s header - there is no `COPY`, so the rows travel inside the statement and
@@ -1559,9 +1559,9 @@ The identity provider's token endpoint: `https://` to any host, `http://` to an 
 The origin is held to `Endpoint::parse`'s scheme rule; unlike an `Endpoint` it keeps its
 path, and it refuses a query, a fragment and a `user[:pass]@` authority.
 
-**A loopback endpoint is dialled directly, never through a proxy the agent carries** (the
-shared agent takes one from the environment); nothing on loopback needs one. Any other host keeps
-the agent's proxy, which an identity provider behind an egress proxy needs.
+A loopback endpoint is dialled directly, never through a proxy - `sutura_http_client::agent`'s
+own pin; `https://` to any other host keeps the agent's proxy, which an identity provider behind
+an egress proxy needs.
 
 ##### Methods
 

@@ -31,7 +31,7 @@
 //! LIMIT rather than an inert one.** `Warehouse::executes_legs` - the one capability this issue is
 //! about - is an INSTANCE method precisely so it can be asked per concrete adapter through this
 //! enum (see [`AnyWarehouse`](kind::AnyWarehouse)'s `impl Warehouse`); the other four are still associated constants
-//! with no instance escape, so a `PostgresWarehouse`'s real `ACCEPTS_RAW_STATEMENTS = true` and a
+//! with no instance escape, so an `AdbcPostgres`'s real `ACCEPTS_RAW_STATEMENTS = true` and a
 //! `BigQueryWarehouse`'s real `PRICES_DRY_RUN = true` both read `false` once erased behind this
 //! type. A mixed-kind deployment therefore cannot serve `sutura`'s raw-SQL tool against its
 //! Postgres source, and cannot get a real dry-run byte estimate off its BigQuery source, even

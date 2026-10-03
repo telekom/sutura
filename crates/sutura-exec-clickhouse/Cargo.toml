@@ -22,16 +22,19 @@ sutura-sql = { workspace = true }
 # blocks needs neither, and starting one anyway is what `reqwest::blocking` would do wrapped in a
 # call already on `sutura_runtime::spawn_carrying_span`'s pool thread.
 ureq = { workspace = true }
+# The one constructor of a `ureq::Agent` (`clippy.toml` bans the others): it keeps a plaintext or
+# loopback request off any proxy. Already linked by every other `ureq` user in the workspace.
+sutura-http-client = { workspace = true }
 # The bundle-or-system-store read and the client-identity read, shared with the Postgres source
 # channel and the BigQuery wire so the refusals for an unreadable, empty or malformed
 # bundle/identity are not re-derived a third time. This crate's own `tls` module folds the result
 # into the `ureq::tls::TlsConfig` [`transport::Http::connect_secured`] connects with; `sutura-tls` builds neither.
 sutura-tls = { workspace = true }
-# No composition root links this crate, and none names a `kind: clickhouse` source - so no served
-# binary links it, and there is no artefact for a default-off feature to keep an outbound TLS
-# stack out of. `ureq`/`sutura-tls` are therefore plain dependencies here, not feature-gated ones
-# - the gating `crate-map` asks for lives on whichever composition root wants to SERVE a `kind:
-# clickhouse` source, and none does yet (see `src/lib.rs`'s module header for the limit).
+# `sutura-cli` is the one composition root that links this crate, behind its default-off
+# `clickhouse` feature (see the crate's own `src/lib.rs` module header). `ureq`/`sutura-tls` are
+# therefore plain dependencies here rather than feature-gated ones - the gating `crate-map` asks
+# for lives on the composition root's feature edge, which keeps the adapter and its outbound TLS
+# stack out of a source build that did not ask for it.
 #
 # Both already resolved at these versions: `rustls-pki-types` via `sutura-tls`/`rustls-native-
 # certs`, `rustls-native-certs` via `sutura-exec-postgres`. Named directly because `tls.rs` reads
@@ -68,6 +71,9 @@ rcgen = { workspace = true }
 # `clippy.toml` bans `std::sync::Mutex` workspace-wide, including in test code; already resolved
 # via `sutura-exec-bigquery`'s exchanged-credential cache, so this adds no new package.
 parking_lot = { workspace = true }
+# The loopback fake the proxy cell in `src/transport.rs` dials, the one the catalog readers' own
+# proxy cells use.
+sutura-http-client = { workspace = true, features = ["test"] }
 
 [lints]
 workspace = true

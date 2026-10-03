@@ -64,7 +64,7 @@ composition root with the reason that no build delivers it.
 
 **ClickHouse is the newest row and the one whose columns need reading together.** It executes: a
 `kind: clickhouse` source is declarable and openable by a build carrying the `clickhouse` feature,
-which is default-off and in no published binary. The golden and differential suites run the example
+which every release binary carries now that `github.com/telekom/sutura#955` landed. The golden and differential suites run the example
 corpus against a real ClickHouse - the server `nix/clickhouse-tier.nix` starts beside the Postgres
 tier - and pin its rows, refusals, error and anchor report; the conformance packs are bound too
 (`execute_packs!` in `crates/sutura-exec-clickhouse/tests/conformance.rs`). What the `Executes`
@@ -73,18 +73,20 @@ question involving a ClickHouse source is still refused by the capability gate. 
 `NoPlaceForASubject`, so an `impersonation-at-source` declaration on this kind is refused at the
 composition root with the reason that no build delivers it.
 
-**Postgres has a second transport, shipped and answering nothing.** Every release compiles the ADBC
-PostgreSQL transport beside `tokio-postgres`, and every musl release links its driver statically,
-with libpq, MIT krb5 and OpenSSL 3. No settings key selects it: `tokio-postgres` answers every
-`kind: postgres` source, and `sutura doctor`'s `pg driver` line only says whether the driver is
-linked and initialises. **Its libpq signs in with Kerberos and has no OAuth flow**: the transport
-can be built for a Kerberos sign-in, as the one principal the credential cache `KRB5CCNAME` names,
-filled from a keytab where `KRB5_CLIENT_KTNAME` names one, and its connection string refuses SSPI
-and OAuth sign-in on either route. It also refuses `transport_anchors: system`, TLS or Kerberos
-over a unix socket, Kerberos with no credential named, and GSSAPI encryption beside TLS, which
-libpq cannot hold to. Two cells run it against a server: a Kerberos sign-in through the linked
-x86_64 musl driver, against a KDC tier, and its refused negative control - a declared service the
-KDC does not know - in CI only.
+**Postgres is answered over ADBC.** Every `kind: postgres` source runs through the ADBC PostgreSQL
+driver: every musl release links it statically, with libpq, MIT krb5 and OpenSSL 3, and any other
+build mounts one named by `SUTURA_POSTGRES_ADBC_DRIVER` (a source refuses at boot where neither is
+there). `sutura doctor`'s `pg driver` line says which driver this process would open and whether it
+initialises. **A source signs in only as its declared shared service account**: with a password or
+a client certificate, or as one Kerberos principal from the deployment's keytab - the one the
+credential cache `KRB5CCNAME` names, filled from `KRB5_CLIENT_KTNAME`'s keytab - which the
+transport can be built for and no settings key selects yet. OAuth and per-caller sign-in are not
+supported: the linked libpq is built without OAuth, and the connection string refuses SSPI and
+OAuth sign-in on either route. It also refuses `transport_anchors: system`, TLS or Kerberos over a
+unix socket, Kerberos with no credential named, and GSSAPI encryption beside TLS, which libpq cannot
+hold to. The adapter's tier-backed cells run through a mounted driver in `checks.nextest` and
+through the linked static one on x86_64 musl in CI, where a Kerberos sign-in against a KDC tier and
+its refused negative control run too; aarch64 musl links it and nothing executes it.
 
 ## Identity: what "impersonation" does and does not mean here
 

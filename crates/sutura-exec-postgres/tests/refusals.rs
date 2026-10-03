@@ -2,23 +2,19 @@
 //! Refusals that fire before any caller SQL, provoked through the adapter's public entries with no
 //! database tier.
 //!
-//! A warehouse needs a connection to exist, so the cells that take one connect to a FAKE server
-//! that answers only the handshake and the one `SET statement_timeout` the adapter sends at boot,
-//! then hangs up. A missing guard therefore reaches a closed connection and answers a different
-//! error than the refusal, which is what each assertion names. A refusal that needs the server to
-//! answer a query is out of reach here and belongs with the tier-backed cells.
+//! The adapter under test names a driver no path holds, so a request every guard lets through
+//! fails at the driver's LOAD - and a missing guard answers that load failure instead of the
+//! refusal, which is what each assertion names. The last cell is that control. A refusal that needs
+//! the server to answer a query is out of reach here and belongs with the tier-backed cells.
 //!
 //! **Except the two missing-file cells.** Their kill reads the absent file as empty text, and the
 //! column validation refuses that empty header before any SQL (`InvalidColumnName` and
-//! `FixtureSchema`), so the kill swaps which refusal answers and never reaches the connection.
-
-#[cfg(test)]
-#[path = "support/support.rs"]
-mod support;
+//! `FixtureSchema`), so the kill swaps which refusal answers and never reaches the driver.
 
 #[cfg(test)]
 mod refusals {
     use std::path::{Path, PathBuf};
+    use std::time::{Duration, Instant};
 
     use sutura_conformance::corpus;
     use sutura_domain::identity::{Presented, PrincipalName, Secret};
@@ -27,16 +23,27 @@ mod refusals {
     use sutura_domain::raw::RawStatement;
     use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
     use sutura_domain::warehouse::Warehouse as _;
-    use sutura_exec_postgres::{PostgresError, PostgresWarehouse};
+    use sutura_domain::warehouse::deadline::{Budget, Deadline};
+    use sutura_exec_postgres::PostgresError;
+    use sutura_exec_postgres::adbc::{AdbcError, AdbcPostgres, Channel, Conninfo, PostgresDriver, UnusableChannel};
+    use sutura_exec_postgres::connection::ConnectionTarget;
 
-    use super::support::{config, fake_postgres};
-
-    fn warehouse_under(posture: SourcePosture) -> PostgresWarehouse {
-        PostgresWarehouse::connect(corpus::source(), posture, &config(fake_postgres()))
-            .expect("the fake server completes the handshake")
+    fn warehouse_under(posture: SourcePosture) -> AdbcPostgres {
+        let driver = PostgresDriver::parse("/nonexistent/libadbc_driver_postgresql.so").expect("an absolute path parses");
+        let conninfo = Conninfo::new(
+            &corpus::source(),
+            ConnectionTarget::Host("127.0.0.1"),
+            1,
+            "sutura",
+            "sutura",
+            &Secret::new("unused"),
+            Channel::Plaintext,
+        )
+        .expect("plaintext builds");
+        AdbcPostgres::new(corpus::source(), posture, driver, conninfo).expect("the default ceiling parses")
     }
 
-    fn warehouse() -> PostgresWarehouse {
+    fn warehouse() -> AdbcPostgres {
         warehouse_under(corpus::posture())
     }
 
@@ -56,6 +63,51 @@ mod refusals {
         RawStatement::parse("select 1").expect("a test statement is a statement")
     }
 
+    fn spent() -> Deadline {
+        let opened = Instant::now()
+            .checked_sub(Duration::from_secs(60))
+            .expect("this host's clock is more than a minute past its epoch");
+        Deadline::opened_at(
+            opened,
+            Budget::parse(Duration::from_secs(1)).expect("a positive budget parses"),
+        )
+    }
+
+    /// The three port calls that take a request, as one refusal each - its variant, nothing else.
+    fn refusals(warehouse: &AdbcPostgres, presented: &Presented, deadline: Deadline) -> [&'static str; 3] {
+        let case = corpus::cases().into_iter().next().expect("the corpus has a case");
+        [
+            kind(
+                warehouse
+                    .dry_run(Executable::Query(case.plan()), presented, deadline)
+                    .err()
+                    .as_ref(),
+            ),
+            kind(
+                warehouse
+                    .execute(Executable::Query(case.plan()), presented, deadline)
+                    .err()
+                    .as_ref(),
+            ),
+            kind(
+                warehouse
+                    .execute_raw(&statement(), presented, deadline)
+                    .and_then(Result::err)
+                    .as_ref(),
+            ),
+        ]
+    }
+
+    fn kind(refused: Option<&PostgresError>) -> &'static str {
+        match refused {
+            None => "answered",
+            Some(PostgresError::NoPlaceForASubject { .. }) => "no place for a subject",
+            Some(PostgresError::PresentedDisagreesWithPosture { .. }) => "a disagreeing witness",
+            Some(PostgresError::DeadlineSpent) => "the deadline spent",
+            Some(_) => "something past the guards",
+        }
+    }
+
     /// A CSV file unique to this test process, holding `text`.
     fn csv(name: &str, text: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!("sutura-pg-{name}-{}.csv", std::process::id()));
@@ -67,14 +119,20 @@ mod refusals {
         TableName::parse("orders").expect("a test table is a table")
     }
 
-    /// Refused before any connection is attempted, so the closed port is never dialled.
+    /// Refused before any connection string exists, so nothing is ever dialled.
     #[test]
     fn a_schema_name_with_a_dot_is_refused() {
-        let mut config = tokio_postgres::Config::new();
-        config.host("127.0.0.1").port(1).dbname("sutura").user("sutura");
-        let outcome = PostgresWarehouse::connect_in_schema(corpus::source(), corpus::posture(), &config, "bad.schema");
+        let outcome = Conninfo::in_schema(
+            "bad.schema",
+            &corpus::source(),
+            ConnectionTarget::Host("127.0.0.1"),
+            1,
+            "sutura",
+            "sutura",
+            &Secret::new("unused"),
+        );
         assert!(
-            matches!(outcome, Err(PostgresError::InvalidSchemaName { ref schema }) if schema == "bad.schema"),
+            matches!(outcome, Err(UnusableChannel::NotASchema { ref schema }) if schema == "bad.schema"),
             "a dot is not a word character: {outcome:?}"
         );
     }
@@ -105,7 +163,7 @@ mod refusals {
         }
     }
 
-    /// Refused before `BEGIN READ ONLY` is sent.
+    /// Refused before the driver loads, so before `SET TRANSACTION READ ONLY` could be sent.
     #[test]
     fn a_subject_token_is_refused_by_execute_raw_before_anything_is_run() {
         let warehouse = warehouse();
@@ -126,11 +184,38 @@ mod refusals {
                 AcknowledgementReason::parse("a different operator's acknowledgement").expect("a test reason is a reason"),
             ),
         });
-        let case = corpus::cases().into_iter().next().expect("the corpus has a case");
-        let outcome = warehouse.execute(Executable::Query(case.plan()), &corpus::presented(), corpus::deadline());
+        assert_eq!(
+            refusals(&warehouse, &corpus::presented(), corpus::deadline()),
+            ["a disagreeing witness"; 3]
+        );
+    }
+
+    #[test]
+    fn a_spent_deadline_is_refused_before_the_driver_loads() {
+        assert_eq!(
+            refusals(&warehouse(), &corpus::presented(), spent()),
+            ["the deadline spent"; 3]
+        );
+    }
+
+    #[test]
+    fn a_request_every_guard_lets_through_reaches_the_driver_load() {
+        // The control the cells above rest on: past the guards, every call fails at the load - so a
+        // refusal above arrived INSTEAD of it.
+        let warehouse = warehouse();
+        assert_eq!(
+            refusals(&warehouse, &corpus::presented(), corpus::deadline()),
+            ["something past the guards"; 3]
+        );
+        let reached = warehouse.execute_raw(&statement(), &corpus::presented(), corpus::deadline());
         assert!(
-            matches!(outcome, Err(PostgresError::PresentedDisagreesWithPosture { .. })),
-            "a leg carrying another source's witness is refused: {outcome:?}"
+            matches!(
+                reached,
+                Some(Err(PostgresError::Adbc {
+                    cause: AdbcError::Load(_)
+                }))
+            ),
+            "{reached:?}"
         );
     }
 
@@ -155,7 +240,6 @@ mod refusals {
         );
     }
 
-    #[cfg(feature = "fixtures")]
     #[test]
     fn a_missing_fixture_csv_is_refused_by_load_fixture_csv() {
         let missing = Path::new("/definitely/not/here-either.csv");
@@ -167,7 +251,6 @@ mod refusals {
     }
 
     /// Two headers, three cells: the shared fixture inference refuses the ragged row.
-    #[cfg(feature = "fixtures")]
     #[test]
     fn load_fixture_csv_refuses_a_row_with_the_wrong_width() {
         let path = csv("ragged-fixture", "region,amount\nnorth,1,2\n");

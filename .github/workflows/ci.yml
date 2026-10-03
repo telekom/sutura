@@ -921,6 +921,16 @@ jobs:
         if: (steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_postgres == 'true') && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.postgres-tier -L
 
+      # THE SHIPPED POSTGRES PATH AGAINST THE LINKED DRIVER (`telekom/sutura#913` stage 2): every
+      # `kind: postgres` source is answered over ADBC, and a musl release links the static driver,
+      # so its libpq and static OpenSSL have to answer real statements somewhere. This builds the
+      # adapter's tier-backed targets static for x86_64-musl with that archive and runs them
+      # against the Postgres tier in the sandbox - `nix/shipped.nix`'s `linkedDriversTests` says
+      # what that leaves out. Gated like the tier above: the adapter, its driver and its tier.
+      - name: Postgres linked driver
+        if: (steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_postgres == 'true') && github.event_name != 'push'
+        run: nix build .#checks.x86_64-linux.postgres-linked-driver -L
+
       # The ClickHouse tier's state machine, for the Postgres tier's reason and gated the same way
       # on its own category. The golden cells it serves run in `Tests` above, which starts this tier.
       - name: ClickHouse tier

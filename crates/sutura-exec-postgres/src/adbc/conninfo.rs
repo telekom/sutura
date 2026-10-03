@@ -9,7 +9,7 @@
 //! **Every one of libpq 18.6's 50 keywords is classified in `KEYWORDS`**: written, or left to
 //! libpq for a stated reason. libpq fills an unwritten key from the
 //! process environment (`PG*`) and then from a `PGSERVICE` file, which sets only keys still unset
-//! (`parseServiceFile`, `fe-connect.c:6126`) - and `tokio-postgres` reads neither. The
+//! (`parseServiceFile`, `fe-connect.c:6126`) - and a declaration names neither. The
 //! `adbc-driver-postgresql` check compares that table's keywords with the `PQconninfoOptions` of the
 //! libpq the drivers are built against, so a libpq bump that adds one fails `just validate` until it
 //! is classified.
@@ -18,15 +18,16 @@
 //! reads `host` as a list, so a target holding a list separator, or nothing, is refused. libpq
 //! drops TLS on a unix socket whatever `sslmode` says, and reads its `system` store as OpenSSL's
 //! compiled-in default, a build-host path in the static build rather than the host store
-//! `rustls-native-certs` reads for the `tokio-postgres` path. An empty password is refused, because libpq reads one as unset and looks it
+//! `rustls-native-certs` reads for every other outbound channel here. An empty password is refused, because libpq reads one as unset and looks it
 //! up in a password file. TLS is refused while `OPENSSL_CONF` is set, because libpq has no cipher
 //! knob and that file can lower the protocol ceiling and the cipher list below the declared channel.
 //! A [`Kerberos`] sign-in is refused to a socket, where a server offers no GSSAPI; while
 //! `KRB5CCNAME` names no credential cache, because MIT krb5 then signs in as whatever a default
 //! cache holds and reads a client keytab only where that cache does not exist; and with GSSAPI
-//! encryption beside TLS, which libpq tries first and which verifies none of the declared anchors. Declared material is read once here too, through the same
-//! [`client_config`](crate::tls::client_config) that path boots with, so an unreadable bundle or
-//! client pair is refused before a driver loads rather than at the first connect.
+//! encryption beside TLS, which libpq tries first and which verifies none of the declared anchors.
+//! Declared material is read once here too, through `sutura_tls`'s read, so an unreadable bundle or
+//! client pair is refused before a driver loads rather than at the first connect. A key that does
+//! not match its certificate is not checked here, and fails at libpq's connect.
 //!
 //! **The limits.** A Kerberos sign-in is the PROCESS's: libpq takes no keytab or cache per
 //! connection, so every Kerberos source signs in as the one principal the named cache holds, and the
@@ -39,7 +40,7 @@
 //! added (`sslcertmode`, `require_auth`, `sslkeylogfile`), so a mounted driver over an older libpq
 //! refuses it at connect. `require_auth` admits `none`, which a `mutual` source signing in by
 //! certificate needs, so a server that asks for no password is accepted; and it admits cleartext
-//! `password` - both as `tokio-postgres` does. OpenSSL still reads its compiled-in default
+//! `password`. OpenSSL still reads its compiled-in default
 //! configuration file when `OPENSSL_CONF` is unset; in the nix build that file is in the store, and
 //! what the static musl artefact's copy holds is unmeasured. `PGTZ`, `PGDATESTYLE` and `PGGEQO` have
 //! no keyword, so the string cannot pin them: each reaches the server as a session setting. The
@@ -52,9 +53,9 @@ use std::ffi::OsString;
 use sutura_domain::identity::Secret;
 use sutura_domain::model::SourceName;
 
-use crate::PostgresError;
+use sutura_tls::{Anchors, Identity, LoadError};
+
 use crate::connection::ConnectionTarget;
-use crate::tls::{TlsAnchors, TlsIdentity};
 
 /// How one libpq keyword is kept from widening the channel or changing who signs in.
 #[cfg(test)]
@@ -97,7 +98,7 @@ const KEYWORDS: [(&str, Held); 50] = [
     ("port", Held::Written("`PGPORT` would dial another port")),
     (
         "client_encoding",
-        Held::Written("`PGCLIENTENCODING` would re-encode text; `tokio-postgres` sends `UTF8` too"),
+        Held::Written("`PGCLIENTENCODING` would re-encode text the adapter reads as UTF-8"),
     ),
     (
         "options",
@@ -227,9 +228,9 @@ pub enum Channel<'a> {
     /// No transport security.
     Plaintext,
     /// TLS, verified against `anchors`, presenting nothing.
-    Verified(&'a TlsAnchors),
+    Verified(&'a Anchors),
     /// TLS, verified against the anchors, presenting the identity.
-    Mutual(&'a TlsAnchors, &'a TlsIdentity),
+    Mutual(&'a Anchors, &'a Identity),
 }
 
 /// How the declared user signs in.
@@ -366,8 +367,12 @@ pub enum UnusableChannel {
     Material {
         alias: SourceName,
         #[source]
-        cause: PostgresError,
+        cause: LoadError,
     },
+    /// A fixture schema that is not one word, refused before it reaches the string.
+    #[cfg(feature = "fixtures")]
+    #[error("the fixture schema `{schema}` is not one word of ASCII letters, digits and `_`")]
+    NotASchema { schema: String },
 }
 
 /// The connection string for one source. Only [`Conninfo::new`] and [`Conninfo::kerberos`] make
@@ -383,7 +388,7 @@ impl Conninfo {
     /// [`UnusableChannel`] for a target that is not exactly one host or directory, for an empty
     /// password, for a TLS channel over a unix socket (a [`ConnectionTarget::UnixSocket`], or a host
     /// libpq reads as one: a leading `/` or `@`), for `system` anchors, for TLS while `OPENSSL_CONF`
-    /// is set, and for declared material [`client_config`](crate::tls::client_config) refuses.
+    /// is set, and for a declared bundle or client pair `sutura_tls` cannot read.
     pub fn new(
         source: &SourceName,
         target: ConnectionTarget<'_>,
@@ -394,7 +399,47 @@ impl Conninfo {
         channel: Channel<'_>,
     ) -> Result<Self, UnusableChannel> {
         let sign_in = SignIn::Password(password);
-        Self::under(Process::read(), source, target, port, database, user, sign_in, channel)
+        Self::under(Process::read(), "", source, target, port, database, user, sign_in, channel)
+    }
+
+    /// [`Conninfo::new`] with every unqualified name resolved in `schema` - the fixture tier's
+    /// isolation, one schema per cell, written as the `options` keyword the shipped string pins empty.
+    ///
+    /// # Errors
+    ///
+    /// [`UnusableChannel::NotASchema`] for a schema that is not one word, and [`Conninfo::new`]'s.
+    #[cfg(feature = "fixtures")]
+    pub fn in_schema(
+        schema: &str,
+        source: &SourceName,
+        target: ConnectionTarget<'_>,
+        port: u16,
+        database: &str,
+        user: &str,
+        password: &Secret,
+    ) -> Result<Self, UnusableChannel> {
+        if schema.is_empty() || !schema.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(UnusableChannel::NotASchema {
+                schema: String::from(schema),
+            });
+        }
+        let options = format!("-c search_path={schema}");
+        let process = Process {
+            openssl_configured: false,
+            kerberos_cache_named: false,
+        };
+        let sign_in = SignIn::Password(password);
+        Self::under(
+            process,
+            &options,
+            source,
+            target,
+            port,
+            database,
+            user,
+            sign_in,
+            Channel::Plaintext,
+        )
     }
 
     /// Builds the connection string for `source` over `channel`, signing in with Kerberos as the
@@ -416,11 +461,12 @@ impl Conninfo {
         channel: Channel<'_>,
     ) -> Result<Self, UnusableChannel> {
         let sign_in = SignIn::Kerberos(kerberos);
-        Self::under(Process::read(), source, target, port, database, user, sign_in, channel)
+        Self::under(Process::read(), "", source, target, port, database, user, sign_in, channel)
     }
 
     fn under(
         process: Process,
+        options: &str,
         source: &SourceName,
         target: ConnectionTarget<'_>,
         port: u16,
@@ -469,7 +515,7 @@ impl Conninfo {
             ("dbname", database),
             ("user", user),
             ("hostaddr", ""),
-            ("options", ""),
+            ("options", options),
             ("client_encoding", "UTF8"),
             ("require_auth", require_auth),
             ("gssencmode", gssencmode),
@@ -492,16 +538,18 @@ impl Conninfo {
                 target: host,
             });
         }
-        let TlsAnchors::Bundle(ref bundle) = *anchors else {
+        let Anchors::Bundle(ref bundle) = *anchors else {
             return Err(UnusableChannel::HostStore { alias: source.clone() });
         };
         if process.openssl_configured {
             return Err(UnusableChannel::OpensslConfig { alias: source.clone() });
         }
-        crate::tls::client_config(anchors, identity).map_err(|cause| UnusableChannel::Material {
+        let unusable = |cause| UnusableChannel::Material {
             alias: source.clone(),
             cause,
-        })?;
+        };
+        sutura_tls::load_anchors(anchors).map_err(unusable)?;
+        identity.map(sutura_tls::load_identity).transpose().map_err(unusable)?;
         pair(&mut text, "sslmode", "verify-full");
         pair(&mut text, "sslrootcert", &bundle.display().to_string());
         match identity {
@@ -575,8 +623,9 @@ mod tests {
         Channel, Conninfo, GssEncryption, Held, InvalidKerberosService, KEYWORDS, Kerberos, KerberosService, Process, SignIn,
         UnusableChannel,
     };
+    use sutura_tls::{Anchors as TlsAnchors, Identity as TlsIdentity, LoadError};
+
     use crate::connection::ConnectionTarget;
-    use crate::tls::{TlsAnchors, TlsIdentity};
 
     /// Every channel's shared prefix: the declared target, then the keys the environment may not fill.
     const PINNED: &str = "host='db.example' port='5432' dbname='sales' user='reader' hostaddr='' \
@@ -609,7 +658,7 @@ mod tests {
             kerberos_cache_named: named,
         };
         let sign_in = SignIn::Kerberos(kerberos);
-        let conninfo = Conninfo::under(process, &source(), target, 5432, "sales", "reader", sign_in, channel)?;
+        let conninfo = Conninfo::under(process, "", &source(), target, 5432, "sales", "reader", sign_in, channel)?;
         #[expect(clippy::disallowed_methods, reason = "the cell asserts the exact string libpq is handed")]
         let text = conninfo.secret().expose_secret().to_owned();
         Ok(text)
@@ -716,7 +765,7 @@ mod tests {
             matches!(
                 refused,
                 UnusableChannel::Material {
-                    cause: crate::PostgresError::AnchorsRead { .. },
+                    cause: LoadError::AnchorsRead { .. },
                     ..
                 }
             ),
@@ -771,7 +820,7 @@ mod tests {
         };
         let under = |channel| {
             let sign_in = SignIn::Password(&password);
-            Conninfo::under(process, &source(), HOST, 5432, "sales", "reader", sign_in, channel)
+            Conninfo::under(process, "", &source(), HOST, 5432, "sales", "reader", sign_in, channel)
         };
         let refused = under(Channel::Verified(&anchors)).expect_err("its OpenSSL would read the file");
         assert!(matches!(refused, UnusableChannel::OpensslConfig { .. }), "{refused:?}");
@@ -788,7 +837,7 @@ mod tests {
             matches!(
                 refused,
                 UnusableChannel::Material {
-                    cause: crate::PostgresError::IdentityRead { .. },
+                    cause: LoadError::IdentityRead { .. },
                     ..
                 }
             ),

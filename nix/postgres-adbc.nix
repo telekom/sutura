@@ -24,7 +24,7 @@
 # **On a musl triple `lib/` also carries the archive's static link set**, because a static binary
 # has nothing else to resolve `libpq` against: `libpq.a`, `libpgcommon.a`, `libpgport.a` and
 # MIT krb5's five GSSAPI archives, then OpenSSL's `libssl.a`/`libcrypto.a` (`docs/adr/0018`'s
-# Thirteenth amendment says why OpenSSL and not rustls, its Fifteenth why krb5). That libpq signs
+# Thirteenth amendment says why OpenSSL and not rustls, its Sixteenth why krb5). That libpq signs
 # in with GSSAPI and is built without libcurl, so it has no OAuth flow of its own - the `.so`'s
 # keeps one - and `postBuild` links a static probe against exactly that set, so a member missing
 # from it fails the build here rather than in a Rust link.
@@ -39,10 +39,15 @@
 # What this does not establish: that the driver LOADS or RUNS. The probe is linked, never
 # executed (the build is cross); `crates/sutura-adbc/tests/linked.rs` is what runs it.
 #
+# **On darwin it is the mounted driver alone** - `lib/libadbc_driver_postgresql.dylib`, built natively
+# for a developer host's `just test` and `checks.nextest`. No release triple is darwin, so nothing
+# links an archive there and none is built.
+#
 # `src` must be the repository root; `pkgs` is the cross package set for `crossSystemName`.
 { pkgs, src, crossSystemName }:
 let
   isMusl = pkgs.stdenv.hostPlatform.isMusl;
+  isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   # The GSSAPI the static libpq signs in with. `-fcommon` for the reason nixpkgs adds it under
   # `isStatic`, which a musl cross set is not.
   staticKrb5 = (pkgs.krb5.override {
@@ -95,7 +100,7 @@ pkgs.stdenv.mkDerivation {
   buildInputs = [ pkgs.libpq ];
   cmakeFlags = [ "-DADBC_DRIVER_POSTGRESQL=ON" "-DADBC_DEFINE_COMMON_ENTRYPOINTS=OFF" ];
 
-  postBuild = ''
+  postBuild = pkgs.lib.optionalString (!isDarwin) ''
     $AR -M <<EOF
     create libadbc_driver_postgresql-merged.a
     addlib driver/postgresql/libadbc_driver_postgresql.a
@@ -112,7 +117,11 @@ pkgs.stdenv.mkDerivation {
   '' + pkgs.lib.optionalString isMusl ''
     $CXX -static probe.o libadbc_driver_postgresql-merged.a -Wl,--start-group ${builtins.concatStringsSep " " staticLibs} -Wl,--end-group -o probe-static
   '';
-  installPhase = ''
+  installPhase = if isDarwin then ''
+    runHook preInstall
+    install -Dm755 driver/postgresql/libadbc_driver_postgresql.dylib $out/lib/libadbc_driver_postgresql.dylib
+    runHook postInstall
+  '' else ''
     runHook preInstall
     install -Dm755 driver/postgresql/libadbc_driver_postgresql.so $out/lib/libadbc_driver_postgresql.so
     install -Dm644 libadbc_driver_postgresql-merged.a $out/lib/libadbc_driver_postgresql.a

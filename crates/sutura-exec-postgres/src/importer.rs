@@ -3,25 +3,20 @@
 //! The example models are files; a relational data system has to be *given* tables before it can
 //! answer. The existing importer keeps its historical permissive inference; the conformance path
 //! maps the shared exact fixture types without changing that API.
+//!
+//! **The rows travel inside the statement**, as `COPY ... FORMAT csv` would have read them: an empty
+//! cell is `NULL`, any other is a single-quoted literal the column's own input function parses, `'`
+//! doubled. The ADBC driver has no `COPY FROM STDIN`, and the fixtures carry no quoted syntax
+//! (`sutura_domain::warehouse::csv` refuses it), so a cell is never anything but its own text.
 
 use sutura_domain::model::{ColumnName, InvalidIdentifier, TableName};
-#[cfg(feature = "fixtures")]
 use sutura_domain::warehouse::csv::{self, FixtureType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PgType {
     Boolean,
     BigInt,
-    #[cfg_attr(
-        not(feature = "fixtures"),
-        expect(
-            dead_code,
-            reason = "only `infer_fixture_schema`, behind the `fixtures` feature, constructs this"
-        )
-    )]
-    Numeric {
-        scale: u8,
-    },
+    Numeric { scale: u8 },
     Double,
     Date,
     Text,
@@ -93,11 +88,11 @@ fn is_date(value: &str) -> bool {
             .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
 }
 
-/// The inferred schema of one fixture table, plus the copy body.
+/// The inferred schema of one fixture table, plus its rows.
 pub(crate) struct Schema {
     columns: Vec<PgColumn>,
-    /// The data rows, header excluded, each already joined into one CSV line.
-    body: String,
+    /// The data rows, header excluded, one cell per column.
+    rows: Vec<Vec<String>>,
 }
 
 /// One inferred column: its name, its type, and - for a decimal - the observed scale.
@@ -128,19 +123,40 @@ impl Schema {
         )
     }
 
-    /// The `COPY ... FROM STDIN` statement.
-    pub(crate) fn copy_statement(&self, table: &TableName) -> String {
+    /// The `CREATE TABLE` statement and, when there are rows, the `INSERT` carrying them.
+    pub(crate) fn load_statement(&self, table: &TableName) -> String {
+        let statement = self.create_statement(table);
+        if self.rows.is_empty() {
+            return statement;
+        }
         let names: Vec<String> = self.columns.iter().map(|column| format!("\"{}\"", column.name)).collect();
+        let rows: Vec<String> = self
+            .rows
+            .iter()
+            .map(|row| format!("({})", row.iter().map(|cell| literal(cell)).collect::<Vec<_>>().join(", ")))
+            .collect();
         format!(
-            "COPY \"{}\" ({}) FROM STDIN WITH (FORMAT csv)",
+            "{statement}; INSERT INTO \"{}\" ({}) VALUES {}",
             table.as_str(),
-            names.join(", ")
+            names.join(", "),
+            rows.join(", ")
         )
     }
 
-    /// The rows to feed through `COPY`, header excluded.
-    pub(crate) fn body(&self) -> &str {
-        &self.body
+    /// The rows, header excluded.
+    #[cfg(test)]
+    fn rows(&self) -> &[Vec<String>] {
+        &self.rows
+    }
+}
+
+/// One cell as `COPY ... FORMAT csv` reads an unquoted field: empty is `NULL`, anything else the
+/// column's input function parses from its text.
+fn literal(cell: &str) -> String {
+    if cell.is_empty() {
+        String::from("NULL")
+    } else {
+        format!("'{}'", cell.replace('\'', "''"))
     }
 }
 
@@ -165,7 +181,7 @@ pub(crate) fn infer_schema(text: &str) -> Result<Schema, InvalidIdentifier> {
             values: Vec::new(),
         })
         .collect();
-    let mut body_rows: Vec<String> = Vec::new();
+    let mut rows: Vec<Vec<String>> = Vec::new();
     for line in lines {
         if line.trim().is_empty() {
             continue;
@@ -177,11 +193,7 @@ pub(crate) fn infer_schema(text: &str) -> Result<Schema, InvalidIdentifier> {
                 column.values.push(cell.clone());
             }
         }
-        body_rows.push(cells.join(","));
-    }
-    let mut body = body_rows.join("\n");
-    if !body.is_empty() {
-        body.push('\n');
+        rows.push(cells);
     }
     let columns = columns
         .into_iter()
@@ -194,21 +206,17 @@ pub(crate) fn infer_schema(text: &str) -> Result<Schema, InvalidIdentifier> {
                 .map_or(PgType::Text, InferredKind::into_pg),
         })
         .collect();
-    Ok(Schema { columns, body })
+    Ok(Schema { columns, rows })
 }
 
-#[cfg(feature = "fixtures")]
 pub(crate) fn infer_fixture_schema(text: &str) -> Result<Schema, csv::InferenceError> {
     let columns = csv::infer(text)?;
-    let mut body = text
+    let rows = text
         .lines()
         .skip(1)
         .filter(|line| !line.trim().is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
-    if !body.is_empty() {
-        body.push('\n');
-    }
+        .map(|line| line.split(',').map(String::from).collect())
+        .collect();
     let columns = columns
         .into_iter()
         .map(|column| PgColumn {
@@ -224,7 +232,7 @@ pub(crate) fn infer_fixture_schema(text: &str) -> Result<Schema, csv::InferenceE
             },
         })
         .collect();
-    Ok(Schema { columns, body })
+    Ok(Schema { columns, rows })
 }
 
 #[cfg(test)]
@@ -246,7 +254,7 @@ mod tests {
     fn an_empty_column_does_not_collapse_the_scan() {
         let schema = infer_schema("only\n\n\n").expect("a valid header");
         assert_eq!(schema.columns[0].kind, PgType::Text);
-        assert_eq!(schema.body(), "");
+        assert_eq!(schema.rows(), Vec::<Vec<String>>::new());
     }
 
     #[test]
@@ -265,11 +273,10 @@ mod tests {
     #[test]
     fn legacy_rows_are_trimmed_padded_and_truncated() {
         let schema = infer_schema("a,b\n 1 \n 2 , 3 , 4 \n").expect("a valid legacy fixture");
-        assert_eq!(schema.body(), "1,\n2,3\n");
+        assert_eq!(schema.rows(), [vec!["1", ""], vec!["2", "3"]]);
     }
 
     #[test]
-    #[cfg(feature = "fixtures")]
     fn a_decimal_column_is_exact_not_a_double() {
         // A fixed-point decimal column is typed NUMERIC with the widest observed scale, rather than
         // widened to a double - the whole reason a decimal is its own shared type.
@@ -282,20 +289,29 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "fixtures")]
     fn a_header_only_fixture_has_no_phantom_row() {
         let schema = infer_fixture_schema("only\n").expect("a valid header");
-        assert_eq!(schema.body(), "");
+        assert_eq!(schema.rows(), Vec::<Vec<String>>::new());
+        assert!(!schema.load_statement(&TableName::parse("t").unwrap()).contains("INSERT"));
     }
 
     #[test]
-    #[cfg(feature = "fixtures")]
     fn scientific_notation_uses_the_shared_real_type() {
         let schema = infer_fixture_schema("amount\n1e2\n2e2\n").expect("a valid header");
         assert!(
             schema
                 .create_statement(&TableName::parse("t").unwrap())
                 .contains("DOUBLE PRECISION")
+        );
+    }
+
+    #[test]
+    fn an_empty_cell_is_null_and_a_quote_cannot_close_its_literal() {
+        let schema = infer_schema("name,n\no'brien,\n").expect("a valid legacy fixture");
+        assert_eq!(
+            schema.load_statement(&TableName::parse("t").unwrap()),
+            "DROP TABLE IF EXISTS \"t\"; CREATE TABLE \"t\" (\"name\" TEXT, \"n\" TEXT); \
+             INSERT INTO \"t\" (\"name\", \"n\") VALUES ('o''brien', NULL)"
         );
     }
 

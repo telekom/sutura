@@ -41,43 +41,23 @@ tls = ["sutura-config/tls", "sutura-http/tls"]
 # check rather than the four `cross` link builds and a developer's memory.
 bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc"]
 
-# The Postgres adapter, and with it the outbound TLS the source channel verifies against.
+# The Postgres adapter: the ADBC transport, over the driver every musl release links
+# (`nix/shipped.nix`) or the one `SUTURA_POSTGRES_ADBC_DRIVER` names elsewhere.
 #
 # Default-off for local Cargo builds; `nix/shipped.nix` enables it in published binaries.
-# `tokio-postgres` is pure Rust, but `tokio-postgres-rustls` pulls in `ring`.
 #
-# **`dep:tokio-postgres` too, arrived from `sutura-serve`'s own `postgres` feature at the fold -
-# a strict superset of what this crate declared before it.** `tokio_postgres::Config` is used only
-# by `tests/served/harness/postgres.rs`, which loads the example corpus into the real tier before
-# starting the composed binary; it is a normal, optional dependency rather than a dev-dependency
-# because Cargo has no way to make a dev-dependency optional, so it sits here unused by anything
-# `sutura serve` itself calls. The adapter owns every driver type `sutura serve` composes with.
-#
-# **`sutura-exec-postgres/adbc` too (`telekom/sutura#913` stage 1)**: the ADBC transport ships so a
-# musl release links the static driver, and `doctor` probes it. `tokio-postgres` still answers every
-# source; nothing selects ADBC.
-postgres = ["dep:sutura-exec-postgres", "dep:tokio-postgres", "sutura-exec-postgres/adbc"]
+# The adapter owns every driver type `sutura serve` composes with. The test harness's own
+# `tokio-postgres` connection is a dev-dependency, so this shipped feature compiles none of it.
+postgres = ["dep:sutura-exec-postgres"]
 
 # The ClickHouse adapter, over its HTTP interface.
-#
-# Default-off and absent from `nix/shipped.nix`'s published feature list.
+# Default-off for a SOURCE build, and in `nix/shipped.nix`'s `features` like the other shipped adapters.
 # `sutura-exec-clickhouse` depends on `ureq`/`sutura-tls` non-optionally, so this optional edge
-# keeps the adapter and its transport dependencies absent when the feature is off.
-#
-# **It is not in `nix/shipped.nix`'s `features`, `allFeatures` or `probeFeatures`, and that is a
-# decision rather than an omission.** Every other adapter feature is in `features` since
-# `docs/adr/0017`'s Fifteenth amendment - one binary, every adapter compiled in. This one is held
-# back because a correctness fix for the adapter is still open at the time this feature landed:
-# `github.com/telekom/sutura#955` measured 6 of 23 parameter-binding corpus questions answering
-# WRONG against the real `clickhouse-server` `compose.services.yaml` provisions, under ClickHouse's
-# default `join_use_nulls = 0` - an outer join's unmatched side arriving as `''` where the engine
-# says `NULL`. That issue carries the server version it was measured on; repeating it here would be
-# a number no mechanism compares. A published binary that
-# links this adapter before that lands is a deployment that can be handed a wrong number, so the
-# feature is reachable by `--features clickhouse` and by `--all-features` (which is what `just
-# lint`, `just test` and every nix check pass, so the registration is compiled, linted and tested on
-# every run) and by no release. Adding the three `nix/shipped.nix` entries is the follow-up once
-# `#955` has merged.
+# keeps the adapter and its transport out of a build that did not ask for it. It was held out of
+# the release until `github.com/telekom/sutura#955`: under ClickHouse's default
+# `join_use_nulls = 0` an outer join's unmatched side answered `''` where the engine says `NULL`.
+# `JOIN_USE_NULLS` in `request_settings` now asks for `1` on every request, held by
+# `every_request_asks_the_server_for_standard_outer_join_nulls`.
 clickhouse = ["dep:sutura-exec-clickhouse"]
 
 # The Oracle adapter, over Oracle's own pure-Rust driver.
@@ -85,8 +65,9 @@ clickhouse = ["dep:sutura-exec-clickhouse"]
 # **Default-off for the ARTEFACT reason `bigquery` above states**: `optional` keeps the driver and
 # its own `rustls` stack ABSENT from a build that did not ask for it.
 #
-# **Not in `nix/shipped.nix`'s `features`, `allFeatures` or `probeFeatures`, and for `clickhouse`'s
-# kind of reason - measured, not feared.** Asked against `compose.services.yaml`'s real `oracle`
+# **Not in `nix/shipped.nix`'s `features`, `allFeatures` or `probeFeatures`, and for the kind of
+# reason `clickhouse` was once held back - measured, not feared.** Asked against
+# `compose.services.yaml`'s real `oracle`
 # image, every whole-plan question this repository rendered for `Dialect::Oracle` ended in
 # `LIMIT n`, which the server refuses (`ORA-03049`; `github.com/telekom/sutura#127` carries the
 # measurement). It now ends in `FETCH FIRST n ROWS ONLY` - rendered and golden-pinned, and NOT yet
@@ -136,11 +117,9 @@ openmetadata = ["dep:sutura-catalog-openmetadata", "sutura-catalog-openmetadata/
 # above: the adapter crate's own `live` feature gates its reader module, and this crate's feature
 # is what an operator building `sutura` types.
 #
-# `dep:sutura-exec-postgres` for the TLS anchor fold and connection-config construction the
-# composition uses to build the reader's verifier and `tokio_postgres::Config` - the same resolver
-# the `postgres` source feature links, shared so the `rdbms` catalog and a declared `postgres`
-# source resolve one driver config.
-rdbms = ["dep:sutura-catalog-rdbms", "sutura-catalog-rdbms/live", "dep:sutura-exec-postgres"]
+# The reader's `tokio_postgres::Config` and `rustls::ClientConfig` are `sutura-catalog-rdbms`'s own
+# (`postgres_channel`), beside the one `tokio-postgres` client left in the workspace.
+rdbms = ["dep:sutura-catalog-rdbms", "sutura-catalog-rdbms/live"]
 
 # The agent surface: `sutura-mcp`'s streamable-HTTP transport, mounted by the composition root at
 # `sutura serve`'s `/mcp`.
@@ -198,14 +177,6 @@ sutura-exec-bigquery = { workspace = true, optional = true }
 # ABSENT from the default build rather than merely unused, which is the property the cross builds
 # need. The adapter owns its driver's connection config, so this root names no driver crate itself.
 sutura-exec-postgres = { workspace = true, optional = true }
-# The driver config used by `sutura serve`'s served-e2e loader, behind the `postgres` feature.
-# Normal composition maps the declaration into `sutura_exec_postgres::connection`, so it names no
-# driver type; `tests/served/harness/postgres.rs` loads the example corpus into the real tier
-# before starting the composed binary and needs `Config` for that one setup connection. The
-# adapter owns all TLS types, so this root needs no TLS crate. Optional rather than a
-# dev-dependency because Cargo cannot make a dev-dependency optional - see `sutura-serve`'s
-# former manifest, folded in at `github.com/telekom/sutura#685` step 2.
-tokio-postgres = { workspace = true, optional = true }
 # The ClickHouse adapter, behind the `clickhouse` feature above. Optional for the same reason
 # `sutura-exec-bigquery` is: absent, not merely unused, from a build that did not ask for it. The
 # adapter owns its own endpoint, credential and TLS types, so this root names no HTTP client itself.
@@ -285,6 +256,13 @@ serde_json = { workspace = true }
 # importer. This feature is absent from the shipped binary. `wire` is the real delegation exchange
 # the Keycloak tier cell drives (#1208), over `sutura-http-client`'s bounded agent.
 sutura-exec-bigquery = { workspace = true, features = ["fixtures", "wire"] }
+# The served Postgres cells load the example into the tier through the adapter's fixture-only
+# loader and open it with the fixture's driver. This feature is absent from the shipped binary.
+sutura-exec-postgres = { workspace = true, features = ["fixtures"] }
+# The fixture-install connection the Postgres test harness holds its advisory lock and installs
+# its documentation schema through (`tests/served/harness/postgres.rs`, `tests/common/fixtures.rs`,
+# `tests/mcp/rdbms.rs`). A dev-dependency, so the shipped `postgres` feature compiles none of it.
+tokio-postgres = { workspace = true }
 sutura-http-client = { workspace = true }
 # The domain's own `fixtures` feature, for `plan::RefusingCombiner` - the fake over
 # `docs/adr/0007`'s second driven port. The served root builds the REAL combiner; this crate's own
@@ -331,7 +309,7 @@ sutura-dev = { workspace = true, features = ["mock-issuer"] }
 # presenting an `rcgen`-issued IP-SAN leaf whose CA a composed `datahub` deployment declares as
 # `security.outbound.transport_anchors`, so the served binary's catalog boot proves the anchored
 # handshake against the same corpus its plaintext sibling serves. Both are already pinned at the
-# workspace root and resolved in `Cargo.lock` via `sutura-exec-postgres`'s rustls closure, so this
+# workspace root and resolved in `Cargo.lock` via `sutura-catalog-rdbms`'s rustls closure, so this
 # adds no new package and dev-edges are exempt from the shipped-features gate. Folded from
 # `sutura-serve`'s manifest by `github.com/telekom/sutura#685` step 2 at #768's merge.
 rcgen = { workspace = true }

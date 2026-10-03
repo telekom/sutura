@@ -1,8 +1,8 @@
 //! Building the `ureq::tls::TlsConfig` a TLS `clickhouse` source channel verifies with.
 //!
 //! This is the TLS half of `sutura_config::sources::transport`, turned into a verifier - the same
-//! job `sutura_exec_postgres::tls` does for `rustls::ClientConfig`, so that module's own header is
-//! this one's rather than restated: configuration owns the three-state DECLARATION (`plaintext` /
+//! job `sutura_catalog_rdbms::postgres_channel::client_config` does for `rustls`, so that module's
+//! own header is this one's rather than restated: configuration owns the three-state DECLARATION (`plaintext` /
 //! `verified` / `mutual`), and this module owns turning a declared `verified` or `mutual` channel
 //! into the thing the client connects with. **The declared-trust-store rule extends rather than
 //! forks** (`docs/adr/0010`): a PEM bundle or the host's system store, read once by [`config`] and
@@ -18,7 +18,7 @@
 //! # Why this is a fallible step SEPARATE from opening the transport
 //!
 //! `transport::Http::connect`/`connect_secured` take an already-built `ureq::tls::TlsConfig` and
-//! cannot fail, because `ureq::Agent::new_with_config` does no I/O - `ureq` dials lazily, on the
+//! cannot fail, because building a `ureq::Agent` does no I/O - `ureq` dials lazily, on the
 //! first request. So [`TlsError`] is its own type here rather than a variant folded into
 //! `crate::ClickHouseError`: nothing about it can arrive from `Warehouse::execute`, only from
 //! whoever resolves a declared channel into a config before opening the adapter.

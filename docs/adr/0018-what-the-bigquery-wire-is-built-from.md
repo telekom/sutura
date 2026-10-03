@@ -1611,7 +1611,53 @@ initialises the driver and opens nothing, so libpq itself runs only in `linkedDr
 `bigquery-driver-check` runs for the `data_source_bigquery` category, which a change confined to
 `sutura-exec-postgres` does not select.
 
-## Fifteenth amendment, 2026-10-02: Kerberos on the linked libpq, through a static MIT krb5
+## Fifteenth amendment, 2026-10-02: every PostgreSQL source is answered over ADBC, and `tokio-postgres` is gone from the adapter
+
+**What moved.** Stage 2 of `telekom/sutura#913`, as one change and a hard break. `sutura-cli`'s one
+Postgres composition (`crate::postgres`, shared by both roots) builds `AdbcPostgres` for every
+`kind: postgres` source, over the driver this artefact links (both musl triples) or the one
+`SUTURA_POSTGRES_ADBC_DRIVER` names - `PostgresDriver::from_host`, linked first, so a mounted path
+cannot displace a release's own driver. There is no fallback and no key that selects a transport.
+`sutura-exec-postgres` no longer depends on `tokio`, `tokio-postgres`, `tokio-postgres-rustls`,
+`rustls`, `rustls-native-certs`, `bytes` or `futures-util`; the session client, its per-connection
+lock, the source-channel `rustls::ClientConfig` and its rotation, the `NUMERIC` wire decoder and the
+`COPY` fixture load are deleted with it. The `rdbms` catalog's live reader keeps its own
+`tokio-postgres` client until it moves too; its connection and `rustls` config moved to
+`sutura-catalog-rdbms::postgres_channel`, beside it.
+
+**What the break is, for an operator.** A deployment that declared `transport_anchors: system` on a
+`postgres` source no longer starts: libpq reads `system` as OpenSSL's compiled-in store, not the host
+store sutura reads, so the source refuses by name (`UnusableChannel::HostStore`) - name a PEM bundle.
+An empty password file, TLS over a unix socket and TLS while `OPENSSL_CONF` is set refuse the same
+way. A host that links no driver (any gnu or darwin build) must set `SUTURA_POSTGRES_ADBC_DRIVER` to
+an absolute `libadbc_driver_postgresql` shared library, or its postgres sources refuse at boot.
+
+**What runs against a real server now.** `sutura-exec-postgres`'s tier-backed targets - the
+conformance packs, the raw tool's `READ ONLY` and row cap, the deadline's cancellation on the
+certified, raw and dry-run paths, verified and mutual TLS through libpq, and every mapped type - run
+through the real driver: a mounted one in `checks.nextest` and `just test` (`nix/postgres-adbc.nix`
+now builds the host's own, darwin included), and the LINKED static one in `nix/shipped.nix`'s
+`adbc-postgres-tier-x86_64-unknown-linux-musl-test`, which `ci.yml` builds for a change in the
+adapter's category. One finding of that run is code: a parameterless result is streamed through
+`COPY`, so a statement the server cancels mid-result fails inside the Arrow stream with no
+SQLSTATE; `session::timed_out` reads such a failure as the timeout once the timeout it set has run
+out.
+
+**Types.** The driver's Arrow mapping is canonical; `tests/types.rs` pins what each mapped type reads
+as through it, and the golden matrix's postgres cells answer over it. `NUMERIC` keeps its exact
+re-read (scale-zero text that fits an `i64` is an integer, the rest exact text).
+
+**Limits.** A Postgres source signs in only as the deployment's declared shared service account.
+OAuth, Kerberos/GSSAPI and per-caller sign-in are not supported: `Conninfo` pins `require_auth`
+to `password,md5,scram-sha-256,none` and `gssencmode` to `disable`, on every channel and with
+either driver. (Kerberos for that one account: the sixteenth amendment.) The musl tier run is the `ci` profile and x86_64 only: the release profile's LTO and
+stripping, and aarch64-musl, are not executed. A connection opens per call, so loading and connecting
+stay outside the request's deadline and an unreachable server is met at the boot path's first anchor
+check rather than at startup. A key that does not match its certificate passes the boot-time read and
+fails at libpq's connect. A failure this process makes itself while reading a stream, after the
+timeout window has passed, is read as the timeout.
+
+## Sixteenth amendment, 2026-10-03: Kerberos on the linked libpq, through a static MIT krb5
 
 **What moved.** The Thirteenth amendment built the linked libpq without GSSAPI, so the static musl
 triples could not sign in with Kerberos. The owner's 2026-10-02 ruling on `telekom/sutura#913` is
@@ -1628,6 +1674,12 @@ them in the installed archives, so the shipped closure does not gain krb5. None 
 plugin archives is linked: no MS-KKDCP over HTTPS, no PKINIT, SPAKE or OTP pre-authentication. A KDC
 is reached over port 88 with a keytab or a ticket cache.
 
+**What this supersedes.** The fifteenth amendment's *OAuth, Kerberos/GSSAPI and per-caller sign-in
+are not supported* now reads: a Postgres source signs in only as its declared shared service
+account - a password, or one Kerberos principal from the deployment's keytab - and OAuth and
+per-caller sign-in are not supported. Its `require_auth`/`gssencmode` pins hold everywhere but
+`Conninfo::kerberos`.
+
 **What is declared, and refused.** `Conninfo::kerberos` builds `require_auth='gss'`, the declared
 `krbsrvname` and `gssdelegation='0'` - the credential is never delegated - and `gssencmode='require'`
 only where GSSAPI encryption is the declared channel. Refused when built, by name: Kerberos to a
@@ -1639,10 +1691,9 @@ password, and `require_auth='gss'` sends nothing a password file holds - so `KEY
 refused-case row left.
 
 **Limits.** One principal per process: libpq takes no keytab or cache per connection, so every
-Kerberos source signs in as the principal the environment names - acting as the caller is a later
-change (S4U2Proxy). Which server principal GSSAPI authenticates is the one `krb5.conf` makes of the
-declared host, not anything the declared anchors hold. No settings key declares a Kerberos source
-yet, as none selects the ADBC transport. The two cells against a server, `tests/kerberos.rs` - the
+Kerberos source signs in as the principal the environment names; acting as the caller is not
+supported. Which server principal GSSAPI authenticates is the one `krb5.conf` makes of the declared
+host, not anything the declared anchors hold. No settings key declares a Kerberos source yet. The two cells against a server, `tests/kerberos.rs` - the
 sign-in and its refused negative control - run only in `nix/shipped.nix`'s x86_64-linux venue, as
 `bigquery-driver-check` realises them; aarch64-musl links the same set and nothing executes it
 there. OAuth stays unsupported: the static libpq is built without libcurl, and a token sutura holds

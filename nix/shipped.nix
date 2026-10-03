@@ -33,6 +33,10 @@
 , adbcDrivers
 # The per-triple ADBC PostgreSQL derivations - their musl static archives, see `adbcArchiveFor`.
 , postgresAdbcDrivers
+# The Postgres tier (`nix/postgres-tier.nix`), started inside `linkedDriversTests`' tier run.
+, postgresTier
+# `flake.nix`'s `wholeTree`, for the tier run's test build - see `linkedDriversTests`.
+, wholeTree
 , version
 }:
 
@@ -135,8 +139,8 @@ let
       # THE FEATURE-ON LINK PROBE LIST, for `featurePackages` below - one build per feature at
       # the `ci` profile, per release triple, so a feature that stops linking on a musl triple
       # fails on its own rather than only inside the all-features build. `bigquery` and `postgres`
-      # each pull `ureq`/`tokio-postgres-rustls` -> rustls -> `ring`, which compiles C and
-      # assembly - the two musl triples are the answer worth having per feature.
+      # each link a C driver archive (`adbcArchiveFor`) and `clickhouse` pulls `ring` - the two musl
+      # triples are the answer worth having per feature.
       #
       # `tls`, `datahub`, `openmetadata` and `agent` are not probed individually: none of the four
       # ever had a documented single-feature source build to hold a `<bin>-<feature>-<triple>-ci`
@@ -144,11 +148,11 @@ let
       # `features` now ships. `openmetadata` joined `datahub` here under `github.com/telekom/
       # sutura#970`: the same networked-adapter shape (an outbound TLS reader behind a default-off
       # feature), so the Fifteenth amendment's "every adapter compiled in" applies identically.
-      probeFeatures = [ "bigquery" "postgres" ];
+      probeFeatures = [ "bigquery" "postgres" "clickhouse" ];
       # THE COMPLETE optional feature list, for `allFeaturesProbes` below - `github.com/telekom/
       # sutura#685` step 1's fat-LTO probe, one build with every feature on rather than one per
       # feature.
-      allFeatures = [ "bigquery" "postgres" "tls" "datahub" "openmetadata" "agent" ];
+      allFeatures = [ "bigquery" "postgres" "clickhouse" "tls" "datahub" "openmetadata" "agent" ];
       # WHAT THE SHIPPED BUILD ACTUALLY LINKS - `github.com/telekom/sutura#685` step 5,
       # `docs/adr/0017`'s Fifteenth amendment implemented. Read by `nativeFor`/`crossFor` below for
       # every release and release-performance build of this binary, native and cross; the `-ci`
@@ -161,7 +165,7 @@ let
       # binaries). The two lists are meant to agree; a future feature added to one and not the
       # other is a diff a reviewer sees here, not a silent gap - same shape `probeFeatures` and
       # `allFeatures` already accept for the same reason.
-      features = [ "bigquery" "postgres" "tls" "datahub" "openmetadata" "agent" ];
+      features = [ "bigquery" "postgres" "clickhouse" "tls" "datahub" "openmetadata" "agent" ];
       # This binary legitimately links `polyglot-sql`, for `compile` - `sutura-sql` is a normal
       # dependency of `sutura-cli` and the generator is what renders the statement that
       # subcommand prints. Nothing extra to forbid here beyond the shared list below.
@@ -335,9 +339,23 @@ let
         pname = "sutura-adbc-linked";
         cargoExtraArgs = "--package sutura-adbc --target ${target}";
       };
+      # THE SHIPPED PATH AGAINST THE LINKED DRIVER, ON A REAL SERVER (`telekom/sutura#913` stage 2):
+      # `sutura-exec-postgres`'s tier-backed targets, built static for this triple with the same
+      # archive a release links, run against the Postgres tier started in this sandbox - so libpq,
+      # its static OpenSSL and the driver's Arrow mapping answer real statements, not a fake.
+      # `PostgresDriver::from_host` takes the linked route because the archive is linked; no `.so` is in
+      # reach. What it does not cover: the release profile's LTO and stripping (this is `ci`), and
+      # the aarch64 musl triple, which no builder here can run. The test build reads `wholeTree`, its
+      # deps-only build the filtered source: `sutura_dev::provisioned::worktree_root` needs a
+      # `flake.nix` beside the root `Cargo.toml`, which the filtered source drops - and without it
+      # every tier cell panics "`postgres` is not reachable" before running a statement.
+      pgArgs = args // adbcArchiveFor target // {
+        pname = "sutura-exec-postgres-linked";
+        cargoExtraArgs = "--package sutura-exec-postgres --features fixtures --target ${target}";
+      };
       kerberosArgs = testArgs // {
         pname = "sutura-exec-postgres-kerberos";
-        cargoExtraArgs = "--package sutura-exec-postgres --features adbc --target ${target}";
+        cargoExtraArgs = "--package sutura-exec-postgres --target ${target}";
       };
     in
     {
@@ -348,6 +366,22 @@ let
           cargoWithProfile test ${testArgs.cargoExtraArgs} --test linked -- --exact ${cell} --nocapture 2>&1 | tee linked.log
         '';
         installPhaseCommand = "install -Dm644 linked.log $out/linked.log";
+      });
+      "adbc-postgres-tier-${target}-test" = crossLib.mkCargoDerivation (pgArgs // { src = wholeTree; } // inheritedArtifacts (crossLib.buildDepsOnly (pgArgs // { doCheck = true; })) // {
+        doInstallCargoArtifacts = false;
+        nativeBuildInputs = (pgArgs.nativeBuildInputs or [ ]) ++ [ postgresTier.tier ];
+        SUTURA_DEV_REQUIRE_TIER = "1";
+        buildPhaseCargoCommand = ''
+          set -o pipefail
+          sutura-postgres-tier start
+          eval "$(sutura-postgres-tier credentials)"
+          status=0
+          cargoWithProfile test ${pgArgs.cargoExtraArgs} --no-fail-fast --test conformance --test raw --test deadline --test tls --test types -- --nocapture 2>&1 | tee tier.log || status=$?
+          sutura-postgres-tier stop
+          # A test, not `exit`: `exit` ends the builder before the install phase writes `$out`.
+          [ "$status" -eq 0 ]
+        '';
+        installPhaseCommand = "install -Dm644 tier.log $out/tier.log";
       });
       # A DECLARED KERBEROS SIGN-IN THROUGH THE LINKED DRIVER, against a KDC - the same static musl
       # build of `sutura-exec-postgres`'s `tests/kerberos.rs`, run with `--ignored` after
@@ -681,11 +715,11 @@ let
     # WHICH FEATURES A PUBLISHED BINARY CARRIES, asserted from inside the binary.
     #
     # `nix/shipped.nix` decides that the shipped binary is built with every feature `features`
-    # names (`:123`, the shipped authority `nativeFor`/`crossFor` read - not `allFeatures` at
-    # `:110`, which only feeds `allFeaturesProbes`): `bigquery`, `postgres`, `tls`, `datahub` and
-    # `agent` - five, none of which is a cargo DEFAULT (`sutura-cli`'s manifest declares no
-    # `default` key at all). Four of them - `tls`, `bigquery`, `postgres` and `datahub` - each pull
-    # a rustls closure with `ring` in it, and two of the four release triples are musl. Issue #111
+    # names - the shipped authority `nativeFor`/`crossFor` read, not `allFeatures`, which only
+    # feeds `allFeaturesProbes`. None of them is a cargo DEFAULT (`sutura-cli`'s manifest declares
+    # no `default` key at all). Most of them pull a rustls closure with `ring` in it (`clickhouse`,
+    # `datahub`, `openmetadata`, `tls`), and two of the four release triples are musl.
+    # Issue #111
     # asks for that to be a STATED choice rather than one somebody discovers, and a comment is not
     # a mechanism - so this is the mechanism.
     #

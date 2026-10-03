@@ -28,7 +28,7 @@ else
 fi
 # THE CREDENTIAL, and where it lives is the whole of why the client can stop defaulting one.
 #
-# `github.com/telekom/sutura#455`: the adapter's `local_config` used to substitute
+# `github.com/telekom/sutura#455`: the adapter's old `local_config` used to substitute
 # `sutura`/`sutura`/`sutura` when `SUTURA_DEV_*` was unset, in a `pub fn` whose `host` and
 # `port` are parameters - so the *only local containers can reach this* argument the compose
 # file makes did not cover it, and nothing in the tree ever SET those variables. It refuses

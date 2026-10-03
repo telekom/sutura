@@ -101,7 +101,8 @@
 //! prefix outright rather than trusting that resolution to stay correct.
 //!
 //! `ureq`'s compiled-in default root set (for an `https://` endpoint), `max_redirects(0)` and the
-//! proxy left on (`Proxy::try_from_env()`) are the other pins; a deployment MAY replace the
+//! environment's proxy for `https://` to a remote host only ([`sutura_http_client::agent`]) are the
+//! other pins; a deployment MAY replace the
 //! compiled-in roots with its own CA via `security.outbound.transport_anchors` (`#125`), folded in
 //! `sutura_http_client::tls` - anchors only, no client identity.
 

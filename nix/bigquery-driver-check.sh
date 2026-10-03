@@ -70,7 +70,7 @@ pg_self_check() {
             exit 1
         fi
     done <<'CASES'
-ok|  pg driver    : loaded and initialised, linked into this binary - its libpq signs in with Kerberos and has no OAuth flow
+ok|  pg driver    : loaded and initialised, linked into this binary - a source signs in only as its declared service account, with a password, a client certificate or one Kerberos principal; no OAuth or per-caller sign-in
 no|  pg driver    : loaded and initialised, mounted at /opt/sutura/lib/libadbc_driver_postgresql.so
 no|  pg driver    : not linked into this binary - a source build would mount libadbc_driver_postgresql.so
 no|  pg driver    : NOT usable: linked into this binary: could not load the PostgreSQL ADBC driver
