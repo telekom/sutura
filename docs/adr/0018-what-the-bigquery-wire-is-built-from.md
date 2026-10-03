@@ -1647,9 +1647,10 @@ out.
 as through it, and the golden matrix's postgres cells answer over it. `NUMERIC` keeps its exact
 re-read (scale-zero text that fits an `i64` is an integer, the rest exact text).
 
-**Limits.** The linked driver's libpq has no Kerberos/GSSAPI and no OAuth sign-in, so a deployment
-that needs either mounts a driver whose libpq keeps them - an accepted limit for this change, not a
-solved one. The musl tier run is the `ci` profile and x86_64 only: the release profile's LTO and
+**Limits.** A Postgres source signs in only as the deployment's declared shared service account.
+OAuth, Kerberos/GSSAPI and per-caller sign-in are not supported: `Conninfo` pins `require_auth`
+to `password,md5,scram-sha-256,none` and `gssencmode` to `disable`, on every channel and with
+either driver. The musl tier run is the `ci` profile and x86_64 only: the release profile's LTO and
 stripping, and aarch64-musl, are not executed. A connection opens per call, so loading and connecting
 stay outside the request's deadline and an unreachable server is met at the boot path's first anchor
 check rather than at startup. A key that does not match its certificate passes the boot-time read and

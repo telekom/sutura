@@ -42,9 +42,9 @@
 //! - **Loading and connecting are outside the deadline**: the driver is loaded and a connection
 //!   opened per call, and only the statement runs under `SET LOCAL`.
 //! - **Every port method.** `session`'s header says what each sends.
-//! - **The linked driver signs in less.** Its libpq is built without Kerberos/GSSAPI and without
-//!   OAuth; a mounted driver's keeps both, and [`Conninfo`](crate::adbc::Conninfo) refuses GSSAPI,
-//!   SSPI and OAuth sign-in on either route, because a declaration can name none of them.
+//! - **One declared identity.** [`Conninfo`](crate::adbc::Conninfo) refuses Kerberos/GSSAPI, SSPI
+//!   and OAuth sign-in on either driver, so a source signs in only as its declared service account,
+//!   with a password or a client certificate; the linked libpq is built without the first three.
 
 mod conninfo;
 mod numeric;

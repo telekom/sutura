@@ -11,8 +11,10 @@
 //!
 //! ## Limits
 //!
-//! - **The linked driver signs in with less.** Its libpq is built without Kerberos/GSSAPI and
-//!   without OAuth; a deployment that needs either mounts a driver whose libpq keeps them.
+//! - **One declared identity, only.** A Postgres source signs in solely as the deployment's
+//!   declared shared service account. OAuth, Kerberos/GSSAPI and per-caller sign-in are not
+//!   supported: `AdbcPostgres::IMPERSONATION` is `NoPlaceForASubject`, and `Conninfo` pins
+//!   `require_auth` to `password,md5,scram-sha-256,none` and `gssencmode` to `disable`.
 //! - **`transport_anchors: system` is refused** ([`adbc::UnusableChannel::HostStore`]): libpq's
 //!   `system` store is OpenSSL's compiled-in default, not the host store sutura reads.
 

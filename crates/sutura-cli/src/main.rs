@@ -450,22 +450,19 @@ fn bigquery_driver_line() -> String {
 }
 
 /// What `doctor` can find out about the PostgreSQL ADBC driver every `kind: postgres` source is
-/// answered over: which one this process would open, and whether it initialises. The linked one's
-/// libpq signs in with fewer methods, which is said here because this line is where a holder of
-/// the binary learns which driver they have.
+/// answered over: which one this process would open, and whether it initialises - and, on either
+/// driver, the one way a source signs in, because this line is where a holder of the binary looks.
 #[cfg(feature = "postgres")]
 fn postgres_driver_line() -> String {
     let driver = match sutura_exec_postgres::adbc::PostgresDriver::from_host() {
         Ok(driver) => driver,
         Err(none) => return format!("not configured - {}", crate::commands::render(&none)),
     };
-    let linked = sutura_exec_postgres::adbc::PostgresDriver::linked_in().is_some();
     match driver.probe() {
-        Ok(()) if linked => format!(
-            "loaded and initialised, {driver} - its libpq has no Kerberos/GSSAPI or OAuth sign-in \
-             (a mounted driver's has both)"
+        Ok(()) => format!(
+            "loaded and initialised, {driver} - a source signs in as its declared service account, \
+             with a password or a client certificate"
         ),
-        Ok(()) => format!("loaded and initialised, {driver}"),
         Err(cause) => format!("NOT usable: {driver}: {cause}"),
     }
 }

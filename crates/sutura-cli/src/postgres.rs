@@ -12,9 +12,10 @@
 //!
 //! # The limits, next to the claim
 //!
-//! - **The linked driver signs in with less.** Its libpq has no Kerberos/GSSAPI and no OAuth; a
-//!   deployment that needs either mounts a driver whose libpq keeps them. A declaration cannot name
-//!   either today, and `Conninfo`'s `require_auth` refuses both on every route.
+//! - **One declared identity, only.** A Postgres source signs in solely as the deployment's
+//!   declared shared service account. OAuth, Kerberos/GSSAPI and per-caller sign-in are not
+//!   supported: `AdbcPostgres::IMPERSONATION` is `NoPlaceForASubject`, and `Conninfo` pins
+//!   `require_auth` to `password,md5,scram-sha-256,none` and `gssencmode` to `disable`.
 //! - **Nothing dials here.** A connection opens per call, so an unreachable server or a refused
 //!   login is the boot path's first anchor check, not this function - a source with no anchor
 //!   declared first meets its server at the first question.

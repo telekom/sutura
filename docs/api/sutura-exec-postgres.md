@@ -19,8 +19,10 @@ the channel, the deadline and the single-statement guarantee, and what does not.
 
 ## Limits
 
-- **The linked driver signs in with less.** Its libpq is built without Kerberos/GSSAPI and
-  without OAuth; a deployment that needs either mounts a driver whose libpq keeps them.
+- **One declared identity, only.** A Postgres source signs in solely as the deployment's
+  declared shared service account. OAuth, Kerberos/GSSAPI and per-caller sign-in are not
+  supported: `AdbcPostgres::IMPERSONATION` is `NoPlaceForASubject`, and `Conninfo` pins
+  `require_auth` to `password,md5,scram-sha-256,none` and `gssencmode` to `disable`.
 - **`transport_anchors: system` is refused** (`adbc::UnusableChannel::HostStore`): libpq's
   `system` store is OpenSSL's compiled-in default, not the host store sutura reads.
 
@@ -110,9 +112,9 @@ links (both musl triples) or the one `SUTURA_POSTGRES_ADBC_DRIVER` names.
 - **Loading and connecting are outside the deadline**: the driver is loaded and a connection
   opened per call, and only the statement runs under `SET LOCAL`.
 - **Every port method.** `session`'s header says what each sends.
-- **The linked driver signs in less.** Its libpq is built without Kerberos/GSSAPI and without
-  OAuth; a mounted driver's keeps both, and `Conninfo` refuses GSSAPI,
-  SSPI and OAuth sign-in on either route, because a declaration can name none of them.
+- **One declared identity.** `Conninfo` refuses Kerberos/GSSAPI, SSPI
+  and OAuth sign-in on either driver, so a source signs in only as its declared service account,
+  with a password or a client certificate; the linked libpq is built without the first three.
 
 ### `enum AdbcError`
 
