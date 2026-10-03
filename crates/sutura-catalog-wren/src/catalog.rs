@@ -241,9 +241,9 @@ mod tests {
     use sutura_domain::capabilities::MetadataCapabilities;
 
     use super::*;
-    use crate::tests::scratch;
 
     const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/manifest.json");
+    const TESTDATA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata");
 
     fn test_name() -> SourceName {
         SourceName::parse("test").expect("a test name is a name")
@@ -288,13 +288,7 @@ mod tests {
     /// an authored statement as one.
     #[test]
     fn a_ref_sql_model_is_refused_rather_than_read_as_a_physical_table() {
-        let dir = scratch("ref-sql");
-        let manifest = dir.join("manifest.json");
-        std::fs::write(
-            &manifest,
-            r#"{"catalog":"example","schema":"public","models":[{"name":"revenue","refSql":"select * from orders","columns":[]}]}"#,
-        )
-        .expect("the scratch manifest is writable");
+        let manifest = Path::new(TESTDATA).join("ref-sql.json");
 
         let err = catalog_at(&manifest).load().expect_err("a refSql model is refused");
 
@@ -308,13 +302,7 @@ mod tests {
     /// rather than dropping it from the model.
     #[test]
     fn a_calculated_column_is_refused_by_name() {
-        let dir = scratch("calculated");
-        let manifest = dir.join("manifest.json");
-        std::fs::write(
-            &manifest,
-            r#"{"catalog":"example","schema":"public","models":[{"name":"orders","columns":[{"name":"total","type":"NUMERIC"},{"name":"double_total","type":"NUMERIC","isCalculated":true,"expression":"total * 2"}]}]}"#,
-        )
-        .expect("the scratch manifest is writable");
+        let manifest = Path::new(TESTDATA).join("calculated.json");
 
         let err = catalog_at(&manifest).load().expect_err("a calculated column is refused");
 
@@ -335,8 +323,7 @@ mod tests {
     /// read failure and a parse failure.
     #[test]
     fn a_missing_manifest_is_a_read_error_naming_the_path() {
-        let dir = scratch("missing");
-        let manifest = dir.join("manifest.json");
+        let manifest = Path::new(TESTDATA).join("absent.json");
 
         let err = catalog_at(&manifest).load().expect_err("a missing manifest does not load");
 
