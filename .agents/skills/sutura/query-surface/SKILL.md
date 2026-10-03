@@ -235,16 +235,15 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   axis registers it with `available()` answering `false` unconditionally - it is cloud-only, so
   every cell on that axis skips it, and the entry exists so `execute_packs!`'s registry gate can
   bind the adapter's own conformance packs (`#710`). The DIALECT axis has an entry of its own.
-- **The ClickHouse adapter executes the golden corpus and conformance packs, and no release links
-  it.** The golden matrix registers it and runs the example corpus against the server
+- **The ClickHouse adapter executes the golden corpus and conformance packs, and every release
+  links it.** The golden matrix registers it and runs the example corpus against the server
   `nix/clickhouse-tier.nix` starts - in
   `checks.nextest` and under `just test`, like Postgres - so its `rows`/`refused`/`error`/
   `anchor_report` families are EXECUTED goldens and `dialects.rs` declares `Evidence::Executed`
   (`github.com/telekom/sutura#920`). The conformance packs bind through
   `crates/sutura-exec-clickhouse/tests/conformance.rs` after `#979` measured signed 64-bit overflow
   and preserved decimal scale. **What that does not reach:** unsigned overflow in the live corpus,
-  other server versions, sums beyond the widened type, or any release, because `sutura-cli`'s
-  `clickhouse` feature is default-off and absent from `nix/shipped.nix`. Both venues - this tier and
+  other server versions, or sums beyond the widened type. Both venues - this tier and
   `compose.services.yaml`'s docker service -
   publish one `clickhouse` discovery entry, so the last one started owns it.
 - **What both acceptance legs say nothing about is identity.** A service-account key is one identity

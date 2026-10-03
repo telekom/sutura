@@ -144,11 +144,11 @@ let
       # `features` now ships. `openmetadata` joined `datahub` here under `github.com/telekom/
       # sutura#970`: the same networked-adapter shape (an outbound TLS reader behind a default-off
       # feature), so the Fifteenth amendment's "every adapter compiled in" applies identically.
-      probeFeatures = [ "bigquery" "postgres" ];
+      probeFeatures = [ "bigquery" "postgres" "clickhouse" ];
       # THE COMPLETE optional feature list, for `allFeaturesProbes` below - `github.com/telekom/
       # sutura#685` step 1's fat-LTO probe, one build with every feature on rather than one per
       # feature.
-      allFeatures = [ "bigquery" "postgres" "tls" "datahub" "openmetadata" "agent" ];
+      allFeatures = [ "bigquery" "postgres" "clickhouse" "tls" "datahub" "openmetadata" "agent" ];
       # WHAT THE SHIPPED BUILD ACTUALLY LINKS - `github.com/telekom/sutura#685` step 5,
       # `docs/adr/0017`'s Fifteenth amendment implemented. Read by `nativeFor`/`crossFor` below for
       # every release and release-performance build of this binary, native and cross; the `-ci`
@@ -161,7 +161,7 @@ let
       # binaries). The two lists are meant to agree; a future feature added to one and not the
       # other is a diff a reviewer sees here, not a silent gap - same shape `probeFeatures` and
       # `allFeatures` already accept for the same reason.
-      features = [ "bigquery" "postgres" "tls" "datahub" "openmetadata" "agent" ];
+      features = [ "bigquery" "postgres" "clickhouse" "tls" "datahub" "openmetadata" "agent" ];
       # This binary legitimately links `polyglot-sql`, for `compile` - `sutura-sql` is a normal
       # dependency of `sutura-cli` and the generator is what renders the statement that
       # subcommand prints. Nothing extra to forbid here beyond the shared list below.
@@ -659,11 +659,11 @@ let
     # WHICH FEATURES A PUBLISHED BINARY CARRIES, asserted from inside the binary.
     #
     # `nix/shipped.nix` decides that the shipped binary is built with every feature `features`
-    # names (`:123`, the shipped authority `nativeFor`/`crossFor` read - not `allFeatures` at
-    # `:110`, which only feeds `allFeaturesProbes`): `bigquery`, `postgres`, `tls`, `datahub` and
-    # `agent` - five, none of which is a cargo DEFAULT (`sutura-cli`'s manifest declares no
-    # `default` key at all). Four of them - `tls`, `bigquery`, `postgres` and `datahub` - each pull
-    # a rustls closure with `ring` in it, and two of the four release triples are musl. Issue #111
+    # names - the shipped authority `nativeFor`/`crossFor` read, not `allFeatures`, which only
+    # feeds `allFeaturesProbes`. None of them is a cargo DEFAULT (`sutura-cli`'s manifest declares
+    # no `default` key at all). Most of them pull a rustls closure with `ring` in it (`postgres`,
+    # `clickhouse`, `datahub`, `openmetadata`, `tls`), and two of the four release triples are musl.
+    # Issue #111
     # asks for that to be a STATED choice rather than one somebody discovers, and a comment is not
     # a mechanism - so this is the mechanism.
     #

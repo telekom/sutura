@@ -1807,3 +1807,24 @@ filter was `not (<the other>)` and the two partitioned the tests. The live pairs
 complements, and the gate holds the duplication invariant, not a partition. It compares two literal
 strings; it does not parse nextest filter syntax, and it does not check that a filter selects a real
 test - that is `check-venues`' job for the venue anchors.
+
+## Twenty-second amendment, 2026-10-02: the shipped binary links the ClickHouse adapter
+
+**Status of the amendment: accepted; it records that the Sixteenth amendment's list changed from
+today, and carries no new gate.**
+
+The Sixteenth amendment, dated 2026-09-16, records what `github.com/telekom/sutura#685` step 5
+linked on that date: `bigquery`, `postgres`, `tls`, `datahub` and `agent`, and not `clickhouse` -
+`sutura-cli`'s manifest held that feature out of the release until `github.com/telekom/sutura#955`
+landed, on 2026-09-23 as commit 0771bbdde. This PR (`github.com/telekom/sutura#1237`) adds
+`clickhouse` to `nix/shipped.nix`'s `features` (and, with it, `allFeatures` and `probeFeatures`);
+`oracle` stays out. The `join_use_nulls = 1` fix is now sent on every request - a unit test shows
+the setting is sent, and executed goldens cover one server version. Every release and
+release-performance build now links `bigquery`, `postgres`, `clickhouse`, `tls`, `datahub`,
+`openmetadata` and `agent` together - one binary, every adapter compiled in, the Fifteenth
+amendment's decision now covering every shipped adapter.
+
+Recording it as a new dated amendment rather than editing the Sixteenth: that record is dated
+2026-09-16, and a sentence that stops being true about its own date is a trap this record exists to
+avoid. The Sixteenth keeps its original wording; this amendment carries the current state from
+today.
