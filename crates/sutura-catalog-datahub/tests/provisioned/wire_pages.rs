@@ -1,7 +1,9 @@
 //! The `dataset` and `semanticModel` page cells (#1251 gap 2): each seeds the corpus's own entities
 //! on the tier, reads the page back over the search-backed paged surface, and asserts the served
-//! entity maps to the same aspect the seed does. They map the response with this file's own copy of
-//! `src/http.rs`'s mapping, not through `HttpAspectReader`, for the parent file's reason.
+//! entity maps to the same aspect the seed does - every field the reader maps as of this copy,
+//! kept equal by review, so a field the reader newly maps would not be caught here. They map the
+//! response with this file's own copy of `src/http.rs`'s mapping, not through `HttpAspectReader`,
+//! for the parent file's reason.
 
 use std::time::{Duration, Instant};
 
@@ -167,6 +169,21 @@ fn paged_until(agent: &ureq::Agent, endpoint: &str, path: &str, wanted: &[String
             })
             .collect();
         if found.len() == wanted.len() {
+            // A page that signals more results - a `scrollId`, or fewer entities than a stated
+            // `total` - is what `src/http.rs`'s reader refuses as `HttpReaderError::MorePages`.
+            // With the corpus at most two entities, a real last page must NOT signal more; this
+            // is the live side of http.rs's #Paging open question.
+            assert!(
+                answer.get("scrollId").and_then(serde_json::Value::as_str).is_none(),
+                "the {path} last page carries a scrollId, which the reader would refuse"
+            );
+            if let Some(total) = answer.get("total").and_then(serde_json::Value::as_u64) {
+                assert!(
+                    entities.len() as u64 >= total,
+                    "the {path} page states {total} total but returned {} - the reader would refuse MorePages",
+                    entities.len()
+                );
+            }
             return found;
         }
         assert!(
@@ -267,7 +284,7 @@ fn relationship_bodies() -> serde_json::Value {
 #[ignore = "needs `just dev-up-datahub`; a docker service is only in the discovery file until \
             the next writer rewrites it - run `just datahub-acceptance`"]
 fn a_dataset_page_served_by_a_real_datahub_preserves_its_wire_shape() {
-    const DATASET_PATH: &str = "openapi/v3/entity/dataset?aspects=schemaMetadata&aspects=datasetProperties&count=100";
+    const DATASET_PATH: &str = "openapi/v3/entity/dataset?aspects=schemaMetadata&aspects=datasetProperties&count=1000";
     let Some(endpoint) = endpoint() else {
         return;
     };
@@ -313,7 +330,7 @@ fn a_dataset_page_served_by_a_real_datahub_preserves_its_wire_shape() {
 #[ignore = "needs `just dev-up-datahub`; a docker service is only in the discovery file until \
             the next writer rewrites it - run `just datahub-acceptance`"]
 fn a_relationship_page_served_by_a_real_datahub_preserves_its_wire_shape() {
-    const RELATIONSHIP_PATH: &str = "openapi/v3/entity/semanticModel?aspects=semanticModelInfo&count=100";
+    const RELATIONSHIP_PATH: &str = "openapi/v3/entity/semanticModel?aspects=semanticModelInfo&count=1000";
     let Some(endpoint) = endpoint() else {
         return;
     };
