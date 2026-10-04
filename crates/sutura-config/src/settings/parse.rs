@@ -66,12 +66,6 @@ pub(super) fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, Sett
         None => None,
         Some(written) => Some(crate::settings::inbound::parse_inbound(written)?),
     };
-    let credential_cache = crate::identity_cache::CredentialCacheSettings::parse(
-        raw.security.credential_cache.enabled,
-        raw.security.credential_cache.capacity,
-        raw.security.credential_cache.window_seconds,
-    )
-    .map_err(|cause| SettingsError::CredentialCache { cause })?;
     // Deployment-wide, and parsed in `crate::settings::outbound` - absence is not a refusal, a
     // PRESENT empty block is. `outbound_identity` is the optional client pair beside the anchors
     // (`github.com/telekom/sutura#911`).
@@ -84,7 +78,6 @@ pub(super) fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, Sett
         inbound,
         identity,
         metrics_token,
-        credential_cache,
         outbound,
         outbound_identity,
         audience_mapping,
