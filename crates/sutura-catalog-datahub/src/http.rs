@@ -28,8 +28,9 @@
 //! refuse an unexpected shape as a typed [`HttpReaderError::UnexpectedShape`] naming the entity and
 //! the field, rather than reading past a missing or mistyped key with a default - a guess that
 //! happened to be wrong would otherwise certify a bundle silently missing a model or a relationship.
-//! **Do not cite this reader as proof the `dataset` half works against a real `DataHub` until an
-//! acceptance leg like `tests/provisioned.rs`'s measures it.**
+//! **Do not cite this reader as proof the `dataset` half works against a real `DataHub`.**
+//! `tests/provisioned/wire_pages.rs`'s dataset-page cell asserts what the platform serves through the test's
+//! own copy of this mapping, not through this reader, and it is evidence only of a run of it.
 //!
 //! # What every read is bounded by
 //!

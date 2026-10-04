@@ -134,6 +134,7 @@ pub(crate) fn report_base_scoped(
             println!("xtask test-causality: ok - red on base, green on head ({measured})");
             Verdict::Pass
         }
+        BaseOutcome::RedWithGreenSibling { ref red, ref green } => sibling_verdict(red, green, &measured),
         BaseOutcome::RedOutsideTheDiff { ref failed } => {
             eprintln!("xtask test-causality: FAILED - the base tree is red outside this diff");
             for one in failed {
@@ -241,6 +242,39 @@ pub(crate) fn report_base_scoped(
             Verdict::Inconclusive
         }
     }
+}
+
+/// The verdict for a red run whose SIBLING added test passed on base.
+///
+/// Split out so `report_base_scoped` stays under the grading line cap: this arm names every green
+/// sibling the run reported, which the whole-run verdict used to let ride along unmentioned on
+/// the red one's strength. Returns FAIL - the green sibling proves nothing of its own.
+fn sibling_verdict(red: &[String], green: &[String], measured: &str) -> Verdict {
+    eprintln!(
+        "xtask test-causality: FAILED - {} of the tests this diff added passed on base",
+        green.len()
+    );
+    eprintln!();
+    eprintln!("One of the added tests failed, as required - but the run reported per-test");
+    eprintln!("names, and beside the red one another added test PASSED with the change");
+    eprintln!("reverted. A green sibling passes without the change and so does not test");
+    eprintln!("it; the whole-run verdict used to let it ride along unmentioned on its red");
+    eprintln!("sibling's strength:");
+    for one in green {
+        eprintln!("  green on base: {one}");
+    }
+    eprintln!();
+    eprintln!("The red one is the evidence this diff exists to collect, for context:");
+    for one in red {
+        eprintln!("  red on base: {one}");
+    }
+    eprintln!();
+    eprintln!("{measured}");
+    eprintln!();
+    eprintln!("A test that passes with the implementation reverted proves nothing on its");
+    eprintln!("own. Make each green-sibling test exercise the new behaviour, or say plainly");
+    eprintln!("that it is not a regression test.");
+    Verdict::Fail
 }
 
 /// Correct `measured` when nextest's own `Summary` line ran FEWER of the scope than the filter

@@ -398,7 +398,10 @@ pub enum SettingsError {
 /// `Clone` because it is held in the request state, and every field is either `Copy` or a small
 /// owned value. `Debug` is safe to log in full: the only credential-shaped field is held in
 /// [`sutura_domain::identity::Secret`], whose `Debug` redacts, and a test in [`crate::security`]
-/// asserts that at struct depth.
+/// asserts that at struct depth. A catalog endpoint, an inbound URL, a delegation token endpoint or a
+/// source host carrying an `@` - userinfo, however a URL parser splits it - is refused before a
+/// `Settings` exists. The
+/// limit: a secret with no `@`, such as one written into a path, is printed.
 #[derive(Debug, Clone)]
 pub struct Settings {
     layers: ConfigLayers,
@@ -504,6 +507,7 @@ impl Settings {
         refusals.extend(self.tls_refusals());
         refusals.extend(self.keying_refusals());
         refusals.extend(self.identity_refusals());
+        refusals.extend(self.delegation_refusals());
         refusals.extend(self.run_sql_refusals());
         refusals.extend(self.spend_refusals());
         refusals.extend(self.credential_refusals(off_host));
@@ -587,6 +591,19 @@ impl Settings {
             }
         }
         refusals
+    }
+
+    /// A declared delegation exchange on a deployment that verifies no `direct` caller - see
+    /// [`NotFitToServe::DelegationWithoutDirectInbound`].
+    fn delegation_refusals(&self) -> Vec<NotFitToServe> {
+        if matches!(self.security.inbound(), Some(InboundIdentity::Direct { .. })) {
+            return Vec::new();
+        }
+        self.sources
+            .each()
+            .filter(|(_, source)| source.workload_identity().is_some_and(|wif| wif.delegation().is_some()))
+            .map(|(alias, _)| NotFitToServe::DelegationWithoutDirectInbound { alias: alias.clone() })
+            .collect()
     }
 
     /// Whether the raw SQL tool is enabled over a deployment it may not run over -

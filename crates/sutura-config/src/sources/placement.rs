@@ -202,9 +202,9 @@ impl DatasetId {
 /// `unix_socket` was a check in that function, but the FIELD still admitted whatever text was
 /// there, so [`crate::sources::placement::PostgresDial`] existed only as a `match` two composition
 /// roots each wrote by hand. Refuses only shapes that cannot be a host at all - empty, embedded
-/// whitespace, a URL scheme, a path separator, a list separator - and nothing about reachability:
-/// a value that parses may still fail to resolve, or fail the TLS name check at connect time, and
-/// neither is this type's question. [`crate::sources::transport::host_is_loopback`] still does the
+/// whitespace, a URL scheme, a path separator, a list separator, an `@` - and nothing about
+/// reachability: a value that parses may still fail to resolve, or fail the TLS name check at
+/// connect time, and neither is this type's question. [`crate::sources::transport::host_is_loopback`] still does the
 /// loopback test on the parsed text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostName(String);
@@ -228,6 +228,9 @@ pub enum InvalidHostName {
     /// libpq reads `host` as a list of hosts.
     #[error("it contains `,`, which a driver reads as a list of hosts rather than one")]
     List,
+    /// A host carries no credentials, and the startup log prints the resolved settings.
+    #[error("it contains `@`, and a host carries no user or password")]
+    Userinfo,
 }
 
 impl HostName {
@@ -247,6 +250,9 @@ impl HostName {
         }
         if trimmed.contains(',') {
             return Err(InvalidHostName::List);
+        }
+        if trimmed.contains('@') {
+            return Err(InvalidHostName::Userinfo);
         }
         if trimmed.chars().any(char::is_whitespace) {
             return Err(InvalidHostName::Whitespace);
@@ -579,6 +585,7 @@ mod tests {
             ("db host", InvalidHostName::Whitespace),
             ("db.example,", InvalidHostName::List),
             ("db.example,@pg", InvalidHostName::List),
+            ("svc:s3cret@db.example", InvalidHostName::Userinfo),
         ] {
             assert_eq!(
                 HostName::parse(raw).expect_err("each of these is refused"),

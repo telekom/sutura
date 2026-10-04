@@ -103,8 +103,14 @@ mod mcp;
 /// The ONE Oracle composition, reached by both composition roots below - `clickhouse`'s shape.
 #[cfg(feature = "oracle")]
 mod oracle;
-/// The password-file read the `clickhouse`, `oracle` and `rdbms` builds share.
-#[cfg(any(feature = "clickhouse", feature = "oracle", feature = "postgres", feature = "rdbms"))]
+/// The secret-file read the `bigquery`, `clickhouse`, `oracle`, `postgres` and `rdbms` builds share.
+#[cfg(any(
+    feature = "bigquery",
+    feature = "clickhouse",
+    feature = "oracle",
+    feature = "postgres",
+    feature = "rdbms"
+))]
 mod password_file;
 #[cfg(feature = "postgres")]
 mod postgres;
@@ -114,9 +120,10 @@ mod postgres;
 /// Behind the same features as every caller: only an adapter that links an outbound TLS stack has
 /// any material to rotate, so a default-features build (no `postgres`/`datahub`/`openmetadata`)
 /// must not compile a `drive_rotation` no composition root calls. The removed BigQuery `wire`'s STS
-/// rotation and the removed `tokio-postgres` source channel's were callers; only the datahub and
-/// openmetadata reader rotators remain - a Postgres source's libpq re-reads its files per connect.
-#[cfg(any(feature = "datahub", feature = "openmetadata"))]
+/// rotation and the removed `tokio-postgres` source channel's were callers; the datahub and
+/// openmetadata reader rotators and a `bigquery` source's delegation exchange remain - a Postgres
+/// source's libpq re-reads its files per connect.
+#[cfg(any(feature = "bigquery", feature = "datahub", feature = "openmetadata"))]
 mod rotation;
 /// The HTTP surface's composition root - `sutura serve`. Its own module rather than flattened
 /// here: `github.com/telekom/sutura#685` step 2 folded the `sutura-serve` binary into this crate,
@@ -460,8 +467,8 @@ fn postgres_driver_line() -> String {
     };
     match driver.probe() {
         Ok(()) => format!(
-            "loaded and initialised, {driver} - a source signs in as its declared service account, \
-             with a password or a client certificate"
+            "loaded and initialised, {driver} - a source signs in only as its declared service account, \
+             with a password, a client certificate or one Kerberos principal; no OAuth or per-caller sign-in"
         ),
         Err(cause) => format!("NOT usable: {driver}: {cause}"),
     }

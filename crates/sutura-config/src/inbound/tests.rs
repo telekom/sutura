@@ -230,6 +230,22 @@ fn embedded_userinfo_is_refused_without_being_quoted_back() {
     ));
 }
 
+/// An unencoded `/` in a password ends the parsed authority early, so the rest of the credential
+/// would be stored - and logged with the resolved settings - as a path: any `@` is refused.
+#[test]
+fn an_at_sign_past_the_parsed_authority_is_refused_as_userinfo() {
+    for raw in ["https://svc/x:Ab@sutura.example.com", "https://svc:1234/x@sutura.example.com"] {
+        assert!(
+            matches!(ResourceIdentifier::parse(raw), Err(InvalidInboundValue::HasUserinfo { .. })),
+            "{raw}"
+        );
+        assert!(
+            matches!(IssuerUrl::parse(raw), Err(InvalidInboundValue::HasUserinfo { .. })),
+            "{raw}"
+        );
+    }
+}
+
 #[test]
 fn an_invisible_or_homoglyph_character_cannot_reach_an_identifier() {
     // There is no separate invisible-character check, and this is why there does not need to be one:

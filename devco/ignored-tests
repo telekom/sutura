@@ -6,6 +6,8 @@ crates/sutura-app/tests/golden/data_systems.rs::the_bigquery_dataset_holds_the_e
 crates/sutura-catalog-datahub/tests/provisioned.rs::a_bearerless_read_is_401_under_the_enforced_tier
 crates/sutura-catalog-datahub/tests/provisioned.rs::a_document_served_by_a_real_datahub_decodes_into_a_certified_metric
 crates/sutura-catalog-datahub/tests/provisioned.rs::the_provisioned_datahub_serves_the_surface_a_reader_would_call
+crates/sutura-catalog-datahub/tests/provisioned/wire_pages.rs::a_dataset_page_served_by_a_real_datahub_preserves_its_wire_shape
+crates/sutura-catalog-datahub/tests/provisioned/wire_pages.rs::a_relationship_page_served_by_a_real_datahub_preserves_its_wire_shape
 crates/sutura-catalog-rdbms/tests/oracle_provisioned.rs::a_live_oracle_dictionary_binds_models_to_the_declared_source_alias
 crates/sutura-catalog-rdbms/tests/oracle_provisioned.rs::a_live_oracle_reader_refuses_when_the_documentation_schema_is_absent
 crates/sutura-cli/tests/served/e2e_adbc.rs::served_datahub_metric_executes_through_adbc_bigquery
@@ -15,3 +17,5 @@ crates/sutura-cli/tests/served/keycloak_test.rs::a_real_keycloak_issued_token_is
 crates/sutura-exec-bigquery/tests/declared_principal.rs::each_subject_executes_as_its_own_principal_at_the_declared_pool
 crates/sutura-exec-bigquery/tests/declared_principal.rs::the_deployments_own_identity_is_neither_subjects_principal
 crates/sutura-exec-oracle/tests/acceptance.rs::a_quoted_identifier_names_the_object_the_dictionary_stores
+crates/sutura-exec-postgres/tests/kerberos.rs::a_declared_service_the_kdc_does_not_know_is_refused_rather_than_signed_in
+crates/sutura-exec-postgres/tests/kerberos.rs::the_linked_driver_signs_in_with_kerberos_over_a_gssapi_encrypted_channel

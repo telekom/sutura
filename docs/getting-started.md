@@ -388,7 +388,8 @@ have nothing to do with the question:
 
 `kind: bigquery`, `kind: postgres` and `kind: clickhouse` are the network kinds the published binary carries, which
 `checks.shipped-features` reads out of each released binary's embedded dependency list rather than
-out of a manifest. Nothing to build for any of them. `kind: oracle` is one more
+out of a manifest, and a release missing any of their adapter crates fails it by name. Nothing to
+build for any of them. `kind: oracle` is one more
 network kind and is **not** in any published binary - it needs a build carrying its own feature,
 and a build without it refuses that kind by name; see [Data sources](integrations.md#data-sources)
 for what those adapters do and do not do yet. The BigQuery block below is the cloud

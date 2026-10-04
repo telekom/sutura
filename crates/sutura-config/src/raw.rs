@@ -216,6 +216,21 @@ pub(crate) struct RawWorkloadIdentity {
     /// twin on the audience side.
     #[serde(default)]
     pub(crate) expected_audience: Option<String>,
+    /// The delegation exchange a `direct` deployment runs before this pool will accept its caller -
+    /// see `crate::sources::workload_identity::DelegationDeclared`.
+    #[serde(default)]
+    pub(crate) delegation: Option<RawDelegation>,
+}
+
+/// One source's delegation exchange, as read. Every key is required, so a missing one is serde's
+/// refusal naming it. `client_secret_file` is a PATH: the secret is read by the composition root.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawDelegation {
+    pub(crate) token_endpoint: String,
+    pub(crate) client_id: String,
+    pub(crate) client_secret_file: String,
+    pub(crate) audience: String,
 }
 
 /// How much runs at once, how wide the engine is, and how long stopping may take.

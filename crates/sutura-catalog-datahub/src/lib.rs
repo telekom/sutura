@@ -34,15 +34,22 @@
 //! HTTP. [`AspectReader`] is the seam a real reader over `DataHub`'s versioned `OpenAPI` v3 entity
 //! surface implements, and since issue #202's HTTP reader, one now does: [`http::HttpAspectReader`],
 //! behind this crate's default-off `http` feature, with a personal access token as a bearer. Its own
-//! module header states what is measured against a live `DataHub` and what is not - only the
-//! `metric` entity's wire shape is, today. The recorded fixture source in [`fixture`] and the two
+//! module header states what is measured against a live `DataHub` and what is not - the `metric`
+//! entity's wire shape and the `semanticModel` entity's relationship shape are BOTH measured live
+//! (the latter on the docker tier, 2026-09-16), and the `dataset` entity's field list is not; the
+//! `dataset` and `semanticModel` pages have live cells that do not drive this reader. The recorded
+//! fixture source in [`fixture`] and the two
 //! test doubles (`tests::Stub`, the acceptance suite's `Composed`) remain what every other test in
 //! this crate reads against. **A composition root now serves it, behind `sutura-cli`'s default-off
 //! `datahub` feature:** that feature links this crate (with `http`) and opens `catalog.kind: datahub`,
-//! reading the entry's token file once at boot and carrying its PAT as the bearer on every request. What
-//! is still not is a live-`DataHub` read path in CI and the rest of the wire mapping - the fixed
-//! `bigquery` platform alias and the last page unmeasured against a live instance, both stated in
-//! `http`'s own module header. The *Built and not wired* register in
+//! reading the entry's token file once at boot and carrying its PAT as the bearer on every request.
+//! The only live read through this reader is in the
+//! `e2e-datahub-adbc` venue (run 37105272807, push adea454b3, job 111152847768), which passes
+//! `served_datahub_metric_executes_through_adbc_bigquery`; that venue needs a `BigQuery` secret, so
+//! it skips on forks and the merge queue, and its seeds carry no per-field `description` or
+//! `isPartOfKey`. The platform is read from each
+//! served URN; the composition root maps only `bigquery`, so any other platform is refused by name
+//! at load (`DataHubError::UnknownPlatform`). The *Built and not wired* register in
 //! `.agents/skills/sutura/query-surface/SKILL.md` keeps those limits; it no longer records "no
 //! composition root".
 //!

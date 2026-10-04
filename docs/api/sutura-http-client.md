@@ -168,6 +168,19 @@ that parses as `IpAddr` and answers `is_loopback()` does.
 
 Why a declared endpoint is not usable.
 
+## `use ShownEndpoint`
+
+A declared endpoint as a refusal shows it: the scheme, host, port and path `Uri` parsed, and
+never its userinfo, query or fragment.
+
+Outside this module it is built only by `Self::of` - the field is private; inside it, cells
+and not the type hold that no refusal carries the declared text as written. Two shapes are not
+shown at all: text `Uri` does not parse, because a second parser's reading of input the dial
+parser refused is where a credential would survive; and text with an `@` outside the parsed
+authority, because an unencoded `/`, `?` or `#` in a password ends that authority early and the
+rest of the credential would read as path. The limit: a secret written into the PATH with no
+`@` is shown, because a path is not a credential to the parser that dials it.
+
 ## `use EndpointMessage`
 
 The endpoint's own message on a refusal.
@@ -347,12 +360,11 @@ crate's `tls-test` feature.
 `cargo xtask check-jscpd` measured as byte-for-byte identical wire plumbing once the second
 reader carried its own copy.
 
-**A dev-dependency-only feature, unlike `crate::test_support`.** Nothing outside a reader's
-OWN `tests/http_reader.rs` needs this - `sutura-cli`'s served suite only dials the plaintext
-fake behind `crate::test_support` - so a catalog crate takes `sutura-http-client` with this
-feature in `[dev-dependencies]` only, never folded into its own `http` feature: no `rcgen`/
-`rustls` object code reaches a `--features http` build that did not already carry `rustls`
-transitively through `ureq`.
+**A dev-dependency-only feature, unlike `crate::test_support`.** Only test binaries need this -
+a reader's own `tests/http_reader.rs`, and `sutura-cli`'s delegation-exchange cell - so a crate
+takes `sutura-http-client` with this feature in `[dev-dependencies]` only, never folded into its
+own `http` feature: no `rcgen`/`rustls` object code reaches a `--features http` build that did
+not already carry `rustls` transitively through `ureq`.
 
 ### `struct Issued`
 
@@ -442,3 +454,12 @@ would from a declared `security.outbound.transport_anchors` bundle path.
 # Panics
 
 The freshly written bundle fails to load - a test invariant, never a production path.
+
+### `fn declared_bundle`
+
+```rust
+pub fn declared_bundle(scratch: &Scratch, name: &str, issued: &Issued) -> std::path::PathBuf
+```
+
+Writes `issued`'s own certificate as a bundle and returns its path - what a declared
+`security.outbound.transport_anchors` names, for a consumer that loads it itself.

@@ -450,7 +450,10 @@ mod tests {
     fn a_userinfo_endpoint_is_a_parse_refusal_rather_than_a_dial_probe() {
         let malicious = String::from("http://[::1]:1@127.0.0.1:9002");
         let error = Endpoint::parse(&malicious).expect_err("a userinfo prefix is refused before any host is dialled");
-        assert_eq!(error, InvalidEndpoint::CredentialsInUrl { given: malicious });
+        assert!(
+            matches!(&error, InvalidEndpoint::CredentialsInUrl { given } if given.to_string() == "http://127.0.0.1:9002"),
+            "{error:?}"
+        );
     }
 
     /// `security.outbound.transport_anchors` (`github.com/telekom/sutura#125`) over a REAL TLS

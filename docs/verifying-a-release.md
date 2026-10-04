@@ -44,9 +44,11 @@ binary's own embedded dependency list rather than out of a manifest - including 
 
 **The musl pair also carries OpenSSL 3**, statically, inside the PostgreSQL ADBC driver they link -
 libpq has no other TLS backend. Its fixes arrive with a `nixpkgs` bump, not with rustls'. That libpq
-has no Kerberos/GSSAPI or OAuth sign-in. `sutura doctor` prints a `pg driver` line saying whether the
-binary links that driver and whether it initialises; every `kind: postgres` source is answered
-through it.
+signs in with Kerberos through a static MIT krb5, carried the same way, and has no OAuth flow.
+Kerberos sign-in for x86_64 is shown by a CI test build against a KDC tier, not by the release
+artefact; aarch64 links the same set and is not executed. `sutura doctor` prints a `pg driver` line
+saying whether the binary links that driver and whether it initialises; every `kind: postgres`
+source is answered through it.
 
 **The optimised build is a separate prerelease, `v<version>-performance`**, never `latest`,
 published only when a maintainer dispatches `release-performance.yml` on a release tag whose tree

@@ -777,6 +777,22 @@ fn a_modified_test_green_on_base_beside_an_implementation_change_is_refused() {
     assert_eq!(changed_tree(&base, &head), Verdict::Fail);
 }
 
+/// `github.com/telekom/sutura#1239`: two tests added beside an implementation change, one red on
+/// base and one green there. The whole-run rule answered `ok - red on base` from the red one alone;
+/// the green one passes without the change, so the range refuses.
+#[test]
+fn a_green_added_test_beside_a_red_one_is_refused() {
+    let base = [("src/lib.rs", "pub fn g() -> u8 { 1 }\n")];
+    let head = [
+        ("src/lib.rs", "pub fn g() -> u8 { 2 }\n"),
+        (
+            "tests/t.rs",
+            "#[test]\nfn the_red_one() {\n    assert_eq!(wired::g(), 2);\n}\n\n#[test]\nfn the_green_one() {\n    assert_ne!(wired::g(), 0);\n}\n",
+        ),
+    ];
+    assert_eq!(changed_tree(&base, &head), Verdict::Fail);
+}
+
 #[test]
 fn deleting_a_called_test_helpers_assertion_is_refused() {
     let base = "#[cfg(test)]\nmod tests {\n    fn helper() {\n        assert_eq!(2 + 2, 4);\n    }\n    #[test]\n    fn existing() {\n        helper();\n    }\n}\n";
