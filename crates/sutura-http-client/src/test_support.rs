@@ -25,6 +25,7 @@
 #![expect(
     clippy::expect_used,
     clippy::indexing_slicing,
+    clippy::panic,
     reason = "test: a fake server shared by both catalog HTTP readers' own tests and \
               sutura-cli's served-binary suite. The module is NOT #[cfg(test)] - integration tests \
               build the library with cfg(test)=false, so it must compile like production code - but \
@@ -34,11 +35,14 @@
 
 use std::io::Write as _;
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::thread;
 use std::time::Duration;
 
 /// How long [`FakeServer::finish`] waits for every scripted answer to be taken.
+///
+/// Counted from the `finish` call, not from `start`: a caller that calls `finish` once its code
+/// under test has returned waits only for the server thread's last write.
 const FINISH_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// One scripted answer: a status, a body, and how long to wait before sending it.
@@ -176,6 +180,7 @@ impl FakeServer {
                 }
                 write_response(&mut stream, answer.status, &answer.body);
             }
+            drop(listener);
             drop(sent.send(requests));
         }));
         Self { addr, answered }
@@ -200,9 +205,15 @@ impl FakeServer {
     /// process. Bounded by `FINISH_TIMEOUT`, so code under test that never dials fails the cell
     /// instead of hanging it in `accept()`.
     pub fn finish(self) -> CapturedAuthorizations {
-        self.answered
-            .recv_timeout(FINISH_TIMEOUT)
-            .expect("the fake server must be dialled once per scripted answer")
+        match self.answered.recv_timeout(FINISH_TIMEOUT) {
+            Ok(requests) => requests,
+            Err(RecvTimeoutError::Timeout) => {
+                panic!("the fake server must be dialled once per scripted answer: Timeout after {FINISH_TIMEOUT:?}")
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                panic!("the fake server thread panicked before every scripted answer was taken")
+            }
+        }
     }
 }
 
