@@ -814,6 +814,9 @@ macro_rules! registered {
             declaring,
             sutura_catalog_openmetadata::OpenMetadataCatalog<sutura_catalog_openmetadata::fixture::FixtureReader>
         );
+        // `sutura import wren`'s output read by `LocalCatalog` - the path a wren user runs. DECLARING:
+        // its corpus is `sutura-cli`'s synthetic wren fixture, not the golden catalog. Universal cells only.
+        $cell!(wren, declaring, crate::catalogs::WrenImport);
     };
 
     (data_systems: $cell:ident) => {

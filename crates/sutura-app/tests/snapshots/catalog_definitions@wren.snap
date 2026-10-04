@@ -1,0 +1,119 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: pinned.definitions()
+---
+models:
+  customers:
+    name: customers
+    source: wren
+    table: customers
+    columns:
+      id:
+        name: id
+        data_type: BIGINT
+        description: ""
+        nullable: false
+      name:
+        name: name
+        data_type: VARCHAR
+        description: ""
+        nullable: false
+      region_code:
+        name: region_code
+        data_type: VARCHAR
+        description: ""
+        nullable: false
+    primary_key:
+      - id
+    description: "Imported from the WrenAI model `customers`."
+  orders:
+    name: orders
+    source: wren
+    table: orders
+    columns:
+      amount_cents:
+        name: amount_cents
+        data_type: BIGINT
+        description: ""
+        nullable: false
+      customer_id:
+        name: customer_id
+        data_type: BIGINT
+        description: ""
+        nullable: false
+      id:
+        name: id
+        data_type: BIGINT
+        description: ""
+        nullable: false
+      order_date:
+        name: order_date
+        data_type: DATE
+        description: ""
+        nullable: false
+      status:
+        name: status
+        data_type: VARCHAR
+        description: ""
+        nullable: false
+    primary_key:
+      - id
+    description: "Imported from the WrenAI model `orders`."
+relationships:
+  orders_customer:
+    name: orders_customer
+    origin_model: orders
+    target_model: customers
+    join_type: many_to_one
+    keys:
+      - Equal:
+          origin: customer_id
+          target: id
+metrics:
+  sales_summary_average_order_value:
+    name: sales_summary_average_order_value
+    model: orders
+    measure:
+      ratio:
+        numerator:
+          aggregate: sum
+          column: amount_cents
+        denominator:
+          aggregate: count_distinct
+          column: customer_id
+        zero_denominator: yields_null
+    required_filters: []
+    time_column: order_date
+    grains:
+      - day
+    dimensions:
+      status:
+        name: status
+        column: status
+        via: ~
+        allowed_values: ~
+        description: ""
+    anchor: ~
+    description: "Imported from the WrenAI cube `sales_summary`. The grain and the ratio's zero-denominator policy are this converter's own defaults - wren declares neither - and are the first two things to review before committing."
+    audience: Open
+  sales_summary_total_revenue:
+    name: sales_summary_total_revenue
+    model: orders
+    measure:
+      simple:
+        aggregate: sum
+        column: amount_cents
+    required_filters: []
+    time_column: order_date
+    grains:
+      - day
+    dimensions:
+      status:
+        name: status
+        column: status
+        via: ~
+        allowed_values: ~
+        description: ""
+    anchor: ~
+    description: "Imported from the WrenAI cube `sales_summary`. The grain and the ratio's zero-denominator policy are this converter's own defaults - wren declares neither - and are the first two things to review before committing."
+    audience: Open

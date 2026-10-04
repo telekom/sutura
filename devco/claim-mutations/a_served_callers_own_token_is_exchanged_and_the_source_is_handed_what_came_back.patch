@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-bigquery/src/principal.rs b/crates/sutura-exec-bigquery/src/principal.rs
+--- a/crates/sutura-exec-bigquery/src/principal.rs
++++ b/crates/sutura-exec-bigquery/src/principal.rs
+@@ -391,7 +391,7 @@
+                     let until = Expiry::At {
+                         unix_seconds: delegated.not_after_unix_seconds(),
+                     };
+-                    (delegated.into_token(), expires.earlier_of(until))
++                    (assertion.clone(), expires.earlier_of(until))
+                 }
+             };
+             drop(presented.insert(

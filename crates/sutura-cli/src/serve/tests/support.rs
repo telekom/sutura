@@ -1,7 +1,10 @@
 //! The catalog-bundle fixtures shared by `super`'s cells, split out when that file crossed
-//! the unexemptable 1000-line cap. Every item here was already there - moved, not written -
-//! so this file orphans nothing and adds no new cell; `crate::tests::bundle_over` still
-//! resolves, through the re-export `super` keeps.
+//! the unexemptable 1000-line cap. This file adds no cell; `crate::tests::bundle_over` still
+//! resolves, through the re-export `super` keeps. `bundle_with_an_anchor` and its unanchored twin
+//! share `bundle_with_a_metric`, whose manifest declares what the bundle produces so
+//! `LocalService::start` accepts it. The `bigquery`-gated items at the foot are the leg-1 token and
+//! fixed-catalog fixtures `agent_identity` and `delegation_served` both compose, moved out of
+//! `agent_identity` with one change: the catalog's error type is `core::convert::Infallible`.
 
 use std::collections::BTreeSet;
 
@@ -63,6 +66,17 @@ pub(crate) fn bundle_over(models: &[DeclaredModel<'_>]) -> PinnedDefinitions {
 /// `dim_customer`, so the table behind it is a real file - which keeps a refusal about identity
 /// from being satisfied by a missing CSV.
 pub(super) fn bundle_with_an_anchor(source: &str) -> PinnedDefinitions {
+    bundle_with_a_metric(source, true)
+}
+
+/// [`bundle_with_an_anchor`]'s metric with no anchor, so a service starts over it without asking
+/// the source anything at boot.
+#[cfg(feature = "bigquery")]
+pub(super) fn bundle_with_an_unanchored_metric(source: &str) -> PinnedDefinitions {
+    bundle_with_a_metric(source, false)
+}
+
+fn bundle_with_a_metric(source: &str, anchored: bool) -> PinnedDefinitions {
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::catalog::{Anchor, AnchorValue, Audience, Metric};
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
@@ -92,23 +106,75 @@ pub(super) fn bundle_with_an_anchor(source: &str) -> PinnedDefinitions {
         column("signed_up_on"),
         BTreeSet::from([Grain::Month]),
         Vec::new(),
-        Some(Anchor::new(
-            range,
-            AnchorValue::parse("7").expect("a test anchor value is a value"),
-        )),
+        anchored.then(|| Anchor::new(range, AnchorValue::parse("7").expect("a test anchor value is a value"))),
         Description::default(),
         Audience::Open,
     )
     .expect("no dimensions to duplicate");
     let definitions = Definitions::assemble(vec![model], vec![], vec![metric]).expect("the test bundle is consistent");
+    // What the bundle really carries, so `LocalService::start`'s faithfulness check accepts it too.
+    let produced = MetadataCapabilities::produced(&definitions, &Knowledge::none());
     PinnedDefinitions::pin(
         DefinitionVersion::parse("test-1").expect("a test version is a version"),
         definitions,
         Knowledge::none(),
         ContributionManifest::single(
             SourceName::parse("local").expect("a test source is a source"),
-            Contribution::of(MetadataCapabilities::nothing()),
+            Contribution::of(produced),
         ),
     )
     .expect("the test definitions hash")
+}
+
+/// Every scope this surface has, space-delimited per RFC 6749.
+#[cfg(feature = "bigquery")]
+fn every_scope() -> String {
+    sutura_app::Capability::every()
+        .map(sutura_app::Capability::scope)
+        .collect::<Vec<&str>>()
+        .join(" ")
+}
+
+/// A token this deployment would accept, granting every capability the surface has.
+#[cfg(feature = "bigquery")]
+pub(super) fn accepted_by(subject: &str) -> sutura_dev::issuer::Token {
+    sutura_dev::issuer::Token::for_subject(subject).granting(&every_scope())
+}
+
+/// A `direct` inbound declaration for `issuer`, reading its key set at `key_set_path`.
+#[cfg(feature = "bigquery")]
+pub(super) fn direct_overlay(issuer: &sutura_dev::issuer::MockIssuer, key_set_path: &str) -> String {
+    format!(
+        "security:\n  inbound:\n    mode: \"direct\"\n    resource: \"{}\"\n    \
+         authorization_server: \"{}\"\n    key_set_file: \"{key_set_path}\"\n    algorithms: [\"ES256\"]\n",
+        issuer.audience(),
+        issuer.issuer(),
+    )
+}
+
+/// A catalog port that hands back a bundle somebody else built - the pass-through
+/// `crate::catalog` composes deployments over, so `LocalService::start` validates it.
+#[cfg(feature = "bigquery")]
+pub(super) struct FixedCatalog {
+    bundle: sutura_domain::pinned::PinnedDefinitions,
+}
+
+#[cfg(feature = "bigquery")]
+impl sutura_domain::pinned::SemanticCatalog for FixedCatalog {
+    type Error = core::convert::Infallible;
+
+    const KIND: sutura_domain::pinned::CatalogKind = sutura_domain::pinned::CatalogKind::Golden;
+
+    fn capabilities() -> sutura_domain::capabilities::MetadataCapabilities {
+        sutura_domain::capabilities::MetadataCapabilities::everything()
+    }
+
+    fn load(&self) -> Result<sutura_domain::pinned::PinnedDefinitions, Self::Error> {
+        Ok(self.bundle.clone())
+    }
+}
+
+#[cfg(feature = "bigquery")]
+pub(super) fn catalog_of(bundle: sutura_domain::pinned::PinnedDefinitions) -> FixedCatalog {
+    FixedCatalog { bundle }
 }
