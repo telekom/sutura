@@ -158,8 +158,7 @@ mod tests {
         );
 
         // **`token_file` actually reaches the wire.** All four page requests must carry the bearer -
-        // `finish()` joins the (already-exited) fake thread and returns every request's
-        // `authorization` header.
+        // `finish()` returns every request's `authorization` header.
         let authorizations = server.finish();
         assert_eq!(authorizations.len(), 4, "two reads of two pages each");
         assert!(

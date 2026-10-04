@@ -25,6 +25,7 @@
 #![expect(
     clippy::expect_used,
     clippy::indexing_slicing,
+    clippy::panic,
     reason = "test: a fake server shared by both catalog HTTP readers' own tests and \
               sutura-cli's served-binary suite. The module is NOT #[cfg(test)] - integration tests \
               build the library with cfg(test)=false, so it must compile like production code - but \
@@ -34,8 +35,15 @@
 
 use std::io::Write as _;
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::thread;
 use std::time::Duration;
+
+/// How long [`FakeServer::finish`] waits for every scripted answer to be taken.
+///
+/// Counted from the `finish` call, not from `start`: a caller that calls `finish` once its code
+/// under test has returned waits only for the server thread's last write.
+const FINISH_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// One scripted answer: a status, a body, and how long to wait before sending it.
 pub struct Scripted {
@@ -151,7 +159,7 @@ pub type CapturedAuthorizations = Vec<CapturedRequest>;
 /// exact URL dialled and that the bearer and payload were sent.
 pub struct FakeServer {
     addr: SocketAddr,
-    handle: Option<thread::JoinHandle<CapturedAuthorizations>>,
+    answered: Receiver<CapturedAuthorizations>,
 }
 
 impl FakeServer {
@@ -161,7 +169,8 @@ impl FakeServer {
         // **`answers.into_iter()` bounds the loop, not `listener.incoming()`**: looping over
         // `answers` and calling `accept()` exactly that many times is what lets this thread exit
         // once the last scripted answer has been served, with no further accept ever attempted.
-        let handle = thread::spawn(move || {
+        let (sent, answered) = channel();
+        drop(thread::spawn(move || {
             let mut requests = Vec::new();
             for answer in answers {
                 let Ok((mut stream, _)) = listener.accept() else { break };
@@ -171,12 +180,10 @@ impl FakeServer {
                 }
                 write_response(&mut stream, answer.status, &answer.body);
             }
-            requests
-        });
-        Self {
-            addr,
-            handle: Some(handle),
-        }
+            drop(listener);
+            drop(sent.send(requests));
+        }));
+        Self { addr, answered }
     }
 
     #[must_use]
@@ -191,17 +198,22 @@ impl FakeServer {
         self.addr
     }
 
-    /// Joins the server thread and returns every request it answered, in order.
+    /// Every request the server answered, in order, once every scripted answer is taken.
     ///
     /// Only called by a test that knows exactly how many connections it will make - a test that
     /// deliberately stops short drops the server instead, and the abandoned thread exits with the
-    /// process.
-    pub fn finish(mut self) -> CapturedAuthorizations {
-        self.handle
-            .take()
-            .expect("a server is finished at most once")
-            .join()
-            .expect("the fake server thread did not panic")
+    /// process. Bounded by `FINISH_TIMEOUT`, so code under test that never dials fails the cell
+    /// instead of hanging it in `accept()`.
+    pub fn finish(self) -> CapturedAuthorizations {
+        match self.answered.recv_timeout(FINISH_TIMEOUT) {
+            Ok(requests) => requests,
+            Err(RecvTimeoutError::Timeout) => {
+                panic!("the fake server must be dialled once per scripted answer: Timeout after {FINISH_TIMEOUT:?}")
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                panic!("the fake server thread panicked before every scripted answer was taken")
+            }
+        }
     }
 }
 
