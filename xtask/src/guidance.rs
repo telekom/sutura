@@ -415,6 +415,7 @@ fn tree_problems(
     problems.extend(leg_two::problems(root, read, &leg_two_files));
     problems.extend(count_mismatches(read, files, text_files));
     problems.extend(references::bad_task_references(read, text_files));
+    problems.extend(references::bad_recipe_references(root, read, text_files));
     // `files` and `text_files`, like `count_mismatches`: the mechanism is derived from ANY file, and
     // the scope limit is about where a claim may be made rather than about what may be read.
     problems.extend(host_mismatches(strict_read, files, text_files));
