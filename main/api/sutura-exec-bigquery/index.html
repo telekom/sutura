@@ -2037,11 +2037,13 @@ behind the default-off <code>adbc</code> feature: it loads the self-built <code>
 driver owns the HTTP transport and its own authentication, so this crate ships no TLS stack and
 reads no credential file - the previous HTTP <code>wire</code> transport and its STS/credential machinery
 were removed when ADBC became this adapter's only mode.</p>
-<p>So nothing here may be cited as a round-tripped invariant. <code>sutura serve</code> links this adapter and
-dispatches <code>kind: bigquery</code> behind its default-off <code>bigquery</code> feature, but the ADBC driver path is
-not yet a shipped artefact and no live acceptance leg against a real dataset is wired under it -
-the <code>wire</code>-era acceptance/corpus/differential legs went away with the transport. A default build
-links none of this.</p>
+<p><code>sutura serve</code> links this adapter and dispatches <code>kind: bigquery</code> behind its default-off <code>bigquery</code>
+feature. The golden matrix's <code>bigquery</code> row runs the example corpus through this transport
+against a real dataset in the <code>bigquery-conformance</code> CI job, under one shared CI identity - wired,
+and one run's corpus cell timed out undiagnosed (37152629712), so how it behaves under load is
+unproven. That job gates a merge through <code>ci-aggregate</code> on a same-repository pull request or
+merge group that selects the <code>data_source_bigquery</code> category; a fork gets no credential, so there the cells
+skip under their named exemption. A default build links none of this.</p>
 <h1 id="identity">Identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h1>
 <p><code>BigQueryWarehouse::IMPERSONATION</code> is <code>PerSubjectCredential</code>, and it is now true by
 construction rather than by this paragraph: the asking subject's <strong>own verified assertion</strong> is
@@ -2214,8 +2216,9 @@ that parsed.</p>
 <p><strong>In THIS impl block rather than in the module that renders the statement</strong>, because
 <code>clippy::multiple_inherent_impl</code> is denied here and it is right to be: a type whose inherent
 methods are spread over files is one whose surface nobody can read in one place.</p>
-<p>Returns how many data rows the fixture carried, so a caller can assert the load moved what the
-file holds rather than trusting a green.</p>
+<p>Returns how many data rows the importer parsed out of the fixture. <strong>The limit:</strong> that is the
+parse's count and not the dataset's - nothing reads the table back - so a caller comparing it
+with the file measures the importer; what shows the rows landed is a query over them.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">billing_project</span><span class="p">:</span><span class="w"> </span><span class="nc">ProjectId</span><span class="p">,</span><span class="w"> </span><span class="n">default_dataset</span><span class="p">:</span><span class="w"> </span><span class="nc">DatasetId</span><span class="p">,</span><span class="w"> </span><span class="n">transport</span><span class="p">:</span><span class="w"> </span><span class="nc">T</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Opens a dataset.</p>
