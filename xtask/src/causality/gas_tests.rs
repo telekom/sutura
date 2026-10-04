@@ -948,34 +948,35 @@ fn a_wrapped_call_site_beside_an_added_test_caps_the_pass_at_inconclusive() {
 }
 
 /// `github.com/telekom/sutura#1239`: `the_orphan`'s module is declared in `src/lib.rs`, which the
-/// base run reverts, so it has no base result, and the COMMITTED list exempts it. The base already
-/// carries an entry for `existing`, which this diff did not add: not stale, because the tree still
-/// declares that fn.
+/// base run reverts, so it has no base result. Refused by name, and passed once the COMMITTED list
+/// exempts it. The base already carries an entry for `existing`, which this diff did not add: not
+/// stale, because the tree still declares that fn.
 #[test]
 fn a_committed_exemption_passes_an_orphan_and_an_older_entry_is_not_stale() {
-    let list = "existing # an earlier change's entry\n";
-    let base = [
-        ("src/lib.rs", "pub fn g() -> u8 { 1 }\n"),
-        ("tests/old.rs", "#[test]\nfn existing() {}\n"),
-        ("devco/causality-no-base-exemptions", list),
-    ];
-    let head = [
-        ("src/lib.rs", "pub fn g() -> u8 { 2 }\n#[cfg(test)]\nmod orphan;\n"),
-        (
-            "src/orphan.rs",
-            "#[test]\nfn the_orphan() {\n    assert_eq!(super::g(), 2);\n}\n",
-        ),
-        ("tests/old.rs", "#[test]\nfn existing() {}\n"),
-        (
-            "tests/t.rs",
-            "#[test]\nfn the_red_one() {\n    assert_eq!(wired::g(), 2);\n}\n",
-        ),
-        (
-            "devco/causality-no-base-exemptions",
-            &*format!("{list}the_orphan # declared in src/lib.rs, which the base run reverts\n"),
-        ),
-    ];
-    assert_eq!(changed_tree(&base, &head), Verdict::Pass);
+    let older = "existing # an earlier change's entry\n";
+    let orphan = |list: &str| {
+        let base = [
+            ("src/lib.rs", "pub fn g() -> u8 { 1 }\n"),
+            ("tests/old.rs", "#[test]\nfn existing() {}\n"),
+            ("devco/causality-no-base-exemptions", older),
+        ];
+        let head = [
+            ("src/lib.rs", "pub fn g() -> u8 { 2 }\n#[cfg(test)]\nmod orphan;\n"),
+            (
+                "src/orphan.rs",
+                "#[test]\nfn the_orphan() {\n    assert_eq!(super::g(), 2);\n}\n",
+            ),
+            ("tests/old.rs", "#[test]\nfn existing() {}\n"),
+            (
+                "tests/t.rs",
+                "#[test]\nfn the_red_one() {\n    assert_eq!(wired::g(), 2);\n}\n",
+            ),
+            ("devco/causality-no-base-exemptions", list),
+        ];
+        changed_tree(&base, &head)
+    };
+    let exempted = format!("{older}the_orphan # declared in src/lib.rs, which the base run reverts\n");
+    assert_eq!((orphan(older), orphan(&exempted)), (Verdict::Fail, Verdict::Pass));
 }
 
 /// An entry naming no fn in the tree is refused on a run that would otherwise pass.
