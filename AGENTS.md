@@ -52,7 +52,8 @@ Those three plus secure-by-design are the definition of *correct* in review here
   lines run only for a data system unavailable offline may instead leave the scope under
   `Live-Cell: <test-fn-name> <system> <ci-job>`, refused unless that system's `Unavailable` entry
   in `adapters::exemptions::EXEMPTIONS` names that job as its `runs_in` and `ci.yml` declares it,
-  and refused for a name `Claim-Cell:` also declares. Its limits: the gate does not check that
+  refused for a name `Claim-Cell:` also declares, and refused unless the cell's own run here prints
+  `exempt: <system> from Unavailable`. Its limits: the gate does not check that
   the changed lines run only for that system or that the job selects the cell; a bare name takes
   every system's row of a macro cell out; and the job skips a fork or a Dependabot pull request, and
   `ci-aggregate` requires it only on any other same-repository pull request or a merge group that
