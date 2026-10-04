@@ -1,8 +1,10 @@
 //! The catalog-bundle fixtures shared by `super`'s cells, split out when that file crossed
-//! the unexemptable 1000-line cap. Every item here was already there - moved, not written -
-//! so this file orphans nothing and adds no new cell; `crate::tests::bundle_over` still
-//! resolves, through the re-export `super` keeps. The `bigquery`-gated items at the foot are the
-//! leg-1 token and fixed-catalog fixtures `agent_identity` and `delegation_served` both compose.
+//! the unexemptable 1000-line cap. This file adds no cell; `crate::tests::bundle_over` still
+//! resolves, through the re-export `super` keeps. `bundle_with_an_anchor` and its unanchored twin
+//! share `bundle_with_a_metric`, whose manifest declares what the bundle produces so
+//! `LocalService::start` accepts it. The `bigquery`-gated items at the foot are the leg-1 token and
+//! fixed-catalog fixtures `agent_identity` and `delegation_served` both compose, moved out of
+//! `agent_identity` with one change: the catalog's error type is `core::convert::Infallible`.
 
 use std::collections::BTreeSet;
 

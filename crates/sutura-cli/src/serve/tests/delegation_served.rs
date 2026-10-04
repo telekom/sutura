@@ -13,6 +13,7 @@
 
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::time::Duration;
 
 use sutura_config::{Environment, Settings, Sources};
 use sutura_dev::issuer::{MockIssuer, PublishedKeySet, Token};
@@ -26,20 +27,42 @@ use sutura_http_client::test_support::{FakeServer, Scripted};
 
 use super::support::{accepted_by, bundle_with_an_unanchored_metric, catalog_of, direct_overlay};
 
-/// The declared subject every cell asks as, and the account declared beside it.
-const ASKING: &str = "analyst-a@example.com";
-const ASKING_AS: &str = "bq-a@acme-analytics.iam.gserviceaccount.com";
+/// The two declared subjects, each beside its own account - two, so a source handed the wrong
+/// caller's account is visible from here.
+const CALLERS: [(&str, &str); 2] = [
+    ("analyst-a@example.com", "bq-a@acme-analytics.iam.gserviceaccount.com"),
+    ("analyst-b@example.com", "bq-b@acme-analytics.iam.gserviceaccount.com"),
+];
 
 /// The audience the exchanged token is asked for and carries.
 const POOL: &str = "pool-client-id";
 
-/// What the identity provider issues for [`POOL`]: a signed token from an issuer this deployment
-/// does not trust for leg 1, so it can never be mistaken for the caller's own.
-fn exchanged() -> String {
+/// What the identity provider issues `subject` for [`POOL`]: a signed token from an issuer this
+/// deployment does not trust for leg 1, so it can never be mistaken for the caller's own.
+fn exchanged(subject: &str) -> String {
     MockIssuer::generating("https://idp.example.com", POOL, "the-idp-key")
         .expect("a mock issuer generates a key pair")
-        .mint(&Token::for_subject(ASKING))
+        .mint(&Token::for_subject(subject))
         .expect("the identity provider signs a token")
+}
+
+/// The request bodies the identity provider answered, in order.
+///
+/// Bounded, because `FakeServer::finish` joins a thread blocked in `accept()` until every scripted
+/// answer is taken: a broker that never dials would otherwise hang the cell instead of failing it.
+fn offered(idp: FakeServer) -> Vec<String> {
+    let (sent, received) = channel();
+    drop(std::thread::spawn(move || {
+        sent.send(
+            idp.finish()
+                .iter()
+                .map(|request| request.body().to_owned())
+                .collect::<Vec<String>>(),
+        )
+    }));
+    received
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the identity provider must be dialled once per scripted answer")
 }
 
 /// The RFC 8693 token response carrying `token`.
@@ -136,9 +159,10 @@ fn served(case: &str, idp: &FakeServer) -> Served {
     let published = PublishedKeySet::of(&issuer, case).expect("the key set publishes");
     let secret = SecretFile(std::env::temp_dir().join(format!("sutura-{case}-client-secret-{}", std::process::id())));
     std::fs::write(&secret.0, "idp-client-secret\n").expect("the client secret file is writable");
+    let [(first, first_as), (second, second_as)] = CALLERS;
     let overlay = format!(
-        "{}  identity: \"multi-user\"\nsources:\n{}      impersonate:\n        \"{ASKING}\": \"{ASKING_AS}\"\n      \
-         delegation:\n        token_endpoint: \"{}/token\"\n        client_id: \"sutura\"\n        \
+        "{}  identity: \"multi-user\"\nsources:\n{}      impersonate:\n        \"{first}\": \"{first_as}\"\n        \
+         \"{second}\": \"{second_as}\"\n      delegation:\n        token_endpoint: \"{}/token\"\n        client_id: \"sutura\"\n        \
          client_secret_file: \"{}\"\n        audience: \"{POOL}\"\n",
         direct_overlay(&issuer, &published.path().to_string_lossy()),
         super::bigquery_entry("warehouse", "impersonation-at-source", super::wif()),
@@ -206,39 +230,43 @@ async fn ask(app: axum::Router, token: &str) -> (axum::http::StatusCode, String)
 
 #[tokio::test]
 async fn a_served_callers_own_token_is_exchanged_and_the_source_is_handed_what_came_back() {
-    let exchanged = exchanged();
-    let idp = FakeServer::start(vec![Scripted::ok(&issued(&exchanged))]);
+    let exchanges = CALLERS.map(|(subject, _)| exchanged(subject));
+    let idp = FakeServer::start(exchanges.iter().map(|token| Scripted::ok(&issued(token))).collect());
     let Served {
         app, issuer, transport, ..
     } = served("delegation-served-exchanges", &idp);
-    let token = issuer.mint(&accepted_by(ASKING)).expect("the issuer signs a token");
 
-    let (status, body) = ask(app, &token).await;
-
-    // The source first: `idp.finish()` waits for an exchange, so a question that never dialled the
-    // identity provider has to fail here rather than hang there.
-    let seen: Vec<Seen> = transport.try_iter().collect();
-    assert!(!seen.is_empty(), "the question must reach the source ({status}: {body})");
-    for job in &seen {
-        assert_eq!(
-            job,
-            &Seen::Subject {
-                assertion: exchanged.clone(),
-                target: String::from(ASKING_AS)
-            },
-            "every job must carry the exchanged token and the account declared for the caller - never \
-             the caller's own token or the deployment's identity"
+    let mut tokens = Vec::new();
+    for ((subject, account), exchanged) in CALLERS.iter().zip(&exchanges) {
+        let token = issuer.mint(&accepted_by(subject)).expect("the issuer signs a token");
+        let (status, body) = ask(app.clone(), &token).await;
+        let seen: Vec<Seen> = transport.try_iter().collect();
+        assert!(
+            !seen.is_empty(),
+            "{subject}'s question must reach the source ({status}: {body})"
+        );
+        for job in &seen {
+            assert_eq!(
+                job,
+                &Seen::Subject {
+                    assertion: exchanged.clone(),
+                    target: String::from(*account)
+                },
+                "every job for {subject} must carry the token exchanged for {subject} and the account \
+                 declared beside {subject} - never another caller's, the caller's own token or the \
+                 deployment's identity"
+            );
+        }
+        tokens.push(token);
+    }
+    let offered = offered(idp);
+    assert_eq!(offered.len(), CALLERS.len(), "one question is one exchange: {offered:?}");
+    for (offer, token) in offered.iter().zip(&tokens) {
+        assert!(
+            offer.contains(&format!("subject_token={token}")),
+            "each exchange must offer that caller's own verified token: {offer}"
         );
     }
-    let requests = idp.finish();
-    let [exchange] = requests.as_slice() else {
-        panic!("one question is one exchange, got {requests:?}");
-    };
-    assert!(
-        exchange.body().contains(&format!("subject_token={token}")),
-        "the subject token exchanged must be the verified caller's own: {}",
-        exchange.body()
-    );
 }
 
 #[tokio::test]
@@ -247,7 +275,8 @@ async fn a_refused_exchange_answers_identity_unavailable_and_reaches_no_source()
     let Served {
         app, issuer, transport, ..
     } = served("delegation-served-refused", &idp);
-    let token = issuer.mint(&accepted_by(ASKING)).expect("the issuer signs a token");
+    let [(subject, _), _] = CALLERS;
+    let token = issuer.mint(&accepted_by(subject)).expect("the issuer signs a token");
 
     let (status, body) = ask(app, &token).await;
 
@@ -262,9 +291,12 @@ async fn a_refused_exchange_answers_identity_unavailable_and_reaches_no_source()
         Vec::new(),
         "a refused exchange must reach the source under no identity - not the caller's, not the deployment's"
     );
-    assert_eq!(
-        idp.finish().len(),
-        1,
-        "the caller's token was offered to the identity provider once"
+    let offered = offered(idp);
+    let [offer] = offered.as_slice() else {
+        panic!("one question is one exchange: {offered:?}");
+    };
+    assert!(
+        offer.contains(&format!("subject_token={token}")),
+        "the identity provider must have been offered the caller's own verified token: {offer}"
     );
 }
