@@ -41,6 +41,8 @@ use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Value, Warehouse};
 use sutura_exec_bigquery::{DeclaredPrincipalBroker, DeclaredPrincipals};
 
+use super::support::{accepted_by, catalog_of, direct_overlay};
+
 // ------------------------------------------------------------------- fixtures ----
 
 const ISSUER: &str = "https://issuer.example.com";
@@ -64,58 +66,6 @@ fn source() -> sutura_domain::model::SourceName {
 
 fn an_issuer() -> MockIssuer {
     MockIssuer::generating(ISSUER, RESOURCE, KID).expect("a mock issuer generates a key pair")
-}
-
-/// Every scope this surface has, space-delimited per RFC 6749.
-fn every_scope() -> String {
-    sutura_app::Capability::every()
-        .map(sutura_app::Capability::scope)
-        .collect::<Vec<&str>>()
-        .join(" ")
-}
-
-/// A token this deployment would accept, granting every capability the surface has.
-fn accepted_by(subject: &str) -> sutura_dev::issuer::Token {
-    sutura_dev::issuer::Token::for_subject(subject).granting(&every_scope())
-}
-
-/// A `direct` inbound declaration for `issuer`, reading its key set at `key_set_path`.
-fn direct_overlay(issuer: &MockIssuer, key_set_path: &str) -> String {
-    format!(
-        "security:\n  inbound:\n    mode: \"direct\"\n    resource: \"{}\"\n    \
-         authorization_server: \"{}\"\n    key_set_file: \"{key_set_path}\"\n    algorithms: [\"ES256\"]\n",
-        issuer.audience(),
-        issuer.issuer(),
-    )
-}
-
-/// A catalog port that hands back a bundle somebody else built - the pass-through
-/// `crate::catalog` composes deployments over, so `LocalService::start` validates it.
-struct FixedCatalog {
-    bundle: sutura_domain::pinned::PinnedDefinitions,
-}
-
-/// Never returned by [`FixedCatalog`]; the port requires an error type.
-#[derive(Debug, thiserror::Error)]
-#[error("a fixed catalog cannot fail")]
-struct Infallible;
-
-impl sutura_domain::pinned::SemanticCatalog for FixedCatalog {
-    type Error = Infallible;
-
-    const KIND: sutura_domain::pinned::CatalogKind = sutura_domain::pinned::CatalogKind::Golden;
-
-    fn capabilities() -> sutura_domain::capabilities::MetadataCapabilities {
-        sutura_domain::capabilities::MetadataCapabilities::everything()
-    }
-
-    fn load(&self) -> Result<sutura_domain::pinned::PinnedDefinitions, Self::Error> {
-        Ok(self.bundle.clone())
-    }
-}
-
-fn catalog_of(bundle: sutura_domain::pinned::PinnedDefinitions) -> FixedCatalog {
-    FixedCatalog { bundle }
 }
 
 /// One model, one anchored metric, one filterable dimension - the smallest bundle that `start`

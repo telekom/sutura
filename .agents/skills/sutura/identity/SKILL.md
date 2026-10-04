@@ -179,9 +179,11 @@ IdP. Any exchange failure, an IdP refusing one subject included, is `503 identit
 `sutura serve` builds it from `sources.<alias>.workload_identity.delegation` (`token_endpoint`,
 `client_id`, `client_secret_file`, `audience`), each parsed at boot by the adapter's own type, and
 `Settings::refusals` refuses the block unless the inbound mode is `direct`. **Two limits:** no
-served-binary cell reaches the exchange - a `bigquery` deployment needs the ADBC driver to boot and
-the default venue has none, so `build_broker`'s in-process cells hold the composition - and nothing
-requires a `direct` impersonating source to declare one: without it the inbound token is presented.
+spawned-binary cell reaches the exchange - a `bigquery` deployment needs the ADBC driver to boot and
+the default venue has none, so the composition is held in-process, by `build_broker`'s cells and by
+`serve::tests::delegation_served` (the real router and leg-1 gate, a loopback IdP, and a recording
+transport behind the real adapter) - and nothing requires a `direct` impersonating source to declare
+one: without it the inbound token is presented.
 
 **What the deleted cache is still worth reading for** (`docs/adr/0031`'s second amendment): the key
 must be the whole `PrincipalChain` and never a bare `Subject`. Review found the first version's own
