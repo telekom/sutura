@@ -279,7 +279,7 @@ pub(super) fn removed_in(base_lines: &[&str], removed: &[RemovedLine]) -> Vec<De
 /// own span, so an added line inside a SIBLING helper - a fn a test calls but whose own
 /// attributed item is not the test's - names nothing there. This walks the other direction: find
 /// the helper fn, check an added line lands in its span, and only then name every `#[test]` in the
-/// same file whose body TEXT references the helper's bare name. An added line means the diff
+/// same file whose body TEXT calls the helper. An added line means the diff
 /// reached the helper; a calling test is what makes the edit proof's to run rather than a helper
 /// nothing tests. A helper no `#[test]` calls names nothing.
 ///
@@ -330,13 +330,15 @@ pub(super) fn edited_helper_caller(lines: &[&str], added: &[AddedLine], scope: &
     out
 }
 
-/// Every `#[test]` in `lines` whose item references `helper`'s bare function name as a whole
-/// identifier - never as a SUBSTRING of a longer one.
+/// Every `#[test]` in `lines` whose item CALLS the helper - `name(`, `name::<`, or a path ending
+/// `::name(` - and never a longer identifier merely containing it, a bare mention, a binding or
+/// a field.
 ///
 /// `helper` is the whole `fn NAME(..)` signature line; the name is split off the first token
 /// after `fn`, matching [`function_name`] on the signature. The call check scans each `#[test]`'s
-/// own item span (the same [`touched_in`] walk) for the name: a `use` of the helper reaches the
-/// same kept-at-HEAD tree the test runs in, and a bare call names the reach that matters. Returns
+/// own item span (the same [`touched_in`] walk) for the name: a call - `name(`, `name::<` or a
+/// path ending `::name(` - names the reach that matters; a bare mention, a binding or a field does
+/// not (`github.com/telekom/sutura#1270`). Returns
 /// EVERY caller rather than the first - `github.com/telekom/sutura#1031`'s own review found the
 /// first-match version silently dropped a real caller behind an earlier, spurious one.
 fn calling_tests(lines: &[&str], helper: &str) -> Vec<Touched> {
@@ -364,7 +366,7 @@ fn calling_tests(lines: &[&str], helper: &str) -> Vec<Touched> {
             continue;
         };
         let body: String = span.join("\n");
-        if references(&body, name) {
+        if calls(&body, name) {
             let caller = if is_ignored(lines, fn_index) {
                 Touched::Ignored(test_name)
             } else {
@@ -378,16 +380,17 @@ fn calling_tests(lines: &[&str], helper: &str) -> Vec<Touched> {
     out
 }
 
-/// Does `body` reference `name` as a whole identifier - a call, a `use`, a bare mention - and
-/// never as part of a LONGER identifier that merely contains it?
+/// Does `body` call `name` - a `name(`, a `name::<`, or a path ending `::name(` - and never a
+/// longer identifier merely containing it, a bare mention, a binding or a field?
 ///
-/// A substring check alone matched `read` inside a test that only names `thread`, and `parse`
-/// inside `fn parse_works()` whether or not that test calls it - `github.com/telekom/sutura#1031`'s
-/// own review. An identifier boundary on both sides is enough: Rust identifiers are `[A-Za-z0-9_]`,
-/// so a match whose neighbours (if any) are outside that set is `name` on its own, whatever
-/// follows - deliberately still permissive of a bare mention, not only a `name(` call, because a
-/// `use` of the helper is the reach this module's own header already counts.
-fn references(body: &str, name: &str) -> bool {
+/// A whole-identifier search alone matched `read` inside a test that only names `thread`, and
+/// `parse` inside `fn parse_works()` whether or not that test calls it (`github.com/telekom/
+/// sutura#1031`); adding the call requirement is what stops `disagreement` in `let
+/// Err(disagreement) = ..` - a pattern binding - from counting as a caller (`#1270`). An
+/// identifier boundary on both sides is enough: Rust identifiers are `[A-Za-z0-9_]`, so a match
+/// whose neighbours (if any) are outside that set is `name` on its own, and it is a caller only
+/// when a call (`(`) or a turbofish (`::<`) follows it.
+fn calls(body: &str, name: &str) -> bool {
     let bytes = body.as_bytes();
     let is_ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
     let mut start = 0_usize;
@@ -396,12 +399,17 @@ fn references(body: &str, name: &str) -> bool {
         let before_ok = at == 0 || !bytes.get(at - 1).is_some_and(|b| is_ident(*b));
         let after = at + name.len();
         let after_ok = bytes.get(after).is_none_or(|b| !is_ident(*b));
-        if before_ok && after_ok {
+        if before_ok && after_ok && is_call(bytes, after) {
             return true;
         }
         start = at + 1;
     }
     false
+}
+
+/// Is it a CALL - `name(` or the turbofish `name::<` - that follows the identifier at `after`?
+fn is_call(bytes: &[u8], after: usize) -> bool {
+    bytes.get(after) == Some(&b'(') || bytes.get(after..after + 3) == Some(b"::<")
 }
 #[cfg(test)]
 mod tests {
@@ -818,5 +826,21 @@ mod tests {
             ),
             Deletion::BaseUnreadable
         );
+    }
+
+    #[test]
+    fn a_local_binding_named_like_the_edited_helper_is_not_a_caller() {
+        // `github.com/telekom/sutura#1270`: `let Err(disagreement) = ..` is a pattern BINDING, not a
+        // call, so the test is not an edited caller of a helper named `disagreement`.
+        let file = concat!(
+            "fn disagreement() -> u8 { 1 }\n",        // 1
+            "#[test]\n",                              // 2
+            "fn the_ratio() {\n",                     // 3
+            "    let Err(disagreement) = outcome;\n", // 4
+            "}\n",                                    // 5
+        );
+        let lines: Vec<&str> = file.lines().collect();
+        let added = added_from(1, &["fn disagreement() -> u8 { 2 }"]);
+        assert_eq!(edited_helper_caller(&lines, &added, &TestScope::WholeFile), Vec::new());
     }
 }

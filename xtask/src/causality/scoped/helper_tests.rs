@@ -25,3 +25,27 @@ fn an_ignored_test_calling_an_added_helper_does_not_become_runnable() {
         Scan::OnlyIgnored(_)
     ));
 }
+
+#[test]
+fn a_doc_comment_naming_fn_is_not_a_declaration() {
+    // `github.com/telekom/sutura#1270`: `//! no fn in the tree` was read as a helper named
+    // `in`, and any test containing the word was then marked an edited caller of it.
+    assert!(
+        super::function_name("//! this document names no fn in the tree").is_none(),
+        "a doc comment is not a declaration"
+    );
+    assert_eq!(
+        super::function_name("fn real() -> u8 { 1 }"),
+        Some(crate::causality::names::Ident::parse("real").unwrap())
+    );
+}
+
+#[test]
+fn a_string_literal_naming_fn_is_not_a_declaration() {
+    // `github.com/telekom/sutura#1270`: a one-line literal spelling a standalone `fn foo` is
+    // not a declaration, whatever its position.
+    assert!(
+        super::function_name(r#"let s = "call fn foo here";"#).is_none(),
+        "a string literal is not a declaration"
+    );
+}

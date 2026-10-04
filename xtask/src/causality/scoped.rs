@@ -74,6 +74,7 @@ use crate::causality::features::{Because, Enabled};
 use crate::causality::names::Ident;
 use crate::causality::place::{AddedTest, Declares, accounted_for, place};
 use crate::causality::regions::{AddedLine, PostImage};
+mod code;
 
 /// A provable file that named no test, and where its tests actually are.
 ///
@@ -422,7 +423,8 @@ pub(super) fn is_ignored(lines: &[&str], index: usize) -> bool {
 /// `test_files` and `causality::run`'s tests-only arm then asks for a `Claim-Cell:` declaration and a
 /// killing mutation - the same proof an added test pinning existing behaviour needs.
 pub(super) fn function_name(line: &str) -> Option<Ident> {
-    let declared = line.split_whitespace().skip_while(|word| *word != "fn").nth(1)?;
+    let blanked = code::code_only(line);
+    let declared = blanked.split_whitespace().skip_while(|word| *word != "fn").nth(1)?;
     Ident::parse(declared.split(['(', '<', ':']).next()?)
 }
 
