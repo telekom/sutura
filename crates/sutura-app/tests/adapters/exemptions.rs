@@ -81,7 +81,9 @@ const EXEMPTIONS: &[Exemption] = &[
 ///
 /// **The one reader of [`DataSystemUnderTest::available`] a cell may skip on**: an unavailable data
 /// system [`EXEMPTIONS`] does not name panics instead. **The limit:** nothing stops a cell calling
-/// `available()` itself; review holds that.
+/// `available()` itself; review holds that. One helper does: `federated::two_fact::disagreement`
+/// skips on `available()`, because an edit inside it reads to the causality gate as a change to
+/// `the_two_fact_ratio_is_the_figure_its_rows_add_up_to` (#1270); its sibling cells call this.
 pub(crate) fn runs_here<W>() -> bool
 where
     W: DataSystemUnderTest,

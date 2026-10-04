@@ -205,8 +205,8 @@ ci.yml:bigquery-driver-check
 ci.yml:e2e-datahub-adbc
 
 # The golden matrix's `bigquery` row against a real dataset. Advisory here, and run-or-fail through
-# `ci-aggregate` on a selected same-repository pull request or merge group. Of its runs one is green
-# (37156913407) and one timed out undiagnosed (37152629712).
+# `ci-aggregate` on a selected same-repository pull request or merge group. One run's corpus cell
+# timed out undiagnosed (37152629712), so how it behaves under load is unproven.
 ci.yml:bigquery-conformance
 
 # The Oracle docker tier, advisory for `bigquery-driver-check`'s reason: category-gated on

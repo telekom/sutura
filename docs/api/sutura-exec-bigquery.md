@@ -50,9 +50,8 @@ were removed when ADBC became this adapter's only mode.
 `sutura serve` links this adapter and dispatches `kind: bigquery` behind its default-off `bigquery`
 feature. The golden matrix's `bigquery` row runs the example corpus through this transport
 against a real dataset in the `bigquery-conformance` CI job, under one shared CI identity - wired,
-with one observed green run (37156913407) and one whose corpus cell timed out undiagnosed
-(37152629712), so how it behaves under load is unproven - and no gate reaches a dataset at all. A
-default build links none of this.
+and one run's corpus cell timed out undiagnosed (37152629712), so how it behaves under load is
+unproven - and no gate reaches a dataset at all. A default build links none of this.
 
 # Identity
 

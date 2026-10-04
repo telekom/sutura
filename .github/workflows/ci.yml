@@ -1870,8 +1870,8 @@ jobs:
   # Push, merge queue and same-repository pull requests; a fork or Dependabot cannot receive the
   # bq-test credential, and there the row skips under its named exemption as everywhere else.
   # Run-or-fail through `ci-aggregate` on a same-repository pull request and in the merge queue when
-  # `data_source_bigquery` is selected, and outside the ruleset itself. Of its runs one is green
-  # (37156913407) and one timed out undiagnosed (37152629712).
+  # `data_source_bigquery` is selected, and outside the ruleset itself. One run's corpus cell timed
+  # out undiagnosed (37152629712), so how it behaves under load is unproven.
   bigquery-conformance:
     needs: [ci]
     if: (github.event_name == 'push' || github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.ci.outputs.data_source_bigquery == 'true'

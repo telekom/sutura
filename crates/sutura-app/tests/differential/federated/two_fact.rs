@@ -149,6 +149,10 @@ fn the_two_fact_ratio_is_the_figure_its_rows_add_up_to() {
 /// A finding rather than a panic, so `tests/differential.rs`'s one cell makes the assertion. A data
 /// system that declares no leg execution must be refused by name before anything runs -
 /// `ClickHouse` - and one whose tier is not up here is skipped.
+///
+/// **It skips on `W::available()`, not `adapters::runs_here`** - the one exception to that rule:
+/// an edit inside this fn reads to the causality gate as a change to the cell above, through its
+/// `disagreement` binding (#1270). The differential cells beside it call `runs_here` for every system.
 pub(crate) fn disagreement<W>() -> Option<String>
 where
     W: DataSystemUnderTest + Sync,
