@@ -670,8 +670,3 @@ fn the_delegation_exchange_dials_over_the_declared_outbound_anchors() {
         "{refused:?}"
     );
 }
-
-// The delegation exchange behind the served HTTP surface and the real leg-1 gate (#1230): a child
-// module, so it composes this file's own delegation fixtures without widening them.
-#[cfg(feature = "bigquery")]
-mod delegation_served;

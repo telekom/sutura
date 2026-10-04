@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use sutura_config::{Environment, Settings, Sources};
-use sutura_dev::issuer::{MockIssuer, PublishedKeySet};
+use sutura_dev::issuer::{MockIssuer, PublishedKeySet, Token};
 use sutura_domain::model::SourceName;
 use sutura_domain::source::SourcePosture;
 use sutura_domain::warehouse::ResultBatches;
@@ -24,12 +24,42 @@ use sutura_exec_bigquery::transport::{
 };
 use sutura_http_client::test_support::{FakeServer, Scripted};
 
-use super::super::support::{accepted_by, bundle_with_an_unanchored_metric, catalog_of, direct_overlay};
-use super::{SecretFileGuard, delegation_block, exchanged, issued, two_declared_subjects, wif_with};
+use super::support::{accepted_by, bundle_with_an_unanchored_metric, catalog_of, direct_overlay};
 
-/// The declared subject every cell asks as, and the account `two_declared_subjects` maps it to.
+/// The declared subject every cell asks as, and the account declared beside it.
 const ASKING: &str = "analyst-a@example.com";
 const ASKING_AS: &str = "bq-a@acme-analytics.iam.gserviceaccount.com";
+
+/// The audience the exchanged token is asked for and carries.
+const POOL: &str = "pool-client-id";
+
+/// What the identity provider issues for [`POOL`]: a signed token from an issuer this deployment
+/// does not trust for leg 1, so it can never be mistaken for the caller's own.
+fn exchanged() -> String {
+    MockIssuer::generating("https://idp.example.com", POOL, "the-idp-key")
+        .expect("a mock issuer generates a key pair")
+        .mint(&Token::for_subject(ASKING))
+        .expect("the identity provider signs a token")
+}
+
+/// The RFC 8693 token response carrying `token`.
+fn issued(token: &str) -> serde_json::Value {
+    serde_json::json!({
+        "access_token": token,
+        "issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+        "token_type": "Bearer",
+        "expires_in": 300,
+    })
+}
+
+/// The client secret file, removed when the cell ends.
+struct SecretFile(std::path::PathBuf);
+
+impl Drop for SecretFile {
+    fn drop(&mut self) {
+        drop(std::fs::remove_file(&self.0));
+    }
+}
 
 /// What one job handed the transport, as the transport saw it.
 #[derive(Debug, PartialEq, Eq)]
@@ -96,32 +126,29 @@ struct Served {
     app: axum::Router,
     issuer: MockIssuer,
     transport: Receiver<Seen>,
-    _secret: SecretFileGuard,
+    _published: PublishedKeySet,
+    _secret: SecretFile,
 }
 
 fn served(case: &str, idp: &FakeServer) -> Served {
     let issuer = MockIssuer::generating("https://issuer.example.com", "https://sutura.example.com", "the-current-key")
         .expect("a mock issuer generates a key pair");
     let published = PublishedKeySet::of(&issuer, case).expect("the key set publishes");
-    let secret = SecretFileGuard::create(case);
+    let secret = SecretFile(std::env::temp_dir().join(format!("sutura-{case}-client-secret-{}", std::process::id())));
+    std::fs::write(&secret.0, "idp-client-secret\n").expect("the client secret file is writable");
     let overlay = format!(
-        "{}  identity: \"multi-user\"\nsources:\n{}",
+        "{}  identity: \"multi-user\"\nsources:\n{}      impersonate:\n        \"{ASKING}\": \"{ASKING_AS}\"\n      \
+         delegation:\n        token_endpoint: \"{}/token\"\n        client_id: \"sutura\"\n        \
+         client_secret_file: \"{}\"\n        audience: \"{POOL}\"\n",
         direct_overlay(&issuer, &published.path().to_string_lossy()),
-        super::super::bigquery_entry(
-            "warehouse",
-            "impersonation-at-source",
-            &wif_with(&format!(
-                "{}{}",
-                two_declared_subjects(),
-                delegation_block(&format!("{}/token", idp.endpoint()), secret.path())
-            )),
-        ),
+        super::bigquery_entry("warehouse", "impersonation-at-source", super::wif()),
+        idp.endpoint(),
+        secret.0.display(),
     );
     let settings =
         Settings::load(&Sources::defaults(Environment::Development).with_overlay(&overlay)).expect("the overlay loads");
     // The composition root's own broker, built from the settings it would read.
-    let broker =
-        super::super::super::broker::build_broker(settings.sources(), None).expect("a direct deployment admits a delegation");
+    let broker = super::super::broker::build_broker(settings.sources(), None).expect("a direct deployment admits a delegation");
     let (recording, transport) = channel();
     let warehouse = sutura_exec_bigquery::BigQueryWarehouse::new(
         SourceName::parse("warehouse").expect("a test source is a source"),
@@ -149,6 +176,7 @@ fn served(case: &str, idp: &FakeServer) -> Served {
         app: sutura_http::router(&state).expect("the test router assembles"),
         issuer,
         transport,
+        _published: published,
         _secret: secret,
     }
 }
@@ -178,7 +206,8 @@ async fn ask(app: axum::Router, token: &str) -> (axum::http::StatusCode, String)
 
 #[tokio::test]
 async fn a_served_callers_own_token_is_exchanged_and_the_source_is_handed_what_came_back() {
-    let idp = FakeServer::start(vec![Scripted::ok(&issued())]);
+    let exchanged = exchanged();
+    let idp = FakeServer::start(vec![Scripted::ok(&issued(&exchanged))]);
     let Served {
         app, issuer, transport, ..
     } = served("delegation-served-exchanges", &idp);
@@ -194,7 +223,7 @@ async fn a_served_callers_own_token_is_exchanged_and_the_source_is_handed_what_c
         assert_eq!(
             job,
             &Seen::Subject {
-                assertion: exchanged(),
+                assertion: exchanged.clone(),
                 target: String::from(ASKING_AS)
             },
             "every job must carry the exchanged token and the account declared for the caller - never \
