@@ -414,8 +414,8 @@ mod tests {
     /// name before anything runs. The engine's own entry is compared against itself, a determinism
     /// check; an entry with no venue here (`BigQuery`, Oracle, or a tier that is not up) is skipped
     /// under its named exemption, so `ClickHouse`'s refusal is asserted only where its tier is up.
-    /// Where `BigQuery`'s venue IS up its open refuses this derived corpus, which is why the
-    /// `bigquery-conformance` job does not select this cell.
+    /// The `bigquery-conformance` job selects this cell beside its `bigquery` cells, so `BigQuery` is
+    /// compared there, over the two-fact tables its provisioning cell loads; offline it is skipped.
     /// One cell over the registry rather than one per entry, and one assertion in it:
     /// `federated::two_fact::disagreement` says what each entry did, and the two engines it compares
     /// against are held to hand-worked figures by that file's own cell. **The first finding stops the

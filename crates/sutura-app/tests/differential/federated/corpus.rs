@@ -28,7 +28,7 @@ use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
 
 use super::harness::{answered, bundle, two_engines};
-use crate::adapters::{CatalogUnderTest, questions, read_question, stem};
+use crate::adapters::{CatalogUnderTest, DIM_CALENDAR, FCT_TICKET_MONTHLY, questions, read_question, stem};
 
 /// The data system the derived two-source catalog puts the dimension model on.
 ///
@@ -268,17 +268,8 @@ pub(crate) const DATA_CASES: &[(&str, Edit)] = &[
     // x/0 - while June's null group is customer 41's one subscription and no ticket, its 0/x. The
     // April and July rows sit outside the question's range, so they reach the answer only if the
     // second fact's own statement drops the bound.
-    (
-        "dim_calendar.csv",
-        Edit::Added("month\n2026-01-01\n2026-02-01\n2026-03-01\n2026-04-01\n2026-05-01\n2026-06-01\n2026-07-01\n2026-08-01\n"),
-    ),
-    (
-        "fct_ticket_monthly.csv",
-        Edit::Added(
-            "month,customer_key,tickets\n2026-04-01,5,50\n2026-05-01,2,4\n2026-05-01,5,3\n2026-05-01,42,5\n\
-             2026-06-01,1,2\n2026-06-01,2,3\n2026-06-01,11,1\n2026-06-01,20,6\n2026-07-01,2,100\n",
-        ),
-    ),
+    ("dim_calendar.csv", Edit::Added(DIM_CALENDAR)),
+    ("fct_ticket_monthly.csv", Edit::Added(FCT_TICKET_MONTHLY)),
     (
         "fct_subscription_monthly.csv",
         // F1: the first row's join key is ABSENT, which is the case the corpus has none of. A null
