@@ -3,29 +3,36 @@
 //! recording transport where this file has the driver (`telekom/sutura#1271`).
 //!
 //! **What is observed is sutura's half.** The identity provider is sutura's own configuration
-//! (`workload_identity.delegation.token_endpoint`), so it is a loopback [`FakeServer`] here, and the
-//! cells read what it was offered and what the served surface answered.
+//! (`workload_identity.delegation.token_endpoint`), so it is a loopback [`FakeServer`] here. The
+//! child runs with no ambient cloud credential and no egress: every `GOOGLE_*`, `CLOUDSDK_*` and
+//! `GCE_*` variable is dropped, and its outbound HTTP(S) goes to a loopback proxy that records each
+//! request line and refuses it. So the cells read what the identity provider was offered, which
+//! Google host the driver asked for, and what the served surface answered - and a refused exchange
+//! reaches no source because the proxy saw no request at all.
 //!
-//! **What this does not show.** Leg 2 against a real pool: the exchanged token is a mock issuer's,
-//! so Google's token service refuses it or is never reached. The driver's token-service and IAM
-//! calls, because those hosts are fixed by design (`sutura-exec-bigquery`'s `adbc/subject.rs`). Which
-//! credential document the driver was handed - that is held by `adbc/subject.rs`'s own cells and by
-//! `delegation_served.rs`, whose transport records it. And "reached no source" is read off the
-//! answer: `identity_unavailable` is the broker's failure, raised before any job is built.
+//! **What this does not show.** Leg 2 against a real pool: nothing reaches Google. Which token the
+//! driver carried to the token service, or which account its second hop names - the proxy sees a
+//! host, not a body - so a source handed the caller's own token instead of the exchanged one passes
+//! here; `delegation_served.rs` and `adbc/subject.rs`'s own cells hold that. Name lookups the
+//! driver makes are not observed.
 //!
 //! `#[ignore]`d because the venue needs the driver at `SUTURA_BIGQUERY_ADBC_DRIVER`, which no nix
-//! check carries; `e2e-datahub-adbc` (the `just` recipe and the CI job of that name) selects both.
+//! check carries; the `e2e-datahub-adbc` CI job (locally `just e2e-datahub-adbc`) selects both.
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::io::{Read as _, Write as _};
+    use std::net::{TcpListener, TcpStream};
+    use std::path::PathBuf;
+    use std::sync::mpsc::{Receiver, channel};
+    use std::time::Duration;
 
     use sutura_dev::issuer::{MockIssuer, PublishedKeySet, Token};
     use sutura_http_client::test_support::{FakeServer, Scripted};
 
     use crate::harness::{
-        LOCAL_SOURCE, LOOPBACK, Reply, Served, accepted_by, derived_catalog, example_root, files_source, question, settings_over,
-        start_configured_with_driver, v1, without_the_product_family_dimension,
+        DELEGATED, LOCAL_SOURCE, LOOPBACK, Reply, Served, accepted_by, delegating_bigquery_entry, derived_catalog, example_root,
+        files_source, question, settings_over, start_configured_with_environment, v1, without_the_product_family_dimension,
     };
 
     const BQ_SOURCE: &str = "warehouse";
@@ -34,20 +41,84 @@ mod tests {
     /// identity and not about a plan crossing data systems.
     const MOVED_MODEL: &str = "daily_usage.md";
 
-    /// The audience the exchanged token is asked for and carries.
-    const POOL: &str = "pool-client-id";
-
-    /// The one subject the source declares, beside its account.
-    const CALLER_A: (&str, &str) = ("analyst-a@example.com", "bq-a@acme-analytics.iam.gserviceaccount.com");
-
     /// A caller leg 1 verifies and the source does not declare.
-    const CALLER_B: &str = "analyst-b@example.com";
+    const UNDECLARED: &str = "analyst-b@example.com";
+
+    /// The inherited variables a cloud client reads an ambient credential or project from.
+    const AMBIENT_CLOUD: [&str; 3] = ["GOOGLE_", "CLOUDSDK_", "GCE_"];
+
+    /// The token service the workload-identity credential is exchanged at.
+    const TOKEN_SERVICE: &str = "CONNECT sts.googleapis.com:443 ";
+
+    /// Where a service-account key or a user credential is turned into a token - the deployment's own identity.
+    const DEPLOYMENT_TOKEN_HOST: &str = "oauth2.googleapis.com";
 
     fn driver() -> String {
         std::env::var("SUTURA_BIGQUERY_ADBC_DRIVER")
             .ok()
             .filter(|path| !path.trim().is_empty())
             .expect("SUTURA_BIGQUERY_ADBC_DRIVER names the ADBC BigQuery driver; this cell cannot boot without it")
+    }
+
+    /// A loopback forward proxy that records the request line of every connection and refuses it.
+    ///
+    /// Go never proxies a loopback address, so the identity provider and the driver's subject-token
+    /// source are still dialled directly.
+    struct RefusingProxy {
+        url: String,
+        lines: Receiver<String>,
+    }
+
+    impl RefusingProxy {
+        fn start() -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port is free");
+            let url = format!("http://{}", listener.local_addr().expect("a bound listener has an address"));
+            let (sent, lines) = channel();
+            // Detached: it blocks in `accept` for as long as the test process lives.
+            drop(std::thread::spawn(move || {
+                for mut stream in listener.incoming().flatten() {
+                    if sent.send(request_line(&mut stream)).is_err() {
+                        return;
+                    }
+                    drop(stream.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"));
+                }
+            }));
+            Self { url, lines }
+        }
+
+        /// The child's proxy variables, both spellings, every scheme.
+        fn environment(&self) -> Vec<(&'static str, &str)> {
+            [
+                "HTTPS_PROXY",
+                "https_proxy",
+                "HTTP_PROXY",
+                "http_proxy",
+                "ALL_PROXY",
+                "all_proxy",
+            ]
+            .into_iter()
+            .map(|name| (name, self.url.as_str()))
+            .collect()
+        }
+
+        /// Every request line recorded so far. Each is recorded before its refusal is written, so a
+        /// line that led to an answer is here once that answer has arrived.
+        fn seen(&self) -> Vec<String> {
+            self.lines.try_iter().collect()
+        }
+    }
+
+    fn request_line(stream: &mut TcpStream) -> String {
+        drop(stream.set_read_timeout(Some(Duration::from_secs(10))));
+        let mut head = Vec::new();
+        let mut chunk = [0_u8; 1024];
+        while !head.windows(4).any(|window| window == b"\r\n\r\n") {
+            match stream.read(&mut chunk) {
+                Ok(read) if read > 0 => head.extend(chunk.iter().take(read)),
+                _ => break,
+            }
+        }
+        String::from_utf8_lossy(&head).lines().next().unwrap_or_default().to_owned()
     }
 
     /// The client secret file the delegation block reads, removed with its directory.
@@ -71,9 +142,10 @@ mod tests {
         }
     }
 
-    /// What the identity provider issues for `subject`: signed by an issuer leg 1 does not trust.
+    /// What the identity provider issues for `subject`: signed by an issuer leg 1 does not trust,
+    /// for the audience the delegation block asks for.
     fn exchanged(subject: &str) -> String {
-        MockIssuer::generating("https://idp.example.com", POOL, "the-idp-key")
+        MockIssuer::generating("https://idp.example.com", "pool-client-id", "the-idp-key")
             .expect("a mock issuer generates a key pair")
             .mint(&Token::for_subject(subject))
             .expect("the identity provider signs a token")
@@ -88,36 +160,13 @@ mod tests {
         })
     }
 
-    /// An `impersonation-at-source` `bigquery` source declaring [`CALLER_A`] and a delegation at `endpoint`.
-    fn delegating_entry(endpoint: &str, secret: &Path) -> String {
-        let (subject, account) = CALLER_A;
-        format!(
-            "  {BQ_SOURCE}:\n    \
-               kind: \"bigquery\"\n    \
-               billing_project: \"acme-analytics\"\n    \
-               dataset: \"warehouse\"\n    \
-               credential_file: \"/nonexistent/sutura-test-bigquery.json\"\n    \
-               max_bytes_billed: 1073741824\n    \
-               posture: \"impersonation-at-source\"\n    \
-               workload_identity:\n      \
-               audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n      \
-               scope: \"https://www.googleapis.com/auth/bigquery.readonly\"\n      \
-               impersonate:\n        \
-               \"{subject}\": \"{account}\"\n      \
-               delegation:\n        \
-               token_endpoint: \"{endpoint}/token\"\n        \
-               client_id: \"sutura\"\n        \
-               client_secret_file: \"{}\"\n        \
-               audience: \"{POOL}\"\n",
-            secret.display(),
-        )
-    }
-
-    /// A started `direct` deployment over the driver, its leg-1 issuer, and the identity provider it dials.
+    /// A started `direct` deployment over the driver, its leg-1 issuer, the identity provider it
+    /// dials, and the proxy every other dial goes to.
     struct Deployed {
         served: Served,
         issuer: MockIssuer,
         idp: FakeServer,
+        proxy: RefusingProxy,
         _published: PublishedKeySet,
         _secret: SecretFile,
     }
@@ -127,6 +176,7 @@ mod tests {
             .expect("a mock issuer generates a key pair");
         let published = PublishedKeySet::of(&issuer, case).expect("the key set publishes");
         let idp = FakeServer::start(answers);
+        let proxy = RefusingProxy::start();
         let secret = SecretFile::create(case);
         let example = example_root();
         let data = example.join("data");
@@ -143,13 +193,15 @@ mod tests {
         let sources = format!(
             "{}    acknowledged_because: \"the example models off the moved one read fixture files as one identity\"\n{}",
             files_source(LOCAL_SOURCE, &data),
-            delegating_entry(&idp.endpoint(), &secret.0)
+            delegating_bigquery_entry(BQ_SOURCE, &format!("{}/token", idp.endpoint()), &secret.0)
         );
         let settings = settings_over(&catalog, &data, LOOPBACK, &security, &sources);
+        let served = start_configured_with_environment(case, &settings, Some(&driver()), &proxy.environment(), &AMBIENT_CLOUD);
         Deployed {
-            served: start_configured_with_driver(case, &settings, Some(&driver())),
+            served,
             issuer,
             idp,
+            proxy,
             _published: published,
             _secret: secret,
         }
@@ -172,17 +224,16 @@ mod tests {
     #[test]
     #[ignore = "needs the ADBC BigQuery driver at SUTURA_BIGQUERY_ADBC_DRIVER; run by `just e2e-datahub-adbc`"]
     fn a_spawned_deployment_exchanges_the_declared_callers_own_token_and_no_one_elses() {
-        let (subject, _) = CALLER_A;
+        let (subject, _) = DELEGATED;
         let mut deployed = deployed("delegation-adbc-exchanges", vec![Scripted::ok(&issued(&exchanged(subject)))]);
 
-        let (other, refused) = ask(&deployed, CALLER_B);
+        let (_, refused) = ask(&deployed, UNDECLARED);
         assert_eq!(refused.status, 403, "{}", refused.body);
         assert_eq!(refused.json()["reason"]["code"], "credential_unavailable", "{}", refused.body);
 
         let (token, answer) = ask(&deployed, subject);
-        // Past the exchange the driver dials Google, which refuses a mock issuer's token or is not
-        // reachable: the data system's failure, not the broker's. Which credential the driver held
-        // is not visible from here.
+        // Past the exchange the driver asks Google's token service, and the proxy refuses it: the
+        // data system's failure, not the broker's.
         assert_eq!(answer.status, 503, "{}", answer.body);
         assert_eq!(
             answer.json()["code"],
@@ -190,8 +241,18 @@ mod tests {
             "the exchange must have succeeded: {}",
             answer.body
         );
+        let dialled = deployed.proxy.seen();
+        assert!(
+            dialled.iter().any(|line| line.starts_with(TOKEN_SERVICE)),
+            "the driver must have taken the workload-identity path to the token service: {dialled:?}"
+        );
+        assert!(
+            !dialled.iter().any(|line| line.contains(DEPLOYMENT_TOKEN_HOST)),
+            "the driver must not have authenticated as the deployment: {dialled:?}"
+        );
         deployed.served.terminate();
 
+        // One offer is also the proof that the undeclared caller's token reached no identity provider.
         let offered = offered(deployed.idp);
         let [offer] = offered.as_slice() else {
             panic!("one declared question is one exchange, the undeclared one none: {offered:?}");
@@ -200,16 +261,12 @@ mod tests {
             offer.contains(&format!("subject_token={token}")),
             "the exchange must offer the declared caller's own verified token: {offer}"
         );
-        assert!(
-            !offer.contains(&other),
-            "the undeclared caller's token must reach no identity provider: {offer}"
-        );
     }
 
     #[test]
     #[ignore = "needs the ADBC BigQuery driver at SUTURA_BIGQUERY_ADBC_DRIVER; run by `just e2e-datahub-adbc`"]
     fn a_spawned_deployments_refused_exchange_answers_identity_unavailable_and_reaches_no_source() {
-        let (subject, _) = CALLER_A;
+        let (subject, _) = DELEGATED;
         let mut deployed = deployed(
             "delegation-adbc-refused",
             vec![Scripted::status(400, r#"{"error":"invalid_grant"}"#)],
@@ -224,6 +281,12 @@ mod tests {
             answer.body
         );
         deployed.served.terminate();
+        let dialled = deployed.proxy.seen();
+        assert_eq!(
+            dialled,
+            Vec::<String>::new(),
+            "a refused exchange must dial nothing past the identity provider, under any identity"
+        );
 
         let offered = offered(deployed.idp);
         let [offer] = offered.as_slice() else {

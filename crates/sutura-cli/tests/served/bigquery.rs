@@ -166,28 +166,13 @@ mod tests {
         );
     }
 
-    /// A `bigquery` source that declares the delegation exchange of a `direct` deployment: an
-    /// `impersonation-at-source` posture with a `workload_identity:` block naming the pool, one
-    /// declared subject, and the four-key `delegation:` block whose exchange only `direct` can run.
+    /// [`harness::delegating_bigquery_entry`](crate::harness::delegating_bigquery_entry) on [`BQ_SOURCE`], at an
+    /// identity provider and a secret file this refusal never reaches.
     fn delegating_bigquery_entry() -> String {
-        format!(
-            "  {BQ_SOURCE}:\n    \
-               kind: \"bigquery\"\n    \
-               billing_project: \"acme-analytics\"\n    \
-               dataset: \"warehouse\"\n    \
-               credential_file: \"/nonexistent/sutura-test-bigquery.json\"\n    \
-               max_bytes_billed: 1073741824\n    \
-               posture: \"impersonation-at-source\"\n    \
-               workload_identity:\n      \
-               audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n      \
-               scope: \"https://www.googleapis.com/auth/bigquery.readonly\"\n      \
-               impersonate:\n        \
-               \"analyst-a@example.com\": \"bq-a@acme-analytics.iam.gserviceaccount.com\"\n      \
-               delegation:\n        \
-               token_endpoint: \"https://idp.example.com/token\"\n        \
-               client_id: \"sutura\"\n        \
-               client_secret_file: \"/nonexistent/sutura-idp-secret\"\n        \
-               audience: \"pool-client-id\"\n"
+        crate::harness::delegating_bigquery_entry(
+            BQ_SOURCE,
+            "https://idp.example.com/token",
+            std::path::Path::new("/nonexistent/sutura-idp-secret"),
         )
     }
 

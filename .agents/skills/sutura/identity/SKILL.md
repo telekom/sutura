@@ -182,9 +182,11 @@ IdP. Any exchange failure, an IdP refusing one subject included, is `503 identit
 `bigquery` deployment needs the ADBC driver to boot and no nix check has one, so the composition is
 held in-process, by `build_broker`'s cells and by `serve::tests::delegation_served` (the real router
 and leg-1 gate, a loopback IdP, and a recording transport behind the real adapter). The spawned
-binary reaches it only in `tests/served/delegation_adbc.rs`'s two `#[ignore]`d cells, run by
-`just e2e-datahub-adbc` - which skips the merge queue and forks - and they read what the IdP was
-offered and what the surface answered, never the credential the driver held. And nothing requires a
+binary reaches it only in `tests/served/delegation_adbc.rs`'s two `#[ignore]`d cells, run by the
+`e2e-datahub-adbc` CI job (locally `just e2e-datahub-adbc`), which skips the merge queue, forks and
+Dependabot. They read what the IdP was offered, what the surface answered and which Google token
+host the driver dialled through a refusing proxy - never the token it carried, so a source handed
+the caller's own token instead of the exchanged one is held in-process only. And nothing requires a
 `direct` impersonating source to declare one: without it the inbound token is presented.
 
 **What the deleted cache is still worth reading for** (`docs/adr/0031`'s second amendment): the key

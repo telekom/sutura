@@ -326,13 +326,14 @@ subscriber - cannot see it, and two of that crate's own tests stand in `tower_ht
 say so. A suite reading the process's own streams sees every thread. It is also why the wait is a
 blocking read with a budget rather than a sweep: the record is not ordered against the response.
 
-**What the composed binary cannot host, and why the tests above stay at the router:** the key-set
-windows cannot be shortened from a settings file, so the rotation and rate-limit bounds would mean a
-test sleeping for the shipped minute; and the exchange half needs a `bigquery` source, which the
-spawned binary boots only where an ADBC driver is mounted - so the delegation exchange is held at the
-router too, in `crates/sutura-cli/src/serve/tests/delegation_served.rs`, and on the binary only by the
-two `#[ignore]`d cells in `crates/sutura-cli/tests/served/delegation_adbc.rs` that
-`just e2e-datahub-adbc` runs. Those two are the honest reason
+**What the composed binary cannot host in its default venue, and why the tests above stay at the
+router:** the key-set windows cannot be shortened from a settings file, so the rotation and
+rate-limit bounds would mean a test sleeping for the shipped minute; and the exchange half needs a
+`bigquery` source, which the spawned binary boots only where an ADBC driver is mounted - so the
+delegation exchange is held at the router too, in
+`crates/sutura-cli/src/serve/tests/delegation_served.rs`. On the binary it is held only by the two
+`#[ignore]`d cells in `crates/sutura-cli/tests/served/delegation_adbc.rs` that the
+`e2e-datahub-adbc` CI job runs. Those two limits are the honest reason
 `credential_unavailable_is_reachable_end_to_end` and
 `two_subjects_drive_two_different_exchanged_credentials` are router tests rather than binary ones.
 **The sentence this replaced said the root refuses to boot an `impersonation-at-source` source, and
