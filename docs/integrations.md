@@ -60,7 +60,7 @@ it in `LIMIT n` and Oracle refuses that (`ORA-03049`). The renderer now ends it 
 question against an Oracle server, so those goldens pin what this renderer emits and nothing a
 database agreed to. It signs in only as its declared shared service account - `NoPlaceForASubject`, so
 an `impersonation-at-source` declaration is refused at the composition root with the reason that no
-build delivers it. Per-caller sign-in is blocked upstream (#42, #1217); this lifts when the upstream
+build delivers it. Per-caller sign-in is blocked upstream (#42, #923); this lifts when the upstream
 work lands.
 
 **ClickHouse is the newest row and the one whose columns need reading together.** It executes: a
@@ -83,7 +83,7 @@ initialises. **A source signs in only as its declared shared service account**: 
 a client certificate, or as one Kerberos principal from the deployment's keytab - the one the
 credential cache `KRB5CCNAME` names, filled from `KRB5_CLIENT_KTNAME`'s keytab - which the
 transport can be built for and no settings key selects yet. OAuth and per-caller sign-in are not
-supported: they are blocked upstream (#42, #1217) and lift when the upstream work lands. The linked
+supported: they are blocked upstream (#42) and lift when the upstream work lands. The linked
 libpq is built without OAuth, and the connection string refuses SSPI and OAuth sign-in on either
 route. It also refuses `transport_anchors: system`, TLS or Kerberos over a
 unix socket, Kerberos with no credential named, and GSSAPI encryption beside TLS, which libpq cannot
