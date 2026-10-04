@@ -525,8 +525,8 @@ services:
     #   against this service. A green `just validate`
     #   says nothing about a live Oracle: its nix sandbox has no docker socket. NO golden-matrix
     #   cell reaches it either: `DataSystemUnderTest for OracleWarehouse` answers `available()`
-    #   FALSE unconditionally, and `crates/sutura-app/tests/adapters/adapters.rs` carries the two
-    #   reasons beside the `impl` - `SUTURA_DEV_REQUIRE_TIER` is per PROCESS rather than per
+    #   FALSE unconditionally, under a named exemption, and `crates/sutura-app/tests/adapters/
+    #   adapters.rs` carries the two reasons beside the `impl` - `SUTURA_DEV_REQUIRE_TIER` is per PROCESS rather than per
     #   service, and no CSV-fixture importer exists for this adapter. The render cells in
     #   `crates/sutura-app/tests/golden/dialects.rs` are its suite coverage; the acceptance cell is
     #   its only executed coverage.

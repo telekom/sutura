@@ -15,6 +15,10 @@
 //! **What this does NOT establish.** Every leg runs under one operating-system identity, as in the
 //! rest of `federated.rs`. Both facts sit on one source, because a calendar declared once per source
 //! is not built. And a registered data system whose tier is not up here is skipped, not compared.
+//! [`disagreement`] skips on `W::available()` rather than `adapters::runs_here` - the one exception
+//! to that rule, because an edit inside it reads to the causality gate as a change to
+//! [`the_two_fact_ratio_is_the_figure_its_rows_add_up_to`], through that cell's `disagreement`
+//! binding (#1270). The differential cells beside it call `runs_here` for every system.
 
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::RowCeiling;

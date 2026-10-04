@@ -43,13 +43,15 @@ fn aggregator_shell() -> String {
 }
 
 /// Every category-gated leg's inputs at their unselected value, so a cell names only its own legs.
-const DEFAULTS: [(&str, &str); 6] = [
+const DEFAULTS: [(&str, &str); 8] = [
     ("E2E_RESULT", "skipped"),
     ("E2E_REQUIRED", "false"),
     ("ORACLE_RESULT", "skipped"),
     ("ORACLE_SELECTED", "false"),
     ("DH_RESULT", "skipped"),
     ("DH_SELECTED", "false"),
+    ("BQC_RESULT", "skipped"),
+    ("BQC_REQUIRED", "false"),
 ];
 
 /// Run the aggregator shell with the given environment; returns (exit ok, combined output).

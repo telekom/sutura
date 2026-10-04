@@ -46,6 +46,8 @@ const REQUIRED: &[(&str, &str)] = &[
     ("ORACLE_SELECTED", "ci"),
     ("DH_RESULT", "ci-datahub-tier"),
     ("DH_SELECTED", "ci"),
+    ("BQC_RESULT", "bigquery-conformance"),
+    ("BQC_REQUIRED", "ci"),
 ];
 
 /// The job key of the aggregate.
@@ -283,6 +285,8 @@ mod tests {
             "          ORACLE_SELECTED: ${{ needs.ci.outputs.data_source_oracle }}",
             "          DH_RESULT: ${{ needs.ci-datahub-tier.result }}",
             "          DH_SELECTED: ${{ needs.ci.outputs.catalog_datahub }}",
+            "          BQC_RESULT: ${{ needs.bigquery-conformance.result }}",
+            "          BQC_REQUIRED: ${{ github.event_name == 'merge_group' && needs.ci.outputs.data_source_bigquery == 'true' }}",
         ]
         .join("\n")
     }
