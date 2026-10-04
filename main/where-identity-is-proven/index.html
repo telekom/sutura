@@ -2828,7 +2828,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <tr>
 <td>The document leg 1 verified was the <code>subject_token</code> the exchanging broker offered</td>
 <td>-</td>
-<td>- no exchanging broker is shipped; this was green over a fake exchange, in two halves each against its own fixture, until that tree was deleted. What ships puts the verified document behind a loopback <code>url</code> credential source instead, and <code>adbc/subject/tests.rs</code> is where that is asserted</td>
+<td><strong>yes</strong> - since #1258 the served root composes the delegation exchange into <code>DeclaredPrincipalBroker</code> for a source declaring <code>workload_identity.delegation</code>, and <code>a_served_callers_own_token_is_exchanged_and_the_source_is_handed_what_came_back</code> sends two callers' mock-issuer tokens through the real gate and router and reads each one as the <code>subject_token</code> a loopback IdP received. In process, not the spawned binary, which cannot boot a <code>bigquery</code> source without an ADBC driver; what a real IdP and pool do with the token is the token-exchange row below. Without a delegation the verified document goes behind a loopback <code>url</code> credential source instead, asserted in <code>adbc/subject/tests.rs</code></td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3093,7 +3093,13 @@ never citable for leg 2, and what it did say about leg 1 is said by the Keycloak
 a real issuer. <strong>What the served root attaches is <code>DeclaredPrincipalBroker</code></strong>, which decides whether
 a caller may be served at a source the operator declared for them rather than exchanging a credential
 - so a <code>bigquery</code> source declared <code>impersonation-at-source</code> boots, and the assertion it carries goes
-to the ADBC driver for Google's token service to federate, which is the venue below and not this one.</p>
+to the ADBC driver for Google's token service to federate, which is the venue below and not this one.
+<strong>Since #1258 that broker also exchanges</strong>, for a source declaring <code>workload_identity.delegation</code>:
+the verified token is the <code>subject_token</code> of an RFC 8693 exchange at the operator's identity
+provider, and the token that comes back is what the source receives.
+<code>crates/sutura-cli/src/serve/tests/delegation_served.rs</code> holds that join again, through the real
+router over this issuer's tokens, against a loopback identity provider and a recording transport -
+so it is still a join between leg 1's real bytes and a fake, and still not citable for leg 2.</p>
 <h3 id="and-on-the-composed-binary-which-is-a-different-claim-from-any-of-the-above">And on the composed binary, which is a different claim from any of the above<a class="headerlink" href="#and-on-the-composed-binary-which-is-a-different-claim-from-any-of-the-above" title="Permanent link">&para;</a></h3>
 <p><code>crates/sutura-cli/tests/served.rs</code> spawns the shipped binary over a settings file declaring
 <code>security.inbound</code>, with a key set this issuer published to a real path. Two tests, and what they add
@@ -3141,13 +3147,15 @@ say so. A suite reading the process's own streams sees every thread. It is also 
 blocking read with a budget rather than a sweep: the record is not ordered against the response.</p>
 <p><strong>What the composed binary cannot host, and why the tests above stay at the router:</strong> the key-set
 windows cannot be shortened from a settings file, so the rotation and rate-limit bounds would mean a
-test sleeping for the shipped minute; and the exchange half needs the exchanging broker, which has no
-implementor a composition root can reach since the BigQuery <code>wire</code> transport was deleted. Those two
-are the honest reason <code>credential_unavailable_is_reachable_end_to_end</code> and
+test sleeping for the shipped minute; and the exchange half needs a <code>bigquery</code> source, which the
+spawned binary cannot boot without an ADBC driver - so the delegation exchange is held at the router
+too, in <code>crates/sutura-cli/src/serve/tests/delegation_served.rs</code>. Those two are the honest reason
+<code>credential_unavailable_is_reachable_end_to_end</code> and
 <code>two_subjects_drive_two_different_exchanged_credentials</code> are router tests rather than binary ones.
 <strong>The sentence this replaced said the root refuses to boot an <code>impersonation-at-source</code> source, and
 that stopped being true</strong>: the served root attaches <code>DeclaredPrincipalBroker</code> to a declared
-<code>bigquery</code> source, so such a deployment boots - what it cannot host is a test about an EXCHANGE.</p>
+<code>bigquery</code> source, so such a deployment boots where the ADBC driver loads, and stops at the driver
+refusal where none does.</p>
 <p><strong>And the line the transport crate draws, because it decides which fixture a new test should reach
 for:</strong> a test that goes through the <strong>router</strong> mints from this venue, through the shared helpers in
 <code>crates/sutura-http/src/testing.rs</code>; the gate-level unit tests keep their own in-place key pair and
