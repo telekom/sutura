@@ -32,15 +32,18 @@
 //!     tier's self-minted PAT as its bearer. The enforcement cell asks one bearer-less read and
 //!     asserts `401`, so a silent rollback of `METADATA_SERVICE_AUTH_ENABLED` to off - which nothing
 //!     else in this file would catch - makes this cell red. Held by a gate, not by this comment.
+//!   * `the_golden_catalog_round_trips_through_a_live_datahub` - provisions
+//!     `examples/single-player/catalog`, reads it back through `HttpAspectReader`, and asserts the
+//!     certified definitions equal the golden minus the named `NOT_CARRIED` rows.
+//!   * `every_not_carried_row_still_names_something_the_golden_states` - no venue, so it runs in
+//!     `just test`: a `NOT_CARRIED` row whose subject left the golden fails rather than lingers.
 //!
 //! # What is still NOT here, because the gap is the useful part
 //!
-//!   * **These cells do not drive `src/http.rs`'s `HttpAspectReader`.** They build their own `ureq`
-//!     agent and map the response in the test, for the reason the module header gives: the venue
-//!     must build with the `http` feature off, and "the platform answers" is an independent claim
-//!     from "this crate's reader is correct". What the cells remove is the excuse that kept the
-//!     wire shapes unasked: each response shape is asserted against the pinned tier, so the
-//!     reader's mapping is engineering rather than research.
+//!   * **Only the golden cell drives `src/http.rs`'s `HttpAspectReader`**, with the `http` feature
+//!     on (both acceptance entry points pass `--features http`). The rest build their own `ureq`
+//!     agent and map the response in the test: "the platform answers" is an independent claim from
+//!     "this crate's reader is correct", and each response shape is asserted against the pinned tier.
 //!   * **The metric full-load cell's structural half is still recorded.** Its subject is the
 //!     certified measure, so the models are beside that point; the `dataset` and `semanticModel`
 //!     pages are now round-tripped by their own cells above.
@@ -100,6 +103,11 @@
 #[cfg(test)]
 #[path = "provisioned/wire_pages.rs"]
 mod wire_pages;
+// The golden catalog round trip, through the real reader - so it needs the `http` feature.
+#[cfg(test)]
+#[cfg(feature = "http")]
+#[path = "provisioned/golden.rs"]
+mod golden;
 
 #[cfg(test)]
 mod tests {
@@ -170,7 +178,7 @@ mod tests {
     /// The self-minted PAT the `just datahub-acceptance` task exported, or a panic naming the
     /// missing task. Auth is ON, so a request without this bearer is a `401` - a write "passing"
     /// without it would be the silent-fail this file's fail-closed discipline exists to refuse.
-    fn pat() -> String {
+    pub(super) fn pat() -> String {
         std::env::var("SUTURA_DATAHUB_PAT").unwrap_or_else(|_| panic!(
             "`just datahub-acceptance` must export SUTURA_DATAHUB_PAT (minted by `sutura-dev mint-pat`) - auth is enabled, so the cells cannot authenticate without it"
         ))

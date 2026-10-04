@@ -13,7 +13,6 @@
 
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::time::Duration;
 
 use sutura_config::{Environment, Settings, Sources};
 use sutura_dev::issuer::{MockIssuer, PublishedKeySet, Token};
@@ -47,22 +46,8 @@ fn exchanged(subject: &str) -> String {
 }
 
 /// The request bodies the identity provider answered, in order.
-///
-/// Bounded, because `FakeServer::finish` joins a thread blocked in `accept()` until every scripted
-/// answer is taken: a broker that never dials would otherwise hang the cell instead of failing it.
 fn offered(idp: FakeServer) -> Vec<String> {
-    let (sent, received) = channel();
-    drop(std::thread::spawn(move || {
-        sent.send(
-            idp.finish()
-                .iter()
-                .map(|request| request.body().to_owned())
-                .collect::<Vec<String>>(),
-        )
-    }));
-    received
-        .recv_timeout(Duration::from_secs(10))
-        .expect("the identity provider must be dialled once per scripted answer")
+    idp.finish().iter().map(|request| request.body().to_owned()).collect()
 }
 
 /// The RFC 8693 token response carrying `token`.

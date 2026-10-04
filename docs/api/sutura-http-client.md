@@ -334,11 +334,12 @@ pub fn endpoint(&self) -> String
 pub fn finish(self) -> CapturedAuthorizations
 ```
 
-Joins the server thread and returns every request it answered, in order.
+Every request the server answered, in order, once every scripted answer is taken.
 
 Only called by a test that knows exactly how many connections it will make - a test that
 deliberately stops short drops the server instead, and the abandoned thread exits with the
-process.
+process. Bounded by `FINISH_TIMEOUT`, so code under test that never dials fails the cell
+instead of hanging it in `accept()`.
 
 ```rust
 pub fn start(answers: Vec<Scripted>) -> Self

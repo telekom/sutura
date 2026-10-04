@@ -181,8 +181,8 @@ mod tests {
         // bundle it was handed (`crates/sutura-cli/src/serve.rs` says so). Each `load()` reads the
         // three pages, so the fake must answer SIX connections: `happy_path_answers()` twice. Because
         // every response carries `Connection: close`, the reader opens a fresh connection per page,
-        // so after boot the fake has served exactly those six and `finish()` (below) joins a thread
-        // that has already exited - no waiting on a seventh. Once boot is done no question reads the
+        // so after boot the fake has served exactly those six and `finish()` (below) returns what
+        // the server already sent - no waiting on a seventh. Once boot is done no question reads the
         // fake again (`DataHubCatalog` read its snapshot at load).
         let mut answers = happy_path_answers();
         answers.extend(happy_path_answers());
@@ -204,8 +204,8 @@ mod tests {
         // **`token_file` actually reaches the wire.** The answer body alone would not prove the
         // declared token file was read and sent: a composition root that ignored it (or read the
         // wrong key) would still answer the question. So the served binary's captured requests must
-        // ALL carry the bearer, one per page - `finish()` joins the (already-exited) fake thread and
-        // returns every request's `authorization` header.
+        // ALL carry the bearer, one per page - `finish()` returns every request's `authorization`
+        // header.
         let authorizations = server.finish();
         assert!(
             !authorizations.is_empty(),
