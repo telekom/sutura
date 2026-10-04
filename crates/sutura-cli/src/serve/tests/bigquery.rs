@@ -219,14 +219,14 @@ fn an_anchor_on_a_bigquery_source_is_held_to_the_same_verification_rule() {
 /// `wif()` plus a tail rather than a second literal, so the audience and scope every case shares are
 /// written once and only the part under test differs.
 #[cfg(feature = "bigquery")]
-pub(super) fn wif_with(extra: &str) -> String {
+fn wif_with(extra: &str) -> String {
     format!("{}{extra}    verification_identity: \"sutura_anchor_reader\"\n", wif())
 }
 
 /// Two declared subjects, each mapped to its own account - the shape a served impersonating source
 /// is ADMITTED on. Whether either subject is answered is not a question this module asks.
 #[cfg(feature = "bigquery")]
-pub(super) fn two_declared_subjects() -> &'static str {
+fn two_declared_subjects() -> &'static str {
     "      impersonate:\n        \"analyst-a@example.com\": \"bq-a@acme-analytics.iam.gserviceaccount.com\"\n        \
      \"analyst-b@example.com\": \"bq-b@acme-analytics.iam.gserviceaccount.com\"\n"
 }
@@ -381,7 +381,7 @@ const POOL: &str = "pool-client-id";
 /// One source's declared delegation exchange, indented to sit inside `workload_identity:` after the
 /// `impersonate:` map - 6 spaces for `delegation:`, 8 for its keys, exactly as `sutura_config` reads.
 #[cfg(feature = "bigquery")]
-pub(super) fn delegation_block(endpoint: &str, secret_file: &std::path::Path) -> String {
+fn delegation_block(endpoint: &str, secret_file: &std::path::Path) -> String {
     format!(
         "      delegation:\n        token_endpoint: \"{endpoint}\"\n        client_id: \"sutura\"\n        \
          client_secret_file: \"{}\"\n        audience: \"{POOL}\"\n",
@@ -414,11 +414,11 @@ fn delegated_broker(
 /// A per-test client-secret file, so none of these cells shares a path with another (or with a
 /// parallel run): created under a directory named for the case and this process, removed on drop.
 #[cfg(feature = "bigquery")]
-pub(super) struct SecretFileGuard(std::path::PathBuf);
+struct SecretFileGuard(std::path::PathBuf);
 
 #[cfg(feature = "bigquery")]
 impl SecretFileGuard {
-    pub(super) fn create(name: &str) -> Self {
+    fn create(name: &str) -> Self {
         let dir = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("a per-test directory is creatable");
         let path = dir.join("client-secret");
@@ -426,7 +426,7 @@ impl SecretFileGuard {
         Self(path)
     }
 
-    pub(super) fn path(&self) -> &std::path::Path {
+    fn path(&self) -> &std::path::Path {
         &self.0
     }
 }
@@ -443,7 +443,7 @@ impl Drop for SecretFileGuard {
 /// A compact JWT the fake identity provider "issued": `header.payload.signature`, with a future
 /// `exp` and the pool provider as its `aud` - the exchanged token the broker must present.
 #[cfg(feature = "bigquery")]
-pub(super) fn exchanged() -> String {
+fn exchanged() -> String {
     let encode = |bytes: &[u8]| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
     format!(
         "{}.{}.signature",
@@ -458,7 +458,7 @@ pub(super) fn exchanged() -> String {
 
 /// The complete RFC 8693 token response whose `access_token` is [`exchanged`].
 #[cfg(feature = "bigquery")]
-pub(super) fn issued() -> serde_json::Value {
+fn issued() -> serde_json::Value {
     serde_json::json!({
         "access_token": exchanged(),
         "issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
@@ -670,3 +670,8 @@ fn the_delegation_exchange_dials_over_the_declared_outbound_anchors() {
         "{refused:?}"
     );
 }
+
+// The delegation exchange behind the served HTTP surface and the real leg-1 gate (#1230): a child
+// module, so it composes this file's own delegation fixtures without widening them.
+#[cfg(feature = "bigquery")]
+mod delegation_served;

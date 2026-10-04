@@ -16,9 +16,9 @@
 //! **A source declaring `workload_identity.delegation` presents the token its caller's own inbound
 //! token is exchanged for**, through the client `delegation` builds - `direct` mode's second
 //! document (`docs/adr/0014`, fourth and fifth amendments). Held in-process by this root's
-//! `build_broker` cells and by `serve::tests::delegation_served`, which reaches it behind the real
-//! router and leg-1 gate; no spawned-binary cell reaches it, because a `bigquery` deployment needs
-//! the ADBC driver to boot.
+//! `build_broker` cells and by `serve::tests::bigquery::delegation_served`, which reaches it behind
+//! the real router and leg-1 gate; no spawned-binary cell reaches it, because a `bigquery`
+//! deployment needs the ADBC driver to boot.
 //!
 //! It scans the WHOLE `sources:` registry rather than the `bigquery`-kind entries only, for the
 //! reason the deleted builder did: a plan may read a shared source of one kind and an impersonating

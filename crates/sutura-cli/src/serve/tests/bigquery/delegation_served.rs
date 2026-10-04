@@ -24,8 +24,8 @@ use sutura_exec_bigquery::transport::{
 };
 use sutura_http_client::test_support::{FakeServer, Scripted};
 
-use super::bigquery::{SecretFileGuard, delegation_block, exchanged, issued, two_declared_subjects, wif_with};
-use super::support::{accepted_by, bundle_with_an_unanchored_metric, catalog_of, direct_overlay};
+use super::super::support::{accepted_by, bundle_with_an_unanchored_metric, catalog_of, direct_overlay};
+use super::{SecretFileGuard, delegation_block, exchanged, issued, two_declared_subjects, wif_with};
 
 /// The declared subject every cell asks as, and the account `two_declared_subjects` maps it to.
 const ASKING: &str = "analyst-a@example.com";
@@ -107,7 +107,7 @@ fn served(case: &str, idp: &FakeServer) -> Served {
     let overlay = format!(
         "{}  identity: \"multi-user\"\nsources:\n{}",
         direct_overlay(&issuer, &published.path().to_string_lossy()),
-        super::bigquery_entry(
+        super::super::bigquery_entry(
             "warehouse",
             "impersonation-at-source",
             &wif_with(&format!(
@@ -120,7 +120,8 @@ fn served(case: &str, idp: &FakeServer) -> Served {
     let settings =
         Settings::load(&Sources::defaults(Environment::Development).with_overlay(&overlay)).expect("the overlay loads");
     // The composition root's own broker, built from the settings it would read.
-    let broker = super::super::broker::build_broker(settings.sources(), None).expect("a direct deployment admits a delegation");
+    let broker =
+        super::super::super::broker::build_broker(settings.sources(), None).expect("a direct deployment admits a delegation");
     let (recording, transport) = channel();
     let warehouse = sutura_exec_bigquery::BigQueryWarehouse::new(
         SourceName::parse("warehouse").expect("a test source is a source"),
