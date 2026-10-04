@@ -2191,7 +2191,7 @@ complete one.</p>
 <td><code>sutura-exec-postgres</code></td>
 <td>yes</td>
 <td>yes</td>
-<td>one shared credential - <code>NoPlaceForASubject</code></td>
+<td>one declared shared service account - <code>NoPlaceForASubject</code></td>
 </tr>
 <tr>
 <td>DuckDB</td>
@@ -2212,14 +2212,14 @@ complete one.</p>
 <td><code>sutura-exec-clickhouse</code></td>
 <td>yes</td>
 <td>yes, behind a default-off <code>clickhouse</code> feature</td>
-<td>one shared credential - <code>NoPlaceForASubject</code></td>
+<td>one declared shared service account - <code>NoPlaceForASubject</code></td>
 </tr>
 <tr>
 <td>Oracle</td>
 <td><code>sutura-exec-oracle</code></td>
 <td>yes</td>
 <td>declarable behind a default-off <code>oracle</code> feature; see below</td>
-<td>one shared credential - <code>NoPlaceForASubject</code></td>
+<td>one declared shared service account - <code>NoPlaceForASubject</code></td>
 </tr>
 </tbody>
 </table>
@@ -2237,9 +2237,10 @@ Asked by hand against <code>compose.services.yaml</code>'s real
 it in <code>LIMIT n</code> and Oracle refuses that (<code>ORA-03049</code>). The renderer now ends it in
 <code>FETCH FIRST n ROWS ONLY</code>, which the Oracle goldens pin; no committed cell executes a whole-plan
 question against an Oracle server, so those goldens pin what this renderer emits and nothing a
-database agreed to. Its
-identity column is <code>ClickHouse</code>'s: an <code>impersonation-at-source</code> declaration is refused at the
-composition root with the reason that no build delivers it.</p>
+database agreed to. It signs in only as its declared shared service account - <code>NoPlaceForASubject</code>, so
+an <code>impersonation-at-source</code> declaration is refused at the composition root with the reason that no
+build delivers it. Per-caller sign-in is blocked upstream (#42, #923); this lifts when the upstream
+work lands.</p>
 <p><strong>ClickHouse is the newest row and the one whose columns need reading together.</strong> It executes: a
 <code>kind: clickhouse</code> source is declarable and openable by a build carrying the <code>clickhouse</code> feature,
 which every release binary carries now that <code>github.com/telekom/sutura#955</code> landed. The golden and differential suites run the example
@@ -2247,9 +2248,10 @@ corpus against a real ClickHouse - the server <code>nix/clickhouse-tier.nix</cod
 tier - and pin its rows, refusals, error and anchor report; the conformance packs are bound too
 (<code>execute_packs!</code> in <code>crates/sutura-exec-clickhouse/tests/conformance.rs</code>). What the <code>Executes</code>
 column does NOT say about it: <code>Warehouse::EXECUTES_LEGS</code> is absent on the adapter - so a federated
-question involving a ClickHouse source is still refused by the capability gate. Its identity column is the static half and stays there until an adapter change:
-<code>NoPlaceForASubject</code>, so an <code>impersonation-at-source</code> declaration on this kind is refused at the
-composition root with the reason that no build delivers it.</p>
+question involving a ClickHouse source is still refused by the capability gate. Its identity is one declared
+shared service account - <code>NoPlaceForASubject</code>, so an <code>impersonation-at-source</code> declaration on this kind is refused
+at the composition root with the reason that no build delivers it. Per-caller identity is the ADBC path's
+job once the ClickHouse ADBC migration (#1250) lands, and is not built (#1263).</p>
 <p><strong>Postgres is answered over ADBC.</strong> Every <code>kind: postgres</code> source runs through the ADBC PostgreSQL
 driver: every musl release links it statically, with libpq, MIT krb5 and OpenSSL 3, and any other
 build mounts one named by <code>SUTURA_POSTGRES_ADBC_DRIVER</code> (a source refuses at boot where neither is
@@ -2258,8 +2260,9 @@ initialises. <strong>A source signs in only as its declared shared service accou
 a client certificate, or as one Kerberos principal from the deployment's keytab - the one the
 credential cache <code>KRB5CCNAME</code> names, filled from <code>KRB5_CLIENT_KTNAME</code>'s keytab - which the
 transport can be built for and no settings key selects yet. OAuth and per-caller sign-in are not
-supported: the linked libpq is built without OAuth, and the connection string refuses SSPI and
-OAuth sign-in on either route. It also refuses <code>transport_anchors: system</code>, TLS or Kerberos over a
+supported: they are blocked upstream (#42) and lift when the upstream work lands. The linked
+libpq is built without OAuth, and the connection string refuses SSPI and OAuth sign-in on either
+route. It also refuses <code>transport_anchors: system</code>, TLS or Kerberos over a
 unix socket, Kerberos with no credential named, and GSSAPI encryption beside TLS, which libpq cannot
 hold to. The adapter's tier-backed cells run through a mounted driver in <code>checks.nextest</code> and
 through the linked static one on x86_64 musl in CI, where a Kerberos sign-in against a KDC tier and

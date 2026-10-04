@@ -2966,6 +2966,26 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 </tr>
 <tr>
+<td><strong>Whether the shipped ClickHouse source executes as the asking subject</strong></td>
+<td>no - the adapter declares <code>ImpersonationCapability::NoPlaceForASubject</code>, so an <code>impersonation-at-source</code> declaration on this kind is refused at the composition root</td>
+<td>no</td>
+<td>-</td>
+<td>-</td>
+<td>no</td>
+<td>no - a different adapter, refused at boot before any venue</td>
+<td>-</td>
+</tr>
+<tr>
+<td><strong>Whether the Oracle source (behind the default-off <code>oracle</code> feature, in no published binary) executes as the asking subject</strong></td>
+<td>no - the adapter declares <code>ImpersonationCapability::NoPlaceForASubject</code>, so an <code>impersonation-at-source</code> declaration on this kind is refused at the composition root with the reason that no build delivers it</td>
+<td>no</td>
+<td>-</td>
+<td>-</td>
+<td>no</td>
+<td>no - a different adapter, refused at boot before any venue</td>
+<td>-</td>
+</tr>
+<tr>
 <td>Whether a real source's chain is VERIFIED, so anchors that do not name its issuer refuse the connection</td>
 <td>-</td>
 <td>-</td>
