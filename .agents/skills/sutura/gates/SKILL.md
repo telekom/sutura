@@ -1749,14 +1749,21 @@ for the wrong reason.
 
 ## The Live-Cell trailer
 
-`Live-Cell: <test-fn-name> <system> <ci-job>` moves a matrix cell out of the offline scope, as an
-`#[ignore]` would, when its changed lines run only for a data system unavailable offline - the cell
-skips that system on base and on HEAD alike, so no offline run can redden it. `causality::live`
-refuses the run when `<system>` is not exempted `from: Exempt::Unavailable` in
-`sutura-app`'s `adapters::exemptions::EXEMPTIONS` or `<ci-job>` is no job in `ci.yml`. **What it does
-not hold:** whether the changed lines really run only for that system, and whether that job selects
-the cell - review holds both, and that job's runs are the cell's only evidence. A cell whose subject
-is test code that runs offline is not a live cell.
+`Live-Cell: <test-fn-name> <system> <ci-job>` moves a `crates/sutura-app/tests/` matrix cell out of
+the offline scope, as an `#[ignore]` would, when its changed lines run only for a data system
+unavailable offline.
+
+| Shape | Answer |
+| --- | --- |
+| `<system>`'s `Unavailable` entry has no `runs_in: Some("<ci-job>")` | refused |
+| `<ci-job>` is no job under `jobs:` in `ci.yml` | refused |
+| the name is also a `Claim-Cell:` | refused - the mutation is the proof |
+| the cell is outside `crates/sutura-app/tests/` | stays in scope, so the ordinary proof answers |
+| a per-system macro cell | every system's row leaves, the offline ones too - the name is bare |
+
+**What it does not hold:** whether the changed lines run only for that system, and whether the job
+selects the cell - review holds both. The job is advisory and skips forks, so nothing that gates a
+merge measures a live cell. A cell whose subject is test code that runs offline is not a live cell.
 
 ## The Claim-Cell trailer
 

@@ -538,7 +538,7 @@ fn tests_only(
         }
         Scan::Unreadable(unreadable) => report_unreadable(&unreadable),
         Scan::Enabled(refused) => report_enabled_tests(&refused),
-        Scan::OnlyIgnored(names) => report_only_ignored(&names, &Coverage::of(&[], files, read)),
+        Scan::OnlyIgnored(names) => report_only_ignored(&names, &live.coverage(Coverage::of(&[], files, read))),
         Scan::Unnamed => report_unnamed_tests(&separable.test_files),
     }
 }
@@ -731,7 +731,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             }
             report_not_separable(
                 &inseparable,
-                &Coverage::of(&[], &files, &working_tree),
+                &live.coverage(Coverage::of(&[], &files, &working_tree)),
                 &build_inputs,
                 claim.is_some(),
             )
@@ -826,7 +826,7 @@ fn separable_verdict(
                     at,
                     separable,
                     &remaining,
-                    &Coverage::of(remaining.tests(), files, working_tree),
+                    &live.coverage(Coverage::of(remaining.tests(), files, working_tree)),
                     &reach,
                     files,
                     working_tree,
@@ -838,7 +838,7 @@ fn separable_verdict(
                     _ => Verdict::Pass,
                 };
             }
-            let coverage = Coverage::of(scoped.tests(), files, working_tree);
+            let coverage = live.coverage(Coverage::of(scoped.tests(), files, working_tree));
             prove(root, at, separable, &scoped, &coverage, &reach, files, working_tree, exempt)
         }
         Scan::Unreadable(files) => report_unreadable(&files),
@@ -846,7 +846,7 @@ fn separable_verdict(
         // The names come from this arm and the RATIO from the whole-diff scan, which is
         // the half `github.com/telekom/sutura#314` was about: this arm formatted its own
         // `0 of N` while every other arm printed `0 of 0` and named none of them.
-        Scan::OnlyIgnored(names) => report_only_ignored(&names, &Coverage::of(&[], files, working_tree)),
+        Scan::OnlyIgnored(names) => report_only_ignored(&names, &live.coverage(Coverage::of(&[], files, working_tree))),
         Scan::Unnamed => report_unnamed_tests(&separable.test_files),
     }
 }

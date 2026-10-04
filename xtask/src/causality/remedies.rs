@@ -255,7 +255,7 @@ fn unmeasured_lines(coverage: &Coverage) -> Vec<String> {
     // diff was told on every arm but one - and that reads as *this diff added no tests*.
     for name in coverage.not_runnable() {
         lines.push(format!(
-            "    not runnable here: {name}  (`#[ignore]`d, so no run in this venue reaches it)"
+            "    not runnable here: {name}  (`#[ignore]`d or a declared live cell, so no run in this venue reaches it)"
         ));
     }
     lines

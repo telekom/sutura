@@ -745,7 +745,7 @@ fn changed_tree(base_files: &[(&str, &str)], head_files: &[(&str, &str)]) -> Ver
 }
 
 /// [`changed_tree`] with the head commit's `message`, so a cell can carry a trailer.
-fn committed_tree(message: &str, base_files: &[(&str, &str)], head_files: &[(&str, &str)]) -> Verdict {
+pub(super) fn committed_tree(message: &str, base_files: &[(&str, &str)], head_files: &[(&str, &str)]) -> Verdict {
     assert!(
         std::env::var_os("NEXTEST").is_some(),
         "this fixture changes the process directory; run it under `just test`"
