@@ -1100,7 +1100,7 @@
             sutura-keycloak-tier start
             (
               exec cargo nextest run --cargo-profile ci -p sutura-cli --all-features \
-                --run-ignored only -E 'test(served_datahub_metric_executes_through_adbc_bigquery)' "$@"
+                --run-ignored only -E 'test(served_datahub_metric_executes_through_adbc_bigquery) | test(/^delegation_adbc::/)' "$@"
             )
           '');
         };

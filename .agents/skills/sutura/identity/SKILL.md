@@ -178,12 +178,14 @@ later inherits the `PrincipalChain` key rule below. The `wire` implementor decod
 IdP. Any exchange failure, an IdP refusing one subject included, is `503 identity_unavailable`.
 `sutura serve` builds it from `sources.<alias>.workload_identity.delegation` (`token_endpoint`,
 `client_id`, `client_secret_file`, `audience`), each parsed at boot by the adapter's own type, and
-`Settings::refusals` refuses the block unless the inbound mode is `direct`. **Two limits:** no
-spawned-binary cell reaches the exchange - a `bigquery` deployment needs the ADBC driver to boot and
-the default venue has none, so the composition is held in-process, by `build_broker`'s cells and by
-`serve::tests::delegation_served` (the real router and leg-1 gate, a loopback IdP, and a recording
-transport behind the real adapter) - and nothing requires a `direct` impersonating source to declare
-one: without it the inbound token is presented.
+`Settings::refusals` refuses the block unless the inbound mode is `direct`. **Two limits:** a
+`bigquery` deployment needs the ADBC driver to boot and no nix check has one, so the composition is
+held in-process, by `build_broker`'s cells and by `serve::tests::delegation_served` (the real router
+and leg-1 gate, a loopback IdP, and a recording transport behind the real adapter). The spawned
+binary reaches it only in `tests/served/delegation_adbc.rs`'s two `#[ignore]`d cells, run by
+`just e2e-datahub-adbc` - which skips the merge queue and forks - and they read what the IdP was
+offered and what the surface answered, never the credential the driver held. And nothing requires a
+`direct` impersonating source to declare one: without it the inbound token is presented.
 
 **What the deleted cache is still worth reading for** (`docs/adr/0031`'s second amendment): the key
 must be the whole `PrincipalChain` and never a bare `Subject`. Review found the first version's own
