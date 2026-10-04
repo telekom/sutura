@@ -51,7 +51,7 @@ pub(crate) mod step;
 // Which jobs GATE a merge, and which only look as though they do. Its own file for the reason
 // `shipped::refusal` is: this one is against the unexemptable 1000-line cap. It reads a different
 // authority - `devco/required-contexts`, a record of an API answer - and its fixtures come with it.
-mod contexts;
+pub(crate) mod contexts;
 
 // WHICH FILES ORDINARY CI ACTUALLY RUNS. One walk of the local `uses:` call graph, read by both
 // halves of this gate: the release-output refusal below, which used to read one file name while a
