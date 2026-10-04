@@ -443,27 +443,77 @@ mod tests {
         }
     }
 
+    /// `causality::run` over a one-commit git fixture whose HEAD message is `message`: `g` goes from
+    /// 1 to 2, and `the_red_one` asserts 2, so the run is red on base and green on HEAD.
+    fn run_under(message: &str) -> crate::Verdict {
+        assert!(
+            std::env::var_os("NEXTEST").is_some(),
+            "this changes the process directory; run it under `just test`"
+        );
+        let dir = std::env::temp_dir().join(format!("sutura-causality-live-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        let git = |args: &[&str]| {
+            let mut command = std::process::Command::new("git");
+            crate::repo::strip_git_env(&mut command);
+            let out = command.current_dir(&dir).args(args).output().expect("git runs");
+            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+            String::from_utf8(out.stdout).expect("utf8")
+        };
+        let write = |path: &str, text: &str| {
+            std::fs::create_dir_all(dir.join(path).parent().expect("a file path")).expect("a directory");
+            std::fs::write(dir.join(path), text).expect("a fixture file");
+        };
+        write(
+            "Cargo.toml",
+            "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[profile.ci]\ninherits = \"dev\"\n",
+        );
+        write("flake.nix", "{ }\n");
+        write("src/lib.rs", "pub fn g() -> u8 { 1 }\n");
+        git(&["init", "-q", "-b", "main"]);
+        git(&["add", "-A"]);
+        git(&[
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "user.name=test",
+            "commit",
+            "-q",
+            "-m",
+            "base",
+        ]);
+        let base = git(&["rev-parse", "HEAD"]).trim().to_owned();
+        write("src/lib.rs", "pub fn g() -> u8 { 2 }\n");
+        write(
+            "tests/t.rs",
+            "#[test]\nfn the_red_one() {\n    assert_eq!(wired::g(), 2);\n}\n",
+        );
+        git(&["add", "-A"]);
+        git(&[
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "user.name=test",
+            "commit",
+            "-q",
+            "-m",
+            message,
+        ]);
+        let original = std::env::current_dir().expect("a current directory");
+        std::env::set_current_dir(&dir).expect("the fixture directory");
+        let verdict = super::super::run(&[String::from("--since"), base]);
+        std::env::set_current_dir(&original).expect("restore the directory");
+        drop(std::fs::remove_dir_all(&dir));
+        verdict
+    }
+
     /// A refused trailer fails a run that passes without it, so this holds both the refusal in
     /// `read` and its delivery in `causality::run`.
     #[test]
     fn a_refused_live_cell_is_delivered_as_a_failed_run() {
-        let run = |message: &str| {
-            crate::causality::gas_tests::committed_tree(
-                message,
-                &[("src/lib.rs", "pub fn g() -> u8 { 1 }\n")],
-                &[
-                    ("src/lib.rs", "pub fn g() -> u8 { 2 }\n"),
-                    (
-                        "tests/t.rs",
-                        "#[test]\nfn the_red_one() {\n    assert_eq!(wired::g(), 2);\n}\n",
-                    ),
-                ],
-            )
-        };
         assert_eq!(
             (
-                run("test: an ordinary red test\n"),
-                run("test: a refused live cell\n\nLive-Cell: the_red_one duckdb nightly\n")
+                run_under("test: an ordinary red test\n"),
+                run_under("test: a refused live cell\n\nLive-Cell: the_red_one duckdb nightly\n")
             ),
             (crate::Verdict::Pass, crate::Verdict::Fail)
         );
