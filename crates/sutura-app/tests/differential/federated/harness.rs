@@ -232,7 +232,7 @@ fn chain(error: &dyn core::error::Error, name: &str) -> String {
     let mut cursor = error.source();
     while let Some(cause) = cursor {
         out.push_str("\n  caused by: ");
-        out.push_str(&crate::adapters::unlinked(&cause.to_string()));
+        out.push_str(&cause.to_string());
         cursor = cause.source();
     }
     out

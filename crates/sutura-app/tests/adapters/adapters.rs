@@ -580,21 +580,6 @@ fn set(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|value| !value.trim().is_empty())
 }
 
-/// `message` with any console link cut out. A `bigquery` driver message links the job it ran, and a
-/// failing cell's panic lands in a public CI log, which should not learn where that job ran.
-pub(crate) fn unlinked(message: &str) -> String {
-    const LINK: &str = "https://console.cloud.google.com/";
-    let mut out = String::with_capacity(message.len());
-    let mut rest = message;
-    while let Some((before, after)) = rest.split_once(LINK) {
-        out.push_str(before);
-        out.push_str("[a job link]");
-        rest = after.trim_start_matches(|c: char| !c.is_whitespace() && c != ')');
-    }
-    out.push_str(rest);
-    out
-}
-
 /// The fourth DATA SOURCE, over the wire like Postgres - `github.com/telekom/sutura#127` PR 2.
 ///
 /// **`available()` answers `false` unconditionally.** Oracle Database HAS a local venue -
