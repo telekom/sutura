@@ -133,7 +133,7 @@ fn a_committed_exemption_passes_an_orphan_and_an_older_entry_is_not_stale() {
     assert_eq!((orphan(older), orphan(&exempted)), (Verdict::Fail, Verdict::Pass));
 }
 
-/// An entry naming no fn in the tree is refused on a run that would otherwise pass.
+/// An entry that matches no function in the tree is refused on a run that would otherwise pass.
 #[test]
 fn an_exemption_naming_no_fn_in_the_tree_is_refused() {
     let head = [
