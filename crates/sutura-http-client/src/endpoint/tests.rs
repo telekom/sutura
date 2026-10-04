@@ -82,6 +82,12 @@ fn a_url_naming_neither_scheme_is_refused() {
         matches!(&refused, Err(InvalidEndpoint::NotAnHttpUrl { given }) if given.to_string() == "ftp://catalog.example"),
         "{refused:?}"
     );
+    // An `@` outside the parsed authority may be the rest of a password: the refusal shows nothing.
+    let refused = Endpoint::parse("ftp://catalog.example/x@y");
+    assert!(
+        matches!(&refused, Err(InvalidEndpoint::NotAnHttpUrl { given }) if given.to_string() == "the declared endpoint"),
+        "{refused:?}"
+    );
 }
 
 /// **The round-2 review's exact bypass shape, held as a cell.** A hand-rolled host extraction
@@ -148,6 +154,11 @@ fn a_malformed_or_out_of_range_port_is_refused() {
             "{refused:?}"
         );
     }
+    let refused = Endpoint::parse("http://127.0.0.1:0/x@y");
+    assert!(
+        matches!(&refused, Err(InvalidEndpoint::NotAnHttpUrl { given }) if given.to_string() == "the declared endpoint"),
+        "{refused:?}"
+    );
 }
 
 /// A bare `/path` is refused - the same `PathBeyondRoot` branch as the query cell above.
@@ -156,6 +167,11 @@ fn a_path_is_refused_rather_than_silently_dropped() {
     let refused = Endpoint::parse("http://127.0.0.1:1/path");
     assert!(
         matches!(&refused, Err(InvalidEndpoint::PathBeyondRoot { given }) if given.to_string() == "http://127.0.0.1:1/path"),
+        "{refused:?}"
+    );
+    let refused = Endpoint::parse("http://127.0.0.1:1/x@y");
+    assert!(
+        matches!(&refused, Err(InvalidEndpoint::PathBeyondRoot { given }) if given.to_string() == "the declared endpoint"),
         "{refused:?}"
     );
 }
