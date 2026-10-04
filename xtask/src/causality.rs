@@ -103,6 +103,7 @@ mod features;
 #[cfg(test)]
 mod fixtures;
 pub(crate) mod isolation;
+mod live;
 mod membership;
 mod names;
 mod no_base;
@@ -521,9 +522,10 @@ fn tests_only(
     files: &[diff::ChangedFile],
     separable: &Separable,
     read: &regions::PostImage<'_>,
+    live: &live::Live,
 ) -> Verdict {
     report_unreverted(&separable.build_inputs);
-    match Scan::of(files, &separable.test_files, read) {
+    match live.scan(Scan::of(files, &separable.test_files, read)) {
         Scan::Runnable(scoped) => {
             let Some(claim) = claim::Claim::of(&worktree::messages(root, at)) else {
                 return report_unclaimed_additions(scoped.tests());
@@ -536,7 +538,7 @@ fn tests_only(
         }
         Scan::Unreadable(unreadable) => report_unreadable(&unreadable),
         Scan::Enabled(refused) => report_enabled_tests(&refused),
-        Scan::OnlyIgnored(names) => report_only_ignored(&names, &Coverage::of(&[], files, read)),
+        Scan::OnlyIgnored(names) => report_only_ignored(&names, &live.coverage(Coverage::of(&[], files, read))),
         Scan::Unnamed => report_unnamed_tests(&separable.test_files),
     }
 }
@@ -591,6 +593,9 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     // happen.
     println!("{}", measured.measured(&base));
     let Ok(exemptions) = Exemptions::read(&root).map_err(|e| eprintln!("xtask test-causality: FAILED - {e}")) else {
+        return Verdict::Fail;
+    };
+    let Some(live) = live::Live::read(&root, &worktree::messages(&root, &at)) else {
         return Verdict::Fail;
     };
 
@@ -708,7 +713,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             // arm either, and says so exactly as it did before this decision.
             let claim = claim::Claim::of(&worktree::messages(&root, &at));
             if let Some(ref declared) = claim
-                && let Scan::Runnable(scoped) = Scan::of(&files, &inseparable, &working_tree)
+                && let Scan::Runnable(scoped) = live.scan(Scan::of(&files, &inseparable, &working_tree))
             {
                 let claim_verdict = claim::run(&root, &scoped, &inseparable, declared, claim::Caller::TEST_CAUSALITY);
                 let names: BTreeSet<String> = declared.cells().iter().cloned().collect();
@@ -726,14 +731,14 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             }
             report_not_separable(
                 &inseparable,
-                &Coverage::of(&[], &files, &working_tree),
+                &live.coverage(Coverage::of(&[], &files, &working_tree)),
                 &build_inputs,
                 claim.is_some(),
             )
         }
         Plan::Separable(separable) => {
             edited::callsite::name(&separable.edited);
-            let verdict = separable_verdict(&root, &at, &files, &separable, &working_tree, &base_tree, &exemptions);
+            let verdict = separable_verdict(&root, &at, &files, &separable, &working_tree, &base_tree, &exemptions, &live);
             edited::callsite::cap(&separable.edited, verdict)
         }
     }
@@ -748,15 +753,16 @@ fn separable_verdict(
     working_tree: &regions::PostImage<'_>,
     base_tree: &regions::PostImage<'_>,
     exempt: &Exemptions,
+    live: &live::Live,
 ) -> Verdict {
     if separable.revert.is_empty() {
         // Same string check as the arm above: an incomplete claim declaration (trailer
         // committed, patch not) has an empty `revert` and lands here rather than at
         // `Plan::NotSeparable` too - `tests_only` reads the same declaration and now
         // consults it, rather than only mentioning that one exists.
-        return tests_only(root, at, files, separable, working_tree);
+        return tests_only(root, at, files, separable, working_tree, live);
     }
-    match Scan::of(files, &separable.test_files, working_tree) {
+    match live.scan(Scan::of(files, &separable.test_files, working_tree)) {
         Scan::Runnable(scoped) => {
             // A COMMIT MAY DECLARE A CLAIM CELL, and the trailer is a CLAIM this CHECKS
             // rather than a permission that replaces the check. A claim cell is an added
@@ -820,7 +826,7 @@ fn separable_verdict(
                     at,
                     separable,
                     &remaining,
-                    &Coverage::of(remaining.tests(), files, working_tree),
+                    &live.coverage(Coverage::of(remaining.tests(), files, working_tree)),
                     &reach,
                     files,
                     working_tree,
@@ -832,7 +838,7 @@ fn separable_verdict(
                     _ => Verdict::Pass,
                 };
             }
-            let coverage = Coverage::of(scoped.tests(), files, working_tree);
+            let coverage = live.coverage(Coverage::of(scoped.tests(), files, working_tree));
             prove(root, at, separable, &scoped, &coverage, &reach, files, working_tree, exempt)
         }
         Scan::Unreadable(files) => report_unreadable(&files),
@@ -840,7 +846,7 @@ fn separable_verdict(
         // The names come from this arm and the RATIO from the whole-diff scan, which is
         // the half `github.com/telekom/sutura#314` was about: this arm formatted its own
         // `0 of N` while every other arm printed `0 of 0` and named none of them.
-        Scan::OnlyIgnored(names) => report_only_ignored(&names, &Coverage::of(&[], files, working_tree)),
+        Scan::OnlyIgnored(names) => report_only_ignored(&names, &live.coverage(Coverage::of(&[], files, working_tree))),
         Scan::Unnamed => report_unnamed_tests(&separable.test_files),
     }
 }
