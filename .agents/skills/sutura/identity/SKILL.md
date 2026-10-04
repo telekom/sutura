@@ -179,9 +179,11 @@ IdP. Any exchange failure, an IdP refusing one subject included, is `503 identit
 `sutura serve` builds it from `sources.<alias>.workload_identity.delegation` (`token_endpoint`,
 `client_id`, `client_secret_file`, `audience`), each parsed at boot by the adapter's own type, and
 `Settings::refusals` refuses the block unless the inbound mode is `direct`. **Two limits:** no
-served-binary cell reaches the exchange - a `bigquery` deployment needs the ADBC driver to boot and
-the default venue has none, so `build_broker`'s in-process cells hold the composition - and nothing
-requires a `direct` impersonating source to declare one: without it the inbound token is presented.
+spawned-binary cell reaches the exchange - a `bigquery` deployment needs the ADBC driver to boot and
+the default venue has none, so the composition is held in-process, by `build_broker`'s cells and by
+`serve::tests::delegation_served` (the real router and leg-1 gate, a loopback IdP, and a recording
+transport behind the real adapter) - and nothing requires a `direct` impersonating source to declare
+one: without it the inbound token is presented.
 
 **What the deleted cache is still worth reading for** (`docs/adr/0031`'s second amendment): the key
 must be the whole `PrincipalChain` and never a bare `Subject`. Review found the first version's own
@@ -196,9 +198,11 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
 
 - The BigQuery adapter builds a **workload-identity credential document** per request and hands it
   to the driver: an `external_account` whose `credential_source` is a loopback `url` serving the
-  asking subject's OWN verified assertion, nonce-bound, for as long as one request holds it
-  (`crates/sutura-exec-bigquery/src/adbc/subject.rs`). No served build exchanges with the pool itself - Google's
-  token service federates the assertion against the pool the source declares. Which of
+  asking subject's OWN verified assertion - or, for a source declaring `workload_identity.delegation`,
+  the token the operator's identity provider exchanged it for - nonce-bound, for as long as one
+  request holds it (`crates/sutura-exec-bigquery/src/adbc/subject.rs`). No served build exchanges
+  with the pool itself - Google's token service federates that token against the pool the source
+  declares. Which of
   [`JobIdentity`]'s arms a leg carries is decided once, above, from what the broker presented, and a
   transport that cannot serve the arm it is handed refuses.
 - **`service_account_impersonation_url` names the account declared for the asking subject**, which
@@ -221,8 +225,9 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
   `credential_unavailable`.
 - `CredentialUnavailable` is reachable **through the served binary**: a served impersonating source
   with no inbound gate answers `403 credential_unavailable` (no verified subject to serve), and a
-  broker that cannot be reached gets `503` from `SurfaceFailure::Broker`. None of that is an answer
-  *under* an asker.
+  broker that cannot be reached gets `503` from `SurfaceFailure::Broker` - which is also what a
+  refused delegation exchange answers, held behind the real router by `serve::tests::delegation_served`.
+  None of that is an answer *under* an asker.
 - **No exchange has run against a real Google token service from any code in this tree.** A round of
   this file offered a hosted run on 2026-09-16 as evidence, unqualified. That run was of
   `wire::StsOverHttp`, `wire::IamCredentialsOverHttp` and `WorkloadIdentity::target_for` - all three
