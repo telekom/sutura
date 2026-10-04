@@ -379,9 +379,9 @@ fn no_base_behaviour(base: &str, remove: &[&String], coverage: &Coverage, build_
 /// fails CLOSED in a tree nothing provisioned, the trap [`super::runner::nextest`] records for
 /// tier-backed cells.
 pub(super) fn report_only_ignored(names: &[Ident], coverage: &Coverage) -> Verdict {
-    println!("xtask test-causality: EVERY ADDED TEST IS `#[ignore]`d");
+    println!("xtask test-causality: EVERY ADDED TEST IS `#[ignore]`d OR A DECLARED `Live-Cell:`");
     for name in names {
-        println!("  {} is ignored, so no run here reaches it", name.as_str());
+        println!("  {} is ignored or live, so no run here reaches it", name.as_str());
     }
     // THE RATIO IS NOT THIS ARM'S TO FORMAT, and it used to be: `0 of {names.len()}` was spelled
     // here in prose while every other arm printed `Coverage`'s own numbers - two formatters for one

@@ -48,7 +48,11 @@ Those three plus secure-by-design are the definition of *correct* in review here
   `just ship-check` before saying done. An added or modified test PINNING behaviour the base tree
   already provides may pass only under an accepted `Claim-Cell: <test-fn-name>` declaration naming
   it plus a committed killing mutation at `devco/claim-mutations/<test-fn-name>.patch`; a claim
-  cell with no killing mutation is refused. Limits: a test sharing one file with its implementation
+  cell with no killing mutation is refused. A matrix cell whose changed lines run only for a data
+  system `adapters::exemptions::EXEMPTIONS` names unavailable offline leaves the scope under
+  `Live-Cell: <test-fn-name> <system> <ci-job>`, refused unless that system is exempted
+  `Unavailable` and that job is in `ci.yml`; offline causality cannot measure it, and that job's
+  runs are its only evidence. Limits: a test sharing one file with its implementation
   change gets a non-verdict pass either way - no base run exists there to redden it. An added test
   the base run produced no result for is refused by name unless `devco/causality-no-base-exemptions`
   lists it with a reason; that key is the bare fn name, and when the per-test lines do not match

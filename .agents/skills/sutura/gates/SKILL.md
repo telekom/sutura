@@ -1747,6 +1747,17 @@ why it earned the same treatment: a regression cell, measured to fail under exac
 and under no other. The cell asserts the multiset is NOT doing the work, so it cannot be satisfied
 for the wrong reason.
 
+## The Live-Cell trailer
+
+`Live-Cell: <test-fn-name> <system> <ci-job>` moves a matrix cell out of the offline scope, as an
+`#[ignore]` would, when its changed lines run only for a data system unavailable offline - the cell
+skips that system on base and on HEAD alike, so no offline run can redden it. `causality::live`
+refuses the run when `<system>` is not exempted `from: Exempt::Unavailable` in
+`sutura-app`'s `adapters::exemptions::EXEMPTIONS` or `<ci-job>` is no job in `ci.yml`. **What it does
+not hold:** whether the changed lines really run only for that system, and whether that job selects
+the cell - review holds both, and that job's runs are the cell's only evidence. A cell whose subject
+is test code that runs offline is not a live cell.
+
 ## The Claim-Cell trailer
 
 `Claim-Cell: <test-fn-name>` says the test pins behaviour the base tree already has, so it cannot be
