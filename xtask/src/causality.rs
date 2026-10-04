@@ -105,6 +105,7 @@ mod fixtures;
 pub(crate) mod isolation;
 mod membership;
 mod names;
+mod no_base;
 mod place;
 mod plan;
 mod provenance;
@@ -133,6 +134,7 @@ use base::{BaseOutcome, classify_base, report_base_scoped, tail};
 use coverage::{Coverage, Scope};
 use diff::changed_with_additions;
 use features::{Activation, BaseText, Trees};
+use no_base::Exemptions;
 use place::AddedTest;
 use plan::{Plan, Separable, plan_with_base};
 use provenance::{Commit, Moved, Reach};
@@ -185,6 +187,7 @@ fn prove(
     reverted: &Attempts,
     files: &[diff::ChangedFile],
     read: &regions::PostImage<'_>,
+    exemptions: &Exemptions,
 ) -> Verdict {
     // A CRATE THIS BRANCH ADDED IS ITS MANIFEST TOO, and reverting the sources alone left a
     // workspace member with no targets - cargo refuses before the compiler and the gate had no
@@ -263,7 +266,6 @@ fn prove(
         eprintln!("xtask test-causality: could not create a worktree: {e}");
         return Verdict::Fail;
     }
-
     let verdict = reconstruct_and_run(
         &wt,
         base,
@@ -276,6 +278,7 @@ fn prove(
             coverage,
             moved: &moved,
             reverted,
+            exemptions,
         },
     );
     remove_worktree(root, &wt);
@@ -360,6 +363,7 @@ fn reconstruct_and_run(
             scope.moved,
             scope.reverted.attempt(true),
             scoped.tests(),
+            scope.exemptions,
         );
     }
 
@@ -383,6 +387,7 @@ fn reconstruct_and_run(
         scope.moved,
         scope.reverted.attempt(false),
         scoped.tests(),
+        scope.exemptions,
     )
 }
 
@@ -585,6 +590,9 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     // comes out of the same value the commit does, so it cannot claim a narrowing that did not
     // happen.
     println!("{}", measured.measured(&base));
+    let Ok(exemptions) = Exemptions::read(&root).map_err(|e| eprintln!("xtask test-causality: FAILED - {e}")) else {
+        return Verdict::Fail;
+    };
 
     // An added claim mutation no trailer declares is never applied - the fail-open of #970.
     let touched = worktree::touched(&root, &at);
@@ -725,7 +733,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         }
         Plan::Separable(separable) => {
             edited::callsite::name(&separable.edited);
-            let verdict = separable_verdict(&root, &at, &files, &separable, &working_tree, &base_tree);
+            let verdict = separable_verdict(&root, &at, &files, &separable, &working_tree, &base_tree, &exemptions);
             edited::callsite::cap(&separable.edited, verdict)
         }
     }
@@ -739,6 +747,7 @@ fn separable_verdict(
     separable: &Separable,
     working_tree: &regions::PostImage<'_>,
     base_tree: &regions::PostImage<'_>,
+    exempt: &Exemptions,
 ) -> Verdict {
     if separable.revert.is_empty() {
         // Same string check as the arm above: an incomplete claim declaration (trailer
@@ -815,6 +824,7 @@ fn separable_verdict(
                     &reach,
                     files,
                     working_tree,
+                    exempt,
                 );
                 return match (claim_verdict, ordinary) {
                     (Verdict::Fail, _) | (_, Verdict::Fail) => Verdict::Fail,
@@ -823,7 +833,7 @@ fn separable_verdict(
                 };
             }
             let coverage = Coverage::of(scoped.tests(), files, working_tree);
-            prove(root, at, separable, &scoped, &coverage, &reach, files, working_tree)
+            prove(root, at, separable, &scoped, &coverage, &reach, files, working_tree, exempt)
         }
         Scan::Unreadable(files) => report_unreadable(&files),
         Scan::Enabled(refused) => report_enabled_tests(&refused),

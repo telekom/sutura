@@ -49,8 +49,10 @@ Those three plus secure-by-design are the definition of *correct* in review here
   already provides may pass only under an accepted `Claim-Cell: <test-fn-name>` declaration naming
   it plus a committed killing mutation at `devco/claim-mutations/<test-fn-name>.patch`; a claim
   cell with no killing mutation is refused. Limits: a test sharing one file with its implementation
-  change gets a non-verdict pass either way - no base run exists there to redden it; and an added
-  test with no base result beside a red one still passes (printed `not run at base`, not refused).
+  change gets a non-verdict pass either way - no base run exists there to redden it. An added test
+  the base run produced no result for is refused by name unless `devco/causality-no-base-exemptions`
+  lists it with a reason; that key is the bare fn name, and when the per-test lines do not match
+  nextest's summary no test can be named, so none is refused.
 - **Cite a `just` task, never a raw command line** - `check-guidance` fails a citation of a task
   that does not exist, or a cited `cargo` line missing `--all-features`.
 - **Invariants are held by a type, a lint, a hook or a gate - never by recall.** Changing one is an

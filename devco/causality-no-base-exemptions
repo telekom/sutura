@@ -1,0 +1,11 @@
+# Named exemptions from the causality gate's refusal of an added test with no base result.
+#
+# An added test the base run produced no result for ("not run at base") is red on neither tree, so
+# `just causality` refuses it unless this file names it. Legitimate entries: a feature-gated test
+# the reconstruction leaves out, or a test whose module is declared in a file the base run reverts.
+#
+#   <test_fn_name> # <why this test produces no base result>
+#
+# Refused on every run: a line with no reason, and a name that matches no `fn` in the tree (stale).
+# The key is the bare fn name, so one entry exempts every scoped test of that name. Delete an entry
+# with its reason once its test runs at base - nothing refuses one that merely stopped being needed.

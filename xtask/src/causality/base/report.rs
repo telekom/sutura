@@ -6,6 +6,7 @@
 
 use crate::Verdict;
 use crate::causality::coverage::Coverage;
+use crate::causality::no_base::{Exemptions, PATH};
 use crate::causality::place::AddedTest;
 use crate::causality::provenance::Moved;
 use crate::causality::reverted::{self, Reverted};
@@ -21,7 +22,16 @@ pub(crate) fn report_base(
     moved: &Moved,
     reverted: &Reverted,
 ) -> Verdict {
-    report_base_scoped(outcome, output, retried, coverage, moved, reverted, &[])
+    report_base_scoped(
+        outcome,
+        output,
+        retried,
+        coverage,
+        moved,
+        reverted,
+        &[],
+        &Exemptions::default(),
+    )
 }
 
 /// Turn a base run into the gate's verdict.
@@ -48,8 +58,9 @@ pub(crate) fn report_base_scoped(
     moved: &Moved,
     reverted: &Reverted,
     scoped: &[AddedTest],
+    exemptions: &Exemptions,
 ) -> Verdict {
-    let measured = state_the_gap(earned(outcome, coverage), outcome, coverage, output, scoped, moved);
+    let (measured, unreported) = state_the_gap(earned(outcome, coverage), outcome, coverage, output, scoped, moved);
     // ONE CALL SITE, and the DECISION beside it is pure. It was a loop in each red arm, and review
     // measured what that cost: deleting the one in `RedOutsideTheDiff` reddened nothing, because
     // every test of that arm goes through a wrapper passing `Reverted::Behaviour`. The choice of
@@ -57,6 +68,27 @@ pub(crate) fn report_base_scoped(
     // itself is still uncovered, which is true of every printed line here and is why `remedies`
     // keeps its wording in pure functions.
     reverted::verdict::emit_contradiction(outcome, reverted, &mut reverted::verdict::to_stdout);
+    let verdict = evaluate_verdict(outcome, output, retried, moved, &measured);
+    // AFTER the outcome's own verdict, so its diagnosis is printed too, and it can only add a FAIL.
+    let refused: Vec<&AddedTest> = unreported
+        .into_iter()
+        .filter(|test| !exemptions.exempts(test.name()))
+        .collect();
+    if refused.is_empty() {
+        return verdict;
+    }
+    eprintln!(
+        "xtask test-causality: FAILED - {} added test(s) produced no base result and are not exempted",
+        refused.len()
+    );
+    for test in refused {
+        let (name, file) = (test.name(), test.file());
+        eprintln!("  {name} in {file}: make it run at base, or exempt it in {PATH} as `{name} # <why>`");
+    }
+    Verdict::Fail
+}
+
+fn evaluate_verdict(outcome: &BaseOutcome, output: &str, retried: bool, moved: &Moved, measured: &str) -> Verdict {
     match *outcome {
         BaseOutcome::Green => {
             eprintln!("xtask test-causality: FAILED - green against base behaviour");
@@ -123,7 +155,7 @@ pub(crate) fn report_base_scoped(
         // The SENTENCE is `super::reverted`'s, beside the rule that decides it: an excuse and the
         // words that explain it are one thing to keep true rather than two.
         BaseOutcome::GreenOverAnUnreachableRevert { ref excused } => {
-            reverted::verdict::explain(excused, &measured, &mut reverted::verdict::to_stdout)
+            reverted::verdict::explain(excused, measured, &mut reverted::verdict::to_stdout)
         }
         BaseOutcome::RedByAssertion { ref failed } => {
             println!("  base: red by assertion, as required");
@@ -134,7 +166,7 @@ pub(crate) fn report_base_scoped(
             println!("xtask test-causality: ok - red on base, green on head ({measured})");
             Verdict::Pass
         }
-        BaseOutcome::RedWithGreenSibling { ref red, ref green } => sibling_verdict(red, green, &measured),
+        BaseOutcome::RedWithGreenSibling { ref red, ref green } => sibling_verdict(red, green, measured),
         BaseOutcome::RedOutsideTheDiff { ref failed } => {
             eprintln!("xtask test-causality: FAILED - the base tree is red outside this diff");
             for one in failed {
@@ -288,26 +320,31 @@ fn sibling_verdict(red: &[String], green: &[String], measured: &str) -> Verdict 
 /// 8 of them orphaned (their file sits in `remove:`, never compiled at base), and nextest's own
 /// `2 tests run` line said so twenty lines above a verdict that never read it.
 ///
+/// Returns the scope's tests the base run produced no result for beside the sentence, empty when
+/// they cannot be named: the summary is unreadable or not smaller than the scope, or the per-test
+/// lines do not account for it. That last case is FAIL-OPEN for the caller's refusal - it states
+/// the gap and names nobody.
+///
 /// Silent whenever [`tests_run`] cannot read a number, or the number it reads is not smaller than
 /// the scope: an unreadable or matching summary has nothing to correct, and this function may only
 /// ever narrow a claim, never widen one.
-fn state_the_gap(
+fn state_the_gap<'a>(
     measured: String,
     outcome: &BaseOutcome,
     coverage: &Coverage,
     output: &str,
-    scoped: &[AddedTest],
+    scoped: &'a [AddedTest],
     moved: &Moved,
-) -> String {
+) -> (String, Vec<&'a AddedTest>) {
     if !reported_per_test(outcome) {
-        return measured;
+        return (measured, Vec::new());
     }
     let named = coverage.scoped_count();
     let Some(ran) = tests_run(output) else {
-        return measured;
+        return (measured, Vec::new());
     };
     if ran >= named {
-        return measured;
+        return (measured, Vec::new());
     }
     let mut stated = format!(
         "{measured}\n  named {named} into the scope filter; the base run's own summary shows only \
@@ -319,30 +356,30 @@ fn state_the_gap(
         .collect();
     if reported.len() != ran {
         stated.push_str("\n  per-test output does not account for the summary; skipped names cannot be identified safely");
-        return stated;
+        return (stated, Vec::new());
     }
-    for test in scoped {
-        if !reported.iter().any(|one| super::is_scoped(one, std::slice::from_ref(test))) {
-            stated.push_str("\n  not run at base: ");
-            stated.push_str(test.name());
-            stated.push_str(" in ");
-            stated.push_str(test.file());
-            stated.push_str(" (");
-            if let Some(gate) = test.gate() {
-                stated.push_str("declared under ");
-                stated.push_str(gate);
-                stated.push_str("; this build condition may exclude it, so the missing result cannot prove red or green");
-            } else if moved.names().iter().any(|name| name.as_str() == test.name()) {
-                stated.push_str(
-                    "base has this name, but no result matched its filter key; a cfg gate or module move may explain it",
-                );
-            } else {
-                stated.push_str("no matching base result; this test may be new, cfg-gated, or under another module path");
-            }
-            stated.push(')');
+    let unreported: Vec<&AddedTest> = scoped
+        .iter()
+        .filter(|test| !reported.iter().any(|one| super::is_scoped(one, std::slice::from_ref(test))))
+        .collect();
+    for test in &unreported {
+        stated.push_str("\n  not run at base: ");
+        stated.push_str(test.name());
+        stated.push_str(" in ");
+        stated.push_str(test.file());
+        stated.push_str(" (");
+        if let Some(gate) = test.gate() {
+            stated.push_str("declared under ");
+            stated.push_str(gate);
+            stated.push_str("; this build condition may exclude it, so the missing result cannot prove red or green");
+        } else if moved.names().iter().any(|name| name.as_str() == test.name()) {
+            stated.push_str("base has this name, but no result matched its filter key; a cfg gate or module move may explain it");
+        } else {
+            stated.push_str("no matching base result; this test may be new, cfg-gated, or under another module path");
         }
+        stated.push(')');
     }
-    stated
+    (stated, unreported)
 }
 
 /// Did the base tree fail because a module's FILE is not there?
@@ -366,10 +403,14 @@ pub(crate) fn tail(text: &str, n: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{BaseOutcome, Coverage, Moved, Reverted, Verdict, earned, missing_module_file, report_base, state_the_gap, tail};
+    use super::{
+        BaseOutcome, Coverage, Moved, Reverted, Verdict, earned, missing_module_file, report_base, report_base_scoped,
+        state_the_gap, tail,
+    };
     use crate::causality::base::classify_base;
     use crate::causality::diff::ChangedFile;
     use crate::causality::fixtures::{changed, manifest, named, scoped, tree};
+    use crate::causality::no_base::Exemptions;
     use crate::causality::place::AddedTest;
     use crate::causality::scoped::{Scan, Scoped};
 
@@ -490,7 +531,7 @@ mod tests {
             "     Summary [   0.4s] 2 tests run: 1 passed, 1 failed, 1727 skipped\n",
             "error: test run failed\n",
         );
-        let stated = state_the_gap(earned(&outcome, &coverage), &outcome, &coverage, output, &[], &Moved::Nothing);
+        let stated = state_the_gap(earned(&outcome, &coverage), &outcome, &coverage, output, &[], &Moved::Nothing).0;
         assert!(stated.starts_with("10 of 13 added tests measured"), "{stated}");
         assert!(stated.contains("named 10 into the scope filter"), "{stated}");
         assert!(stated.contains("only 2 of them actually ran"), "{stated}");
@@ -517,7 +558,7 @@ mod tests {
             "  TRY 2 PASS [   0.021s] (1/3) pa tests::ran\n",
             "     Summary [   0.4s] 1 test run: 1 passed, 2 skipped\n",
         );
-        let stated = state_the_gap(earned(&outcome, &coverage), &outcome, &coverage, output, &scope, &moved);
+        let stated = state_the_gap(earned(&outcome, &coverage), &outcome, &coverage, output, &scope, &moved).0;
         assert!(stated.contains("not run at base: skipped_a in pa/src/lib.rs"), "{stated}");
         assert!(stated.contains("not run at base: skipped_b in pa/src/lib.rs"), "{stated}");
         assert!(!stated.contains("not run at base: ran"), "{stated}");
@@ -554,7 +595,8 @@ mod tests {
             output,
             scope.tests(),
             &moved,
-        );
+        )
+        .0;
         (scope, stated)
     }
 
@@ -607,7 +649,7 @@ mod tests {
         };
         let output = "     Summary [   0.1s] 2 tests run: 1 passed, 1 failed, 0 skipped\n";
         assert_eq!(
-            state_the_gap(earned(&outcome, &coverage), &outcome, &coverage, output, &[], &Moved::Nothing),
+            state_the_gap(earned(&outcome, &coverage), &outcome, &coverage, output, &[], &Moved::Nothing).0,
             "2 of 2 added tests measured"
         );
     }
@@ -631,8 +673,53 @@ mod tests {
                 output,
                 &[],
                 &Moved::Nothing,
-            ),
+            )
+            .0,
             "0 of 6 added tests measured"
         );
+    }
+
+    /// A run that reported `ran` red on base and no result for `skipped_a`: the names the gap
+    /// states, and the verdict under `list`. `RedByAssertion` alone would pass.
+    fn skipped_a_under(list: &str) -> (Vec<String>, Verdict) {
+        let scope = scoped("pa", "pa/src/lib.rs", &["ran", "skipped_a"]);
+        let outcome = BaseOutcome::RedByAssertion {
+            failed: vec![String::from("pa tests::ran")],
+        };
+        let output = concat!(
+            "        FAIL [   0.021s] (1/1) pa tests::ran\n",
+            "     Summary [   0.4s] 1 test run: 0 passed, 1 failed, 1 skipped\n",
+        );
+        let (_, unreported) = state_the_gap(
+            earned(&outcome, &named(2)),
+            &outcome,
+            &named(2),
+            output,
+            &scope,
+            &Moved::Nothing,
+        );
+        let names = unreported.iter().map(|test| test.name().to_owned()).collect();
+        let exemptions = Exemptions::parse(list, |_| true).unwrap();
+        let verdict = report_base_scoped(
+            &outcome,
+            output,
+            false,
+            &named(2),
+            &Moved::Nothing,
+            &Reverted::Behaviour,
+            &scope,
+            &exemptions,
+        );
+        (names, verdict)
+    }
+
+    #[test]
+    fn an_added_test_with_no_base_result_and_no_exemption_is_refused_by_name() {
+        assert_eq!(skipped_a_under(""), (vec![String::from("skipped_a")], Verdict::Fail));
+    }
+
+    #[test]
+    fn an_exempted_test_with_no_base_result_keeps_the_runs_own_verdict() {
+        assert_eq!(skipped_a_under("skipped_a # only built with rdbms\n").1, Verdict::Pass);
     }
 }

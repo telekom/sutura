@@ -177,9 +177,12 @@ run can never redden, so its place is a declared claim cell: add a `Claim-Cell: 
 commit trailer AND a committed killing mutation at `devco/claim-mutations/<test-fn-name>.patch`,
 and the gate applies the mutation, requires the cell to fail, and accepts
 `ok - claim cells: N declared, N killed` - a declared cell with no killing mutation is refused.
-Two limits: in the not-separable case above an undeclared pin passes like any other test, because no
-base run exists there to redden it; and an added test with no base result beside one that is red on
-base still passes - the gate prints it as `not run at base` but does not refuse it.
+In the not-separable case above an undeclared pin passes like any other test, because no base run
+exists to redden it. An added test the base run produced no result for (`not run at base`) is
+refused by name: make it run at base, or list it with a reason in
+`devco/causality-no-base-exemptions`. Two limits: the key is the bare fn name, so one entry exempts
+every scoped test of that name; and when the per-test lines do not account for nextest's summary the
+gate cannot name the missing tests and refuses none of them.
 
 **Exit 3 means the gate measured nothing**, and it is neither a pass nor a violation: the base tree
 did not build, the base run named no failure, or every test in scope was one the base tree already
