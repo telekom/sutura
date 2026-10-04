@@ -2,6 +2,7 @@
 # `cargo xtask check-ignored-tests` refuses an #[ignore]d test not listed here and a
 # line naming a test that is no longer #[ignore]d. It reads the literal attribute only:
 # see the gate's header for what it does not see.
+crates/sutura-app/tests/golden/data_systems.rs::the_bigquery_dataset_holds_the_example_corpus
 crates/sutura-catalog-datahub/tests/provisioned.rs::a_bearerless_read_is_401_under_the_enforced_tier
 crates/sutura-catalog-datahub/tests/provisioned.rs::a_document_served_by_a_real_datahub_decodes_into_a_certified_metric
 crates/sutura-catalog-datahub/tests/provisioned.rs::the_provisioned_datahub_serves_the_surface_a_reader_would_call

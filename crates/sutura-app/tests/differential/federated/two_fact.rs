@@ -154,7 +154,7 @@ where
     W: DataSystemUnderTest + Sync,
     W::Error: Send,
 {
-    if !W::available() {
+    if !crate::adapters::runs_here::<W>() {
         return None;
     }
     let derived = derived();

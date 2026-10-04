@@ -73,18 +73,19 @@ sutura-exec-postgres = { workspace = true, features = ["fixtures"] }
 sutura-exec-clickhouse = { workspace = true, features = ["fixtures"] }
 # A fourth DATA SOURCE, over the wire like Postgres, and registered for the same reason DuckDB and
 # Postgres are: it compiles this adapter against the matrix's own `DataSystemUnderTest` port and
-# reserves its registration point. `available()` answers `false` unconditionally - like BigQuery,
-# and for an overlapping reason: `just validate` brings up no venue for it (Oracle Database is not
+# reserves its registration point. `available()` answers `false` unconditionally, under a named
+# exemption in the matrix: `just validate` brings up no venue for it (Oracle Database is not
 # packaged in `nixpkgs`, so there is no nix-native tier the way Postgres has one), and no
 # CSV-fixture importer exists yet to attach the example corpus to a live instance even where a
 # developer's own docker socket could reach `compose.services.yaml`'s `oracle` profile. Default
 # features only - the `fixtures` feature exists for a future importer, not for this registration.
 sutura-exec-oracle = { workspace = true }
-# A third DATA SOURCE, and the one with no local venue at all - `crates/sutura-app/tests/adapters/
-# adapters.rs`'s own `NoLocalTier` reports it unavailable unconditionally, so this suite links the
-# type and dials nothing. Default features only: no `wire`, no outbound stack, because nothing here
-# ever opens one.
-sutura-exec-bigquery = { workspace = true }
+# A third DATA SOURCE, and the one with no local venue at all: its cells execute only where
+# `SUTURA_BQ_DATASET` names the dataset the `bigquery-conformance` job provisioned, and skip under a
+# named exemption everywhere else. `adbc` for the transport those cells open, `fixtures` for the
+# provisioning cell's loader - a DEV-dependency's features reach no consumer. No `wire`: nothing
+# here exchanges a token.
+sutura-exec-bigquery = { workspace = true, features = ["adbc", "fixtures"] }
 # THE engine, and what the golden suite executes with. Also the far side of the differential test:
 # one plan computed locally here and pushed down as SQL to the data source above, rows compared. A
 # statement that is valid SQL with different semantics is the bug class that catches.
@@ -109,16 +110,6 @@ polyglot-sql = { workspace = true }
 # The benchmark harness for `benches/answer_path.rs` - `github.com/telekom/sutura#915`. Dev-only,
 # for the same reason every other entry in this table does not reach a shipped consumer.
 divan = { workspace = true }
-
-# Forwards `sutura-exec-bigquery`'s own default-off `fixtures`, and exists for exactly one reason:
-# `#[cfg(feature = ..)]` reads the CURRENT crate's features, so `NoLocalTier`'s `impl JobTransport`
-# in `tests/adapters/adapters.rs` has no direct way to ask whether that trait's `apply` method - itself
-# `#[cfg(feature = "fixtures")]` in the crate that defines it - exists in this build. Declaring the
-# same name here and forwarding it is what lets one `#[cfg(feature = "fixtures")]` gate both sides
-# without the two ever being asked to agree by hand. Every gate here passes `--all-features`, which
-# turns both on together; nothing shipped reads a feature this crate declares only for its own tests.
-[features]
-fixtures = ["sutura-exec-bigquery/fixtures"]
 
 # `harness = false`: divan runs its own `main`, not libtest's `#[bench]` runner. Not a gate -
 # `github.com/telekom/sutura#915` - so it is reached by `just bench`, never by `just validate`,
