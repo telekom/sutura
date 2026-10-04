@@ -826,9 +826,9 @@ datahub-acceptance:
     echo "datahub-acceptance: scope sutura-catalog-datahub - the live DataHub tier: a document written"
     echo "datahub-acceptance: under a property THE DEPLOYMENT names comes back and decodes into a certified"
     echo "datahub-acceptance: metric, a dataset page and a relationship page preserve their wire shapes,"
-    echo "datahub-acceptance: and a bearer-LESS read is refused (auth is ON). These cells do"
-    echo "datahub-acceptance: not drive src/http.rs's HttpAspectReader, so this is NOT its read path -"
-    echo "datahub-acceptance: the requests and the mapping onto the adapter's shape are in the test."
+    echo "datahub-acceptance: and a bearer-LESS read is refused (auth is ON). The golden cell provisions"
+    echo "datahub-acceptance: examples/single-player/catalog and reads it back through src/http.rs's"
+    echo "datahub-acceptance: HttpAspectReader (hence --features http); the other cells map the response in the test."
     echo "datahub-acceptance: run \`just test\` for the whole workspace's suite; this target is NOT part of it."
     cargo run -q -p xtask -- dev-up --with datahub
     # The tier self-mints its own PAT (headless GMS exposes no /auth/* surface) and the cells present
@@ -838,7 +838,7 @@ datahub-acceptance:
     cargo run -q -p sutura-dev --features mock-issuer -- mint-pat "$DATAHUB_TOKEN_FILE"
     SUTURA_DEV_REQUIRE_TIER=1 \
     SUTURA_DATAHUB_PAT="$(cat "$DATAHUB_TOKEN_FILE")" \
-    cargo test -p sutura-catalog-datahub --test provisioned -- --ignored --nocapture
+    cargo test -p sutura-catalog-datahub --features http --test provisioned -- --ignored --nocapture
 
 # Where this worktree's services are listening. The only way to learn it - there is no constant.
 dev-endpoints:

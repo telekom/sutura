@@ -1131,8 +1131,9 @@
         # The DataHub venue (#1251): starts the compose `datahub` profile and runs the live
         # acceptance cells - the instance reachable, the deployment-defined metric document
         # round-tripping, a dataset page and a relationship page preserving their wire shapes,
-        # and a bearer-less read refused - failing rather than skipping, under
-        # `SUTURA_DEV_REQUIRE_TIER=1`. The `ci-datahub-tier` CI job runs it; `just
+        # the golden catalog read back through `HttpAspectReader`, and a bearer-less read refused -
+        # failing rather than skipping, under `SUTURA_DEV_REQUIRE_TIER=1`. Both entry points pass
+        # `--features http`. The `ci-datahub-tier` CI job runs it; `just
         # datahub-acceptance` is its by-hand twin - the same cells, but this app runs `--profile ci`
         # and forwards its arguments - and nothing checks that the two agree, so keep them aligned by
         # hand; this app's `export SUTURA_DEV_REQUIRE_TIER=1` is what makes the CI leg fail rather
@@ -1154,7 +1155,7 @@
             export SUTURA_DEV_REQUIRE_TIER=1
             SUTURA_DATAHUB_PAT="$(cat "$token")"
             export SUTURA_DATAHUB_PAT
-            exec cargo test --profile ci -p sutura-catalog-datahub --test provisioned -- --ignored --nocapture "$@"
+            exec cargo test --profile ci -p sutura-catalog-datahub --features http --test provisioned -- --ignored --nocapture "$@"
           '');
         };
 

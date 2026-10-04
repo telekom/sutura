@@ -58,6 +58,11 @@ sutura-http-client = { workspace = true, optional = true }
 # feature OFF stays serde + serde_json + thiserror + sutura-domain.
 sutura-semantic = { workspace = true }
 
+# The live golden cell (`tests/provisioned/golden.rs`) reads the golden catalog through the markdown
+# adapter to compare against. Dev-only. A dev-dependency between two catalog adapters is the COMPARE
+# case `xtask/src/boundaries/adapters.rs` exempts.
+sutura-catalog-local = { workspace = true }
+
 # The provisioned-instance probe (`tests/provisioned.rs`) asks the compose tier's `datahub` profile
 # whether GMS is reachable on the port this worktree allocated, over its own hand-built requests -
 # it is not `src/http.rs`'s reader, and predates it. Kept as an unconditional dev-dependency rather
