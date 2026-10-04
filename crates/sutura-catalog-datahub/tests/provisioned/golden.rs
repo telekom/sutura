@@ -8,6 +8,16 @@
 //!
 //! It drives the real reader, so it needs the crate's `http` feature - both acceptance entry points
 //! (`just datahub-acceptance` and `nix run .#datahub-acceptance`) pass `--features http`.
+//!
+//! Audience and shared calendar agree only because every golden metric states the adapter's defaults
+//! (`audience: open`, no shared calendar): `DataHubCatalog::convert_metric` hard-codes
+//! `Audience::Open` (src/lib.rs) and never calls `with_shared_calendar`. So this cell says nothing
+//! about a restricted or shared-calendar metric sourced from `DataHub` - such a metric is not carried,
+//! and a `NOT_CARRIED` row cannot name it (its `bites` would fail, the golden states none).
+//!
+//! A row's subject is never provisioned, so if the reader learns to carry it (nullability, a
+//! compound key) nothing reads that back - the row stays until someone removes it, and then the
+//! cell says whether it is still needed.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -17,7 +27,9 @@ use sutura_catalog_datahub::document::{Snapshot, SuturaAnchor, SuturaContent, Su
 use sutura_catalog_datahub::http::{DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, HttpAspectReader, ReadBounds};
 use sutura_catalog_datahub::{AspectReader, DataHubCatalog, DataHubError};
 use sutura_catalog_local::LocalCatalog;
-use sutura_domain::catalog::{AnchorValue, Column, Definitions, Description, JoinKey, Metric, Model, ViaChain};
+use sutura_domain::catalog::{
+    AnchorValue, Column, Definitions, Description, InconsistentDefinitions, JoinKey, Metric, Model, ViaChain,
+};
 use sutura_domain::identity::Secret;
 use sutura_domain::model::{JoinType, SourceName, TableName};
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
@@ -39,13 +51,16 @@ fn golden_root() -> PathBuf {
 }
 
 /// What the golden states that this adapter does not carry back, one row each.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NotCarried {
     /// `HttpAspectReader` fills `Model.table` from the dataset urn's name segment, so table == name.
     Table,
     /// `schemaMetadata` nullability is not read, so every column comes back with none.
     Nullable,
-    /// A compound-key relationship: a `semanticModel` relationship side carries one column.
+    /// A compound-key relationship: the golden's `usage_subscription` has two keys, the second
+    /// month-truncated, but this adapter's `RelationshipAspect` (`http.rs`'s `one_column`) carries
+    /// one plain column per side. The limit is this adapter's, not `DataHub`'s - its
+    /// `fromColumns`/`toColumns` are arrays.
     Relationship(&'static str),
     /// A metric whose dimension is reached through an uncarried relationship.
     Metric(&'static str),
@@ -53,6 +68,12 @@ enum NotCarried {
     Knowledge,
 }
 
+/// Audience and shared calendar agree only because every golden metric states the adapter's
+/// defaults (`audience: open`, no shared calendar): `DataHubCatalog::convert_metric` hard-codes
+/// `Audience::Open` (src/lib.rs) and never calls `with_shared_calendar`. So this cell says nothing
+/// about a restricted or shared-calendar metric sourced from `DataHub` - such a metric is not
+/// carried, and a `NOT_CARRIED` row cannot name it (its `bites` would fail, the golden states
+/// none).
 const NOT_CARRIED: [NotCarried; 5] = [
     NotCarried::Table,
     NotCarried::Nullable,
@@ -96,14 +117,14 @@ fn golden() -> PinnedDefinitions {
 }
 
 /// Whether `name` is a carried relationship or metric this golden states.
-fn not_carried(name: &str) -> bool {
-    NOT_CARRIED
-        .iter()
+fn not_carried(rows: &[NotCarried], name: &str) -> bool {
+    rows.iter()
         .any(|row| matches!(row, NotCarried::Relationship(n) | NotCarried::Metric(n) if *n == name))
 }
 
-/// The golden with every [`NOT_CARRIED`] row applied - what the read-back must equal.
-fn carried(golden: &Definitions) -> Definitions {
+/// The golden with `rows` applied - what the read-back must equal; an `Err` means the golden
+/// does not hold together without them.
+fn carried(golden: &Definitions, rows: &[NotCarried]) -> Result<Definitions, InconsistentDefinitions> {
     let models = golden
         .models()
         .values()
@@ -114,34 +135,44 @@ fn carried(golden: &Definitions) -> Definitions {
                     column.name().clone(),
                     column.data_type().cloned(),
                     Description::parse(column.description()).expect("the golden column prose parses"),
-                    None,
+                    if rows.contains(&NotCarried::Nullable) {
+                        None
+                    } else {
+                        column.nullable()
+                    },
                 )
             });
             // The `Table` row: the read-back fills `Model.table` from the urn's name segment, so table == name.
+            let table = if rows.contains(&NotCarried::Table) {
+                TableName::parse(model.name().as_str())
+                    .expect("a model name is a table name")
+                    .into()
+            } else {
+                model.table().clone()
+            };
             Model::new(
                 model.name().clone(),
                 model.source().clone(),
-                TableName::parse(model.name().as_str()).expect("a model name is a table name"),
+                table,
                 columns,
                 Description::parse(model.description()).expect("the golden model prose parses"),
             )
             .with_primary_key(model.primary_key().iter().cloned())
-            .expect("the golden primary key names declared columns")
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
     let relationships = golden
         .relationships()
         .values()
-        .filter(|relationship| !not_carried(relationship.name().as_str()))
+        .filter(|relationship| !not_carried(rows, relationship.name().as_str()))
         .cloned()
         .collect();
     let metrics = golden
         .metrics()
         .values()
-        .filter(|metric| !not_carried(metric.name().as_str()))
+        .filter(|metric| !not_carried(rows, metric.name().as_str()))
         .cloned()
         .collect();
-    Definitions::assemble(models, relationships, metrics).expect("the carried golden still holds together")
+    Definitions::assemble(models, relationships, metrics)
 }
 
 /// A dataset urn on this cell's own platform.
@@ -308,7 +339,9 @@ fn provision(agent: &ureq::Agent, endpoint: &str, carried: &Definitions) {
 /// `HttpAspectReader` reads the whole tier, and the sibling cells write to it concurrently, so this
 /// keeps the entities this cell wrote: datasets on [`PLATFORM`], relationships it named. Metrics
 /// need no filter - only `PROPERTY` certifies one for this reader, and an uncertified metric is
-/// skipped by the load.
+/// skipped by the load. That holds on a fresh tier (CI); on a reused local tier metrics an earlier
+/// run wrote under `PROPERTY` stay certified and are read back, so a provisioning change can fail
+/// closed until `just dev-down` resets the tier.
 struct Ours {
     reader: HttpAspectReader,
     relationships: Vec<String>,
@@ -355,7 +388,8 @@ fn the_golden_catalog_round_trips_through_a_live_datahub() {
     let Some(endpoint) = endpoint() else {
         return;
     };
-    let expected = carried(golden().definitions());
+    let golden = golden();
+    let expected = carried(golden.definitions(), &NOT_CARRIED).expect("the carried golden still holds together");
     provision(&agent(false), &endpoint, &expected);
 
     let reader = HttpAspectReader::new(
@@ -398,4 +432,21 @@ fn the_golden_catalog_round_trips_through_a_live_datahub() {
         &expected,
         "the certified catalog a live DataHub served back is the golden minus NOT_CARRIED"
     );
+    if !NOT_CARRIED.contains(&NotCarried::Knowledge) {
+        assert_eq!(
+            read.knowledge(),
+            golden.knowledge(),
+            "the knowledge a live DataHub served back is the golden's"
+        );
+    }
+    // A row the read-back does not need is refused: without it the expectation must differ
+    // from what came back (or not hold together), else it silently shrinks the round trip.
+    for row in NOT_CARRIED {
+        let others: Vec<NotCarried> = NOT_CARRIED.into_iter().filter(|other| *other != row).collect();
+        let needed = match row {
+            NotCarried::Knowledge => read.knowledge() != golden.knowledge(),
+            _ => carried(golden.definitions(), &others).map_or(true, |without| &without != read.definitions()),
+        };
+        assert!(needed, "`{row:?}` exempts nothing the read-back drops - delete the row");
+    }
 }

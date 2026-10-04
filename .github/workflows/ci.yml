@@ -1973,7 +1973,8 @@ jobs:
   # compose profile (five containers, three JVMs and a migration job, so the cap is wide) and
   # runs the cells `just datahub-acceptance`'s recipe weaves together - the instance reachable,
   # the deployment-defined metric document round-tripping, a dataset page and a relationship page
-  # preserving their wire shapes, and a bearer-LESS read refused
+  # preserving their wire shapes, the golden catalog read back through `HttpAspectReader`
+  # (`--features http`), and a bearer-LESS read refused
   # (auth is ON) - failing rather than skipping, because `SUTURA_DEV_REQUIRE_TIER=1` is exported in
   # two places: the just recipe sets it and the flake `datahub-acceptance` app exports it too, and the
   # pair must be kept in sync manually (see #1254).
