@@ -13,9 +13,9 @@
 //!
 //! **LIMITS.** The gate does not check that the changed lines run only for that
 //! system, nor that the job selects the cell. The name is a bare test name, so every system's row
-//! of a per-system macro cell leaves the measurement, the offline ones too. The live job skips
-//! forks, and `ci-aggregate` requires it only on a same-repository pull request or merge group
-//! that selects its category, so elsewhere nothing that gates a merge measures a live cell. And the trailer
+//! of a per-system macro cell leaves the measurement, the offline ones too. The live job skips a
+//! fork or a Dependabot pull request, and `ci-aggregate` requires it only on any other
+//! same-repository pull request or a merge group that selects its category, so elsewhere nothing that gates a merge measures a live cell. And the trailer
 //! is read from base..HEAD only, so it exempts nothing once its commit has landed.
 
 use std::collections::BTreeSet;

@@ -54,8 +54,9 @@ Those three plus secure-by-design are the definition of *correct* in review here
   in `adapters::exemptions::EXEMPTIONS` names that job as its `runs_in` and `ci.yml` declares it,
   and refused for a name `Claim-Cell:` also declares. Its limits: the gate does not check that
   the changed lines run only for that system or that the job selects the cell; a bare name takes
-  every system's row of a macro cell out; and the job skips forks, and `ci-aggregate` requires it
-  only on a same-repository pull request or merge group that selects its category, so elsewhere
+  every system's row of a macro cell out; and the job skips a fork or a Dependabot pull request, and
+  `ci-aggregate` requires it only on any other same-repository pull request or a merge group that
+  selects its category, so elsewhere
   nothing that gates a merge measures a live cell. Other limits: a test sharing one file with its
   implementation change gets a non-verdict pass either way - no base run exists there to redden it. An added test
   the base run produced no result for is refused by name unless `devco/causality-no-base-exemptions`
