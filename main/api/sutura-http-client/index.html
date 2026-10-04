@@ -2120,6 +2120,16 @@ LITERAL - a hostname is not an address, so <code>localhost</code> does not count
 that parses as <code>IpAddr</code> and answers <code>is_loopback()</code> does.</p>
 <h2 id="use-invalidendpoint"><code>use InvalidEndpoint</code><a class="headerlink" href="#use-invalidendpoint" title="Permanent link">&para;</a></h2>
 <p>Why a declared endpoint is not usable.</p>
+<h2 id="use-shownendpoint"><code>use ShownEndpoint</code><a class="headerlink" href="#use-shownendpoint" title="Permanent link">&para;</a></h2>
+<p>A declared endpoint as a refusal shows it: the scheme, host, port and path <code>Uri</code> parsed, and
+never its userinfo, query or fragment.</p>
+<p>Outside this module it is built only by <code>Self::of</code> - the field is private; inside it, cells
+and not the type hold that no refusal carries the declared text as written. Two shapes are not
+shown at all: text <code>Uri</code> does not parse, because a second parser's reading of input the dial
+parser refused is where a credential would survive; and text with an <code>@</code> outside the parsed
+authority, because an unencoded <code>/</code>, <code>?</code> or <code>#</code> in a password ends that authority early and the
+rest of the credential would read as path. The limit: a secret written into the PATH with no
+<code>@</code> is shown, because a path is not a credential to the parser that dials it.</p>
 <h2 id="use-endpointmessage"><code>use EndpointMessage</code><a class="headerlink" href="#use-endpointmessage" title="Permanent link">&para;</a></h2>
 <p>The endpoint's own message on a refusal.</p>
 <p>Bounded, filtered, and reachable only through <code>Self::as_str</code> - never through <code>Debug</code>, which

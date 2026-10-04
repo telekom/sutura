@@ -3105,7 +3105,8 @@ they are not a defence against the identity provider itself.</p>
 </span></code></pre></div>
 <p>The identity provider's token endpoint: <code>https://</code> to any host, <code>http://</code> to an IP loopback literal only.</p>
 <p>The origin is held to <code>Endpoint::parse</code>'s scheme rule; unlike an <code>Endpoint</code> it keeps its
-path, and it refuses a query, a fragment and a <code>user[:pass]@</code> authority.</p>
+path, and it refuses a query, a fragment and any <code>@</code> - in the authority or, where an unencoded
+<code>/</code> in a password ends the parsed authority early, in the path.</p>
 <p>A loopback endpoint is dialled directly, never through a proxy - <code>sutura_http_client::agent</code>'s
 own pin; <code>https://</code> to any other host keeps the agent's proxy, which an identity provider behind
 an egress proxy needs.</p>

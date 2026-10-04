@@ -2741,7 +2741,10 @@ check on this crate's own construction sites, and publishes nothing to anyone ou
 <p><code>Clone</code> because it is held in the request state, and every field is either <code>Copy</code> or a small
 owned value. <code>Debug</code> is safe to log in full: the only credential-shaped field is held in
 <code>sutura_domain::identity::Secret</code>, whose <code>Debug</code> redacts, and a test in <code>crate::security</code>
-asserts that at struct depth.</p>
+asserts that at struct depth. A catalog endpoint, an inbound URL, a delegation token endpoint or a
+source host carrying an <code>@</code> - userinfo, however a URL parser splits it - is refused before a
+<code>Settings</code> exists. The
+limit: a secret with no <code>@</code>, such as one written into a path, is printed.</p>
 <h2 id="use-settingserror"><code>use SettingsError</code><a class="headerlink" href="#use-settingserror" title="Permanent link">&para;</a></h2>
 <p>Why a configuration could not be turned into settings.</p>
 <p>One variant per thing that can be wrong, each keeping the typed cause underneath it. The
@@ -2846,9 +2849,9 @@ bare <code>String</code> carried past <code>parse_placement</code> unexamined - 
 <code>unix_socket</code> was a check in that function, but the FIELD still admitted whatever text was
 there, so <code>crate::sources::placement::PostgresDial</code> existed only as a <code>match</code> two composition
 roots each wrote by hand. Refuses only shapes that cannot be a host at all - empty, embedded
-whitespace, a URL scheme, a path separator, a list separator - and nothing about reachability:
-a value that parses may still fail to resolve, or fail the TLS name check at connect time, and
-neither is this type's question. <code>crate::sources::transport::host_is_loopback</code> still does the
+whitespace, a URL scheme, a path separator, a list separator, an <code>@</code> - and nothing about
+reachability: a value that parses may still fail to resolve, or fail the TLS name check at
+connect time, and neither is this type's question. <code>crate::sources::transport::host_is_loopback</code> still does the
 loopback test on the parsed text.</p>
 <h2 id="use-invalidhostname"><code>use InvalidHostName</code><a class="headerlink" href="#use-invalidhostname" title="Permanent link">&para;</a></h2>
 <p>Why a declared Postgres host cannot be dialled at all.</p>
@@ -3213,6 +3216,7 @@ literal <code>0</code> is told rather than silently ignored.</p>
 <li><code>EmptyCatalog</code> - No catalog was declared, so there is nothing to serve.</li>
 <li><code>DuplicateName</code> - Two catalogs share one declared name, so the contribution manifest could not tell them apart.</li>
 <li><code>MissingForDatahub</code> - A <code>catalog.kind: datahub</code> entry did not declare a field only that kind needs.</li>
+<li><code>CredentialsInEndpoint</code> - <code>catalogs[].endpoint</code> carries an <code>@</code>. A catalog endpoint is <code>scheme://host[:port]</code>, so an <code>@</code> is userinfo however the URL parser splits it - refused here, before the startup log prints the resolved settings, and never quoted back.</li>
 <li><code>MissingForOpenmetadata</code> - A <code>catalog.kind: openmetadata</code> entry did not declare a field only that kind needs.</li>
 <li><code>ZeroRefresh</code> - <code>catalogs[].refresh_seconds: 0</code> - <code>github.com/telekom/sutura#975</code>. Zero re-reads on every tick of whatever drives it, which is not a refresh interval; absent is how "never refresh" is written.</li>
 <li><code>Rdbms</code> - A <code>catalog.kind: rdbms</code> entry's own keys are not usable.</li>
@@ -5690,6 +5694,7 @@ convenience, and nothing needs to clone a startup refusal.</p>
   rather than a widened first one: <code>data_dir</code> is the only key whose absence has a refusal of its
   own - <code>Self::NoDataDirectory</code> - so folding them would make one message stand for two checks
   that are not the same. This one names the key.
+- <code>CredentialsInUrl</code> - A declared URL carries an <code>@</code> - userinfo however a URL parser splits it. Refused at load, before the startup log prints the resolved settings, and never quoted back.
 - <code>Posture</code> - The <code>posture:</code> word is not one of the two.
 - <code>Kind</code> - The <code>kind:</code> word does not name a data system this build has an adapter for.</p>
 <p><strong>This is where "a source this build cannot open" is refused now</strong>, and it is a parse error
@@ -5879,9 +5884,9 @@ bare <code>String</code> carried past <code>parse_placement</code> unexamined - 
 <code>unix_socket</code> was a check in that function, but the FIELD still admitted whatever text was
 there, so <code>crate::sources::placement::PostgresDial</code> existed only as a <code>match</code> two composition
 roots each wrote by hand. Refuses only shapes that cannot be a host at all - empty, embedded
-whitespace, a URL scheme, a path separator, a list separator - and nothing about reachability:
-a value that parses may still fail to resolve, or fail the TLS name check at connect time, and
-neither is this type's question. <code>crate::sources::transport::host_is_loopback</code> still does the
+whitespace, a URL scheme, a path separator, a list separator, an <code>@</code> - and nothing about
+reachability: a value that parses may still fail to resolve, or fail the TLS name check at
+connect time, and neither is this type's question. <code>crate::sources::transport::host_is_loopback</code> still does the
 loopback test on the parsed text.</p>
 <h5 id="methods_54">Methods<a class="headerlink" href="#methods_54" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-298-1"><a id="__codelineno-298-1" name="__codelineno-298-1" href="#__codelineno-298-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
@@ -5903,6 +5908,7 @@ loopback test on the parsed text.</p>
 <li><code>Scheme</code> - A URL was written where a bare host belongs - <code>host</code> is not a connection string.</li>
 <li><code>PathSeparator</code> - A <code>/</code> is a path separator, not a character a host or an address ever carries.</li>
 <li><code>List</code> - libpq reads <code>host</code> as a list of hosts.</li>
+<li><code>Userinfo</code> - A host carries no credentials, and the startup log prints the resolved settings.</li>
 </ul>
 <h5 id="implements_86">Implements<a class="headerlink" href="#implements_86" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
@@ -6369,7 +6375,8 @@ Removing the key is a settings break and a follow-up; misreporting it is a defec
 <p><strong>Held as written and parsed by the crate that sends it</strong>, at boot, by <code>sutura_cli</code>'s
 <code>build_broker</code> - the endpoint, client ID and audience each go into a request only that adapter
 builds, so its parse is the one that decides whether they can be sent, and a refusal there is
-still a startup failure naming the key. The secret is not here at all: only the path to it,
+still a startup failure naming the key. One check runs here instead: an <code>@</code> in the endpoint is
+refused at load, because the startup log prints this tree first. The secret is not here at all: only the path to it,
 which must be absolute like every other secret file a source names.</p>
 <h5 id="methods_63">Methods<a class="headerlink" href="#methods_63" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-342-1"><a id="__codelineno-342-1" name="__codelineno-342-1" href="#__codelineno-342-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">audience</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>

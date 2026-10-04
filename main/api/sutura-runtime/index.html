@@ -2323,7 +2323,9 @@ applied last, so a report built from a file could describe a deployment the proc
 running as - which is the same reason the refusals in <code>sutura-config</code> read the loaded value.</p>
 <p>The whole tree goes out as one <code>Debug</code> field. That is safe because the only credential-shaped
 value in it is held in a type whose <code>Debug</code> redacts, and <code>sutura-config</code> has a test asserting
-that at the outermost struct - not because this function was careful.</p>
+that at the outermost struct, and refuses at load a catalog endpoint, an inbound URL, a
+delegation token endpoint or a source host carrying an <code>@</code> - not because this function was careful. The limit: a value with
+no <code>@</code> that holds a secret anyway, such as one written into a path, is printed.</p>
 <h2 id="module-blocking">Module <code>blocking</code><a class="headerlink" href="#module-blocking" title="Permanent link">&para;</a></h2>
 <p>Handing synchronous work to the blocking pool without losing the request it belongs to.</p>
 <h1 id="why-a-helper-rather-than-a-convention">Why a helper rather than a convention<a class="headerlink" href="#why-a-helper-rather-than-a-convention" title="Permanent link">&para;</a></h1>
