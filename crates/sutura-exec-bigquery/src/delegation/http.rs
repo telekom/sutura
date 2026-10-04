@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 use sutura_domain::identity::Secret;
-use sutura_http_client::{Budget, Endpoint, InvalidEndpoint};
+use sutura_http_client::{Budget, Endpoint, InvalidEndpoint, ShownEndpoint};
 /// The bounds and the rotating agent [`OverHttp`] dials over, so a composition root builds them
 /// without naming the shared client crate itself.
 pub use sutura_http_client::{ReadBounds, rotating_agent};
@@ -30,7 +30,8 @@ const ACCESS_TOKEN: &str = "urn:ietf:params:oauth:token-type:access_token";
 /// The identity provider's token endpoint: `https://` to any host, `http://` to an IP loopback literal only.
 ///
 /// The origin is held to [`Endpoint::parse`]'s scheme rule; unlike an [`Endpoint`] it keeps its
-/// path, and it refuses a query, a fragment and a `user[:pass]@` authority.
+/// path, and it refuses a query, a fragment and any `@` - in the authority or, where an unencoded
+/// `/` in a password ends the parsed authority early, in the path.
 ///
 /// A loopback endpoint is dialled directly, never through a proxy - [`sutura_http_client::agent`]'s
 /// own pin; `https://` to any other host keeps the agent's proxy, which an identity provider behind
@@ -43,15 +44,24 @@ impl TokenEndpoint {
     ///
     /// [`InvalidEndpoint`], the shared client's own refusal.
     pub fn parse(raw: &str) -> Result<Self, InvalidEndpoint> {
-        let beyond = || InvalidEndpoint::PathBeyondRoot { given: raw.to_owned() };
+        let beyond = || InvalidEndpoint::PathBeyondRoot {
+            given: ShownEndpoint::of(raw),
+        };
         if raw.contains('#') {
             return Err(beyond());
         }
         let uri: Uri = raw
             .parse()
-            .map_err(|_cause: ureq::http::uri::InvalidUri| InvalidEndpoint::NotAnHttpUrl { given: raw.to_owned() })?;
+            .map_err(|_cause: ureq::http::uri::InvalidUri| InvalidEndpoint::NotAnHttpUrl {
+                given: ShownEndpoint::of(raw),
+            })?;
         if uri.query().is_some() {
             return Err(beyond());
+        }
+        if uri.path().contains('@') {
+            return Err(InvalidEndpoint::CredentialsInUrl {
+                given: ShownEndpoint::of(raw),
+            });
         }
         let origin = Endpoint::parse(&format!(
             "{}://{}",

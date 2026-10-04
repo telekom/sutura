@@ -35,14 +35,14 @@ complete one.
 A data source executes a compiled plan. The `Warehouse` port is synchronous and `execute` takes a
 `Deadline`.
 
-| Source     | Crate                    | Renders | Executes                                                    | Identity it executes under                   |
-| ---------- | ------------------------ | ------- | ----------------------------------------------------------- | -------------------------------------------- |
-| BigQuery   | `sutura-exec-bigquery`   | yes     | yes                                                         | per subject - `PerSubjectCredential`         |
-| Postgres   | `sutura-exec-postgres`   | yes     | yes                                                         | one shared credential - `NoPlaceForASubject` |
-| DuckDB     | `sutura-exec-duckdb`     | yes     | yes                                                         | one process identity - `NoPlaceForASubject`  |
-| DataFusion | `sutura-exec-datafusion` | -       | yes, one source's share of a federated answer               | one process identity - `NoPlaceForASubject`  |
-| ClickHouse | `sutura-exec-clickhouse` | yes     | yes, behind a default-off `clickhouse` feature              | one shared credential - `NoPlaceForASubject` |
-| Oracle     | `sutura-exec-oracle`     | yes     | declarable behind a default-off `oracle` feature; see below | one shared credential - `NoPlaceForASubject` |
+| Source     | Crate                    | Renders | Executes                                                    | Identity it executes under                                 |
+| ---------- | ------------------------ | ------- | ----------------------------------------------------------- | ---------------------------------------------------------- |
+| BigQuery   | `sutura-exec-bigquery`   | yes     | yes                                                         | per subject - `PerSubjectCredential`                       |
+| Postgres   | `sutura-exec-postgres`   | yes     | yes                                                         | one declared shared service account - `NoPlaceForASubject` |
+| DuckDB     | `sutura-exec-duckdb`     | yes     | yes                                                         | one process identity - `NoPlaceForASubject`                |
+| DataFusion | `sutura-exec-datafusion` | -       | yes, one source's share of a federated answer               | one process identity - `NoPlaceForASubject`                |
+| ClickHouse | `sutura-exec-clickhouse` | yes     | yes, behind a default-off `clickhouse` feature              | one declared shared service account - `NoPlaceForASubject` |
+| Oracle     | `sutura-exec-oracle`     | yes     | declarable behind a default-off `oracle` feature; see below | one declared shared service account - `NoPlaceForASubject` |
 
 **Oracle is declarable and does not yet answer a whole-plan question.** A `kind: oracle` source is
 declarable and openable by a build carrying the `oracle` feature, default-off and in no published
@@ -58,9 +58,10 @@ Asked by hand against `compose.services.yaml`'s real
 it in `LIMIT n` and Oracle refuses that (`ORA-03049`). The renderer now ends it in
 `FETCH FIRST n ROWS ONLY`, which the Oracle goldens pin; no committed cell executes a whole-plan
 question against an Oracle server, so those goldens pin what this renderer emits and nothing a
-database agreed to. Its
-identity column is `ClickHouse`'s: an `impersonation-at-source` declaration is refused at the
-composition root with the reason that no build delivers it.
+database agreed to. It signs in only as its declared shared service account - `NoPlaceForASubject`, so
+an `impersonation-at-source` declaration is refused at the composition root with the reason that no
+build delivers it. Per-caller sign-in is blocked upstream (#42, #923); this lifts when the upstream
+work lands.
 
 **ClickHouse is the newest row and the one whose columns need reading together.** It executes: a
 `kind: clickhouse` source is declarable and openable by a build carrying the `clickhouse` feature,
@@ -69,9 +70,10 @@ corpus against a real ClickHouse - the server `nix/clickhouse-tier.nix` starts b
 tier - and pin its rows, refusals, error and anchor report; the conformance packs are bound too
 (`execute_packs!` in `crates/sutura-exec-clickhouse/tests/conformance.rs`). What the `Executes`
 column does NOT say about it: `Warehouse::EXECUTES_LEGS` is absent on the adapter - so a federated
-question involving a ClickHouse source is still refused by the capability gate. Its identity column is the static half and stays there until an adapter change:
-`NoPlaceForASubject`, so an `impersonation-at-source` declaration on this kind is refused at the
-composition root with the reason that no build delivers it.
+question involving a ClickHouse source is still refused by the capability gate. Its identity is one declared
+shared service account - `NoPlaceForASubject`, so an `impersonation-at-source` declaration on this kind is refused
+at the composition root with the reason that no build delivers it. Per-caller identity is the ADBC path's
+job once the ClickHouse ADBC migration (#1250) lands, and is not built (#1263).
 
 **Postgres is answered over ADBC.** Every `kind: postgres` source runs through the ADBC PostgreSQL
 driver: every musl release links it statically, with libpq, MIT krb5 and OpenSSL 3, and any other
@@ -81,8 +83,9 @@ initialises. **A source signs in only as its declared shared service account**: 
 a client certificate, or as one Kerberos principal from the deployment's keytab - the one the
 credential cache `KRB5CCNAME` names, filled from `KRB5_CLIENT_KTNAME`'s keytab - which the
 transport can be built for and no settings key selects yet. OAuth and per-caller sign-in are not
-supported: the linked libpq is built without OAuth, and the connection string refuses SSPI and
-OAuth sign-in on either route. It also refuses `transport_anchors: system`, TLS or Kerberos over a
+supported: they are blocked upstream (#42) and lift when the upstream work lands. The linked
+libpq is built without OAuth, and the connection string refuses SSPI and OAuth sign-in on either
+route. It also refuses `transport_anchors: system`, TLS or Kerberos over a
 unix socket, Kerberos with no credential named, and GSSAPI encryption beside TLS, which libpq cannot
 hold to. The adapter's tier-backed cells run through a mounted driver in `checks.nextest` and
 through the linked static one on x86_64 musl in CI, where a Kerberos sign-in against a KDC tier and

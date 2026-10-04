@@ -80,7 +80,8 @@ pub struct WorkloadIdentityConfig {
 /// **Held as written and parsed by the crate that sends it**, at boot, by `sutura_cli`'s
 /// `build_broker` - the endpoint, client ID and audience each go into a request only that adapter
 /// builds, so its parse is the one that decides whether they can be sent, and a refusal there is
-/// still a startup failure naming the key. The secret is not here at all: only the path to it,
+/// still a startup failure naming the key. One check runs here instead: an `@` in the endpoint is
+/// refused at load, because the startup log prints this tree first. The secret is not here at all: only the path to it,
 /// which must be absolute like every other secret file a source names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DelegationDeclared {
@@ -95,6 +96,12 @@ impl DelegationDeclared {
         alias: &sutura_domain::model::SourceName,
         raw: &crate::raw::RawDelegation,
     ) -> Result<Self, super::InvalidSourceRegistry> {
+        if raw.token_endpoint.contains('@') {
+            return Err(super::InvalidSourceRegistry::CredentialsInUrl {
+                alias: alias.clone(),
+                key: "workload_identity.delegation.token_endpoint",
+            });
+        }
         Ok(Self {
             token_endpoint: raw.token_endpoint.clone(),
             client_id: raw.client_id.clone(),

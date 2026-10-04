@@ -398,7 +398,10 @@ pub enum SettingsError {
 /// `Clone` because it is held in the request state, and every field is either `Copy` or a small
 /// owned value. `Debug` is safe to log in full: the only credential-shaped field is held in
 /// [`sutura_domain::identity::Secret`], whose `Debug` redacts, and a test in [`crate::security`]
-/// asserts that at struct depth.
+/// asserts that at struct depth. A catalog endpoint, an inbound URL, a delegation token endpoint or a
+/// source host carrying an `@` - userinfo, however a URL parser splits it - is refused before a
+/// `Settings` exists. The
+/// limit: a secret with no `@`, such as one written into a path, is printed.
 #[derive(Debug, Clone)]
 pub struct Settings {
     layers: ConfigLayers,
