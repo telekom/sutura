@@ -62,7 +62,7 @@ use crate::causality::attributes::{attached, declares_a_test, item_below};
 use crate::causality::diff::RemovedLine;
 use crate::causality::names::Ident;
 use crate::causality::regions::{AddedLine, PostImage, TestScope, carries_no_behaviour, item_end};
-use crate::causality::scoped::{function_name, is_ignored};
+use crate::causality::scoped::{Code, function_name, is_ignored};
 
 pub(super) mod callsite;
 pub(super) mod moved;
@@ -92,6 +92,7 @@ impl Touched {
 ///
 /// This module's own header carries the shape, the exclusion and the limit.
 pub(super) fn touched_in(lines: &[&str], added: &[AddedLine]) -> Vec<Touched> {
+    let code = Code::of(&lines.join("\n"));
     let mut out = Vec::new();
     for (index, line) in lines.iter().enumerate() {
         if !declares_a_test(line.trim()) {
@@ -102,10 +103,10 @@ pub(super) fn touched_in(lines: &[&str], added: &[AddedLine]) -> Vec<Touched> {
             // A genuinely NEW test - `declared_under` already names it from the added side.
             continue;
         }
-        let Some((fn_index, declaration)) = item_below(lines, declared_at) else {
+        let Some((fn_index, _)) = item_below(lines, declared_at) else {
             continue;
         };
-        let Some(name) = function_name(declaration) else {
+        let Some(name) = function_name(&code, fn_index) else {
             continue;
         };
         let last = item_end(lines, index);
@@ -237,6 +238,7 @@ impl Deleted {
 /// ([`RemovedLine`]'s doc carries why no other image may name it), which is what lets this ask
 /// exactly the question a pure deletion answers.
 pub(super) fn removed_in(base_lines: &[&str], removed: &[RemovedLine]) -> Vec<Deleted> {
+    let code = Code::of(&base_lines.join("\n"));
     let mut out = Vec::new();
     for (index, line) in base_lines.iter().enumerate() {
         if !declares_a_test(line.trim()) {
@@ -250,10 +252,10 @@ pub(super) fn removed_in(base_lines: &[&str], removed: &[RemovedLine]) -> Vec<De
         // diff removed. `github.com/telekom/sutura#1031`'s own review named the earlier special
         // case here a perverse incentive - deleting one assert refused while deleting the whole
         // test passed - so there is no special case left to skip past.
-        let Some((fn_index, declaration)) = item_below(base_lines, declared_at) else {
+        let Some((fn_index, _)) = item_below(base_lines, declared_at) else {
             continue;
         };
-        let Some(name) = function_name(declaration) else {
+        let Some(name) = function_name(&code, fn_index) else {
             continue;
         };
         let last = item_end(base_lines, index);
@@ -279,7 +281,7 @@ pub(super) fn removed_in(base_lines: &[&str], removed: &[RemovedLine]) -> Vec<De
 /// own span, so an added line inside a SIBLING helper - a fn a test calls but whose own
 /// attributed item is not the test's - names nothing there. This walks the other direction: find
 /// the helper fn, check an added line lands in its span, and only then name every `#[test]` in the
-/// same file whose body TEXT calls the helper. An added line means the diff
+/// same file whose body [`reaches`] the helper. An added line means the diff
 /// reached the helper; a calling test is what makes the edit proof's to run rather than a helper
 /// nothing tests. A helper no `#[test]` calls names nothing.
 ///
@@ -299,6 +301,7 @@ pub(super) fn removed_in(base_lines: &[&str], removed: &[RemovedLine]) -> Vec<De
 /// POST-IMAGE ONLY, unlike [`removed_in`]: a helper edit ADDS a line, and the added number names
 /// itself - no pre-image is threaded in for this shape.
 pub(super) fn edited_helper_caller(lines: &[&str], added: &[AddedLine], scope: &TestScope) -> Vec<Touched> {
+    let code = Code::of(&lines.join("\n"));
     let mut out = Vec::new();
     let mut index = 0_usize;
     while index < lines.len() {
@@ -307,11 +310,11 @@ pub(super) fn edited_helper_caller(lines: &[&str], added: &[AddedLine], scope: &
             index += 1;
             continue;
         }
-        let trimmed = lines.get(index).map_or("", |line| line.trim());
-        if function_name(trimmed).is_none() {
+        let declared = function_name(&code, index);
+        let Some(helper) = declared else {
             index += 1;
             continue;
-        }
+        };
         let last = item_end(lines, index);
         if attached(lines, index).iter().any(|(_, opening)| declares_a_test(opening)) {
             index = last.saturating_add(1);
@@ -319,7 +322,7 @@ pub(super) fn edited_helper_caller(lines: &[&str], added: &[AddedLine], scope: &
         }
         let span = number..=last.saturating_add(1);
         if added.iter().any(|one| span.contains(&one.number)) {
-            for test in calling_tests(lines, trimmed) {
+            for test in calling_tests(lines, &code, &helper) {
                 if !out.contains(&test) {
                     out.push(test);
                 }
@@ -330,43 +333,33 @@ pub(super) fn edited_helper_caller(lines: &[&str], added: &[AddedLine], scope: &
     out
 }
 
-/// Every `#[test]` in `lines` whose item CALLS the helper - `name(`, `name::<`, or a path ending
-/// `::name(` - and never a longer identifier merely containing it, a bare mention, a binding or
-/// a field.
+/// Every `#[test]` in `lines` whose item REACHES `helper`: names it as a whole identifier
+/// anywhere but a local binding.
 ///
-/// `helper` is the whole `fn NAME(..)` signature line; the name is split off the first token
-/// after `fn`, matching [`function_name`] on the signature. The call check scans each `#[test]`'s
-/// own item span (the same [`touched_in`] walk) for the name: a call - `name(`, `name::<` or a
-/// path ending `::name(` - names the reach that matters; a bare mention, a binding or a field does
-/// not (`github.com/telekom/sutura#1270`). Returns
+/// The search runs over `code`, the same file lexed once with comments and string contents blanked,
+/// so a comment or a fixture string naming the helper is not a reach (`github.com/telekom/
+/// sutura#1270`). It scans each `#[test]`'s own item span (the same [`touched_in`] walk). Returns
 /// EVERY caller rather than the first - `github.com/telekom/sutura#1031`'s own review found the
 /// first-match version silently dropped a real caller behind an earlier, spurious one.
-fn calling_tests(lines: &[&str], helper: &str) -> Vec<Touched> {
-    let Some(name) = function_name(helper) else {
-        return Vec::new();
-    };
-    let name = name.as_str();
+fn calling_tests(lines: &[&str], code: &Code, helper: &Ident) -> Vec<Touched> {
+    let name = helper.as_str();
     let mut out = Vec::new();
     for (index, line) in lines.iter().enumerate() {
         if !declares_a_test(line.trim()) {
             continue;
         }
         let declared_at = index.saturating_add(1);
-        let Some((fn_index, declaration)) = item_below(lines, declared_at) else {
+        let Some((fn_index, _)) = item_below(lines, declared_at) else {
             continue;
         };
-        let Some(test_name) = function_name(declaration) else {
+        let Some(test_name) = function_name(code, fn_index) else {
             continue;
         };
         if test_name.as_str() == name {
             continue;
         }
         let last = item_end(lines, index);
-        let Some(span) = lines.get(fn_index..=last) else {
-            continue;
-        };
-        let body: String = span.join("\n");
-        if calls(&body, name) {
+        if reaches(&code.span(fn_index, last), name) {
             let caller = if is_ignored(lines, fn_index) {
                 Touched::Ignored(test_name)
             } else {
@@ -380,17 +373,14 @@ fn calling_tests(lines: &[&str], helper: &str) -> Vec<Touched> {
     out
 }
 
-/// Does `body` call `name` - a `name(`, a `name::<`, or a path ending `::name(` - and never a
-/// longer identifier merely containing it, a bare mention, a binding or a field?
+/// Does `body` name `name` as a whole identifier anywhere but a local binding?
 ///
-/// A whole-identifier search alone matched `read` inside a test that only names `thread`, and
-/// `parse` inside `fn parse_works()` whether or not that test calls it (`github.com/telekom/
-/// sutura#1031`); adding the call requirement is what stops `disagreement` in `let
-/// Err(disagreement) = ..` - a pattern binding - from counting as a caller (`#1270`). An
-/// identifier boundary on both sides is enough: Rust identifiers are `[A-Za-z0-9_]`, so a match
-/// whose neighbours (if any) are outside that set is `name` on its own, and it is a caller only
-/// when a call (`(`) or a turbofish (`::<`) follows it.
-fn calls(body: &str, name: &str) -> bool {
+/// A substring check matched `read` inside a test that only names `thread`, and `parse` inside
+/// `fn parse_works()` whether or not that test calls it (`github.com/telekom/sutura#1031`); an
+/// identifier boundary on both sides is enough, because Rust identifiers are `[A-Za-z0-9_]`.
+/// A bare mention stays reach so the gate cannot pass an unmeasured edit: a call, a turbofish, a fn
+/// pointer (`.map(name)`), a `use` and an alias all count. Only [`binds`] is excluded.
+fn reaches(body: &str, name: &str) -> bool {
     let bytes = body.as_bytes();
     let is_ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
     let mut start = 0_usize;
@@ -399,7 +389,7 @@ fn calls(body: &str, name: &str) -> bool {
         let before_ok = at == 0 || !bytes.get(at - 1).is_some_and(|b| is_ident(*b));
         let after = at + name.len();
         let after_ok = bytes.get(after).is_none_or(|b| !is_ident(*b));
-        if before_ok && after_ok && is_call(bytes, after) {
+        if before_ok && after_ok && !binds(body, at, after) {
             return true;
         }
         start = at + 1;
@@ -407,16 +397,42 @@ fn calls(body: &str, name: &str) -> bool {
     false
 }
 
-/// Is it a CALL - `name(` or the turbofish `name::<` - that follows the identifier at `after`?
-fn is_call(bytes: &[u8], after: usize) -> bool {
-    bytes.get(after) == Some(&b'(') || bytes.get(after..after + 3) == Some(b"::<")
+/// Is the identifier at `at..after` a LOCAL BINDING: inside a `let` pattern (`let name =`,
+/// `let Err(name) = ..`) or a match arm's pattern (`Err(name) =>`)?
+///
+/// `github.com/telekom/sutura#1270`: `let Err(disagreement) = ..` named an unrelated test as a
+/// caller of a helper called `disagreement`. Limit: a line-text scanner cannot tell every pattern
+/// position - a closure parameter, a `for` pattern, an or-pattern, a guarded arm, a pattern
+/// wrapped over lines and any later use of the binding outside a string are still read as reach,
+/// the direction that asks for proof rather than passing without it.
+fn binds(body: &str, at: usize, after: usize) -> bool {
+    let line_start = body
+        .get(..at)
+        .and_then(|head| head.rfind('\n'))
+        .map_or(0, |newline| newline + 1);
+    let before = body.get(line_start..at).unwrap_or_default();
+    let rest = body.get(after..).unwrap_or_default().split('\n').next().unwrap_or_default();
+    let in_let = before.rfind("let ").is_some_and(|keyword| {
+        let word = before
+            .get(..keyword)
+            .is_some_and(|head| !head.ends_with(|c: char| c.is_alphanumeric() || c == '_'));
+        word && !before.get(keyword..).unwrap_or_default().contains('=')
+    });
+    let in_arm = !before.contains('=')
+        && !before.contains("if ")
+        && rest
+            .trim_start_matches(|c: char| c.is_whitespace() || matches!(c, ')' | ']' | '}' | ','))
+            .starts_with("=>");
+    in_let || in_arm
 }
+
 #[cfg(test)]
 mod tests {
     use super::{Deleted, Deletion, Touched, deletion_in, edited_helper_caller, removed_in, touched_in, touches};
     use crate::causality::diff::RemovedLine;
-    use crate::causality::fixtures::{added_from, tree};
+    use crate::causality::fixtures::{added_from, changed, manifest, tree};
     use crate::causality::names::Ident;
+    use crate::causality::plan::{Plan, plan_with_base};
     use crate::causality::regions::TestScope;
     use std::ops::Range;
 
@@ -699,7 +715,7 @@ mod tests {
     #[test]
     fn a_helper_name_that_is_a_substring_of_another_identifier_is_not_a_false_match() {
         // N1: a bare substring check matched `read` inside a test that only names `thread`.
-        // `references` requires an identifier boundary on both sides.
+        // `reaches` requires an identifier boundary on both sides.
         let file = concat!(
             "#[cfg(test)]\n",               // 1
             "mod tests {\n",                // 2
@@ -828,19 +844,93 @@ mod tests {
         );
     }
 
+    /// The tests `file` names as callers of the helper its first line declares, edited.
+    fn callers_of_the_first_line(file: &str) -> Vec<Touched> {
+        let lines: Vec<&str> = file.lines().collect();
+        let added = added_from(1, lines.get(..1).unwrap_or_default());
+        edited_helper_caller(&lines, &added, &TestScope::WholeFile)
+    }
+
     #[test]
     fn a_local_binding_named_like_the_edited_helper_is_not_a_caller() {
-        // `github.com/telekom/sutura#1270`: `let Err(disagreement) = ..` is a pattern BINDING, not a
-        // call, so the test is not an edited caller of a helper named `disagreement`.
+        // `github.com/telekom/sutura#1270`: `let Err(disagreement) = ..` and a match arm's
+        // `Err(disagreement) =>` are pattern BINDINGS, not a reach of a helper named `disagreement`.
         let file = concat!(
-            "fn disagreement() -> u8 { 1 }\n",        // 1
-            "#[test]\n",                              // 2
-            "fn the_ratio() {\n",                     // 3
-            "    let Err(disagreement) = outcome;\n", // 4
-            "}\n",                                    // 5
+            "fn disagreement() -> u8 { 1 }\n",                            // 1
+            "#[test]\n",                                                  // 2
+            "fn the_ratio() {\n",                                         // 3
+            "    let Err(disagreement) = outcome;\n",                     // 4
+            "    match outcome {\n",                                      // 5
+            "        Err(disagreement) => panic!(\"{disagreement}\"),\n", // 6
+            "        Ok(_) => {}\n",                                      // 7
+            "    }\n",                                                    // 8
+            "}\n",                                                        // 9
+        );
+        assert_eq!(callers_of_the_first_line(file), Vec::new());
+    }
+
+    #[test]
+    fn a_comment_or_a_string_naming_the_helper_is_not_a_caller() {
+        // `github.com/telekom/sutura#1270`'s review: the body was read raw, so a comment or a
+        // fixture string spelling `disagreement()` named the test as a caller.
+        let file = concat!(
+            "fn disagreement() -> u8 { 1 }\n",                // 1
+            "#[test]\n",                                      // 2
+            "fn the_ratio() {\n",                             // 3
+            "    // disagreement() used to be called here\n", // 4
+            "    let src = \"disagreement()\";\n",            // 5
+            "    assert!(!src.is_empty());\n",                // 6
+            "}\n",                                            // 7
+        );
+        assert_eq!(callers_of_the_first_line(file), Vec::new());
+    }
+
+    #[test]
+    fn an_edit_inside_a_fixture_string_names_no_caller() {
+        // `github.com/telekom/sutura#1270`'s review: an added line inside a raw-string fixture's
+        // `fn run()` named `run` a helper, and a multi-line string calling `run()` named `t` its caller.
+        let file = concat!(
+            "#[cfg(test)]\n",                                          // 1
+            "mod tests {\n",                                           // 2
+            "    const ROOT: &str = r#\"\n",                           // 3
+            "fn run() -> u8 {\n",                                      // 4
+            "    1\n",                                                 // 5
+            "}\n",                                                     // 6
+            "\"#;\n",                                                  // 7
+            "    #[test]\n",                                           // 8
+            "    fn t() {\n",                                          // 9
+            "        let src = \"\n",                                  // 10
+            "            run();\n",                                    // 11
+            "        \";\n",                                           // 12
+            "        assert!(!src.is_empty() && !ROOT.is_empty());\n", // 13
+            "    }\n",                                                 // 14
+            "}\n",                                                     // 15
         );
         let lines: Vec<&str> = file.lines().collect();
-        let added = added_from(1, &["fn disagreement() -> u8 { 2 }"]);
+        let added = added_from(5, &["    2"]);
         assert_eq!(edited_helper_caller(&lines, &added, &TestScope::WholeFile), Vec::new());
+    }
+
+    #[test]
+    fn a_turbofish_call_of_the_edited_helper_is_a_caller() {
+        let file = "fn helper<T>() -> u8 { 1 }\n#[test]\nfn t() {\n    assert_eq!(helper::<u8>(), 1);\n}\n";
+        assert_eq!(
+            callers_of_the_first_line(file),
+            vec![Touched::Runs(Ident::parse("t").unwrap())]
+        );
+    }
+
+    #[test]
+    fn a_helper_passed_as_a_fn_pointer_still_needs_its_edit_proved() {
+        // A bare mention stays reach so the gate cannot pass an unmeasured edit: `repeat_with(helper)`
+        // runs the helper without a `helper(` anywhere in the test.
+        let post_image = "#[cfg(test)]\nmod tests {\n    fn helper() -> u8 { 1 }\n    #[test]\n    fn existing() {\n        assert_eq!(std::iter::repeat_with(helper).next(), Some(1));\n    }\n}\n";
+        let files = vec![changed("crates/x/src/commands.rs", 3, &["    fn helper() -> u8 { 2 }"])];
+        let read = tree(&[
+            ("crates/x/src/commands.rs", post_image),
+            ("crates/x/Cargo.toml", &manifest("x")),
+        ]);
+        let got = plan_with_base(&files, &read, &read);
+        assert!(!matches!(got, Plan::NotRequired), "fn-pointer reach: {got:?}");
     }
 }

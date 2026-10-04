@@ -74,7 +74,7 @@ use crate::causality::features::{Because, Enabled};
 use crate::causality::names::Ident;
 use crate::causality::place::{AddedTest, Declares, accounted_for, place};
 use crate::causality::regions::{AddedLine, PostImage};
-mod code;
+use crate::serde_parse::scan::code_lines_blanking_all_strings;
 
 /// A provable file that named no test, and where its tests actually are.
 ///
@@ -233,7 +233,8 @@ impl Scan {
                 continue;
             };
             let lines: Vec<&str> = text.lines().collect();
-            for declaration in file.added.iter().filter_map(|added| declared_under(&lines, added)) {
+            let code = Code::of(&text);
+            for declaration in file.added.iter().filter_map(|added| declared_under(&lines, &code, added)) {
                 named += 1;
                 match declaration {
                     Declared::Ignored(name) => {
@@ -264,7 +265,7 @@ impl Scan {
                         }
                     }
                     edited::Touched::Runs(name) => {
-                        let gate = gate_named(&lines, &name);
+                        let gate = gate_named(&lines, &code, &name);
                         let one = AddedTest::at(&file.path, &at, name).with_gate(gate).edited();
                         if !runnable.contains(&one) {
                             runnable.push(one);
@@ -349,13 +350,13 @@ enum Declared {
 /// The post-image rather than the added set, because the attribute and its function are two
 /// lines and only one of them has to be new: appending `#[test]` above an existing helper, or
 /// adding the attribute and the signature in one hunk, both have to name the same test.
-fn declared_under(lines: &[&str], added: &AddedLine) -> Option<Declared> {
+fn declared_under(lines: &[&str], code: &Code, added: &AddedLine) -> Option<Declared> {
     if !declares_a_test(added.text.trim()) {
         return None;
     }
     // `number` is 1-based, so it IS the 0-based index of the line after the attribute.
-    let (index, declaration) = item_below(lines, added.number)?;
-    let name = function_name(declaration)?;
+    let (index, _) = item_below(lines, added.number)?;
+    let name = function_name(code, index)?;
     Some(if is_ignored(lines, index) {
         Declared::Ignored(name)
     } else {
@@ -371,8 +372,8 @@ fn gate_at(lines: &[&str], index: usize) -> Option<String> {
 
 /// [`gate_at`] for an EDITED test, which only its name locates.
 // ponytail: the first fn of that name in the file; a same-named fn in a sibling module can lend its gate.
-fn gate_named(lines: &[&str], name: &Ident) -> Option<String> {
-    let index = lines.iter().position(|line| function_name(line).as_ref() == Some(name))?;
+fn gate_named(lines: &[&str], code: &Code, name: &Ident) -> Option<String> {
+    let index = (0..lines.len()).find(|at| function_name(code, *at).as_ref() == Some(name))?;
     gate_at(lines, index)
 }
 
@@ -393,7 +394,32 @@ pub(super) fn is_ignored(lines: &[&str], index: usize) -> bool {
         .any(|(_, opening)| opening.starts_with("#[ignore"))
 }
 
-/// The name in `fn NAME(`, if this line declares a function.
+/// A file as [`function_name`] reads it: lexed ONCE over the whole text, with every comment and
+/// every string literal's content blanked.
+///
+/// Lexing one line at a time read the interior of a multi-line `/* .. */` or string literal as code,
+/// so a fixture's `fn run()` or a doc comment's `fn in` named a helper that does not exist
+/// (`github.com/telekom/sutura#1270`). [`Code::of`] is the only constructor, so no caller can hand
+/// [`function_name`] a line lexed without the lines above it.
+pub(super) struct Code(Vec<String>);
+
+impl Code {
+    pub(super) fn of(text: &str) -> Self {
+        Self(code_lines_blanking_all_strings(text))
+    }
+
+    /// The 0-based lines `first..=last`, joined: a search over them reads no comment or string.
+    pub(super) fn span(&self, first: usize, last: usize) -> String {
+        self.0.get(first..=last).map_or_default(|lines| lines.join("\n"))
+    }
+
+    /// Every function the file declares, in line order.
+    pub(super) fn functions(&self) -> impl Iterator<Item = Ident> + '_ {
+        (0..self.0.len()).filter_map(|index| function_name(self, index))
+    }
+}
+
+/// The name in `fn NAME(`, if the 0-based line `index` of `code` declares a function.
 ///
 /// One line rather than a parser, and it reaches further than "a test's signature is written on one
 /// line in this tree" - which is what this said, and what `super::attributes` overstated into *a
@@ -401,7 +427,7 @@ pub(super) fn is_ignored(lines: &[&str], index: usize) -> bool {
 /// too long for one line AFTER that `(`, so the FIRST line of a wrapped `async fn very_long_...(`
 /// still carries `fn <name>(` and is still named. The shapes that occur are `fn`, `async fn` and a
 /// visibility in front of either. This function ITSELF never walks UP from an interior line to the
-/// signature above it - it only ever reads the one line it is handed.
+/// signature above it - it only ever reads the one line it is asked about.
 ///
 /// **ASSERTED NOW, by the test below rather than by this paragraph**
 /// (`github.com/telekom/sutura#347`): `a_signature_the_formatter_wrapped_after_the_paren_is_still_named`
@@ -422,9 +448,13 @@ pub(super) fn is_ignored(lines: &[&str], index: usize) -> bool {
 /// AGENTS.md calls a test that passes both ways worse than none. `super::plan` puts such a file into
 /// `test_files` and `causality::run`'s tests-only arm then asks for a `Claim-Cell:` declaration and a
 /// killing mutation - the same proof an added test pinning existing behaviour needs.
-pub(super) fn function_name(line: &str) -> Option<Ident> {
-    let blanked = code::code_only(line);
-    let declared = blanked.split_whitespace().skip_while(|word| *word != "fn").nth(1)?;
+pub(super) fn function_name(code: &Code, index: usize) -> Option<Ident> {
+    let declared = code
+        .0
+        .get(index)?
+        .split_whitespace()
+        .skip_while(|word| *word != "fn")
+        .nth(1)?;
     Ident::parse(declared.split(['(', '<', ':']).next()?)
 }
 

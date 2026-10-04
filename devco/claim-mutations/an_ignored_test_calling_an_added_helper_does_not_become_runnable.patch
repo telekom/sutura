@@ -1,9 +1,10 @@
 diff --git a/xtask/src/causality/edited.rs b/xtask/src/causality/edited.rs
 --- a/xtask/src/causality/edited.rs
 +++ b/xtask/src/causality/edited.rs
-@@ -369,10 +369,6 @@ fn calling_tests(lines: &[&str], helper: &str) -> Vec<Touched> {
-         let body: String = span.join("\n");
-         if calls(&body, name) {
+@@ -359,11 +359,7 @@ fn calling_tests(lines: &[&str], code: &Code, helper: &Ident) -> Vec<Touched> {
+         }
+         let last = item_end(lines, index);
+         if reaches(&code.span(fn_index, last), name) {
 -            let caller = if is_ignored(lines, fn_index) {
 -                Touched::Ignored(test_name)
 -            } else {

@@ -12,7 +12,7 @@ use std::ops::Range;
 use crate::causality::base;
 use crate::causality::place::AddedTest;
 use crate::causality::regions::{PostImage, TestScope, item_end, scope as test_scope};
-use crate::causality::scoped::function_name;
+use crate::causality::scoped::{Code, function_name};
 
 use super::Cause;
 
@@ -106,11 +106,12 @@ fn is_cells_own_assertion(cell: &AddedTest, path: &str, line: usize, read: &Post
 /// kill an assertion kill and immune to line-shifts in the same patch.
 fn test_fn_region(text: &str, name: &str, scope: &TestScope) -> Option<Range<usize>> {
     let lines: Vec<&str> = text.lines().collect();
-    for (index, line) in lines.iter().enumerate() {
+    let code = Code::of(text);
+    for index in 0..lines.len() {
         if !scope.covers(index + 1) {
             continue;
         }
-        if !fn_line_is(line, name) {
+        if !fn_line_is(&code, index, name) {
             continue;
         }
         let last = item_end(&lines, index);
@@ -119,7 +120,7 @@ fn test_fn_region(text: &str, name: &str, scope: &TestScope) -> Option<Range<usi
     None
 }
 
-/// Is `line` a `fn <name>(` declaration - `async fn`, `pub fn`, `pub(crate) async fn`, any
+/// Is line `index` of `code` a `fn <name>(` declaration - `async fn`, `pub fn`, `pub(crate) async fn`, any
 /// visibility or `async` in front, included?
 ///
 /// Reuses [`function_name`] rather than a second bare-`fn` parser: that extractor
@@ -128,8 +129,8 @@ fn test_fn_region(text: &str, name: &str, scope: &TestScope) -> Option<Range<usi
 /// `None` for every one and a real assertion kill read `NotByAssertion` (both #761 cells are
 /// `#[tokio::test] async fn`). Fail-closed in the direction it broke: never a false `Killed`, only
 /// a real kill going unrecognised.
-fn fn_line_is(line: &str, name: &str) -> bool {
-    function_name(line).is_some_and(|ident| ident.as_str() == name)
+fn fn_line_is(code: &Code, index: usize, name: &str) -> bool {
+    function_name(code, index).is_some_and(|ident| ident.as_str() == name)
 }
 
 /// The `(path, line)` of every `panicked at <path>:<line>:` site nextest printed, for panics inside

@@ -485,12 +485,20 @@ enum Lexeme {
     },
 }
 
+/// What [`emit_text`] writes for a string literal that opens and closes on one line.
+#[derive(Clone, Copy)]
+enum OneLineStrings {
+    /// Keep its content, because `try_from = "String"` is one and the value is the point.
+    Keep,
+    /// Blank it like any other string, for a reader asking only what is code.
+    Blank,
+}
+
 /// The lines built so far, plus the string literal currently open.
 ///
 /// The open literal is held rather than written through, because whether it is code depends on
 /// something only its END reveals: a one-line string keeps its content and a multi-line one does
 /// not. See [`emit_text`].
-#[derive(Default)]
 struct Sink {
     lines: Vec<String>,
     current: String,
@@ -499,8 +507,8 @@ struct Sink {
     held_at: usize,
     /// Every finished literal, for [`string_literals`]. [`code_lines`] never reads it.
     literals: Vec<Literal>,
-    /// Whether to keep one-line strings or blank them.
-    keep_one_line_strings: bool,
+    /// What [`emit_text`] writes for a one-line string.
+    one_line: OneLineStrings,
 }
 
 impl Sink {
@@ -539,18 +547,13 @@ impl Sink {
 ///
 /// Newlines are always preserved, so a reported line number is the one a reader will open.
 pub(crate) fn code_lines(text: &str) -> Vec<String> {
-    lex(text).finish()
+    lex(text, OneLineStrings::Keep).finish()
 }
 
-/// Each line of `text` with everything that is not code blanked out, including one-line strings.
-///
-/// Like [`code_lines`], but also blanks the content of one-line string literals. Useful for
-/// scanning function declarations where a string literal spelling `fn foo` must not be read as
-/// a declaration.
-///
-/// Newlines are always preserved, so a reported line number is the one a reader will open.
+/// [`code_lines`], with a one-line string's content blanked too: for a reader that asks only what
+/// is code, such as one naming the `fn` a line declares, where `"call fn foo"` is not one.
 pub(crate) fn code_lines_blanking_all_strings(text: &str) -> Vec<String> {
-    lex_with(text, false).finish()
+    lex(text, OneLineStrings::Blank).finish()
 }
 
 /// One string literal, carrying the value the compiler would give it.
@@ -569,14 +572,18 @@ pub(crate) struct Literal {
 /// to keep true, and this file's own doc says which direction its shortcuts fail in. So a comment
 /// that quotes a message is not a literal here, exactly as it is not code there.
 pub(crate) fn string_literals(text: &str) -> Vec<Literal> {
-    lex(text).literals
+    lex(text, OneLineStrings::Keep).literals
 }
 
-/// The one walk both consumers share, with optional control over one-line string handling.
-fn lex_with(text: &str, keep_one_line_strings: bool) -> Sink {
+/// The one walk every consumer shares.
+fn lex(text: &str, one_line: OneLineStrings) -> Sink {
     let mut sink = Sink {
-        keep_one_line_strings,
-        ..Default::default()
+        lines: Vec::new(),
+        current: String::new(),
+        held: None,
+        held_at: 0,
+        literals: Vec::new(),
+        one_line,
     };
     let mut state = Lexeme::Code;
     let mut characters = text.chars();
@@ -584,11 +591,6 @@ fn lex_with(text: &str, keep_one_line_strings: bool) -> Sink {
         state = step(state, character, &mut characters, &mut sink);
     }
     sink
-}
-
-/// The one walk both consumers share.
-fn lex(text: &str) -> Sink {
-    lex_with(text, true)
 }
 
 /// A literal's value with Rust's line continuation applied.
@@ -736,8 +738,8 @@ fn in_text(character: char, characters: &mut core::str::Chars<'_>, sink: &mut Si
     Lexeme::Code
 }
 
-/// Write a finished string literal back out: kept if it was one line (and `keep_one_line_strings`
-/// is true), blanked if it spanned several. Its newlines are kept either way, so no line number moves.
+/// Write a finished string literal back out: kept if it was one line and the sink keeps one-line
+/// strings, blanked otherwise. Its newlines are kept either way, so no line number moves.
 fn emit_text(held: &str, sink: &mut Sink, raw: bool) {
     let body = held.strip_suffix('"').unwrap_or(held);
     // Recorded BEFORE the blanking decision below, which is `code_lines`'s question and not a
@@ -747,7 +749,7 @@ fn emit_text(held: &str, sink: &mut Sink, raw: bool) {
         line: sink.held_at.saturating_add(1),
         body: if raw { String::from(body) } else { continued(body) },
     });
-    if !body.contains('\n') && sink.keep_one_line_strings {
+    if !body.contains('\n') && matches!(sink.one_line, OneLineStrings::Keep) {
         sink.current.push('"');
         sink.current.push_str(body);
         sink.current.push('"');

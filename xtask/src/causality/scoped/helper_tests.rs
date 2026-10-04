@@ -26,17 +26,34 @@ fn an_ignored_test_calling_an_added_helper_does_not_become_runnable() {
     ));
 }
 
+/// What [`Scan::of`] answers when line `added` of the test target `file` is the diff's only line.
+///
+/// [`Scan::Unreadable`] when that line names no test: neither a declaration nor a caller.
+fn scan_with_one_added_line(file: &str, added: usize) -> Scan {
+    let path = "crates/x/tests/t.rs";
+    let line = file.lines().nth(added.saturating_sub(1)).unwrap_or_default();
+    let files = vec![changed(path, added, &[line])];
+    let read = tree(&[(path, file), ("crates/x/Cargo.toml", &manifest("x"))]);
+    Scan::of(&files, &[String::from(path)], &read)
+}
+
 #[test]
 fn a_doc_comment_naming_fn_is_not_a_declaration() {
-    // `github.com/telekom/sutura#1270`: `//! no fn in the tree` was read as a helper named
-    // `in`, and any test containing the word was then marked an edited caller of it.
-    assert!(
-        super::function_name("//! this document names no fn in the tree").is_none(),
-        "a doc comment is not a declaration"
+    // `github.com/telekom/sutura#1270`, and the same shape on #1264: a `///` line reading
+    // `this fn reads ..` declared a helper named `reads`, and a test whose comment says `reads`
+    // was named as its caller.
+    let file = concat!(
+        "#[test]\n",                                      // 1
+        "fn uses() {\n",                                  // 2
+        "    // the plan reads the second fact\n",        // 3
+        "}\n",                                            // 4
+        "/// an edit inside this fn reads to the gate\n", // 5
+        "fn disagreement() -> u8 { 1 }\n",                // 6
     );
-    assert_eq!(
-        super::function_name("fn real() -> u8 { 1 }"),
-        Some(crate::causality::names::Ident::parse("real").unwrap())
+    let scan = scan_with_one_added_line(file, 5);
+    assert!(
+        matches!(scan, Scan::Unreadable(_)),
+        "a doc comment is not a declaration: {scan:?}"
     );
 }
 
@@ -44,8 +61,36 @@ fn a_doc_comment_naming_fn_is_not_a_declaration() {
 fn a_string_literal_naming_fn_is_not_a_declaration() {
     // `github.com/telekom/sutura#1270`: a one-line literal spelling a standalone `fn foo` is
     // not a declaration, whatever its position.
+    let file = concat!(
+        "#[test]\n",                               // 1
+        "fn mentions() {\n",                       // 2
+        "    let _ = \"uses foo\";\n",             // 3
+        "}\n",                                     // 4
+        "const S: &str = \"call fn foo here\";\n", // 5
+    );
+    let scan = scan_with_one_added_line(file, 5);
     assert!(
-        super::function_name(r#"let s = "call fn foo here";"#).is_none(),
-        "a string literal is not a declaration"
+        matches!(scan, Scan::Unreadable(_)),
+        "a string literal is not a declaration: {scan:?}"
+    );
+}
+
+#[test]
+fn a_line_inside_a_multi_line_comment_is_not_a_declaration() {
+    // `github.com/telekom/sutura#1270`'s review: lexing one line at a time read the interior of a
+    // block comment as code, so `fn helper` there named the test that calls `helper()`.
+    let file = concat!(
+        "#[test]\n",               // 1
+        "fn calls() {\n",          // 2
+        "    helper();\n",         // 3
+        "}\n",                     // 4
+        "/*\n",                    // 5
+        " * names no fn helper\n", // 6
+        " */\n",                   // 7
+    );
+    let scan = scan_with_one_added_line(file, 6);
+    assert!(
+        matches!(scan, Scan::Unreadable(_)),
+        "a block comment is not a declaration: {scan:?}"
     );
 }
