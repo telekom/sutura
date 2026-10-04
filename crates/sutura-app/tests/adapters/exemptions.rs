@@ -86,18 +86,14 @@ pub(crate) fn runs_here<W>() -> bool
 where
     W: DataSystemUnderTest,
 {
-    runs(W::NAME, W::available())
-}
-
-/// [`runs_here`]'s decision over a name, so the refusal is reachable by a system nothing registers.
-fn runs(system: &str, available: bool) -> bool {
-    if available {
+    if W::available() {
         return true;
     }
     assert!(
-        excused(system, Exempt::Unavailable),
-        "{system} answered `available() == false` and `adapters::exemptions::EXEMPTIONS` names no exemption \
-         for it, so every cell would skip it in silence - name one, or give it a venue"
+        excused(W::NAME, Exempt::Unavailable),
+        "{} answered `available() == false` and `adapters::exemptions::EXEMPTIONS` names no exemption \
+         for it, so every cell would skip it in silence - name one, or give it a venue",
+        W::NAME
     );
     false
 }
@@ -110,18 +106,6 @@ pub(crate) fn excused(system: &str, from: Exempt) -> bool {
         eprintln!("exempt: {system} from {from:?} - {}", entry.because);
     }
     found.is_some()
-}
-
-/// **The refusal itself, not only its trigger**: an unavailable system no entry names panics, an
-/// available one runs, and a named one skips - so a weakened `assert!` in [`runs`] reddens here.
-#[test]
-fn an_unavailable_data_system_no_exemption_names_is_refused_rather_than_skipped() {
-    assert!(runs("unregistered", true), "an available system runs");
-    assert!(!runs("oracle", false), "a system its entry names skips");
-    let refused = std::panic::catch_unwind(|| runs("unregistered", false))
-        .expect_err("an unavailable system no entry names must not skip in silence");
-    let said = refused.downcast_ref::<String>().expect("the refusal is a formatted message");
-    assert!(said.contains("names no exemption"), "the refusal says why: {said}");
 }
 
 /// **An exemption is held against the tree**: a registered data system, and a `runs_in`

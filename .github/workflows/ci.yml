@@ -1869,9 +1869,9 @@ jobs:
   # identity - no impersonation claim.
   # Push, merge queue and same-repository pull requests; a fork or Dependabot cannot receive the
   # bq-test credential, and there the row skips under its named exemption as everywhere else.
-  # ADVISORY and not in `ci-aggregate`: one observed green run (37156913407), and one whose corpus
-  # cell timed out with no output (37152629712), undiagnosed - so how it behaves under load is
-  # unproven, and requiring a cloud leg now would block every BigQuery change on that.
+  # Run-or-fail through `ci-aggregate` on a same-repository pull request and in the merge queue when
+  # `data_source_bigquery` is selected, and outside the ruleset itself. Of its runs one is green
+  # (37156913407) and one timed out undiagnosed (37152629712).
   bigquery-conformance:
     needs: [ci]
     if: (github.event_name == 'push' || github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.ci.outputs.data_source_bigquery == 'true'
@@ -2139,7 +2139,15 @@ jobs:
 
   ci-aggregate:
     runs-on: ubuntu-latest
-    needs: [ci, keycloak-served-test, bigquery-driver-check, e2e-datahub-adbc, oracle-tier, ci-datahub-tier]
+    needs: [
+      ci,
+      keycloak-served-test,
+      bigquery-driver-check,
+      e2e-datahub-adbc,
+      oracle-tier,
+      ci-datahub-tier,
+      bigquery-conformance,
+    ]
     # Never category-skipped and never suppressed by an upstream failure: it reads the results.
     if: ${{ !cancelled() }}
     steps:
@@ -2156,6 +2164,8 @@ jobs:
           ORACLE_SELECTED: ${{ needs.ci.outputs.data_source_oracle == 'true' || needs.ci.outputs.catalog_rdbms == 'true' }}
           DH_RESULT: ${{ needs.ci-datahub-tier.result }}
           DH_SELECTED: ${{ needs.ci.outputs.catalog_datahub }}
+          BQC_RESULT: ${{ needs.bigquery-conformance.result }}
+          BQC_REQUIRED: ${{ (github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.ci.outputs.data_source_bigquery == 'true' }}
         run: |
           set -eu
           fail() { echo "ci-aggregate: RED - $*"; exit 1; }
@@ -2209,6 +2219,20 @@ jobs:
             case "$E2E_RESULT" in
               skipped|success) ;;
               *) fail "e2e-datahub-adbc reported '$E2E_RESULT' without an allowed skip" ;;
+            esac
+          fi
+          # The golden matrix's live `bigquery` row: required on a same-repository pull request and in the
+          # merge queue when `data_source_bigquery` is selected, because its cells leave offline causality
+          # under `Live-Cell:` and these runs are their only evidence. A fork or Dependabot receives no
+          # bq-test credential, so there the job skips and its cells skip under their named exemption.
+          if [ "$BQC_REQUIRED" = "true" ]; then
+            if [ "$BQC_RESULT" != "success" ]; then
+              fail "bigquery-conformance must run for the selected category and event but reported '$BQC_RESULT'"
+            fi
+          else
+            case "$BQC_RESULT" in
+              skipped|success) ;;
+              *) fail "bigquery-conformance reported '$BQC_RESULT' without an allowed skip" ;;
             esac
           fi
           # The Oracle docker tier reads no secret, so it carries no event exception: every event

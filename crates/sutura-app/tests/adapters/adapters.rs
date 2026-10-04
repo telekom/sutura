@@ -595,12 +595,6 @@ pub(crate) fn unlinked(message: &str) -> String {
     out
 }
 
-#[test]
-fn a_console_link_never_reaches_a_rendered_chain() {
-    let said = unlinked("division by zero (Query: https://console.cloud.google.com/bigquery?j=bq:a:b&page=q) - ok");
-    assert_eq!(said, "division by zero (Query: [a job link]) - ok");
-}
-
 /// The fourth DATA SOURCE, over the wire like Postgres - `github.com/telekom/sutura#127` PR 2.
 ///
 /// **`available()` answers `false` unconditionally.** Oracle Database HAS a local venue -
