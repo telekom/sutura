@@ -15,6 +15,8 @@
 //! whether an added line falls inside it. **EXCLUDES an attribute that is itself among the added
 //! lines** - that shape is `Adds::NamedTest`, a genuinely NEW test, and `declared_under` already
 //! names it; asking about it here would just be a second, redundant name for the same test.
+//! **A blank or `//` comment line is not an edit either**, on the added side as on the removed one
+//! (`github.com/telekom/sutura#1279`), so correcting a comment inside a test does not make it a pin.
 //!
 //! **THE SPAN IS THE WHOLE ITEM, ATTRIBUTE THROUGH CLOSING BRACE - not only the body.** The issue
 //! that opened this file asks about "a hunk whose enclosing item is a `#[test]` fn", not about the
@@ -110,9 +112,11 @@ pub(super) fn touched_in(lines: &[&str], added: &[AddedLine]) -> Vec<Touched> {
             continue;
         };
         let last = item_end(lines, index);
+        // A comment or blank line is not an edit of the test (`github.com/telekom/sutura#1279`),
+        // the same as on the removed side, which [`removed_in`] filters.
         if !added
             .iter()
-            .any(|one| (declared_at..=last.saturating_add(1)).contains(&one.number))
+            .any(|one| !is_comment_or_blank(&one.text) && (declared_at..=last.saturating_add(1)).contains(&one.number))
         {
             continue;
         }
@@ -123,6 +127,16 @@ pub(super) fn touched_in(lines: &[&str], added: &[AddedLine]) -> Vec<Touched> {
         });
     }
     out
+}
+
+/// Blank or a `//` comment: the one kind of added line that is not an edit of the item it sits in.
+///
+/// Narrower than [`carries_no_behaviour`], which the removed side reads: an added `#[should_panic]`
+/// inside an existing test changes what it proves, so here an attribute still counts. A `/* .. */`
+/// line is not recognised and counts, the direction that asks for proof.
+fn is_comment_or_blank(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.is_empty() || trimmed.starts_with("//")
 }
 
 /// Does `path`'s post-image touch a pre-existing test with any of `added`?
@@ -321,7 +335,10 @@ pub(super) fn edited_helper_caller(lines: &[&str], added: &[AddedLine], scope: &
             continue;
         }
         let span = number..=last.saturating_add(1);
-        if added.iter().any(|one| span.contains(&one.number)) {
+        if added
+            .iter()
+            .any(|one| !is_comment_or_blank(&one.text) && span.contains(&one.number))
+        {
             for test in calling_tests(lines, &code, &helper) {
                 if !out.contains(&test) {
                     out.push(test);

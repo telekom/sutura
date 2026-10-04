@@ -425,9 +425,6 @@ mod tests {
             .read()
             .expect_err("the shared budget is spent");
         let elapsed = started.elapsed();
-        // Deliberately not joined: the fake server is still waiting on a second connection that
-        // this reader must never make, so a `.finish()` here would hang the test on the very
-        // behaviour it is proving does not happen.
         assert!(
             matches!(
                 http_cause(&error),

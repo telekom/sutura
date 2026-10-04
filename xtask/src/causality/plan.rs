@@ -406,6 +406,16 @@ mod tests {
     }
 
     #[test]
+    fn a_comment_only_edit_inside_a_test_is_not_a_changed_test() {
+        // `github.com/telekom/sutura#1279`: an ADDED comment line made the test a pin that needed a
+        // `Claim-Cell:`, while the removed twin above stayed `Plan::NotRequired`.
+        let post_image = "#[test]\nfn t() {\n    // a corrected comment\n    assert!(true);\n}\n";
+        let files = vec![changed("crates/x/src/a.rs", 3, &["    // a corrected comment"])];
+        let read = tree(&[("crates/x/src/a.rs", post_image)]);
+        assert_eq!(plan_with_base(&files, &read, &read), Plan::NotRequired);
+    }
+
+    #[test]
     fn an_edit_inside_a_called_helper_is_a_test_file_not_an_implementation_change() {
         // SHAPE B (`github.com/telekom/sutura#1031`): the added line is inside a `#[cfg(test)]`
         // HELPER fn, not the `#[test]`-declaring item a test calls. `edited_helper_caller` names
