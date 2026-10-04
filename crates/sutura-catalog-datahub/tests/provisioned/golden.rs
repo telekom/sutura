@@ -16,9 +16,9 @@
 //! and a `NOT_CARRIED` row cannot name it (its `bites` would fail, the golden states none).
 //!
 //! Provisioning is decided from the golden, not from `NOT_CARRIED` ([`writable`]), so a stray row's
-//! subject is still read back and refused. The limit: a subject the wire mapping cannot write (the
-//! compound key, and the metric reaching through it) is never provisioned, so if the reader learns
-//! to carry it nothing reads that back.
+//! subject is still read back and refused. The limit: what the wire mapping does not write - a
+//! physical table name, column nullability, the compound key and the metric reaching through it -
+//! is never provisioned, so if the reader learns to carry one, nothing here reads that back.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
