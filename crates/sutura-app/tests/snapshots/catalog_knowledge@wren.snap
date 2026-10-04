@@ -1,0 +1,13 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: pinned.knowledge()
+---
+declares:
+  - glossary
+  - caveats
+  - absences
+  - examples
+glossary: {}
+caveats: {}
+absences: {}
+examples: {}

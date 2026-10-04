@@ -4232,6 +4232,7 @@ dependencies = [
  "sutura-catalog-okf",
  "sutura-catalog-openmetadata",
  "sutura-catalog-rdbms",
+ "sutura-catalog-wren",
  "sutura-config",
  "sutura-dev",
  "sutura-domain",

@@ -56,6 +56,8 @@ sutura-catalog-okf = { workspace = true }
 # declaration like `sutura-catalog-datahub`.
 sutura-catalog-datacontract = { workspace = true }
 sutura-catalog-openmetadata = { workspace = true }
+# `sutura-catalog-wren`: its `import` writes the markdown the `wren` registry row reads back.
+sutura-catalog-wren = { workspace = true }
 # A DATA SOURCE, not an engine, and a development dependency rather than a shipped one: it is here
 # to prove the SQL we render actually runs somewhere, which is the whole job of a data-source
 # adapter today. The binary links the engine and nothing else.
