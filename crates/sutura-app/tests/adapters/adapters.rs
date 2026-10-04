@@ -352,17 +352,6 @@ fn okf_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/okf")
 }
 
-/// `WrenCatalog`, opened over the wren crate's committed MDL `manifest.json` - its own corpus, not
-/// the example markdown, and measured against its own declaration like the other `declaring` entries.
-impl CatalogUnderTest for sutura_catalog_wren::WrenCatalog {
-    const NAME: &'static str = "wren";
-
-    fn open() -> Self {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../sutura-catalog-wren/testdata/manifest.json");
-        Self::new(source(), manifest, version())
-    }
-}
-
 /// A `Warehouse` adapter this suite executes the example corpus against.
 ///
 /// [`open`] takes the bundle because attaching a table per model is what makes a data system able to
@@ -809,10 +798,9 @@ macro_rules! registered {
             declaring,
             sutura_catalog_openmetadata::OpenMetadataCatalog<sutura_catalog_openmetadata::fixture::FixtureReader>
         );
-        // `sutura-catalog-wren`, the importer's reader half: a DECLARING adapter over one `WrenAI` MDL
-        // `manifest.json`. It supplies the physical model with column types as a may-provide, and
-        // declares everything else out. Universal cells only; its corpus is the crate's `testdata/`.
-        $cell!(wren, declaring, sutura_catalog_wren::WrenCatalog);
+        // `sutura import wren`'s output read by `LocalCatalog` - the path a wren user runs. DECLARING:
+        // its corpus is `sutura-cli`'s synthetic wren fixture, not the golden catalog. Universal cells only.
+        $cell!(wren, declaring, crate::catalogs::WrenImport);
     };
 
     (data_systems: $cell:ident) => {

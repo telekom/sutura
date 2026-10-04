@@ -4345,7 +4345,6 @@ version = "0.6.1"
 dependencies = [
  "serde",
  "serde_json",
- "sutura-bounded-read",
  "sutura-domain",
  "thiserror 2.0.21",
 ]

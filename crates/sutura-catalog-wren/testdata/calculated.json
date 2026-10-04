@@ -1,1 +1,0 @@
-{"catalog":"example","schema":"public","models":[{"name":"orders","columns":[{"name":"total","type":"NUMERIC"},{"name":"double_total","type":"NUMERIC","isCalculated":true,"expression":"total * 2"}]}]}

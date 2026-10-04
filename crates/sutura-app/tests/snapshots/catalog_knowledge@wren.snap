@@ -2,7 +2,11 @@
 source: crates/sutura-app/tests/golden/catalogs.rs
 expression: pinned.knowledge()
 ---
-declares: []
+declares:
+  - glossary
+  - caveats
+  - absences
+  - examples
 glossary: {}
 caveats: {}
 absences: {}

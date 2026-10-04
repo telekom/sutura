@@ -9,7 +9,6 @@ publish = false
 description = "Converts a WrenAI project's manifest into sutura catalog documents and a refusal report."
 
 [dependencies]
-sutura-bounded-read = { workspace = true }
 sutura-domain = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

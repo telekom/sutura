@@ -1,1 +1,0 @@
-{"catalog":"example","schema":"public","models":[{"name":"revenue","refSql":"select * from orders","columns":[]}]}

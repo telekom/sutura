@@ -7,14 +7,6 @@
 //! that one file: no second reader for a `views/` directory or a knowledge export, because nothing
 //! upstream of the manifest declares one that this converter's own module header does not already
 //! name as out of scope.
-//!
-//! This crate is not only an exporter. [`catalog`] reads the same `manifest.json` straight into a
-//! pinned sutura bundle, so wren can be registered as a `declaring` catalog in the conformance
-//! matrix as well as converting to markdown.
-
-pub mod catalog;
-
-pub use catalog::WrenCatalog;
 
 mod convert;
 mod plan;
