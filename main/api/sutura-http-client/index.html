@@ -2224,10 +2224,11 @@ around it rather than using <code>Self::endpoint</code> as-is.</p>
 </span></code></pre></div>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">finish</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">CapturedAuthorizations</span>
 </span></code></pre></div>
-<p>Joins the server thread and returns every request it answered, in order.</p>
+<p>Every request the server answered, in order, once every scripted answer is taken.</p>
 <p>Only called by a test that knows exactly how many connections it will make - a test that
 deliberately stops short drops the server instead, and the abandoned thread exits with the
-process.</p>
+process. Bounded by <code>FINISH_TIMEOUT</code>, so code under test that never dials fails the cell
+instead of hanging it in <code>accept()</code>.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">start</span><span class="p">(</span><span class="n">answers</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Scripted</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <h3 id="type_alias-capturedauthorizations"><code>type_alias CapturedAuthorizations</code><a class="headerlink" href="#type_alias-capturedauthorizations" title="Permanent link">&para;</a></h3>
