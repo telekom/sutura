@@ -42,8 +42,9 @@
 //! `sutura serve` links this adapter and dispatches `kind: bigquery` behind its default-off `bigquery`
 //! feature. The golden matrix's `bigquery` row runs the example corpus through this transport
 //! against a real dataset in the `bigquery-conformance` CI job, under one shared CI identity - wired,
-//! with one observed green run (run 37156913407), and no gate reaches a dataset at all. Run 37152629712 timed
-//! out with no output, so this adapter's behavior under load is unproven. A default build links none of this.
+//! with one observed green run (37156913407) and one whose corpus cell timed out undiagnosed
+//! (37152629712), so how it behaves under load is unproven - and no gate reaches a dataset at all. A
+//! default build links none of this.
 //!
 //! # Identity
 //!
@@ -466,8 +467,9 @@ where
     /// `clippy::multiple_inherent_impl` is denied here and it is right to be: a type whose inherent
     /// methods are spread over files is one whose surface nobody can read in one place.
     ///
-    /// Returns how many data rows the fixture carried, so a caller can assert the load moved what the
-    /// file holds rather than trusting a green.
+    /// Returns how many data rows the importer parsed out of the fixture. **The limit:** that is the
+    /// parse's count and not the dataset's - nothing reads the table back - so a caller comparing it
+    /// with the file measures the importer; what shows the rows landed is a query over them.
     #[cfg(feature = "fixtures")]
     pub fn load_fixture(&self, table: &TableName, csv: &std::path::Path) -> Loaded<T::Error> {
         let text = std::fs::read_to_string(csv).map_err(|cause| FixtureNotLoaded::Unreadable {
@@ -497,9 +499,6 @@ where
         self.transport
             .apply(&request)
             .map_err(|cause| FixtureNotLoaded::Endpoint { cause })?;
-        // The row count returned is from the importer's parse of the CSV, not from BigQuery.
-        // This assertion measures the importer's fidelity to the CSV line count, not whether the
-        // load landed in the dataset - the corpus cells below verify that by running queries.
         Ok(fixture.rows())
     }
 

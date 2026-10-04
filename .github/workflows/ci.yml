@@ -1886,8 +1886,9 @@ jobs:
   # identity - no impersonation claim.
   # Push, merge queue and same-repository pull requests; a fork or Dependabot cannot receive the
   # bq-test credential, and there the row skips under its named exemption as everywhere else.
-  # ADVISORY and not in `ci-aggregate`: run 37156913407 showed a green run; run 37152629712 timed out with no
-  # output, so behavior under load is unproven. Requiring a cloud leg would block BigQuery changes.
+  # ADVISORY and not in `ci-aggregate`: one observed green run (37156913407), and one whose corpus
+  # cell timed out with no output (37152629712), undiagnosed - so how it behaves under load is
+  # unproven, and requiring a cloud leg now would block every BigQuery change on that.
   bigquery-conformance:
     needs: [ci]
     if: (github.event_name == 'push' || github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.ci.outputs.data_source_bigquery == 'true'

@@ -50,8 +50,9 @@ were removed when ADBC became this adapter's only mode.
 `sutura serve` links this adapter and dispatches `kind: bigquery` behind its default-off `bigquery`
 feature. The golden matrix's `bigquery` row runs the example corpus through this transport
 against a real dataset in the `bigquery-conformance` CI job, under one shared CI identity - wired,
-with no observed run when this was written, so until one is green nothing here may be cited as a
-round-tripped invariant - and no gate reaches a dataset at all. A default build links none of this.
+with one observed green run (37156913407) and one whose corpus cell timed out undiagnosed
+(37152629712), so how it behaves under load is unproven - and no gate reaches a dataset at all. A
+default build links none of this.
 
 # Identity
 
@@ -258,8 +259,9 @@ that parsed.
 `clippy::multiple_inherent_impl` is denied here and it is right to be: a type whose inherent
 methods are spread over files is one whose surface nobody can read in one place.
 
-Returns how many data rows the fixture carried, so a caller can assert the load moved what the
-file holds rather than trusting a green.
+Returns how many data rows the importer parsed out of the fixture. **The limit:** that is the
+parse's count and not the dataset's - nothing reads the table back - so a caller comparing it
+with the file measures the importer; what shows the rows landed is a query over them.
 
 ```rust
 pub const fn new(source: SourceName, posture: SourcePosture, billing_project: ProjectId, default_dataset: DatasetId, transport: T) -> Self

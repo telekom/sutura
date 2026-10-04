@@ -100,10 +100,13 @@ filter = "binary_id(xtask::bin/xtask) & test(=causality::gas_tests::a_claim_cell
 slow-timeout = { period = "60s", terminate-after = 10 }
 
 [[profile.default.overrides]]
-# Live BigQuery corpus cells query real resources. The first observed green run (37156913407)
-# measured the corpus cell at 77.856s over 45 questions - 1.7s each, and each question already
-# carries a 30s deadline. Run 37152629712 timed out at the 300s ceiling with no output: an
-# unexplained outlier, ~4x the measured 78s. `&` so this matches only the 23 live bigquery cells
-# and not every sutura-app test. Two 60s periods = 120s, margin over the measured 90s.
+# The live BigQuery cells, which query a real dataset. Measured in the first green run
+# (37156913407): the corpus cell 77.9s over 45 questions, 1.7s each, and the differential-agree cell
+# 78.3s; every other cell under 22s, and each question carries its own 30s deadline. Two 60s periods
+# = 120s, 1.5x the slowest measured. Limit: run 37152629712's corpus cell hit the 300s default with
+# no output, about 4x the measurement and not diagnosed - this ceiling surfaces that sooner, it does
+# not explain it. `&`, not `+` (a union), so it matches only these 23 cells and not every sutura-app
+# test (the ignored provisioning cell gets it too, at 10-15s); everywhere but the `bigquery-conformance`
+# job they skip in milliseconds.
 filter = "package(sutura-app) & test(/bigquery/)"
 slow-timeout = { period = "60s", terminate-after = 2 }

@@ -8,13 +8,12 @@ use sutura_domain::pinned::AnchorCheck;
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::Executable;
 use sutura_domain::query::ToolOutcome;
-use sutura_domain::warehouse::RowSet;
 use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
+use sutura_domain::warehouse::{PreFlight, RowSet};
 use sutura_semantic::{Compiled, compile};
 
-use crate::adapters::{
-    DataSystemUnderTest, Exempt, ReferenceCatalog, data_root, excused, load, open, questions, read_question, runs_here, stem,
-};
+use crate::adapters::exemptions::{Exempt, excused};
+use crate::adapters::{DataSystemUnderTest, ReferenceCatalog, data_root, load, open, questions, read_question, runs_here, stem};
 
 use crate::shared::{chain, question, settings, stable};
 
@@ -140,6 +139,11 @@ fn error_golden(system: &str, chain: String) -> String {
 /// engine gives instead is asserted where it lives, in
 /// `a_plan_naming_a_table_that_was_never_attached_is_an_error_and_never_an_empty_answer`:
 /// resolution still happens, on the one pass it makes.
+///
+/// **`BigQuery` asks nothing either**: its ADBC transport declines a dry run, so it renders the plan,
+/// checks the caller is deliverable, and answers `NotAsked` without reaching the dataset. That is
+/// excused by name as `Exempt::DryRun`, and asserted where it executes, so the exemption expires the
+/// day the transport prices a statement.
 fn accepts_every_plan_before_running_it<W>()
 where
     W: DataSystemUnderTest + Sync,
@@ -153,6 +157,7 @@ where
     // the port. A registry is a lookup, so routing through it here would be asserting the lookup twice
     // and the pre-flight once.
     let warehouse: W = open(&pinned);
+    let asks = !excused(W::NAME, Exempt::DryRun);
     for path in questions() {
         let asked = read_question(&path);
         let compiled = compile(
@@ -164,13 +169,18 @@ where
         let Compiled::Planned { ref plan } = compiled else {
             continue;
         };
-        warehouse
+        let answered = warehouse
             .dry_run(
                 Executable::Query(plan),
                 &crate::adapters::presented(),
                 crate::adapters::deadline(),
             )
             .unwrap_or_else(|e| panic!("{} was rejected by {}: {e}", stem(&path), W::NAME));
+        assert!(
+            asks || answered == PreFlight::NotAsked,
+            "{} now asks before it runs, so its `DryRun` exemption is stale - delete it",
+            W::NAME
+        );
     }
 }
 
@@ -404,7 +414,7 @@ where
 /// **What this axis does not reach is `BigQuery`'s count**: it takes the port's default, so a
 /// dimension model on a dataset is unchecked - stated in `.agents/skills/sutura/invariants` and in
 /// `SECURITY.md` rather than implied by a green run here, and excused by name in
-/// `adapters::EXEMPTIONS`. Where it executes, the cell asserts that default is still what answers,
+/// `adapters::exemptions::EXEMPTIONS`. Where it executes, the cell asserts that default is still what answers,
 /// so the exemption expires the day a probe is implemented rather than outliving it.
 fn counts_every_declared_join_key<W>()
 where
@@ -416,7 +426,7 @@ where
     }
     let pinned = load::<ReferenceCatalog>();
     let warehouse = open::<W>(&pinned);
-    let probes = !excused::<W>(Exempt::KeyProbe);
+    let probes = !excused(W::NAME, Exempt::KeyProbe);
     let definitions = pinned.definitions();
     assert!(
         !definitions.relationships().is_empty(),
@@ -498,6 +508,10 @@ fn rows_in_fixture(key: &DeclaredKey<'_>) -> u64 {
 /// missing one rather than skipping: a provisioning step that skipped would leave every cell after
 /// it reading whatever the last run left. The importer gives each table a one-day expiration, so a
 /// job that dies here leaves nothing behind for long.
+///
+/// **The row count it asserts and prints is the importer's parse, not the dataset's**: nothing reads
+/// a table back, so it holds the importer to the file. What shows the load landed is every `bigquery`
+/// corpus cell that runs after it.
 ///
 /// **The read probe names the one grant a load does not need.** A `CREATE OR REPLACE TABLE` is a
 /// job; reading an answer back as Arrow opens a Storage Read API session, which needs
